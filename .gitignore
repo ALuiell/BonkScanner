@@ -1,12 +1,27 @@
-# Игнорировать вообще все файлы и папки в репозитории
-*
+# === PRIVATE SETTINGS ===
+my_private_settings.py
 
-# Исключения (то, что МЫ ХОТИМ сохранить в Git)
-!.gitignore
-!README.md
-!bs_main.py
-!bs_public.py
+# === HEAVY DEPENDENCIES (Do not push!) ===
+Tesseract-OCR/
 
-# Разрешаем отслеживать папку Tesseract-OCR и всё её содержимое
-!Tesseract-OCR/
-!Tesseract-OCR/**
+# === DOCUMENTATION & PERSONAL NOTES ===
+Instructions_*.txt
+
+# === LEGACY & TEST FILES ===
+media/
+old/
+test/
+bs_main.py
+bs_public.py
+bs_test.py
+
+# === BUILD FILES (PyInstaller) ===
+build/
+dist/
+*.spec
+*.exe
+
+# === SYSTEM & PYTHON CACHE ===
+__pycache__/
+*.pyc
+.venv/
