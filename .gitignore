@@ -1,0 +1,12 @@
+# Игнорировать вообще все файлы и папки в репозитории
+*
+
+# Исключения (то, что МЫ ХОТИМ сохранить в Git)
+!.gitignore
+!README.md
+!bs_main.py
+!bs_public.py
+
+# Разрешаем отслеживать папку Tesseract-OCR и всё её содержимое
+!Tesseract-OCR/
+!Tesseract-OCR/**
