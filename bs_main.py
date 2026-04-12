@@ -8,6 +8,7 @@ import colorama
 import ctypes
 from colorama import Fore, Style
 from PIL import Image, ImageEnhance, ImageOps
+from difflib import get_close_matches
 
 colorama.init(autoreset=True)
 
@@ -26,10 +27,91 @@ MAP_LOAD_DELAY = 1.3  # Seconds to wait for the map to load after pressing 'R'
 RESET_HOLD_DURATION = 0.4  # Seconds to hold the 'R' key
 HOTKEY = "f6"  # Global hotkey to start/stop the script
 MENU_HOTKEY = "home"  # Global hotkey to return to menu
+RESET_HOTKEY = 'r'
+# ==========================================
+# FUZZY MATCHING SETTINGS
+# ==========================================
+KNOWN_KEYS = [
+    "Boss Curses",
+    "Challenges",
+    "Charge Shrines",
+    "Chests",
+    "Greed Shrines",
+    "Magnet Shrines",
+    "Microwaves",
+    "Moais",
+    "Pots",
+    "Shady Guy"
+]
 
-# Point this to your tesseract executable if it's not in your PATH
-TESSERACT_PATH = r"F:\Python\OCR\tesseract.exe"
-pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
+ALIASES = {
+    "boss curse": "Boss Curses",
+    "boss curses": "Boss Curses",
+
+    "challenge": "Challenges",
+    "challenges": "Challenges",
+
+    "charge shrine": "Charge Shrines",
+    "charge shrines": "Charge Shrines",
+
+    "chest": "Chests",
+    "chests": "Chests",
+
+    "greed shrine": "Greed Shrines",
+    "greed shrines": "Greed Shrines",
+
+    "magnet shrine": "Magnet Shrines",
+    "magnet shrines": "Magnet Shrines",
+
+    "microwave": "Microwaves",
+    "microwaves": "Microwaves",
+    "microwoves": "Microwaves",
+    "microwavs": "Microwaves",
+
+    "moai": "Moais",
+    "moais": "Moais",
+    "maais": "Moais",
+    "moals": "Moais",
+
+    "pot": "Pots",
+    "pots": "Pots",
+
+    "shady guy": "Shady Guy",
+    "shady gvy": "Shady Guy",
+    "shady guv": "Shady Guy",
+}
+
+
+def normalize_text(s: str) -> str:
+    s = s.lower()
+    s = re.sub(r'[^a-z0-9/ ]+', ' ', s)
+    s = re.sub(r'\s+', ' ', s).strip()
+    return s
+
+
+def fuzzy_find_key(line: str) -> str | None:
+    line_norm = normalize_text(line)
+
+    # Убираем числа вида 0/5, чтобы сравнивать только название
+    label_only = re.sub(r'\d+\s*/\s*\d+', '', line_norm).strip()
+
+    if not label_only:
+        return None
+
+    # 1. Сначала точечные alias для типичных OCR-ошибок
+    for alias, canonical in ALIASES.items():
+        if alias in label_only:
+            return canonical
+
+    # 2. Потом fuzzy fallback
+    normalized_map = {normalize_text(k): k for k in KNOWN_KEYS}
+    # n=1: return only top match, cutoff=0.55: minimum similarity score
+    match = get_close_matches(label_only, normalized_map.keys(), n=1, cutoff=0.55)
+
+    if match:
+        return normalized_map[match[0]]
+
+    return None
 
 
 # ==========================================
@@ -172,7 +254,7 @@ def preprocess_image(img: Image.Image) -> Image.Image:
 
 
 def extract_stats(text: str) -> dict:
-    """Extract the total values from the OCR text."""
+    """Extract the total values from the OCR text using fuzzy matching."""
     stats = {
         "Boss Curses": 0, "Challenges": 0, "Charge Shrines": 0, "Chests": 0,
         "Greed Shrines": 0, "Magnet Shrines": 0, "Microwaves": 0,
@@ -180,16 +262,151 @@ def extract_stats(text: str) -> dict:
     }
 
     lines = text.split('\n')
-    for line in lines:
-        for key in stats.keys():
-            if key.lower() in line.lower():
-                match = re.search(r'/\s*(\d+)', line)
-                if match:
-                    try:
-                        stats[key] = int(match.group(1))
-                    except ValueError:
-                        pass
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # 1. Сначала пытаемся понять, о каком стате идет речь в этой строке
+        found_key = fuzzy_find_key(line)
+        if not found_key:
+            continue
+
+        # 2. Если стат опознан, вытаскиваем из строки число, идущее после слеша
+        match = re.search(r'/\s*(\d+)', line)
+        if match:
+            try:
+                val = int(match.group(1))
+
+                # Фильтр: отсекаем явно ошибочные значения OCR (больше 14)
+                # Так как в игре физически не может быть 15 Moais или 15 Shady Guy
+                if val <= 14:
+                    stats[found_key] = val
+            except ValueError:
+                pass
+
     return stats
+
+
+def is_near_perfect_plus(stats: dict) -> bool:
+    """
+    VERY broad check for 'maybe PERFECT+' maps.
+    Designed to minimize false rerolls, even if OCR lost one of the key stats.
+    """
+
+    shady = stats.get("Shady Guy", 0)
+    moai = stats.get("Moais", 0)
+    microwaves = stats.get("Microwaves", 0)
+    boss = stats.get("Boss Curses", 0)
+
+    sm_total = shady + moai
+
+    # Без 2 microwaves смысла почти нет
+    if microwaves < 2:
+        return False
+
+    # Без 2 boss тоже почти нет смысла
+    if boss < 2:
+        return False
+
+    # -------------------------------------------------
+    # 1. Очевидно сильные случаи
+    # -------------------------------------------------
+    if sm_total >= 8:
+        return True
+
+    if shady >= 8 or moai >= 8:
+        return True
+
+    # -------------------------------------------------
+    # 2. Сильные раздельные комбинации
+    # -------------------------------------------------
+    strong_pairs = [
+        (7, 1),
+        (6, 2),
+        (5, 3),
+        (4, 4),
+        (3, 5),
+        (2, 6),
+        (1, 7),
+    ]
+
+    for s_req, m_req in strong_pairs:
+        if shady >= s_req and moai >= m_req:
+            return True
+        if shady >= m_req and moai >= s_req:
+            return True
+
+    # -------------------------------------------------
+    # 3. Если boss уже 3+, можно быть еще мягче
+    # -------------------------------------------------
+    if boss >= 3:
+        if sm_total >= 6:
+            return True
+
+        if shady >= 7 or moai >= 7:
+            return True
+
+        if shady >= 5 and moai >= 1:
+            return True
+        if shady >= 1 and moai >= 5:
+            return True
+
+        if shady >= 4 and moai >= 2:
+            return True
+        if shady >= 2 and moai >= 4:
+            return True
+
+        if shady >= 3 and moai >= 3:
+            return True
+
+        # Очень важный кейс:
+        # один из двух статов мог упасть в 0 из-за OCR
+        if shady == 0 and moai >= 3:
+            return True
+        if moai == 0 and shady >= 3:
+            return True
+
+    # -------------------------------------------------
+    # 4. Если один стат очень высокий,
+    #    второй мог просто потеряться OCR'ом
+    # -------------------------------------------------
+    if shady >= 7:
+        return True
+    if moai >= 7:
+        return True
+
+    if shady >= 6 and boss >= 2:
+        return True
+    if moai >= 6 and boss >= 2:
+        return True
+
+    # -------------------------------------------------
+    # 5. Защита от случаев, когда OCR занизил total
+    # -------------------------------------------------
+    if sm_total >= 7 and boss >= 2:
+        return True
+
+    if sm_total >= 5 and boss >= 3:
+        return True
+
+    # -------------------------------------------------
+    # 6. Подозрительные асимметричные кейсы
+    # -------------------------------------------------
+    if shady >= 5 and moai == 0 and boss >= 3:
+        return True
+
+    if moai >= 5 and shady == 0 and boss >= 3:
+        return True
+
+    if shady >= 4 and moai == 0 and boss >= 3:
+        return True
+
+    if moai >= 4 and shady == 0 and boss >= 3:
+        return True
+
+    return False
 
 
 def conditions_met(stats: dict) -> bool:
@@ -276,7 +493,7 @@ def run_scanner():
                 processed_img = preprocess_image(img)
 
                 # 3. OCR Text Extraction (PSM 6 assumes a uniform block of text)
-                text = pytesseract.image_to_string(processed_img, config='--psm 6')
+                text = pytesseract.image_to_string(processed_img, config='--oem 3 --psm 6')
                 stats = extract_stats(text)
 
                 # 4. Logic & Conditions
@@ -291,12 +508,42 @@ def run_scanner():
                     keyboard.press_and_release('esc')  # Changed to press_and_release
                     is_running = False  # Stop the loop, wait for manual trigger
                 else:
-                    print(f"Stats: S: {shady}, M: {moai}, Micro: {microwaves}, Boss: {boss} ... Reseting...")
+                    # Double-check logic for "near PERFECT+" to prevent false rerolls
+                    if "PERFECT+" in active_templates and is_near_perfect_plus(stats):
+                        print(f"Stats: S: {shady}, M: {moai}, Micro: {microwaves}, Boss: {boss}")
+                        print(f"{Fore.YELLOW}Near PERFECT+ detected, rechecking...{Style.RESET_ALL}")
+
+                        time.sleep(0.15)  # wait briefly
+
+                        # Re-run OCR
+                        screenshot2 = sct.grab(REGION)
+                        img2 = Image.frombytes("RGB", screenshot2.size, screenshot2.bgra, "raw", "BGRX")
+                        processed_img2 = preprocess_image(img2)
+                        text2 = pytesseract.image_to_string(processed_img2, config='--oem 3 --psm 6')
+                        stats2 = extract_stats(text2)
+
+                        shady2 = stats2.get("Shady Guy", 0)
+                        moai2 = stats2.get("Moais", 0)
+                        microwaves2 = stats2.get("Microwaves", 0)
+                        boss2 = stats2.get("Boss Curses", 0)
+
+                        if conditions_met(stats2):
+                            print(
+                                f"Current Map Stats (Recheck): Shady: {shady2}, Moai: {moai2}, Microwaves: {microwaves2}, Boss: {boss2}")
+                            print(f"{Fore.GREEN}Recheck confirmed! Target Map Found!{Style.RESET_ALL}")
+                            keyboard.press_and_release('esc')
+                            is_running = False
+                            continue
+                        else:
+                            print(
+                                f"Recheck Stats: S: {shady2}, M: {moai2}, Micro: {microwaves2}, Boss: {boss2} ... Reseting...")
+                    else:
+                        print(f"Stats: S: {shady}, M: {moai}, Micro: {microwaves}, Boss: {boss} ... Reseting...")
 
                     # Restart Macro
-                    keyboard.press('r')
+                    keyboard.press(RESET_HOTKEY)
                     time.sleep(RESET_HOLD_DURATION)
-                    keyboard.release('r')
+                    keyboard.release(RESET_HOTKEY)
 
                     # Wait for map load delay
                     time.sleep(MAP_LOAD_DELAY)
