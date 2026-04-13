@@ -82,7 +82,7 @@ local function findInteractablesMap()
     return {}, { soft_warning = 'GameAssembly.dll is not loaded yet' }
   end
 
-  local typeInfoAddr = getAddressSafe('GameAssembly.dll+2FA4548')
+  local typeInfoAddr = getAddressSafe('GameAssembly.dll+2FB5E68')
   if not typeInfoAddr then
     return {}, { soft_warning = 'InteractablesStatus_TypeInfo is not available yet' }
   end
