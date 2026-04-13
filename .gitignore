@@ -1,5 +1,5 @@
 # === PRIVATE SETTINGS ===
-my_private_settings.py
+old/my_private_settings.py
 
 # === HEAVY DEPENDENCIES (Do not push!) ===
 Tesseract-OCR/
@@ -11,9 +11,9 @@ Instructions_*.txt
 media/
 old/
 test/
-bs_main.py
-bs_public.py
-bs_test.py
+old/bs_main.py
+#bs_public.py
+old/bs_test.py
 
 # === BUILD FILES (PyInstaller) ===
 build/
