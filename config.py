@@ -25,6 +25,29 @@ DEFAULT_TEMPLATES = [
 ]
 
 # ==========================================
+# GAME CONFIG PARSER
+# ==========================================
+def get_game_reset_time() -> float | None:
+    try:
+        user_profile = os.environ.get('USERPROFILE', '')
+        if not user_profile:
+            return None
+            
+        game_config_path = os.path.join(
+            user_profile, 
+            "AppData", "LocalLow", "Ved", "Megabonk", "Saves", "LocalDir", "config.json"
+        )
+        if os.path.exists(game_config_path):
+            with open(game_config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                quick_reset_time = data.get("cfGameSettings", {}).get("quick_reset_time")
+                if quick_reset_time is not None:
+                    return float(quick_reset_time) + 0.1
+    except Exception as e:
+        print(f"Failed to read game config: {e}")
+    return None
+
+# ==========================================
 # LOAD JSON CONFIG
 # ==========================================
 config_path = os.path.join(application_path, "config.json")
@@ -43,7 +66,14 @@ def save_config(cfg_dict):
 user_config = load_config()
 
 MAP_LOAD_DELAY = user_config.get("MAP_LOAD_DELAY", 1.3)
-RESET_HOLD_DURATION = user_config.get("RESET_HOLD_DURATION", 0.4)
+
+# Load RESET_HOLD_DURATION from game config, fallback to user_config, fallback to default 0.4
+game_reset_time = get_game_reset_time()
+if game_reset_time is not None:
+    RESET_HOLD_DURATION = game_reset_time
+else:
+    RESET_HOLD_DURATION = user_config.get("RESET_HOLD_DURATION", 0.4)
+
 HOTKEY = user_config.get("HOTKEY", "f6")
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
@@ -57,7 +87,7 @@ if not TEMPLATES:
 
 # Update user_config object so that mutations to it are saved properly
 user_config["MAP_LOAD_DELAY"] = MAP_LOAD_DELAY
-user_config["RESET_HOLD_DURATION"] = RESET_HOLD_DURATION
+user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
 user_config["HOTKEY"] = HOTKEY
 user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY
