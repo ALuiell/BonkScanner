@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-import importlib
 import struct
 from typing import Any
+
+import pymem
+import pymem.exception
+import pymem.process
 
 
 class ProcessNotFoundError(Exception):
@@ -36,13 +39,11 @@ class ProcessMemory:
             self._module_from_name = _module_from_name or self._missing_module_lookup
             return
 
-        pymem_module, process_module, exception_module = self._load_pymem()
-
         try:
-            self._pm = pymem_module.Pymem(process_name)
+            self._pm = pymem.Pymem(process_name)
         except (
-            exception_module.ProcessNotFound,
-            exception_module.CouldNotOpenProcess,
+            pymem.exception.ProcessNotFound,
+            pymem.exception.CouldNotOpenProcess,
         ) as exc:
             raise ProcessNotFoundError(
                 f"Could not open process '{process_name}'."
@@ -52,7 +53,7 @@ class ProcessMemory:
                 f"Failed to initialize memory access for '{process_name}'."
             ) from exc
 
-        self._module_from_name = process_module.module_from_name
+        self._module_from_name = pymem.process.module_from_name
 
     def close(self) -> None:
         if self._pm is None:
@@ -143,15 +144,3 @@ class ProcessMemory:
     @staticmethod
     def _missing_module_lookup(_handle: Any, module_name: str) -> Any:
         raise ModuleNotFoundError(f"Module lookup is not configured for '{module_name}'.")
-
-    @staticmethod
-    def _load_pymem() -> tuple[Any, Any, Any]:
-        try:
-            pymem_module = importlib.import_module("pymem")
-            process_module = importlib.import_module("pymem.process")
-            exception_module = importlib.import_module("pymem.exception")
-            return pymem_module, process_module, exception_module
-        except ImportError as exc:
-            raise MemoryReadError(
-                "pymem is required to access process memory. Install it first."
-            ) from exc
