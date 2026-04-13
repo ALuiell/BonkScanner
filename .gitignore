@@ -1,16 +1,18 @@
 # === PRIVATE SETTINGS ===
 old/my_private_settings.py
 
-# === DOCUMENTATION & PERSONAL NOTES ===
+# === DOCUMENTATION & PERSONAL NOTES & CONFIGS===
 Instructions_*.txt
+config.json
 
 # === LEGACY & TEST FILES ===
 media/
 old/
 test/
 old/bs_main.py
-#bs_public.py
+bs_public.py
 old/bs_test.py
+
 
 # === BUILD FILES (PyInstaller) ===
 build/
