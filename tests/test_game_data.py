@@ -61,8 +61,9 @@ class GameDataClientTests(unittest.TestCase):
 
         container_challenges = 0x40000000
         container_greed = 0x40000080
-        container_moais = 0x40000100
-        container_broken = 0x40000180
+        container_boss = 0x40000100
+        container_moais = 0x40000180
+        container_broken = 0x40000200
 
         entry0 = entries + GameDataClient.ENTRY_BASE_OFFSET
         entry1 = entry0 + GameDataClient.ENTRY_SIZE
@@ -81,7 +82,7 @@ class GameDataClientTests(unittest.TestCase):
             entry1 + GameDataClient.ENTRY_KEY_OFFSET: key_greed,
             entry1 + GameDataClient.ENTRY_VALUE_OFFSET: container_greed,
             entry2 + GameDataClient.ENTRY_KEY_OFFSET: key_unknown,
-            entry2 + GameDataClient.ENTRY_VALUE_OFFSET: 0x400000F0,
+            entry2 + GameDataClient.ENTRY_VALUE_OFFSET: container_boss,
             entry3 + GameDataClient.ENTRY_KEY_OFFSET: 0,
             entry3 + GameDataClient.ENTRY_VALUE_OFFSET: 0x40000120,
             entry4 + GameDataClient.ENTRY_KEY_OFFSET: key_moais,
@@ -95,6 +96,8 @@ class GameDataClientTests(unittest.TestCase):
             container_challenges + GameDataClient.CONTAINER_CURRENT_OFFSET: 2,
             container_greed + GameDataClient.CONTAINER_MAX_OFFSET: 3,
             container_greed + GameDataClient.CONTAINER_CURRENT_OFFSET: 1,
+            container_boss + GameDataClient.CONTAINER_MAX_OFFSET: 4,
+            container_boss + GameDataClient.CONTAINER_CURRENT_OFFSET: 1,
             container_moais + GameDataClient.CONTAINER_MAX_OFFSET: 7,
             container_moais + GameDataClient.CONTAINER_CURRENT_OFFSET: 4,
         }
@@ -126,6 +129,7 @@ class GameDataClientTests(unittest.TestCase):
         self.assertEqual(
             stats,
             {
+                MapStat.BOSS_CURSES: StatValue(current=1, max=4),
                 MapStat.CHALLENGES: StatValue(current=2, max=5),
                 MapStat.GREED_SHRINES: StatValue(current=1, max=3),
                 MapStat.MOAIS: StatValue(current=4, max=7),

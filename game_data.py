@@ -22,6 +22,7 @@ class MemoryReader(Protocol):
 
 
 class MapStat(Enum):
+    BOSS_CURSES = "boss_curses"
     CHALLENGES = "challenges"
     CHARGE_SHRINES = "charge_shrines"
     CHESTS = "chests"
@@ -53,6 +54,7 @@ class GameDataClient:
     MAX_DICT_ENTRIES = 4096
 
     LABEL_TO_STAT = {
+        "Boss Curses": MapStat.BOSS_CURSES,
         "Challenges": MapStat.CHALLENGES,
         "Charge Shrines": MapStat.CHARGE_SHRINES,
         "Chests": MapStat.CHESTS,
