@@ -1,0 +1,3 @@
+pymem==1.14.0
+keyboard==0.13.5
+colorama==0.4.6
