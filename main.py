@@ -19,12 +19,17 @@ is_running = False
 return_to_menu = False
 is_ready_to_start = False
 active_templates = []
+in_menu = True
 WAIT_RETRY_DELAY = 1.0
 
 
 def toggle_script():
     """Toggle the running state of the loop when the hotkey is pressed."""
-    global is_running
+    global is_running, in_menu
+    
+    if in_menu:
+        return
+        
     if not is_ready_to_start:
         print(f"{Fore.YELLOW}[WAIT] Scanner is not ready yet. Finish process wait first.{Style.RESET_ALL}")
         return
@@ -36,7 +41,11 @@ def toggle_script():
 
 def trigger_return_to_menu():
     """Signal the main loop to break and return to the setup menu."""
-    global return_to_menu, is_running, is_ready_to_start
+    global return_to_menu, is_running, is_ready_to_start, in_menu
+    
+    if in_menu:
+        return
+        
     is_running = False
     is_ready_to_start = False
     return_to_menu = True
@@ -214,7 +223,7 @@ def run_scanner(client: GameDataClient) -> str:
 
 
 def main():
-    global active_templates, return_to_menu, is_ready_to_start
+    global active_templates, return_to_menu, is_ready_to_start, in_menu
 
     if keyboard is None:
         print(f"{Fore.RED}[CRITICAL ERROR] Missing dependency: keyboard.{Style.RESET_ALL}")
@@ -236,12 +245,16 @@ def main():
         while True:
             return_to_menu = False
             is_ready_to_start = False
+            in_menu = True
+            
             active_templates = ui.setup_templates(
                 config.TEMPLATES,
                 config.HOTKEY,
                 config.MENU_HOTKEY,
                 process_name,
             )
+            
+            in_menu = False
 
             while True:
                 client = wait_for_game_client(process_name)

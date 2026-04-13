@@ -141,8 +141,8 @@ def setup_templates(templates, hotkey, menu_hotkey, process_name):
         print("Options:")
         print(f"  [{Fore.CYAN}N{Style.RESET_ALL}] Create New Custom Template")
         print(f"  [{Fore.RED}D{Style.RESET_ALL}] Delete a Custom Template")
-        print("\nOr enter the numbers of templates you want to INCLUDE")
-        print("(separated by space, or press Enter to include ALL):")
+        print("\nEnter the numbers of templates you want to INCLUDE")
+        print(f"(separated by space, or {Fore.YELLOW}press Enter to include ALL{Style.RESET_ALL}):")
         print("(type 'q' or 'quit' to exit the script)")
 
         user_input = input("\n> ").strip().lower()
@@ -168,16 +168,17 @@ def setup_templates(templates, hotkey, menu_hotkey, process_name):
             active_templates = [t['name'] for t in templates if t['id'] in included_ids]
 
             if not active_templates:
-                print(f"{Fore.RED}Error: You did not include any valid templates. Please enter valid numbers.{Style.RESET_ALL}")
+                print(f"{Fore.RED}Error: You did not select any valid template numbers.{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}Please try again, or just press Enter to select ALL templates.{Style.RESET_ALL}")
                 input("Press Enter to continue...")
                 continue
             break
         except ValueError:
-            print(f"{Fore.RED}Invalid input. Please enter numbers separated by spaces, or 'N'/'D' to manage templates.{Style.RESET_ALL}")
+            print(f"{Fore.RED}Invalid input. Please enter numbers separated by spaces, or press Enter for ALL.{Style.RESET_ALL}")
+            print("You can also type 'N' or 'D' to manage templates.")
             input("Press Enter to continue...")
 
     # Rendering confirmation
-
     colored_active_templates = []
     for temp_name in active_templates:
         for t in templates:

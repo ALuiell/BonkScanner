@@ -77,7 +77,7 @@ else:
 HOTKEY = user_config.get("HOTKEY", "f6")
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
-PROCESS_NAME = user_config.get("PROCESS_NAME", "")
+PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
 
 # Попытка получить шаблоны из JSON. Если файл был пустой или без TEMPLATES,
 # берем встроенные (DEFAULT_TEMPLATES) как резерв.
