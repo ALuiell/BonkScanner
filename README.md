@@ -3,7 +3,7 @@
 **Megabonk Reroll** is a Python-based reroll macro that reads map stats directly from the game's process memory. It evaluates the current map in real time and decides whether to keep it or reroll using a customizable data-driven template system.
 
 ## Quick Start on Windows
-1. Install **Python 3.13 x64**.
+1. Install **Python 3.12 x64**.
 2. Open the project folder.
 3. Run `start.bat`.
 4. Start the app manually with `.\.venv\Scripts\python.exe main.py`.
@@ -51,7 +51,7 @@ Note: to intercept and simulate keyboard presses through the `keyboard` module, 
 If you want to work with the environment manually instead of using `start.bat`:
 
 ```powershell
-py -3.13 -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python main.py

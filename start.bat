@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-set "PYTHON_VERSION=3.13"
+set "PYTHON_VERSION=3.12"
 set "VENV_DIR=.venv"
 set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
 
