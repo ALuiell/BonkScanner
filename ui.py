@@ -187,7 +187,8 @@ def setup_templates(templates, hotkey, menu_hotkey, process_name):
                 colored_active_templates.append(f"{color_val}{temp_name}{Fore.GREEN}")
 
     print(f"\n{Fore.GREEN}Monitoring prepared! Looking for: {', '.join(colored_active_templates)}{Style.RESET_ALL}")
-    print(f"Press '{hotkey}' to start or stop.")
+    print("After the game is detected, the scanner will arm automatically.")
+    print(f"Then press '{hotkey}' to start or stop scanning.")
     print(f"Press '{menu_hotkey}' to return to this menu.\n")
     
     return active_templates

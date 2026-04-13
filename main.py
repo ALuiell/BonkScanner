@@ -17,12 +17,18 @@ except ImportError:
 # ==========================================
 is_running = False
 return_to_menu = False
+is_ready_to_start = False
 active_templates = []
+WAIT_RETRY_DELAY = 1.0
 
 
 def toggle_script():
     """Toggle the running state of the loop when the hotkey is pressed."""
     global is_running
+    if not is_ready_to_start:
+        print(f"{Fore.YELLOW}[WAIT] Scanner is not ready yet. Finish process wait first.{Style.RESET_ALL}")
+        return
+
     is_running = not is_running
     status = "STARTED" if is_running else "STOPPED"
     print(f"\n[!] Script {status}")
@@ -30,8 +36,9 @@ def toggle_script():
 
 def trigger_return_to_menu():
     """Signal the main loop to break and return to the setup menu."""
-    global return_to_menu, is_running
+    global return_to_menu, is_running, is_ready_to_start
     is_running = False
+    is_ready_to_start = False
     return_to_menu = True
     print(f"\n[!] Returning to menu...")
 
@@ -79,15 +86,86 @@ def reroll_map() -> None:
     time.sleep(config.MAP_LOAD_DELAY)
 
 
-def run_scanner(client: GameDataClient):
-    global is_running, return_to_menu
+def close_client(client: GameDataClient | None) -> None:
+    if client is None:
+        return
 
-    is_running = False
-    return_to_menu = False
+    try:
+        client.close()
+    except Exception:
+        pass
+
+
+def print_wait_status(state: str, process_name: str, exc: Exception | None = None) -> None:
+    if state == "process":
+        print(f"{Fore.YELLOW}[WAIT] Waiting for process '{process_name}'...{Style.RESET_ALL}")
+    elif state == "module":
+        print(f"{Fore.YELLOW}[WAIT] Process found. Waiting for GameAssembly.dll...{Style.RESET_ALL}")
+    elif state == "ready":
+        print(f"{Fore.GREEN}[WAIT] Game detected. Press '{config.HOTKEY}' to start scanning.{Style.RESET_ALL}")
+    elif state == "reconnect":
+        detail = f" ({exc})" if exc is not None else ""
+        print(f"{Fore.YELLOW}[WAIT] Lost connection to the game{detail}. Returning to wait mode...{Style.RESET_ALL}")
+
+
+def wait_for_game_client(
+    process_name: str,
+    *,
+    client_factory=GameDataClient,
+    sleep_fn=time.sleep,
+    print_fn=print_wait_status,
+    retry_delay: float = WAIT_RETRY_DELAY,
+) -> GameDataClient | None:
+    global return_to_menu
+
+    wait_state = None
 
     while True:
         if return_to_menu:
-            break
+            return None
+
+        try:
+            client = client_factory(process_name=process_name)
+            if wait_state is not None:
+                print_fn("ready", process_name)
+            return client
+        except ProcessNotFoundError:
+            if wait_state != "process":
+                print_fn("process", process_name)
+                wait_state = "process"
+        except ModuleNotFoundError:
+            if wait_state != "module":
+                print_fn("module", process_name)
+                wait_state = "module"
+
+        sleep_fn(retry_delay)
+
+
+def reset_client_after_disconnect(
+    client: GameDataClient | None,
+    exc: Exception,
+    *,
+    sleep_fn=time.sleep,
+    print_fn=print_wait_status,
+    process_name: str = "",
+    retry_delay: float = WAIT_RETRY_DELAY,
+) -> None:
+    close_client(client)
+    print_fn("reconnect", process_name, exc)
+    sleep_fn(retry_delay)
+
+
+def run_scanner(client: GameDataClient) -> str:
+    global is_running, return_to_menu, is_ready_to_start
+
+    is_ready_to_start = True
+    is_running = False
+
+    while True:
+        if return_to_menu:
+            close_client(client)
+            is_ready_to_start = False
+            return "menu"
 
         if not is_running:
             time.sleep(0.1)
@@ -125,13 +203,18 @@ def run_scanner(client: GameDataClient):
                 print(f"Stats: {format_stats(stats)} ... Reseting...")
 
             reroll_map()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
+            is_running = False
+            is_ready_to_start = False
+            reset_client_after_disconnect(client, exc, process_name=client.memory.process_name if hasattr(client, "memory") and hasattr(client.memory, "process_name") else "")
+            return "reconnect"
         except Exception as e:
             print(f"Error during execution: {e}. Retrying...")
             time.sleep(1)
 
 
 def main():
-    global active_templates
+    global active_templates, return_to_menu, is_ready_to_start
 
     if keyboard is None:
         print(f"{Fore.RED}[CRITICAL ERROR] Missing dependency: keyboard.{Style.RESET_ALL}")
@@ -147,27 +230,34 @@ def main():
         return
 
     try:
-        with GameDataClient(process_name=process_name) as client:
-            keyboard.add_hotkey(config.HOTKEY, toggle_script)
-            keyboard.add_hotkey(config.MENU_HOTKEY, trigger_return_to_menu)
+        keyboard.add_hotkey(config.HOTKEY, toggle_script)
+        keyboard.add_hotkey(config.MENU_HOTKEY, trigger_return_to_menu)
+
+        while True:
+            return_to_menu = False
+            is_ready_to_start = False
+            active_templates = ui.setup_templates(
+                config.TEMPLATES,
+                config.HOTKEY,
+                config.MENU_HOTKEY,
+                process_name,
+            )
 
             while True:
-                active_templates = ui.setup_templates(
-                    config.TEMPLATES,
-                    config.HOTKEY,
-                    config.MENU_HOTKEY,
-                    process_name,
-                )
-                run_scanner(client)
+                client = wait_for_game_client(process_name)
+                if client is None:
+                    return_to_menu = False
+                    break
+
+                result = run_scanner(client)
+                if result == "reconnect":
+                    return_to_menu = False
+                    print("\n" * 2)
+                    continue
+
+                return_to_menu = False
                 print("\n" * 5)
-    except ProcessNotFoundError:
-        print(f"{Fore.RED}[CRITICAL ERROR] Could not open process '{process_name}'.{Style.RESET_ALL}")
-        print("Make sure the game is running and PROCESS_NAME matches the executable name.")
-        input("\nPress Enter to exit...")
-    except ModuleNotFoundError:
-        print(f"{Fore.RED}[CRITICAL ERROR] GameAssembly.dll is not loaded in the target process.{Style.RESET_ALL}")
-        print("Open the game fully before starting the scanner.")
-        input("\nPress Enter to exit...")
+                break
     except MemoryReadError as exc:
         print(f"{Fore.RED}[CRITICAL ERROR] Failed to initialize memory reader: {exc}{Style.RESET_ALL}")
         input("\nPress Enter to exit...")
