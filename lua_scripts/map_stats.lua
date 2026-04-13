@@ -24,6 +24,7 @@ _G[STATE_KEY] = state
 local REFRESH_INTERVAL_MS = 5000
 
 local TARGETS = {
+  { label = 'Boss Curses',    slug = 'boss_curses' },
   { label = 'Challenges',     slug = 'challenges' },
   { label = 'Charge Shrines', slug = 'charge_shrines' },
   { label = 'Chests',         slug = 'chests' },

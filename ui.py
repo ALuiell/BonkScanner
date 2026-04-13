@@ -115,7 +115,7 @@ def format_template_desc(t: dict) -> str:
         return ", ".join(parts)
     return "Any"
 
-def setup_templates(screen_width, screen_height, region_name, region, templates, hotkey, menu_hotkey):
+def setup_templates(templates, hotkey, menu_hotkey, process_name):
     """
     Shows the interactive setup menu in a loop to handle CRUD operations.
     Returns the list of active template names selected by the user.
@@ -126,8 +126,8 @@ def setup_templates(screen_width, screen_height, region_name, region, templates,
         clear_console()
         print_header()
 
-        print(f"{Fore.BLUE}Detected Resolution: {screen_width}x{screen_height}{Style.RESET_ALL}")
-        print(f"{Fore.BLUE}Active Profile: {region_name} (L:{region['left']} T:{region['top']} W:{region['width']} H:{region['height']}){Style.RESET_ALL}\n")
+        print(f"{Fore.BLUE}Data Source: Process memory{Style.RESET_ALL}")
+        print(f"{Fore.BLUE}Target Process: {process_name}{Style.RESET_ALL}\n")
 
         print("Available Templates:")
         print("-" * 40)

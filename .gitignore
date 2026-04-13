@@ -1,9 +1,6 @@
 # === PRIVATE SETTINGS ===
 old/my_private_settings.py
 
-# === HEAVY DEPENDENCIES (Do not push!) ===
-Tesseract-OCR/
-
 # === DOCUMENTATION & PERSONAL NOTES ===
 Instructions_*.txt
 

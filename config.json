@@ -4,6 +4,7 @@
     "HOTKEY": "f6",
     "MENU_HOTKEY": "home",
     "RESET_HOTKEY": "r",
+    "PROCESS_NAME": "Megabonk.exe",
     "TEMPLATES": [
         {
             "id": 1,
