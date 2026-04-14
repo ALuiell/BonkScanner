@@ -28,6 +28,7 @@ class MainFlowTests(unittest.TestCase):
         main.return_to_menu = False
         main.is_ready_to_start = False
         main.active_templates = []
+        main.in_menu = False
 
     def setUp(self) -> None:
         self.templates = [
@@ -35,6 +36,7 @@ class MainFlowTests(unittest.TestCase):
             {"id": 2, "name": "PERFECT+", "color": "LIGHTRED_EX", "sm_total": 9, "micro": 2, "boss": 3},
         ]
         self.active_templates = ["GOOD", "PERFECT+"]
+        main.in_menu = False
 
     def test_confirm_template_match_returns_none_when_initial_stats_do_not_match(self) -> None:
         initial_stats = {
@@ -236,6 +238,7 @@ class MainFlowTests(unittest.TestCase):
         )
 
     def test_toggle_script_does_not_start_before_ready(self) -> None:
+        main.in_menu = False
         main.is_running = False
         main.is_ready_to_start = False
 
