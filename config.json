@@ -67,5 +67,9 @@
             "desc": "Boss: 7+",
             "boss": 7
         }
+    ],
+    "ACTIVE_TEMPLATES": [
+        "PERFECT",
+        "PERFECT+"
     ]
 }

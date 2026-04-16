@@ -212,8 +212,7 @@ class MegabonkApp(ctk.CTk):
         self.client = None
         self.checkboxes = {}
         
-        # Store state of checked templates before refresh
-        self.checked_state = {}
+        # We don't need checked_state dict anymore since we use config.ACTIVE_TEMPLATES directly
         
         self.setup_ui()
         self.refresh_templates()
@@ -330,13 +329,14 @@ class MegabonkApp(ctk.CTk):
         # Using sticky="e" places it at the very right of the frame
         self.toggle_btn.grid(row=0, column=1, sticky="e", padx=(40, 0))
 
-    def save_checkbox_state(self):
-        for name, var in self.checkboxes.items():
-            self.checked_state[name] = var.get()
+    def save_checkbox_state(self, *_args):
+        # Called when any checkbox is toggled
+        active = [name for name, var in self.checkboxes.items() if var.get()]
+        config.ACTIVE_TEMPLATES = active
+        config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
+        config.save_config(config.user_config)
 
     def refresh_templates(self):
-        self.save_checkbox_state()
-        
         for widget in self.scrollable_templates.winfo_children():
             widget.destroy()
         
@@ -364,9 +364,11 @@ class MegabonkApp(ctk.CTk):
             color_name = t.get("color", "BLUE").upper()
             hex_color = COLOR_MAP.get(color_name, COLOR_MAP["DEFAULT"])
             
-            # Restore state if it existed, otherwise True (checked by default)
-            is_checked = self.checked_state.get(t['name'], True)
-            cb_var = ctk.BooleanVar(value=is_checked) 
+            # Restore state if it exists in ACTIVE_TEMPLATES, otherwise unchecked (if not first run)
+            is_checked = t['name'] in config.ACTIVE_TEMPLATES
+            cb_var = ctk.BooleanVar(value=is_checked)
+            # Add trace to automatically save on toggle
+            cb_var.trace_add("write", self.save_checkbox_state)
             
             cb = ctk.CTkCheckBox(
                 self.scrollable_templates, 
@@ -388,10 +390,13 @@ class MegabonkApp(ctk.CTk):
             
             config.TEMPLATES.append(dialog.result)
             config.user_config["TEMPLATES"] = config.TEMPLATES
-            config.save_config(config.user_config)
             
-            # Ensure new template is checked by default
-            self.checked_state[dialog.result['name']] = True
+            # Ensure new template is added to active
+            if dialog.result['name'] not in config.ACTIVE_TEMPLATES:
+                config.ACTIVE_TEMPLATES.append(dialog.result['name'])
+                config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
+                
+            config.save_config(config.user_config)
             
             self.refresh_templates()
             self.log(f"[+] Created new template: {dialog.result['name']}", tag="success")
@@ -417,15 +422,20 @@ class MegabonkApp(ctk.CTk):
             # Replace old template
             for i, t in enumerate(config.TEMPLATES):
                 if t["name"] == target_name:
+                    # Update properties
                     config.TEMPLATES[i] = dialog.result
                     break
                     
             config.user_config["TEMPLATES"] = config.TEMPLATES
-            config.save_config(config.user_config)
             
             # Update check state mapping if name changed
-            if target_name != dialog.result["name"] and target_name in self.checked_state:
-                self.checked_state[dialog.result["name"]] = self.checked_state.pop(target_name)
+            if target_name != dialog.result["name"]:
+                if target_name in config.ACTIVE_TEMPLATES:
+                    config.ACTIVE_TEMPLATES.remove(target_name)
+                    config.ACTIVE_TEMPLATES.append(dialog.result["name"])
+                    config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
+                    
+            config.save_config(config.user_config)
                 
             self.refresh_templates()
             self.log(f"[*] Edited template: {dialog.result['name']}", tag="success")
@@ -441,10 +451,12 @@ class MegabonkApp(ctk.CTk):
         if dialog.result:
             config.TEMPLATES = [t for t in config.TEMPLATES if t['name'] != dialog.result]
             config.user_config["TEMPLATES"] = config.TEMPLATES
-            config.save_config(config.user_config)
             
-            if dialog.result in self.checked_state:
-                del self.checked_state[dialog.result]
+            if dialog.result in config.ACTIVE_TEMPLATES:
+                config.ACTIVE_TEMPLATES.remove(dialog.result)
+                config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
+                
+            config.save_config(config.user_config)
 
             self.refresh_templates()
             self.log(f"[-] Deleted template: {dialog.result}", tag="warning")

@@ -85,6 +85,12 @@ TEMPLATES = user_config.get("TEMPLATES", DEFAULT_TEMPLATES)
 if not TEMPLATES:
     TEMPLATES = DEFAULT_TEMPLATES
 
+# Load active templates, default to all if not present
+ACTIVE_TEMPLATES = user_config.get("ACTIVE_TEMPLATES")
+if ACTIVE_TEMPLATES is None:
+    ACTIVE_TEMPLATES = [t["name"] for t in TEMPLATES]
+
+
 # Update user_config object so that mutations to it are saved properly
 user_config["MAP_LOAD_DELAY"] = MAP_LOAD_DELAY
 user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
@@ -93,6 +99,8 @@ user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY
 user_config["PROCESS_NAME"] = PROCESS_NAME
 user_config["TEMPLATES"] = TEMPLATES
+user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
+
 
 # Если изначально файла config.json не было (или в нем не было TEMPLATES),
 # мы сразу сохраняем актуальную структуру на диск, чтобы пользователю было что редактировать.
