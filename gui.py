@@ -1,0 +1,657 @@
+import os
+import sys
+import threading
+import time
+import customtkinter as ctk
+from PIL import Image
+
+import config
+import logic
+from game_data import GameDataClient
+from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from runtime_stats import adapt_map_stats
+
+try:
+    import keyboard
+except ImportError:
+    keyboard = None
+
+
+# Helper function to get correct path for bundled files in PyInstaller
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+# Map text color names to hex colors for CustomTkinter
+COLOR_MAP = {
+    "WHITE": "#FFFFFF",
+    "CYAN": "#00FFFF",
+    "GREEN": "#55FF55",
+    "YELLOW": "#FFFF55",
+    "LIGHTRED_EX": "#FF6666",
+    "RED": "#FF4444",
+    "MAGENTA": "#FF55FF",
+    "BLUE": "#5DADE2",
+    "LIGHTBLUE_EX": "#85C1E9",
+    "DEFAULT": "#FFFFFF"
+}
+
+class TemplateDialog(ctk.CTkToplevel):
+    def __init__(self, parent, edit_template=None):
+        super().__init__(parent)
+        self.title("Edit Template" if edit_template else "New Template")
+        self.geometry("340x420")
+        self.resizable(False, False)
+        self.result = None
+        self.edit_template = edit_template
+        
+        # Set icon if available
+        icon_path = resource_path("bonkscanner_icon.ico")
+        if os.path.exists(icon_path):
+            self.after(200, lambda: self.iconbitmap(icon_path))
+        
+        self.grid_columnconfigure(1, weight=1)
+        
+        ctk.CTkLabel(self, text="Template Name:").grid(row=0, column=0, padx=10, pady=(15, 5), sticky="w")
+        self.name_entry = ctk.CTkEntry(self)
+        self.name_entry.grid(row=0, column=1, padx=10, pady=(15, 5), sticky="ew")
+        
+        self.sm_var = ctk.StringVar(value="0")
+        self.shady_var = ctk.StringVar(value="0")
+        self.moai_var = ctk.StringVar(value="0")
+        
+        # Auto-calculate S+M Total when Shady or Moai changes
+        self.shady_var.trace_add("write", self.update_sm_total)
+        self.moai_var.trace_add("write", self.update_sm_total)
+        
+        ctk.CTkLabel(self, text="S+M Total (optional):").grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        self.sm_entry = ctk.CTkEntry(self, textvariable=self.sm_var)
+        self.sm_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
+        
+        ctk.CTkLabel(self, text="Shady Guy (min):").grid(row=2, column=0, padx=10, pady=5, sticky="w")
+        self.shady_entry = ctk.CTkEntry(self, textvariable=self.shady_var)
+        self.shady_entry.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
+        
+        ctk.CTkLabel(self, text="Moais (min):").grid(row=3, column=0, padx=10, pady=5, sticky="w")
+        self.moai_entry = ctk.CTkEntry(self, textvariable=self.moai_var)
+        self.moai_entry.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
+        
+        ctk.CTkLabel(self, text="Microwaves (min):").grid(row=4, column=0, padx=10, pady=5, sticky="w")
+        self.micro_entry = ctk.CTkEntry(self)
+        self.micro_entry.grid(row=4, column=1, padx=10, pady=5, sticky="ew")
+        
+        ctk.CTkLabel(self, text="Boss Curses (min):").grid(row=5, column=0, padx=10, pady=5, sticky="w")
+        self.boss_entry = ctk.CTkEntry(self)
+        self.boss_entry.grid(row=5, column=1, padx=10, pady=5, sticky="ew")
+        
+        # Populate if editing
+        if edit_template:
+            self.name_entry.insert(0, edit_template.get("name", ""))
+            # If default template, protect name change
+            if edit_template.get("id", 100) <= 7:
+                self.name_entry.configure(state="disabled")
+                
+            self.sm_var.set(str(edit_template.get("sm_total", 0)))
+            self.shady_var.set(str(edit_template.get("shady", 0)))
+            self.moai_var.set(str(edit_template.get("moai", 0)))
+            
+            self.micro_entry.insert(0, str(edit_template.get("micro", 0)))
+            self.boss_entry.insert(0, str(edit_template.get("boss", 0)))
+        else:
+            self.sm_var.set("0")
+            self.shady_var.set("0")
+            self.moai_var.set("0")
+            
+            self.micro_entry.insert(0, "0")
+            self.boss_entry.insert(0, "0")
+        
+        self.save_btn = ctk.CTkButton(self, text="Save Template", command=self.save, fg_color="#2FA572", hover_color="#106A43")
+        self.save_btn.grid(row=6, column=0, columnspan=2, pady=20)
+        
+        # Сделать окно модальным
+        self.transient(parent)
+        self.grab_set()
+
+    def update_sm_total(self, *args):
+        try:
+            s_val = self.shady_var.get().strip()
+            m_val = self.moai_var.get().strip()
+            s = int(s_val) if s_val.isdigit() else 0
+            m = int(m_val) if m_val.isdigit() else 0
+            
+            # If user explicitly entered a shady or moai value, automatically update S+M total
+            if s > 0 or m > 0:
+                self.sm_var.set(str(s + m))
+        except Exception:
+            pass
+        
+    def save(self):
+        name = self.name_entry.get().strip()
+        if not name:
+            return
+            
+        def get_int(entry):
+            val = entry.get().strip()
+            return int(val) if val.isdigit() else 0
+            
+        self.result = {
+            "name": name,
+            "sm_total": get_int(self.sm_entry),
+            "shady": get_int(self.shady_entry),
+            "moai": get_int(self.moai_entry),
+            "micro": get_int(self.micro_entry),
+            "boss": get_int(self.boss_entry)
+        }
+        
+        # "поиск совпадений по шаблону происходил только по кол-ву S и M отдельно"
+        # Drop sm_total if 0 or if individual values are defined so logic handles explicit shady/moai cleanly
+        s = self.result["shady"]
+        m = self.result["moai"]
+        if self.result["sm_total"] <= 0 or (s > 0 or m > 0):
+            if "sm_total" in self.result:
+                del self.result["sm_total"]
+        
+        if self.edit_template:
+            # Preserve properties like color, id when editing
+            for k, v in self.edit_template.items():
+                if k not in self.result and k not in ["sm_total", "shady", "moai", "micro", "boss"]:
+                    self.result[k] = v
+            
+        self.destroy()
+
+
+class DeleteDialog(ctk.CTkToplevel):
+    def __init__(self, parent, custom_templates):
+        super().__init__(parent)
+        self.title("Delete Template")
+        self.geometry("280x160")
+        self.resizable(False, False)
+        self.result = None
+        
+        # Set icon if available
+        icon_path = resource_path("bonkscanner_icon.ico")
+        if os.path.exists(icon_path):
+            self.after(200, lambda: self.iconbitmap(icon_path))
+        
+        self.combo = ctk.CTkComboBox(self, values=[t['name'] for t in custom_templates])
+        self.combo.pack(pady=(30, 10), padx=20, fill="x")
+        
+        self.btn = ctk.CTkButton(self, text="Delete", fg_color="#b30000", hover_color="#800000", command=self.delete)
+        self.btn.pack(pady=10)
+        
+        self.transient(parent)
+        self.grab_set()
+        
+    def delete(self):
+        self.result = self.combo.get()
+        self.destroy()
+
+
+class MegabonkApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        
+        self.title("BonkScanner")
+        self.geometry("1150x550")
+        self.minsize(1050, 500)
+        
+        icon_path = resource_path("bonkscanner_icon.ico")
+        if os.path.exists(icon_path):
+            self.iconbitmap(icon_path)
+        
+        self.is_running = False
+        self.is_ready_to_start = False
+        self.active_templates = []
+        self.scanner_thread = None
+        self.stop_thread = False
+        self.client = None
+        self.checkboxes = {}
+        
+        # Store state of checked templates before refresh
+        self.checked_state = {}
+        
+        self.setup_ui()
+        self.refresh_templates()
+        self.setup_hotkeys()
+        
+        self.check_admin_rights()
+        self.log(f"[*] Target Process: {config.PROCESS_NAME}")
+        self.log(f"[*] Ready! Select templates and start the main process loop.")
+
+    def check_admin_rights(self):
+        if os.name == 'nt':
+            import ctypes
+            try:
+                is_admin = os.getuid() == 0
+            except AttributeError:
+                is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+            
+            if not is_admin:
+                self.log("⚠️ WARNING: Script is not running as Administrator!", tag="warning")
+                self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
+
+    def setup_ui(self):
+        # Configure layout grid. Wide left panel and wide right panel
+        self.grid_columnconfigure(0, weight=3) # Wide left panel
+        self.grid_columnconfigure(1, weight=5) 
+        self.grid_rowconfigure(1, weight=1)
+        
+        # --- Top Bar (Logo) ---
+        self.top_frame = ctk.CTkFrame(self, height=80, fg_color="transparent")
+        self.top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        self.top_frame.grid_columnconfigure(0, weight=1)
+        
+        try:
+            icon_path = resource_path("bonkscanner_icon.ico")
+            if os.path.exists(icon_path):
+                logo_image = ctk.CTkImage(light_image=Image.open(icon_path),
+                                          dark_image=Image.open(icon_path),
+                                          size=(40, 40))
+                self.logo_label = ctk.CTkLabel(self.top_frame, image=logo_image, text=" BonkScanner", 
+                                               font=ctk.CTkFont(size=24, weight="bold"))
+                self.logo_label.grid(row=0, column=0, pady=5)
+            else:
+                self.logo_label = ctk.CTkLabel(self.top_frame, text="BonkScanner", 
+                                               font=ctk.CTkFont(size=24, weight="bold"))
+                self.logo_label.grid(row=0, column=0, pady=5)
+        except Exception:
+            self.logo_label = ctk.CTkLabel(self.top_frame, text="BonkScanner", 
+                                           font=ctk.CTkFont(size=24, weight="bold"))
+            self.logo_label.grid(row=0, column=0, pady=5)
+
+        # --- Left Panel: Templates ---
+        self.templates_frame = ctk.CTkFrame(self)
+        self.templates_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+        self.templates_frame.grid_rowconfigure(1, weight=1)
+        self.templates_frame.grid_columnconfigure(0, weight=1)
+        
+        title_label = ctk.CTkLabel(self.templates_frame, text="Monitoring Profiles", font=ctk.CTkFont(size=16, weight="bold"))
+        title_label.grid(row=0, column=0, padx=10, pady=(10, 5))
+        
+        self.scrollable_templates = ctk.CTkScrollableFrame(self.templates_frame)
+        self.scrollable_templates.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        
+        # Template Control Buttons
+        self.template_btns_frame = ctk.CTkFrame(self.templates_frame, fg_color="transparent")
+        self.template_btns_frame.grid(row=2, column=0, pady=10)
+        
+        self.add_btn = ctk.CTkButton(self.template_btns_frame, text="+ Add", width=60, command=self.add_template_dialog)
+        self.add_btn.grid(row=0, column=0, padx=5)
+        
+        self.edit_btn = ctk.CTkButton(self.template_btns_frame, text="✎ Edit", width=60, command=self.edit_template_dialog)
+        self.edit_btn.grid(row=0, column=1, padx=5)
+        
+        self.del_btn = ctk.CTkButton(self.template_btns_frame, text="- Delete", width=60, fg_color="#b30000", hover_color="#800000", command=self.del_template_dialog)
+        self.del_btn.grid(row=0, column=2, padx=5)
+        
+        # --- Right Panel: Logs & Controls ---
+        self.right_frame = ctk.CTkFrame(self)
+        self.right_frame.grid(row=1, column=1, padx=(0, 10), pady=10, sticky="nsew")
+        self.right_frame.grid_rowconfigure(0, weight=1)
+        self.right_frame.grid_columnconfigure(0, weight=1)
+        
+        # Log Textbox - word wrap off to allow wide text in one line with horizontal scrolling if needed
+        self.log_box = ctk.CTkTextbox(self.right_frame, state="disabled", font=ctk.CTkFont(family="Consolas", size=13), wrap="none")
+        self.log_box.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        
+        # Log tags config for colors
+        self.log_box.tag_config("warning", foreground="#FFA500")
+        self.log_box.tag_config("error", foreground="#FF4444")
+        self.log_box.tag_config("success", foreground="#00FF00")
+        
+        # Add tags for specific profile colors
+        for color_name, hex_code in COLOR_MAP.items():
+            self.log_box.tag_config(color_name, foreground=hex_code)
+        
+        # Controls Setup
+        self.controls_frame = ctk.CTkFrame(self.right_frame, fg_color="transparent")
+        self.controls_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
+        
+        # This weight=1 will push anything in column 1 all the way to the right
+        self.controls_frame.grid_columnconfigure(0, weight=1)
+        self.controls_frame.grid_columnconfigure(1, weight=0)
+        
+        self.status_label = ctk.CTkLabel(self.controls_frame, text="Status: IDLE", font=ctk.CTkFont(size=14, weight="bold"), text_color="#CCCCCC")
+        self.status_label.grid(row=0, column=0, sticky="w")
+        
+        self.toggle_btn = ctk.CTkButton(
+            self.controls_frame, 
+            text="START", 
+            font=ctk.CTkFont(weight="bold"), 
+            command=self.toggle_main_loop,
+            height=35,
+            width=120
+        )
+        # Using sticky="e" places it at the very right of the frame
+        self.toggle_btn.grid(row=0, column=1, sticky="e", padx=(40, 0))
+
+    def save_checkbox_state(self):
+        for name, var in self.checkboxes.items():
+            self.checked_state[name] = var.get()
+
+    def refresh_templates(self):
+        self.save_checkbox_state()
+        
+        for widget in self.scrollable_templates.winfo_children():
+            widget.destroy()
+        
+        self.checkboxes.clear()
+        for t in config.TEMPLATES:
+            # Сборка описания статов
+            parts = []
+            sm_total = t.get("sm_total", 0)
+            shady = t.get("shady", 0)
+            moai = t.get("moai", 0)
+            micro = t.get("micro", 0)
+            boss = t.get("boss", 0)
+            
+            if sm_total > 0:
+                parts.append(f"S+M: {sm_total}")
+                
+            if shady > 0: parts.append(f"S:{shady}")
+            if moai > 0: parts.append(f"M:{moai}")
+            if micro > 0: parts.append(f"Mic:{micro}")
+            if boss > 0: parts.append(f"B:{boss}")
+            
+            desc = ", ".join(parts) if parts else "Any"
+            
+            # Ensure text is colored appropriately
+            color_name = t.get("color", "BLUE").upper()
+            hex_color = COLOR_MAP.get(color_name, COLOR_MAP["DEFAULT"])
+            
+            # Restore state if it existed, otherwise True (checked by default)
+            is_checked = self.checked_state.get(t['name'], True)
+            cb_var = ctk.BooleanVar(value=is_checked) 
+            
+            cb = ctk.CTkCheckBox(
+                self.scrollable_templates, 
+                text=f"{t['name']} ({desc})",
+                variable=cb_var,
+                font=ctk.CTkFont(size=13),
+                text_color=hex_color
+            )
+            cb.pack(anchor="w", padx=10, pady=6)
+            self.checkboxes[t['name']] = cb_var
+
+    def add_template_dialog(self):
+        dialog = TemplateDialog(self)
+        self.wait_window(dialog)
+        if dialog.result:
+            new_id = max([t.get("id", 0) for t in config.TEMPLATES] + [0]) + 1
+            dialog.result["id"] = new_id
+            dialog.result["color"] = "BLUE" # user requested blue for custom profiles
+            
+            config.TEMPLATES.append(dialog.result)
+            config.user_config["TEMPLATES"] = config.TEMPLATES
+            config.save_config(config.user_config)
+            
+            # Ensure new template is checked by default
+            self.checked_state[dialog.result['name']] = True
+            
+            self.refresh_templates()
+            self.log(f"[+] Created new template: {dialog.result['name']}", tag="success")
+            
+    def edit_template_dialog(self):
+        select_dialog = DeleteDialog(self, config.TEMPLATES)
+        select_dialog.title("Select Template to Edit")
+        select_dialog.btn.configure(text="Edit", fg_color="#1f538d", hover_color="#14375e")
+        self.wait_window(select_dialog)
+        
+        target_name = select_dialog.result
+        if not target_name:
+            return
+            
+        target_template = next((t for t in config.TEMPLATES if t["name"] == target_name), None)
+        if not target_template:
+            return
+            
+        dialog = TemplateDialog(self, edit_template=target_template)
+        self.wait_window(dialog)
+        
+        if dialog.result:
+            # Replace old template
+            for i, t in enumerate(config.TEMPLATES):
+                if t["name"] == target_name:
+                    config.TEMPLATES[i] = dialog.result
+                    break
+                    
+            config.user_config["TEMPLATES"] = config.TEMPLATES
+            config.save_config(config.user_config)
+            
+            # Update check state mapping if name changed
+            if target_name != dialog.result["name"] and target_name in self.checked_state:
+                self.checked_state[dialog.result["name"]] = self.checked_state.pop(target_name)
+                
+            self.refresh_templates()
+            self.log(f"[*] Edited template: {dialog.result['name']}", tag="success")
+
+    def del_template_dialog(self):
+        custom_templates = [t for t in config.TEMPLATES if t.get("id", 0) > 7]
+        if not custom_templates:
+            self.log("[-] No custom templates to delete. Built-in profiles are protected.", tag="warning")
+            return
+            
+        dialog = DeleteDialog(self, custom_templates)
+        self.wait_window(dialog)
+        if dialog.result:
+            config.TEMPLATES = [t for t in config.TEMPLATES if t['name'] != dialog.result]
+            config.user_config["TEMPLATES"] = config.TEMPLATES
+            config.save_config(config.user_config)
+            
+            if dialog.result in self.checked_state:
+                del self.checked_state[dialog.result]
+
+            self.refresh_templates()
+            self.log(f"[-] Deleted template: {dialog.result}", tag="warning")
+
+    def setup_hotkeys(self):
+        if keyboard:
+            try:
+                keyboard.add_hotkey(config.HOTKEY, self.hotkey_toggle_scanning)
+            except Exception as e:
+                self.log(f"Error binding hotkey {config.HOTKEY}: {e}", tag="error")
+                
+    def hotkey_toggle_scanning(self):
+        if not self.is_ready_to_start:
+            self.log(f"[WAIT] Scanner is not ready yet. Please wait for the game.", tag="warning")
+            return
+            
+        self.is_running = not self.is_running
+        status = "STARTED" if self.is_running else "STOPPED"
+        self.log(f"\n[!!!] Script {status} via Hotkey", tag="success" if self.is_running else "warning")
+        self.update_status_ui()
+        
+    def update_status_ui(self):
+        if self.is_running:
+            self.status_label.configure(text=f"Status: SCANNING (Hotkey: {config.HOTKEY})", text_color="#00FF00")
+            self.toggle_btn.configure(text="PAUSE", fg_color="#b30000", hover_color="#800000")
+        elif self.is_ready_to_start:
+            self.status_label.configure(text=f"Status: GAME READY (Press {config.HOTKEY})", text_color="#FFA500")
+            self.toggle_btn.configure(text="STOP", fg_color="#b30000", hover_color="#800000")
+        else:
+            self.status_label.configure(text="Status: WAITING FOR GAME...", text_color="#CCCCCC")
+            if self.scanner_thread and self.scanner_thread.is_alive():
+                self.toggle_btn.configure(text="STOP", fg_color="#b30000", hover_color="#800000")
+            else:
+                self.toggle_btn.configure(text="START", fg_color="#1f538d", hover_color="#14375e")
+            
+    def log(self, message, tag=None):
+        self.log_box.configure(state="normal")
+        
+        # Split message if it's a mixed tag line (e.g. for colored template outputs)
+        if isinstance(tag, list):
+            for part, sub_tag in zip(message, tag):
+                if sub_tag:
+                    self.log_box.insert("end", part, sub_tag)
+                else:
+                    self.log_box.insert("end", part)
+            self.log_box.insert("end", "\n")
+        elif tag:
+            self.log_box.insert("end", f"{message}\n", tag)
+        else:
+            self.log_box.insert("end", f"{message}\n")
+            
+        self.log_box.see("end")
+        self.log_box.configure(state="disabled")
+
+    def toggle_main_loop(self):
+        if self.scanner_thread is None or not self.scanner_thread.is_alive():
+            # Запуск фонового процесса
+            self.active_templates = [name for name, var in self.checkboxes.items() if var.get()]
+            if not self.active_templates:
+                self.log("[-] Error: You must select at least one template!", tag="error")
+                return
+                
+            self.log(f"\n[*] Starting monitor hook...")
+            
+            # Format the active profiles with colors
+            colored_parts = ["[*] Active profiles: "]
+            colored_tags = [None]
+            
+            for i, name in enumerate(self.active_templates):
+                # Find color for this template
+                color_tag = "BLUE"
+                for t in config.TEMPLATES:
+                    if t["name"] == name:
+                        color_tag = t.get("color", "BLUE").upper()
+                        break
+                        
+                colored_parts.append(name)
+                colored_tags.append(color_tag)
+                
+                if i < len(self.active_templates) - 1:
+                    colored_parts.append(", ")
+                    colored_tags.append(None)
+            
+            self.log(colored_parts, tag=colored_tags)
+            
+            self.stop_thread = False
+            self.scanner_thread = threading.Thread(target=self.background_loop, daemon=True)
+            self.scanner_thread.start()
+            self.update_status_ui()
+        else:
+            # Остановка фонового процесса
+            self.stop_thread = True
+            self.is_running = False
+            self.is_ready_to_start = False
+            self.log("\n[*] Stopping monitor hook...")
+            self.after(500, self.update_status_ui)
+
+    def fetch_runtime_stats(self, client: GameDataClient) -> dict:
+        return adapt_map_stats(client.get_map_stats())
+
+    def format_stats(self, stats: dict) -> str:
+        shady = stats.get("Shady Guy", 0)
+        moai = stats.get("Moais", 0)
+        microwaves = stats.get("Microwaves", 0)
+        boss = stats.get("Boss Curses", 0)
+        return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}"
+
+    def reroll_map(self):
+        if keyboard is None:
+            return
+        keyboard.press(config.RESET_HOTKEY)
+        time.sleep(config.RESET_HOLD_DURATION)
+        keyboard.release(config.RESET_HOTKEY)
+        time.sleep(config.MAP_LOAD_DELAY)
+
+    def close_client(self):
+        if self.client:
+            try:
+                self.client.close()
+            except Exception:
+                pass
+            self.client = None
+
+    def background_loop(self):
+        process_name = config.PROCESS_NAME.strip()
+        wait_state = None
+        
+        while not self.stop_thread:
+            # 1. Ожидание клиента
+            if self.client is None:
+                try:
+                    self.client = GameDataClient(process_name=process_name)
+                    self.log(f"[+] Game connected! Press '{config.HOTKEY}' to start auto-reroll.", tag="success")
+                    self.is_ready_to_start = True
+                    self.after(0, self.update_status_ui)
+                except ProcessNotFoundError:
+                    if wait_state != "process":
+                        self.log(f"[WAIT] Waiting for process '{process_name}'...", tag="warning")
+                        wait_state = "process"
+                        self.after(0, self.update_status_ui)
+                    time.sleep(1)
+                    continue
+                except ModuleNotFoundError:
+                    if wait_state != "module":
+                        self.log(f"[WAIT] Process found. Waiting for GameAssembly.dll...", tag="warning")
+                        wait_state = "module"
+                        self.after(0, self.update_status_ui)
+                    time.sleep(1)
+                    continue
+
+            # 2. Основная логика сканера
+            if not self.is_running:
+                time.sleep(0.1)
+                continue
+                
+            try:
+                stats = self.fetch_runtime_stats(self.client)
+                candidate = logic.find_matching_template(stats, self.active_templates, config.TEMPLATES)
+                
+                if candidate is not None:
+                    self.log("[*] Candidate map found. Confirming...", tag="warning")
+                    time.sleep(0.15)
+                    
+                    confirmed_stats = self.fetch_runtime_stats(self.client)
+                    confirmed_template = logic.find_matching_template(confirmed_stats, self.active_templates, config.TEMPLATES)
+                    
+                    if confirmed_template is not None:
+                        t_name = confirmed_template.get('name')
+                        t_color = confirmed_template.get('color', 'BLUE').upper()
+                        
+                        self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", t_name], tag=["success", t_color])
+                        self.log(f"Max Map Stats: {self.format_stats(confirmed_stats)}", tag="success")
+                        
+                        if keyboard:
+                            keyboard.press_and_release("esc")
+                            
+                        self.is_running = False
+                        self.after(0, self.update_status_ui)
+                        continue
+                    else:
+                        self.log(f"[-] Confirmation failed. {self.format_stats(confirmed_stats)} ... Reseting")
+                else:
+                    self.log(f"Stats: {self.format_stats(stats)} ... Reseting")
+
+                self.reroll_map()
+                
+            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
+                self.is_running = False
+                self.is_ready_to_start = False
+                self.close_client()
+                self.log(f"[-] Lost connection to the game: {exc}", tag="error")
+                wait_state = None
+                self.after(0, self.update_status_ui)
+                time.sleep(1)
+            except Exception as e:
+                self.log(f"[-] Error during execution: {e}", tag="error")
+                time.sleep(1)
+
+        # Cleanup when stopping loop
+        self.close_client()
+        self.is_running = False
+        self.is_ready_to_start = False
+        self.after(0, self.update_status_ui)
+
+    def on_closing(self):
+        self.stop_thread = True
+        self.close_client()
+        if keyboard:
+            keyboard.unhook_all()
+        self.destroy()
