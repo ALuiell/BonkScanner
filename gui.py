@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import time
+import datetime
 import customtkinter as ctk
 from PIL import Image
 
@@ -20,11 +21,7 @@ except ImportError:
 # Helper function to get correct path for bundled files in PyInstaller
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
+    base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
     return os.path.join(base_path, relative_path)
 
 # Map text color names to hex colors for CustomTkinter
@@ -53,7 +50,7 @@ class TemplateDialog(ctk.CTkToplevel):
         # Set icon if available
         icon_path = resource_path("bonkscanner_icon.ico")
         if os.path.exists(icon_path):
-            self.after(200, lambda: self.iconbitmap(icon_path))
+            self.after(200, lambda p=icon_path: self.iconbitmap(p))
         
         self.grid_columnconfigure(1, weight=1)
         
@@ -117,7 +114,7 @@ class TemplateDialog(ctk.CTkToplevel):
         self.transient(parent)
         self.grab_set()
 
-    def update_sm_total(self, *args):
+    def update_sm_total(self, *_):
         try:
             s_val = self.shady_var.get().strip()
             m_val = self.moai_var.get().strip()
@@ -127,7 +124,7 @@ class TemplateDialog(ctk.CTkToplevel):
             # If user explicitly entered a shady or moai value, automatically update S+M total
             if s > 0 or m > 0:
                 self.sm_var.set(str(s + m))
-        except Exception:
+        except ValueError:
             pass
         
     def save(self):
@@ -176,7 +173,7 @@ class DeleteDialog(ctk.CTkToplevel):
         # Set icon if available
         icon_path = resource_path("bonkscanner_icon.ico")
         if os.path.exists(icon_path):
-            self.after(200, lambda: self.iconbitmap(icon_path))
+            self.after(200, lambda p=icon_path: self.iconbitmap(p))
         
         self.combo = ctk.CTkComboBox(self, values=[t['name'] for t in custom_templates])
         self.combo.pack(pady=(30, 10), padx=20, fill="x")
@@ -191,6 +188,61 @@ class DeleteDialog(ctk.CTkToplevel):
         self.result = self.combo.get()
         self.destroy()
 
+class SettingsDialog(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Settings")
+        self.geometry("400x250")
+        self.resizable(False, False)
+        
+        # Set icon if available
+        icon_path = resource_path("bonkscanner_icon.ico")
+        if os.path.exists(icon_path):
+            self.after(200, lambda p=icon_path: self.iconbitmap(p))
+            
+        self.grid_columnconfigure(1, weight=1)
+        
+        # HOTKEY
+        ctk.CTkLabel(self, text="Scan Hotkey:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        self.hotkey_entry = ctk.CTkEntry(self)
+        self.hotkey_entry.insert(0, config.HOTKEY)
+        self.hotkey_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
+        
+        # RESET_HOTKEY
+        ctk.CTkLabel(self, text="Reset Hotkey:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        self.reset_hotkey_entry = ctk.CTkEntry(self)
+        self.reset_hotkey_entry.insert(0, config.RESET_HOTKEY)
+        self.reset_hotkey_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
+        
+        # MAP_LOAD_DELAY
+        ctk.CTkLabel(self, text="Map Load Delay (s):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        self.map_load_delay_entry = ctk.CTkEntry(self)
+        self.map_load_delay_entry.insert(0, str(config.MAP_LOAD_DELAY))
+        self.map_load_delay_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
+        
+        # SAVE BUTTON
+        self.save_btn = ctk.CTkButton(self, text="Save and Restart", command=self.save)
+        self.save_btn.grid(row=3, column=0, columnspan=2, pady=20)
+        
+        self.transient(parent)
+        self.grab_set()
+        
+    def save(self):
+        config.user_config["HOTKEY"] = self.hotkey_entry.get()
+        config.user_config["RESET_HOTKEY"] = self.reset_hotkey_entry.get()
+        try:
+            config.user_config["MAP_LOAD_DELAY"] = float(self.map_load_delay_entry.get())
+        except ValueError:
+            pass # Keep old value if new one is invalid
+            
+        config.save_config(config.user_config)
+        
+        # Restart the application to apply changes
+        if hasattr(self.master, 'on_closing'):
+            self.master.on_closing(restart=True)
+        else:
+            self.destroy()
+
 
 class MegabonkApp(ctk.CTk):
     def __init__(self):
@@ -200,6 +252,31 @@ class MegabonkApp(ctk.CTk):
         self.geometry("1150x550")
         self.minsize(1050, 500)
         
+        # Initialize attributes that might be flagged as defined outside __init__
+        self.top_frame = None
+        self.logo_label = None
+        self.templates_frame = None
+        self.scrollable_templates = None
+        self.template_btns_frame = None
+        self.add_btn = None
+        self.edit_btn = None
+        self.del_btn = None
+        self.right_frame = None
+        self.tabview = None
+        self.tab_logs = None
+        self.tab_stats = None
+        self.log_box = None
+        self.stats_scroll = None
+        self.stats_time_label = None
+        self.stats_rerolls_label = None
+        self.stats_rpm_label = None
+        self.stats_best_label = None
+        self.stats_avg_frame = None
+        self.controls_frame = None
+        self.settings_btn = None
+        self.status_label = None
+        self.toggle_btn = None
+        
         icon_path = resource_path("bonkscanner_icon.ico")
         if os.path.exists(icon_path):
             self.iconbitmap(icon_path)
@@ -208,15 +285,30 @@ class MegabonkApp(ctk.CTk):
         self.is_ready_to_start = False
         self.active_templates = []
         self.scanner_thread = None
-        self.stop_thread = False
         self.client = None
         self.checkboxes = {}
         
-        # We don't need checked_state dict anymore since we use config.ACTIVE_TEMPLATES directly
+        self.animation_active = False
+        self.animation_frame = 0
+        
+        # Threading events for efficient control
+        self.stop_event = threading.Event()
+        self.scan_event = threading.Event()
+        
+        # Session Stats
+        self.session_start_time = None
+        self.total_rerolls = 0
+        self.best_map_stats = None
+        self.best_map_score = -1
+        # Detailed stats per template: { 'Template Name': {'rerolls_since_last': 0, 'history': []} }
+        self.template_stats = {}
         
         self.setup_ui()
         self.refresh_templates()
         self.setup_hotkeys()
+        
+        # Timer for updating elapsed time
+        self.update_timer()
         
         self.check_admin_rights()
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")
@@ -288,15 +380,27 @@ class MegabonkApp(ctk.CTk):
         self.del_btn = ctk.CTkButton(self.template_btns_frame, text="- Delete", width=60, fg_color="#b30000", hover_color="#800000", command=self.del_template_dialog)
         self.del_btn.grid(row=0, column=2, padx=5)
         
-        # --- Right Panel: Logs & Controls ---
+        # --- Right Panel: Logs, Stats & Controls ---
         self.right_frame = ctk.CTkFrame(self)
         self.right_frame.grid(row=1, column=1, padx=(0, 10), pady=10, sticky="nsew")
-        self.right_frame.grid_rowconfigure(0, weight=1)
+        self.right_frame.grid_rowconfigure(0, weight=1) # Give row 0 (TabView) the most weight
         self.right_frame.grid_columnconfigure(0, weight=1)
         
-        # Log Textbox - word wrap off to allow wide text in one line with horizontal scrolling if needed
-        self.log_box = ctk.CTkTextbox(self.right_frame, state="disabled", font=ctk.CTkFont(family="Consolas", size=13), wrap="none")
-        self.log_box.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        # TabView for Logs and Stats
+        self.tabview = ctk.CTkTabview(self.right_frame)
+        self.tabview.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        
+        self.tab_logs = self.tabview.add("Logs")
+        self.tab_stats = self.tabview.add("Session Stats")
+        
+        self.tab_logs.grid_rowconfigure(0, weight=1)
+        self.tab_logs.grid_columnconfigure(0, weight=1)
+        self.tab_stats.grid_rowconfigure(0, weight=1)
+        self.tab_stats.grid_columnconfigure(0, weight=1)
+        
+        # Log Textbox
+        self.log_box = ctk.CTkTextbox(self.tab_logs, state="disabled", font=ctk.CTkFont(family="Consolas", size=13), wrap="none")
+        self.log_box.grid(row=0, column=0, sticky="nsew")
         
         # Log tags config for colors
         self.log_box.tag_config("warning", foreground="#FFA500")
@@ -306,17 +410,38 @@ class MegabonkApp(ctk.CTk):
         # Add tags for specific profile colors
         for color_name, hex_code in COLOR_MAP.items():
             self.log_box.tag_config(color_name, foreground=hex_code)
+            
+        # Stats Elements
+        self.stats_scroll = ctk.CTkScrollableFrame(self.tab_stats, fg_color="transparent")
+        self.stats_scroll.grid(row=0, column=0, sticky="nsew")
+        
+        self.stats_time_label = ctk.CTkLabel(self.stats_scroll, text="Session Time: 00:00:00", font=ctk.CTkFont(size=15))
+        self.stats_time_label.pack(anchor="w", pady=5)
+        
+        self.stats_rerolls_label = ctk.CTkLabel(self.stats_scroll, text="Total Rerolls: 0", font=ctk.CTkFont(size=15))
+        self.stats_rerolls_label.pack(anchor="w", pady=5)
+        
+        self.stats_rpm_label = ctk.CTkLabel(self.stats_scroll, text="Rerolls per Minute (RPM): 0.0", font=ctk.CTkFont(size=15))
+        self.stats_rpm_label.pack(anchor="w", pady=5)
+        
+        self.stats_best_label = ctk.CTkLabel(self.stats_scroll, text="Best Map Found: None", font=ctk.CTkFont(size=15))
+        self.stats_best_label.pack(anchor="w", pady=5)
+        
+        ctk.CTkLabel(self.stats_scroll, text="\nAverage Rerolls per Target:", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", pady=5)
+        self.stats_avg_frame = ctk.CTkFrame(self.stats_scroll, fg_color="transparent")
+        self.stats_avg_frame.pack(fill="x", anchor="w")
         
         # Controls Setup
         self.controls_frame = ctk.CTkFrame(self.right_frame, fg_color="transparent")
         self.controls_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
         
-        # This weight=1 will push anything in column 1 all the way to the right
-        self.controls_frame.grid_columnconfigure(0, weight=1)
-        self.controls_frame.grid_columnconfigure(1, weight=0)
+        self.controls_frame.grid_columnconfigure(1, weight=1)
         
-        self.status_label = ctk.CTkLabel(self.controls_frame, text="Status: IDLE", font=ctk.CTkFont(size=14, weight="bold"), text_color="#CCCCCC")
-        self.status_label.grid(row=0, column=0, sticky="w")
+        self.settings_btn = ctk.CTkButton(self.controls_frame, text="⚙️", width=35, command=self.open_settings_dialog)
+        self.settings_btn.grid(row=0, column=0, sticky="w")
+        
+        self.status_label = ctk.CTkLabel(self.controls_frame, text="Status: IDLE", font=ctk.CTkFont(family="Consolas", size=14, weight="bold"), text_color="#CCCCCC", width=250, anchor="w")
+        self.status_label.grid(row=0, column=1, sticky="w", padx=20)
         
         self.toggle_btn = ctk.CTkButton(
             self.controls_frame, 
@@ -326,10 +451,9 @@ class MegabonkApp(ctk.CTk):
             height=35,
             width=120
         )
-        # Using sticky="e" places it at the very right of the frame
-        self.toggle_btn.grid(row=0, column=1, sticky="e", padx=(40, 0))
+        self.toggle_btn.grid(row=0, column=2, sticky="e")
 
-    def save_checkbox_state(self, *_args):
+    def save_checkbox_state(self, *_):
         # Called when any checkbox is toggled
         active = [name for name, var in self.checkboxes.items() if var.get()]
         config.ACTIVE_TEMPLATES = active
@@ -422,7 +546,6 @@ class MegabonkApp(ctk.CTk):
             # Replace old template
             for i, t in enumerate(config.TEMPLATES):
                 if t["name"] == target_name:
-                    # Update properties
                     config.TEMPLATES[i] = dialog.result
                     break
                     
@@ -461,6 +584,10 @@ class MegabonkApp(ctk.CTk):
             self.refresh_templates()
             self.log(f"[-] Deleted template: {dialog.result}", tag="warning")
 
+    def open_settings_dialog(self):
+        dialog = SettingsDialog(self)
+        self.wait_window(dialog)
+
     def setup_hotkeys(self):
         if keyboard:
             try:
@@ -474,24 +601,43 @@ class MegabonkApp(ctk.CTk):
             return
             
         self.is_running = not self.is_running
+        if self.is_running:
+            self.scan_event.set()
+        else:
+            self.scan_event.clear()
+            
         status = "STARTED" if self.is_running else "STOPPED"
         self.log(f"\n[!!!] Script {status} via Hotkey", tag="success" if self.is_running else "warning")
         self.update_status_ui()
         
     def update_status_ui(self):
         if self.is_running:
-            self.status_label.configure(text=f"Status: SCANNING (Hotkey: {config.HOTKEY})", text_color="#00FF00")
-            self.toggle_btn.configure(text="PAUSE", fg_color="#b30000", hover_color="#800000")
-        elif self.is_ready_to_start:
-            self.status_label.configure(text=f"Status: GAME READY (Press {config.HOTKEY})", text_color="#FFA500")
-            self.toggle_btn.configure(text="STOP", fg_color="#b30000", hover_color="#800000")
+            self.animation_active = True
+            self.animate_scanner_indicator()
         else:
-            self.status_label.configure(text="Status: WAITING FOR GAME...", text_color="#CCCCCC")
-            if self.scanner_thread and self.scanner_thread.is_alive():
+            self.animation_active = False
+            if self.is_ready_to_start:
+                self.status_label.configure(text=f"Status: GAME READY (Press {config.HOTKEY})")
                 self.toggle_btn.configure(text="STOP", fg_color="#b30000", hover_color="#800000")
             else:
-                self.toggle_btn.configure(text="START", fg_color="#1f538d", hover_color="#14375e")
+                self.status_label.configure(text="Status: WAITING FOR GAME...")
+                if self.scanner_thread and self.scanner_thread.is_alive():
+                    self.toggle_btn.configure(text="STOP", fg_color="#b30000", hover_color="#800000")
+                else:
+                    self.toggle_btn.configure(text="START", fg_color="#1f538d", hover_color="#14375e")
+    
+    def animate_scanner_indicator(self):
+        if not self.animation_active:
+            return
             
+        frames = ["|", "/", "-", "\\"]
+        char = frames[self.animation_frame]
+        self.status_label.configure(text=f"Status: SCANNING {char}", text_color="#00FF00")
+        self.toggle_btn.configure(text="PAUSE", fg_color="#b30000", hover_color="#800000")
+        
+        self.animation_frame = (self.animation_frame + 1) % len(frames)
+        self.after(150, self.animate_scanner_indicator)
+
     def log(self, message, tag=None):
         self.log_box.configure(state="normal")
         
@@ -542,27 +688,116 @@ class MegabonkApp(ctk.CTk):
             
             self.log(colored_parts, tag=colored_tags)
             
-            self.stop_thread = False
+            # Init Session Stats
+            self.session_start_time = time.time()
+            self.total_rerolls = 0
+            self.best_map_stats = None
+            self.best_map_score = -1
+            self.template_stats = {name: {'rerolls_since_last': 0, 'history': []} for name in self.active_templates}
+            self.refresh_stats_ui()
+            
+            self.stop_event.clear()
             self.scanner_thread = threading.Thread(target=self.background_loop, daemon=True)
             self.scanner_thread.start()
             self.update_status_ui()
         else:
             # Остановка фонового процесса
-            self.stop_thread = True
+            self.stop_event.set()
+            self.scan_event.set() # Wake up the thread so it can exit
             self.is_running = False
             self.is_ready_to_start = False
             self.log("\n[*] Stopping monitor hook...")
             self.after(500, self.update_status_ui)
 
-    def fetch_runtime_stats(self, client: GameDataClient) -> dict:
+    @staticmethod
+    def fetch_runtime_stats(client: GameDataClient) -> dict:
         return adapt_map_stats(client.get_map_stats())
 
-    def format_stats(self, stats: dict) -> str:
+    @staticmethod
+    def format_stats(stats: dict) -> str:
         shady = stats.get("Shady Guy", 0)
         moai = stats.get("Moais", 0)
         microwaves = stats.get("Microwaves", 0)
         boss = stats.get("Boss Curses", 0)
         return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}"
+        
+    @staticmethod
+    def calculate_map_score(stats: dict) -> int:
+        shady = stats.get("Shady Guy", 0)
+        moai = stats.get("Moais", 0)
+        microwaves = stats.get("Microwaves", 0)
+        boss = stats.get("Boss Curses", 0)
+        return (shady * 2) + (moai * 3) + (microwaves * 5) + (boss * 1)
+
+    def update_timer(self):
+        if self.scanner_thread and self.scanner_thread.is_alive() and self.session_start_time:
+            elapsed = int(time.time() - self.session_start_time)
+            td = datetime.timedelta(seconds=elapsed)
+            self.stats_time_label.configure(text=f"Session Time: {td}")
+            
+            if elapsed > 0 and self.total_rerolls > 0:
+                rpm = (self.total_rerolls / elapsed) * 60
+                self.stats_rpm_label.configure(text=f"Rerolls per Minute (RPM): {rpm:.1f}")
+                
+        # Schedule next update
+        self.after(1000, self.update_timer)
+
+    def refresh_stats_ui(self):
+        self.stats_rerolls_label.configure(text=f"Total Rerolls: {self.total_rerolls}")
+        
+        if self.best_map_stats:
+            self.stats_best_label.configure(text=f"Best Map Found: {self.format_stats(self.best_map_stats)}")
+        else:
+            self.stats_best_label.configure(text=f"Best Map Found: None")
+            
+        # Update Average Rerolls List
+        for widget in self.stats_avg_frame.winfo_children():
+            widget.destroy()
+            
+        for name, data in self.template_stats.items():
+            color_tag = "BLUE"
+            for t in config.TEMPLATES:
+                if t["name"] == name:
+                    color_tag = t.get("color", "BLUE").upper()
+                    break
+            hex_color = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
+            
+            history = data['history']
+            if len(history) > 0:
+                avg = sum(history) / len(history)
+                avg_text = f"{avg:.1f} ({len(history)} found)"
+            else:
+                avg_text = "N/A"
+                
+            label = ctk.CTkLabel(self.stats_avg_frame, text=f"  - {name}: {avg_text}", font=ctk.CTkFont(size=14), text_color=hex_color)
+            label.pack(anchor="w")
+
+    def log_reroll_stats(self):
+        self.total_rerolls += 1
+        for name in self.template_stats:
+            self.template_stats[name]['rerolls_since_last'] += 1
+            
+        # Update UI less frequently to prevent lag (e.g., every 5 rerolls)
+        if self.total_rerolls % 5 == 0:
+            self.after(0, self.refresh_stats_ui)
+
+    def log_target_found(self, template_name: str):
+        if template_name in self.template_stats:
+            data = self.template_stats[template_name]
+            # If the current counter is 0, it means it was found on the very first try, record as 1 attempt
+            attempts = data['rerolls_since_last'] if data['rerolls_since_last'] > 0 else 1
+            data['history'].append(attempts)
+            data['rerolls_since_last'] = 0
+            
+        self.after(0, self.refresh_stats_ui)
+
+    def check_best_map(self, stats: dict):
+        score = self.calculate_map_score(stats)
+        if score > self.best_map_score:
+            self.best_map_score = score
+            self.best_map_stats = stats
+            # Update UI immediately if a new best is found
+            self.after(0, self.refresh_stats_ui)
 
     def reroll_map(self):
         if keyboard is None:
@@ -571,6 +806,7 @@ class MegabonkApp(ctk.CTk):
         time.sleep(config.RESET_HOLD_DURATION)
         keyboard.release(config.RESET_HOTKEY)
         time.sleep(config.MAP_LOAD_DELAY)
+        self.log_reroll_stats()
 
     def close_client(self):
         if self.client:
@@ -584,7 +820,7 @@ class MegabonkApp(ctk.CTk):
         process_name = config.PROCESS_NAME.strip()
         wait_state = None
         
-        while not self.stop_thread:
+        while not self.stop_event.is_set():
             # 1. Ожидание клиента
             if self.client is None:
                 try:
@@ -608,12 +844,14 @@ class MegabonkApp(ctk.CTk):
                     continue
 
             # 2. Основная логика сканера
-            if not self.is_running:
-                time.sleep(0.1)
-                continue
+            self.scan_event.wait() # Wait here until hotkey is pressed
+            if self.stop_event.is_set():
+                break
                 
             try:
                 stats = self.fetch_runtime_stats(self.client)
+                self.check_best_map(stats)
+                
                 candidate = logic.find_matching_template(stats, self.active_templates, config.TEMPLATES)
                 
                 if candidate is not None:
@@ -621,6 +859,8 @@ class MegabonkApp(ctk.CTk):
                     time.sleep(0.15)
                     
                     confirmed_stats = self.fetch_runtime_stats(self.client)
+                    self.check_best_map(confirmed_stats)
+                    
                     confirmed_template = logic.find_matching_template(confirmed_stats, self.active_templates, config.TEMPLATES)
                     
                     if confirmed_template is not None:
@@ -630,10 +870,13 @@ class MegabonkApp(ctk.CTk):
                         self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", t_name], tag=["success", t_color])
                         self.log(f"Max Map Stats: {self.format_stats(confirmed_stats)}", tag="success")
                         
+                        self.log_target_found(t_name)
+                        
                         if keyboard:
                             keyboard.press_and_release("esc")
                             
                         self.is_running = False
+                        self.scan_event.clear()
                         self.after(0, self.update_status_ui)
                         continue
                     else:
@@ -646,6 +889,7 @@ class MegabonkApp(ctk.CTk):
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
                 self.is_running = False
                 self.is_ready_to_start = False
+                self.scan_event.clear()
                 self.close_client()
                 self.log(f"[-] Lost connection to the game: {exc}", tag="error")
                 wait_state = None
@@ -661,9 +905,14 @@ class MegabonkApp(ctk.CTk):
         self.is_ready_to_start = False
         self.after(0, self.update_status_ui)
 
-    def on_closing(self):
-        self.stop_thread = True
+    def on_closing(self, restart=False):
+        self.stop_event.set()
+        self.scan_event.set() # Ensure thread wakes up to exit
         self.close_client()
         if keyboard:
             keyboard.unhook_all()
         self.destroy()
+        
+        if restart:
+            # Relaunch the application
+            os.execl(sys.executable, sys.executable, *sys.argv)
