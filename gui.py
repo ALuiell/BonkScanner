@@ -193,7 +193,7 @@ class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Settings")
-        self.geometry("400x250")
+        self.geometry("400x300")
         self.resizable(False, False)
         
         # Set icon if available
@@ -221,9 +221,15 @@ class SettingsDialog(ctk.CTkToplevel):
         self.map_load_delay_entry.insert(0, str(config.MAP_LOAD_DELAY))
         self.map_load_delay_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
         
+        # RESET_HOLD_DURATION
+        ctk.CTkLabel(self, text="Reset Hold Duration (s):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
+        self.reset_hold_duration_entry = ctk.CTkEntry(self)
+        self.reset_hold_duration_entry.insert(0, str(config.RESET_HOLD_DURATION))
+        self.reset_hold_duration_entry.grid(row=3, column=1, padx=10, pady=10, sticky="ew")
+        
         # SAVE BUTTON
         self.save_btn = ctk.CTkButton(self, text="Save and Restart", command=self.save)
-        self.save_btn.grid(row=3, column=0, columnspan=2, pady=20)
+        self.save_btn.grid(row=4, column=0, columnspan=2, pady=20)
         
         self.transient(parent)
         self.grab_set()
@@ -233,6 +239,11 @@ class SettingsDialog(ctk.CTkToplevel):
         config.user_config["RESET_HOTKEY"] = self.reset_hotkey_entry.get()
         try:
             config.user_config["MAP_LOAD_DELAY"] = float(self.map_load_delay_entry.get())
+        except ValueError:
+            pass # Keep old value if new one is invalid
+            
+        try:
+            config.user_config["RESET_HOLD_DURATION"] = float(self.reset_hold_duration_entry.get())
         except ValueError:
             pass # Keep old value if new one is invalid
             
@@ -272,6 +283,7 @@ class MegabonkApp(ctk.CTk):
         self.stats_rerolls_label = None
         self.stats_rpm_label = None
         self.stats_best_label = None
+        self.stats_worst_label = None
         self.stats_avg_frame = None
         self.controls_frame = None
         self.settings_btn = None
@@ -301,6 +313,8 @@ class MegabonkApp(ctk.CTk):
         self.total_rerolls = 0
         self.best_map_stats = None
         self.best_map_score = -1
+        self.worst_map_stats = None
+        self.worst_map_score = float('inf')
         # Detailed stats per template: { 'Template Name': {'rerolls_since_last': 0, 'history': []} }
         self.template_stats = {}
         
@@ -428,6 +442,9 @@ class MegabonkApp(ctk.CTk):
         self.stats_best_label = ctk.CTkLabel(self.stats_scroll, text="Best Map Found: None", font=ctk.CTkFont(size=15))
         self.stats_best_label.pack(anchor="w", pady=5)
         
+        self.stats_worst_label = ctk.CTkLabel(self.stats_scroll, text="Worst Map Found: None", font=ctk.CTkFont(size=15))
+        self.stats_worst_label.pack(anchor="w", pady=5)
+        
         ctk.CTkLabel(self.stats_scroll, text="\nAverage Rerolls per Target:", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", pady=5)
         self.stats_avg_frame = ctk.CTkFrame(self.stats_scroll, fg_color="transparent")
         self.stats_avg_frame.pack(fill="x", anchor="w")
@@ -438,7 +455,16 @@ class MegabonkApp(ctk.CTk):
         
         self.controls_frame.grid_columnconfigure(1, weight=1)
         
-        self.settings_btn = ctk.CTkButton(self.controls_frame, text="⚙️", width=35, command=self.open_settings_dialog)
+        # Загрузка изображения шестеренки
+        settings_icon_path = resource_path("settings_icon.png")
+        if os.path.exists(settings_icon_path):
+            settings_image = ctk.CTkImage(light_image=Image.open(settings_icon_path),
+                                          dark_image=Image.open(settings_icon_path),
+                                          size=(20, 20))
+            self.settings_btn = ctk.CTkButton(self.controls_frame, text="", image=settings_image, width=35, height=35, command=self.open_settings_dialog)
+        else:
+            self.settings_btn = ctk.CTkButton(self.controls_frame, text="⚙", width=35, height=35, command=self.open_settings_dialog, font=ctk.CTkFont(size=18))
+
         self.settings_btn.grid(row=0, column=0, sticky="w")
         
         self.status_label = ctk.CTkLabel(self.controls_frame, text="Status: IDLE", font=ctk.CTkFont(family="Consolas", size=14, weight="bold"), text_color="#CCCCCC", width=250, anchor="w")
@@ -694,6 +720,8 @@ class MegabonkApp(ctk.CTk):
             self.total_rerolls = 0
             self.best_map_stats = None
             self.best_map_score = -1
+            self.worst_map_stats = None
+            self.worst_map_score = float('inf')
             self.template_stats = {name: {'rerolls_since_last': 0, 'history': []} for name in self.active_templates}
             self.refresh_stats_ui()
             
@@ -751,6 +779,11 @@ class MegabonkApp(ctk.CTk):
         else:
             self.stats_best_label.configure(text=f"Best Map Found: None")
             
+        if self.worst_map_stats:
+            self.stats_worst_label.configure(text=f"Worst Map Found: {self.format_stats(self.worst_map_stats)}")
+        else:
+            self.stats_worst_label.configure(text=f"Worst Map Found: None")
+            
         # Update Average Rerolls List
         for widget in self.stats_avg_frame.winfo_children():
             widget.destroy()
@@ -798,6 +831,14 @@ class MegabonkApp(ctk.CTk):
             self.best_map_score = score
             self.best_map_stats = stats
             # Update UI immediately if a new best is found
+            self.after(0, self.refresh_stats_ui)
+            
+    def check_worst_map(self, stats: dict):
+        score = self.calculate_map_score(stats)
+        if score < self.worst_map_score:
+            self.worst_map_score = score
+            self.worst_map_stats = stats
+            # Update UI immediately if a new worst is found
             self.after(0, self.refresh_stats_ui)
 
     def reroll_map(self):
@@ -852,6 +893,7 @@ class MegabonkApp(ctk.CTk):
             try:
                 stats = self.fetch_runtime_stats(self.client)
                 self.check_best_map(stats)
+                self.check_worst_map(stats)
                 
                 candidate = logic.find_matching_template(stats, self.active_templates, config.TEMPLATES)
                 
@@ -861,6 +903,7 @@ class MegabonkApp(ctk.CTk):
                     
                     confirmed_stats = self.fetch_runtime_stats(self.client)
                     self.check_best_map(confirmed_stats)
+                    self.check_worst_map(confirmed_stats)
                     
                     confirmed_template = logic.find_matching_template(confirmed_stats, self.active_templates, config.TEMPLATES)
                     

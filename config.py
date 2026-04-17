@@ -67,12 +67,16 @@ user_config = load_config()
 
 MAP_LOAD_DELAY = user_config.get("MAP_LOAD_DELAY", 1.3)
 
-# Load RESET_HOLD_DURATION from game config, fallback to user_config, fallback to default 0.4
-game_reset_time = get_game_reset_time()
-if game_reset_time is not None:
-    RESET_HOLD_DURATION = game_reset_time
+# Load RESET_HOLD_DURATION from user_config first, fallback to game config, fallback to default 0.4
+RESET_HOLD_DURATION_USER = user_config.get("RESET_HOLD_DURATION")
+if RESET_HOLD_DURATION_USER is not None:
+    RESET_HOLD_DURATION = RESET_HOLD_DURATION_USER
 else:
-    RESET_HOLD_DURATION = user_config.get("RESET_HOLD_DURATION", 0.4)
+    game_reset_time = get_game_reset_time()
+    if game_reset_time is not None:
+        RESET_HOLD_DURATION = game_reset_time
+    else:
+        RESET_HOLD_DURATION = 0.4
 
 HOTKEY = user_config.get("HOTKEY", "f6")
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
