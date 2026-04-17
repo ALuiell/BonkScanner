@@ -41,11 +41,9 @@ def check_and_update(app_instance=None):
             if exe_download_url:
                 # Prompt user for update
                 def prompt_user():
-                    # If app_instance is passed, it means we are in the main GUI thread
-                    # or we can use it as parent.
                     root = app_instance if app_instance else tk.Tk()
                     if not app_instance:
-                        root.withdraw() # Hide the root window if it's standalone
+                        root.withdraw()
 
                     result = messagebox.askyesno(
                         "Update Available", 
@@ -55,12 +53,8 @@ def check_and_update(app_instance=None):
                     
                     if result:
                         if app_instance:
-                            # If updating from within the app, let's notify the user
-                            # that it's downloading
                             if hasattr(app_instance, 'log'):
                                 app_instance.log(f"[*] Downloading update v{latest_version}... Please wait.", tag="warning")
-                            # Run download in background to not freeze GUI, 
-                            # but we need to exit anyway.
                             threading.Thread(target=_download_and_apply_update, args=(exe_path, exe_download_url), daemon=True).start()
                         else:
                             _download_and_apply_update(exe_path, exe_download_url)
@@ -68,7 +62,6 @@ def check_and_update(app_instance=None):
                     if not app_instance:
                         root.destroy()
                         
-                # Ensure the messagebox runs in the main thread if app_instance is passed
                 if app_instance:
                     app_instance.after(0, prompt_user)
                 else:
@@ -100,20 +93,18 @@ def _download_and_apply_update(exe_path, download_url):
             os.remove(new_exe_path)
         return
 
-    # We need to run the new executable completely disconnected from the current one.
-    # To avoid the old PyInstaller MEIPASS PATH variables leaking, we construct a completely new environment.
-    
+    # CRITICAL FIX: "timeout" command fails in batch files if there is no console window!
+    # It instantly aborts the script. We must use "ping 127.0.0.1" as a sleep mechanism instead.
     bat_content = f"""@echo off
 chcp 65001 > nul
-echo Updating the program, please wait...
 cd /d "%~dp0"
 
 :wait_loop
-timeout /t 1 /nobreak > nul
+ping 127.0.0.1 -n 2 > nul
 del "{exe_name}" > nul 2>&1
 if exist "{exe_name}" goto wait_loop
 
-move /y "{new_exe_name}" "{exe_name}"
+move /y "{new_exe_name}" "{exe_name}" > nul 2>&1
 start "" "{exe_name}"
 (goto) 2>nul & del "%~f0"
 """
@@ -144,14 +135,12 @@ start "" "{exe_name}"
         clean_paths = [p for p in paths if "_MEI" not in p.upper()]
         env['PATH'] = os.pathsep.join(clean_paths)
     
-    # Create the process disconnected and detached
     # Use STARTUPINFO to hide the console window completely
     startupinfo = subprocess.STARTUPINFO()
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
     
-    # CREATE_NEW_PROCESS_GROUP and DETACHED_PROCESS to fully unbind it
     subprocess.Popen(
-        ["cmd.exe", "/c", bat_path],
+        [bat_path],
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
         env=env,
         startupinfo=startupinfo,
