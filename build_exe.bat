@@ -1,0 +1,38 @@
+@echo off
+setlocal
+
+set "VENV_DIR=.venv"
+set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
+set "PIP_EXE=%VENV_DIR%\Scripts\pip.exe"
+set "PYINSTALLER_EXE=%VENV_DIR%\Scripts\pyinstaller.exe"
+
+if not exist "%PYTHON_EXE%" (
+    echo [ERROR] Virtual environment was not found.
+    echo Run start.bat first to create .venv and install dependencies.
+    pause
+    exit /b 1
+)
+
+
+if not exist "%PYINSTALLER_EXE%" (
+    echo [SETUP] Installing PyInstaller...
+    "%PIP_EXE%" install pyinstaller
+    if errorlevel 1 (
+        echo [ERROR] Failed to install PyInstaller.
+        pause
+        exit /b 1
+    )
+)
+
+echo [BUILD] Building executable...
+"%PYINSTALLER_EXE%" --clean --noconfirm --noconsole --onefile --icon=bonkscanner_icon.ico --name "BonkScanner" --add-data "bonkscanner_icon.ico;." --add-data "settings_icon.png;." main.py
+
+if errorlevel 1 (
+    echo [ERROR] PyInstaller failed to build the executable.
+    pause
+    exit /b 1
+)
+
+echo [DONE] Executable built successfully! You can find it in the "dist" folder.
+pause
+endlocal
