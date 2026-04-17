@@ -6,6 +6,7 @@ import datetime
 import customtkinter as ctk
 from PIL import Image
 
+import updater
 import config
 import logic
 from game_data import GameDataClient
@@ -260,7 +261,7 @@ class MegabonkApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        self.title("BonkScanner")
+        self.title(f"BonkScanner v{updater.CURRENT_VERSION}")
         self.geometry("1150x550")
         self.minsize(1050, 500)
         
