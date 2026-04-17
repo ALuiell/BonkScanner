@@ -3,7 +3,7 @@ import sys
 import requests
 import subprocess
 
-CURRENT_VERSION = "1.0.2"  # Current version of your program
+CURRENT_VERSION = "1.0.3"  # Current version of your program
 
 GITHUB_REPO = "ALuiell/BonkScanner"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
