@@ -6,7 +6,7 @@ import threading
 import tkinter as tk
 from tkinter import messagebox
 
-CURRENT_VERSION = "1.0.1"  # Current version of your program
+CURRENT_VERSION = "1.0.2"  # Current version of your program
 
 GITHUB_REPO = "ALuiell/BonkScanner"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -100,6 +100,9 @@ def _download_and_apply_update(exe_path, download_url):
             os.remove(new_exe_path)
         return
 
+    # We need to run the new executable completely disconnected from the current one.
+    # To avoid the old PyInstaller MEIPASS PATH variables leaking, we construct a completely new environment.
+    
     bat_content = f"""@echo off
 chcp 65001 > nul
 echo Updating the program, please wait...
@@ -119,17 +122,40 @@ start "" "{exe_name}"
 
     print("Update downloaded. The program will be restarted...")
     
+    # We must rigorously clean the environment for the bat file so it doesn't pass it to the new exe
     env = os.environ.copy()
-    env.pop('_MEIPASS2', None)
+    
+    # Remove all PyInstaller specific variables
+    keys_to_remove = []
+    for key in env.keys():
+        if key.startswith('_MEI') or key.startswith('_PYI'):
+            keys_to_remove.append(key)
+            
+    for key in keys_to_remove:
+        env.pop(key, None)
+            
     env.pop('TCL_LIBRARY', None)
     env.pop('TK_LIBRARY', None)
+    env.pop('_PYVENV_LAUNCHER_', None)
     
-    if hasattr(sys, '_MEIPASS'):
-        meipass = sys._MEIPASS
-        paths = env.get("PATH", "").split(os.pathsep)
-        clean_paths = [p for p in paths if os.path.normpath(p).lower() != os.path.normpath(meipass).lower()]
-        env["PATH"] = os.pathsep.join(clean_paths)
+    # Rigorous PATH cleanup: Remove ALL paths that contain "_MEI"
+    if 'PATH' in env:
+        paths = env['PATH'].split(os.pathsep)
+        clean_paths = [p for p in paths if "_MEI" not in p.upper()]
+        env['PATH'] = os.pathsep.join(clean_paths)
     
-    subprocess.Popen([bat_path], creationflags=subprocess.CREATE_NEW_CONSOLE, env=env)
+    # Create the process disconnected and detached
+    # Use STARTUPINFO to hide the console window completely
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    
+    # CREATE_NEW_PROCESS_GROUP and DETACHED_PROCESS to fully unbind it
+    subprocess.Popen(
+        ["cmd.exe", "/c", bat_path],
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        env=env,
+        startupinfo=startupinfo,
+        close_fds=True
+    )
     
     os._exit(0)
