@@ -4,7 +4,7 @@ except ImportError:
     keyboard = None
 
 from gui import MegabonkApp
-
+from updater import check_and_update
 
 def main():
     if keyboard is None:
@@ -18,4 +18,5 @@ def main():
 
 
 if __name__ == "__main__":
+    check_and_update()
     main()
