@@ -3,7 +3,7 @@ import sys
 import requests
 import subprocess
 
-CURRENT_VERSION = "1.0.2"  # Current version of your program
+CURRENT_VERSION = "1.0.0"  # Current version of your program
 
 GITHUB_REPO = "ALuiell/BonkScanner"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -81,8 +81,15 @@ del "%~f0"
 
     print("Update downloaded. The program will be restarted...")
     
-    # Run the batch file detached from the current process
-    subprocess.Popen([bat_path], creationflags=subprocess.CREATE_NEW_CONSOLE)
+    # Clean up PyInstaller environment variables before launching the batch file.
+    # Otherwise, the new .exe will try to use the old (deleted) _MEI folder and crash!
+    env = os.environ.copy()
+    env.pop('_MEIPASS2', None)
+    env.pop('TCL_LIBRARY', None)
+    env.pop('TK_LIBRARY', None)
+    
+    # Run the batch file detached from the current process with clean environment
+    subprocess.Popen([bat_path], creationflags=subprocess.CREATE_NEW_CONSOLE, env=env)
     
     # Immediately close the program so the batch file can delete the old exe
     sys.exit()
