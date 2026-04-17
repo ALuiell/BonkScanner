@@ -73,6 +73,9 @@ cd /d "%~dp0"
 timeout /t 2 /nobreak > nul
 del "{exe_name}"
 move /y "{new_exe_name}" "{exe_name}"
+set _MEIPASS2=
+set _MEIPASS=
+set _PYVENV_LAUNCHER_=
 start "" "{exe_name}"
 del "%~f0"
 """
