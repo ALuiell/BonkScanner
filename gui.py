@@ -17,6 +17,7 @@ try:
 except ImportError:
     keyboard = None
 
+ctk.set_appearance_mode("dark")
 
 # Helper function to get correct path for bundled files in PyInstaller
 def resource_path(relative_path):
