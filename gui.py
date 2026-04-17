@@ -327,6 +327,7 @@ class MegabonkApp(ctk.CTk):
         self.update_timer()
         
         self.check_admin_rights()
+        self.log(f"[*] Welcome to BonkScanner v{updater.CURRENT_VERSION}!", tag="success")
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")
         self.log(f"[*] Ready! Select templates and start the main process loop.")
 
