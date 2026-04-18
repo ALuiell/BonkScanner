@@ -83,6 +83,9 @@ MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
 PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
 
+# Load ignored updates
+SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
+
 # Попытка получить шаблоны из JSON. Если файл был пустой или без TEMPLATES,
 # берем встроенные (DEFAULT_TEMPLATES) как резерв.
 TEMPLATES = user_config.get("TEMPLATES", DEFAULT_TEMPLATES)
@@ -104,8 +107,8 @@ user_config["RESET_HOTKEY"] = RESET_HOTKEY
 user_config["PROCESS_NAME"] = PROCESS_NAME
 user_config["TEMPLATES"] = TEMPLATES
 user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
+user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION
 
-
-# Если изначально файла config.json не было (или в нем не было TEMPLATES),
-# мы сразу сохраняем актуальную структуру на диск, чтобы пользователю было что редактировать.
+# If the config.json file did not exist initially (or did not contain TEMPLATES),
+# we immediately save the current structure to disk so that the user has something to edit.
 save_config(user_config)

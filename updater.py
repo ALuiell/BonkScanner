@@ -5,6 +5,7 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import messagebox
+import config
 
 CURRENT_VERSION = "1.0.3"  # Current version of your program
 
@@ -14,9 +15,10 @@ GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 def parse_version(v):
     return tuple(map(int, v.split('.')))
 
-def check_and_update(app_instance=None):
+def check_and_update(app_instance=None, force_check=False):
     """Checks for updates and initiates the update process if a new version is available.
     Optionally takes the main GUI instance to handle message boxes correctly.
+    force_check ignores the SKIPPED_UPDATE_VERSION config.
     """
     if getattr(sys, 'frozen', False):
         exe_path = sys.executable
@@ -37,6 +39,11 @@ def check_and_update(app_instance=None):
             if asset["name"].endswith(".exe"):
                 exe_download_url = asset["browser_download_url"]
                 break
+
+        # Check if version was skipped, unless forced
+        if not force_check and config.SKIPPED_UPDATE_VERSION == latest_version:
+            print(f"Update to {latest_version} was skipped by user.")
+            return
 
         if parse_version(latest_version) > parse_version(CURRENT_VERSION):
             if exe_download_url:
@@ -89,33 +96,42 @@ def check_and_update(app_instance=None):
                     btn_frame = tk.Frame(dialog, bg="#2b2b2b")
                     btn_frame.pack(pady=(0, 20))
 
-                    result = [False]
+                    result = [None] # None=Ignore, True=Update, False=Skip
 
                     def on_yes():
                         result[0] = True
                         dialog.destroy()
 
                     def on_no():
+                        result[0] = False # Mark as skip
                         dialog.destroy()
 
                     yes_btn = tk.Button(btn_frame, text="Yes, Update", width=15, bg="#2FA572", fg="white", 
                                         font=("Arial", 10, "bold"), relief="flat", cursor="hand2", command=on_yes)
                     yes_btn.pack(side="left", padx=10)
                     
-                    no_btn = tk.Button(btn_frame, text="Later", width=15, bg="#444444", fg="white", 
+                    no_btn = tk.Button(btn_frame, text="Skip for now", width=15, bg="#444444", fg="white", 
                                        font=("Arial", 10), relief="flat", cursor="hand2", command=on_no)
                     no_btn.pack(side="left", padx=10)
 
                     dialog.wait_window()
 
-                    if result[0]:
+                    if result[0] is True:
                         if app_instance:
                             if hasattr(app_instance, 'log'):
                                 app_instance.log(f"[*] Downloading update v{latest_version}... Please wait.", tag="warning")
                             threading.Thread(target=_download_and_apply_update, args=(exe_path, exe_download_url), daemon=True).start()
                         else:
                             _download_and_apply_update(exe_path, exe_download_url)
-                    
+                    elif result[0] is False:
+                        # User wants to skip this version
+                        config.SKIPPED_UPDATE_VERSION = latest_version
+                        config.user_config["SKIPPED_UPDATE_VERSION"] = latest_version
+                        config.save_config(config.user_config)
+                        
+                        if app_instance and hasattr(app_instance, 'log'):
+                            app_instance.log(f"[*] Update to v{latest_version} skipped. You can update manually in settings.", tag="warning")
+
                     if not app_instance:
                         root.destroy()
                         
@@ -126,6 +142,8 @@ def check_and_update(app_instance=None):
             else:
                 print("Error: No .exe file found in the GitHub release.")
         else:
+            if force_check and app_instance and hasattr(app_instance, 'log'):
+                app_instance.log(f"[*] You already have the latest version (v{CURRENT_VERSION}).", tag="success")
             print("You have the latest version installed.")
     except Exception as e:
         print(f"Failed to check for updates: {e}")

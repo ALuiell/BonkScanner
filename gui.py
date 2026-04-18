@@ -194,7 +194,7 @@ class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Settings")
-        self.geometry("400x300")
+        self.geometry("400x350")
         self.resizable(False, False)
         
         # Set icon if available
@@ -228,13 +228,22 @@ class SettingsDialog(ctk.CTkToplevel):
         self.reset_hold_duration_entry.insert(0, str(config.RESET_HOLD_DURATION))
         self.reset_hold_duration_entry.grid(row=3, column=1, padx=10, pady=10, sticky="ew")
         
+        # Check for updates button
+        self.update_btn = ctk.CTkButton(self, text="Check for Updates", fg_color="#1f538d", hover_color="#14375e", command=self.check_update)
+        self.update_btn.grid(row=4, column=0, columnspan=2, pady=10)
+
         # SAVE BUTTON
-        self.save_btn = ctk.CTkButton(self, text="Save and Restart", command=self.save)
-        self.save_btn.grid(row=4, column=0, columnspan=2, pady=20)
+        self.save_btn = ctk.CTkButton(self, text="Save and Restart", fg_color="#2FA572", hover_color="#106A43", command=self.save)
+        self.save_btn.grid(row=5, column=0, columnspan=2, pady=10)
         
         self.transient(parent)
         self.grab_set()
         
+    def check_update(self):
+        # Force check updates, ignoring SKIPPED version
+        threading.Thread(target=updater.check_and_update, args=(self.master, True), daemon=True).start()
+        self.destroy()
+
     def save(self):
         config.user_config["HOTKEY"] = self.hotkey_entry.get()
         config.user_config["RESET_HOTKEY"] = self.reset_hotkey_entry.get()

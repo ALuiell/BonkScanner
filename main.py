@@ -16,7 +16,8 @@ def main():
     app = MegabonkApp()
 
     # Pass the app instance to check_and_update so it can spawn the dialog properly on top
-    threading.Thread(target=check_and_update, args=(app,), daemon=True).start()
+    # Use daemon thread so it doesn't block closing
+    threading.Thread(target=check_and_update, args=(app, False), daemon=True).start()
 
     app.protocol("WM_DELETE_WINDOW", app.on_closing)
     app.mainloop()

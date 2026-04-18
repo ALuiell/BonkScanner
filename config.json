@@ -70,5 +70,6 @@
     ],
     "ACTIVE_TEMPLATES": [
         "PERFECT+"
-    ]
+    ],
+    "SKIPPED_UPDATE_VERSION": ""
 }
