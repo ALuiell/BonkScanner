@@ -213,10 +213,11 @@ start "" "{exe_name}"
     # Use STARTUPINFO to hide the console window completely
     startupinfo = subprocess.STARTUPINFO()
     startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
     
     subprocess.Popen(
-        [bat_path],
-        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        ["cmd.exe", "/c", bat_path],
+        creationflags=subprocess.CREATE_NO_WINDOW,
         env=env,
         startupinfo=startupinfo,
         close_fds=True
