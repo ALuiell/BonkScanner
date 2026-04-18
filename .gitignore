@@ -6,7 +6,6 @@ Instructions_*.txt
 config.json
 
 # === LEGACY & TEST FILES ===
-media/
 old/
 test/
 old/bs_main.py
