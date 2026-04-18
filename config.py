@@ -45,7 +45,7 @@ def get_game_reset_time() -> float | None:
                     # В конфиге игры хранится время без запаса. В нашей проге мы прибавляем 0.1 для надежности.
                     return float(quick_reset_time) + 0.1
     except Exception as e:
-        print(f"Failed to read game config: {e}")
+        pass
     return None
 
 def update_game_reset_time(game_val: float):
@@ -72,7 +72,7 @@ def update_game_reset_time(game_val: float):
         with open(game_config_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
     except Exception as e:
-        print(f"Failed to update game config: {e}")
+        pass
 
 # ==========================================
 # LOAD JSON CONFIG

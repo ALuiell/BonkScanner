@@ -274,9 +274,6 @@ class SettingsDialog(ctk.CTkToplevel):
             if game_val < 0:
                 game_val = 0.0
             config.update_game_reset_time(game_val)
-            
-            if hasattr(self.master, 'log'):
-                self.master.log(f"[*] Set reset_hold to {new_duration}s. Game config set to {game_val}s.", tag="success")
         except ValueError:
             pass # Keep old value if new one is invalid
             
