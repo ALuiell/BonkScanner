@@ -25,7 +25,7 @@ if not exist "%PYINSTALLER_EXE%" (
 )
 
 echo [BUILD] Building executable...
-"%PYINSTALLER_EXE%" --clean --noconfirm --noconsole --onefile --icon="media/bonkscanner_icon.ico" --name "BonkScanner" --add-data "media/bonkscanner_icon.ico;." --add-data "media/settings_icon.png;." main.py
+"%PYINSTALLER_EXE%" --clean --noconfirm --noconsole --onefile --icon="media/bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --add-data "media/bonkscanner_icon.ico;media" --add-data "media/settings_icon.png;media" main.py
 
 if errorlevel 1 (
     echo [ERROR] PyInstaller failed to build the executable.

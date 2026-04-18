@@ -42,10 +42,37 @@ def get_game_reset_time() -> float | None:
                 data = json.load(f)
                 quick_reset_time = data.get("cfGameSettings", {}).get("quick_reset_time")
                 if quick_reset_time is not None:
+                    # В конфиге игры хранится время без запаса. В нашей проге мы прибавляем 0.1 для надежности.
                     return float(quick_reset_time) + 0.1
     except Exception as e:
         print(f"Failed to read game config: {e}")
     return None
+
+def update_game_reset_time(game_val: float):
+    try:
+        user_profile = os.environ.get('USERPROFILE', '')
+        if not user_profile:
+            return
+            
+        game_dir = os.path.join(user_profile, "AppData", "LocalLow", "Ved", "Megabonk", "Saves", "LocalDir")
+        game_config_path = os.path.join(game_dir, "config.json")
+        
+        # Если папки или файла нет, мы не можем обновить конфиг игры
+        if not os.path.exists(game_config_path):
+            return
+            
+        with open(game_config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            
+        if "cfGameSettings" not in data:
+            data["cfGameSettings"] = {}
+            
+        data["cfGameSettings"]["quick_reset_time"] = game_val
+        
+        with open(game_config_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"Failed to update game config: {e}")
 
 # ==========================================
 # LOAD JSON CONFIG

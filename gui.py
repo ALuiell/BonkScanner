@@ -3,6 +3,7 @@ import sys
 import threading
 import time
 import datetime
+import subprocess
 import customtkinter as ctk
 from PIL import Image
 
@@ -50,7 +51,7 @@ class TemplateDialog(ctk.CTkToplevel):
         self.edit_template = edit_template
         
         # Set icon if available
-        icon_path = resource_path("bonkscanner_icon.ico")
+        icon_path = resource_path("media/bonkscanner_icon.ico")
         if os.path.exists(icon_path):
             self.after(200, lambda p=icon_path: self.iconbitmap(p))
         
@@ -173,7 +174,7 @@ class DeleteDialog(ctk.CTkToplevel):
         self.result = None
         
         # Set icon if available
-        icon_path = resource_path("bonkscanner_icon.ico")
+        icon_path = resource_path("media/bonkscanner_icon.ico")
         if os.path.exists(icon_path):
             self.after(200, lambda p=icon_path: self.iconbitmap(p))
         
@@ -198,7 +199,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.resizable(False, False)
         
         # Set icon if available
-        icon_path = resource_path("bonkscanner_icon.ico")
+        icon_path = resource_path("media/bonkscanner_icon.ico")
         if os.path.exists(icon_path):
             self.after(200, lambda p=icon_path: self.iconbitmap(p))
             
@@ -233,7 +234,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.update_btn.grid(row=4, column=0, columnspan=2, pady=10)
 
         # SAVE BUTTON
-        self.save_btn = ctk.CTkButton(self, text="Save and Restart", fg_color="#2FA572", hover_color="#106A43", command=self.save)
+        self.save_btn = ctk.CTkButton(self, text="Save", fg_color="#2FA572", hover_color="#106A43", command=self.save)
         self.save_btn.grid(row=5, column=0, columnspan=2, pady=10)
         
         self.transient(parent)
@@ -245,25 +246,50 @@ class SettingsDialog(ctk.CTkToplevel):
         self.destroy()
 
     def save(self):
-        config.user_config["HOTKEY"] = self.hotkey_entry.get()
-        config.user_config["RESET_HOTKEY"] = self.reset_hotkey_entry.get()
+        new_hotkey = self.hotkey_entry.get().strip()
+        new_reset_hotkey = self.reset_hotkey_entry.get().strip()
+        
+        # Update values in user_config
+        config.user_config["HOTKEY"] = new_hotkey
+        config.user_config["RESET_HOTKEY"] = new_reset_hotkey
+        
+        # Update module-level variables in config.py
+        config.HOTKEY = new_hotkey
+        config.RESET_HOTKEY = new_reset_hotkey
+        
         try:
-            config.user_config["MAP_LOAD_DELAY"] = float(self.map_load_delay_entry.get())
+            new_delay = float(self.map_load_delay_entry.get())
+            config.user_config["MAP_LOAD_DELAY"] = new_delay
+            config.MAP_LOAD_DELAY = new_delay
         except ValueError:
             pass # Keep old value if new one is invalid
             
         try:
-            config.user_config["RESET_HOLD_DURATION"] = float(self.reset_hold_duration_entry.get())
+            new_duration = float(self.reset_hold_duration_entry.get())
+            config.user_config["RESET_HOLD_DURATION"] = new_duration
+            config.RESET_HOLD_DURATION = new_duration
+            
+            # Attempt to automatically update the game config to match, minus 0.1 seconds
+            game_val = round(new_duration - 0.1, 2)
+            if game_val < 0:
+                game_val = 0.0
+            config.update_game_reset_time(game_val)
+            
+            if hasattr(self.master, 'log'):
+                self.master.log(f"[*] Set reset_hold to {new_duration}s. Game config set to {game_val}s.", tag="success")
         except ValueError:
             pass # Keep old value if new one is invalid
             
+        # Save to file
         config.save_config(config.user_config)
         
-        # Restart the application to apply changes
-        if hasattr(self.master, 'on_closing'):
-            self.master.on_closing(restart=True)
-        else:
-            self.destroy()
+        # Apply hotkey changes immediately without restart
+        if hasattr(self.master, 'setup_hotkeys'):
+            self.master.setup_hotkeys()
+            self.master.update_status_ui()
+            self.master.log("[*] Settings saved and applied successfully!", tag="success")
+            
+        self.destroy()
 
 
 class MegabonkApp(ctk.CTk):
@@ -300,7 +326,7 @@ class MegabonkApp(ctk.CTk):
         self.status_label = None
         self.toggle_btn = None
         
-        icon_path = resource_path("bonkscanner_icon.ico")
+        icon_path = resource_path("media/bonkscanner_icon.ico")
         if os.path.exists(icon_path):
             self.iconbitmap(icon_path)
         
@@ -372,7 +398,7 @@ class MegabonkApp(ctk.CTk):
         self.top_frame.grid_columnconfigure(0, weight=1)
         
         try:
-            icon_path = resource_path("bonkscanner_icon.ico")
+            icon_path = resource_path("media/bonkscanner_icon.ico")
             if os.path.exists(icon_path):
                 logo_image = ctk.CTkImage(light_image=Image.open(icon_path),
                                           dark_image=Image.open(icon_path),
@@ -475,7 +501,7 @@ class MegabonkApp(ctk.CTk):
         self.controls_frame.grid_columnconfigure(1, weight=1)
         
         # Загрузка изображения шестеренки
-        settings_icon_path = resource_path("settings_icon.png")
+        settings_icon_path = resource_path("media/settings_icon.png")
         if os.path.exists(settings_icon_path):
             settings_image = ctk.CTkImage(light_image=Image.open(settings_icon_path),
                                           dark_image=Image.open(settings_icon_path),
@@ -637,6 +663,8 @@ class MegabonkApp(ctk.CTk):
     def setup_hotkeys(self):
         if keyboard:
             try:
+                # Always remove existing hotkeys before adding a new one
+                keyboard.unhook_all()
                 keyboard.add_hotkey(config.HOTKEY, self.hotkey_toggle_scanning)
             except Exception as e:
                 self.log(f"Error binding hotkey {config.HOTKEY}: {e}", tag="error")
@@ -968,14 +996,10 @@ class MegabonkApp(ctk.CTk):
         self.is_ready_to_start = False
         self.after(0, self.update_status_ui)
 
-    def on_closing(self, restart=False):
+    def on_closing(self):
         self.stop_event.set()
         self.scan_event.set() # Ensure thread wakes up to exit
         self.close_client()
         if keyboard:
             keyboard.unhook_all()
         self.destroy()
-        
-        if restart:
-            # Relaunch the application
-            os.execl(sys.executable, sys.executable, *sys.argv)
