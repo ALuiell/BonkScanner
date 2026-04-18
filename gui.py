@@ -340,6 +340,14 @@ class MegabonkApp(ctk.CTk):
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")
         self.log(f"[*] Ready! Select templates and start the main process loop.")
 
+        # Check for updates AFTER the GUI has fully initialized and drawn
+        # 1500 ms (1.5 seconds) delay ensures the user sees the window instantly
+        self.after(1500, self.deferred_update_check)
+
+    def deferred_update_check(self):
+        """Checks for updates after the main window is already visible."""
+        threading.Thread(target=updater.check_and_update, args=(self, False), daemon=True).start()
+
     def check_admin_rights(self):
         if os.name == 'nt':
             import ctypes
