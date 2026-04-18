@@ -6,7 +6,7 @@ import threading
 import tkinter as tk
 from tkinter import messagebox
 
-CURRENT_VERSION = "1.0.2"  # Current version of your program
+CURRENT_VERSION = "1.0.3"  # Current version of your program
 
 GITHUB_REPO = "ALuiell/BonkScanner"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -30,6 +30,7 @@ def check_and_update(app_instance=None):
         release_data = response.json()
         
         latest_version = release_data.get("tag_name", "").lstrip("v")
+        release_notes = release_data.get("body", "No release notes provided.")
         
         exe_download_url = None
         for asset in release_data.get("assets", []):
@@ -45,13 +46,69 @@ def check_and_update(app_instance=None):
                     if not app_instance:
                         root.withdraw()
 
-                    result = messagebox.askyesno(
-                        "Update Available", 
-                        f"A new version (v{latest_version}) is available!\n\nWould you like to download and install it now?",
-                        parent=root if app_instance else None
-                    )
+                    # Create a custom dialog to show release notes
+                    dialog = tk.Toplevel(root)
+                    dialog.title("Update Available")
+                    dialog.geometry("500x400")
+                    dialog.resizable(False, False)
+                    dialog.configure(bg="#2b2b2b")
+                    dialog.transient(root)
+                    dialog.grab_set()
+
+                    # Center the dialog
+                    dialog.update_idletasks()
+                    x = root.winfo_x() + (root.winfo_width() // 2) - (500 // 2)
+                    y = root.winfo_y() + (root.winfo_height() // 2) - (400 // 2)
+                    dialog.geometry(f"+{x}+{y}")
+
+                    # Header
+                    header = tk.Label(dialog, text=f"A new version (v{latest_version}) is available!", 
+                                      font=("Arial", 14, "bold"), bg="#2b2b2b", fg="white")
+                    header.pack(pady=(20, 10))
+
+                    # Release Notes Text Area
+                    text_frame = tk.Frame(dialog, bg="#2b2b2b")
+                    text_frame.pack(fill="both", expand=True, padx=20, pady=5)
                     
-                    if result:
+                    scrollbar = tk.Scrollbar(text_frame)
+                    scrollbar.pack(side="right", fill="y")
+                    
+                    text_area = tk.Text(text_frame, wrap="word", yscrollcommand=scrollbar.set, 
+                                        bg="#1e1e1e", fg="#d4d4d4", font=("Consolas", 10), 
+                                        height=10, padx=10, pady=10)
+                    text_area.insert("1.0", release_notes)
+                    text_area.config(state="disabled") # Make read-only
+                    text_area.pack(side="left", fill="both", expand=True)
+                    scrollbar.config(command=text_area.yview)
+
+                    question = tk.Label(dialog, text="Would you like to download and install it now?", 
+                                        font=("Arial", 11), bg="#2b2b2b", fg="white")
+                    question.pack(pady=(10, 20))
+
+                    # Buttons
+                    btn_frame = tk.Frame(dialog, bg="#2b2b2b")
+                    btn_frame.pack(pady=(0, 20))
+
+                    result = [False]
+
+                    def on_yes():
+                        result[0] = True
+                        dialog.destroy()
+
+                    def on_no():
+                        dialog.destroy()
+
+                    yes_btn = tk.Button(btn_frame, text="Yes, Update", width=15, bg="#2FA572", fg="white", 
+                                        font=("Arial", 10, "bold"), relief="flat", cursor="hand2", command=on_yes)
+                    yes_btn.pack(side="left", padx=10)
+                    
+                    no_btn = tk.Button(btn_frame, text="Later", width=15, bg="#444444", fg="white", 
+                                       font=("Arial", 10), relief="flat", cursor="hand2", command=on_no)
+                    no_btn.pack(side="left", padx=10)
+
+                    dialog.wait_window()
+
+                    if result[0]:
                         if app_instance:
                             if hasattr(app_instance, 'log'):
                                 app_instance.log(f"[*] Downloading update v{latest_version}... Please wait.", tag="warning")
