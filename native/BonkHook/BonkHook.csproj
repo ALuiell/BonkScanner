@@ -14,10 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="..\..\libs\MinHook.x64.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-      <TargetPath>MinHook.x64.dll</TargetPath>
-    </Content>
+    <NativeLibrary Include="libs\libMinHook.x64.lib" />
+    <DirectPInvoke Include="MinHook.x64.dll" />
   </ItemGroup>
 </Project>
