@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,7 @@ class FakeNativeHookLoader(NativeHookLoader):
         self.process_name = "Megabonk.exe"
         self.dll_path = dll_path
         self._injected_pids: set[int] = set()
+        self._operation_lock = threading.RLock()
         self.pid = pid
         self.injected: list[int] = []
         self.remote_exports: list[tuple[int, bytes, int]] = []

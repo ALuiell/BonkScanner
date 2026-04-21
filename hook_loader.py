@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -69,6 +70,7 @@ class NativeHookLoader:
         self.process_name = process_name
         self.dll_path = self.resolve_dll_path(dll_path=dll_path, base_path=base_path)
         self._injected_pids: set[int] = set()
+        self._operation_lock = threading.RLock()
         self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         self._psapi = ctypes.WinDLL("psapi", use_last_error=True)
         self._configure_api()
@@ -87,26 +89,28 @@ class NativeHookLoader:
         return (root / cls.DEFAULT_RELATIVE_DLL).resolve()
 
     def inject_once(self) -> HookLoadResult:
-        if not self.dll_path.exists():
-            raise HookLoadError(f"Native hook DLL was not found: {self.dll_path}")
+        with self._operation_lock:
+            if not self.dll_path.exists():
+                raise HookLoadError(f"Native hook DLL was not found: {self.dll_path}")
 
-        pid = self._find_process_id()
-        if pid is None:
-            raise HookProcessNotFoundError(f"Waiting for process '{self.process_name}'.")
+            pid = self._find_process_id()
+            if pid is None:
+                raise HookProcessNotFoundError(f"Waiting for process '{self.process_name}'.")
 
-        if pid in self._injected_pids:
-            return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=True, skipped=True)
+            if pid in self._injected_pids:
+                return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=True, skipped=True)
 
-        self._inject_into_pid(pid)
-        self._injected_pids.add(pid)
-        return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=True)
+            self._inject_into_pid(pid)
+            self._injected_pids.add(pid)
+            return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=True)
 
     def request_restart_run(self) -> HookLoadResult:
-        result = self.inject_once()
-        exit_code = self._invoke_export_in_pid(result.pid, b"RequestRestartRun", 0)
-        if exit_code != 0:
-            raise HookLoadError(f"BonkHook RequestRestartRun failed with status {exit_code}.")
-        return result
+        with self._operation_lock:
+            result = self.inject_once()
+            exit_code = self._invoke_export_in_pid(result.pid, b"RequestRestartRun", 0)
+            if exit_code != 0:
+                raise HookLoadError(f"BonkHook RequestRestartRun failed with status {exit_code}.")
+            return result
 
     def try_inject_once(
         self,

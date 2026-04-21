@@ -1327,11 +1327,16 @@ class MegabonkApp(ctk.CTk):
             self.after(0, self.refresh_stats_ui)
 
     def reroll_map(self):
-        if keyboard is None:
+        if self.native_hook_loader is None:
+            self.log("[-] Native hook loader is not available; cannot request RestartRun.", tag="error")
             return
-        keyboard.press(config.RESET_HOTKEY)
-        time.sleep(config.RESET_HOLD_DURATION)
-        keyboard.release(config.RESET_HOTKEY)
+
+        try:
+            self.native_hook_loader.request_restart_run()
+        except HookLoadError as exc:
+            self.log(f"[-] Native RestartRun request failed: {exc}", tag="error")
+            return
+
         time.sleep(config.MAP_LOAD_DELAY)
         self.log_reroll_stats()
 
