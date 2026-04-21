@@ -1,9 +1,17 @@
+def normalize_microwaves(value: int | None) -> int:
+    if value is None or value < 1:
+        return 1
+    if value > 2:
+        return 2
+    return value
+
+
 def calculate_score(stats: dict, scores_config: dict) -> float:
     """Вычисляет балл карты на основе системы Scores."""
     shady = stats.get("Shady Guy", 0)
     moai = stats.get("Moais", 0)
     magnet = stats.get("Magnet Shrines", 0)
-    microwaves = stats.get("Microwaves", 0)
+    microwaves = normalize_microwaves(stats.get("Microwaves"))
 
     boss = stats.get("Boss Curses", 0)
     
@@ -32,7 +40,7 @@ def evaluate_map_by_scores(stats: dict, scores_config: dict) -> dict | None:
     shady = stats.get("Shady Guy", 0)
     moai = stats.get("Moais", 0)
     sm_total = shady + moai
-    microwaves = stats.get("Microwaves", 0)
+    microwaves = normalize_microwaves(stats.get("Microwaves"))
 
     boss = stats.get("Boss Curses", 0)
 
@@ -77,7 +85,7 @@ def find_matching_template(stats: dict, active_names: list, all_templates: list)
     """Return the first active template matched by the provided stats."""
     shady = stats.get("Shady Guy", 0)
     moai = stats.get("Moais", 0)
-    microwaves = stats.get("Microwaves", 0)
+    microwaves = normalize_microwaves(stats.get("Microwaves"))
 
     boss = stats.get("Boss Curses", 0)
     sm_total = shady + moai

@@ -1168,7 +1168,7 @@ class MegabonkApp(ctk.CTk):
     def format_stats(stats: dict) -> str:
         shady = stats.get("Shady Guy", 0)
         moai = stats.get("Moais", 0)
-        microwaves = stats.get("Microwaves", 0)
+        microwaves = logic.normalize_microwaves(stats.get("Microwaves"))
         boss = stats.get("Boss Curses", 0)
         magnet = stats.get("Magnet Shrines", 0)
         return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}, Magnet: {magnet}"
