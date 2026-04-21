@@ -7,8 +7,8 @@ namespace BonkHook;
 
 internal static unsafe class HookExports
 {
-    private const nuint AlwaysManagerUpdateOffset = 0x4EC430;
-    private const nuint MapControllerRestartRunOffset = 0x409890;
+    private const nuint AlwaysManagerUpdateOffset = 0x4F7520;
+    private const nuint MapControllerRestartRunOffset = 0x4220B0;
     private const int MH_OK = 0;
     private const int MH_ERROR_ALREADY_INITIALIZED = 1;
     private const int MH_ERROR_ENABLED = 5;
@@ -16,7 +16,7 @@ internal static unsafe class HookExports
     private static readonly byte[] ExpectedAlwaysManagerUpdateBytes =
     [
         0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83,
-        0xEC, 0x20, 0x80, 0x3D, 0x4A, 0x5A, 0xC7, 0x02,
+        0xEC, 0x20, 0x80, 0x3D, 0x64, 0xB8, 0xC7, 0x02,
     ];
 
     private static IntPtr _originalAlwaysManagerUpdate;
