@@ -90,8 +90,6 @@ class GameDataClient:
         "Shady Guy": MapStat.SHADY_GUY,
     }
     EXPECTED_READY_STATS = frozenset(LABEL_TO_STAT.values())
-    OPTIONAL_READY_STATS = frozenset({MapStat.CHALLENGES})
-    REQUIRED_READY_STATS = EXPECTED_READY_STATS.difference(OPTIONAL_READY_STATS)
 
     def __init__(
         self,
@@ -184,11 +182,12 @@ class GameDataClient:
             if previous_state is not None and previous_state.current_stage_ptr
             else None
         )
-        baseline_stats = previous_stats
+        baseline_stats = self._normalize_ready_stats(previous_stats) if previous_stats is not None else None
         stable_stats: dict[MapStat, StatValue] | None = None
+        ready_raw_stats: dict[MapStat, StatValue] | None = None
         stable_stats_seen = False
         last_stats_count = 0
-        missing_stats: set[MapStat] = set(self.REQUIRED_READY_STATS)
+        zero_defaulted_stats: set[MapStat] = set(self.EXPECTED_READY_STATS)
         last_state = MapGenerationState()
         last_error: Exception | None = None
 
@@ -218,11 +217,12 @@ class GameDataClient:
                     map_change_seen = True
 
                 stats = self.get_map_stats()
+                ready_stats = self._normalize_ready_stats(stats)
                 last_stats_count = len(stats)
-                missing_stats = self.REQUIRED_READY_STATS.difference(stats.keys())
+                zero_defaulted_stats = self.EXPECTED_READY_STATS.difference(stats.keys())
                 if baseline_stats is None:
-                    baseline_stats = stats
-                elif stats != baseline_stats:
+                    baseline_stats = ready_stats
+                elif ready_stats != baseline_stats:
                     map_change_seen = True
 
                 if (
@@ -232,15 +232,18 @@ class GameDataClient:
                     and last_state.has_loaded_map
                     and self._is_ready_stats(stats)
                 ):
-                    if stats == stable_stats:
-                        return stats
-                    stable_stats = stats
+                    if ready_stats == stable_stats and ready_raw_stats is not None:
+                        return ready_raw_stats
+                    stable_stats = ready_stats
+                    ready_raw_stats = stats
                     stable_stats_seen = True
                 else:
                     stable_stats = None
+                    ready_raw_stats = None
             except MemoryReadError as exc:
                 last_error = exc
                 stable_stats = None
+                ready_raw_stats = None
 
             time.sleep(poll_interval)
 
@@ -249,7 +252,7 @@ class GameDataClient:
             f"Last state: {last_state}. "
             f"change_seen={map_change_seen}, generation_seen={generation_seen}, "
             f"stats_count={last_stats_count}, "
-            f"missing_stats={self._format_missing_stats(missing_stats)}, "
+            f"zero_defaulted_stats={self._format_stats(zero_defaulted_stats)}, "
             f"stable_stats_seen={stable_stats_seen}."
         )
         if last_error is not None:
@@ -349,9 +352,18 @@ class GameDataClient:
             return 0
 
     def _is_ready_stats(self, stats: dict[MapStat, StatValue]) -> bool:
-        return self.REQUIRED_READY_STATS.issubset(stats.keys())
+        return bool(stats)
 
-    def _format_missing_stats(self, missing_stats: set[MapStat]) -> str:
-        if not missing_stats:
+    def _normalize_ready_stats(
+        self,
+        stats: dict[MapStat, StatValue],
+    ) -> dict[MapStat, StatValue]:
+        return {
+            stat: stats.get(stat, StatValue(current=0, max=0))
+            for stat in self.EXPECTED_READY_STATS
+        }
+
+    def _format_stats(self, stats: set[MapStat]) -> str:
+        if not stats:
             return "none"
-        return ",".join(sorted(stat.value for stat in missing_stats))
+        return ",".join(sorted(stat.value for stat in stats))
