@@ -1168,11 +1168,7 @@ class MegabonkApp(ctk.CTk):
     def format_stats(stats: dict) -> str:
         shady = stats.get("Shady Guy", 0)
         moai = stats.get("Moais", 0)
-        microwaves = stats.get("Microwaves", 1)
-        if microwaves < 1:
-            microwaves = 1
-        elif microwaves > 2:
-            microwaves = 2
+        microwaves = stats.get("Microwaves", 0)
         boss = stats.get("Boss Curses", 0)
         magnet = stats.get("Magnet Shrines", 0)
         return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}, Magnet: {magnet}"
@@ -1329,9 +1325,6 @@ class MegabonkApp(ctk.CTk):
             try:
                 stats = self.fetch_runtime_stats(self.client)
                 
-                # LOG STATS TO CSV BEFORE ANY CHECKS
-                logic.log_stats_to_csv(stats)
-
                 self.check_best_map(stats)
                 self.check_worst_map(stats)
                 

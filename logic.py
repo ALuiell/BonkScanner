@@ -1,17 +1,9 @@
-import os
-import datetime
-
 def calculate_score(stats: dict, scores_config: dict) -> float:
     """Вычисляет балл карты на основе системы Scores."""
     shady = stats.get("Shady Guy", 0)
     moai = stats.get("Moais", 0)
     magnet = stats.get("Magnet Shrines", 0)
-    
-    microwaves = stats.get("Microwaves", 1)
-    if microwaves < 1:
-        microwaves = 1
-    elif microwaves > 2:
-        microwaves = 2
+    microwaves = stats.get("Microwaves", 0)
 
     boss = stats.get("Boss Curses", 0)
     
@@ -40,11 +32,8 @@ def evaluate_map_by_scores(stats: dict, scores_config: dict) -> dict | None:
     shady = stats.get("Shady Guy", 0)
     moai = stats.get("Moais", 0)
     sm_total = shady + moai
-    
-    microwaves = stats.get("Microwaves", 1)
-    if microwaves < 1: microwaves = 1
-    elif microwaves > 2: microwaves = 2
-        
+    microwaves = stats.get("Microwaves", 0)
+
     boss = stats.get("Boss Curses", 0)
 
     # Определяем наивысший достигнутый тир
@@ -88,12 +77,7 @@ def find_matching_template(stats: dict, active_names: list, all_templates: list)
     """Return the first active template matched by the provided stats."""
     shady = stats.get("Shady Guy", 0)
     moai = stats.get("Moais", 0)
-    
-    microwaves = stats.get("Microwaves", 1)
-    if microwaves < 1:
-        microwaves = 1
-    elif microwaves > 2:
-        microwaves = 2
+    microwaves = stats.get("Microwaves", 0)
 
     boss = stats.get("Boss Curses", 0)
     sm_total = shady + moai
