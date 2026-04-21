@@ -90,6 +90,8 @@ class GameDataClient:
         "Shady Guy": MapStat.SHADY_GUY,
     }
     EXPECTED_READY_STATS = frozenset(LABEL_TO_STAT.values())
+    OPTIONAL_READY_STATS = frozenset({MapStat.CHALLENGES})
+    REQUIRED_READY_STATS = EXPECTED_READY_STATS.difference(OPTIONAL_READY_STATS)
 
     def __init__(
         self,
@@ -159,15 +161,34 @@ class GameDataClient:
         self,
         previous_seed: int | None = None,
         *,
+        previous_state: MapGenerationState | None = None,
         previous_stats: dict[MapStat, StatValue] | None = None,
         timeout: float = 10.0,
         poll_interval: float = 0.05,
     ) -> dict[MapStat, StatValue]:
         deadline = time.monotonic() + timeout
         generation_seen = False
-        map_change_seen = previous_seed is None
+        map_change_seen = False
+        baseline_seed = (
+            previous_state.map_seed
+            if previous_state is not None and previous_state.map_seed is not None
+            else previous_seed
+        )
+        baseline_map_ptr = (
+            previous_state.current_map_ptr
+            if previous_state is not None and previous_state.current_map_ptr
+            else None
+        )
+        baseline_stage_ptr = (
+            previous_state.current_stage_ptr
+            if previous_state is not None and previous_state.current_stage_ptr
+            else None
+        )
         baseline_stats = previous_stats
         stable_stats: dict[MapStat, StatValue] | None = None
+        stable_stats_seen = False
+        last_stats_count = 0
+        missing_stats: set[MapStat] = set(self.REQUIRED_READY_STATS)
         last_state = MapGenerationState()
         last_error: Exception | None = None
 
@@ -175,11 +196,30 @@ class GameDataClient:
             try:
                 last_state = self.get_map_generation_state()
                 generation_seen = generation_seen or last_state.is_generating
+                map_change_seen = map_change_seen or generation_seen
 
-                if previous_seed is not None and last_state.map_seed != previous_seed:
+                if (
+                    baseline_seed is not None
+                    and last_state.map_seed is not None
+                    and last_state.map_seed != baseline_seed
+                ):
+                    map_change_seen = True
+                if (
+                    baseline_map_ptr is not None
+                    and last_state.current_map_ptr
+                    and last_state.current_map_ptr != baseline_map_ptr
+                ):
+                    map_change_seen = True
+                if (
+                    baseline_stage_ptr is not None
+                    and last_state.current_stage_ptr
+                    and last_state.current_stage_ptr != baseline_stage_ptr
+                ):
                     map_change_seen = True
 
                 stats = self.get_map_stats()
+                last_stats_count = len(stats)
+                missing_stats = self.REQUIRED_READY_STATS.difference(stats.keys())
                 if baseline_stats is None:
                     baseline_stats = stats
                 elif stats != baseline_stats:
@@ -195,6 +235,7 @@ class GameDataClient:
                     if stats == stable_stats:
                         return stats
                     stable_stats = stats
+                    stable_stats_seen = True
                 else:
                     stable_stats = None
             except MemoryReadError as exc:
@@ -205,7 +246,11 @@ class GameDataClient:
 
         error_text = (
             f"Timed out waiting for map readiness after {timeout:.1f}s. "
-            f"Last state: {last_state}."
+            f"Last state: {last_state}. "
+            f"change_seen={map_change_seen}, generation_seen={generation_seen}, "
+            f"stats_count={last_stats_count}, "
+            f"missing_stats={self._format_missing_stats(missing_stats)}, "
+            f"stable_stats_seen={stable_stats_seen}."
         )
         if last_error is not None:
             error_text += f" Last memory error: {last_error}"
@@ -304,4 +349,9 @@ class GameDataClient:
             return 0
 
     def _is_ready_stats(self, stats: dict[MapStat, StatValue]) -> bool:
-        return self.EXPECTED_READY_STATS.issubset(stats.keys())
+        return self.REQUIRED_READY_STATS.issubset(stats.keys())
+
+    def _format_missing_stats(self, missing_stats: set[MapStat]) -> str:
+        if not missing_stats:
+            return "none"
+        return ",".join(sorted(stat.value for stat in missing_stats))

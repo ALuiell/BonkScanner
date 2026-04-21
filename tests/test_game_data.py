@@ -306,6 +306,26 @@ class GameDataClientTests(unittest.TestCase):
             stable_stats,
         )
 
+    def test_wait_for_map_ready_allows_missing_challenges(self) -> None:
+        ready_state = MapGenerationState(
+            is_generating=False,
+            map_seed=2,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        stable_stats = full_stats(current=1)
+        stable_stats.pop(MapStat.CHALLENGES)
+        client = SequencedGameDataClient(
+            states=[ready_state, ready_state],
+            stats_snapshots=[stable_stats, stable_stats],
+        )
+
+        self.assertEqual(
+            client.wait_for_map_ready(previous_seed=1, timeout=1.0, poll_interval=0.001),
+            stable_stats,
+        )
+
     def test_wait_for_map_ready_can_use_previous_stats_as_baseline(self) -> None:
         ready_state = MapGenerationState(
             is_generating=False,
@@ -330,6 +350,88 @@ class GameDataClientTests(unittest.TestCase):
             ),
             new_stats,
         )
+
+    def test_wait_for_map_ready_detects_pointer_change_without_seed_change(self) -> None:
+        previous_state = MapGenerationState(
+            is_generating=False,
+            map_seed=1,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        ready_state = MapGenerationState(
+            is_generating=False,
+            map_seed=1,
+            current_map_ptr=0x50000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        stable_stats = full_stats(current=1)
+        client = SequencedGameDataClient(
+            states=[ready_state, ready_state],
+            stats_snapshots=[stable_stats, stable_stats],
+        )
+
+        self.assertEqual(
+            client.wait_for_map_ready(
+                previous_state=previous_state,
+                previous_stats=stable_stats,
+                timeout=1.0,
+                poll_interval=0.001,
+            ),
+            stable_stats,
+        )
+
+    def test_wait_for_map_ready_times_out_when_ready_state_never_changes(self) -> None:
+        previous_state = MapGenerationState(
+            is_generating=False,
+            map_seed=1,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        stable_stats = full_stats(current=1)
+        client = SequencedGameDataClient(
+            states=[previous_state],
+            stats_snapshots=[stable_stats],
+        )
+
+        with self.assertRaisesRegex(TimeoutError, "change_seen=False"):
+            client.wait_for_map_ready(
+                previous_state=previous_state,
+                previous_stats=stable_stats,
+                timeout=0.01,
+                poll_interval=0.001,
+            )
+
+    def test_wait_for_map_ready_ignores_missing_seed_and_pointers_as_change(self) -> None:
+        previous_state = MapGenerationState(
+            is_generating=False,
+            map_seed=1,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        unreadable_state = MapGenerationState(
+            is_generating=False,
+            map_seed=None,
+            current_map_ptr=0,
+            current_stage_ptr=0,
+            is_resetting=False,
+        )
+        stable_stats = full_stats(current=1)
+        client = SequencedGameDataClient(
+            states=[unreadable_state],
+            stats_snapshots=[stable_stats],
+        )
+
+        with self.assertRaisesRegex(TimeoutError, "change_seen=False"):
+            client.wait_for_map_ready(
+                previous_state=previous_state,
+                previous_stats=stable_stats,
+                timeout=0.01,
+                poll_interval=0.001,
+            )
 
     def test_wait_for_map_ready_times_out_with_state(self) -> None:
         client = SequencedGameDataClient(
