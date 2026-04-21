@@ -74,7 +74,7 @@
         "PERFECT+"
     ],
     "SKIPPED_UPDATE_VERSION": "",
-    "EVALUATION_MODE": "templates",
+    "EVALUATION_MODE": "scores",
     "SCORES_SYSTEM": {
         "weights": {
             "moais": 3.0,

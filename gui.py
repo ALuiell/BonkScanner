@@ -15,6 +15,13 @@ from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from runtime_stats import adapt_map_stats
 
 try:
+    import win32gui
+    import win32process
+except ImportError:
+    win32gui = None
+    win32process = None
+
+try:
     import keyboard
 except ImportError:
     keyboard = None
@@ -1290,6 +1297,62 @@ class MegabonkApp(ctk.CTk):
                 pass
             self.client = None
 
+    def get_game_process_id(self) -> int | None:
+        if self.client is None:
+            return None
+
+        memory = getattr(self.client, "memory", None)
+        pymem_client = getattr(memory, "_pm", None)
+        process_id = getattr(pymem_client, "process_id", None)
+
+        try:
+            return int(process_id) if process_id else None
+        except (TypeError, ValueError):
+            return None
+
+    def is_game_window_active(self, process_name: str) -> bool:
+        if win32gui is None or win32process is None:
+            return True
+
+        foreground_window = win32gui.GetForegroundWindow()
+        if not foreground_window:
+            return False
+
+        game_process_id = self.get_game_process_id()
+        if game_process_id is not None:
+            try:
+                _, foreground_process_id = win32process.GetWindowThreadProcessId(foreground_window)
+                return int(foreground_process_id) == game_process_id
+            except Exception:
+                return False
+
+        try:
+            foreground_title = win32gui.GetWindowText(foreground_window) or ""
+        except Exception:
+            return False
+
+        expected_title = os.path.splitext(process_name)[0]
+        return bool(expected_title and expected_title.lower() in foreground_title.lower())
+
+    def wait_for_game_window_focus(self, process_name: str) -> bool:
+        if self.is_game_window_active(process_name):
+            return True
+
+        self.log("[WAIT] Game window is not active. Auto-reroll paused...", tag="warning")
+
+        while (
+            not self.stop_event.is_set()
+            and self.scan_event.is_set()
+            and not self.is_game_window_active(process_name)
+        ):
+            time.sleep(0.3)
+
+        if self.stop_event.is_set() or not self.scan_event.is_set():
+            return False
+
+        self.log("[+] Game window active again. Auto-reroll resumed.", tag="success")
+        return True
+
     def background_loop(self):
         process_name = config.PROCESS_NAME.strip()
         wait_state = None
@@ -1323,6 +1386,9 @@ class MegabonkApp(ctk.CTk):
                 break
                 
             try:
+                if not self.wait_for_game_window_focus(process_name):
+                    continue
+
                 stats = self.fetch_runtime_stats(self.client)
                 
                 self.check_best_map(stats)
@@ -1338,6 +1404,9 @@ class MegabonkApp(ctk.CTk):
                 if candidate is not None:
                     self.log("[*] Candidate map found. Confirming...", tag="warning")
                     time.sleep(0.15)
+
+                    if not self.wait_for_game_window_focus(process_name):
+                        continue
                     
                     confirmed_stats = self.fetch_runtime_stats(self.client)
                     self.check_best_map(confirmed_stats)
@@ -1361,6 +1430,8 @@ class MegabonkApp(ctk.CTk):
                         self.log_target_found(t_name)
                         
                         if keyboard:
+                            if not self.wait_for_game_window_focus(process_name):
+                                continue
                             keyboard.press_and_release("esc")
                             
                         self.is_running = False
@@ -1371,6 +1442,9 @@ class MegabonkApp(ctk.CTk):
                         self.log(f"[-] Confirmation failed. {self.format_stats(confirmed_stats)} ... Reseting")
                 else:
                     self.log(f"Stats: {self.format_stats(stats)} ... Reseting")
+
+                if not self.wait_for_game_window_focus(process_name):
+                    continue
 
                 self.reroll_map()
                 
