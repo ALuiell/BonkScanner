@@ -1331,13 +1331,33 @@ class MegabonkApp(ctk.CTk):
             self.log("[-] Native hook loader is not available; cannot request RestartRun.", tag="error")
             return
 
+        previous_seed = None
+        previous_stats = None
+        if self.client is not None:
+            try:
+                previous_seed = self.client.get_map_generation_state().map_seed
+                previous_stats = self.client.get_map_stats()
+            except MemoryReadError as exc:
+                self.log(f"[WAIT] Could not read current map state before restart: {exc}", tag="warning")
+
         try:
             self.native_hook_loader.request_restart_run()
         except HookLoadError as exc:
             self.log(f"[-] Native RestartRun request failed: {exc}", tag="error")
             return
 
-        time.sleep(config.MAP_LOAD_DELAY)
+        if self.client is not None:
+            try:
+                self.client.wait_for_map_ready(
+                    previous_seed=previous_seed,
+                    previous_stats=previous_stats,
+                )
+            except (TimeoutError, MemoryReadError) as exc:
+                self.log(f"[WAIT] Map readiness polling failed; using fallback delay: {exc}", tag="warning")
+                time.sleep(config.MAP_LOAD_DELAY)
+        else:
+            time.sleep(config.MAP_LOAD_DELAY)
+
         self.log_reroll_stats()
 
     def close_client(self):
