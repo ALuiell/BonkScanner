@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import messagebox
 import config
 
-CURRENT_VERSION = "1.0.4"  # Current version of your program
+CURRENT_VERSION = "1.0.5"  # Current version of your program
 
 GITHUB_REPO = "ALuiell/BonkScanner"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
