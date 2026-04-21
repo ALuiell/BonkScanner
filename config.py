@@ -24,6 +24,30 @@ DEFAULT_TEMPLATES = [
     {"id": 7, "name": "BOSS RUSH+", "color": "MAGENTA", "desc": "Boss: 7+", "boss": 7}
 ]
 
+DEFAULT_SCORES_SYSTEM = {
+    "manual_thresholds": False,
+    "base_target_score": 30.0,
+    "weights": {
+      "moais": 3.0,
+      "shady": 2.0,
+      "boss": 1.0,
+      "magnet": 0.5
+    },
+    "multipliers": {
+      "microwave": {
+        "1": 1.0,
+        "2": 1.25
+      }
+    },
+    "thresholds": {
+      "Light": 14.0,
+      "Good": 20.0,
+      "Perfect": 25.0,
+      "Perfect+": 30.0
+    },
+    "active_tiers": ["Light", "Good", "Perfect", "Perfect+"]
+}
+
 # ==========================================
 # GAME CONFIG PARSER
 # ==========================================
@@ -42,7 +66,7 @@ def get_game_reset_time() -> float | None:
                 data = json.load(f)
                 quick_reset_time = data.get("cfGameSettings", {}).get("quick_reset_time")
                 if quick_reset_time is not None:
-                    # В конфиге игры хранится время без запаса. В нашей проге мы прибавляем 0.1 для надежности.
+                    # The game's config stores the time without a safety margin. In our app, we add 0.1s for reliability.
                     return float(quick_reset_time) + 0.1
     except Exception as e:
         pass
@@ -57,7 +81,7 @@ def update_game_reset_time(game_val: float):
         game_dir = os.path.join(user_profile, "AppData", "LocalLow", "Ved", "Megabonk", "Saves", "LocalDir")
         game_config_path = os.path.join(game_dir, "config.json")
         
-        # Если папки или файла нет, мы не можем обновить конфиг игры
+        # If the folders or file don't exist, we cannot update the game's config
         if not os.path.exists(game_config_path):
             return
             
@@ -125,6 +149,42 @@ if ACTIVE_TEMPLATES is None:
     ACTIVE_TEMPLATES = [t["name"] for t in TEMPLATES]
 
 
+EVALUATION_MODE = user_config.get("EVALUATION_MODE", "templates")
+SCORES_SYSTEM = user_config.get("SCORES_SYSTEM", DEFAULT_SCORES_SYSTEM)
+if not SCORES_SYSTEM:
+    SCORES_SYSTEM = DEFAULT_SCORES_SYSTEM
+
+# Populate missing default keys for scores system from older config versions
+for key, value in DEFAULT_SCORES_SYSTEM.items():
+    if key not in SCORES_SYSTEM:
+        SCORES_SYSTEM[key] = value
+
+def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) -> dict:
+    """Calculate scaled thresholds based on the reference map scale factor."""
+    w_moai = current_weights.get("moais", 3.0)
+    w_shady = current_weights.get("shady", 2.0)
+    w_boss = current_weights.get("boss", 1.0)
+    w_magnet = current_weights.get("magnet", 0.5)
+    
+    m_2 = current_multipliers.get("microwave", {}).get("2", 1.25)
+    
+    # Reference map with its new score (moai=3, shady=3, boss=2, magnet=2, microwave=2)
+    # min(magnet, 2) is applied within the logic. For reference, magnet=2 means 2.
+    new_score_ref = (3 * w_moai + 3 * w_shady + 2 * w_boss + 2 * w_magnet) * m_2
+    
+    # Base score of the reference map in the old model = 22.5
+    base_score_ref = 22.5
+    
+    # Scaling factor
+    scale_factor = new_score_ref / base_score_ref
+    
+    return {
+        "Light": round(14.0 * scale_factor, 1),
+        "Good": round(20.0 * scale_factor, 1),
+        "Perfect": round(25.0 * scale_factor, 1),
+        "Perfect+": round(30.0 * scale_factor, 1)
+    }
+
 # Update user_config object so that mutations to it are saved properly
 user_config["MAP_LOAD_DELAY"] = MAP_LOAD_DELAY
 user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
@@ -135,6 +195,9 @@ user_config["PROCESS_NAME"] = PROCESS_NAME
 user_config["TEMPLATES"] = TEMPLATES
 user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
 user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION
+user_config["EVALUATION_MODE"] = EVALUATION_MODE
+user_config["SCORES_SYSTEM"] = SCORES_SYSTEM
+
 
 # If the config.json file did not exist initially (or did not contain TEMPLATES),
 # we immediately save the current structure to disk so that the user has something to edit.

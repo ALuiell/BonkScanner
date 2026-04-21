@@ -113,7 +113,7 @@ class TemplateDialog(ctk.CTkToplevel):
         self.save_btn = ctk.CTkButton(self, text="Save Template", command=self.save, fg_color="#2FA572", hover_color="#106A43")
         self.save_btn.grid(row=6, column=0, columnspan=2, pady=20)
         
-        # Сделать окно модальным
+        # Make modal
         self.transient(parent)
         self.grab_set()
 
@@ -148,7 +148,6 @@ class TemplateDialog(ctk.CTkToplevel):
             "boss": get_int(self.boss_entry)
         }
         
-        # "поиск совпадений по шаблону происходил только по кол-ву S и M отдельно"
         # Drop sm_total if 0 or if individual values are defined so logic handles explicit shady/moai cleanly
         s = self.result["shady"]
         m = self.result["moai"]
@@ -164,6 +163,217 @@ class TemplateDialog(ctk.CTkToplevel):
             
         self.destroy()
 
+class ScoresSettingsDialog(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.title("Scores Settings")
+        self.geometry("420x650")
+        self.resizable(False, False)
+        
+        icon_path = resource_path("media/bonkscanner_icon.ico")
+        if os.path.exists(icon_path):
+            self.after(200, lambda p=icon_path: self.iconbitmap(p))
+            
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        
+        # Create a scrollable frame for the entire window
+        self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_frame.grid(row=0, column=0, sticky="nsew")
+        self.scroll_frame.grid_columnconfigure(1, weight=1)
+
+        self.row_idx = 0
+        
+        # ACTIVE TIERS
+        ctk.CTkLabel(self.scroll_frame, text="Active Tiers:", font=ctk.CTkFont(weight="bold")).grid(row=self.row_idx, column=0, columnspan=2, pady=(10, 5), sticky="w", padx=10)
+        self.row_idx += 1
+        
+        self.tier_vars = {}
+        for tier in ["Light", "Good", "Perfect", "Perfect+"]:
+            var = ctk.BooleanVar(value=tier in config.SCORES_SYSTEM.get("active_tiers", []))
+            cb = ctk.CTkCheckBox(self.scroll_frame, text=tier, variable=var)
+            cb.grid(row=self.row_idx, column=0, columnspan=2, padx=20, pady=2, sticky="w")
+            self.tier_vars[tier] = var
+            self.row_idx += 1
+
+        # THRESHOLDS CONFIGURATION
+        ctk.CTkLabel(self.scroll_frame, text="Thresholds:", font=ctk.CTkFont(weight="bold")).grid(row=self.row_idx, column=0, columnspan=2, pady=(15, 5), sticky="w", padx=10)
+        self.row_idx += 1
+        
+        # Mode Switch
+        self.manual_thresholds_var = ctk.BooleanVar(value=config.SCORES_SYSTEM.get("manual_thresholds", False))
+        self.manual_cb = ctk.CTkCheckBox(self.scroll_frame, text="Manual Thresholds", variable=self.manual_thresholds_var, command=self.toggle_thresholds_mode)
+        self.manual_cb.grid(row=self.row_idx, column=0, columnspan=2, padx=20, pady=5, sticky="w")
+        self.row_idx += 1
+
+        self.threshold_entries = {}
+        thresholds = config.SCORES_SYSTEM.get("thresholds", {})
+        for tier in ["Light", "Good", "Perfect", "Perfect+"]:
+            lbl = ctk.CTkLabel(self.scroll_frame, text=f"{tier}:")
+            lbl.grid(row=self.row_idx, column=0, padx=30, pady=2, sticky="w")
+            entry = ctk.CTkEntry(self.scroll_frame, width=100)
+            entry.insert(0, str(thresholds.get(tier, 0)))
+            entry.grid(row=self.row_idx, column=1, padx=10, pady=2, sticky="w")
+            self.threshold_entries[tier] = entry
+            self.row_idx += 1
+            
+        # WEIGHTS
+        ctk.CTkLabel(self.scroll_frame, text="Weights:", font=ctk.CTkFont(weight="bold")).grid(row=self.row_idx, column=0, columnspan=2, pady=(15, 5), sticky="w", padx=10)
+        self.row_idx += 1
+        
+        self.weight_entries = {}
+        self.weight_vars = {}
+        weights = config.SCORES_SYSTEM.get("weights", {})
+        for key in ["moais", "shady", "boss", "magnet"]:
+            ctk.CTkLabel(self.scroll_frame, text=f"{key.capitalize()}:").grid(row=self.row_idx, column=0, padx=20, pady=2, sticky="w")
+            entry = ctk.CTkEntry(self.scroll_frame, width=100)
+            entry.insert(0, str(weights.get(key, 0)))
+            entry.grid(row=self.row_idx, column=1, padx=10, pady=2, sticky="w")
+            
+            var = ctk.StringVar(value=entry.get())
+            entry.configure(textvariable=var)
+            var.trace_add("write", self.auto_update_thresholds)
+            self.weight_vars[key] = var
+            self.weight_entries[key] = entry
+            self.row_idx += 1
+            
+        # MULTIPLIERS
+        ctk.CTkLabel(self.scroll_frame, text="Microwave Multipliers:", font=ctk.CTkFont(weight="bold")).grid(row=self.row_idx, column=0, columnspan=2, pady=(15, 5), sticky="w", padx=10)
+        self.row_idx += 1
+        
+        self.mult_entries = {}
+        self.mult_vars = {}
+        multipliers = config.SCORES_SYSTEM.get("multipliers", {}).get("microwave", {})
+        for key in ["1", "2"]:
+            ctk.CTkLabel(self.scroll_frame, text=f"{key} Microwave(s):").grid(row=self.row_idx, column=0, padx=20, pady=2, sticky="w")
+            entry = ctk.CTkEntry(self.scroll_frame, width=100)
+            entry.insert(0, str(multipliers.get(key, 1.0)))
+            entry.grid(row=self.row_idx, column=1, padx=10, pady=2, sticky="w")
+            
+            var = ctk.StringVar(value=entry.get())
+            entry.configure(textvariable=var)
+            var.trace_add("write", self.auto_update_thresholds)
+            self.mult_vars[key] = var
+            self.mult_entries[key] = entry
+            self.row_idx += 1
+
+        # BUTTONS
+        self.buttons_frame = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
+        self.buttons_frame.grid(row=self.row_idx, column=0, columnspan=2, pady=20)
+        
+        self.reset_btn = ctk.CTkButton(self.buttons_frame, text="Reset to Defaults", command=self.reset_to_defaults, fg_color="#b30000", hover_color="#800000", width=140)
+        self.reset_btn.grid(row=0, column=0, padx=10)
+
+        self.save_btn = ctk.CTkButton(self.buttons_frame, text="Save Settings", command=self.save, fg_color="#2FA572", hover_color="#106A43", width=140)
+        self.save_btn.grid(row=0, column=1, padx=10)
+        
+        self.toggle_thresholds_mode() # Initialize state
+        
+        self.transient(parent)
+        self.grab_set()
+
+    def reset_to_defaults(self):
+        default_sys = config.DEFAULT_SCORES_SYSTEM
+            
+        # Reset Manual mode
+        self.manual_thresholds_var.set(default_sys["manual_thresholds"])
+        
+        # Reset Weights
+        for key in ["moais", "shady", "boss", "magnet"]:
+            self.weight_vars[key].set(str(default_sys["weights"].get(key, 0)))
+            
+        # Reset Multipliers
+        for key in ["1", "2"]:
+            self.mult_vars[key].set(str(default_sys["multipliers"]["microwave"].get(key, 1.0)))
+            
+        # Reset Thresholds
+        self.toggle_thresholds_mode() # this will re-enable manual threshold entries if needed
+        for tier in ["Light", "Good", "Perfect", "Perfect+"]:
+            if self.manual_thresholds_var.get():
+                 self.threshold_entries[tier].configure(state="normal")
+            self.threshold_entries[tier].delete(0, 'end')
+            self.threshold_entries[tier].insert(0, str(default_sys["thresholds"].get(tier, 0)))
+            
+        # Ensure auto update logic finishes state sync
+        self.toggle_thresholds_mode() 
+        
+    def auto_update_thresholds(self, *_):
+        if self.manual_thresholds_var.get():
+            return
+            
+        try:
+            current_weights = {}
+            for key, var in self.weight_vars.items():
+                val = var.get().strip()
+                if val: current_weights[key] = float(val)
+                else: current_weights[key] = 0.0
+
+            current_mults = {"microwave": {}}
+            for key, var in self.mult_vars.items():
+                val = var.get().strip()
+                if val: current_mults["microwave"][key] = float(val)
+                else: current_mults["microwave"][key] = 1.0
+
+            scaled = config.calculate_auto_thresholds(current_weights, current_mults)
+            
+            for tier, entry in self.threshold_entries.items():
+                entry.configure(state="normal")
+                entry.delete(0, 'end')
+                entry.insert(0, str(scaled.get(tier, 0)))
+                entry.configure(state="disabled")
+        except ValueError:
+            pass
+
+    def toggle_thresholds_mode(self):
+        is_manual = self.manual_thresholds_var.get()
+        if is_manual:
+            for entry in self.threshold_entries.values():
+                entry.configure(state="normal")
+        else:
+            for entry in self.threshold_entries.values():
+                entry.configure(state="disabled")
+            self.auto_update_thresholds()
+        
+    def save(self):
+        is_manual = self.manual_thresholds_var.get()
+            
+        thresholds = {}
+        for tier, entry in self.threshold_entries.items():
+            # If in auto mode, temporarily enable to read the value correctly just in case
+            if not is_manual:
+                entry.configure(state="normal")
+            try: thresholds[tier] = float(entry.get())
+            except ValueError: thresholds[tier] = config.SCORES_SYSTEM["thresholds"].get(tier, 0)
+            if not is_manual:
+                entry.configure(state="disabled")
+            
+        weights = {}
+        for key, entry in self.weight_entries.items():
+            try: weights[key] = float(entry.get())
+            except ValueError: weights[key] = config.SCORES_SYSTEM["weights"].get(key, 0)
+            
+        multipliers = {}
+        for key, entry in self.mult_entries.items():
+            try: multipliers[key] = float(entry.get())
+            except ValueError: multipliers[key] = config.SCORES_SYSTEM["multipliers"]["microwave"].get(key, 1.0)
+            
+        config.SCORES_SYSTEM["manual_thresholds"] = is_manual
+        config.SCORES_SYSTEM["thresholds"] = thresholds
+        config.SCORES_SYSTEM["weights"] = weights
+        config.SCORES_SYSTEM["multipliers"]["microwave"] = multipliers
+        
+        config.user_config["SCORES_SYSTEM"] = config.SCORES_SYSTEM
+        config.save_config(config.user_config)
+        
+        if hasattr(self.master, 'log'):
+            self.master.log("[*] Scores settings saved!", tag="success")
+            
+        # If active mode is scores, refresh the checkbox active states in case they changed
+        if config.EVALUATION_MODE == "scores":
+            if hasattr(self.master, 'refresh_scores_templates_list'):
+                self.master.refresh_scores_templates_list()
+        
+        self.destroy()
 
 class DeleteDialog(ctk.CTkToplevel):
     def __init__(self, parent, custom_templates):
@@ -301,12 +511,25 @@ class MegabonkApp(ctk.CTk):
         # Initialize attributes that might be flagged as defined outside __init__
         self.top_frame = None
         self.logo_label = None
-        self.templates_frame = None
+        
+        self.left_frame = None
+        self.left_tabview = None
+        self.tab_templates = None
+        self.tab_scores = None
+        
         self.scrollable_templates = None
         self.template_btns_frame = None
         self.add_btn = None
         self.edit_btn = None
         self.del_btn = None
+        
+        self.scores_templates_frame = None
+        self.scores_scroll_desc = None
+        self.scores_desc_label = None
+        self.scores_btns_frame = None
+        self.edit_scores_btn = None
+        self.scores_separator = None
+        
         self.right_frame = None
         self.tabview = None
         self.tab_logs = None
@@ -334,6 +557,7 @@ class MegabonkApp(ctk.CTk):
         self.scanner_thread = None
         self.client = None
         self.checkboxes = {}
+        self.scores_checkboxes = {}
         
         self.animation_active = False
         self.animation_frame = 0
@@ -354,6 +578,8 @@ class MegabonkApp(ctk.CTk):
         
         self.setup_ui()
         self.refresh_templates()
+        self.refresh_scores_templates_list()
+        self.refresh_scores_ui()
         self.setup_hotkeys()
         
         # Timer for updating elapsed time
@@ -385,9 +611,9 @@ class MegabonkApp(ctk.CTk):
                 self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
 
     def setup_ui(self):
-        # Configure layout grid. Wide left panel and wide right panel
-        self.grid_columnconfigure(0, weight=3) # Wide left panel
-        self.grid_columnconfigure(1, weight=5) 
+        # Configure layout grid. Equal weight for left and right panels
+        self.grid_columnconfigure(0, weight=1) 
+        self.grid_columnconfigure(1, weight=1) 
         self.grid_rowconfigure(1, weight=1)
         
         # --- Top Bar (Logo) ---
@@ -413,30 +639,75 @@ class MegabonkApp(ctk.CTk):
                                            font=ctk.CTkFont(size=24, weight="bold"))
             self.logo_label.grid(row=0, column=0, pady=5)
 
-        # --- Left Panel: Templates ---
-        self.templates_frame = ctk.CTkFrame(self)
-        self.templates_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
-        self.templates_frame.grid_rowconfigure(1, weight=1)
-        self.templates_frame.grid_columnconfigure(0, weight=1)
+        # --- Left Panel ---
+        self.left_frame = ctk.CTkFrame(self)
+        self.left_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
+        self.left_frame.grid_rowconfigure(0, weight=1)
+        self.left_frame.grid_columnconfigure(0, weight=1)
+
+        self.left_tabview = ctk.CTkTabview(self.left_frame, command=self.on_left_tab_changed)
+        self.left_tabview.grid(row=0, column=0, padx=10, pady=(0, 10), sticky="nsew")
         
-        title_label = ctk.CTkLabel(self.templates_frame, text="Monitoring Profiles", font=ctk.CTkFont(size=16, weight="bold"))
-        title_label.grid(row=0, column=0, padx=10, pady=(10, 5))
+        self.tab_templates = self.left_tabview.add("Templates")
+        self.tab_scores = self.left_tabview.add("Scores")
         
-        self.scrollable_templates = ctk.CTkScrollableFrame(self.templates_frame)
-        self.scrollable_templates.grid(row=1, column=0, padx=5, pady=5, sticky="nsew")
+        # Select active tab based on config
+        if config.EVALUATION_MODE == "scores":
+            self.left_tabview.set("Scores")
+        else:
+            self.left_tabview.set("Templates")
+            
+        # -- Templates Tab Setup --
+        self.tab_templates.grid_rowconfigure(0, weight=1)
+        self.tab_templates.grid_columnconfigure(0, weight=1)
         
-        # Template Control Buttons
-        self.template_btns_frame = ctk.CTkFrame(self.templates_frame, fg_color="transparent")
-        self.template_btns_frame.grid(row=2, column=0, pady=10)
+        self.scrollable_templates = ctk.CTkScrollableFrame(self.tab_templates, fg_color="transparent")
+        self.scrollable_templates.grid(row=0, column=0, sticky="nsew")
+        
+        # Buttons frame (moved to left_frame)
+        self.template_btns_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
+        self.template_btns_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
+        self.template_btns_frame.grid_columnconfigure((0, 4), weight=1)
         
         self.add_btn = ctk.CTkButton(self.template_btns_frame, text="+ Add", width=60, command=self.add_template_dialog)
-        self.add_btn.grid(row=0, column=0, padx=5)
+        self.add_btn.grid(row=0, column=1, padx=5)
         
         self.edit_btn = ctk.CTkButton(self.template_btns_frame, text="✎ Edit", width=60, command=self.edit_template_dialog)
-        self.edit_btn.grid(row=0, column=1, padx=5)
+        self.edit_btn.grid(row=0, column=2, padx=5)
         
         self.del_btn = ctk.CTkButton(self.template_btns_frame, text="- Delete", width=60, fg_color="#b30000", hover_color="#800000", command=self.del_template_dialog)
-        self.del_btn.grid(row=0, column=2, padx=5)
+        self.del_btn.grid(row=0, column=3, padx=5)
+        
+        # -- Scores Tab Setup --
+        self.tab_scores.grid_rowconfigure(2, weight=1) # Row 2 is the scrollable desc frame
+        self.tab_scores.grid_columnconfigure(0, weight=1)
+        
+        self.scores_templates_frame = ctk.CTkFrame(self.tab_scores, fg_color="transparent")
+        self.scores_templates_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+        
+        self.scores_separator = ctk.CTkFrame(self.tab_scores, height=2, fg_color=("gray70", "gray30"))
+        self.scores_separator.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
+        
+        self.scores_scroll_desc = ctk.CTkScrollableFrame(self.tab_scores, fg_color="transparent")
+        self.scores_scroll_desc.grid(row=2, column=0, sticky="nsew")
+        self.scores_scroll_desc.grid_columnconfigure(0, weight=1)
+        
+        self.scores_desc_label = ctk.CTkLabel(self.scores_scroll_desc, text="", justify="left", font=ctk.CTkFont(size=13))
+        self.scores_desc_label.grid(row=0, column=0, sticky="nw", padx=10, pady=10)
+        
+        # Scores buttons frame (moved to left_frame)
+        self.scores_btns_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
+        self.scores_btns_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
+        self.scores_btns_frame.grid_columnconfigure((0, 2), weight=1)
+        
+        self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text="⚙ Edit Settings", command=self.open_scores_settings_dialog)
+        self.edit_scores_btn.grid(row=0, column=1)
+
+        # Ensure correct buttons are visible initially
+        if config.EVALUATION_MODE == "scores":
+            self.template_btns_frame.grid_remove()
+        else:
+            self.scores_btns_frame.grid_remove()
         
         # --- Right Panel: Logs, Stats & Controls ---
         self.right_frame = ctk.CTkFrame(self)
@@ -446,7 +717,7 @@ class MegabonkApp(ctk.CTk):
         
         # TabView for Logs and Stats
         self.tabview = ctk.CTkTabview(self.right_frame)
-        self.tabview.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        self.tabview.grid(row=0, column=0, padx=10, pady=(0, 10), sticky="nsew")
         
         self.tab_logs = self.tabview.add("Logs")
         self.tab_stats = self.tabview.add("Session Stats")
@@ -523,6 +794,100 @@ class MegabonkApp(ctk.CTk):
         )
         self.toggle_btn.grid(row=0, column=2, sticky="e")
 
+    def on_left_tab_changed(self):
+        tab_name = self.left_tabview.get()
+        config.EVALUATION_MODE = "scores" if tab_name == "Scores" else "templates"
+        config.user_config["EVALUATION_MODE"] = config.EVALUATION_MODE
+        config.save_config(config.user_config)
+        self.log(f"[*] Switched to {config.EVALUATION_MODE} mode.")
+        
+        if tab_name == "Scores":
+            self.template_btns_frame.grid_remove()
+            self.scores_btns_frame.grid()
+        else:
+            self.scores_btns_frame.grid_remove()
+            self.template_btns_frame.grid()
+
+    def refresh_scores_templates_list(self):
+        for widget in self.scores_templates_frame.winfo_children():
+            widget.destroy()
+            
+        self.scores_checkboxes.clear()
+        
+        active_tiers = config.SCORES_SYSTEM.get("active_tiers", [])
+        colors = {
+            "Light": "WHITE",
+            "Good": "GREEN",
+            "Perfect": "YELLOW",
+            "Perfect+": "LIGHTRED_EX"
+        }
+        
+        for tier in ["Light", "Good", "Perfect", "Perfect+"]:
+            is_checked = tier in active_tiers
+            cb_var = ctk.BooleanVar(value=is_checked)
+            
+            # Using partial to correctly capture current 'tier' variable
+            from functools import partial
+            def save_scores_active(t, *_):
+                var = self.scores_checkboxes[t]
+                active = config.SCORES_SYSTEM.get("active_tiers", [])
+                if var.get() and t not in active:
+                    active.append(t)
+                elif not var.get() and t in active:
+                    active.remove(t)
+                config.SCORES_SYSTEM["active_tiers"] = active
+                config.user_config["SCORES_SYSTEM"] = config.SCORES_SYSTEM
+                config.save_config(config.user_config)
+                self.refresh_scores_ui()
+                
+            cb_var.trace_add("write", partial(save_scores_active, tier))
+            
+            color_name = colors.get(tier, "WHITE")
+            hex_color = COLOR_MAP.get(color_name, COLOR_MAP["DEFAULT"])
+            
+            cb = ctk.CTkCheckBox(
+                self.scores_templates_frame,
+                text=tier,
+                variable=cb_var,
+                font=ctk.CTkFont(size=13),
+                text_color=hex_color
+            )
+            cb.pack(anchor="w", padx=10, pady=6)
+            self.scores_checkboxes[tier] = cb_var
+
+    def refresh_scores_ui(self):
+        s = config.SCORES_SYSTEM
+        desc = "Current Scores Settings:\n\n"
+        
+        desc += "Thresholds:\n"
+        
+        mode_text = "(Manual)" if s.get("manual_thresholds") else "(Auto-scaled)"
+        desc += f"Mode: {mode_text}\n"
+        
+        for k, v in s.get("thresholds", {}).items():
+            if k in s.get("active_tiers", []):
+                desc += f"  • {k}: {v}+\n"
+            
+        desc += "\nWeights:\n"
+        for k, v in s.get("weights", {}).items():
+            desc += f"  • {k.capitalize()}: {v}\n"
+            
+        desc += "\nMicrowave Multiplier:\n"
+        desc += f"  • 1 Microwave: x{s.get('multipliers', {}).get('microwave', {}).get('1', 1.0)}\n"
+        desc += f"  • 2 Microwaves: x{s.get('multipliers', {}).get('microwave', {}).get('2', 1.25)}\n"
+        
+        desc += "\nSpecial Rules:\n"
+        desc += "  • Perfect+ requires 2+ Microwaves.\n"
+        desc += "  • Perfect requires either 2+ Microwaves,\n    OR 1 Microwave + S+M≥8 + Boss≥2."
+            
+        self.scores_desc_label.configure(text=desc)
+
+    def open_scores_settings_dialog(self):
+        dialog = ScoresSettingsDialog(self)
+        self.wait_window(dialog)
+        self.refresh_scores_templates_list()
+        self.refresh_scores_ui()
+
     def save_checkbox_state(self, *_):
         # Called when any checkbox is toggled
         active = [name for name, var in self.checkboxes.items() if var.get()]
@@ -536,7 +901,7 @@ class MegabonkApp(ctk.CTk):
         
         self.checkboxes.clear()
         for t in config.TEMPLATES:
-            # Сборка описания статов
+            # Assembly of stats description
             parts = []
             sm_total = t.get("sm_total", 0)
             shady = t.get("shady", 0)
@@ -731,34 +1096,47 @@ class MegabonkApp(ctk.CTk):
 
     def toggle_main_loop(self):
         if self.scanner_thread is None or not self.scanner_thread.is_alive():
-            # Запуск фонового процесса
-            self.active_templates = [name for name, var in self.checkboxes.items() if var.get()]
-            if not self.active_templates:
-                self.log("[-] Error: You must select at least one template!", tag="error")
-                return
+            self.log(f"\n[*] Starting monitor hook in {config.EVALUATION_MODE.upper()} mode...")
+            
+            if config.EVALUATION_MODE == "templates":
+                # Start background process
+                self.active_templates = [name for name, var in self.checkboxes.items() if var.get()]
+                if not self.active_templates:
+                    self.log("[-] Error: You must select at least one template!", tag="error")
+                    return
+                    
+                # Format the active profiles with colors
+                colored_parts = ["[*] Active profiles: "]
+                colored_tags = [None]
                 
-            self.log(f"\n[*] Starting monitor hook...")
-            
-            # Format the active profiles with colors
-            colored_parts = ["[*] Active profiles: "]
-            colored_tags = [None]
-            
-            for i, name in enumerate(self.active_templates):
-                # Find color for this template
-                color_tag = "BLUE"
-                for t in config.TEMPLATES:
-                    if t["name"] == name:
-                        color_tag = t.get("color", "BLUE").upper()
-                        break
-                        
-                colored_parts.append(name)
-                colored_tags.append(color_tag)
+                for i, name in enumerate(self.active_templates):
+                    # Find color for this template
+                    color_tag = "BLUE"
+                    for t in config.TEMPLATES:
+                        if t["name"] == name:
+                            color_tag = t.get("color", "BLUE").upper()
+                            break
+                            
+                    colored_parts.append(name)
+                    colored_tags.append(color_tag)
+                    
+                    if i < len(self.active_templates) - 1:
+                        colored_parts.append(", ")
+                        colored_tags.append(None)
                 
-                if i < len(self.active_templates) - 1:
-                    colored_parts.append(", ")
-                    colored_tags.append(None)
-            
-            self.log(colored_parts, tag=colored_tags)
+                self.log(colored_parts, tag=colored_tags)
+                
+                # Setup template stats for tracking
+                self.template_stats = {name: {'rerolls_since_last': 0, 'history': []} for name in self.active_templates}
+            else:
+                # Scores mode
+                active_tiers = config.SCORES_SYSTEM.get("active_tiers", [])
+                if not active_tiers:
+                    self.log("[-] Error: No active tiers selected in Scores mode!", tag="error")
+                    return
+                    
+                self.log(f"[*] Active Tiers: {', '.join(active_tiers)}")
+                self.template_stats = {name: {'rerolls_since_last': 0, 'history': []} for name in active_tiers}
             
             # Init Session Stats
             self.session_start_time = time.time()
@@ -767,7 +1145,6 @@ class MegabonkApp(ctk.CTk):
             self.best_map_score = -1
             self.worst_map_stats = None
             self.worst_map_score = float('inf')
-            self.template_stats = {name: {'rerolls_since_last': 0, 'history': []} for name in self.active_templates}
             self.refresh_stats_ui()
             
             self.stop_event.clear()
@@ -775,7 +1152,7 @@ class MegabonkApp(ctk.CTk):
             self.scanner_thread.start()
             self.update_status_ui()
         else:
-            # Остановка фонового процесса
+            # Stop background process
             self.stop_event.set()
             self.scan_event.set() # Wake up the thread so it can exit
             self.is_running = False
@@ -791,17 +1168,19 @@ class MegabonkApp(ctk.CTk):
     def format_stats(stats: dict) -> str:
         shady = stats.get("Shady Guy", 0)
         moai = stats.get("Moais", 0)
-        microwaves = stats.get("Microwaves", 0)
+        microwaves = stats.get("Microwaves", 1)
+        if microwaves < 1:
+            microwaves = 1
+        elif microwaves > 2:
+            microwaves = 2
         boss = stats.get("Boss Curses", 0)
-        return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}"
+        magnet = stats.get("Magnet Shrines", 0)
+        return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}, Magnet: {magnet}"
         
     @staticmethod
-    def calculate_map_score(stats: dict) -> int:
-        shady = stats.get("Shady Guy", 0)
-        moai = stats.get("Moais", 0)
-        microwaves = stats.get("Microwaves", 0)
-        boss = stats.get("Boss Curses", 0)
-        return (shady * 2) + (moai * 3) + (microwaves * 5) + (boss * 1)
+    def calculate_map_score(stats: dict) -> float:
+        # Use the logic module's function which now uses the configured multipliers and weights
+        return logic.calculate_score(stats, config.SCORES_SYSTEM)
 
     def update_timer(self):
         if self.scanner_thread and self.scanner_thread.is_alive() and self.session_start_time:
@@ -820,12 +1199,14 @@ class MegabonkApp(ctk.CTk):
         self.stats_rerolls_label.configure(text=f"Total Rerolls: {self.total_rerolls}")
         
         if self.best_map_stats:
-            self.stats_best_label.configure(text=f"Best Map Found: {self.format_stats(self.best_map_stats)}")
+            score = self.calculate_map_score(self.best_map_stats)
+            self.stats_best_label.configure(text=f"Best Map Found: {self.format_stats(self.best_map_stats)} (Score: {score:.1f})")
         else:
             self.stats_best_label.configure(text=f"Best Map Found: None")
             
         if self.worst_map_stats:
-            self.stats_worst_label.configure(text=f"Worst Map Found: {self.format_stats(self.worst_map_stats)}")
+            score = self.calculate_map_score(self.worst_map_stats)
+            self.stats_worst_label.configure(text=f"Worst Map Found: {self.format_stats(self.worst_map_stats)} (Score: {score:.1f})")
         else:
             self.stats_worst_label.configure(text=f"Worst Map Found: None")
             
@@ -835,10 +1216,20 @@ class MegabonkApp(ctk.CTk):
             
         for name, data in self.template_stats.items():
             color_tag = "BLUE"
-            for t in config.TEMPLATES:
-                if t["name"] == name:
-                    color_tag = t.get("color", "BLUE").upper()
-                    break
+            if config.EVALUATION_MODE == "templates":
+                for t in config.TEMPLATES:
+                    if t["name"] == name:
+                        color_tag = t.get("color", "BLUE").upper()
+                        break
+            else:
+                colors = {
+                    "Light": "WHITE",
+                    "Good": "GREEN",
+                    "Perfect": "YELLOW",
+                    "Perfect+": "LIGHTRED_EX"
+                }
+                color_tag = colors.get(name, "BLUE")
+                
             hex_color = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
             
             history = data['history']
@@ -908,7 +1299,7 @@ class MegabonkApp(ctk.CTk):
         wait_state = None
         
         while not self.stop_event.is_set():
-            # 1. Ожидание клиента
+            # 1. Wait for client
             if self.client is None:
                 try:
                     self.client = GameDataClient(process_name=process_name)
@@ -930,17 +1321,26 @@ class MegabonkApp(ctk.CTk):
                     time.sleep(1)
                     continue
 
-            # 2. Основная логика сканера
+            # 2. Main scanner logic
             self.scan_event.wait() # Wait here until hotkey is pressed
             if self.stop_event.is_set():
                 break
                 
             try:
                 stats = self.fetch_runtime_stats(self.client)
+                
+                # LOG STATS TO CSV BEFORE ANY CHECKS
+                logic.log_stats_to_csv(stats)
+
                 self.check_best_map(stats)
                 self.check_worst_map(stats)
                 
-                candidate = logic.find_matching_template(stats, self.active_templates, config.TEMPLATES)
+                # Choose evaluation logic based on active mode
+                candidate = None
+                if config.EVALUATION_MODE == "templates":
+                    candidate = logic.find_matching_template(stats, self.active_templates, config.TEMPLATES)
+                else:
+                    candidate = logic.evaluate_map_by_scores(stats, config.SCORES_SYSTEM)
                 
                 if candidate is not None:
                     self.log("[*] Candidate map found. Confirming...", tag="warning")
@@ -950,13 +1350,19 @@ class MegabonkApp(ctk.CTk):
                     self.check_best_map(confirmed_stats)
                     self.check_worst_map(confirmed_stats)
                     
-                    confirmed_template = logic.find_matching_template(confirmed_stats, self.active_templates, config.TEMPLATES)
+                    confirmed_template = None
+                    if config.EVALUATION_MODE == "templates":
+                        confirmed_template = logic.find_matching_template(confirmed_stats, self.active_templates, config.TEMPLATES)
+                    else:
+                        confirmed_template = logic.evaluate_map_by_scores(confirmed_stats, config.SCORES_SYSTEM)
                     
                     if confirmed_template is not None:
                         t_name = confirmed_template.get('name')
                         t_color = confirmed_template.get('color', 'BLUE').upper()
                         
-                        self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", t_name], tag=["success", t_color])
+                        score_text = f" (Score: {confirmed_template.get('score', 0):.1f})" if config.EVALUATION_MODE == "scores" else ""
+                        
+                        self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
                         self.log(f"Max Map Stats: {self.format_stats(confirmed_stats)}", tag="success")
                         
                         self.log_target_found(t_name)

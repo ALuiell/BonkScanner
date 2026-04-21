@@ -1,6 +1,6 @@
 {
-    "MAP_LOAD_DELAY": 1.3,
-    "RESET_HOLD_DURATION": 0.4,
+    "MAP_LOAD_DELAY": 0.4,
+    "RESET_HOLD_DURATION": 0.3,
     "HOTKEY": "f6",
     "MENU_HOTKEY": "home",
     "RESET_HOTKEY": "r",
@@ -43,13 +43,15 @@
             "boss": 2
         },
         {
-            "id": 5,
             "name": "PERFECT+",
-            "color": "LIGHTRED_EX",
-            "desc": "S+M: 9+, Micro: 2, Boss: 3+",
-            "sm_total": 9,
+            "sm_total": 14,
+            "shady": 0,
+            "moai": 0,
             "micro": 2,
-            "boss": 3
+            "boss": 3,
+            "id": 5,
+            "color": "LIGHTRED_EX",
+            "desc": "S+M: 9+, Micro: 2, Boss: 3+"
         },
         {
             "id": 6,
@@ -71,5 +73,32 @@
     "ACTIVE_TEMPLATES": [
         "PERFECT+"
     ],
-    "SKIPPED_UPDATE_VERSION": ""
+    "SKIPPED_UPDATE_VERSION": "",
+    "EVALUATION_MODE": "templates",
+    "SCORES_SYSTEM": {
+        "weights": {
+            "moais": 3.0,
+            "shady": 2.0,
+            "boss": 1.0,
+            "magnet": 0.5
+        },
+        "multipliers": {
+            "microwave": {
+                "1": 1.0,
+                "2": 1.25
+            }
+        },
+        "thresholds": {
+            "Light": 14.0,
+            "Good": 20.0,
+            "Perfect": 25.0,
+            "Perfect+": 30.0
+        },
+        "active_tiers": [
+            "Perfect+",
+            "Perfect"
+        ],
+        "manual_thresholds": false,
+        "base_target_score": 30.0
+    }
 }
