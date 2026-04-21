@@ -100,5 +100,7 @@
         ],
         "manual_thresholds": false,
         "base_target_score": 30.0
-    }
+    },
+    "NATIVE_HOOK_ENABLED": true,
+    "NATIVE_HOOK_DLL_PATH": ""
 }

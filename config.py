@@ -133,6 +133,8 @@ HOTKEY = user_config.get("HOTKEY", "f6")
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
 PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
+NATIVE_HOOK_ENABLED = user_config.get("NATIVE_HOOK_ENABLED", True)
+NATIVE_HOOK_DLL_PATH = user_config.get("NATIVE_HOOK_DLL_PATH", "")
 
 # Load ignored updates
 SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
@@ -192,6 +194,8 @@ user_config["HOTKEY"] = HOTKEY
 user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY
 user_config["PROCESS_NAME"] = PROCESS_NAME
+user_config["NATIVE_HOOK_ENABLED"] = NATIVE_HOOK_ENABLED
+user_config["NATIVE_HOOK_DLL_PATH"] = NATIVE_HOOK_DLL_PATH
 user_config["TEMPLATES"] = TEMPLATES
 user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
 user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION

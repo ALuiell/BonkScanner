@@ -11,6 +11,7 @@ import updater
 import config
 import logic
 from game_data import GameDataClient
+from hook_loader import HookLoadError, HookProcessNotFoundError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from runtime_stats import adapt_map_stats
 
@@ -563,6 +564,8 @@ class MegabonkApp(ctk.CTk):
         self.active_templates = []
         self.scanner_thread = None
         self.client = None
+        self.native_hook_loader = None
+        self.native_hook_thread = None
         self.checkboxes = {}
         self.scores_checkboxes = {}
         
@@ -596,10 +599,53 @@ class MegabonkApp(ctk.CTk):
         self.log(f"[*] Welcome to BonkScanner v{updater.CURRENT_VERSION}!", tag="success")
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")
         self.log(f"[*] Ready! Select templates and start the main process loop.")
+        self.start_native_hook_worker()
 
         # Check for updates AFTER the GUI has fully initialized and drawn
         # 1500 ms (1.5 seconds) delay ensures the user sees the window instantly
         self.after(1500, self.deferred_update_check)
+
+    def start_native_hook_worker(self):
+        if not getattr(config, "NATIVE_HOOK_ENABLED", True):
+            self.log("[*] Native hook loader is disabled.")
+            return
+
+        dll_path = getattr(config, "NATIVE_HOOK_DLL_PATH", "") or None
+        self.native_hook_loader = NativeHookLoader(
+            config.PROCESS_NAME,
+            dll_path=dll_path,
+            base_path=config.application_path,
+        )
+        self.native_hook_thread = threading.Thread(
+            target=self.native_hook_loop,
+            daemon=True,
+        )
+        self.native_hook_thread.start()
+
+    def native_hook_loop(self):
+        if self.native_hook_loader is None:
+            return
+
+        logged_waiting = False
+        while not self.stop_event.is_set():
+            try:
+                result = self.native_hook_loader.inject_once()
+                if result.skipped:
+                    self.log(f"[*] Native hook already injected for PID {result.pid}.")
+                else:
+                    self.log(f"[+] Native hook injected into PID {result.pid}.", tag="success")
+                return
+            except HookProcessNotFoundError:
+                if not logged_waiting:
+                    self.log(f"[WAIT] Waiting for process '{config.PROCESS_NAME}' before native hook injection.")
+                    logged_waiting = True
+                self.stop_event.wait(1.0)
+            except HookLoadError as exc:
+                self.log(f"[-] Native hook injection failed: {exc}", tag="error")
+                return
+            except Exception as exc:
+                self.log(f"[-] Unexpected native hook loader error: {exc}", tag="error")
+                return
 
     def deferred_update_check(self):
         """Checks for updates after the main window is already visible."""
