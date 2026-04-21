@@ -274,6 +274,7 @@ class SettingsDialog(ctk.CTkToplevel):
             if game_val < 0:
                 game_val = 0.0
             config.update_game_reset_time(game_val)
+
         except ValueError:
             pass # Keep old value if new one is invalid
             

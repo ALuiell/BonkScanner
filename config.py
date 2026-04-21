@@ -113,8 +113,8 @@ PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
 # Load ignored updates
 SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
 
-# Попытка получить шаблоны из JSON. Если файл был пустой или без TEMPLATES,
-# берем встроенные (DEFAULT_TEMPLATES) как резерв.
+# Attempt to retrieve templates from JSON. If the file was empty or contained no TEMPLATES,
+# we use the built-in templates (DEFAULT_TEMPLATES) as a fallback.
 TEMPLATES = user_config.get("TEMPLATES", DEFAULT_TEMPLATES)
 if not TEMPLATES:
     TEMPLATES = DEFAULT_TEMPLATES
