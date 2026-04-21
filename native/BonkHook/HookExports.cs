@@ -8,6 +8,7 @@ namespace BonkHook;
 internal static unsafe class HookExports
 {
     private const nuint AlwaysManagerUpdateOffset = 0x4EC430;
+    private const nuint MapControllerRestartRunOffset = 0x409890;
     private const int MH_OK = 0;
     private const int MH_ERROR_ALREADY_INITIALIZED = 1;
     private const int MH_ERROR_ENABLED = 5;
@@ -19,8 +20,9 @@ internal static unsafe class HookExports
     ];
 
     private static IntPtr _originalAlwaysManagerUpdate;
+    private static IntPtr _mapControllerRestartRun;
     private static int _installed;
-    private static int _messageShown;
+    private static int _restartRunRequested;
 
     [UnmanagedCallersOnly(EntryPoint = "Initialize")]
     public static uint Initialize(IntPtr _)
@@ -40,9 +42,11 @@ internal static unsafe class HookExports
             }
 
             IntPtr target = gameAssembly + (nint)AlwaysManagerUpdateOffset;
+            _mapControllerRestartRun = gameAssembly + (nint)MapControllerRestartRunOffset;
             if (!HasExpectedBytes(target))
             {
                 _installed = 0;
+                _mapControllerRestartRun = IntPtr.Zero;
                 return 11;
             }
 
@@ -65,6 +69,7 @@ internal static unsafe class HookExports
             if (status != MH_OK && status != MH_ERROR_ENABLED)
             {
                 _installed = 0;
+                _mapControllerRestartRun = IntPtr.Zero;
                 return (uint)(60 + status);
             }
 
@@ -85,6 +90,8 @@ internal static unsafe class HookExports
             MH_DisableHook(IntPtr.Zero);
             MH_Uninitialize();
             _installed = 0;
+            _mapControllerRestartRun = IntPtr.Zero;
+            Interlocked.Exchange(ref _restartRunRequested, 0);
             return 0;
         }
         catch
@@ -93,25 +100,54 @@ internal static unsafe class HookExports
         }
     }
 
+    [UnmanagedCallersOnly(EntryPoint = "RequestRestartRun")]
+    public static uint RequestRestartRun(IntPtr _)
+    {
+        if (Volatile.Read(ref _installed) == 0)
+        {
+            return 100;
+        }
+
+        Interlocked.Exchange(ref _restartRunRequested, 1);
+        return 0;
+    }
+
     [UnmanagedCallersOnly]
     private static void AlwaysManagerUpdateHook(IntPtr instance, IntPtr method)
     {
+        var original = (delegate* unmanaged<IntPtr, IntPtr, void>)_originalAlwaysManagerUpdate;
+        original(instance, method);
         try
         {
-            if (Interlocked.Exchange(ref _messageShown, 1) == 0)
-            {
-                MessageBoxW(
-                    IntPtr.Zero,
-                    "AlwaysManager.Update hook hit",
-                    "BonkHook",
-                    0);
-            }
+            DrainMainThreadRequests();
         }
-        finally
+        catch
         {
-            var original = (delegate* unmanaged<IntPtr, IntPtr, void>)_originalAlwaysManagerUpdate;
-            original(instance, method);
         }
+    }
+
+    private static void DrainMainThreadRequests()
+    {
+        if (Interlocked.Exchange(ref _restartRunRequested, 0) == 0)
+        {
+            return;
+        }
+
+        IntPtr restartRun = _mapControllerRestartRun;
+        if (restartRun == IntPtr.Zero)
+        {
+            IntPtr gameAssembly = GetModuleHandleW("GameAssembly.dll");
+            if (gameAssembly == IntPtr.Zero)
+            {
+                return;
+            }
+
+            restartRun = gameAssembly + (nint)MapControllerRestartRunOffset;
+            _mapControllerRestartRun = restartRun;
+        }
+
+        var restartRunFunc = (delegate* unmanaged<IntPtr, void>)restartRun;
+        restartRunFunc(IntPtr.Zero);
     }
 
     private static bool HasExpectedBytes(IntPtr address)
@@ -130,13 +166,6 @@ internal static unsafe class HookExports
 
     [DllImport("kernel32.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr GetModuleHandleW(string lpModuleName);
-
-    [DllImport("user32.dll", ExactSpelling = true, CharSet = CharSet.Unicode)]
-    private static extern int MessageBoxW(
-        IntPtr hWnd,
-        string lpText,
-        string lpCaption,
-        uint uType);
 
     [DllImport("MinHook.x64.dll", ExactSpelling = true)]
     private static extern int MH_Initialize();

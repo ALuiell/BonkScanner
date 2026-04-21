@@ -14,12 +14,17 @@ class FakeNativeHookLoader(NativeHookLoader):
         self._injected_pids: set[int] = set()
         self.pid = pid
         self.injected: list[int] = []
+        self.remote_exports: list[tuple[int, bytes, int]] = []
 
     def _find_process_id(self) -> int | None:
         return self.pid
 
     def _inject_into_pid(self, pid: int) -> None:
         self.injected.append(pid)
+
+    def _invoke_export_in_pid(self, pid: int, export_name: bytes, parameter: int) -> int:
+        self.remote_exports.append((pid, export_name, parameter))
+        return 0
 
 
 class FailingNativeHookLoader(FakeNativeHookLoader):
@@ -60,6 +65,31 @@ class NativeHookLoaderTests(unittest.TestCase):
 
         self.assertIsNone(result)
         self.assertEqual(messages, ["boom"])
+
+    def test_request_restart_run_injects_and_signals_remote_export(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(dll_path=dll_path)
+
+            result = loader.request_restart_run()
+
+        self.assertEqual(result, HookLoadResult(pid=1234, dll_path=dll_path, initialized=True))
+        self.assertEqual(loader.injected, [1234])
+        self.assertEqual(loader.remote_exports, [(1234, b"RequestRestartRun", 0)])
+
+    def test_request_restart_run_reuses_existing_injection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(dll_path=dll_path)
+
+            loader.inject_once()
+            result = loader.request_restart_run()
+
+        self.assertTrue(result.skipped)
+        self.assertEqual(loader.injected, [1234])
+        self.assertEqual(loader.remote_exports, [(1234, b"RequestRestartRun", 0)])
 
 
 if __name__ == "__main__":

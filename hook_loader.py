@@ -101,6 +101,13 @@ class NativeHookLoader:
         self._injected_pids.add(pid)
         return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=True)
 
+    def request_restart_run(self) -> HookLoadResult:
+        result = self.inject_once()
+        exit_code = self._invoke_export_in_pid(result.pid, b"RequestRestartRun", 0)
+        if exit_code != 0:
+            raise HookLoadError(f"BonkHook RequestRestartRun failed with status {exit_code}.")
+        return result
+
     def try_inject_once(
         self,
         log: Callable[[str], None] | None = None,
@@ -133,6 +140,28 @@ class NativeHookLoader:
             exit_code = self._create_remote_thread(process, remote_initialize, 0)
             if exit_code != 0:
                 raise HookLoadError(f"BonkHook Initialize failed with status {exit_code}.")
+        finally:
+            self._kernel32.CloseHandle(process)
+
+    def _invoke_export_in_pid(self, pid: int, export_name: bytes, parameter: int) -> int:
+        process = self._open_process(pid)
+        try:
+            remote_module = self._find_remote_module_base(process, self.dll_path.name)
+            if remote_module is None:
+                raise HookLoadError(f"Injected DLL was not found in process modules: {self.dll_path.name}")
+
+            local_module = self._kernel32.LoadLibraryW(str(self.dll_path))
+            if not local_module:
+                raise self._last_error("LoadLibraryW(local hook DLL) failed")
+
+            export = self._kernel32.GetProcAddress(local_module, export_name)
+            if not export:
+                export_text = export_name.decode("ascii", errors="replace")
+                raise self._last_error(f"GetProcAddress({export_text}) failed")
+
+            export_offset = export - local_module
+            remote_export = remote_module + export_offset
+            return self._create_remote_thread(process, remote_export, parameter)
         finally:
             self._kernel32.CloseHandle(process)
 

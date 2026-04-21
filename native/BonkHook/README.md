@@ -2,6 +2,11 @@
 
 Minimal NativeAOT smoke-test hook for Megabonk IL2CPP.
 
+The hook detours `AlwaysManager.Update` and uses it as a main-thread dispatcher.
+External callers can run `RequestRestartRun` from any thread/process; the export
+only sets an atomic flag, and the actual `MapController.RestartRun` call is
+drained inside the hooked Unity update.
+
 Build:
 
 ```powershell
