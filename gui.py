@@ -1537,7 +1537,7 @@ class MegabonkApp(ctk.CTk):
             return True
         except Exception as direct_exc:
             try:
-                self.try_alt_attach_foreground_window(window)
+                self.try_attach_foreground_window(window)
                 return True
             except Exception as fallback_exc:
                 self.log(
@@ -1554,7 +1554,7 @@ class MegabonkApp(ctk.CTk):
         elif hasattr(win32gui, "ShowWindow"):
             win32gui.ShowWindow(window, 5)  # SW_SHOW
 
-    def try_alt_attach_foreground_window(self, window: int) -> None:
+    def try_attach_foreground_window(self, window: int) -> None:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
         user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
