@@ -65,13 +65,22 @@ class FakeThread:
 
 
 class FakeHookLoopLoader:
-    def __init__(self, *, pid: int = 1234, skipped: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        pid: int = 1234,
+        skipped: bool = False,
+        inject_error: Exception | None = None,
+    ) -> None:
         self.pid = pid
         self.skipped = skipped
+        self.inject_error = inject_error
         self.inject_calls = 0
 
     def inject_once(self) -> types.SimpleNamespace:
         self.inject_calls += 1
+        if self.inject_error is not None:
+            raise self.inject_error
         return types.SimpleNamespace(pid=self.pid, skipped=self.skipped)
 
 
@@ -173,11 +182,13 @@ class GuiRunControlTests(unittest.TestCase):
                 gui.MegabonkApp.check_admin_rights(app)
 
         self.assertIn(
-            ("[-] Native hook mode requires Administrator privileges. Injection will likely fail.", "error"),
+            ("[*] Native hook may not inject without Administrator privileges; attempting anyway.", "warning"),
             logs,
         )
+        self.assertNotIn(("⚠️ WARNING: Script is not running as Administrator!", "warning"), logs)
+        self.assertNotIn(("⚠️ Hotkeys may not work while the game window is active.", "warning"), logs)
 
-    def test_check_admin_rights_skips_hook_warning_when_hook_mode_is_disabled(self) -> None:
+    def test_check_admin_rights_logs_keyboard_warnings_when_hook_mode_is_disabled(self) -> None:
         logs: list[tuple[str, str | None]] = []
         app = object.__new__(gui.MegabonkApp)
         app.log = lambda message, tag=None: logs.append((message, tag))
@@ -188,9 +199,11 @@ class GuiRunControlTests(unittest.TestCase):
                 gui.MegabonkApp.check_admin_rights(app)
 
         self.assertNotIn(
-            ("[-] Native hook mode requires Administrator privileges. Injection will likely fail.", "error"),
+            ("[*] Native hook may not inject without Administrator privileges; attempting anyway.", "warning"),
             logs,
         )
+        self.assertIn(("⚠️ WARNING: Script is not running as Administrator!", "warning"), logs)
+        self.assertIn(("⚠️ Hotkeys may not work while the game window is active.", "warning"), logs)
 
     def test_enable_hook_run_control_logs_hook_warning_without_admin(self) -> None:
         fake_loader = object()
@@ -211,7 +224,7 @@ class GuiRunControlTests(unittest.TestCase):
                     gui.MegabonkApp.enable_hook_run_control(app)
 
         self.assertIn(
-            ("[-] Native hook mode requires Administrator privileges. Injection will likely fail.", "error"),
+            ("[*] Native hook may not inject without Administrator privileges; attempting anyway.", "warning"),
             logs,
         )
 
@@ -235,7 +248,7 @@ class GuiRunControlTests(unittest.TestCase):
                     with patch.object(gui.threading, "Thread", FakeThread):
                         gui.MegabonkApp.enable_hook_run_control(app)
 
-        hook_warning = ("[-] Native hook mode requires Administrator privileges. Injection will likely fail.", "error")
+        hook_warning = ("[*] Native hook may not inject without Administrator privileges; attempting anyway.", "warning")
         self.assertEqual(logs.count(hook_warning), 1)
 
     def test_keyboard_mode_resets_hook_admin_warning_for_later_hook_enable(self) -> None:
@@ -248,7 +261,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertFalse(app._native_hook_admin_warning_logged)
 
-    def test_native_hook_loop_skips_injection_without_admin(self) -> None:
+    def test_native_hook_loop_attempts_injection_without_admin(self) -> None:
         loader = FakeHookLoopLoader()
         logs: list[tuple[str, str | None]] = []
         app = object.__new__(gui.MegabonkApp)
@@ -260,9 +273,24 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
             gui.MegabonkApp.native_hook_loop(app, loader, 1)
 
-        self.assertEqual(loader.inject_calls, 0)
+        self.assertEqual(loader.inject_calls, 1)
+        self.assertIn(("[+] Native hook injected into PID 1234.", "success"), logs)
+
+    def test_native_hook_loop_logs_injection_failure_without_admin(self) -> None:
+        loader = FakeHookLoopLoader(inject_error=gui.HookLoadError("OpenProcess(1234) failed"))
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.stop_event = types.SimpleNamespace(is_set=lambda: False, wait=lambda _seconds: None)
+        app.native_hook_generation = 1
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: False
+
+        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
+            gui.MegabonkApp.native_hook_loop(app, loader, 1)
+
+        self.assertEqual(loader.inject_calls, 1)
         self.assertIn(
-            ("[-] Native hook injection skipped: Administrator privileges are required.", "error"),
+            ("[-] Native hook injection failed: OpenProcess(1234) failed", "error"),
             logs,
         )
         self.assertNotIn(("[+] Native hook injected into PID 1234.", "success"), logs)

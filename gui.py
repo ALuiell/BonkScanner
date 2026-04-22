@@ -692,10 +692,6 @@ class MegabonkApp(ctk.CTk):
         logged_waiting = False
         while not self.stop_event.is_set() and generation == self.native_hook_generation:
             try:
-                if getattr(config, "NATIVE_HOOK_ENABLED", True) and not self.is_running_as_admin():
-                    self.log("[-] Native hook injection skipped: Administrator privileges are required.", tag="error")
-                    return
-
                 result = loader.inject_once()
                 if generation != self.native_hook_generation:
                     return
@@ -727,7 +723,9 @@ class MegabonkApp(ctk.CTk):
         if not self.is_running_as_admin():
             self.log("⚠️ WARNING: Script is not running as Administrator!", tag="warning")
             self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
-            self.warn_if_native_hook_needs_admin()
+
+            if getattr(config, "NATIVE_HOOK_ENABLED", True):
+                self.warn_if_native_hook_needs_admin()
 
     def is_running_as_admin(self) -> bool:
         if os.name != 'nt':
@@ -745,7 +743,7 @@ class MegabonkApp(ctk.CTk):
             and not getattr(self, "_native_hook_admin_warning_logged", False)
             and not self.is_running_as_admin()
         ):
-            self.log("[-] Native hook mode requires Administrator privileges. Injection will likely fail.", tag="error")
+            self.log("[*] Native hook may not inject without Administrator privileges.", tag="warning")
             self._native_hook_admin_warning_logged = True
 
     def setup_ui(self):
