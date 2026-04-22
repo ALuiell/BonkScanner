@@ -70,7 +70,7 @@ class FakeHookLoopLoader:
         *,
         pid: int = 1234,
         skipped: bool = False,
-        inject_error: Exception | None = None,
+        inject_error: Exception | list[Exception | None] | None = None,
     ) -> None:
         self.pid = pid
         self.skipped = skipped
@@ -79,8 +79,11 @@ class FakeHookLoopLoader:
 
     def inject_once(self) -> types.SimpleNamespace:
         self.inject_calls += 1
-        if self.inject_error is not None:
-            raise self.inject_error
+        inject_error = self.inject_error
+        if isinstance(inject_error, list):
+            inject_error = inject_error.pop(0) if inject_error else None
+        if inject_error is not None:
+            raise inject_error
         return types.SimpleNamespace(pid=self.pid, skipped=self.skipped)
 
 
@@ -294,6 +297,26 @@ class GuiRunControlTests(unittest.TestCase):
             logs,
         )
         self.assertNotIn(("[+] Native hook injected into PID 1234.", "success"), logs)
+
+    def test_native_hook_loop_retries_when_game_runtime_is_not_ready(self) -> None:
+        loader = FakeHookLoopLoader(
+            inject_error=[gui.HookProcessNotReadyError("runtime not ready"), None],
+        )
+        waits: list[float] = []
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.stop_event = types.SimpleNamespace(is_set=lambda: False, wait=lambda seconds: waits.append(seconds))
+        app.native_hook_generation = 1
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: True
+
+        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
+            gui.MegabonkApp.native_hook_loop(app, loader, 1)
+
+        self.assertEqual(loader.inject_calls, 2)
+        self.assertEqual(waits, [1.0])
+        self.assertIn(("[WAIT] runtime not ready", None), logs)
+        self.assertIn(("[+] Native hook injected into PID 1234.", "success"), logs)
 
     def test_native_hook_loop_logs_success_for_admin_injection(self) -> None:
         loader = FakeHookLoopLoader(pid=6728)

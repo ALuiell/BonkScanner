@@ -11,7 +11,7 @@ import updater
 import config
 import logic
 from game_data import GameDataClient
-from hook_loader import HookLoadError, HookProcessNotFoundError, NativeHookLoader
+from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
@@ -705,6 +705,11 @@ class MegabonkApp(ctk.CTk):
                     self.log(f"[WAIT] Waiting for process '{config.PROCESS_NAME}' before native hook injection.")
                     logged_waiting = True
                 self.stop_event.wait(1.0)
+            except HookProcessNotReadyError as exc:
+                if not logged_waiting:
+                    self.log(f"[WAIT] {exc}")
+                    logged_waiting = True
+                self.stop_event.wait(1.0)
             except HookLoadError as exc:
                 self.log(f"[-] Native hook injection failed: {exc}", tag="error")
                 return
@@ -721,11 +726,12 @@ class MegabonkApp(ctk.CTk):
             return
 
         if not self.is_running_as_admin():
-            self.log("⚠️ WARNING: Script is not running as Administrator!", tag="warning")
-            self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
-
             if getattr(config, "NATIVE_HOOK_ENABLED", True):
                 self.warn_if_native_hook_needs_admin()
+                return
+
+            self.log("⚠️ WARNING: Script is not running as Administrator!", tag="warning")
+            self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
 
     def is_running_as_admin(self) -> bool:
         if os.name != 'nt':
@@ -743,7 +749,7 @@ class MegabonkApp(ctk.CTk):
             and not getattr(self, "_native_hook_admin_warning_logged", False)
             and not self.is_running_as_admin()
         ):
-            self.log("[*] Native hook may not inject without Administrator privileges.", tag="warning")
+            self.log("[*] Native hook may not inject without Administrator privileges; attempting anyway.", tag="warning")
             self._native_hook_admin_warning_logged = True
 
     def setup_ui(self):

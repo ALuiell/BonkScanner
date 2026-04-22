@@ -11,7 +11,9 @@ internal static unsafe class HookExports
     private const nuint MapControllerRestartRunOffset = 0x4220B0;
     private const nuint MapControllerTypeInfoOffset = 0x2F58E08;
     private const nuint MapGenerationControllerTypeInfoOffset = 0x2F59000;
+    private const nuint AlwaysManagerTypeInfoOffset = 0x2F6BAA8;
     private const int ClassStaticFieldsOffset = 0xB8;
+    private const int AlwaysManagerInstanceOffset = 0x0;
     private const int MapControllerCurrentMapOffset = 0x10;
     private const int MapControllerCurrentStageOffset = 0x18;
     private const int MapGenerationIsGeneratingOffset = 0x10;
@@ -60,6 +62,14 @@ internal static unsafe class HookExports
                 _gameAssembly = IntPtr.Zero;
                 _mapControllerRestartRun = IntPtr.Zero;
                 return 11;
+            }
+
+            if (!IsAlwaysManagerReady(gameAssembly))
+            {
+                _installed = 0;
+                _gameAssembly = IntPtr.Zero;
+                _mapControllerRestartRun = IntPtr.Zero;
+                return 12;
             }
 
             int status = MH_Initialize();
@@ -246,6 +256,18 @@ internal static unsafe class HookExports
         IntPtr currentMap = *(IntPtr*)((byte*)mapControllerStaticFields + MapControllerCurrentMapOffset);
         IntPtr currentStage = *(IntPtr*)((byte*)mapControllerStaticFields + MapControllerCurrentStageOffset);
         return currentMap != IntPtr.Zero && currentStage != IntPtr.Zero;
+    }
+
+    private static bool IsAlwaysManagerReady(IntPtr gameAssembly)
+    {
+        IntPtr alwaysManagerStaticFields = ReadStaticFields(gameAssembly, AlwaysManagerTypeInfoOffset);
+        if (alwaysManagerStaticFields == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        IntPtr instance = *(IntPtr*)((byte*)alwaysManagerStaticFields + AlwaysManagerInstanceOffset);
+        return instance != IntPtr.Zero;
     }
 
     private static IntPtr ReadStaticFields(IntPtr gameAssembly, nuint typeInfoOffset)

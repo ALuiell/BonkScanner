@@ -18,6 +18,10 @@ class HookProcessNotFoundError(HookLoadError):
     """Raised when the target game process is not running."""
 
 
+class HookProcessNotReadyError(HookLoadError):
+    """Raised when the target process exists but the game runtime is not hook-safe yet."""
+
+
 @dataclass(frozen=True)
 class HookLoadResult:
     pid: int
@@ -54,12 +58,54 @@ class NativeHookLoader:
     MEM_COMMIT = 0x1000
     MEM_RESERVE = 0x2000
     MEM_RELEASE = 0x8000
+    PAGE_NOACCESS = 0x01
     PAGE_READWRITE = 0x04
+    PAGE_EXECUTE = 0x10
+    PAGE_EXECUTE_READ = 0x20
+    PAGE_EXECUTE_READWRITE = 0x40
+    PAGE_EXECUTE_WRITECOPY = 0x80
+    PAGE_GUARD = 0x100
     INFINITE = 0xFFFFFFFF
+    STILL_ACTIVE = 259
     TH32CS_SNAPPROCESS = 0x00000002
     INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
     LIST_MODULES_ALL = 0x03
     MAX_PATH = 260
+    GAME_ASSEMBLY_MODULE = "GameAssembly.dll"
+    ALWAYS_MANAGER_UPDATE_OFFSET = 0x4F7520
+    GENERATE_MAP_MOVE_NEXT_OFFSET = 0x4A26F0
+    ALWAYS_MANAGER_TYPE_INFO_OFFSET = 0x2F6BAA8
+    CLASS_STATIC_FIELDS_OFFSET = 0xB8
+    ALWAYS_MANAGER_INSTANCE_OFFSET = 0x0
+    TRANSIENT_INITIALIZE_STATUSES = frozenset({12})
+    EXECUTABLE_PROTECTIONS = frozenset(
+        {
+            PAGE_EXECUTE,
+            PAGE_EXECUTE_READ,
+            PAGE_EXECUTE_READWRITE,
+            PAGE_EXECUTE_WRITECOPY,
+        }
+    )
+    EXPECTED_ALWAYS_MANAGER_UPDATE_BYTES = bytes(
+        [
+            0x48,
+            0x89,
+            0x5C,
+            0x24,
+            0x08,
+            0x57,
+            0x48,
+            0x83,
+            0xEC,
+            0x20,
+            0x80,
+            0x3D,
+            0x64,
+            0xB8,
+            0xC7,
+            0x02,
+        ]
+    )
 
     def __init__(
         self,
@@ -101,6 +147,7 @@ class NativeHookLoader:
             if pid in self._injected_pids:
                 return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=True, skipped=True)
 
+            self._ensure_ready_for_injection(pid)
             self._inject_into_pid(pid)
             self._injected_pids.add(pid)
             return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=True)
@@ -176,6 +223,8 @@ class NativeHookLoader:
             initialize_offset = initialize - local_module
             remote_initialize = remote_module + initialize_offset
             exit_code = self._create_remote_thread(process, remote_initialize, 0)
+            if exit_code in self.TRANSIENT_INITIALIZE_STATUSES:
+                raise HookProcessNotReadyError("BonkHook Initialize reported that the game runtime is not ready.")
             if exit_code != 0:
                 raise HookLoadError(f"BonkHook Initialize failed with status {exit_code}.")
         finally:
@@ -326,6 +375,109 @@ class NativeHookLoader:
 
         return None
 
+    def _ensure_ready_for_injection(self, pid: int) -> None:
+        process = self._open_process(pid)
+        try:
+            try:
+                reason = self._injection_readiness_error(process)
+            except HookLoadError as exc:
+                reason = str(exc)
+        finally:
+            self._kernel32.CloseHandle(process)
+
+        if reason is not None:
+            raise HookProcessNotReadyError(f"Waiting for game runtime before native hook injection: {reason}.")
+
+    def _injection_readiness_error(self, process: int) -> str | None:
+        if not self._is_process_active(process):
+            return "process exited"
+
+        game_assembly = self._find_remote_module_base(process, self.GAME_ASSEMBLY_MODULE)
+        if game_assembly is None:
+            return f"{self.GAME_ASSEMBLY_MODULE} is not loaded"
+
+        always_manager_update = game_assembly + self.ALWAYS_MANAGER_UPDATE_OFFSET
+        generate_map_move_next = game_assembly + self.GENERATE_MAP_MOVE_NEXT_OFFSET
+        for address, label in (
+            (always_manager_update, "AlwaysManager.Update"),
+            (generate_map_move_next, "MapGenerationController.GenerateMap.MoveNext"),
+        ):
+            if not self._is_committed_executable(process, address):
+                return f"{label} is not committed executable memory"
+
+        actual_bytes = self._read_process_bytes(
+            process,
+            always_manager_update,
+            len(self.EXPECTED_ALWAYS_MANAGER_UPDATE_BYTES),
+        )
+        if actual_bytes != self.EXPECTED_ALWAYS_MANAGER_UPDATE_BYTES:
+            return "AlwaysManager.Update bytes do not match the expected signature"
+
+        always_manager_type_info = self._read_remote_ptr(
+            process,
+            game_assembly + self.ALWAYS_MANAGER_TYPE_INFO_OFFSET,
+        )
+        if not always_manager_type_info:
+            return "AlwaysManager TypeInfo is not initialized"
+
+        always_manager_static_fields = self._read_remote_ptr(
+            process,
+            always_manager_type_info + self.CLASS_STATIC_FIELDS_OFFSET,
+        )
+        if not always_manager_static_fields:
+            return "AlwaysManager static fields are not initialized"
+
+        always_manager_instance = self._read_remote_ptr(
+            process,
+            always_manager_static_fields + self.ALWAYS_MANAGER_INSTANCE_OFFSET,
+        )
+        if not always_manager_instance:
+            return "AlwaysManager.Instance is not initialized"
+
+        return None
+
+    def _is_process_active(self, process: int) -> bool:
+        exit_code = ctypes.c_ulong()
+        if not self._kernel32.GetExitCodeProcess(process, ctypes.byref(exit_code)):
+            return False
+        return exit_code.value == self.STILL_ACTIVE
+
+    def _is_committed_executable(self, process: int, address: int) -> bool:
+        info = MEMORY_BASIC_INFORMATION()
+        result = self._kernel32.VirtualQueryEx(
+            process,
+            address,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+        )
+        if result == 0:
+            return False
+
+        protect = int(info.Protect)
+        if protect & (self.PAGE_GUARD | self.PAGE_NOACCESS):
+            return False
+
+        base_protect = protect & 0xFF
+        return info.State == self.MEM_COMMIT and base_protect in self.EXECUTABLE_PROTECTIONS
+
+    def _read_remote_ptr(self, process: int, address: int) -> int:
+        return int.from_bytes(self._read_process_bytes(process, address, 8), "little")
+
+    def _read_process_bytes(self, process: int, address: int, size: int) -> bytes:
+        buffer = ctypes.create_string_buffer(size)
+        read = ctypes.c_size_t()
+        ok = self._kernel32.ReadProcessMemory(
+            process,
+            address,
+            ctypes.byref(buffer),
+            size,
+            ctypes.byref(read),
+        )
+        if not ok or read.value != size:
+            raise self._last_error(f"ReadProcessMemory(0x{address:X}, {size}) failed")
+
+        return buffer.raw
+
     def _configure_api(self) -> None:
         self._kernel32.CreateToolhelp32Snapshot.argtypes = [ctypes.c_ulong, ctypes.c_ulong]
         self._kernel32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
@@ -335,6 +487,23 @@ class NativeHookLoader:
         self._kernel32.Process32NextW.restype = ctypes.c_bool
         self._kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_bool, ctypes.c_ulong]
         self._kernel32.OpenProcess.restype = ctypes.c_void_p
+        self._kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+        self._kernel32.GetExitCodeProcess.restype = ctypes.c_bool
+        self._kernel32.VirtualQueryEx.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.POINTER(MEMORY_BASIC_INFORMATION),
+            ctypes.c_size_t,
+        ]
+        self._kernel32.VirtualQueryEx.restype = ctypes.c_size_t
+        self._kernel32.ReadProcessMemory.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_size_t,
+            ctypes.POINTER(ctypes.c_size_t),
+        ]
+        self._kernel32.ReadProcessMemory.restype = ctypes.c_bool
         self._kernel32.VirtualAllocEx.argtypes = [
             ctypes.c_void_p,
             ctypes.c_void_p,
@@ -414,4 +583,17 @@ class PROCESSENTRY32W(ctypes.Structure):
         ("pcPriClassBase", ctypes.c_long),
         ("dwFlags", ctypes.c_ulong),
         ("szExeFile", ctypes.c_wchar * 260),
+    ]
+
+
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
+        ("AllocationProtect", ctypes.c_ulong),
+        ("PartitionId", ctypes.c_ushort),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", ctypes.c_ulong),
+        ("Protect", ctypes.c_ulong),
+        ("Type", ctypes.c_ulong),
     ]

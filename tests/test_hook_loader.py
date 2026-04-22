@@ -5,7 +5,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from hook_loader import HookLoadError, HookLoadResult, NativeHookLoader
+from hook_loader import HookLoadError, HookLoadResult, HookProcessNotReadyError, NativeHookLoader
 
 
 class FakeNativeHookLoader(NativeHookLoader):
@@ -17,6 +17,7 @@ class FakeNativeHookLoader(NativeHookLoader):
         snapshot_ready: bool = True,
         snapshot_results: list[int] | None = None,
         uninitialize_status: int = 0,
+        readiness_error: str | None = None,
     ) -> None:
         self.process_name = "Megabonk.exe"
         self.dll_path = dll_path
@@ -26,6 +27,7 @@ class FakeNativeHookLoader(NativeHookLoader):
         self.snapshot_ready = snapshot_ready
         self.snapshot_results = list(snapshot_results) if snapshot_results is not None else None
         self.uninitialize_status = uninitialize_status
+        self.readiness_error = readiness_error
         self.injected: list[int] = []
         self.remote_exports: list[tuple[int, bytes, int]] = []
 
@@ -34,6 +36,10 @@ class FakeNativeHookLoader(NativeHookLoader):
 
     def _inject_into_pid(self, pid: int) -> None:
         self.injected.append(pid)
+
+    def _ensure_ready_for_injection(self, pid: int) -> None:
+        if self.readiness_error is not None:
+            raise HookProcessNotReadyError(self.readiness_error)
 
     def _invoke_export_in_pid(self, pid: int, export_name: bytes, parameter: int) -> int:
         self.remote_exports.append((pid, export_name, parameter))
@@ -86,6 +92,18 @@ class NativeHookLoaderTests(unittest.TestCase):
 
         self.assertIsNone(result)
         self.assertEqual(messages, ["boom"])
+
+    def test_inject_once_raises_not_ready_without_injecting(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(dll_path=dll_path, readiness_error="runtime not ready")
+
+            with self.assertRaisesRegex(HookProcessNotReadyError, "runtime not ready"):
+                loader.inject_once()
+
+        self.assertEqual(loader.injected, [])
+        self.assertEqual(loader._injected_pids, set())
 
     def test_request_restart_run_injects_and_signals_remote_export(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
