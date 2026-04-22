@@ -23,7 +23,9 @@ When the plan depends on memory or hook semantics, read `docs/memory-and-hooks-r
 - Avoid broad refactors, unrelated cleanup, and speculative abstractions.
 - If native hook code is touched, keep byte checks, calling conventions, exported names, and loader expectations aligned.
 - If Python memory reading code is touched, keep process/module failure paths explicit and safe for unavailable game processes.
-- At the end of implementation, update `docs/memory-and-hooks-reference.md` only if the change modifies durable memory chains, hook entry points, offset semantics, or reverse-engineering guidance that future `bonk-reverse` runs must know.
+- At the end of implementation, update `docs/memory-and-hooks-reference.md` only if the change modifies durable reverse-engineering guidance that future `bonk-reverse` runs must know.
+- Keep `docs/memory-and-hooks-reference.md` updates limited to basic logic understanding, memory or hook meaning, entry-point purpose, offset semantics, and other stable reverse facts.
+- Do not add changelog notes, code-flow descriptions, helper or function internals, guard ordering, test notes, refactor details, or implementation mechanics to `docs/memory-and-hooks-reference.md` unless they are essential reverse facts.
 
 ## Workflow
 
@@ -31,6 +33,6 @@ When the plan depends on memory or hook semantics, read `docs/memory-and-hooks-r
 2. Inspect the relevant code paths and any tests before editing.
 3. Make the smallest coherent code change that implements the plan.
 4. Update or add focused tests when practical.
-5. If relevant memory or hook guidance changed, update `docs/memory-and-hooks-reference.md` after the code change.
+5. If relevant memory or hook guidance changed, update `docs/memory-and-hooks-reference.md` after the code change with concise conceptual guidance only.
 6. Run targeted verification first, then broader checks only when the change touches shared behavior.
 7. Summarize changed files, verification results, and any remaining runtime checks the user should perform.
