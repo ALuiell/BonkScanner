@@ -64,6 +64,17 @@ class FakeThread:
         self.started = True
 
 
+class FakeHookLoopLoader:
+    def __init__(self, *, pid: int = 1234, skipped: bool = False) -> None:
+        self.pid = pid
+        self.skipped = skipped
+        self.inject_calls = 0
+
+    def inject_once(self) -> types.SimpleNamespace:
+        self.inject_calls += 1
+        return types.SimpleNamespace(pid=self.pid, skipped=self.skipped)
+
+
 class GuiRunControlTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_config_values = {
@@ -236,6 +247,40 @@ class GuiRunControlTests(unittest.TestCase):
         gui.MegabonkApp.enable_keyboard_run_control(app)
 
         self.assertFalse(app._native_hook_admin_warning_logged)
+
+    def test_native_hook_loop_skips_injection_without_admin(self) -> None:
+        loader = FakeHookLoopLoader()
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.stop_event = types.SimpleNamespace(is_set=lambda: False, wait=lambda _seconds: None)
+        app.native_hook_generation = 1
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: False
+
+        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
+            gui.MegabonkApp.native_hook_loop(app, loader, 1)
+
+        self.assertEqual(loader.inject_calls, 0)
+        self.assertIn(
+            ("[-] Native hook injection skipped: Administrator privileges are required.", "error"),
+            logs,
+        )
+        self.assertNotIn(("[+] Native hook injected into PID 1234.", "success"), logs)
+
+    def test_native_hook_loop_logs_success_for_admin_injection(self) -> None:
+        loader = FakeHookLoopLoader(pid=6728)
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.stop_event = types.SimpleNamespace(is_set=lambda: False, wait=lambda _seconds: None)
+        app.native_hook_generation = 1
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: True
+
+        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
+            gui.MegabonkApp.native_hook_loop(app, loader, 1)
+
+        self.assertEqual(loader.inject_calls, 1)
+        self.assertIn(("[+] Native hook injected into PID 6728.", "success"), logs)
 
 
 if __name__ == "__main__":
