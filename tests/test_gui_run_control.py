@@ -98,35 +98,76 @@ class FakeKeyboardModule:
         self.press_and_release_calls.append(key)
 
 
-class FakeForegroundGui:
+class FakeCtypesFunction:
+    def __init__(self, callback):
+        self.callback = callback
+        self.argtypes = None
+        self.restype = None
+
+    def __call__(self, *args):
+        return self.callback(*args)
+
+
+class FakeUser32:
     def __init__(self) -> None:
+        self.attach_calls: list[tuple[int, int, bool]] = []
+        self.keybd_event_calls: list[tuple[int, int, int, int]] = []
+        self.AttachThreadInput = FakeCtypesFunction(self._attach_thread_input)
+        self.keybd_event = FakeCtypesFunction(self._keybd_event)
+
+    def _attach_thread_input(self, current_thread: int, target_thread: int, attach: bool) -> bool:
+        self.attach_calls.append((current_thread, target_thread, attach))
+        return True
+
+    def _keybd_event(self, key: int, scan: int, flags: int, extra: int) -> None:
+        self.keybd_event_calls.append((key, scan, flags, extra))
+
+
+class FakeKernel32:
+    def __init__(self, current_thread: int = 10) -> None:
+        self.GetCurrentThreadId = FakeCtypesFunction(lambda: current_thread)
+
+
+class FakeWindll:
+    def __init__(self, user32: FakeUser32, kernel32: FakeKernel32) -> None:
+        self.user32 = user32
+        self.kernel32 = kernel32
+
+
+class FakeForegroundGui:
+    def __init__(self, *, fail_always: bool = False) -> None:
+        self.fail_always = fail_always
         self.foreground_window = 222
-        self.set_foreground_calls = 0
-        self.set_window_pos_calls: list[tuple[int, int]] = []
+        self.set_foreground_calls: list[int] = []
+        self.show_window_calls: list[tuple[int, int]] = []
+        self.bring_window_to_top_calls: list[int] = []
 
     def IsIconic(self, _window: int) -> bool:
         return False
 
-    def ShowWindow(self, _window: int, _command: int) -> None:
-        pass
-
-    def BringWindowToTop(self, _window: int) -> None:
-        pass
+    def ShowWindow(self, window: int, command: int) -> None:
+        self.show_window_calls.append((window, command))
 
     def SetForegroundWindow(self, window: int) -> None:
-        self.set_foreground_calls += 1
-        if self.set_foreground_calls == 1:
-            raise RuntimeError("direct foreground denied")
+        self.set_foreground_calls.append(window)
+        if self.fail_always or len(self.set_foreground_calls) == 1:
+            raise RuntimeError("foreground denied")
         self.foreground_window = window
 
     def GetForegroundWindow(self) -> int:
         return self.foreground_window
 
-    def SetWindowPos(self, window: int, insert_after: int, *_args: object) -> None:
-        self.set_window_pos_calls.append((window, insert_after))
+    def BringWindowToTop(self, window: int) -> None:
+        self.bring_window_to_top_calls.append(window)
 
-    def IsWindowVisible(self, _window: int) -> bool:
-        return True
+
+class FakeForegroundProcess:
+    def GetWindowThreadProcessId(self, window: int) -> tuple[int, int]:
+        thread_by_window = {
+            111: 20,
+            222: 30,
+        }
+        return thread_by_window.get(window, 40), 9000 + window
 
 
 class GuiRunControlTests(unittest.TestCase):
@@ -370,18 +411,58 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(focus_checks, ["Megabonk.exe"])
         self.assertEqual(fake_keyboard.press_and_release_calls, ["esc"])
 
-    def test_activate_game_window_uses_topmost_fallback_when_direct_foreground_fails(self) -> None:
+    def test_bring_game_window_to_front_uses_alt_attach_fallback_after_direct_failure(self) -> None:
         fake_gui = FakeForegroundGui()
+        fake_process = FakeForegroundProcess()
+        fake_user32 = FakeUser32()
+        fake_windll = FakeWindll(fake_user32, FakeKernel32())
+        logs: list[tuple[str, str | None]] = []
         app = object.__new__(gui.MegabonkApp)
-        app.try_attached_foreground_window = lambda _window: False
+        app.find_game_window = lambda _process_name: 111
+        app.log = lambda message, tag=None: logs.append((message, tag))
 
         with patch.object(gui, "win32gui", fake_gui):
-            ok, error = gui.MegabonkApp.activate_game_window(app, 111)
+            with patch.object(gui, "win32process", fake_process):
+                with patch.object(gui.ctypes, "windll", fake_windll):
+                    self.assertTrue(gui.MegabonkApp.bring_game_window_to_front(app, "Megabonk.exe"))
 
-        self.assertTrue(ok)
-        self.assertEqual(error, "")
-        self.assertEqual(fake_gui.set_foreground_calls, 2)
-        self.assertEqual(fake_gui.set_window_pos_calls, [(111, -1), (111, -2)])
+        self.assertEqual(fake_gui.show_window_calls, [(111, 5)])
+        self.assertEqual(fake_gui.set_foreground_calls, [111, 111])
+        self.assertEqual(fake_gui.bring_window_to_top_calls, [111])
+        self.assertEqual(
+            fake_user32.attach_calls,
+            [
+                (10, 20, True),
+                (10, 30, True),
+                (10, 20, False),
+                (10, 30, False),
+            ],
+        )
+        self.assertEqual(fake_user32.keybd_event_calls, [(0x12, 0, 0, 0), (0x12, 0, 0x0002, 0)])
+        self.assertEqual(logs, [])
+
+    def test_alt_attach_fallback_detaches_threads_when_foreground_fails(self) -> None:
+        fake_gui = FakeForegroundGui(fail_always=True)
+        fake_process = FakeForegroundProcess()
+        fake_user32 = FakeUser32()
+        fake_windll = FakeWindll(fake_user32, FakeKernel32())
+        app = object.__new__(gui.MegabonkApp)
+
+        with patch.object(gui, "win32gui", fake_gui):
+            with patch.object(gui, "win32process", fake_process):
+                with patch.object(gui.ctypes, "windll", fake_windll):
+                    with self.assertRaisesRegex(RuntimeError, "foreground denied"):
+                        gui.MegabonkApp.try_alt_attach_foreground_window(app, 111)
+
+        self.assertEqual(
+            fake_user32.attach_calls,
+            [
+                (10, 20, True),
+                (10, 30, True),
+                (10, 20, False),
+                (10, 30, False),
+            ],
+        )
 
     def test_toggle_main_loop_clears_stale_scan_event_before_starting_worker(self) -> None:
         logs: list[tuple[object, object | None]] = []

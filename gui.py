@@ -1531,57 +1531,38 @@ class MegabonkApp(ctk.CTk):
             self.log("[WAIT] Cannot bring game window to front: game window was not found.", tag="warning")
             return False
 
-        ok, error = self.activate_game_window(window)
-        if ok:
-            return True
-
-        self.log(f"[WAIT] Cannot bring game window to front: {error}", tag="warning")
-        return False
-
-    def activate_game_window(self, window: int) -> tuple[bool, str]:
-        errors = []
-
         try:
-            if hasattr(win32gui, "IsIconic") and win32gui.IsIconic(window):
-                win32gui.ShowWindow(window, 9)  # SW_RESTORE
-            elif hasattr(win32gui, "ShowWindow"):
-                win32gui.ShowWindow(window, 5)  # SW_SHOW
-        except Exception as exc:
-            errors.append(f"ShowWindow failed: {exc}")
-
-        for activate in (
-            self.try_set_foreground_window,
-            self.try_attached_foreground_window,
-            self.try_topmost_foreground_window,
-        ):
+            self.show_game_window(window)
+            win32gui.SetForegroundWindow(window)
+            return True
+        except Exception as direct_exc:
             try:
-                if activate(window):
-                    return True, ""
-            except Exception as exc:
-                errors.append(str(exc))
+                self.try_alt_attach_foreground_window(window)
+                return True
+            except Exception as fallback_exc:
+                self.log(
+                    f"[WAIT] Cannot bring game window to front: {direct_exc}; "
+                    f"ALT attach fallback failed: {fallback_exc}",
+                    tag="warning",
+                )
+                return False
 
-        if not errors:
-            errors.append("foreground activation was denied")
+    @staticmethod
+    def show_game_window(window: int) -> None:
+        if hasattr(win32gui, "IsIconic") and win32gui.IsIconic(window):
+            win32gui.ShowWindow(window, 9)  # SW_RESTORE
+        elif hasattr(win32gui, "ShowWindow"):
+            win32gui.ShowWindow(window, 5)  # SW_SHOW
 
-        return False, "; ".join(errors)
-
-    def try_set_foreground_window(self, window: int) -> bool:
-        if hasattr(win32gui, "BringWindowToTop"):
-            win32gui.BringWindowToTop(window)
-        win32gui.SetForegroundWindow(window)
-        return self.is_foreground_window(window)
-
-    def try_attached_foreground_window(self, window: int) -> bool:
+    def try_alt_attach_foreground_window(self, window: int) -> None:
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
         user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
         user32.AttachThreadInput.restype = wintypes.BOOL
-        user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
-        user32.AllowSetForegroundWindow.restype = wintypes.BOOL
         kernel32.GetCurrentThreadId.argtypes = []
         kernel32.GetCurrentThreadId.restype = wintypes.DWORD
 
-        current_thread = kernel32.GetCurrentThreadId()
+        current_thread = int(kernel32.GetCurrentThreadId())
         target_thread, _ = win32process.GetWindowThreadProcessId(window)
         foreground_window = win32gui.GetForegroundWindow()
         foreground_thread = None
@@ -1589,49 +1570,35 @@ class MegabonkApp(ctk.CTk):
             foreground_thread, _ = win32process.GetWindowThreadProcessId(foreground_window)
 
         attached_threads = []
+        seen_threads = set()
         for thread_id in (target_thread, foreground_thread):
-            if thread_id and thread_id != current_thread:
-                if user32.AttachThreadInput(current_thread, int(thread_id), True):
-                    attached_threads.append(int(thread_id))
+            thread_id = int(thread_id) if thread_id else 0
+            if not thread_id or thread_id == current_thread or thread_id in seen_threads:
+                continue
+            seen_threads.add(thread_id)
+            if user32.AttachThreadInput(current_thread, thread_id, True):
+                attached_threads.append(thread_id)
 
         try:
-            user32.AllowSetForegroundWindow(-1)
+            self.send_alt_keypress(user32)
             if hasattr(win32gui, "BringWindowToTop"):
                 win32gui.BringWindowToTop(window)
             win32gui.SetForegroundWindow(window)
-            return self.is_foreground_window(window)
         finally:
             for thread_id in attached_threads:
                 user32.AttachThreadInput(current_thread, thread_id, False)
 
-    def try_topmost_foreground_window(self, window: int) -> bool:
-        if not hasattr(win32gui, "SetWindowPos"):
-            return False
-
-        hwnd_topmost = -1
-        hwnd_notopmost = -2
-        swp_nosize = 0x0001
-        swp_nomove = 0x0002
-        swp_showwindow = 0x0040
-        flags = swp_nomove | swp_nosize | swp_showwindow
-
-        win32gui.SetWindowPos(window, hwnd_topmost, 0, 0, 0, 0, flags)
-        win32gui.SetWindowPos(window, hwnd_notopmost, 0, 0, 0, 0, flags)
-
-        try:
-            win32gui.SetForegroundWindow(window)
-        except Exception:
-            pass
-
-        if self.is_foreground_window(window):
-            return True
-
-        return bool(self.is_visible_window(window))
+    @staticmethod
+    def send_alt_keypress(user32) -> None:
+        vk_menu = 0x12
+        keyeventf_keyup = 0x0002
+        user32.keybd_event(vk_menu, 0, 0, 0)
+        user32.keybd_event(vk_menu, 0, keyeventf_keyup, 0)
 
     @staticmethod
-    def is_foreground_window(window: int) -> bool:
+    def is_visible_window(window: int) -> bool:
         try:
-            return bool(window and win32gui.GetForegroundWindow() == window)
+            return bool(window and (not hasattr(win32gui, "IsWindowVisible") or win32gui.IsWindowVisible(window)))
         except Exception:
             return False
 
@@ -1693,13 +1660,6 @@ class MegabonkApp(ctk.CTk):
             self.log(f"[WAIT] Failed to enumerate game windows by title: {exc}", tag="warning")
 
         return found_window
-
-    @staticmethod
-    def is_visible_window(window: int) -> bool:
-        try:
-            return bool(window and (not hasattr(win32gui, "IsWindowVisible") or win32gui.IsWindowVisible(window)))
-        except Exception:
-            return False
 
     def handle_confirmed_target_window(self, process_name: str) -> bool:
         if self.is_hook_run_control_active():
