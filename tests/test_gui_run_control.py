@@ -98,6 +98,37 @@ class FakeKeyboardModule:
         self.press_and_release_calls.append(key)
 
 
+class FakeForegroundGui:
+    def __init__(self) -> None:
+        self.foreground_window = 222
+        self.set_foreground_calls = 0
+        self.set_window_pos_calls: list[tuple[int, int]] = []
+
+    def IsIconic(self, _window: int) -> bool:
+        return False
+
+    def ShowWindow(self, _window: int, _command: int) -> None:
+        pass
+
+    def BringWindowToTop(self, _window: int) -> None:
+        pass
+
+    def SetForegroundWindow(self, window: int) -> None:
+        self.set_foreground_calls += 1
+        if self.set_foreground_calls == 1:
+            raise RuntimeError("direct foreground denied")
+        self.foreground_window = window
+
+    def GetForegroundWindow(self) -> int:
+        return self.foreground_window
+
+    def SetWindowPos(self, window: int, insert_after: int, *_args: object) -> None:
+        self.set_window_pos_calls.append((window, insert_after))
+
+    def IsWindowVisible(self, _window: int) -> bool:
+        return True
+
+
 class GuiRunControlTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_config_values = {
@@ -338,6 +369,19 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(focus_checks, ["Megabonk.exe"])
         self.assertEqual(fake_keyboard.press_and_release_calls, ["esc"])
+
+    def test_activate_game_window_uses_topmost_fallback_when_direct_foreground_fails(self) -> None:
+        fake_gui = FakeForegroundGui()
+        app = object.__new__(gui.MegabonkApp)
+        app.try_attached_foreground_window = lambda _window: False
+
+        with patch.object(gui, "win32gui", fake_gui):
+            ok, error = gui.MegabonkApp.activate_game_window(app, 111)
+
+        self.assertTrue(ok)
+        self.assertEqual(error, "")
+        self.assertEqual(fake_gui.set_foreground_calls, 2)
+        self.assertEqual(fake_gui.set_window_pos_calls, [(111, -1), (111, -2)])
 
     def test_toggle_main_loop_clears_stale_scan_event_before_starting_worker(self) -> None:
         logs: list[tuple[object, object | None]] = []

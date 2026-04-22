@@ -1,5 +1,7 @@
 import os
 import sys
+import ctypes
+from ctypes import wintypes
 import threading
 import time
 import datetime
@@ -1529,13 +1531,108 @@ class MegabonkApp(ctk.CTk):
             self.log("[WAIT] Cannot bring game window to front: game window was not found.", tag="warning")
             return False
 
+        ok, error = self.activate_game_window(window)
+        if ok:
+            return True
+
+        self.log(f"[WAIT] Cannot bring game window to front: {error}", tag="warning")
+        return False
+
+    def activate_game_window(self, window: int) -> tuple[bool, str]:
+        errors = []
+
         try:
             if hasattr(win32gui, "IsIconic") and win32gui.IsIconic(window):
                 win32gui.ShowWindow(window, 9)  # SW_RESTORE
-            win32gui.SetForegroundWindow(window)
-            return True
+            elif hasattr(win32gui, "ShowWindow"):
+                win32gui.ShowWindow(window, 5)  # SW_SHOW
         except Exception as exc:
-            self.log(f"[WAIT] Cannot bring game window to front: {exc}", tag="warning")
+            errors.append(f"ShowWindow failed: {exc}")
+
+        for activate in (
+            self.try_set_foreground_window,
+            self.try_attached_foreground_window,
+            self.try_topmost_foreground_window,
+        ):
+            try:
+                if activate(window):
+                    return True, ""
+            except Exception as exc:
+                errors.append(str(exc))
+
+        if not errors:
+            errors.append("foreground activation was denied")
+
+        return False, "; ".join(errors)
+
+    def try_set_foreground_window(self, window: int) -> bool:
+        if hasattr(win32gui, "BringWindowToTop"):
+            win32gui.BringWindowToTop(window)
+        win32gui.SetForegroundWindow(window)
+        return self.is_foreground_window(window)
+
+    def try_attached_foreground_window(self, window: int) -> bool:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+        user32.AttachThreadInput.restype = wintypes.BOOL
+        user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
+        user32.AllowSetForegroundWindow.restype = wintypes.BOOL
+        kernel32.GetCurrentThreadId.argtypes = []
+        kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+
+        current_thread = kernel32.GetCurrentThreadId()
+        target_thread, _ = win32process.GetWindowThreadProcessId(window)
+        foreground_window = win32gui.GetForegroundWindow()
+        foreground_thread = None
+        if foreground_window:
+            foreground_thread, _ = win32process.GetWindowThreadProcessId(foreground_window)
+
+        attached_threads = []
+        for thread_id in (target_thread, foreground_thread):
+            if thread_id and thread_id != current_thread:
+                if user32.AttachThreadInput(current_thread, int(thread_id), True):
+                    attached_threads.append(int(thread_id))
+
+        try:
+            user32.AllowSetForegroundWindow(-1)
+            if hasattr(win32gui, "BringWindowToTop"):
+                win32gui.BringWindowToTop(window)
+            win32gui.SetForegroundWindow(window)
+            return self.is_foreground_window(window)
+        finally:
+            for thread_id in attached_threads:
+                user32.AttachThreadInput(current_thread, thread_id, False)
+
+    def try_topmost_foreground_window(self, window: int) -> bool:
+        if not hasattr(win32gui, "SetWindowPos"):
+            return False
+
+        hwnd_topmost = -1
+        hwnd_notopmost = -2
+        swp_nosize = 0x0001
+        swp_nomove = 0x0002
+        swp_showwindow = 0x0040
+        flags = swp_nomove | swp_nosize | swp_showwindow
+
+        win32gui.SetWindowPos(window, hwnd_topmost, 0, 0, 0, 0, flags)
+        win32gui.SetWindowPos(window, hwnd_notopmost, 0, 0, 0, 0, flags)
+
+        try:
+            win32gui.SetForegroundWindow(window)
+        except Exception:
+            pass
+
+        if self.is_foreground_window(window):
+            return True
+
+        return bool(self.is_visible_window(window))
+
+    @staticmethod
+    def is_foreground_window(window: int) -> bool:
+        try:
+            return bool(window and win32gui.GetForegroundWindow() == window)
+        except Exception:
             return False
 
     def find_game_window(self, process_name: str) -> int | None:
