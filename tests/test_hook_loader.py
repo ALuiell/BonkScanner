@@ -16,6 +16,7 @@ class FakeNativeHookLoader(NativeHookLoader):
         pid: int | None = 1234,
         snapshot_ready: bool = True,
         snapshot_results: list[int] | None = None,
+        uninitialize_status: int = 0,
     ) -> None:
         self.process_name = "Megabonk.exe"
         self.dll_path = dll_path
@@ -24,6 +25,7 @@ class FakeNativeHookLoader(NativeHookLoader):
         self.pid = pid
         self.snapshot_ready = snapshot_ready
         self.snapshot_results = list(snapshot_results) if snapshot_results is not None else None
+        self.uninitialize_status = uninitialize_status
         self.injected: list[int] = []
         self.remote_exports: list[tuple[int, bytes, int]] = []
 
@@ -41,6 +43,8 @@ class FakeNativeHookLoader(NativeHookLoader):
                     return self.snapshot_results.pop(0)
                 return self.snapshot_results[0]
             return 1 if self.snapshot_ready else 0
+        if export_name == b"Uninitialize":
+            return self.uninitialize_status
         return 0
 
 
@@ -159,6 +163,28 @@ class NativeHookLoaderTests(unittest.TestCase):
 
             with self.assertRaisesRegex(HookLoadError, "status 42"):
                 loader.wait_for_snapshot_ready(timeout=1.0, poll_interval=0.001)
+
+    def test_uninitialize_invokes_remote_export_and_clears_injected_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(dll_path=dll_path)
+            loader._injected_pids.add(1234)
+
+            result = loader.uninitialize()
+
+        self.assertEqual(result, HookLoadResult(pid=1234, dll_path=dll_path, initialized=False))
+        self.assertEqual(loader.remote_exports, [(1234, b"Uninitialize", 0)])
+        self.assertEqual(loader._injected_pids, set())
+
+    def test_uninitialize_raises_for_remote_error_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(dll_path=dll_path, uninitialize_status=17)
+
+            with self.assertRaisesRegex(HookLoadError, "status 17"):
+                loader.uninitialize()
 
 
 if __name__ == "__main__":

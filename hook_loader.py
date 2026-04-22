@@ -133,6 +133,19 @@ class NativeHookLoader:
 
                 time.sleep(min(poll_seconds, remaining))
 
+    def uninitialize(self) -> HookLoadResult:
+        with self._operation_lock:
+            pid = self._find_process_id()
+            if pid is None:
+                raise HookProcessNotFoundError(f"Waiting for process '{self.process_name}'.")
+
+            exit_code = self._invoke_export_in_pid(pid, b"Uninitialize", 0)
+            if exit_code != 0:
+                raise HookLoadError(f"BonkHook Uninitialize failed with status {exit_code}.")
+
+            self._injected_pids.discard(pid)
+            return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=False)
+
     def try_inject_once(
         self,
         log: Callable[[str], None] | None = None,
