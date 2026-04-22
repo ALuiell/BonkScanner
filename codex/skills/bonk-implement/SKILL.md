@@ -32,4 +32,3 @@ When the plan depends on memory or hook semantics, read `docs/memory-and-hooks-r
 3. Make the smallest coherent code change that implements the plan.
 4. Update or add focused tests when practical.
 5. Run targeted verification first, then broader checks only when the change touches shared behavior.
-6. Summarize changed files, verification results, and any remaining runtime checks the user should perform.

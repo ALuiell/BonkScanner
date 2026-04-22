@@ -46,15 +46,3 @@ Use the IL2CPP dump only after the reference doc and relevant project sources. P
 6. Distinguish confirmed facts from inferences.
 7. If exactly one viable path exists, produce a concise technical description.
 8. If multiple viable paths exist, stop and ask the user to choose between concrete options before giving a final technical direction.
-
-## Final Output
-
-End with a brief technical note, not an implementation patch. Include:
-
-- Feature goal as understood.
-- Relevant existing code and dump sources.
-- Discovered memory or hook facts.
-- Recommended implementation direction.
-- Unresolved risks or confirmations needed.
-
-If there are alternatives, present the concrete options and ask the user which route to take.
