@@ -90,6 +90,14 @@ class FakeHookLoopLoader:
         return types.SimpleNamespace(pid=self.pid, skipped=self.skipped)
 
 
+class FakeKeyboardModule:
+    def __init__(self) -> None:
+        self.press_and_release_calls: list[str] = []
+
+    def press_and_release(self, key: str) -> None:
+        self.press_and_release_calls.append(key)
+
+
 class GuiRunControlTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_config_values = {
@@ -266,6 +274,70 @@ class GuiRunControlTests(unittest.TestCase):
         gui.MegabonkApp.enable_keyboard_run_control(app)
 
         self.assertFalse(app._native_hook_admin_warning_logged)
+
+    def test_hook_mode_bypasses_game_window_focus_wait(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.run_control_provider = HookRunControlProvider(object(), map_load_delay=0)
+        app.is_game_window_active = lambda _process_name: self.fail("hook mode should not check focus")
+
+        self.assertTrue(gui.MegabonkApp.wait_for_game_window_focus(app, "Megabonk.exe"))
+
+    def test_keyboard_mode_still_waits_when_game_window_is_not_active(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        sleeps: list[float] = []
+        active_results = [False, False, True]
+        app = object.__new__(gui.MegabonkApp)
+        app.run_control_provider = KeyboardRunControlProvider(
+            None,
+            reset_hotkey="r",
+            reset_hold_duration=0.1,
+            map_load_delay=0.2,
+        )
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.scan_event.set()
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_game_window_active = lambda _process_name: active_results.pop(0)
+
+        with patch.object(gui.time, "sleep", sleeps.append):
+            self.assertTrue(gui.MegabonkApp.wait_for_game_window_focus(app, "Megabonk.exe"))
+
+        self.assertEqual(sleeps, [0.3])
+        self.assertIn(("[WAIT] Game window is not active. Auto-reroll paused...", "warning"), logs)
+        self.assertIn(("[+] Game window active again. Auto-reroll resumed.", "success"), logs)
+
+    def test_confirmed_target_in_hook_mode_brings_game_forward_without_esc(self) -> None:
+        fake_keyboard = FakeKeyboardModule()
+        app = object.__new__(gui.MegabonkApp)
+        app.run_control_provider = HookRunControlProvider(object(), map_load_delay=0)
+        app.bring_game_window_to_front_calls: list[str] = []
+        app.bring_game_window_to_front = app.bring_game_window_to_front_calls.append
+        app.wait_for_game_window_focus = lambda _process_name: self.fail("hook mode should not wait for focus")
+
+        with patch.object(gui, "keyboard", fake_keyboard):
+            self.assertTrue(gui.MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
+
+        self.assertEqual(app.bring_game_window_to_front_calls, ["Megabonk.exe"])
+        self.assertEqual(fake_keyboard.press_and_release_calls, [])
+
+    def test_confirmed_target_in_keyboard_mode_keeps_focus_check_and_esc(self) -> None:
+        fake_keyboard = FakeKeyboardModule()
+        focus_checks: list[str] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.run_control_provider = KeyboardRunControlProvider(
+            fake_keyboard,
+            reset_hotkey="r",
+            reset_hold_duration=0.1,
+            map_load_delay=0.2,
+        )
+        app.wait_for_game_window_focus = lambda process_name: focus_checks.append(process_name) or True
+        app.bring_game_window_to_front = lambda _process_name: self.fail("keyboard mode should not bring window forward")
+
+        with patch.object(gui, "keyboard", fake_keyboard):
+            self.assertTrue(gui.MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
+
+        self.assertEqual(focus_checks, ["Megabonk.exe"])
+        self.assertEqual(fake_keyboard.press_and_release_calls, ["esc"])
 
     def test_toggle_main_loop_clears_stale_scan_event_before_starting_worker(self) -> None:
         logs: list[tuple[object, object | None]] = []

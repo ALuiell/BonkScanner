@@ -1467,6 +1467,12 @@ class MegabonkApp(ctk.CTk):
         except (TypeError, ValueError):
             return None
 
+    def is_hook_run_control_active(self) -> bool:
+        return isinstance(self.run_control_provider, HookRunControlProvider)
+
+    def is_keyboard_run_control_active(self) -> bool:
+        return isinstance(self.run_control_provider, KeyboardRunControlProvider)
+
     def is_game_window_active(self, process_name: str) -> bool:
         if win32gui is None or win32process is None:
             return True
@@ -1492,6 +1498,9 @@ class MegabonkApp(ctk.CTk):
         return bool(expected_title and expected_title.lower() in foreground_title.lower())
 
     def wait_for_game_window_focus(self, process_name: str) -> bool:
+        if self.is_hook_run_control_active():
+            return True
+
         if self.is_game_window_active(process_name):
             return True
 
@@ -1508,6 +1517,103 @@ class MegabonkApp(ctk.CTk):
             return False
 
         self.log("[+] Game window active again. Auto-reroll resumed.", tag="success")
+        return True
+
+    def bring_game_window_to_front(self, process_name: str) -> bool:
+        if win32gui is None or win32process is None:
+            self.log("[WAIT] Cannot bring game window to front: pywin32 is unavailable.", tag="warning")
+            return False
+
+        window = self.find_game_window(process_name)
+        if not window:
+            self.log("[WAIT] Cannot bring game window to front: game window was not found.", tag="warning")
+            return False
+
+        try:
+            if hasattr(win32gui, "IsIconic") and win32gui.IsIconic(window):
+                win32gui.ShowWindow(window, 9)  # SW_RESTORE
+            win32gui.SetForegroundWindow(window)
+            return True
+        except Exception as exc:
+            self.log(f"[WAIT] Cannot bring game window to front: {exc}", tag="warning")
+            return False
+
+    def find_game_window(self, process_name: str) -> int | None:
+        game_process_id = self.get_game_process_id()
+        if game_process_id is not None:
+            window = self.find_game_window_by_pid(game_process_id)
+            if window:
+                return window
+
+        return self.find_game_window_by_title(process_name)
+
+    def find_game_window_by_pid(self, process_id: int) -> int | None:
+        found_window = None
+
+        def enum_callback(window, _extra):
+            nonlocal found_window
+            if found_window is not None or not self.is_visible_window(window):
+                return
+
+            try:
+                _, window_process_id = win32process.GetWindowThreadProcessId(window)
+            except Exception:
+                return
+
+            if int(window_process_id) == process_id:
+                found_window = window
+
+        try:
+            win32gui.EnumWindows(enum_callback, None)
+        except Exception as exc:
+            self.log(f"[WAIT] Failed to enumerate game windows by PID: {exc}", tag="warning")
+
+        return found_window
+
+    def find_game_window_by_title(self, process_name: str) -> int | None:
+        expected_title = os.path.splitext(process_name)[0]
+        if not expected_title:
+            return None
+
+        found_window = None
+
+        def enum_callback(window, _extra):
+            nonlocal found_window
+            if found_window is not None or not self.is_visible_window(window):
+                return
+
+            try:
+                window_title = win32gui.GetWindowText(window) or ""
+            except Exception:
+                return
+
+            if expected_title.lower() in window_title.lower():
+                found_window = window
+
+        try:
+            win32gui.EnumWindows(enum_callback, None)
+        except Exception as exc:
+            self.log(f"[WAIT] Failed to enumerate game windows by title: {exc}", tag="warning")
+
+        return found_window
+
+    @staticmethod
+    def is_visible_window(window: int) -> bool:
+        try:
+            return bool(window and (not hasattr(win32gui, "IsWindowVisible") or win32gui.IsWindowVisible(window)))
+        except Exception:
+            return False
+
+    def handle_confirmed_target_window(self, process_name: str) -> bool:
+        if self.is_hook_run_control_active():
+            self.bring_game_window_to_front(process_name)
+            return True
+
+        if keyboard:
+            if not self.wait_for_game_window_focus(process_name):
+                return False
+            keyboard.press_and_release("esc")
+
         return True
 
     def background_loop(self):
@@ -1586,10 +1692,8 @@ class MegabonkApp(ctk.CTk):
                         
                         self.log_target_found(t_name)
                         
-                        if keyboard:
-                            if not self.wait_for_game_window_focus(process_name):
-                                continue
-                            keyboard.press_and_release("esc")
+                        if not self.handle_confirmed_target_window(process_name):
+                            continue
                             
                         self.is_running = False
                         self.scan_event.clear()
