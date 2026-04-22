@@ -132,7 +132,13 @@ class NativeHookLoader:
         if dll_path:
             return Path(dll_path).expanduser().resolve()
 
-        root = Path(base_path) if base_path else Path(getattr(sys, "_MEIPASS", Path.cwd()))
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            root = Path(sys._MEIPASS)
+        elif base_path:
+            root = Path(base_path)
+        else:
+            root = Path.cwd()
+
         return (root / cls.DEFAULT_RELATIVE_DLL).resolve()
 
     def inject_once(self) -> HookLoadResult:

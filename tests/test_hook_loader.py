@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 
 from hook_loader import HookLoadError, HookLoadResult, HookProcessNotReadyError, NativeHookLoader
+
+
+_MISSING = object()
+
+
+def restore_sys_attr(name: str, value: object) -> None:
+    if value is _MISSING:
+        delattr(sys, name)
+    else:
+        setattr(sys, name, value)
 
 
 class FakeNativeHookLoader(NativeHookLoader):
@@ -67,6 +78,39 @@ class NativeHookLoaderTests(unittest.TestCase):
         path = NativeHookLoader.resolve_dll_path(base_path=base)
 
         self.assertEqual(path, (base / NativeHookLoader.DEFAULT_RELATIVE_DLL).resolve())
+
+    def test_resolve_default_dll_path_uses_meipass_when_frozen(self) -> None:
+        old_frozen = getattr(sys, "frozen", _MISSING)
+        old_meipass = getattr(sys, "_MEIPASS", _MISSING)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                sys.frozen = True
+                sys._MEIPASS = temp_dir
+
+                path = NativeHookLoader.resolve_dll_path(base_path=Path("C:/BonkScanner"))
+
+                self.assertEqual(path, (Path(temp_dir) / NativeHookLoader.DEFAULT_RELATIVE_DLL).resolve())
+            finally:
+                restore_sys_attr("frozen", old_frozen)
+                restore_sys_attr("_MEIPASS", old_meipass)
+
+    def test_resolve_explicit_dll_path_overrides_meipass(self) -> None:
+        old_frozen = getattr(sys, "frozen", _MISSING)
+        old_meipass = getattr(sys, "_MEIPASS", _MISSING)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            explicit_path = Path(temp_dir) / "custom" / "BonkHook.dll"
+            try:
+                sys.frozen = True
+                sys._MEIPASS = str(Path(temp_dir) / "bundle")
+
+                path = NativeHookLoader.resolve_dll_path(dll_path=explicit_path, base_path=Path("C:/BonkScanner"))
+
+                self.assertEqual(path, explicit_path.resolve())
+            finally:
+                restore_sys_attr("frozen", old_frozen)
+                restore_sys_attr("_MEIPASS", old_meipass)
 
     def test_inject_once_skips_pid_that_was_already_injected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
