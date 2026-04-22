@@ -113,6 +113,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.native_hook_thread = object()
         app.native_hook_generation = 1
         app.run_control_provider = object()
+        app._native_hook_admin_warning_logged = True
         app.log = lambda message, tag=None: logs.append((message, tag))
 
         with patch.object(gui.config, "NATIVE_HOOK_ENABLED", False):
@@ -133,8 +134,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.native_hook_thread = None
         app.native_hook_generation = 0
         app.run_control_provider = object()
+        app._native_hook_admin_warning_logged = False
         app.native_hook_loop = lambda *_args: None
         app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: True
 
         with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
             with patch.object(gui, "NativeHookLoader", return_value=fake_loader):
@@ -146,6 +149,93 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.native_hook_generation, 1)
         self.assertTrue(app.native_hook_thread.started)
         self.assertIn(("[*] Native hook restart control enabled.", None), logs)
+
+    def test_check_admin_rights_logs_hook_warning_when_hook_mode_is_enabled_without_admin(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: False
+        app._native_hook_admin_warning_logged = False
+
+        with patch.object(gui.os, "name", "nt"):
+            with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
+                gui.MegabonkApp.check_admin_rights(app)
+
+        self.assertIn(
+            ("[-] Native hook mode requires Administrator privileges. Injection will likely fail.", "error"),
+            logs,
+        )
+
+    def test_check_admin_rights_skips_hook_warning_when_hook_mode_is_disabled(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: False
+
+        with patch.object(gui.os, "name", "nt"):
+            with patch.object(gui.config, "NATIVE_HOOK_ENABLED", False):
+                gui.MegabonkApp.check_admin_rights(app)
+
+        self.assertNotIn(
+            ("[-] Native hook mode requires Administrator privileges. Injection will likely fail.", "error"),
+            logs,
+        )
+
+    def test_enable_hook_run_control_logs_hook_warning_without_admin(self) -> None:
+        fake_loader = object()
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.native_hook_loader = None
+        app.native_hook_thread = None
+        app.native_hook_generation = 0
+        app.run_control_provider = object()
+        app._native_hook_admin_warning_logged = False
+        app.native_hook_loop = lambda *_args: None
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: False
+
+        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
+            with patch.object(gui, "NativeHookLoader", return_value=fake_loader):
+                with patch.object(gui.threading, "Thread", FakeThread):
+                    gui.MegabonkApp.enable_hook_run_control(app)
+
+        self.assertIn(
+            ("[-] Native hook mode requires Administrator privileges. Injection will likely fail.", "error"),
+            logs,
+        )
+
+    def test_startup_admin_warning_is_not_duplicated_by_hook_enable(self) -> None:
+        fake_loader = object()
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.native_hook_loader = None
+        app.native_hook_thread = None
+        app.native_hook_generation = 0
+        app.run_control_provider = object()
+        app._native_hook_admin_warning_logged = False
+        app.native_hook_loop = lambda *_args: None
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: False
+
+        with patch.object(gui.os, "name", "nt"):
+            with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
+                gui.MegabonkApp.check_admin_rights(app)
+                with patch.object(gui, "NativeHookLoader", return_value=fake_loader):
+                    with patch.object(gui.threading, "Thread", FakeThread):
+                        gui.MegabonkApp.enable_hook_run_control(app)
+
+        hook_warning = ("[-] Native hook mode requires Administrator privileges. Injection will likely fail.", "error")
+        self.assertEqual(logs.count(hook_warning), 1)
+
+    def test_keyboard_mode_resets_hook_admin_warning_for_later_hook_enable(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app._native_hook_admin_warning_logged = True
+        app.log = lambda message, tag=None: logs.append((message, tag))
+
+        gui.MegabonkApp.enable_keyboard_run_control(app)
+
+        self.assertFalse(app._native_hook_admin_warning_logged)
 
 
 if __name__ == "__main__":

@@ -582,6 +582,7 @@ class MegabonkApp(ctk.CTk):
         self.native_hook_thread = None
         self.native_hook_generation = 0
         self.run_control_provider = None
+        self._native_hook_admin_warning_logged = False
         self.checkboxes = {}
         self.scores_checkboxes = {}
         
@@ -649,6 +650,7 @@ class MegabonkApp(ctk.CTk):
             self.enable_keyboard_run_control()
 
     def enable_keyboard_run_control(self):
+        self._native_hook_admin_warning_logged = False
         self.run_control_provider = KeyboardRunControlProvider(
             keyboard,
             reset_hotkey=lambda: config.RESET_HOTKEY,
@@ -660,6 +662,8 @@ class MegabonkApp(ctk.CTk):
     def enable_hook_run_control(self):
         if isinstance(self.run_control_provider, HookRunControlProvider):
             return
+
+        self.warn_if_native_hook_needs_admin()
 
         dll_path = getattr(config, "NATIVE_HOOK_DLL_PATH", "") or None
         self.native_hook_loader = NativeHookLoader(
@@ -688,6 +692,10 @@ class MegabonkApp(ctk.CTk):
         logged_waiting = False
         while not self.stop_event.is_set() and generation == self.native_hook_generation:
             try:
+                if getattr(config, "NATIVE_HOOK_ENABLED", True) and not self.is_running_as_admin():
+                    self.log("[-] Native hook injection skipped: Administrator privileges are required.", tag="error")
+                    return
+
                 result = loader.inject_once()
                 if generation != self.native_hook_generation:
                     return
@@ -713,16 +721,32 @@ class MegabonkApp(ctk.CTk):
         threading.Thread(target=updater.check_and_update, args=(self, False), daemon=True).start()
 
     def check_admin_rights(self):
-        if os.name == 'nt':
-            import ctypes
-            try:
-                is_admin = os.getuid() == 0
-            except AttributeError:
-                is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
-            
-            if not is_admin:
-                self.log("⚠️ WARNING: Script is not running as Administrator!", tag="warning")
-                self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
+        if os.name != 'nt':
+            return
+
+        if not self.is_running_as_admin():
+            self.log("⚠️ WARNING: Script is not running as Administrator!", tag="warning")
+            self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
+            self.warn_if_native_hook_needs_admin()
+
+    def is_running_as_admin(self) -> bool:
+        if os.name != 'nt':
+            return True
+
+        import ctypes
+        try:
+            return os.getuid() == 0
+        except AttributeError:
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+
+    def warn_if_native_hook_needs_admin(self):
+        if (
+            getattr(config, "NATIVE_HOOK_ENABLED", True)
+            and not getattr(self, "_native_hook_admin_warning_logged", False)
+            and not self.is_running_as_admin()
+        ):
+            self.log("[-] Native hook mode requires Administrator privileges. Injection will likely fail.", tag="error")
+            self._native_hook_admin_warning_logged = True
 
     def setup_ui(self):
         # Configure layout grid. Equal weight for left and right panels
