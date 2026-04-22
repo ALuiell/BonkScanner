@@ -1,7 +1,6 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Threading;
 
 namespace BonkHook;
 
@@ -140,29 +139,14 @@ internal static unsafe class HookExports
     }
 
     [UnmanagedCallersOnly(EntryPoint = "WaitForSnapshotReady")]
-    public static uint WaitForSnapshotReady(IntPtr timeoutMilliseconds)
+    public static uint WaitForSnapshotReady(IntPtr _)
     {
         if (Volatile.Read(ref _installed) == 0)
         {
             return 100;
         }
 
-        long timeout = Math.Clamp(timeoutMilliseconds.ToInt64(), 0, 60_000);
-        long deadline = Environment.TickCount64 + timeout;
-        while (true)
-        {
-            if (Interlocked.Exchange(ref _snapshotReady, 0) != 0)
-            {
-                return 1;
-            }
-
-            if (timeout == 0 || Environment.TickCount64 >= deadline)
-            {
-                return 0;
-            }
-
-            Thread.Sleep(5);
-        }
+        return Interlocked.Exchange(ref _snapshotReady, 0) != 0 ? 1u : 0u;
     }
 
     [UnmanagedCallersOnly]

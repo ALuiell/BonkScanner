@@ -10,7 +10,8 @@ drained inside the hooked Unity update.
 The hook also detours `MapGenerationController.<GenerateMap>d__39.MoveNext` and
 publishes a snapshot-ready signal when the map-generation coroutine completes
 with `isGenerating == false` and loaded `currentMap/currentStage` pointers.
-External callers can wait for that signal with `WaitForSnapshotReady`.
+External callers poll and consume that signal with `WaitForSnapshotReady`; the
+export returns immediately, and timeout/retry logic belongs to the caller.
 
 Build:
 

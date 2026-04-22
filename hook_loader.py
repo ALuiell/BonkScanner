@@ -4,6 +4,7 @@ import ctypes
 import os
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -112,16 +113,25 @@ class NativeHookLoader:
                 raise HookLoadError(f"BonkHook RequestRestartRun failed with status {exit_code}.")
             return result
 
-    def wait_for_snapshot_ready(self, *, timeout: float = 10.0) -> bool:
+    def wait_for_snapshot_ready(self, *, timeout: float = 10.0, poll_interval: float = 0.05) -> bool:
         with self._operation_lock:
             result = self.inject_once()
-            timeout_ms = max(0, min(int(timeout * 1000), 60_000))
-            exit_code = self._invoke_export_in_pid(result.pid, b"WaitForSnapshotReady", timeout_ms)
-            if exit_code == 1:
-                return True
-            if exit_code == 0:
-                return False
-            raise HookLoadError(f"BonkHook WaitForSnapshotReady failed with status {exit_code}.")
+            timeout_seconds = max(0.0, min(float(timeout), 60.0))
+            poll_seconds = max(0.0, float(poll_interval))
+            deadline = time.monotonic() + timeout_seconds
+
+            while True:
+                exit_code = self._invoke_export_in_pid(result.pid, b"WaitForSnapshotReady", 0)
+                if exit_code == 1:
+                    return True
+                if exit_code != 0:
+                    raise HookLoadError(f"BonkHook WaitForSnapshotReady failed with status {exit_code}.")
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+
+                time.sleep(min(poll_seconds, remaining))
 
     def try_inject_once(
         self,
