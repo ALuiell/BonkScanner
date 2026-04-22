@@ -657,7 +657,6 @@ class MegabonkApp(ctk.CTk):
             reset_hold_duration=lambda: config.RESET_HOLD_DURATION,
             map_load_delay=lambda: config.MAP_LOAD_DELAY,
         )
-        self.log("[*] Native hook loader is disabled; using keyboard restart control.")
 
     def enable_hook_run_control(self):
         if isinstance(self.run_control_provider, HookRunControlProvider):
