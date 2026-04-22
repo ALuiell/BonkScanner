@@ -44,12 +44,15 @@ class FakeSettingsMaster:
 
 
 class FakeDetachLoader:
-    def __init__(self, pid: int = 1234) -> None:
+    def __init__(self, pid: int = 1234, error: Exception | None = None) -> None:
         self.pid = pid
+        self.error = error
         self.uninitialize_calls = 0
 
     def uninitialize(self) -> types.SimpleNamespace:
         self.uninitialize_calls += 1
+        if self.error is not None:
+            raise self.error
         return types.SimpleNamespace(pid=self.pid)
 
 
@@ -307,6 +310,89 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app.scan_event.is_set())
         self.assertFalse(app.is_running)
         self.assertFalse(app.is_ready_to_start)
+
+    def test_on_closing_detaches_native_hooks_and_invalidates_worker(self) -> None:
+        loader = FakeDetachLoader()
+        logs: list[tuple[str, str | None]] = []
+        destroyed: list[bool] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.client = None
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.native_hook_loader = loader
+        app.native_hook_thread = object()
+        app.native_hook_generation = 7
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.destroy = lambda: destroyed.append(True)
+
+        with patch.object(gui, "keyboard", None):
+            gui.MegabonkApp.on_closing(app)
+
+        self.assertEqual(loader.uninitialize_calls, 1)
+        self.assertTrue(app.stop_event.is_set())
+        self.assertTrue(app.scan_event.is_set())
+        self.assertIsNone(app.native_hook_loader)
+        self.assertIsNone(app.native_hook_thread)
+        self.assertEqual(app.native_hook_generation, 8)
+        self.assertEqual(destroyed, [True])
+        self.assertIn(("[+] Native hooks detached for PID 1234.", "success"), logs)
+
+    def test_on_closing_continues_when_native_hook_detach_fails(self) -> None:
+        loader = FakeDetachLoader(error=gui.HookLoadError("remote status 17"))
+        logs: list[tuple[str, str | None]] = []
+        destroyed: list[bool] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.client = None
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.native_hook_loader = loader
+        app.native_hook_thread = object()
+        app.native_hook_generation = 2
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.destroy = lambda: destroyed.append(True)
+
+        with patch.object(gui, "keyboard", None):
+            gui.MegabonkApp.on_closing(app)
+
+        self.assertEqual(loader.uninitialize_calls, 1)
+        self.assertIsNone(app.native_hook_loader)
+        self.assertIsNone(app.native_hook_thread)
+        self.assertEqual(app.native_hook_generation, 3)
+        self.assertEqual(destroyed, [True])
+        self.assertIn(
+            ("[WAIT] Native hook detach failed during shutdown: remote status 17", "warning"),
+            logs,
+        )
+
+    def test_on_closing_continues_when_game_process_is_gone(self) -> None:
+        loader = FakeDetachLoader(error=gui.HookProcessNotFoundError("Waiting for process 'Megabonk.exe'."))
+        logs: list[tuple[str, str | None]] = []
+        destroyed: list[bool] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.client = None
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.native_hook_loader = loader
+        app.native_hook_thread = object()
+        app.native_hook_generation = 4
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.destroy = lambda: destroyed.append(True)
+
+        with patch.object(gui, "keyboard", None):
+            gui.MegabonkApp.on_closing(app)
+
+        self.assertEqual(loader.uninitialize_calls, 1)
+        self.assertIsNone(app.native_hook_loader)
+        self.assertIsNone(app.native_hook_thread)
+        self.assertEqual(app.native_hook_generation, 5)
+        self.assertEqual(destroyed, [True])
+        self.assertIn(
+            (
+                "[WAIT] Native hook detach skipped during shutdown: Waiting for process 'Megabonk.exe'.",
+                "warning",
+            ),
+            logs,
+        )
 
     def test_native_hook_loop_attempts_injection_without_admin(self) -> None:
         loader = FakeHookLoopLoader()

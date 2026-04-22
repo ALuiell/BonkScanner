@@ -1630,6 +1630,20 @@ class MegabonkApp(ctk.CTk):
         self.stop_event.set()
         self.scan_event.set() # Ensure thread wakes up to exit
         self.close_client()
+        hook_loader = self.native_hook_loader
+        if hook_loader is not None:
+            self.native_hook_generation += 1
+            self.native_hook_loader = None
+            self.native_hook_thread = None
+            try:
+                result = hook_loader.uninitialize()
+                self.log(f"[+] Native hooks detached for PID {result.pid}.", tag="success")
+            except HookProcessNotFoundError as exc:
+                self.log(f"[WAIT] Native hook detach skipped during shutdown: {exc}", tag="warning")
+            except HookLoadError as exc:
+                self.log(f"[WAIT] Native hook detach failed during shutdown: {exc}", tag="warning")
+            except Exception as exc:
+                self.log(f"[WAIT] Unexpected native hook detach error during shutdown: {exc}", tag="warning")
         if keyboard:
             keyboard.unhook_all()
         self.destroy()
