@@ -13,6 +13,7 @@ import logic
 from game_data import GameDataClient
 from hook_loader import HookLoadError, HookProcessNotFoundError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
 
 try:
@@ -566,6 +567,7 @@ class MegabonkApp(ctk.CTk):
         self.client = None
         self.native_hook_loader = None
         self.native_hook_thread = None
+        self.run_control_provider = None
         self.checkboxes = {}
         self.scores_checkboxes = {}
         
@@ -599,15 +601,21 @@ class MegabonkApp(ctk.CTk):
         self.log(f"[*] Welcome to BonkScanner v{updater.CURRENT_VERSION}!", tag="success")
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")
         self.log(f"[*] Ready! Select templates and start the main process loop.")
-        self.start_native_hook_worker()
+        self.initialize_run_control()
 
         # Check for updates AFTER the GUI has fully initialized and drawn
         # 1500 ms (1.5 seconds) delay ensures the user sees the window instantly
         self.after(1500, self.deferred_update_check)
 
-    def start_native_hook_worker(self):
+    def initialize_run_control(self):
         if not getattr(config, "NATIVE_HOOK_ENABLED", True):
-            self.log("[*] Native hook loader is disabled.")
+            self.run_control_provider = KeyboardRunControlProvider(
+                keyboard,
+                reset_hotkey=lambda: config.RESET_HOTKEY,
+                reset_hold_duration=lambda: config.RESET_HOLD_DURATION,
+                map_load_delay=lambda: config.MAP_LOAD_DELAY,
+            )
+            self.log("[*] Native hook loader is disabled; using keyboard restart control.")
             return
 
         dll_path = getattr(config, "NATIVE_HOOK_DLL_PATH", "") or None
@@ -615,6 +623,10 @@ class MegabonkApp(ctk.CTk):
             config.PROCESS_NAME,
             dll_path=dll_path,
             base_path=config.application_path,
+        )
+        self.run_control_provider = HookRunControlProvider(
+            self.native_hook_loader,
+            map_load_delay=lambda: config.MAP_LOAD_DELAY,
         )
         self.native_hook_thread = threading.Thread(
             target=self.native_hook_loop,
@@ -1327,8 +1339,8 @@ class MegabonkApp(ctk.CTk):
             self.after(0, self.refresh_stats_ui)
 
     def reroll_map(self):
-        if self.native_hook_loader is None:
-            self.log("[-] Native hook loader is not available; cannot request RestartRun.", tag="error")
+        if self.run_control_provider is None:
+            self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
             return
 
         previous_state = None
@@ -1341,28 +1353,17 @@ class MegabonkApp(ctk.CTk):
                 self.log(f"[WAIT] Could not read current map state before restart: {exc}", tag="warning")
 
         try:
-            self.native_hook_loader.request_restart_run()
-        except HookLoadError as exc:
-            self.log(f"[-] Native RestartRun request failed: {exc}", tag="error")
+            self.run_control_provider.restart_run()
+        except RunControlError as exc:
+            self.log(f"[-] {exc}", tag="error")
             return
 
-        snapshot_ready = False
-        try:
-            snapshot_ready = self.native_hook_loader.wait_for_snapshot_ready(timeout=10.0)
-        except HookLoadError as exc:
-            self.log(f"[WAIT] Native snapshot-ready wait failed; using memory readiness polling: {exc}", tag="warning")
-
-        if self.client is not None and not snapshot_ready:
-            try:
-                self.client.wait_for_map_ready(
-                    previous_state=previous_state,
-                    previous_stats=previous_stats,
-                )
-            except (TimeoutError, MemoryReadError) as exc:
-                self.log(f"[WAIT] Map readiness polling failed; using fallback delay: {exc}", tag="warning")
-                time.sleep(config.MAP_LOAD_DELAY)
-        elif self.client is None:
-            time.sleep(config.MAP_LOAD_DELAY)
+        self.run_control_provider.wait_for_next_run(
+            client=self.client,
+            previous_state=previous_state,
+            previous_stats=previous_stats,
+            warn=lambda message: self.log(f"[WAIT] {message}", tag="warning"),
+        )
 
         self.log_reroll_stats()
 
