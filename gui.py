@@ -1289,6 +1289,9 @@ class MegabonkApp(ctk.CTk):
             self.worst_map_score = float('inf')
             self.refresh_stats_ui()
             
+            self.is_running = False
+            self.is_ready_to_start = False
+            self.scan_event.clear()
             self.stop_event.clear()
             self.scanner_thread = threading.Thread(target=self.background_loop, daemon=True)
             self.scanner_thread.start()
@@ -1620,6 +1623,7 @@ class MegabonkApp(ctk.CTk):
         self.close_client()
         self.is_running = False
         self.is_ready_to_start = False
+        self.scan_event.clear()
         self.after(0, self.update_status_ui)
 
     def on_closing(self):

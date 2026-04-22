@@ -54,7 +54,7 @@ class FakeDetachLoader:
 
 
 class FakeThread:
-    def __init__(self, *, target: object, args: tuple[object, ...], daemon: bool) -> None:
+    def __init__(self, *, target: object, args: tuple[object, ...] = (), daemon: bool) -> None:
         self.target = target
         self.args = args
         self.daemon = daemon
@@ -263,6 +263,50 @@ class GuiRunControlTests(unittest.TestCase):
         gui.MegabonkApp.enable_keyboard_run_control(app)
 
         self.assertFalse(app._native_hook_admin_warning_logged)
+
+    def test_toggle_main_loop_clears_stale_scan_event_before_starting_worker(self) -> None:
+        logs: list[tuple[object, object | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.scanner_thread = None
+        app.checkboxes = {"Any": FakeVar(True)}
+        app.refresh_stats_ui = lambda: None
+        app.background_loop = lambda: None
+        app.update_status_ui = lambda: None
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.stop_event.set()
+        app.scan_event.set()
+        app.is_running = True
+        app.is_ready_to_start = True
+
+        with patch.object(gui.config, "EVALUATION_MODE", "templates"):
+            with patch.object(gui.threading, "Thread", FakeThread):
+                gui.MegabonkApp.toggle_main_loop(app)
+
+        self.assertFalse(app.scan_event.is_set())
+        self.assertFalse(app.stop_event.is_set())
+        self.assertFalse(app.is_running)
+        self.assertFalse(app.is_ready_to_start)
+        self.assertTrue(app.scanner_thread.started)
+
+    def test_background_loop_cleanup_clears_scan_event_after_stop_wake(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.client = None
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.stop_event.set()
+        app.scan_event.set()
+        app.is_running = True
+        app.is_ready_to_start = True
+        app.after = lambda _delay, callback: callback()
+        app.update_status_ui = lambda: None
+
+        gui.MegabonkApp.background_loop(app)
+
+        self.assertFalse(app.scan_event.is_set())
+        self.assertFalse(app.is_running)
+        self.assertFalse(app.is_ready_to_start)
 
     def test_native_hook_loop_attempts_injection_without_admin(self) -> None:
         loader = FakeHookLoopLoader()
