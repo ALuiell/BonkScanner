@@ -1346,7 +1346,13 @@ class MegabonkApp(ctk.CTk):
             self.log(f"[-] Native RestartRun request failed: {exc}", tag="error")
             return
 
-        if self.client is not None:
+        snapshot_ready = False
+        try:
+            snapshot_ready = self.native_hook_loader.wait_for_snapshot_ready(timeout=10.0)
+        except HookLoadError as exc:
+            self.log(f"[WAIT] Native snapshot-ready wait failed; using memory readiness polling: {exc}", tag="warning")
+
+        if self.client is not None and not snapshot_ready:
             try:
                 self.client.wait_for_map_ready(
                     previous_state=previous_state,
@@ -1355,7 +1361,7 @@ class MegabonkApp(ctk.CTk):
             except (TimeoutError, MemoryReadError) as exc:
                 self.log(f"[WAIT] Map readiness polling failed; using fallback delay: {exc}", tag="warning")
                 time.sleep(config.MAP_LOAD_DELAY)
-        else:
+        elif self.client is None:
             time.sleep(config.MAP_LOAD_DELAY)
 
         self.log_reroll_stats()

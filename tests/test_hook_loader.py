@@ -9,12 +9,13 @@ from hook_loader import HookLoadError, HookLoadResult, NativeHookLoader
 
 
 class FakeNativeHookLoader(NativeHookLoader):
-    def __init__(self, *, dll_path: Path, pid: int | None = 1234) -> None:
+    def __init__(self, *, dll_path: Path, pid: int | None = 1234, snapshot_ready: bool = True) -> None:
         self.process_name = "Megabonk.exe"
         self.dll_path = dll_path
         self._injected_pids: set[int] = set()
         self._operation_lock = threading.RLock()
         self.pid = pid
+        self.snapshot_ready = snapshot_ready
         self.injected: list[int] = []
         self.remote_exports: list[tuple[int, bytes, int]] = []
 
@@ -26,6 +27,8 @@ class FakeNativeHookLoader(NativeHookLoader):
 
     def _invoke_export_in_pid(self, pid: int, export_name: bytes, parameter: int) -> int:
         self.remote_exports.append((pid, export_name, parameter))
+        if export_name == b"WaitForSnapshotReady":
+            return 1 if self.snapshot_ready else 0
         return 0
 
 
@@ -92,6 +95,29 @@ class NativeHookLoaderTests(unittest.TestCase):
         self.assertTrue(result.skipped)
         self.assertEqual(loader.injected, [1234])
         self.assertEqual(loader.remote_exports, [(1234, b"RequestRestartRun", 0)])
+
+    def test_wait_for_snapshot_ready_returns_true_for_remote_signal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(dll_path=dll_path)
+
+            ready = loader.wait_for_snapshot_ready(timeout=1.25)
+
+        self.assertTrue(ready)
+        self.assertEqual(loader.injected, [1234])
+        self.assertEqual(loader.remote_exports, [(1234, b"WaitForSnapshotReady", 1250)])
+
+    def test_wait_for_snapshot_ready_returns_false_for_remote_timeout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(dll_path=dll_path, snapshot_ready=False)
+
+            ready = loader.wait_for_snapshot_ready(timeout=1.0)
+
+        self.assertFalse(ready)
+        self.assertEqual(loader.remote_exports, [(1234, b"WaitForSnapshotReady", 1000)])
 
 
 if __name__ == "__main__":

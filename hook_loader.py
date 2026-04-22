@@ -112,6 +112,17 @@ class NativeHookLoader:
                 raise HookLoadError(f"BonkHook RequestRestartRun failed with status {exit_code}.")
             return result
 
+    def wait_for_snapshot_ready(self, *, timeout: float = 10.0) -> bool:
+        with self._operation_lock:
+            result = self.inject_once()
+            timeout_ms = max(0, min(int(timeout * 1000), 60_000))
+            exit_code = self._invoke_export_in_pid(result.pid, b"WaitForSnapshotReady", timeout_ms)
+            if exit_code == 1:
+                return True
+            if exit_code == 0:
+                return False
+            raise HookLoadError(f"BonkHook WaitForSnapshotReady failed with status {exit_code}.")
+
     def try_inject_once(
         self,
         log: Callable[[str], None] | None = None,

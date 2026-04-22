@@ -7,6 +7,11 @@ External callers can run `RequestRestartRun` from any thread/process; the export
 only sets an atomic flag, and the actual `MapController.RestartRun` call is
 drained inside the hooked Unity update.
 
+The hook also detours `MapGenerationController.<GenerateMap>d__39.MoveNext` and
+publishes a snapshot-ready signal when the map-generation coroutine completes
+with `isGenerating == false` and loaded `currentMap/currentStage` pointers.
+External callers can wait for that signal with `WaitForSnapshotReady`.
+
 Build:
 
 ```powershell
