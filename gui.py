@@ -11,7 +11,9 @@ import updater
 import config
 import logic
 from game_data import GameDataClient
+from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
 
 try:
@@ -412,7 +414,7 @@ class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Settings")
-        self.geometry("400x350")
+        self.geometry("400x390")
         self.resizable(False, False)
         
         # Set icon if available
@@ -445,14 +447,22 @@ class SettingsDialog(ctk.CTkToplevel):
         self.reset_hold_duration_entry = ctk.CTkEntry(self)
         self.reset_hold_duration_entry.insert(0, str(config.RESET_HOLD_DURATION))
         self.reset_hold_duration_entry.grid(row=3, column=1, padx=10, pady=10, sticky="ew")
+
+        self.native_hook_enabled_var = ctk.BooleanVar(value=getattr(config, "NATIVE_HOOK_ENABLED", True))
+        self.native_hook_enabled_check = ctk.CTkCheckBox(
+            self,
+            text="Use native hook restart",
+            variable=self.native_hook_enabled_var,
+        )
+        self.native_hook_enabled_check.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="w")
         
         # Check for updates button
         self.update_btn = ctk.CTkButton(self, text="Check for Updates", fg_color="#1f538d", hover_color="#14375e", command=self.check_update)
-        self.update_btn.grid(row=4, column=0, columnspan=2, pady=10)
+        self.update_btn.grid(row=5, column=0, columnspan=2, pady=10)
 
         # SAVE BUTTON
         self.save_btn = ctk.CTkButton(self, text="Save", fg_color="#2FA572", hover_color="#106A43", command=self.save)
-        self.save_btn.grid(row=5, column=0, columnspan=2, pady=10)
+        self.save_btn.grid(row=6, column=0, columnspan=2, pady=10)
         
         self.transient(parent)
         self.grab_set()
@@ -465,14 +475,17 @@ class SettingsDialog(ctk.CTkToplevel):
     def save(self):
         new_hotkey = self.hotkey_entry.get().strip()
         new_reset_hotkey = self.reset_hotkey_entry.get().strip()
+        native_hook_enabled = bool(self.native_hook_enabled_var.get())
         
         # Update values in user_config
         config.user_config["HOTKEY"] = new_hotkey
         config.user_config["RESET_HOTKEY"] = new_reset_hotkey
+        config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
         
         # Update module-level variables in config.py
         config.HOTKEY = new_hotkey
         config.RESET_HOTKEY = new_reset_hotkey
+        config.NATIVE_HOOK_ENABLED = native_hook_enabled
         
         try:
             new_delay = float(self.map_load_delay_entry.get())
@@ -502,6 +515,8 @@ class SettingsDialog(ctk.CTkToplevel):
         if hasattr(self.master, 'setup_hotkeys'):
             self.master.setup_hotkeys()
             self.master.update_status_ui()
+            if hasattr(self.master, 'apply_run_control_mode'):
+                self.master.apply_run_control_mode()
             self.master.log("[*] Settings saved and applied successfully!", tag="success")
             
         self.destroy()
@@ -563,6 +578,11 @@ class MegabonkApp(ctk.CTk):
         self.active_templates = []
         self.scanner_thread = None
         self.client = None
+        self.native_hook_loader = None
+        self.native_hook_thread = None
+        self.native_hook_generation = 0
+        self.run_control_provider = None
+        self._native_hook_admin_warning_logged = False
         self.checkboxes = {}
         self.scores_checkboxes = {}
         
@@ -596,26 +616,140 @@ class MegabonkApp(ctk.CTk):
         self.log(f"[*] Welcome to BonkScanner v{updater.CURRENT_VERSION}!", tag="success")
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")
         self.log(f"[*] Ready! Select templates and start the main process loop.")
+        self.apply_run_control_mode(detach_hooks=False)
 
         # Check for updates AFTER the GUI has fully initialized and drawn
         # 1500 ms (1.5 seconds) delay ensures the user sees the window instantly
         self.after(1500, self.deferred_update_check)
+
+    def initialize_run_control(self):
+        if not getattr(config, "NATIVE_HOOK_ENABLED", True):
+            self.enable_keyboard_run_control()
+            return
+
+        self.enable_hook_run_control()
+
+    def apply_run_control_mode(self, *, detach_hooks: bool = True):
+        if getattr(config, "NATIVE_HOOK_ENABLED", True):
+            self.enable_hook_run_control()
+        else:
+            previous_loader = self.native_hook_loader
+            self.native_hook_generation += 1
+            self.native_hook_loader = None
+            self.native_hook_thread = None
+
+            if detach_hooks and previous_loader is not None:
+                try:
+                    result = previous_loader.uninitialize()
+                    self.log(f"[+] Native hooks detached for PID {result.pid}.", tag="success")
+                except HookProcessNotFoundError as exc:
+                    self.log(f"[WAIT] Native hook detach skipped: {exc}", tag="warning")
+                except HookLoadError as exc:
+                    self.log(f"[WAIT] Native hook detach failed; switching to keyboard restart: {exc}", tag="warning")
+
+            self.enable_keyboard_run_control()
+
+    def enable_keyboard_run_control(self):
+        self._native_hook_admin_warning_logged = False
+        self.run_control_provider = KeyboardRunControlProvider(
+            keyboard,
+            reset_hotkey=lambda: config.RESET_HOTKEY,
+            reset_hold_duration=lambda: config.RESET_HOLD_DURATION,
+            map_load_delay=lambda: config.MAP_LOAD_DELAY,
+        )
+
+    def enable_hook_run_control(self):
+        if isinstance(self.run_control_provider, HookRunControlProvider):
+            return
+
+        self.warn_if_native_hook_needs_admin()
+
+        dll_path = getattr(config, "NATIVE_HOOK_DLL_PATH", "") or None
+        self.native_hook_loader = NativeHookLoader(
+            config.PROCESS_NAME,
+            dll_path=dll_path,
+            base_path=config.application_path,
+        )
+        self.run_control_provider = HookRunControlProvider(
+            self.native_hook_loader,
+            map_load_delay=lambda: config.MAP_LOAD_DELAY,
+        )
+        self.native_hook_generation += 1
+        generation = self.native_hook_generation
+        self.native_hook_thread = threading.Thread(
+            target=self.native_hook_loop,
+            args=(self.native_hook_loader, generation),
+            daemon=True,
+        )
+        self.native_hook_thread.start()
+        self.log("[*] Native hook restart control enabled.")
+
+    def native_hook_loop(self, loader: NativeHookLoader, generation: int):
+        if loader is None:
+            return
+
+        logged_waiting = False
+        while not self.stop_event.is_set() and generation == self.native_hook_generation:
+            try:
+                result = loader.inject_once()
+                if generation != self.native_hook_generation:
+                    return
+                if result.skipped:
+                    self.log(f"[*] Native hook already injected for PID {result.pid}.")
+                else:
+                    self.log(f"[+] Native hook injected into PID {result.pid}.", tag="success")
+                return
+            except HookProcessNotFoundError:
+                if not logged_waiting:
+                    self.log(f"[WAIT] Waiting for process '{config.PROCESS_NAME}' before native hook injection.")
+                    logged_waiting = True
+                self.stop_event.wait(1.0)
+            except HookProcessNotReadyError as exc:
+                if not logged_waiting:
+                    self.log(f"[WAIT] {exc}")
+                    logged_waiting = True
+                self.stop_event.wait(1.0)
+            except HookLoadError as exc:
+                self.log(f"[-] Native hook injection failed: {exc}", tag="error")
+                return
+            except Exception as exc:
+                self.log(f"[-] Unexpected native hook loader error: {exc}", tag="error")
+                return
 
     def deferred_update_check(self):
         """Checks for updates after the main window is already visible."""
         threading.Thread(target=updater.check_and_update, args=(self, False), daemon=True).start()
 
     def check_admin_rights(self):
-        if os.name == 'nt':
-            import ctypes
-            try:
-                is_admin = os.getuid() == 0
-            except AttributeError:
-                is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
-            
-            if not is_admin:
-                self.log("⚠️ WARNING: Script is not running as Administrator!", tag="warning")
-                self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
+        if os.name != 'nt':
+            return
+
+        if not self.is_running_as_admin():
+            if getattr(config, "NATIVE_HOOK_ENABLED", True):
+                self.warn_if_native_hook_needs_admin()
+                return
+
+            self.log("⚠️ WARNING: Script is not running as Administrator!", tag="warning")
+            self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
+
+    def is_running_as_admin(self) -> bool:
+        if os.name != 'nt':
+            return True
+
+        import ctypes
+        try:
+            return os.getuid() == 0
+        except AttributeError:
+            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+
+    def warn_if_native_hook_needs_admin(self):
+        if (
+            getattr(config, "NATIVE_HOOK_ENABLED", True)
+            and not getattr(self, "_native_hook_admin_warning_logged", False)
+            and not self.is_running_as_admin()
+        ):
+            self.log("[*] Native hook may not inject without Administrator privileges; attempting anyway.", tag="warning")
+            self._native_hook_admin_warning_logged = True
 
     def setup_ui(self):
         # Configure layout grid. Equal weight for left and right panels
@@ -1154,6 +1288,9 @@ class MegabonkApp(ctk.CTk):
             self.worst_map_score = float('inf')
             self.refresh_stats_ui()
             
+            self.is_running = False
+            self.is_ready_to_start = False
+            self.scan_event.clear()
             self.stop_event.clear()
             self.scanner_thread = threading.Thread(target=self.background_loop, daemon=True)
             self.scanner_thread.start()
@@ -1281,12 +1418,32 @@ class MegabonkApp(ctk.CTk):
             self.after(0, self.refresh_stats_ui)
 
     def reroll_map(self):
-        if keyboard is None:
+        if self.run_control_provider is None:
+            self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
             return
-        keyboard.press(config.RESET_HOTKEY)
-        time.sleep(config.RESET_HOLD_DURATION)
-        keyboard.release(config.RESET_HOTKEY)
-        time.sleep(config.MAP_LOAD_DELAY)
+
+        previous_state = None
+        previous_stats = None
+        if self.client is not None:
+            try:
+                previous_state = self.client.get_map_generation_state()
+                previous_stats = self.client.get_map_stats()
+            except MemoryReadError as exc:
+                self.log(f"[WAIT] Could not read current map state before restart: {exc}", tag="warning")
+
+        try:
+            self.run_control_provider.restart_run()
+        except RunControlError as exc:
+            self.log(f"[-] {exc}", tag="error")
+            return
+
+        self.run_control_provider.wait_for_next_run(
+            client=self.client,
+            previous_state=previous_state,
+            previous_stats=previous_stats,
+            warn=lambda message: self.log(f"[WAIT] {message}", tag="warning"),
+        )
+
         self.log_reroll_stats()
 
     def close_client(self):
@@ -1465,12 +1622,27 @@ class MegabonkApp(ctk.CTk):
         self.close_client()
         self.is_running = False
         self.is_ready_to_start = False
+        self.scan_event.clear()
         self.after(0, self.update_status_ui)
 
     def on_closing(self):
         self.stop_event.set()
         self.scan_event.set() # Ensure thread wakes up to exit
         self.close_client()
+        hook_loader = self.native_hook_loader
+        if hook_loader is not None:
+            self.native_hook_generation += 1
+            self.native_hook_loader = None
+            self.native_hook_thread = None
+            try:
+                result = hook_loader.uninitialize()
+                self.log(f"[+] Native hooks detached for PID {result.pid}.", tag="success")
+            except HookProcessNotFoundError as exc:
+                self.log(f"[WAIT] Native hook detach skipped during shutdown: {exc}", tag="warning")
+            except HookLoadError as exc:
+                self.log(f"[WAIT] Native hook detach failed during shutdown: {exc}", tag="warning")
+            except Exception as exc:
+                self.log(f"[WAIT] Unexpected native hook detach error during shutdown: {exc}", tag="warning")
         if keyboard:
             keyboard.unhook_all()
         self.destroy()

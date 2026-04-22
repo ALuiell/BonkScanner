@@ -18,8 +18,12 @@ build/
 dist/
 *.spec
 *.exe
+native/**/bin/
+native/**/obj/
 
 # === SYSTEM & PYTHON CACHE ===
 __pycache__/
 *.pyc
 .venv/
+
+Dump
