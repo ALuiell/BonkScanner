@@ -24,6 +24,9 @@ class FakeVar:
     def get(self) -> bool:
         return self.value
 
+    def set(self, value: bool) -> None:
+        self.value = value
+
 
 class FakeSettingsMaster:
     def __init__(self) -> None:
@@ -206,6 +209,67 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertFalse(gui.config.NATIVE_HOOK_ENABLED)
         self.assertFalse(gui.config.user_config["NATIVE_HOOK_ENABLED"])
+        self.assertIn("apply_run_control_mode", master.events)
+        self.assertTrue(save_config.called)
+        self.assertTrue(update_game_reset_time.called)
+        self.assertEqual(destroyed, [True])
+
+    def test_native_hook_toggle_prompts_for_confirmation_on_enable(self) -> None:
+        dialog = types.SimpleNamespace(
+            native_hook_enabled_var=FakeVar(True),
+            _native_hook_toggle_guard=False,
+        )
+
+        with patch.object(gui.SettingsDialog, "prompt_native_hook_enable_confirmation", return_value=True) as prompt:
+            gui.SettingsDialog.on_native_hook_toggle(dialog)
+
+        prompt.assert_called_once_with(dialog)
+        self.assertTrue(dialog.native_hook_enabled_var.get())
+
+    def test_native_hook_toggle_reverts_checkbox_when_confirmation_is_cancelled(self) -> None:
+        dialog = types.SimpleNamespace(
+            native_hook_enabled_var=FakeVar(True),
+            _native_hook_toggle_guard=False,
+        )
+
+        with patch.object(gui.SettingsDialog, "prompt_native_hook_enable_confirmation", return_value=False) as prompt:
+            gui.SettingsDialog.on_native_hook_toggle(dialog)
+
+        prompt.assert_called_once_with(dialog)
+        self.assertFalse(dialog.native_hook_enabled_var.get())
+        self.assertFalse(dialog._native_hook_toggle_guard)
+
+    def test_native_hook_toggle_does_not_prompt_when_disabling(self) -> None:
+        dialog = types.SimpleNamespace(
+            native_hook_enabled_var=FakeVar(False),
+            _native_hook_toggle_guard=False,
+        )
+
+        with patch.object(gui.SettingsDialog, "prompt_native_hook_enable_confirmation") as prompt:
+            gui.SettingsDialog.on_native_hook_toggle(dialog)
+
+        prompt.assert_not_called()
+        self.assertFalse(dialog.native_hook_enabled_var.get())
+
+    def test_settings_save_persists_confirmed_native_hook_enable(self) -> None:
+        master = FakeSettingsMaster()
+        destroyed: list[bool] = []
+        dialog = types.SimpleNamespace(
+            hotkey_entry=FakeEntry("f7"),
+            reset_hotkey_entry=FakeEntry("r"),
+            map_load_delay_entry=FakeEntry("0.5"),
+            reset_hold_duration_entry=FakeEntry("0.25"),
+            native_hook_enabled_var=FakeVar(True),
+            master=master,
+            destroy=lambda: destroyed.append(True),
+        )
+
+        with patch.object(gui.config, "save_config") as save_config:
+            with patch.object(gui.config, "update_game_reset_time") as update_game_reset_time:
+                gui.SettingsDialog.save(dialog)
+
+        self.assertTrue(gui.config.NATIVE_HOOK_ENABLED)
+        self.assertTrue(gui.config.user_config["NATIVE_HOOK_ENABLED"])
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         self.assertTrue(update_game_reset_time.called)

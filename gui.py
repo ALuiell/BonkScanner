@@ -52,6 +52,26 @@ COLOR_MAP = {
     "DEFAULT": "#FFFFFF"
 }
 
+
+def center_toplevel(window, parent, width: int, height: int) -> None:
+    """Center a modal dialog relative to its parent when possible."""
+    window.update_idletasks()
+
+    if parent is not None and parent.winfo_exists():
+        parent_x = parent.winfo_x()
+        parent_y = parent.winfo_y()
+        parent_width = parent.winfo_width()
+        parent_height = parent.winfo_height()
+        x = parent_x + max((parent_width - width) // 2, 0)
+        y = parent_y + max((parent_height - height) // 2, 0)
+    else:
+        screen_width = window.winfo_screenwidth()
+        screen_height = window.winfo_screenheight()
+        x = max((screen_width - width) // 2, 0)
+        y = max((screen_height - height) // 2, 0)
+
+    window.geometry(f"{width}x{height}+{x}+{y}")
+
 class TemplateDialog(ctk.CTkToplevel):
     def __init__(self, parent, edit_template=None):
         super().__init__(parent)
@@ -412,12 +432,92 @@ class DeleteDialog(ctk.CTkToplevel):
         self.result = self.combo.get()
         self.destroy()
 
+
+class NativeHookWarningDialog(ctk.CTkToplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.result = False
+        self.title("Native Hook Warning")
+        self.resizable(False, False)
+
+        icon_path = resource_path("media/bonkscanner_icon.ico")
+        if os.path.exists(icon_path):
+            self.after(200, lambda p=icon_path: self.iconbitmap(p))
+
+        center_toplevel(self, parent, 440, 250)
+        self.grid_columnconfigure(0, weight=1)
+
+        self.protocol("WM_DELETE_WINDOW", self.cancel)
+
+        header = ctk.CTkFrame(self, fg_color="#3B2A18", corner_radius=10)
+        header.grid(row=0, column=0, padx=18, pady=(18, 10), sticky="ew")
+        header.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            header,
+            text="Enable Native Hook Restart?",
+            font=ctk.CTkFont(size=17, weight="bold"),
+            text_color="#F6C56F",
+        ).grid(row=0, column=0, padx=14, pady=(12, 4), sticky="w")
+
+        ctk.CTkLabel(
+            header,
+            text="This uses a lower-level restart path. Keep it enabled only if you intentionally want native hook based resets.",
+            justify="left",
+            wraplength=380,
+            text_color="#E8E8E8",
+        ).grid(row=1, column=0, padx=14, pady=(0, 12), sticky="w")
+
+        ctk.CTkLabel(
+            self,
+            text="You can switch back to keyboard restart at any time from Settings. This dialog appears every time the option is turned on.",
+            justify="left",
+            wraplength=396,
+            text_color="#CFCFCF",
+        ).grid(row=1, column=0, padx=22, pady=(0, 16), sticky="w")
+
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="ew")
+        for column in range(2):
+            buttons.grid_columnconfigure(column, weight=1)
+
+        self.cancel_btn = ctk.CTkButton(
+            buttons,
+            text="Cancel",
+            fg_color="#b30000",
+            hover_color="#800000",
+            command=self.cancel,
+        )
+        self.cancel_btn.grid(row=0, column=0, padx=(0, 8), sticky="ew")
+
+        self.continue_btn = ctk.CTkButton(
+            buttons,
+            text="Continue",
+            fg_color="#2FA572",
+            hover_color="#106A43",
+            command=self.confirm,
+        )
+        self.continue_btn.grid(row=0, column=1, padx=(8, 0), sticky="ew")
+
+        self.transient(parent)
+        self.grab_set()
+
+    def confirm(self):
+        self.result = True
+        self.destroy()
+
+    def cancel(self):
+        self.result = False
+        self.destroy()
+
+
 class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Settings")
         self.geometry("400x390")
         self.resizable(False, False)
+        self._native_hook_toggle_guard = False
         
         # Set icon if available
         icon_path = resource_path("media/bonkscanner_icon.ico")
@@ -456,6 +556,7 @@ class SettingsDialog(ctk.CTkToplevel):
             self,
             text="Use native hook restart",
             variable=self.native_hook_enabled_var,
+            command=self.on_native_hook_toggle,
         )
         self.native_hook_enabled_check.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="w")
         
@@ -469,6 +570,28 @@ class SettingsDialog(ctk.CTkToplevel):
         
         self.transient(parent)
         self.grab_set()
+
+    def _set_native_hook_checkbox_value(self, enabled: bool):
+        self._native_hook_toggle_guard = True
+        try:
+            self.native_hook_enabled_var.set(enabled)
+        finally:
+            self._native_hook_toggle_guard = False
+
+    def prompt_native_hook_enable_confirmation(self) -> bool:
+        dialog = NativeHookWarningDialog(self)
+        self.wait_window(dialog)
+        return bool(dialog.result)
+
+    def on_native_hook_toggle(self):
+        if getattr(self, "_native_hook_toggle_guard", False):
+            return
+
+        if not bool(self.native_hook_enabled_var.get()):
+            return
+
+        if not SettingsDialog.prompt_native_hook_enable_confirmation(self):
+            SettingsDialog._set_native_hook_checkbox_value(self, False)
         
     def check_update(self):
         # Force check updates, ignoring SKIPPED version
