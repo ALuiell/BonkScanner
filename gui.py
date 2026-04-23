@@ -483,6 +483,8 @@ class SettingsDialog(ctk.CTkToplevel):
             
         try:
             new_duration = float(self.reset_hold_duration_entry.get())
+            if new_duration < 0.01:
+                new_duration = 0.01
             config.user_config["RESET_HOLD_DURATION"] = new_duration
             config.RESET_HOLD_DURATION = new_duration
             
