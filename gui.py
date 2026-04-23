@@ -1178,7 +1178,7 @@ class MegabonkApp(ctk.CTk):
         microwaves = logic.normalize_microwaves(stats.get("Microwaves"))
         boss = stats.get("Boss Curses", 0)
         magnet = stats.get("Magnet Shrines", 0)
-        return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}, Magnet: {magnet}"
+        return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}, Magnet: {magnet}, Score: {logic.calculate_score(stats, config.SCORES_SYSTEM):.1f}"
         
     @staticmethod
     def calculate_map_score(stats: dict) -> float:
@@ -1202,14 +1202,12 @@ class MegabonkApp(ctk.CTk):
         self.stats_rerolls_label.configure(text=f"Total Rerolls: {self.total_rerolls}")
         
         if self.best_map_stats:
-            score = self.calculate_map_score(self.best_map_stats)
-            self.stats_best_label.configure(text=f"Best Map Found: {self.format_stats(self.best_map_stats)} (Score: {score:.1f})")
+            self.stats_best_label.configure(text=f"Best Map Found: {self.format_stats(self.best_map_stats)}")
         else:
             self.stats_best_label.configure(text=f"Best Map Found: None")
             
         if self.worst_map_stats:
-            score = self.calculate_map_score(self.worst_map_stats)
-            self.stats_worst_label.configure(text=f"Worst Map Found: {self.format_stats(self.worst_map_stats)} (Score: {score:.1f})")
+            self.stats_worst_label.configure(text=f"Worst Map Found: {self.format_stats(self.worst_map_stats)}")
         else:
             self.stats_worst_label.configure(text=f"Worst Map Found: None")
             
@@ -1439,9 +1437,9 @@ class MegabonkApp(ctk.CTk):
                         self.after(0, self.update_status_ui)
                         continue
                     else:
-                        self.log(f"[-] Confirmation failed. {self.format_stats(confirmed_stats)} ... Reseting")
+                        self.log(f"[-] Confirmation failed. {self.format_stats(confirmed_stats)}")
                 else:
-                    self.log(f"Stats: {self.format_stats(stats)} ... Reseting")
+                    self.log(f"Stats: {self.format_stats(stats)}")
 
                 if not self.wait_for_game_window_focus(process_name):
                     continue
