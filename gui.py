@@ -438,11 +438,12 @@ class SettingsDialog(ctk.CTkToplevel):
         self.reset_hotkey_entry.insert(0, config.RESET_HOTKEY)
         self.reset_hotkey_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
         
-        # MAP_LOAD_DELAY
-        ctk.CTkLabel(self, text="Map Load Delay (s):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
-        self.map_load_delay_entry = ctk.CTkEntry(self)
-        self.map_load_delay_entry.insert(0, str(config.MAP_LOAD_DELAY))
-        self.map_load_delay_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
+        # MIN_DELAY
+        ctk.CTkLabel(self, text="Min Reroll Delay (s):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        self.min_delay_entry = ctk.CTkEntry(self)
+        self.min_delay_entry.insert(0, str(config.MIN_DELAY))
+        self.min_delay_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
+        self.map_load_delay_entry = self.min_delay_entry
         
         # RESET_HOLD_DURATION
         ctk.CTkLabel(self, text="Reset Hold Duration (s):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
@@ -489,20 +490,24 @@ class SettingsDialog(ctk.CTkToplevel):
         config.RESET_HOTKEY = new_reset_hotkey
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
         
+        delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
         try:
-            new_delay = float(self.map_load_delay_entry.get())
-            config.user_config["MAP_LOAD_DELAY"] = new_delay
+            new_delay = float(delay_entry.get())
+            config.user_config["MIN_DELAY"] = new_delay
+            config.MIN_DELAY = new_delay
             config.MAP_LOAD_DELAY = new_delay
         except ValueError:
             pass # Keep old value if new one is invalid
             
         try:
             new_duration = float(self.reset_hold_duration_entry.get())
+            if new_duration < 0.01:
+                new_duration = 0.01
             config.user_config["RESET_HOLD_DURATION"] = new_duration
             config.RESET_HOLD_DURATION = new_duration
             
-            # Attempt to automatically update the game config to match, minus 0.1 seconds
-            game_val = round(new_duration - 0.1, 2)
+            # Attempt to automatically update the game config to match, minus 0.05 seconds
+            game_val = round(new_duration - 0.05, 2)
             if game_val < 0:
                 game_val = 0.0
             config.update_game_reset_time(game_val)
@@ -657,7 +662,7 @@ class MegabonkApp(ctk.CTk):
             keyboard,
             reset_hotkey=lambda: config.RESET_HOTKEY,
             reset_hold_duration=lambda: config.RESET_HOLD_DURATION,
-            map_load_delay=lambda: config.MAP_LOAD_DELAY,
+            map_load_delay=lambda: config.MIN_DELAY,
         )
 
     def enable_hook_run_control(self):
@@ -674,7 +679,7 @@ class MegabonkApp(ctk.CTk):
         )
         self.run_control_provider = HookRunControlProvider(
             self.native_hook_loader,
-            map_load_delay=lambda: config.MAP_LOAD_DELAY,
+            map_load_delay=lambda: config.MIN_DELAY,
         )
         self.native_hook_generation += 1
         generation = self.native_hook_generation
@@ -759,6 +764,14 @@ class MegabonkApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1) 
         self.grid_rowconfigure(1, weight=1)
         
+        # Load shared settings image
+        self.settings_image = None
+        settings_icon_path = resource_path("media/settings_icon.png")
+        if os.path.exists(settings_icon_path):
+            self.settings_image = ctk.CTkImage(light_image=Image.open(settings_icon_path),
+                                               dark_image=Image.open(settings_icon_path),
+                                               size=(20, 20))
+                                               
         # --- Top Bar (Logo) ---
         self.top_frame = ctk.CTkFrame(self, height=80, fg_color="transparent")
         self.top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(10, 0))
@@ -807,9 +820,9 @@ class MegabonkApp(ctk.CTk):
         self.scrollable_templates = ctk.CTkScrollableFrame(self.tab_templates, fg_color="transparent")
         self.scrollable_templates.grid(row=0, column=0, sticky="nsew")
         
-        # Buttons frame (moved to left_frame)
-        self.template_btns_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
-        self.template_btns_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
+        # Buttons frame (moved inside tab_templates)
+        self.template_btns_frame = ctk.CTkFrame(self.tab_templates, fg_color="transparent")
+        self.template_btns_frame.grid(row=1, column=0, padx=0, pady=(10, 0), sticky="ew")
         self.template_btns_frame.grid_columnconfigure((0, 4), weight=1)
         
         self.add_btn = ctk.CTkButton(self.template_btns_frame, text="+ Add", width=60, command=self.add_template_dialog)
@@ -838,20 +851,18 @@ class MegabonkApp(ctk.CTk):
         self.scores_desc_label = ctk.CTkLabel(self.scores_scroll_desc, text="", justify="left", font=ctk.CTkFont(size=13))
         self.scores_desc_label.grid(row=0, column=0, sticky="nw", padx=10, pady=10)
         
-        # Scores buttons frame (moved to left_frame)
-        self.scores_btns_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
-        self.scores_btns_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
+        # Scores buttons frame (moved inside tab_scores)
+        self.scores_btns_frame = ctk.CTkFrame(self.tab_scores, fg_color="transparent")
+        self.scores_btns_frame.grid(row=3, column=0, padx=0, pady=(10, 0), sticky="ew")
         self.scores_btns_frame.grid_columnconfigure((0, 2), weight=1)
         
-        self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text="⚙ Edit Settings", command=self.open_scores_settings_dialog)
+        if self.settings_image:
+            self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text=" Edit Settings", image=self.settings_image, compound="left", command=self.open_scores_settings_dialog)
+        else:
+            self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text="⚙ Edit Settings", command=self.open_scores_settings_dialog)
+            
         self.edit_scores_btn.grid(row=0, column=1)
 
-        # Ensure correct buttons are visible initially
-        if config.EVALUATION_MODE == "scores":
-            self.template_btns_frame.grid_remove()
-        else:
-            self.scores_btns_frame.grid_remove()
-        
         # --- Right Panel: Logs, Stats & Controls ---
         self.right_frame = ctk.CTkFrame(self)
         self.right_frame.grid(row=1, column=1, padx=(0, 10), pady=10, sticky="nsew")
@@ -912,13 +923,8 @@ class MegabonkApp(ctk.CTk):
         
         self.controls_frame.grid_columnconfigure(1, weight=1)
         
-        # Загрузка изображения шестеренки
-        settings_icon_path = resource_path("media/settings_icon.png")
-        if os.path.exists(settings_icon_path):
-            settings_image = ctk.CTkImage(light_image=Image.open(settings_icon_path),
-                                          dark_image=Image.open(settings_icon_path),
-                                          size=(20, 20))
-            self.settings_btn = ctk.CTkButton(self.controls_frame, text="", image=settings_image, width=35, height=35, command=self.open_settings_dialog)
+        if self.settings_image:
+            self.settings_btn = ctk.CTkButton(self.controls_frame, text="", image=self.settings_image, width=35, height=35, command=self.open_settings_dialog)
         else:
             self.settings_btn = ctk.CTkButton(self.controls_frame, text="⚙", width=35, height=35, command=self.open_settings_dialog, font=ctk.CTkFont(size=18))
 
@@ -943,13 +949,6 @@ class MegabonkApp(ctk.CTk):
         config.user_config["EVALUATION_MODE"] = config.EVALUATION_MODE
         config.save_config(config.user_config)
         self.log(f"[*] Switched to {config.EVALUATION_MODE} mode.")
-        
-        if tab_name == "Scores":
-            self.template_btns_frame.grid_remove()
-            self.scores_btns_frame.grid()
-        else:
-            self.scores_btns_frame.grid_remove()
-            self.template_btns_frame.grid()
 
     def refresh_scores_templates_list(self):
         for widget in self.scores_templates_frame.winfo_children():
@@ -1317,7 +1316,7 @@ class MegabonkApp(ctk.CTk):
         microwaves = logic.normalize_microwaves(stats.get("Microwaves"))
         boss = stats.get("Boss Curses", 0)
         magnet = stats.get("Magnet Shrines", 0)
-        return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}, Magnet: {magnet}"
+        return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}, Magnet: {magnet}, Score: {logic.calculate_score(stats, config.SCORES_SYSTEM):.1f}"
         
     @staticmethod
     def calculate_map_score(stats: dict) -> float:
@@ -1341,14 +1340,12 @@ class MegabonkApp(ctk.CTk):
         self.stats_rerolls_label.configure(text=f"Total Rerolls: {self.total_rerolls}")
         
         if self.best_map_stats:
-            score = self.calculate_map_score(self.best_map_stats)
-            self.stats_best_label.configure(text=f"Best Map Found: {self.format_stats(self.best_map_stats)} (Score: {score:.1f})")
+            self.stats_best_label.configure(text=f"Best Map Found: {self.format_stats(self.best_map_stats)}")
         else:
             self.stats_best_label.configure(text=f"Best Map Found: None")
             
         if self.worst_map_stats:
-            score = self.calculate_map_score(self.worst_map_stats)
-            self.stats_worst_label.configure(text=f"Worst Map Found: {self.format_stats(self.worst_map_stats)} (Score: {score:.1f})")
+            self.stats_worst_label.configure(text=f"Worst Map Found: {self.format_stats(self.worst_map_stats)}")
         else:
             self.stats_worst_label.configure(text=f"Worst Map Found: None")
             
@@ -1445,7 +1442,6 @@ class MegabonkApp(ctk.CTk):
             previous_stats=previous_stats,
             warn=lambda message: self.log(f"[WAIT] {message}", tag="warning"),
         )
-
         self.log_reroll_stats()
 
     def close_client(self):
@@ -1676,6 +1672,10 @@ class MegabonkApp(ctk.CTk):
     def background_loop(self):
         process_name = config.PROCESS_NAME.strip()
         wait_state = None
+        last_state = None
+        last_stats = None
+        last_reroll_time = time.monotonic()
+        is_first_scan = True
         
         while not self.stop_event.is_set():
             # 1. Wait for client
@@ -1701,7 +1701,13 @@ class MegabonkApp(ctk.CTk):
                     continue
 
             # 2. Main scanner logic
+            was_waiting = not self.scan_event.is_set()
             self.scan_event.wait() # Wait here until hotkey is pressed
+            if was_waiting:
+                is_first_scan = True
+                last_state = None
+                last_stats = None
+
             if self.stop_event.is_set():
                 break
                 
@@ -1709,7 +1715,23 @@ class MegabonkApp(ctk.CTk):
                 if not self.wait_for_game_window_focus(process_name):
                     continue
 
-                stats = self.fetch_runtime_stats(self.client)
+                try:
+                    raw_stats = self.client.wait_for_map_ready(
+                        previous_state=last_state,
+                        previous_stats=last_stats,
+                        require_change=not is_first_scan,
+                        abort_condition=lambda: self.stop_event.is_set() or not self.scan_event.is_set(),
+                        timeout=10.0
+                    )
+                except InterruptedError:
+                    # User paused while waiting for map
+                    continue
+                
+                is_first_scan = False
+                last_state = self.client.get_map_generation_state()
+                last_stats = raw_stats
+                
+                stats = adapt_map_stats(raw_stats)
                 
                 self.check_best_map(stats)
                 self.check_worst_map(stats)
@@ -1727,45 +1749,74 @@ class MegabonkApp(ctk.CTk):
 
                     if not self.wait_for_game_window_focus(process_name):
                         continue
-                    
+
                     confirmed_stats = self.fetch_runtime_stats(self.client)
                     self.check_best_map(confirmed_stats)
                     self.check_worst_map(confirmed_stats)
-                    
+
                     confirmed_template = None
                     if config.EVALUATION_MODE == "templates":
-                        confirmed_template = logic.find_matching_template(confirmed_stats, self.active_templates, config.TEMPLATES)
+                        confirmed_template = logic.find_matching_template(
+                            confirmed_stats,
+                            self.active_templates,
+                            config.TEMPLATES,
+                        )
                     else:
-                        confirmed_template = logic.evaluate_map_by_scores(confirmed_stats, config.SCORES_SYSTEM)
-                    
+                        confirmed_template = logic.evaluate_map_by_scores(
+                            confirmed_stats,
+                            config.SCORES_SYSTEM,
+                        )
+
                     if confirmed_template is not None:
                         t_name = confirmed_template.get('name')
                         t_color = confirmed_template.get('color', 'BLUE').upper()
-                        
-                        score_text = f" (Score: {confirmed_template.get('score', 0):.1f})" if config.EVALUATION_MODE == "scores" else ""
-                        
+                        score_text = (
+                            f" (Score: {confirmed_template.get('score', 0):.1f})"
+                            if config.EVALUATION_MODE == "scores"
+                            else ""
+                        )
+
                         self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
                         self.log(f"Max Map Stats: {self.format_stats(confirmed_stats)}", tag="success")
-                        
+
                         self.log_target_found(t_name)
-                        
+
                         if not self.handle_confirmed_target_window(process_name):
                             continue
-                            
+
                         self.is_running = False
                         self.scan_event.clear()
                         self.after(0, self.update_status_ui)
                         continue
-                    else:
-                        self.log(f"[-] Confirmation failed. {self.format_stats(confirmed_stats)} ... Reseting")
+
+                    self.log(f"[-] Confirmation failed. {self.format_stats(confirmed_stats)} ... Reseting")
                 else:
                     self.log(f"Stats: {self.format_stats(stats)} ... Reseting")
 
                 if not self.wait_for_game_window_focus(process_name):
                     continue
 
+                # Sleep to enforce MIN_DELAY for user comfort, but check for abort continuously
+                elapsed = time.monotonic() - last_reroll_time
+                while elapsed < config.MIN_DELAY:
+                    if self.stop_event.is_set() or not self.scan_event.is_set():
+                        break
+                    time.sleep(0.05)
+                    elapsed = time.monotonic() - last_reroll_time
+                    
+                if self.stop_event.is_set() or not self.scan_event.is_set():
+                    continue
+
                 self.reroll_map()
+                last_reroll_time = time.monotonic()
                 
+            except TimeoutError as exc:
+                self.log(f"[-] Map loading timeout: {exc}", tag="warning")
+                self.log(f"[*] Forcing reroll to unstick...", tag="warning")
+                self.reroll_map()
+                last_reroll_time = time.monotonic()
+                last_state = None
+                last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
                 self.is_running = False
                 self.is_ready_to_start = False
@@ -1773,6 +1824,8 @@ class MegabonkApp(ctk.CTk):
                 self.close_client()
                 self.log(f"[-] Lost connection to the game: {exc}", tag="error")
                 wait_state = None
+                last_state = None
+                last_stats = None
                 self.after(0, self.update_status_ui)
                 time.sleep(1)
             except Exception as e:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol
+from typing import Protocol, Callable
 
 from memory import MemoryReadError, ProcessMemory
 
@@ -161,8 +161,10 @@ class GameDataClient:
         *,
         previous_state: MapGenerationState | None = None,
         previous_stats: dict[MapStat, StatValue] | None = None,
+        require_change: bool = True,
         timeout: float = 10.0,
         poll_interval: float = 0.05,
+        abort_condition: Callable[[], bool] | None = None,
     ) -> dict[MapStat, StatValue]:
         deadline = time.monotonic() + timeout
         generation_seen = False
@@ -192,6 +194,9 @@ class GameDataClient:
         last_error: Exception | None = None
 
         while time.monotonic() < deadline:
+            if abort_condition is not None and abort_condition():
+                raise InterruptedError("Wait aborted by user.")
+
             try:
                 last_state = self.get_map_generation_state()
                 generation_seen = generation_seen or last_state.is_generating
@@ -226,7 +231,7 @@ class GameDataClient:
                     map_change_seen = True
 
                 if (
-                    (generation_seen or map_change_seen)
+                    (not require_change or generation_seen or map_change_seen)
                     and not last_state.is_generating
                     and not last_state.is_resetting
                     and last_state.has_loaded_map

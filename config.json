@@ -1,6 +1,6 @@
 {
-    "MAP_LOAD_DELAY": 0.4,
-    "RESET_HOLD_DURATION": 0.3,
+    "MIN_DELAY": 0.0,
+    "RESET_HOLD_DURATION": 0.1,
     "HOTKEY": "f6",
     "MENU_HOTKEY": "home",
     "RESET_HOTKEY": "r",
@@ -74,7 +74,7 @@
         "PERFECT+"
     ],
     "SKIPPED_UPDATE_VERSION": "",
-    "EVALUATION_MODE": "scores",
+    "EVALUATION_MODE": "templates",
     "SCORES_SYSTEM": {
         "weights": {
             "moais": 3.0,

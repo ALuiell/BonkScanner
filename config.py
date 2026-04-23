@@ -66,8 +66,8 @@ def get_game_reset_time() -> float | None:
                 data = json.load(f)
                 quick_reset_time = data.get("cfGameSettings", {}).get("quick_reset_time")
                 if quick_reset_time is not None:
-                    # The game's config stores the time without a safety margin. In our app, we add 0.1s for reliability.
-                    return float(quick_reset_time) + 0.1
+                    # The game's config stores the time without a safety margin. In our app, we add 0.05s for reliability.
+                    return float(quick_reset_time) + 0.05
     except Exception as e:
         pass
     return None
@@ -116,7 +116,13 @@ def save_config(cfg_dict):
 
 user_config = load_config()
 
-MAP_LOAD_DELAY = user_config.get("MAP_LOAD_DELAY", 1.3)
+# Migrate from MAP_LOAD_DELAY if MIN_DELAY is not found
+MIN_DELAY = user_config.get("MIN_DELAY", user_config.get("MAP_LOAD_DELAY", 0.3))
+MAP_LOAD_DELAY = MIN_DELAY
+
+# Remove MAP_LOAD_DELAY if it's still there
+if "MAP_LOAD_DELAY" in user_config:
+    del user_config["MAP_LOAD_DELAY"]
 
 # Load RESET_HOLD_DURATION from user_config first, fallback to game config, fallback to default 0.4
 RESET_HOLD_DURATION_USER = user_config.get("RESET_HOLD_DURATION")
@@ -188,7 +194,7 @@ def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) 
     }
 
 # Update user_config object so that mutations to it are saved properly
-user_config["MAP_LOAD_DELAY"] = MAP_LOAD_DELAY
+user_config["MIN_DELAY"] = MIN_DELAY
 user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
 user_config["HOTKEY"] = HOTKEY
 user_config["MENU_HOTKEY"] = MENU_HOTKEY
