@@ -1763,6 +1763,8 @@ class MegabonkApp(ctk.CTk):
                     self.scan_event.clear()
                     self.after(0, self.update_status_ui)
                     continue
+                else:
+                    self.log(f"Stats: {self.format_stats(stats)}")
 
                 if not self.wait_for_game_window_focus(process_name):
                     continue
