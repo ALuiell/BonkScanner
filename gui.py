@@ -444,8 +444,9 @@ class NativeHookWarningDialog(ctk.CTkToplevel):
         if os.path.exists(icon_path):
             self.after(200, lambda p=icon_path: self.iconbitmap(p))
 
-        center_toplevel(self, parent, 440, 250)
+        center_toplevel(self, parent, 440, 260)
         self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
 
         self.protocol("WM_DELETE_WINDOW", self.cancel)
 
@@ -462,7 +463,7 @@ class NativeHookWarningDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             header,
-            text="This uses a lower-level restart path. Keep it enabled only if you intentionally want native hook based resets.",
+            text="This enables a lower-level memory restart path. Using this mode may not be considered entirely fair and could have consequences.",
             justify="left",
             wraplength=380,
             text_color="#E8E8E8",
@@ -470,14 +471,14 @@ class NativeHookWarningDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             self,
-            text="You can switch back to keyboard restart at any time from Settings. This dialog appears every time the option is turned on.",
+            text="You can safely switch back to standard keyboard restart at any time from Settings.\n\nThis dialog will appear whenever the native hook option is turned on.",
             justify="left",
             wraplength=396,
             text_color="#CFCFCF",
-        ).grid(row=1, column=0, padx=22, pady=(0, 16), sticky="w")
+        ).grid(row=1, column=0, padx=22, pady=(0, 16), sticky="nw")
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")
-        buttons.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="ew")
+        buttons.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="sew")
         for column in range(2):
             buttons.grid_columnconfigure(column, weight=1)
 
@@ -1784,6 +1785,9 @@ class MegabonkApp(ctk.CTk):
     def handle_confirmed_target_window(self, process_name: str) -> bool:
         if self.is_hook_run_control_active():
             self.bring_game_window_to_front(process_name)
+            if keyboard:
+                time.sleep(0.15)
+                keyboard.press_and_release("esc")
             return True
 
         if keyboard:
