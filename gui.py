@@ -434,11 +434,11 @@ class SettingsDialog(ctk.CTkToplevel):
         self.reset_hotkey_entry.insert(0, config.RESET_HOTKEY)
         self.reset_hotkey_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
         
-        # MAP_LOAD_DELAY
-        ctk.CTkLabel(self, text="Map Load Delay (s):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
-        self.map_load_delay_entry = ctk.CTkEntry(self)
-        self.map_load_delay_entry.insert(0, str(config.MAP_LOAD_DELAY))
-        self.map_load_delay_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
+        # MIN_DELAY
+        ctk.CTkLabel(self, text="Min Reroll Delay (s):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        self.min_delay_entry = ctk.CTkEntry(self)
+        self.min_delay_entry.insert(0, str(config.MIN_DELAY))
+        self.min_delay_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
         
         # RESET_HOLD_DURATION
         ctk.CTkLabel(self, text="Reset Hold Duration (s):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
@@ -475,9 +475,9 @@ class SettingsDialog(ctk.CTkToplevel):
         config.RESET_HOTKEY = new_reset_hotkey
         
         try:
-            new_delay = float(self.map_load_delay_entry.get())
-            config.user_config["MAP_LOAD_DELAY"] = new_delay
-            config.MAP_LOAD_DELAY = new_delay
+            new_delay = float(self.min_delay_entry.get())
+            config.user_config["MIN_DELAY"] = new_delay
+            config.MIN_DELAY = new_delay
         except ValueError:
             pass # Keep old value if new one is invalid
             
@@ -486,8 +486,8 @@ class SettingsDialog(ctk.CTkToplevel):
             config.user_config["RESET_HOLD_DURATION"] = new_duration
             config.RESET_HOLD_DURATION = new_duration
             
-            # Attempt to automatically update the game config to match, minus 0.1 seconds
-            game_val = round(new_duration - 0.1, 2)
+            # Attempt to automatically update the game config to match, minus 0.05 seconds
+            game_val = round(new_duration - 0.05, 2)
             if game_val < 0:
                 game_val = 0.0
             config.update_game_reset_time(game_val)
@@ -1284,7 +1284,6 @@ class MegabonkApp(ctk.CTk):
         keyboard.press(config.RESET_HOTKEY)
         time.sleep(config.RESET_HOLD_DURATION)
         keyboard.release(config.RESET_HOTKEY)
-        time.sleep(config.MAP_LOAD_DELAY)
         self.log_reroll_stats()
 
     def close_client(self):
@@ -1354,6 +1353,10 @@ class MegabonkApp(ctk.CTk):
     def background_loop(self):
         process_name = config.PROCESS_NAME.strip()
         wait_state = None
+        last_state = None
+        last_stats = None
+        last_reroll_time = time.monotonic()
+        is_first_scan = True
         
         while not self.stop_event.is_set():
             # 1. Wait for client
@@ -1379,7 +1382,13 @@ class MegabonkApp(ctk.CTk):
                     continue
 
             # 2. Main scanner logic
+            was_waiting = not self.scan_event.is_set()
             self.scan_event.wait() # Wait here until hotkey is pressed
+            if was_waiting:
+                is_first_scan = True
+                last_state = None
+                last_stats = None
+
             if self.stop_event.is_set():
                 break
                 
@@ -1387,7 +1396,23 @@ class MegabonkApp(ctk.CTk):
                 if not self.wait_for_game_window_focus(process_name):
                     continue
 
-                stats = self.fetch_runtime_stats(self.client)
+                try:
+                    raw_stats = self.client.wait_for_map_ready(
+                        previous_state=last_state,
+                        previous_stats=last_stats,
+                        require_change=not is_first_scan,
+                        abort_condition=lambda: self.stop_event.is_set() or not self.scan_event.is_set(),
+                        timeout=10.0
+                    )
+                except InterruptedError:
+                    # User paused while waiting for map
+                    continue
+                
+                is_first_scan = False
+                last_state = self.client.get_map_generation_state()
+                last_stats = raw_stats
+                
+                stats = adapt_map_stats(raw_stats)
                 
                 self.check_best_map(stats)
                 self.check_worst_map(stats)
@@ -1400,52 +1425,56 @@ class MegabonkApp(ctk.CTk):
                     candidate = logic.evaluate_map_by_scores(stats, config.SCORES_SYSTEM)
                 
                 if candidate is not None:
-                    self.log("[*] Candidate map found. Confirming...", tag="warning")
-                    time.sleep(0.15)
-
-                    if not self.wait_for_game_window_focus(process_name):
-                        continue
+                    t_name = candidate.get('name')
+                    t_color = candidate.get('color', 'BLUE').upper()
                     
-                    confirmed_stats = self.fetch_runtime_stats(self.client)
-                    self.check_best_map(confirmed_stats)
-                    self.check_worst_map(confirmed_stats)
+                    score_text = f" (Score: {candidate.get('score', 0):.1f})" if config.EVALUATION_MODE == "scores" else ""
                     
-                    confirmed_template = None
-                    if config.EVALUATION_MODE == "templates":
-                        confirmed_template = logic.find_matching_template(confirmed_stats, self.active_templates, config.TEMPLATES)
-                    else:
-                        confirmed_template = logic.evaluate_map_by_scores(confirmed_stats, config.SCORES_SYSTEM)
+                    self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
+                    self.log(f"Max Map Stats: {self.format_stats(stats)}", tag="success")
                     
-                    if confirmed_template is not None:
-                        t_name = confirmed_template.get('name')
-                        t_color = confirmed_template.get('color', 'BLUE').upper()
+                    self.log_target_found(t_name)
+                    
+                    if keyboard:
+                        if not self.wait_for_game_window_focus(process_name):
+                            continue
+                        keyboard.press_and_release("esc")
                         
-                        score_text = f" (Score: {confirmed_template.get('score', 0):.1f})" if config.EVALUATION_MODE == "scores" else ""
-                        
-                        self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
-                        self.log(f"Max Map Stats: {self.format_stats(confirmed_stats)}", tag="success")
-                        
-                        self.log_target_found(t_name)
-                        
-                        if keyboard:
-                            if not self.wait_for_game_window_focus(process_name):
-                                continue
-                            keyboard.press_and_release("esc")
-                            
-                        self.is_running = False
-                        self.scan_event.clear()
-                        self.after(0, self.update_status_ui)
-                        continue
-                    else:
-                        self.log(f"[-] Confirmation failed. {self.format_stats(confirmed_stats)}")
+                    self.is_running = False
+                    self.scan_event.clear()
+                    self.after(0, self.update_status_ui)
+                    
+                    # Reset tracking so restarting is treated as fresh
+                    last_state = None
+                    last_stats = None
+                    continue
                 else:
                     self.log(f"Stats: {self.format_stats(stats)}")
 
                 if not self.wait_for_game_window_focus(process_name):
                     continue
 
+                # Sleep to enforce MIN_DELAY for user comfort, but check for abort continuously
+                elapsed = time.monotonic() - last_reroll_time
+                while elapsed < config.MIN_DELAY:
+                    if self.stop_event.is_set() or not self.scan_event.is_set():
+                        break
+                    time.sleep(0.05)
+                    elapsed = time.monotonic() - last_reroll_time
+                    
+                if self.stop_event.is_set() or not self.scan_event.is_set():
+                    continue
+
                 self.reroll_map()
+                last_reroll_time = time.monotonic()
                 
+            except TimeoutError as exc:
+                self.log(f"[-] Map loading timeout: {exc}", tag="warning")
+                self.log(f"[*] Forcing reroll to unstick...", tag="warning")
+                self.reroll_map()
+                last_reroll_time = time.monotonic()
+                last_state = None
+                last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
                 self.is_running = False
                 self.is_ready_to_start = False
@@ -1453,6 +1482,8 @@ class MegabonkApp(ctk.CTk):
                 self.close_client()
                 self.log(f"[-] Lost connection to the game: {exc}", tag="error")
                 wait_state = None
+                last_state = None
+                last_stats = None
                 self.after(0, self.update_status_ui)
                 time.sleep(1)
             except Exception as e:

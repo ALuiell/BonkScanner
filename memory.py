@@ -116,6 +116,9 @@ class ProcessMemory:
     def read_i32(self, address: int) -> int:
         return struct.unpack("<i", self.read_bytes(address, 4))[0]
 
+    def read_u8(self, address: int) -> int:
+        return struct.unpack("<B", self.read_bytes(address, 1))[0]
+
     def read_mono_string(self, address: int, max_length: int = 512) -> str | None:
         if not address:
             return None
