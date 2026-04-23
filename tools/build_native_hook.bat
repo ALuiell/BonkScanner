@@ -3,6 +3,7 @@ setlocal EnableExtensions
 
 set "SCRIPT_DIR=%~dp0"
 for %%I in ("%SCRIPT_DIR%..") do set "REPO_ROOT=%%~fI"
+set "POWERSHELL_EXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 
 set "DOTNET_ROOT=%REPO_ROOT%\.tools\dotnet"
 set "DOTNET_EXE=%DOTNET_ROOT%\dotnet.exe"
@@ -12,9 +13,15 @@ set "HOOK_DLL=%HOOK_PROJECT%\bin\Release\net8.0\win-x64\publish\BonkHook.dll"
 
 cd /d "%REPO_ROOT%"
 
+if not exist "%POWERSHELL_EXE%" (
+    echo [ERROR] powershell.exe was not found at "%POWERSHELL_EXE%".
+    echo [ERROR] Portable bootstrap requires Windows PowerShell to download the local toolchain.
+    exit /b 1
+)
+
 if not exist "%DOTNET_EXE%" (
     echo [SETUP] Local .NET SDK was not found. Bootstrapping...
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%\tools\bootstrap_dotnet.ps1"
+    "%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%\tools\bootstrap_dotnet.ps1"
     if errorlevel 1 (
         echo [ERROR] Failed to bootstrap local .NET SDK.
         exit /b 1
@@ -23,7 +30,7 @@ if not exist "%DOTNET_EXE%" (
 
 if not exist "%MSVC_SETUP%" (
     echo [SETUP] Portable MSVC toolchain was not found. Bootstrapping...
-    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%\tools\bootstrap_msvc.ps1"
+    "%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%\tools\bootstrap_msvc.ps1"
     if errorlevel 1 (
         echo [ERROR] Failed to bootstrap portable MSVC.
         echo [ERROR] Fallback: install Visual Studio Build Tools with the Desktop development with C++ workload.
@@ -44,7 +51,27 @@ if errorlevel 1 (
     exit /b 1
 )
 
+where.exe cl.exe >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] cl.exe was not found after initializing portable MSVC.
+    echo [ERROR] Fallback: install Visual Studio Build Tools with the Desktop development with C++ workload.
+    exit /b 1
+)
+
+if "%INCLUDE%"=="" (
+    echo [ERROR] INCLUDE was not set after initializing portable MSVC.
+    echo [ERROR] Fallback: install Visual Studio Build Tools with the Desktop development with C++ workload.
+    exit /b 1
+)
+
+if "%LIB%"=="" (
+    echo [ERROR] LIB was not set after initializing portable MSVC.
+    echo [ERROR] Fallback: install Visual Studio Build Tools with the Desktop development with C++ workload.
+    exit /b 1
+)
+
 set "PATH=%DOTNET_ROOT%;%PATH%"
+set "DOTNET_ROOT=%DOTNET_ROOT%"
 
 echo [BUILD] Publishing native hook with project-local .NET SDK and portable MSVC...
 "%DOTNET_EXE%" publish "%HOOK_PROJECT%" -c Release -r win-x64

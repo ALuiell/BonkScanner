@@ -39,10 +39,11 @@ try {
     $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
     $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
     $ToolsDir = Join-Path $RepoRoot ".tools"
-    $PortableScript = Join-Path $ToolsDir "portable-msvc.py"
+    $DownloadsDir = Join-Path $ToolsDir "downloads"
+    $PortableScript = Join-Path $DownloadsDir "portable-msvc.py"
     $SetupBat = Join-Path $ToolsDir "msvc\setup_x64.bat"
 
-    New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $ToolsDir, $DownloadsDir | Out-Null
 
     if (-not (Test-Path -LiteralPath $PortableScript)) {
         Write-Host "[SETUP] Downloading portable-msvc.py..."
@@ -71,14 +72,17 @@ try {
         Fail "setup_x64.bat was not found after bootstrap: $SetupBat."
     }
 
-    Write-Host "[VERIFY] Checking portable MSVC linker..."
-    & cmd.exe /d /s /c "call ""$SetupBat"" && where.exe link.exe"
-    if ($LASTEXITCODE -ne 0) {
-        Fail "link.exe was not discoverable after calling $SetupBat. Install Visual Studio Build Tools with the Desktop development with C++ workload as a fallback."
+    Write-Host "[VERIFY] Checking portable MSVC linker and SDK environment..."
+    & cmd.exe /d /s /c "call ""$SetupBat"" && where.exe link.exe && where.exe cl.exe && if not defined INCLUDE exit /b 11 && if not defined LIB exit /b 12"
+    switch ($LASTEXITCODE) {
+        0 { }
+        11 { Fail "INCLUDE was not set after calling $SetupBat. Portable MSVC did not initialize correctly. Fallback: install Visual Studio Build Tools with the Desktop development with C++ workload." }
+        12 { Fail "LIB was not set after calling $SetupBat. Portable MSVC did not initialize correctly. Fallback: install Visual Studio Build Tools with the Desktop development with C++ workload." }
+        default { Fail "cl.exe/link.exe were not discoverable after calling $SetupBat. Portable MSVC did not initialize correctly. Fallback: install Visual Studio Build Tools with the Desktop development with C++ workload." }
     }
 
     Write-Host "[DONE] Portable MSVC toolchain is ready at $ToolsDir\msvc."
 }
 catch {
-    Fail "Failed to bootstrap portable MSVC. $($_.Exception.Message)"
+    Fail "Failed to bootstrap portable MSVC. $($_.Exception.Message) Portable MSVC did not come up, so NativeAOT cannot build without a linker environment."
 }

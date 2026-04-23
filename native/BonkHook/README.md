@@ -16,6 +16,7 @@ export returns immediately, and timeout/retry logic belongs to the caller.
 Build with the project-local portable toolchain:
 
 ```bat
+tools\bootstrap_tools.bat
 tools\build_native_hook.bat
 ```
 
@@ -26,7 +27,8 @@ The publish output must contain:
 The build script bootstraps a local .NET SDK into `.tools\dotnet` and a
 portable MSVC/Windows SDK toolchain into `.tools\msvc` when they are missing.
 Those downloaded toolchain folders are local developer artifacts and are not
-committed.
+committed. The bootstrap uses Windows PowerShell and requires internet access
+the first time it runs.
 
 MinHook is statically linked from `native/BonkHook/libs/libMinHook.x64.lib`;
 no separate `MinHook.x64.dll` is required at runtime.

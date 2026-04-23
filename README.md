@@ -13,6 +13,34 @@
 - install all dependencies from `requirements.txt`;
 - stop after the environment is ready, without starting `main.py`.
 
+## Portable Native Build
+
+`BonkHook` is built through a project-local toolchain and no longer expects a
+globally installed .NET SDK or Visual Studio Build Tools.
+
+Use these entry points on Windows x64:
+
+```bat
+tools\bootstrap_tools.bat
+tools\build_native_hook.bat
+build_exe.bat
+```
+
+What happens on the first run:
+- `tools\bootstrap_tools.bat` downloads a pinned .NET SDK into `.tools\dotnet`;
+- it downloads portable MSVC + Windows SDK into `.tools\msvc`;
+- `tools\build_native_hook.bat` publishes `native\BonkHook` with those local tools;
+- `build_exe.bat` reuses the published `BonkHook.dll` when packaging the app.
+
+Requirements and constraints:
+- Windows 10/11 x64;
+- internet access on the first bootstrap;
+- Windows PowerShell available for the helper scripts;
+- downloaded `.tools\` contents are local artifacts and are not committed.
+
+If bootstrap fails, inspect the `.NET SDK` or `MSVC bootstrap` step output
+instead of running bare `dotnet publish`.
+
 ## How It Works
 1. The script attaches to the configured game process using `pymem`.
 2. It reads interactable counters directly from memory through `game_data.py` and converts them into the runtime stat dictionary used by the template logic.
@@ -58,6 +86,12 @@ python main.py
 ```
 
 The `.venv/` directory is local to your machine, should not be committed to git, and is already ignored in `.gitignore`.
+
+To build the NativeAOT hook locally, prefer the portable entrypoint:
+
+```bat
+tools\build_native_hook.bat
+```
 
 ## Usage
 1. Set the game process name in `config.json` through the `PROCESS_NAME` field.
