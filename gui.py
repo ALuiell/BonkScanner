@@ -625,6 +625,14 @@ class MegabonkApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1) 
         self.grid_rowconfigure(1, weight=1)
         
+        # Load shared settings image
+        self.settings_image = None
+        settings_icon_path = resource_path("media/settings_icon.png")
+        if os.path.exists(settings_icon_path):
+            self.settings_image = ctk.CTkImage(light_image=Image.open(settings_icon_path),
+                                               dark_image=Image.open(settings_icon_path),
+                                               size=(20, 20))
+                                               
         # --- Top Bar (Logo) ---
         self.top_frame = ctk.CTkFrame(self, height=80, fg_color="transparent")
         self.top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(10, 0))
@@ -673,9 +681,9 @@ class MegabonkApp(ctk.CTk):
         self.scrollable_templates = ctk.CTkScrollableFrame(self.tab_templates, fg_color="transparent")
         self.scrollable_templates.grid(row=0, column=0, sticky="nsew")
         
-        # Buttons frame (moved to left_frame)
-        self.template_btns_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
-        self.template_btns_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
+        # Buttons frame (moved inside tab_templates)
+        self.template_btns_frame = ctk.CTkFrame(self.tab_templates, fg_color="transparent")
+        self.template_btns_frame.grid(row=1, column=0, padx=0, pady=(10, 0), sticky="ew")
         self.template_btns_frame.grid_columnconfigure((0, 4), weight=1)
         
         self.add_btn = ctk.CTkButton(self.template_btns_frame, text="+ Add", width=60, command=self.add_template_dialog)
@@ -704,20 +712,18 @@ class MegabonkApp(ctk.CTk):
         self.scores_desc_label = ctk.CTkLabel(self.scores_scroll_desc, text="", justify="left", font=ctk.CTkFont(size=13))
         self.scores_desc_label.grid(row=0, column=0, sticky="nw", padx=10, pady=10)
         
-        # Scores buttons frame (moved to left_frame)
-        self.scores_btns_frame = ctk.CTkFrame(self.left_frame, fg_color="transparent")
-        self.scores_btns_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
+        # Scores buttons frame (moved inside tab_scores)
+        self.scores_btns_frame = ctk.CTkFrame(self.tab_scores, fg_color="transparent")
+        self.scores_btns_frame.grid(row=3, column=0, padx=0, pady=(10, 0), sticky="ew")
         self.scores_btns_frame.grid_columnconfigure((0, 2), weight=1)
         
-        self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text="⚙ Edit Settings", command=self.open_scores_settings_dialog)
+        if self.settings_image:
+            self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text=" Edit Settings", image=self.settings_image, compound="left", command=self.open_scores_settings_dialog)
+        else:
+            self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text="⚙ Edit Settings", command=self.open_scores_settings_dialog)
+            
         self.edit_scores_btn.grid(row=0, column=1)
 
-        # Ensure correct buttons are visible initially
-        if config.EVALUATION_MODE == "scores":
-            self.template_btns_frame.grid_remove()
-        else:
-            self.scores_btns_frame.grid_remove()
-        
         # --- Right Panel: Logs, Stats & Controls ---
         self.right_frame = ctk.CTkFrame(self)
         self.right_frame.grid(row=1, column=1, padx=(0, 10), pady=10, sticky="nsew")
@@ -778,13 +784,8 @@ class MegabonkApp(ctk.CTk):
         
         self.controls_frame.grid_columnconfigure(1, weight=1)
         
-        # Загрузка изображения шестеренки
-        settings_icon_path = resource_path("media/settings_icon.png")
-        if os.path.exists(settings_icon_path):
-            settings_image = ctk.CTkImage(light_image=Image.open(settings_icon_path),
-                                          dark_image=Image.open(settings_icon_path),
-                                          size=(20, 20))
-            self.settings_btn = ctk.CTkButton(self.controls_frame, text="", image=settings_image, width=35, height=35, command=self.open_settings_dialog)
+        if self.settings_image:
+            self.settings_btn = ctk.CTkButton(self.controls_frame, text="", image=self.settings_image, width=35, height=35, command=self.open_settings_dialog)
         else:
             self.settings_btn = ctk.CTkButton(self.controls_frame, text="⚙", width=35, height=35, command=self.open_settings_dialog, font=ctk.CTkFont(size=18))
 
@@ -809,13 +810,6 @@ class MegabonkApp(ctk.CTk):
         config.user_config["EVALUATION_MODE"] = config.EVALUATION_MODE
         config.save_config(config.user_config)
         self.log(f"[*] Switched to {config.EVALUATION_MODE} mode.")
-        
-        if tab_name == "Scores":
-            self.template_btns_frame.grid_remove()
-            self.scores_btns_frame.grid()
-        else:
-            self.scores_btns_frame.grid_remove()
-            self.template_btns_frame.grid()
 
     def refresh_scores_templates_list(self):
         for widget in self.scores_templates_frame.winfo_children():
