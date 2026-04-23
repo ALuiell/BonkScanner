@@ -1323,6 +1323,11 @@ class MegabonkApp(ctk.CTk):
         # Use the logic module's function which now uses the configured multipliers and weights
         return logic.calculate_score(stats, config.SCORES_SYSTEM)
 
+    def evaluate_candidate(self, stats: dict) -> dict | None:
+        if config.EVALUATION_MODE == "templates":
+            return logic.find_matching_template(stats, self.active_templates, config.TEMPLATES)
+        return logic.evaluate_map_by_scores(stats, config.SCORES_SYSTEM)
+
     def update_timer(self):
         if self.scanner_thread and self.scanner_thread.is_alive() and self.session_start_time:
             elapsed = int(time.time() - self.session_start_time)
@@ -1736,12 +1741,7 @@ class MegabonkApp(ctk.CTk):
                 self.check_best_map(stats)
                 self.check_worst_map(stats)
                 
-                # Choose evaluation logic based on active mode
-                candidate = None
-                if config.EVALUATION_MODE == "templates":
-                    candidate = logic.find_matching_template(stats, self.active_templates, config.TEMPLATES)
-                else:
-                    candidate = logic.evaluate_map_by_scores(stats, config.SCORES_SYSTEM)
+                candidate = self.evaluate_candidate(stats)
                 
                 if candidate is not None:
                     self.log("[*] Candidate map found. Confirming...", tag="warning")
@@ -1754,24 +1754,13 @@ class MegabonkApp(ctk.CTk):
                     self.check_best_map(confirmed_stats)
                     self.check_worst_map(confirmed_stats)
 
-                    confirmed_template = None
-                    if config.EVALUATION_MODE == "templates":
-                        confirmed_template = logic.find_matching_template(
-                            confirmed_stats,
-                            self.active_templates,
-                            config.TEMPLATES,
-                        )
-                    else:
-                        confirmed_template = logic.evaluate_map_by_scores(
-                            confirmed_stats,
-                            config.SCORES_SYSTEM,
-                        )
+                    confirmed_candidate = self.evaluate_candidate(confirmed_stats)
 
-                    if confirmed_template is not None:
-                        t_name = confirmed_template.get('name')
-                        t_color = confirmed_template.get('color', 'BLUE').upper()
+                    if confirmed_candidate is not None:
+                        t_name = confirmed_candidate.get('name')
+                        t_color = confirmed_candidate.get('color', 'BLUE').upper()
                         score_text = (
-                            f" (Score: {confirmed_template.get('score', 0):.1f})"
+                            f" (Score: {confirmed_candidate.get('score', 0):.1f})"
                             if config.EVALUATION_MODE == "scores"
                             else ""
                         )
@@ -1788,10 +1777,6 @@ class MegabonkApp(ctk.CTk):
                         self.scan_event.clear()
                         self.after(0, self.update_status_ui)
                         continue
-
-                    self.log(f"[-] Confirmation failed. {self.format_stats(confirmed_stats)} ... Reseting")
-                else:
-                    self.log(f"Stats: {self.format_stats(stats)} ... Reseting")
 
                 if not self.wait_for_game_window_focus(process_name):
                     continue
