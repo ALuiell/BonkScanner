@@ -10,6 +10,11 @@ set "DOTNET_EXE=%DOTNET_ROOT%\dotnet.exe"
 set "MSVC_SETUP=%REPO_ROOT%\.tools\msvc\setup_x64.bat"
 set "MSVC_ROOT=%REPO_ROOT%\.tools\msvc"
 set "WINDOWS_KITS_ROOT=%MSVC_ROOT%\Windows Kits\10"
+set "NUGET_ROOT=%REPO_ROOT%\.tools\nuget"
+set "NUGET_PACKAGES_DIR=%NUGET_ROOT%\packages"
+set "NUGET_HTTP_CACHE_DIR=%NUGET_ROOT%\http-cache"
+set "NUGET_SCRATCH_DIR=%NUGET_ROOT%\scratch"
+set "DOTNET_CLI_HOME_DIR=%REPO_ROOT%\.tools\dotnet-home"
 set "HOOK_PROJECT=%REPO_ROOT%\native\BonkHook"
 set "HOOK_DLL=%HOOK_PROJECT%\bin\Release\net8.0\win-x64\publish\BonkHook.dll"
 
@@ -21,6 +26,11 @@ if not exist "%POWERSHELL_EXE%" (
     exit /b 1
 )
 
+if not exist "%NUGET_PACKAGES_DIR%" mkdir "%NUGET_PACKAGES_DIR%"
+if not exist "%NUGET_HTTP_CACHE_DIR%" mkdir "%NUGET_HTTP_CACHE_DIR%"
+if not exist "%NUGET_SCRATCH_DIR%" mkdir "%NUGET_SCRATCH_DIR%"
+if not exist "%DOTNET_CLI_HOME_DIR%" mkdir "%DOTNET_CLI_HOME_DIR%"
+
 if not exist "%DOTNET_EXE%" (
     echo [SETUP] Local .NET SDK was not found. Bootstrapping...
     "%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%\tools\bootstrap_dotnet.ps1"
@@ -29,6 +39,23 @@ if not exist "%DOTNET_EXE%" (
         exit /b 1
     )
 )
+
+set "HAS_LOCAL_DOTNET_SDK="
+for /f "delims=" %%S in ('"%DOTNET_EXE%" --list-sdks 2^>nul') do (
+    set "HAS_LOCAL_DOTNET_SDK=1"
+    goto :dotnet_sdk_ready
+)
+
+if not defined HAS_LOCAL_DOTNET_SDK (
+    echo [SETUP] Local dotnet installation is incomplete. Reinstalling project-local SDK...
+    "%POWERSHELL_EXE%" -NoProfile -ExecutionPolicy Bypass -File "%REPO_ROOT%\tools\bootstrap_dotnet.ps1"
+    if errorlevel 1 (
+        echo [ERROR] Failed to repair the project-local .NET SDK.
+        exit /b 1
+    )
+)
+
+:dotnet_sdk_ready
 
 if not exist "%MSVC_SETUP%" (
     echo [SETUP] Portable MSVC toolchain was not found. Bootstrapping...
@@ -108,6 +135,16 @@ if "%UCRTVersion%"=="" (
 
 set "PATH=%DOTNET_ROOT%;%PATH%"
 set "DOTNET_ROOT=%DOTNET_ROOT%"
+set "DOTNET_CLI_HOME=%DOTNET_CLI_HOME_DIR%"
+set "DOTNET_CLI_TELEMETRY_OPTOUT=1"
+set "DOTNET_NOLOGO=1"
+set "DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1"
+set "DOTNET_GENERATE_ASPNET_CERTIFICATE=false"
+set "DOTNET_ADD_GLOBAL_TOOLS_TO_PATH=false"
+set "DOTNET_MULTILEVEL_LOOKUP=0"
+set "NUGET_PACKAGES=%NUGET_PACKAGES_DIR%"
+set "NUGET_HTTP_CACHE_PATH=%NUGET_HTTP_CACHE_DIR%"
+set "NUGET_SCRATCH=%NUGET_SCRATCH_DIR%"
 
 echo [BUILD] Publishing native hook with project-local .NET SDK and portable MSVC...
 "%DOTNET_EXE%" publish "%HOOK_PROJECT%" -c Release -r win-x64 /p:IlcUseEnvironmentalTools=true
