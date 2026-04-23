@@ -508,8 +508,8 @@ class SettingsDialog(ctk.CTkToplevel):
             
             # Attempt to automatically update the game config to match, minus 0.05 seconds
             game_val = round(new_duration - 0.05, 2)
-            if game_val < 0:
-                game_val = 0.0
+            if game_val < 0.01:
+                game_val = 0.01
             config.update_game_reset_time(game_val)
 
         except ValueError:
