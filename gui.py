@@ -1752,7 +1752,7 @@ class MegabonkApp(ctk.CTk):
                     )
 
                     self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
-                    self.log(f"Max Map Stats: {self.format_stats(stats)}", tag="success")
+                    self.log(f"Map Stats: {self.format_stats(stats)}", tag="success")
 
                     self.log_target_found(t_name)
 
