@@ -11,6 +11,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
     <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
+    <IlcUseEnvironmentalTools Condition="'$(VCToolsInstallDir)' != ''">true</IlcUseEnvironmentalTools>
   </PropertyGroup>
 
   <ItemGroup>

@@ -28,7 +28,12 @@ The build script bootstraps a local .NET SDK into `.tools\dotnet` and a
 portable MSVC/Windows SDK toolchain into `.tools\msvc` when they are missing.
 Those downloaded toolchain folders are local developer artifacts and are not
 committed. The bootstrap uses Windows PowerShell and requires internet access
-the first time it runs.
+the first time it runs. The wrapper also tells NativeAOT to use the prepared
+environment-provided linker toolchain.
+
+Running bare `dotnet publish native\BonkHook -c Release -r win-x64` from a
+normal shell is not the supported workflow; use `tools\build_native_hook.bat`
+so the MSVC/Windows SDK environment is prepared correctly.
 
 MinHook is statically linked from `native/BonkHook/libs/libMinHook.x64.lib`;
 no separate `MinHook.x64.dll` is required at runtime.

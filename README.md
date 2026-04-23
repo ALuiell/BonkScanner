@@ -29,7 +29,7 @@ build_exe.bat
 What happens on the first run:
 - `tools\bootstrap_tools.bat` downloads a pinned .NET SDK into `.tools\dotnet`;
 - it downloads portable MSVC + Windows SDK into `.tools\msvc`;
-- `tools\build_native_hook.bat` publishes `native\BonkHook` with those local tools;
+- `tools\build_native_hook.bat` publishes `native\BonkHook` with those local tools and forces NativeAOT to use the prepared linker environment;
 - `build_exe.bat` reuses the published `BonkHook.dll` when packaging the app.
 
 Requirements and constraints:
@@ -40,6 +40,12 @@ Requirements and constraints:
 
 If bootstrap fails, inspect the `.NET SDK` or `MSVC bootstrap` step output
 instead of running bare `dotnet publish`.
+
+Important: on Windows, NativeAOT does not automatically trust a toolchain that
+only exists in `PATH`. The portable scripts prepare the MSVC/Windows SDK
+environment and explicitly tell NativeAOT to use it. Running bare
+`dotnet publish native\BonkHook -c Release -r win-x64` from a normal shell is
+not the supported workflow.
 
 ## How It Works
 1. The script attaches to the configured game process using `pymem`.
@@ -92,6 +98,9 @@ To build the NativeAOT hook locally, prefer the portable entrypoint:
 ```bat
 tools\build_native_hook.bat
 ```
+
+This wrapper prepares the Windows-native linker environment and passes the
+NativeAOT switch required to use it.
 
 ## Usage
 1. Set the game process name in `config.json` through the `PROCESS_NAME` field.
