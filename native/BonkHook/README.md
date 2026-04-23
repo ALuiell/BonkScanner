@@ -13,18 +13,24 @@ with `isGenerating == false` and loaded `currentMap/currentStage` pointers.
 External callers poll and consume that signal with `WaitForSnapshotReady`; the
 export returns immediately, and timeout/retry logic belongs to the caller.
 
-Build:
+Build with the project-local portable toolchain:
 
-```powershell
-dotnet publish native\BonkHook -c Release -r win-x64
+```bat
+tools\build_native_hook.bat
 ```
 
 The publish output must contain:
 
 - `BonkHook.dll`
 
+The build script bootstraps a local .NET SDK into `.tools\dotnet` and a
+portable MSVC/Windows SDK toolchain into `.tools\msvc` when they are missing.
+Those downloaded toolchain folders are local developer artifacts and are not
+committed.
+
 MinHook is statically linked from `native/BonkHook/libs/libMinHook.x64.lib`;
 no separate `MinHook.x64.dll` is required at runtime.
 
-NativeAOT on Windows requires the Visual Studio Desktop Development for C++
-workload because the publish step needs the platform linker.
+Fallback: if portable MSVC bootstrap fails, install Visual Studio Build Tools
+with the Desktop development with C++ workload. NativeAOT on Windows still needs
+an MSVC-compatible linker and Windows SDK for the publish step.

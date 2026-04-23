@@ -14,6 +14,7 @@ old/bs_test.py
 
 
 # === BUILD FILES (PyInstaller) ===
+.tools/
 build/
 dist/
 *.spec
