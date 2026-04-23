@@ -55,12 +55,13 @@ repo-local `.tools` cache layout.
 2. It reads interactable counters directly from memory through `game_data.py` and converts them into the runtime stat dictionary used by the template logic.
 3. The data is compared against your active templates in `config.json`.
 4. If the stats do not meet the criteria, the script automatically presses the `R` key to reroll.
+5. Before evaluating a map, the script waits for two matching ready-state stat snapshots so candidate checks run on a stable memory read. If the stats match a selected template, the script then presses `Esc` to stop on the target map.
 
 ## Core Features
 - **Data-Driven Architecture:** All hotkeys, delays, and templates are saved in `config.json`. You do not need to edit the code to change settings.
 - **Interactive CLI (CRUD):** Create your own custom templates or delete old ones directly from the console menu. The menu updates in real time.
 - **Direct Memory Reads:** Stats are read straight from the game's in-memory interactables dictionary instead of being inferred from screen text.
-- **Confirmation Reread:** A matching map is verified with one additional memory read before the macro stops.
+- **Stable Snapshot Readiness:** Candidate evaluation only runs after two matching ready-state stat snapshots are observed, reducing dirty reads without a separate GUI confirmation reread.
 - **Portable Runtime Logic:** No screen region calibration, OCR engine, or image preprocessing pipeline is required.
 
 ## Project Structure
