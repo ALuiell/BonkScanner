@@ -1306,10 +1306,6 @@ class MegabonkApp(ctk.CTk):
             self.after(500, self.update_status_ui)
 
     @staticmethod
-    def fetch_runtime_stats(client: GameDataClient) -> dict:
-        return adapt_map_stats(client.get_map_stats())
-
-    @staticmethod
     def format_stats(stats: dict) -> str:
         shady = stats.get("Shady Guy", 0)
         moai = stats.get("Moais", 0)
@@ -1744,39 +1740,29 @@ class MegabonkApp(ctk.CTk):
                 candidate = self.evaluate_candidate(stats)
                 
                 if candidate is not None:
-                    self.log("[*] Candidate map found. Confirming...", tag="warning")
-                    time.sleep(0.15)
-
                     if not self.wait_for_game_window_focus(process_name):
                         continue
 
-                    confirmed_stats = self.fetch_runtime_stats(self.client)
-                    self.check_best_map(confirmed_stats)
-                    self.check_worst_map(confirmed_stats)
+                    t_name = candidate.get('name')
+                    t_color = candidate.get('color', 'BLUE').upper()
+                    score_text = (
+                        f" (Score: {candidate.get('score', 0):.1f})"
+                        if config.EVALUATION_MODE == "scores"
+                        else ""
+                    )
 
-                    confirmed_candidate = self.evaluate_candidate(confirmed_stats)
+                    self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
+                    self.log(f"Max Map Stats: {self.format_stats(stats)}", tag="success")
 
-                    if confirmed_candidate is not None:
-                        t_name = confirmed_candidate.get('name')
-                        t_color = confirmed_candidate.get('color', 'BLUE').upper()
-                        score_text = (
-                            f" (Score: {confirmed_candidate.get('score', 0):.1f})"
-                            if config.EVALUATION_MODE == "scores"
-                            else ""
-                        )
+                    self.log_target_found(t_name)
 
-                        self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
-                        self.log(f"Max Map Stats: {self.format_stats(confirmed_stats)}", tag="success")
-
-                        self.log_target_found(t_name)
-
-                        if not self.handle_confirmed_target_window(process_name):
-                            continue
-
-                        self.is_running = False
-                        self.scan_event.clear()
-                        self.after(0, self.update_status_ui)
+                    if not self.handle_confirmed_target_window(process_name):
                         continue
+
+                    self.is_running = False
+                    self.scan_event.clear()
+                    self.after(0, self.update_status_ui)
+                    continue
 
                 if not self.wait_for_game_window_focus(process_name):
                     continue

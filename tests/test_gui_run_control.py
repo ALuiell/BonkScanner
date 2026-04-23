@@ -508,6 +508,44 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app.is_running)
         self.assertFalse(app.is_ready_to_start)
 
+    def test_background_loop_reuses_stable_snapshot_for_candidate(self) -> None:
+        class FakeClient:
+            def __init__(self) -> None:
+                self.get_map_stats_calls = 0
+
+            def wait_for_map_ready(self, **_kwargs: object) -> dict[str, int]:
+                return {"Moais": 4, "Microwaves": 1}
+
+            def get_map_generation_state(self) -> object:
+                return object()
+
+            def get_map_stats(self) -> dict[str, int]:
+                self.get_map_stats_calls += 1
+                return {"Moais": 999}
+
+        app = object.__new__(gui.MegabonkApp)
+        app.client = FakeClient()
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.scan_event.set()
+        app.is_running = True
+        app.is_ready_to_start = True
+        app.after = lambda _delay, callback: callback()
+        app.update_status_ui = lambda: None
+        app.wait_for_game_window_focus = lambda _process_name: True
+        app.check_best_map = lambda _stats: None
+        app.check_worst_map = lambda _stats: None
+        app.evaluate_candidate = lambda stats: {"name": "Perfect", "color": "GREEN"} if stats["Moais"] == 4 else None
+        app.log_target_found = lambda _name: None
+        app.handle_confirmed_target_window = lambda _process_name: app.stop_event.set() or True
+        app.close_client = lambda: None
+        app.log = lambda _message, tag=None: None
+
+        with patch.object(gui, "adapt_map_stats", lambda raw_stats: raw_stats):
+            gui.MegabonkApp.background_loop(app)
+
+        self.assertEqual(app.client.get_map_stats_calls, 0)
+
     def test_on_closing_detaches_native_hooks_and_invalidates_worker(self) -> None:
         loader = FakeDetachLoader()
         logs: list[tuple[str, str | None]] = []

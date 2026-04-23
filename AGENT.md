@@ -57,7 +57,7 @@ The tool reads from `GameAssembly.dll` using static offsets (e.g., `TYPE_INFO_OF
 - And more (Pots, Chests, etc.)
 
 ### 3. Smart Rerolling
-- **Confirmation Read:** When a candidate map is found, the script performs a second read after a short delay to confirm the stats haven't changed or were read mid-update.
+- **Stable Snapshot Readiness:** Before a map is evaluated, the scanner waits for two matching ready-state stat snapshots so candidate checks run on a stable snapshot instead of doing a second confirmation read in the GUI loop.
 - **Focus Detection:** Pauses automation if the game window is not in the foreground.
 - **Game Config Sync:** Can read and write the game's `quick_reset_time` in its local AppData folder to ensure the macro timing matches the game settings.
 
