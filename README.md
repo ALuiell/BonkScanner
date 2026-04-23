@@ -55,7 +55,6 @@ repo-local `.tools` cache layout.
 2. It reads interactable counters directly from memory through `game_data.py` and converts them into the runtime stat dictionary used by the template logic.
 3. The data is compared against your active templates in `config.json`.
 4. If the stats do not meet the criteria, the script automatically presses the `R` key to reroll.
-5. If the stats match a selected template, the script performs one confirmation reread and then presses `Esc` to stop on the target map.
 
 ## Core Features
 - **Data-Driven Architecture:** All hotkeys, delays, and templates are saved in `config.json`. You do not need to edit the code to change settings.
