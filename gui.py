@@ -75,8 +75,8 @@ CHARACTER_THEME = {
     "radius_button": 12,
     "radius_input": 12,
     "inner_border_width": 2,
-    "checkbox_size": 20,
-    "checkbox_corner_radius": 6,
+    "checkbox_size": 18,
+    "checkbox_corner_radius": 4,
     "checkbox_border_width": 2,
 }
 
@@ -101,6 +101,28 @@ def checkbox_colors() -> dict[str, str]:
         "hover_color": CHARACTER_THEME["accent_hover"],
         "border_color": CHARACTER_THEME["accent"],
         "checkmark_color": "#FFFFFF",
+    }
+
+
+def entry_colors() -> dict[str, str]:
+    return {
+        "fg_color": CHARACTER_THEME["surface_card"],
+        "border_color": CHARACTER_THEME["inner_border"],
+        "text_color": CHARACTER_THEME["text"],
+        "placeholder_text_color": CHARACTER_THEME["text_dim"],
+    }
+
+
+def combobox_colors() -> dict[str, str]:
+    return {
+        "fg_color": CHARACTER_THEME["surface_card"],
+        "border_color": CHARACTER_THEME["inner_border"],
+        "text_color": CHARACTER_THEME["text"],
+        "button_color": CHARACTER_THEME["surface_soft"],
+        "button_hover_color": CHARACTER_THEME["primary"],
+        "dropdown_fg_color": CHARACTER_THEME["surface_card"],
+        "dropdown_hover_color": CHARACTER_THEME["scrollbar_track"],
+        "dropdown_text_color": CHARACTER_THEME["text"],
     }
 
 
@@ -176,7 +198,7 @@ class TemplateDialog(ctk.CTkToplevel):
         self.grid_columnconfigure(1, weight=1)
         
         ctk.CTkLabel(self, text="Template Name:").grid(row=0, column=0, padx=10, pady=(15, 5), sticky="w")
-        self.name_entry = ctk.CTkEntry(self)
+        self.name_entry = ctk.CTkEntry(self, **entry_colors())
         self.name_entry.grid(row=0, column=1, padx=10, pady=(15, 5), sticky="ew")
         
         self.sm_var = ctk.StringVar(value="0")
@@ -188,23 +210,23 @@ class TemplateDialog(ctk.CTkToplevel):
         self.moai_var.trace_add("write", self.update_sm_total)
         
         ctk.CTkLabel(self, text="S+M Total (optional):").grid(row=1, column=0, padx=10, pady=5, sticky="w")
-        self.sm_entry = ctk.CTkEntry(self, textvariable=self.sm_var)
+        self.sm_entry = ctk.CTkEntry(self, textvariable=self.sm_var, **entry_colors())
         self.sm_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
         
         ctk.CTkLabel(self, text="Shady Guy (min):").grid(row=2, column=0, padx=10, pady=5, sticky="w")
-        self.shady_entry = ctk.CTkEntry(self, textvariable=self.shady_var)
+        self.shady_entry = ctk.CTkEntry(self, textvariable=self.shady_var, **entry_colors())
         self.shady_entry.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
         
         ctk.CTkLabel(self, text="Moais (min):").grid(row=3, column=0, padx=10, pady=5, sticky="w")
-        self.moai_entry = ctk.CTkEntry(self, textvariable=self.moai_var)
+        self.moai_entry = ctk.CTkEntry(self, textvariable=self.moai_var, **entry_colors())
         self.moai_entry.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
         
         ctk.CTkLabel(self, text="Microwaves (min):").grid(row=4, column=0, padx=10, pady=5, sticky="w")
-        self.micro_entry = ctk.CTkEntry(self)
+        self.micro_entry = ctk.CTkEntry(self, **entry_colors())
         self.micro_entry.grid(row=4, column=1, padx=10, pady=5, sticky="ew")
         
         ctk.CTkLabel(self, text="Boss Curses (min):").grid(row=5, column=0, padx=10, pady=5, sticky="w")
-        self.boss_entry = ctk.CTkEntry(self)
+        self.boss_entry = ctk.CTkEntry(self, **entry_colors())
         self.boss_entry.grid(row=5, column=1, padx=10, pady=5, sticky="ew")
         
         # Populate if editing
@@ -334,7 +356,7 @@ class ScoresSettingsDialog(ctk.CTkToplevel):
         for tier in ["Light", "Good", "Perfect", "Perfect+"]:
             lbl = ctk.CTkLabel(self.scroll_frame, text=f"{tier}:")
             lbl.grid(row=self.row_idx, column=0, padx=30, pady=2, sticky="w")
-            entry = ctk.CTkEntry(self.scroll_frame, width=100)
+            entry = ctk.CTkEntry(self.scroll_frame, width=100, **entry_colors())
             entry.insert(0, str(thresholds.get(tier, 0)))
             entry.grid(row=self.row_idx, column=1, padx=10, pady=2, sticky="w")
             self.threshold_entries[tier] = entry
@@ -349,7 +371,7 @@ class ScoresSettingsDialog(ctk.CTkToplevel):
         weights = config.SCORES_SYSTEM.get("weights", {})
         for key in ["moais", "shady", "boss", "magnet"]:
             ctk.CTkLabel(self.scroll_frame, text=f"{key.capitalize()}:").grid(row=self.row_idx, column=0, padx=20, pady=2, sticky="w")
-            entry = ctk.CTkEntry(self.scroll_frame, width=100)
+            entry = ctk.CTkEntry(self.scroll_frame, width=100, **entry_colors())
             entry.insert(0, str(weights.get(key, 0)))
             entry.grid(row=self.row_idx, column=1, padx=10, pady=2, sticky="w")
             
@@ -369,7 +391,7 @@ class ScoresSettingsDialog(ctk.CTkToplevel):
         multipliers = config.SCORES_SYSTEM.get("multipliers", {}).get("microwave", {})
         for key in ["1", "2"]:
             ctk.CTkLabel(self.scroll_frame, text=f"{key} Microwave(s):").grid(row=self.row_idx, column=0, padx=20, pady=2, sticky="w")
-            entry = ctk.CTkEntry(self.scroll_frame, width=100)
+            entry = ctk.CTkEntry(self.scroll_frame, width=100, **entry_colors())
             entry.insert(0, str(multipliers.get(key, 1.0)))
             entry.grid(row=self.row_idx, column=1, padx=10, pady=2, sticky="w")
             
@@ -512,7 +534,7 @@ class DeleteDialog(ctk.CTkToplevel):
         if os.path.exists(icon_path):
             self.after(200, lambda p=icon_path: self.iconbitmap(p))
         
-        self.combo = ctk.CTkComboBox(self, values=[t['name'] for t in custom_templates])
+        self.combo = ctk.CTkComboBox(self, values=[t['name'] for t in custom_templates], **combobox_colors())
         self.combo.pack(pady=(30, 10), padx=20, fill="x")
         
         self.btn = ctk.CTkButton(self, text="Delete", command=self.delete, **button_colors("danger"))
@@ -622,26 +644,26 @@ class SettingsDialog(ctk.CTkToplevel):
         
         # HOTKEY
         ctk.CTkLabel(self, text="Scan Hotkey:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
-        self.hotkey_entry = ctk.CTkEntry(self)
+        self.hotkey_entry = ctk.CTkEntry(self, **entry_colors())
         self.hotkey_entry.insert(0, config.HOTKEY)
         self.hotkey_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
         
         # RESET_HOTKEY
         ctk.CTkLabel(self, text="Reset Hotkey:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
-        self.reset_hotkey_entry = ctk.CTkEntry(self)
+        self.reset_hotkey_entry = ctk.CTkEntry(self, **entry_colors())
         self.reset_hotkey_entry.insert(0, config.RESET_HOTKEY)
         self.reset_hotkey_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
         
         # MIN_DELAY
         ctk.CTkLabel(self, text="Min Reroll Delay (s):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
-        self.min_delay_entry = ctk.CTkEntry(self)
+        self.min_delay_entry = ctk.CTkEntry(self, **entry_colors())
         self.min_delay_entry.insert(0, str(config.MIN_DELAY))
         self.min_delay_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
         self.map_load_delay_entry = self.min_delay_entry
         
         # RESET_HOLD_DURATION
         ctk.CTkLabel(self, text="Reset Hold Duration (s):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
-        self.reset_hold_duration_entry = ctk.CTkEntry(self)
+        self.reset_hold_duration_entry = ctk.CTkEntry(self, **entry_colors())
         self.reset_hold_duration_entry.insert(0, str(config.RESET_HOLD_DURATION))
         self.reset_hold_duration_entry.grid(row=3, column=1, padx=10, pady=10, sticky="ew")
 
