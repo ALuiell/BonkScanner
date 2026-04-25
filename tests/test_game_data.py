@@ -188,19 +188,25 @@ class GameDataClientTests(unittest.TestCase):
         vendor_one = 0x31000000
         vendor_two = 0x31000100
         false_hit = 0x31000200
+        stale_vendor = 0x31000300
         items_list_one = 0x41000000
         items_list_two = 0x41000100
+        stale_items_list = 0x41000200
         prices_list_one = 0x42000000
         prices_list_two = 0x42000100
+        stale_prices_list = 0x42000200
         items_array_one = 0x43000000
         items_array_two = 0x43000100
+        stale_items_array = 0x43000200
         prices_array_one = 0x44000000
         prices_array_two = 0x44000100
+        stale_prices_array = 0x44000200
         item_glove_blood = 0x51000000
         item_beacon = 0x51000100
         item_old_mask = 0x51000200
         item_gym_sauce = 0x51000300
         item_medkit = 0x51000400
+        item_oats = 0x51000500
         scan_pattern = class_ptr.to_bytes(8, "little") + b"\x00" * 8
 
         memory = FakeMemory(
@@ -208,37 +214,51 @@ class GameDataClientTests(unittest.TestCase):
             pointers={
                 type_info: class_ptr,
                 vendor_one + GameDataClient.OBJECT_MONITOR_OFFSET: 0,
+                vendor_one + GameDataClient.OBJECT_CACHED_PTR_OFFSET: 0x61000000,
                 vendor_one + GameDataClient.SHADY_GUY_ITEMS_OFFSET: items_list_one,
                 vendor_one + GameDataClient.SHADY_GUY_PRICES_OFFSET: prices_list_one,
                 vendor_two + GameDataClient.OBJECT_MONITOR_OFFSET: 0,
+                vendor_two + GameDataClient.OBJECT_CACHED_PTR_OFFSET: 0x61000100,
                 vendor_two + GameDataClient.SHADY_GUY_ITEMS_OFFSET: items_list_two,
                 vendor_two + GameDataClient.SHADY_GUY_PRICES_OFFSET: prices_list_two,
                 false_hit + GameDataClient.OBJECT_MONITOR_OFFSET: 0,
+                false_hit + GameDataClient.OBJECT_CACHED_PTR_OFFSET: 0x61000200,
                 false_hit + GameDataClient.SHADY_GUY_ITEMS_OFFSET: 0,
                 false_hit + GameDataClient.SHADY_GUY_PRICES_OFFSET: 0,
+                stale_vendor + GameDataClient.OBJECT_MONITOR_OFFSET: 0,
+                stale_vendor + GameDataClient.OBJECT_CACHED_PTR_OFFSET: 0,
+                stale_vendor + GameDataClient.SHADY_GUY_ITEMS_OFFSET: stale_items_list,
+                stale_vendor + GameDataClient.SHADY_GUY_PRICES_OFFSET: stale_prices_list,
                 items_list_one + GameDataClient.MANAGED_LIST_ARRAY_OFFSET: items_array_one,
                 items_list_two + GameDataClient.MANAGED_LIST_ARRAY_OFFSET: items_array_two,
+                stale_items_list + GameDataClient.MANAGED_LIST_ARRAY_OFFSET: stale_items_array,
                 prices_list_one + GameDataClient.MANAGED_LIST_ARRAY_OFFSET: prices_array_one,
                 prices_list_two + GameDataClient.MANAGED_LIST_ARRAY_OFFSET: prices_array_two,
+                stale_prices_list + GameDataClient.MANAGED_LIST_ARRAY_OFFSET: stale_prices_array,
                 items_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET: item_glove_blood,
                 items_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x8: item_beacon,
                 items_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x10: item_old_mask,
                 items_array_two + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET: item_gym_sauce,
                 items_array_two + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x8: item_medkit,
+                stale_items_array + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET: item_oats,
             },
             integers={
                 vendor_one + GameDataClient.SHADY_GUY_RARITY_OFFSET: 0,
                 vendor_two + GameDataClient.SHADY_GUY_RARITY_OFFSET: 0,
                 false_hit + GameDataClient.SHADY_GUY_RARITY_OFFSET: 0,
+                stale_vendor + GameDataClient.SHADY_GUY_RARITY_OFFSET: 0,
                 items_list_one + GameDataClient.MANAGED_LIST_COUNT_OFFSET: 3,
                 items_list_two + GameDataClient.MANAGED_LIST_COUNT_OFFSET: 2,
+                stale_items_list + GameDataClient.MANAGED_LIST_COUNT_OFFSET: 1,
                 prices_list_one + GameDataClient.MANAGED_LIST_COUNT_OFFSET: 3,
                 prices_list_two + GameDataClient.MANAGED_LIST_COUNT_OFFSET: 2,
+                stale_prices_list + GameDataClient.MANAGED_LIST_COUNT_OFFSET: 1,
                 prices_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET: 50,
                 prices_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x4: 75,
                 prices_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x8: 100,
                 prices_array_two + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET: 60,
                 prices_array_two + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x4: 90,
+                stale_prices_array + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET: 28,
                 item_glove_blood + GameDataClient.ITEM_DATA_EITEM_OFFSET: int(EItem.GloveBlood),
                 item_glove_blood + GameDataClient.ITEM_DATA_RARITY_OFFSET: 0,
                 item_beacon + GameDataClient.ITEM_DATA_EITEM_OFFSET: int(EItem.Beacon),
@@ -249,9 +269,11 @@ class GameDataClientTests(unittest.TestCase):
                 item_gym_sauce + GameDataClient.ITEM_DATA_RARITY_OFFSET: 0,
                 item_medkit + GameDataClient.ITEM_DATA_EITEM_OFFSET: int(EItem.Medkit),
                 item_medkit + GameDataClient.ITEM_DATA_RARITY_OFFSET: 0,
+                item_oats + GameDataClient.ITEM_DATA_EITEM_OFFSET: int(EItem.Oats),
+                item_oats + GameDataClient.ITEM_DATA_RARITY_OFFSET: 0,
             },
             scan_results={
-                scan_pattern: [vendor_two, false_hit, vendor_one],
+                scan_pattern: [vendor_two, stale_vendor, false_hit, vendor_one],
             },
         )
         client = GameDataClient(memory=memory)
