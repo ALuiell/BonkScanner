@@ -603,12 +603,14 @@ class GuiRunControlTests(unittest.TestCase):
         app.log_target_found = lambda _name: None
         app.handle_confirmed_target_window = lambda _process_name: app.stop_event.set() or True
         app.close_client = lambda: None
-        app.log = lambda _message, tag=None: None
+        logs: list[tuple[str, str | None]] = []
+        app.log = lambda message, tag=None: logs.append((message, tag))
 
         with patch.object(gui, "adapt_map_stats", lambda raw_stats: raw_stats):
             gui.MegabonkApp.background_loop(app)
 
         self.assertEqual(app.client.get_map_stats_calls, 0)
+        self.assertIn(("Shady Guy items: []", None), logs)
 
     def test_on_closing_detaches_native_hooks_and_invalidates_worker(self) -> None:
         loader = FakeDetachLoader()
