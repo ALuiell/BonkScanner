@@ -34,17 +34,19 @@
             "boss": 1
         },
         {
-            "id": 4,
             "name": "PERFECT",
-            "color": "YELLOW",
-            "desc": "S+M: 8+, Micro: 2, Boss: 2+",
             "sm_total": 8,
+            "shady": 0,
+            "moai": 0,
             "micro": 2,
-            "boss": 2
+            "boss": 2,
+            "id": 4,
+            "color": "YELLOW",
+            "desc": "S+M: 8+, Micro: 2, Boss: 2+"
         },
         {
             "name": "PERFECT+",
-            "sm_total": 14,
+            "sm_total": 8,
             "shady": 0,
             "moai": 0,
             "micro": 2,
@@ -71,7 +73,8 @@
         }
     ],
     "ACTIVE_TEMPLATES": [
-        "PERFECT"
+        "PERFECT",
+        "PERFECT+"
     ],
     "SKIPPED_UPDATE_VERSION": "",
     "EVALUATION_MODE": "templates",

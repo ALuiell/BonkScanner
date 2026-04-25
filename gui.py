@@ -12,7 +12,7 @@ from PIL import Image
 import updater
 import config
 import logic
-from game_data import GameDataClient
+from game_data import EItem, GameDataClient
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
@@ -51,6 +51,14 @@ COLOR_MAP = {
     "LIGHTBLUE_EX": "#85C1E9",
     "DEFAULT": "#FFFFFF"
 }
+
+#[GlovePower, SoulHarvester, SpicyMeatball, CursedDoll, MoldyCheese, Oats]
+
+REQUIRED_SHADY_GUY_ITEMS = frozenset(
+    {
+        EItem.SoulHarvester.name
+    }
+)
 
 
 def center_toplevel(window, parent, width: int, height: int) -> None:
@@ -654,6 +662,14 @@ class SettingsDialog(ctk.CTkToplevel):
 
 
 class MegabonkApp(ctk.CTk):
+    @staticmethod
+    def item_name(item: object) -> str:
+        return str(getattr(item, "name", item))
+
+    @classmethod
+    def has_required_shady_guy_item(cls, items: list[object]) -> bool:
+        return any(cls.item_name(item) in REQUIRED_SHADY_GUY_ITEMS for item in items)
+
     def __init__(self):
         super().__init__()
         
@@ -1893,11 +1909,19 @@ class MegabonkApp(ctk.CTk):
                                 tag="warning",
                             )
                             candidate = None
+                        elif not self.has_required_shady_guy_item(shady_guy_items):
+                            required_items_text = ", ".join(sorted(REQUIRED_SHADY_GUY_ITEMS))
+                            self.log(
+                                f"[WAIT] Candidate '{t_name}{score_text}' rejected: none of the required "
+                                f"Shady Guy items were found ({required_items_text}).",
+                                tag="warning",
+                            )
+                            candidate = None
 
                     if candidate is None:
                         pass
                     else:
-                        shady_guy_items_text = ", ".join(item.name for item in shady_guy_items)
+                        shady_guy_items_text = ", ".join(self.item_name(item) for item in shady_guy_items)
                         self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
                         self.log(f"Map Stats: {self.format_stats(stats)}", tag="success")
                         self.log(
