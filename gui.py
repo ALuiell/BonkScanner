@@ -30,7 +30,7 @@ try:
 except ImportError:
     keyboard = None
 
-ctk.set_appearance_mode("dark")
+ctk.set_appearance_mode("light")
 
 # Helper function to get correct path for bundled files in PyInstaller
 def resource_path(relative_path):
@@ -38,18 +38,96 @@ def resource_path(relative_path):
     base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
     return os.path.join(base_path, relative_path)
 
+# Test theme: uniform cool gray background, dark text and blue controls.
+CHARACTER_THEME = {
+    "app_bg": "#D1D5DB",
+    "surface": "#D1D5DB",
+    "surface_alt": "#D1D5DB",
+    "surface_card": "#D7DCE3",
+    "surface_soft": "#5A7FD1",
+    "border": "#D1D5DB",
+    "inner_border": "#AAB1BC",
+    "primary": "#2E63CC",
+    "primary_hover": "#2557B8",
+    "accent": "#214FAF",
+    "accent_hover": "#1A4296",
+    "accent_soft": "#3B6FD4",
+    "accent_soft_hover": "#305FBE",
+    "neutral": "#4F77C8",
+    "neutral_hover": "#4168B7",
+    "danger": "#335EBA",
+    "danger_hover": "#2A519F",
+    "warning": "#A56A00",
+    "warning_soft": "#FFF1CC",
+    "error": "#C44B66",
+    "text": "#18253D",
+    "text_muted": "#415374",
+    "text_dim": "#6B7D9B",
+    "text_on_light": "#FFFFFF",
+    "scrollbar_track": "#D7DCE3",
+    "scrollbar_thumb": "#8E949D",
+    "scrollbar_thumb_hover": "#787F89",
+    "scrollbar_border_spacing": 4,
+    "scrollbar_width": 12,
+    "scrollable_shell_inset": 5,
+    "radius_panel": 18,
+    "radius_panel_inner": 14,
+    "radius_button": 12,
+    "radius_input": 12,
+    "inner_border_width": 2,
+    "checkbox_size": 20,
+    "checkbox_corner_radius": 6,
+    "checkbox_border_width": 2,
+}
+
+
+def button_colors(variant: str) -> dict[str, str]:
+    _ = variant
+    return {
+        "fg_color": CHARACTER_THEME["primary"],
+        "hover_color": CHARACTER_THEME["primary_hover"],
+        "text_color": CHARACTER_THEME["text_on_light"],
+        "corner_radius": CHARACTER_THEME["radius_button"],
+    }
+
+
+def checkbox_colors() -> dict[str, str]:
+    return {
+        "checkbox_width": CHARACTER_THEME["checkbox_size"],
+        "checkbox_height": CHARACTER_THEME["checkbox_size"],
+        "corner_radius": CHARACTER_THEME["checkbox_corner_radius"],
+        "border_width": CHARACTER_THEME["checkbox_border_width"],
+        "fg_color": CHARACTER_THEME["accent"],
+        "hover_color": CHARACTER_THEME["accent_hover"],
+        "border_color": CHARACTER_THEME["accent"],
+        "checkmark_color": "#FFFFFF",
+    }
+
+
+def tune_scrollable_frame(frame: ctk.CTkScrollableFrame) -> None:
+    """Keep the outer frame border visible instead of letting the scrollbar cover it."""
+    scrollbar = getattr(frame, "_scrollbar", None)
+    if scrollbar is None:
+        return
+
+    scrollbar.configure(
+        fg_color="transparent",
+        border_spacing=CHARACTER_THEME["scrollbar_border_spacing"],
+        width=CHARACTER_THEME["scrollbar_width"],
+    )
+
 # Map text color names to hex colors for CustomTkinter
 COLOR_MAP = {
-    "WHITE": "#FFFFFF",
-    "CYAN": "#00FFFF",
-    "GREEN": "#55FF55",
-    "YELLOW": "#FFFF55",
-    "LIGHTRED_EX": "#FF6666",
-    "RED": "#FF4444",
-    "MAGENTA": "#FF55FF",
-    "BLUE": "#5DADE2",
-    "LIGHTBLUE_EX": "#85C1E9",
-    "DEFAULT": "#FFFFFF"
+    "WHITE": CHARACTER_THEME["text"],
+    "CYAN": "#0F7490",
+    "GREEN": "#1E8E5A",
+    "YELLOW": "#A27400",
+    "LIGHTRED_EX": "#D86484",
+    "RED": "#C44B66",
+    "MAGENTA": "#7A56CC",
+    "BLUE": CHARACTER_THEME["accent"],
+    "LIGHTBLUE_EX": "#5F8FEE",
+    "DEFAULT": CHARACTER_THEME["text"]
 }
 
 #[GlovePower, SoulHarvester, SpicyMeatball, CursedDoll, MoldyCheese, Oats]
@@ -86,6 +164,7 @@ class TemplateDialog(ctk.CTkToplevel):
         self.title("Edit Template" if edit_template else "New Template")
         self.geometry("340x420")
         self.resizable(False, False)
+        self.configure(fg_color=CHARACTER_THEME["surface"])
         self.result = None
         self.edit_template = edit_template
         
@@ -149,7 +228,7 @@ class TemplateDialog(ctk.CTkToplevel):
             self.micro_entry.insert(0, "0")
             self.boss_entry.insert(0, "0")
         
-        self.save_btn = ctk.CTkButton(self, text="Save Template", command=self.save, fg_color="#2FA572", hover_color="#106A43")
+        self.save_btn = ctk.CTkButton(self, text="Save Template", command=self.save, **button_colors("accent"))
         self.save_btn.grid(row=6, column=0, columnspan=2, pady=20)
         
         # Make modal
@@ -208,6 +287,7 @@ class ScoresSettingsDialog(ctk.CTkToplevel):
         self.title("Scores Settings")
         self.geometry("420x650")
         self.resizable(False, False)
+        self.configure(fg_color=CHARACTER_THEME["surface"])
         
         icon_path = resource_path("media/bonkscanner_icon.ico")
         if os.path.exists(icon_path):
@@ -217,7 +297,11 @@ class ScoresSettingsDialog(ctk.CTkToplevel):
         self.grid_rowconfigure(0, weight=1)
         
         # Create a scrollable frame for the entire window
-        self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_frame = ctk.CTkScrollableFrame(
+            self,
+            fg_color="transparent",
+            corner_radius=CHARACTER_THEME["radius_panel_inner"],
+        )
         self.scroll_frame.grid(row=0, column=0, sticky="nsew")
         self.scroll_frame.grid_columnconfigure(1, weight=1)
 
@@ -230,7 +314,7 @@ class ScoresSettingsDialog(ctk.CTkToplevel):
         self.tier_vars = {}
         for tier in ["Light", "Good", "Perfect", "Perfect+"]:
             var = ctk.BooleanVar(value=tier in config.SCORES_SYSTEM.get("active_tiers", []))
-            cb = ctk.CTkCheckBox(self.scroll_frame, text=tier, variable=var)
+            cb = ctk.CTkCheckBox(self.scroll_frame, text=tier, variable=var, text_color=CHARACTER_THEME["text"], **checkbox_colors())
             cb.grid(row=self.row_idx, column=0, columnspan=2, padx=20, pady=2, sticky="w")
             self.tier_vars[tier] = var
             self.row_idx += 1
@@ -241,7 +325,7 @@ class ScoresSettingsDialog(ctk.CTkToplevel):
         
         # Mode Switch
         self.manual_thresholds_var = ctk.BooleanVar(value=config.SCORES_SYSTEM.get("manual_thresholds", False))
-        self.manual_cb = ctk.CTkCheckBox(self.scroll_frame, text="Manual Thresholds", variable=self.manual_thresholds_var, command=self.toggle_thresholds_mode)
+        self.manual_cb = ctk.CTkCheckBox(self.scroll_frame, text="Manual Thresholds", variable=self.manual_thresholds_var, command=self.toggle_thresholds_mode, text_color=CHARACTER_THEME["text"], **checkbox_colors())
         self.manual_cb.grid(row=self.row_idx, column=0, columnspan=2, padx=20, pady=5, sticky="w")
         self.row_idx += 1
 
@@ -300,10 +384,10 @@ class ScoresSettingsDialog(ctk.CTkToplevel):
         self.buttons_frame = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
         self.buttons_frame.grid(row=self.row_idx, column=0, columnspan=2, pady=20)
         
-        self.reset_btn = ctk.CTkButton(self.buttons_frame, text="Reset to Defaults", command=self.reset_to_defaults, fg_color="#b30000", hover_color="#800000", width=140)
+        self.reset_btn = ctk.CTkButton(self.buttons_frame, text="Reset to Defaults", command=self.reset_to_defaults, width=140, **button_colors("danger"))
         self.reset_btn.grid(row=0, column=0, padx=10)
 
-        self.save_btn = ctk.CTkButton(self.buttons_frame, text="Save Settings", command=self.save, fg_color="#2FA572", hover_color="#106A43", width=140)
+        self.save_btn = ctk.CTkButton(self.buttons_frame, text="Save Settings", command=self.save, width=140, **button_colors("accent"))
         self.save_btn.grid(row=0, column=1, padx=10)
         
         self.toggle_thresholds_mode() # Initialize state
@@ -420,6 +504,7 @@ class DeleteDialog(ctk.CTkToplevel):
         self.title("Delete Template")
         self.geometry("280x160")
         self.resizable(False, False)
+        self.configure(fg_color=CHARACTER_THEME["surface"])
         self.result = None
         
         # Set icon if available
@@ -430,7 +515,7 @@ class DeleteDialog(ctk.CTkToplevel):
         self.combo = ctk.CTkComboBox(self, values=[t['name'] for t in custom_templates])
         self.combo.pack(pady=(30, 10), padx=20, fill="x")
         
-        self.btn = ctk.CTkButton(self, text="Delete", fg_color="#b30000", hover_color="#800000", command=self.delete)
+        self.btn = ctk.CTkButton(self, text="Delete", command=self.delete, **button_colors("danger"))
         self.btn.pack(pady=10)
         
         self.transient(parent)
@@ -447,6 +532,7 @@ class NativeHookWarningDialog(ctk.CTkToplevel):
         self.result = False
         self.title("Native Hook Warning")
         self.resizable(False, False)
+        self.configure(fg_color=CHARACTER_THEME["surface"])
 
         icon_path = resource_path("media/bonkscanner_icon.ico")
         if os.path.exists(icon_path):
@@ -458,7 +544,7 @@ class NativeHookWarningDialog(ctk.CTkToplevel):
 
         self.protocol("WM_DELETE_WINDOW", self.cancel)
 
-        header = ctk.CTkFrame(self, fg_color="#3B2A18", corner_radius=10)
+        header = ctk.CTkFrame(self, fg_color=CHARACTER_THEME["warning_soft"], corner_radius=CHARACTER_THEME["radius_panel_inner"])
         header.grid(row=0, column=0, padx=18, pady=(18, 10), sticky="ew")
         header.grid_columnconfigure(0, weight=1)
 
@@ -466,7 +552,7 @@ class NativeHookWarningDialog(ctk.CTkToplevel):
             header,
             text="Enable Native Hook Restart?",
             font=ctk.CTkFont(size=17, weight="bold"),
-            text_color="#F6C56F",
+            text_color=CHARACTER_THEME["warning"],
         ).grid(row=0, column=0, padx=14, pady=(12, 4), sticky="w")
 
         ctk.CTkLabel(
@@ -474,7 +560,7 @@ class NativeHookWarningDialog(ctk.CTkToplevel):
             text="This enables a lower-level memory restart path. Using this mode may not be considered entirely fair and could have consequences.",
             justify="left",
             wraplength=380,
-            text_color="#E8E8E8",
+            text_color=CHARACTER_THEME["text"],
         ).grid(row=1, column=0, padx=14, pady=(0, 12), sticky="w")
 
         ctk.CTkLabel(
@@ -482,7 +568,7 @@ class NativeHookWarningDialog(ctk.CTkToplevel):
             text="You can safely switch back to standard keyboard restart at any time from Settings.\n\nThis dialog will appear whenever the native hook option is turned on.",
             justify="left",
             wraplength=396,
-            text_color="#CFCFCF",
+            text_color=CHARACTER_THEME["text_muted"],
         ).grid(row=1, column=0, padx=22, pady=(0, 16), sticky="nw")
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")
@@ -493,18 +579,16 @@ class NativeHookWarningDialog(ctk.CTkToplevel):
         self.cancel_btn = ctk.CTkButton(
             buttons,
             text="Cancel",
-            fg_color="#b30000",
-            hover_color="#800000",
             command=self.cancel,
+            **button_colors("danger"),
         )
         self.cancel_btn.grid(row=0, column=0, padx=(0, 8), sticky="ew")
 
         self.continue_btn = ctk.CTkButton(
             buttons,
             text="Continue",
-            fg_color="#2FA572",
-            hover_color="#106A43",
             command=self.confirm,
+            **button_colors("accent"),
         )
         self.continue_btn.grid(row=0, column=1, padx=(8, 0), sticky="ew")
 
@@ -526,6 +610,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self.title("Settings")
         self.geometry("400x390")
         self.resizable(False, False)
+        self.configure(fg_color=CHARACTER_THEME["surface"])
         self._native_hook_toggle_guard = False
         
         # Set icon if available
@@ -566,15 +651,17 @@ class SettingsDialog(ctk.CTkToplevel):
             text="Use native hook restart",
             variable=self.native_hook_enabled_var,
             command=self.on_native_hook_toggle,
+            text_color=CHARACTER_THEME["text"],
+            **checkbox_colors(),
         )
         self.native_hook_enabled_check.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="w")
         
         # Check for updates button
-        self.update_btn = ctk.CTkButton(self, text="Check for Updates", fg_color="#1f538d", hover_color="#14375e", command=self.check_update)
+        self.update_btn = ctk.CTkButton(self, text="Check for Updates", command=self.check_update, **button_colors("primary"))
         self.update_btn.grid(row=5, column=0, columnspan=2, pady=10)
 
         # SAVE BUTTON
-        self.save_btn = ctk.CTkButton(self, text="Save", fg_color="#2FA572", hover_color="#106A43", command=self.save)
+        self.save_btn = ctk.CTkButton(self, text="Save", command=self.save, **button_colors("accent"))
         self.save_btn.grid(row=6, column=0, columnspan=2, pady=10)
         
         self.transient(parent)
@@ -685,6 +772,7 @@ class MegabonkApp(ctk.CTk):
         self.title(f"BonkScanner v{updater.CURRENT_VERSION}")
         self.geometry("1150x550")
         self.minsize(1050, 500)
+        self.configure(fg_color=CHARACTER_THEME["app_bg"])
         
         # Initialize attributes that might be flagged as defined outside __init__
         self.top_frame = None
@@ -933,24 +1021,44 @@ class MegabonkApp(ctk.CTk):
                                           dark_image=Image.open(icon_path),
                                           size=(40, 40))
                 self.logo_label = ctk.CTkLabel(self.top_frame, image=logo_image, text=" BonkScanner", 
-                                               font=ctk.CTkFont(size=24, weight="bold"))
+                                               font=ctk.CTkFont(size=24, weight="bold"),
+                                               text_color=CHARACTER_THEME["text"])
                 self.logo_label.grid(row=0, column=0, pady=5)
             else:
                 self.logo_label = ctk.CTkLabel(self.top_frame, text="BonkScanner", 
-                                               font=ctk.CTkFont(size=24, weight="bold"))
+                                               font=ctk.CTkFont(size=24, weight="bold"),
+                                               text_color=CHARACTER_THEME["text"])
                 self.logo_label.grid(row=0, column=0, pady=5)
         except Exception:
             self.logo_label = ctk.CTkLabel(self.top_frame, text="BonkScanner", 
-                                           font=ctk.CTkFont(size=24, weight="bold"))
+                                           font=ctk.CTkFont(size=24, weight="bold"),
+                                           text_color=CHARACTER_THEME["text"])
             self.logo_label.grid(row=0, column=0, pady=5)
 
         # --- Left Panel ---
-        self.left_frame = ctk.CTkFrame(self)
+        self.left_frame = ctk.CTkFrame(
+            self,
+            fg_color=CHARACTER_THEME["surface"],
+            border_width=0,
+            border_color=CHARACTER_THEME["border"],
+            corner_radius=CHARACTER_THEME["radius_panel"],
+        )
         self.left_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         self.left_frame.grid_rowconfigure(0, weight=1)
         self.left_frame.grid_columnconfigure(0, weight=1)
 
-        self.left_tabview = ctk.CTkTabview(self.left_frame, command=self.on_left_tab_changed)
+        self.left_tabview = ctk.CTkTabview(
+            self.left_frame,
+            command=self.on_left_tab_changed,
+            corner_radius=CHARACTER_THEME["radius_panel_inner"],
+            fg_color=CHARACTER_THEME["surface"],
+            segmented_button_fg_color=CHARACTER_THEME["surface_soft"],
+            segmented_button_selected_color=CHARACTER_THEME["primary"],
+            segmented_button_selected_hover_color=CHARACTER_THEME["primary_hover"],
+            segmented_button_unselected_color=CHARACTER_THEME["surface_soft"],
+            segmented_button_unselected_hover_color=CHARACTER_THEME["neutral_hover"],
+            text_color=CHARACTER_THEME["text_on_light"],
+        )
         self.left_tabview.grid(row=0, column=0, padx=10, pady=(0, 10), sticky="nsew")
         
         self.tab_templates = self.left_tabview.add("Templates")
@@ -965,39 +1073,97 @@ class MegabonkApp(ctk.CTk):
         # -- Templates Tab Setup --
         self.tab_templates.grid_rowconfigure(0, weight=1)
         self.tab_templates.grid_columnconfigure(0, weight=1)
-        
-        self.scrollable_templates = ctk.CTkScrollableFrame(self.tab_templates, fg_color="transparent")
-        self.scrollable_templates.grid(row=0, column=0, sticky="nsew")
+
+        self.scrollable_templates_shell = ctk.CTkFrame(
+            self.tab_templates,
+            fg_color=CHARACTER_THEME["surface_card"],
+            corner_radius=CHARACTER_THEME["radius_panel_inner"],
+            border_width=CHARACTER_THEME["inner_border_width"],
+            border_color=CHARACTER_THEME["inner_border"],
+        )
+        self.scrollable_templates_shell.grid(row=0, column=0, sticky="nsew")
+        self.scrollable_templates_shell.grid_rowconfigure(0, weight=1)
+        self.scrollable_templates_shell.grid_columnconfigure(0, weight=1)
+
+        self.scrollable_templates = ctk.CTkScrollableFrame(
+            self.scrollable_templates_shell,
+            fg_color=CHARACTER_THEME["surface_card"],
+            corner_radius=0,
+            border_width=0,
+            scrollbar_fg_color=CHARACTER_THEME["scrollbar_track"],
+            scrollbar_button_color=CHARACTER_THEME["scrollbar_thumb"],
+            scrollbar_button_hover_color=CHARACTER_THEME["scrollbar_thumb_hover"],
+        )
+        self.scrollable_templates.grid(
+            row=0,
+            column=0,
+            padx=CHARACTER_THEME["scrollable_shell_inset"],
+            pady=CHARACTER_THEME["scrollable_shell_inset"],
+            sticky="nsew",
+        )
+        tune_scrollable_frame(self.scrollable_templates)
         
         # Buttons frame (moved inside tab_templates)
         self.template_btns_frame = ctk.CTkFrame(self.tab_templates, fg_color="transparent")
         self.template_btns_frame.grid(row=1, column=0, padx=0, pady=(10, 0), sticky="ew")
         self.template_btns_frame.grid_columnconfigure((0, 4), weight=1)
         
-        self.add_btn = ctk.CTkButton(self.template_btns_frame, text="+ Add", width=60, command=self.add_template_dialog)
+        self.add_btn = ctk.CTkButton(self.template_btns_frame, text="+ Add", width=60, command=self.add_template_dialog, **button_colors("primary"))
         self.add_btn.grid(row=0, column=1, padx=5)
         
-        self.edit_btn = ctk.CTkButton(self.template_btns_frame, text="✎ Edit", width=60, command=self.edit_template_dialog)
+        self.edit_btn = ctk.CTkButton(self.template_btns_frame, text="✎ Edit", width=60, command=self.edit_template_dialog, **button_colors("neutral"))
         self.edit_btn.grid(row=0, column=2, padx=5)
         
-        self.del_btn = ctk.CTkButton(self.template_btns_frame, text="- Delete", width=60, fg_color="#b30000", hover_color="#800000", command=self.del_template_dialog)
+        self.del_btn = ctk.CTkButton(self.template_btns_frame, text="- Delete", width=60, command=self.del_template_dialog, **button_colors("danger"))
         self.del_btn.grid(row=0, column=3, padx=5)
         
         # -- Scores Tab Setup --
         self.tab_scores.grid_rowconfigure(2, weight=1) # Row 2 is the scrollable desc frame
         self.tab_scores.grid_columnconfigure(0, weight=1)
         
-        self.scores_templates_frame = ctk.CTkFrame(self.tab_scores, fg_color="transparent")
+        self.scores_templates_frame = ctk.CTkFrame(
+            self.tab_scores,
+            fg_color=CHARACTER_THEME["surface_card"],
+            corner_radius=CHARACTER_THEME["radius_panel_inner"],
+            border_width=CHARACTER_THEME["inner_border_width"],
+            border_color=CHARACTER_THEME["inner_border"],
+        )
         self.scores_templates_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
         
-        self.scores_separator = ctk.CTkFrame(self.tab_scores, height=2, fg_color=("gray70", "gray30"))
+        self.scores_separator = ctk.CTkFrame(self.tab_scores, height=2, fg_color=CHARACTER_THEME["app_bg"], corner_radius=1)
         self.scores_separator.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
         
-        self.scores_scroll_desc = ctk.CTkScrollableFrame(self.tab_scores, fg_color="transparent")
-        self.scores_scroll_desc.grid(row=2, column=0, sticky="nsew")
+        self.scores_scroll_desc_shell = ctk.CTkFrame(
+            self.tab_scores,
+            fg_color=CHARACTER_THEME["surface_card"],
+            corner_radius=CHARACTER_THEME["radius_panel_inner"],
+            border_width=CHARACTER_THEME["inner_border_width"],
+            border_color=CHARACTER_THEME["inner_border"],
+        )
+        self.scores_scroll_desc_shell.grid(row=2, column=0, sticky="nsew")
+        self.scores_scroll_desc_shell.grid_rowconfigure(0, weight=1)
+        self.scores_scroll_desc_shell.grid_columnconfigure(0, weight=1)
+
+        self.scores_scroll_desc = ctk.CTkScrollableFrame(
+            self.scores_scroll_desc_shell,
+            fg_color=CHARACTER_THEME["surface_card"],
+            corner_radius=0,
+            border_width=0,
+            scrollbar_fg_color=CHARACTER_THEME["scrollbar_track"],
+            scrollbar_button_color=CHARACTER_THEME["scrollbar_thumb"],
+            scrollbar_button_hover_color=CHARACTER_THEME["scrollbar_thumb_hover"],
+        )
+        self.scores_scroll_desc.grid(
+            row=0,
+            column=0,
+            padx=CHARACTER_THEME["scrollable_shell_inset"],
+            pady=CHARACTER_THEME["scrollable_shell_inset"],
+            sticky="nsew",
+        )
+        tune_scrollable_frame(self.scores_scroll_desc)
         self.scores_scroll_desc.grid_columnconfigure(0, weight=1)
         
-        self.scores_desc_label = ctk.CTkLabel(self.scores_scroll_desc, text="", justify="left", font=ctk.CTkFont(size=13))
+        self.scores_desc_label = ctk.CTkLabel(self.scores_scroll_desc, text="", justify="left", font=ctk.CTkFont(size=13), text_color=CHARACTER_THEME["text_muted"])
         self.scores_desc_label.grid(row=0, column=0, sticky="nw", padx=10, pady=10)
         
         # Scores buttons frame (moved inside tab_scores)
@@ -1006,20 +1172,36 @@ class MegabonkApp(ctk.CTk):
         self.scores_btns_frame.grid_columnconfigure((0, 2), weight=1)
         
         if self.settings_image:
-            self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text=" Edit Settings", image=self.settings_image, compound="left", command=self.open_scores_settings_dialog)
+            self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text=" Edit Settings", image=self.settings_image, compound="left", command=self.open_scores_settings_dialog, **button_colors("primary"))
         else:
-            self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text="⚙ Edit Settings", command=self.open_scores_settings_dialog)
+            self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text="⚙ Edit Settings", command=self.open_scores_settings_dialog, **button_colors("primary"))
             
         self.edit_scores_btn.grid(row=0, column=1)
 
         # --- Right Panel: Logs, Stats & Controls ---
-        self.right_frame = ctk.CTkFrame(self)
+        self.right_frame = ctk.CTkFrame(
+            self,
+            fg_color=CHARACTER_THEME["surface"],
+            border_width=0,
+            border_color=CHARACTER_THEME["border"],
+            corner_radius=CHARACTER_THEME["radius_panel"],
+        )
         self.right_frame.grid(row=1, column=1, padx=(0, 10), pady=10, sticky="nsew")
         self.right_frame.grid_rowconfigure(0, weight=1) # Give row 0 (TabView) the most weight
         self.right_frame.grid_columnconfigure(0, weight=1)
         
         # TabView for Logs and Stats
-        self.tabview = ctk.CTkTabview(self.right_frame)
+        self.tabview = ctk.CTkTabview(
+            self.right_frame,
+            corner_radius=CHARACTER_THEME["radius_panel_inner"],
+            fg_color=CHARACTER_THEME["surface"],
+            segmented_button_fg_color=CHARACTER_THEME["surface_soft"],
+            segmented_button_selected_color=CHARACTER_THEME["primary"],
+            segmented_button_selected_hover_color=CHARACTER_THEME["primary_hover"],
+            segmented_button_unselected_color=CHARACTER_THEME["surface_soft"],
+            segmented_button_unselected_hover_color=CHARACTER_THEME["neutral_hover"],
+            text_color=CHARACTER_THEME["text_on_light"],
+        )
         self.tabview.grid(row=0, column=0, padx=10, pady=(0, 10), sticky="nsew")
         
         self.tab_logs = self.tabview.add("Logs")
@@ -1031,40 +1213,76 @@ class MegabonkApp(ctk.CTk):
         self.tab_stats.grid_columnconfigure(0, weight=1)
         
         # Log Textbox
-        self.log_box = ctk.CTkTextbox(self.tab_logs, state="disabled", font=ctk.CTkFont(family="Consolas", size=13), wrap="none")
+        self.log_box = ctk.CTkTextbox(
+            self.tab_logs,
+            state="disabled",
+            font=ctk.CTkFont(family="Consolas", size=13),
+            wrap="none",
+            corner_radius=CHARACTER_THEME["radius_input"],
+            fg_color=CHARACTER_THEME["surface_card"],
+            text_color=CHARACTER_THEME["text"],
+            border_width=CHARACTER_THEME["inner_border_width"],
+            border_color=CHARACTER_THEME["inner_border"],
+        )
         self.log_box.grid(row=0, column=0, sticky="nsew")
         
         # Log tags config for colors
-        self.log_box.tag_config("warning", foreground="#FFA500")
-        self.log_box.tag_config("error", foreground="#FF4444")
-        self.log_box.tag_config("success", foreground="#00FF00")
+        self.log_box.tag_config("warning", foreground=CHARACTER_THEME["warning"])
+        self.log_box.tag_config("error", foreground=CHARACTER_THEME["error"])
+        self.log_box.tag_config("success", foreground=CHARACTER_THEME["accent"])
         
         # Add tags for specific profile colors
         for color_name, hex_code in COLOR_MAP.items():
             self.log_box.tag_config(color_name, foreground=hex_code)
             
         # Stats Elements
-        self.stats_scroll = ctk.CTkScrollableFrame(self.tab_stats, fg_color="transparent")
-        self.stats_scroll.grid(row=0, column=0, sticky="nsew")
+        self.stats_scroll_shell = ctk.CTkFrame(
+            self.tab_stats,
+            fg_color=CHARACTER_THEME["surface_card"],
+            corner_radius=CHARACTER_THEME["radius_panel_inner"],
+            border_width=CHARACTER_THEME["inner_border_width"],
+            border_color=CHARACTER_THEME["inner_border"],
+        )
+        self.stats_scroll_shell.grid(row=0, column=0, sticky="nsew")
+        self.stats_scroll_shell.grid_rowconfigure(0, weight=1)
+        self.stats_scroll_shell.grid_columnconfigure(0, weight=1)
+
+        self.stats_scroll = ctk.CTkScrollableFrame(
+            self.stats_scroll_shell,
+            fg_color=CHARACTER_THEME["surface_card"],
+            corner_radius=0,
+            border_width=0,
+            scrollbar_fg_color=CHARACTER_THEME["scrollbar_track"],
+            scrollbar_button_color=CHARACTER_THEME["scrollbar_thumb"],
+            scrollbar_button_hover_color=CHARACTER_THEME["scrollbar_thumb_hover"],
+        )
+        self.stats_scroll.grid(
+            row=0,
+            column=0,
+            padx=CHARACTER_THEME["scrollable_shell_inset"],
+            pady=CHARACTER_THEME["scrollable_shell_inset"],
+            sticky="nsew",
+        )
+        tune_scrollable_frame(self.stats_scroll)
         
         self.stats_time_label = ctk.CTkLabel(self.stats_scroll, text="Session Time: 00:00:00", font=ctk.CTkFont(size=15))
-        self.stats_time_label.pack(anchor="w", pady=5)
+        self.stats_time_label.pack(anchor="w", padx=12, pady=5)
         
         self.stats_rerolls_label = ctk.CTkLabel(self.stats_scroll, text="Total Rerolls: 0", font=ctk.CTkFont(size=15))
-        self.stats_rerolls_label.pack(anchor="w", pady=5)
+        self.stats_rerolls_label.pack(anchor="w", padx=12, pady=5)
         
         self.stats_rpm_label = ctk.CTkLabel(self.stats_scroll, text="Rerolls per Minute (RPM): 0.0", font=ctk.CTkFont(size=15))
-        self.stats_rpm_label.pack(anchor="w", pady=5)
+        self.stats_rpm_label.pack(anchor="w", padx=12, pady=5)
         
         self.stats_best_label = ctk.CTkLabel(self.stats_scroll, text="Best Map Found: None", font=ctk.CTkFont(size=15))
-        self.stats_best_label.pack(anchor="w", pady=5)
+        self.stats_best_label.pack(anchor="w", padx=12, pady=5)
         
         self.stats_worst_label = ctk.CTkLabel(self.stats_scroll, text="Worst Map Found: None", font=ctk.CTkFont(size=15))
-        self.stats_worst_label.pack(anchor="w", pady=5)
+        self.stats_worst_label.pack(anchor="w", padx=12, pady=5)
         
-        ctk.CTkLabel(self.stats_scroll, text="\nAverage Rerolls per Target:", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", pady=5)
+        ctk.CTkLabel(self.stats_scroll, text="\nAverage Rerolls per Target:", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", padx=12, pady=5)
         self.stats_avg_frame = ctk.CTkFrame(self.stats_scroll, fg_color="transparent")
-        self.stats_avg_frame.pack(fill="x", anchor="w")
+        self.stats_avg_frame.pack(fill="x", anchor="w", padx=12)
         
         # Controls Setup
         self.controls_frame = ctk.CTkFrame(self.right_frame, fg_color="transparent")
@@ -1073,13 +1291,13 @@ class MegabonkApp(ctk.CTk):
         self.controls_frame.grid_columnconfigure(1, weight=1)
         
         if self.settings_image:
-            self.settings_btn = ctk.CTkButton(self.controls_frame, text="", image=self.settings_image, width=35, height=35, command=self.open_settings_dialog)
+            self.settings_btn = ctk.CTkButton(self.controls_frame, text="", image=self.settings_image, width=35, height=35, command=self.open_settings_dialog, **button_colors("neutral"))
         else:
-            self.settings_btn = ctk.CTkButton(self.controls_frame, text="⚙", width=35, height=35, command=self.open_settings_dialog, font=ctk.CTkFont(size=18))
+            self.settings_btn = ctk.CTkButton(self.controls_frame, text="⚙", width=35, height=35, command=self.open_settings_dialog, font=ctk.CTkFont(size=18), **button_colors("neutral"))
 
         self.settings_btn.grid(row=0, column=0, sticky="w")
         
-        self.status_label = ctk.CTkLabel(self.controls_frame, text="Status: IDLE", font=ctk.CTkFont(family="Consolas", size=14, weight="bold"), text_color="#CCCCCC", width=250, anchor="w")
+        self.status_label = ctk.CTkLabel(self.controls_frame, text="Status: IDLE", font=ctk.CTkFont(family="Consolas", size=14, weight="bold"), text_color=CHARACTER_THEME["text_muted"], width=250, anchor="w")
         self.status_label.grid(row=0, column=1, sticky="w", padx=20)
         
         self.toggle_btn = ctk.CTkButton(
@@ -1088,7 +1306,8 @@ class MegabonkApp(ctk.CTk):
             font=ctk.CTkFont(weight="bold"), 
             command=self.toggle_main_loop,
             height=35,
-            width=120
+            width=120,
+            **button_colors("primary"),
         )
         self.toggle_btn.grid(row=0, column=2, sticky="e")
 
@@ -1141,7 +1360,8 @@ class MegabonkApp(ctk.CTk):
                 text=tier,
                 variable=cb_var,
                 font=ctk.CTkFont(size=13),
-                text_color=hex_color
+                text_color=hex_color,
+                **checkbox_colors(),
             )
             cb.pack(anchor="w", padx=10, pady=6)
             self.scores_checkboxes[tier] = cb_var
@@ -1225,7 +1445,8 @@ class MegabonkApp(ctk.CTk):
                 text=f"{t['name']} ({desc})",
                 variable=cb_var,
                 font=ctk.CTkFont(size=13),
-                text_color=hex_color
+                text_color=hex_color,
+                **checkbox_colors(),
             )
             cb.pack(anchor="w", padx=10, pady=6)
             self.checkboxes[t['name']] = cb_var
@@ -1254,7 +1475,7 @@ class MegabonkApp(ctk.CTk):
     def edit_template_dialog(self):
         select_dialog = DeleteDialog(self, config.TEMPLATES)
         select_dialog.title("Select Template to Edit")
-        select_dialog.btn.configure(text="Edit", fg_color="#1f538d", hover_color="#14375e")
+        select_dialog.btn.configure(text="Edit", **button_colors("primary"))
         self.wait_window(select_dialog)
         
         target_name = select_dialog.result
@@ -1345,14 +1566,14 @@ class MegabonkApp(ctk.CTk):
         else:
             self.animation_active = False
             if self.is_ready_to_start:
-                self.status_label.configure(text=f"Status: GAME READY (Press {config.HOTKEY})")
-                self.toggle_btn.configure(text="STOP", fg_color="#b30000", hover_color="#800000")
+                self.status_label.configure(text=f"Status: GAME READY (Press {config.HOTKEY})", text_color=CHARACTER_THEME["text"])
+                self.toggle_btn.configure(text="STOP", **button_colors("danger"))
             else:
-                self.status_label.configure(text="Status: WAITING FOR GAME...")
+                self.status_label.configure(text="Status: WAITING FOR GAME...", text_color=CHARACTER_THEME["text_dim"])
                 if self.scanner_thread and self.scanner_thread.is_alive():
-                    self.toggle_btn.configure(text="STOP", fg_color="#b30000", hover_color="#800000")
+                    self.toggle_btn.configure(text="STOP", **button_colors("danger"))
                 else:
-                    self.toggle_btn.configure(text="START", fg_color="#1f538d", hover_color="#14375e")
+                    self.toggle_btn.configure(text="START", **button_colors("primary"))
     
     def animate_scanner_indicator(self):
         if not self.animation_active:
@@ -1360,8 +1581,8 @@ class MegabonkApp(ctk.CTk):
             
         frames = ["|", "/", "-", "\\"]
         char = frames[self.animation_frame]
-        self.status_label.configure(text=f"Status: SCANNING {char}", text_color="#00FF00")
-        self.toggle_btn.configure(text="PAUSE", fg_color="#b30000", hover_color="#800000")
+        self.status_label.configure(text=f"Status: SCANNING {char}", text_color=CHARACTER_THEME["accent"])
+        self.toggle_btn.configure(text="PAUSE", **button_colors("accent"))
         
         self.animation_frame = (self.animation_frame + 1) % len(frames)
         self.after(150, self.animate_scanner_indicator)
