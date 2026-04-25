@@ -577,8 +577,8 @@ class GuiRunControlTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.get_map_stats_calls = 0
 
-            def wait_for_map_ready(self, **_kwargs: object) -> dict[str, int]:
-                return {"Moais": 4, "Microwaves": 1}
+            def wait_for_map_ready(self, **_kwargs: object) -> tuple[dict[str, int], list[object]]:
+                return {"Moais": 4, "Microwaves": 1}, []
 
             def get_map_generation_state(self) -> object:
                 return object()

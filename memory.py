@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import struct
+import re
 from typing import Any
 
 import pymem
 import pymem.exception
 import pymem.process
+import pymem.pattern
 
 
 class ProcessNotFoundError(Exception):
@@ -143,6 +145,21 @@ class ProcessMemory:
             return raw.decode("utf-16-le")
         except UnicodeDecodeError:
             return None
+
+    def scan_all(self, pattern: bytes) -> list[int]:
+        if self._pm is None:
+            raise MemoryReadError("Process memory is not initialized.")
+
+        try:
+            results = pymem.pattern.pattern_scan_all(
+                self._pm.process_handle,
+                re.escape(pattern),
+                return_multiple=True,
+            )
+        except Exception as exc:
+            raise MemoryReadError("Failed to scan process memory.") from exc
+
+        return [int(address) for address in results]
 
     @staticmethod
     def _missing_module_lookup(_handle: Any, module_name: str) -> Any:
