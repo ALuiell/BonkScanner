@@ -763,6 +763,57 @@ class GuiRunControlTests(unittest.TestCase):
             )
         )
 
+    def test_background_loop_rerolls_when_shady_guy_item_count_does_not_match_vendor_count(self) -> None:
+        class FakeClient:
+            def wait_for_map_ready(self, **_kwargs: object) -> dict[object, object]:
+                return {
+                    gui.MapStat.SHADY_GUY: types.SimpleNamespace(max=2),
+                    "Moais": 4,
+                    "Microwaves": 1,
+                }
+
+            def get_map_generation_state(self) -> object:
+                return object()
+
+            def get_shady_guy_items(self) -> list[object]:
+                return [types.SimpleNamespace(name="Key")]
+
+        app = object.__new__(gui.MegabonkApp)
+        app.client = FakeClient()
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.scan_event.set()
+        app.is_running = True
+        app.is_ready_to_start = True
+        app.after = lambda _delay, callback: callback()
+        app.update_status_ui = lambda: None
+        app.wait_for_game_window_focus = lambda _process_name: True
+        app.check_best_map = lambda _stats: None
+        app.check_worst_map = lambda _stats: None
+        app.evaluate_candidate = lambda stats: {"name": "Perfect", "color": "GREEN"} if stats["Moais"] == 4 else None
+        log_target_found_calls: list[str] = []
+        app.log_target_found = lambda name: log_target_found_calls.append(name)
+        handle_calls: list[str] = []
+        app.handle_confirmed_target_window = lambda _process_name: handle_calls.append("called") or True
+        app.close_client = lambda: None
+        reroll_calls: list[str] = []
+        app.reroll_map = lambda: reroll_calls.append("called") or app.stop_event.set()
+        logs: list[tuple[str, str | None]] = []
+        app.log = lambda message, tag=None: logs.append((message, tag))
+
+        with patch.object(gui, "adapt_map_stats", lambda raw_stats: {"Moais": 4, "Microwaves": 1, "Shady Guy": 2}):
+            gui.MegabonkApp.background_loop(app)
+
+        self.assertEqual(log_target_found_calls, [])
+        self.assertEqual(handle_calls, [])
+        self.assertEqual(reroll_calls, ["called"])
+        self.assertTrue(
+            any(
+                tag == "warning" and "expected 6 Shady Guy items from 2 vendors, but read 1" in message
+                for message, tag in logs
+            )
+        )
+
     def test_on_closing_detaches_native_hooks_and_invalidates_worker(self) -> None:
         loader = FakeDetachLoader()
         logs: list[tuple[str, str | None]] = []

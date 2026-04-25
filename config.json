@@ -70,11 +70,19 @@
             "color": "MAGENTA",
             "desc": "Boss: 7+",
             "boss": 7
+        },
+        {
+            "name": "w",
+            "shady": 1,
+            "moai": 0,
+            "micro": 0,
+            "boss": 0,
+            "id": 8,
+            "color": "BLUE"
         }
     ],
     "ACTIVE_TEMPLATES": [
-        "PERFECT",
-        "PERFECT+"
+        "w"
     ],
     "SKIPPED_UPDATE_VERSION": "",
     "EVALUATION_MODE": "templates",
