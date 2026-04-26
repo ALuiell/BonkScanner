@@ -1854,9 +1854,6 @@ class MegabonkApp(ctk.CTk):
                 except InterruptedError:
                     # User paused while waiting for map
                     continue
-
-                shady_guy_items_text = ", ".join(item.name for item in _shady_guy_items)
-                self.log(f"Shady Guy items: [{shady_guy_items_text}]" if shady_guy_items_text else "Shady Guy items: []")
                 
                 is_first_scan = False
                 last_state = self.client.get_map_generation_state()
