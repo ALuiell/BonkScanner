@@ -1844,7 +1844,7 @@ class MegabonkApp(ctk.CTk):
                     continue
 
                 try:
-                    raw_stats = self.client.wait_for_map_ready(
+                    raw_stats, _shady_guy_items = self.client.wait_for_map_ready(
                         previous_state=last_state,
                         previous_stats=last_stats,
                         require_change=not is_first_scan,
@@ -1855,6 +1855,9 @@ class MegabonkApp(ctk.CTk):
                     # User paused while waiting for map
                     continue
 
+                shady_guy_items_text = ", ".join(item.name for item in _shady_guy_items)
+                self.log(f"Shady Guy items: [{shady_guy_items_text}]" if shady_guy_items_text else "Shady Guy items: []")
+                
                 is_first_scan = False
                 last_state = self.client.get_map_generation_state()
                 last_stats = raw_stats
@@ -1878,44 +1881,19 @@ class MegabonkApp(ctk.CTk):
                         else ""
                     )
 
-                    try:
-                        shady_guy_items = self.client.get_shady_guy_items()
-                    except MemoryReadError as exc:
-                        self.log(
-                            f"[WAIT] Candidate '{t_name}{score_text}' rejected: failed to read Shady Guy items ({exc}).",
-                            tag="warning",
-                        )
-                        candidate = None
-                    else:
-                        if not shady_guy_items:
-                            self.log(
-                                f"[WAIT] Candidate '{t_name}{score_text}' rejected: Shady Guy items are empty.",
-                                tag="warning",
-                            )
-                            candidate = None
+                    self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
+                    self.log(f"Map Stats: {self.format_stats(stats)}", tag="success")
 
-                    if candidate is None:
-                        pass
-                    else:
-                        shady_guy_items_text = ", ".join(item.name for item in shady_guy_items)
-                        self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
-                        self.log(f"Map Stats: {self.format_stats(stats)}", tag="success")
-                        self.log(
-                            f"Shady Guy items: [{shady_guy_items_text}]",
-                            tag="success",
-                        )
+                    self.log_target_found(t_name)
 
-                        self.log_target_found(t_name)
-
-                        if not self.handle_confirmed_target_window(process_name):
-                            continue
-
-                        self.is_running = False
-                        self.scan_event.clear()
-                        self.after(0, self.update_status_ui)
+                    if not self.handle_confirmed_target_window(process_name):
                         continue
 
-                if candidate is None:
+                    self.is_running = False
+                    self.scan_event.clear()
+                    self.after(0, self.update_status_ui)
+                    continue
+                else:
                     self.log(f"Stats: {self.format_stats(stats)}")
 
                 if not self.wait_for_game_window_focus(process_name):

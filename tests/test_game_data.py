@@ -71,11 +71,14 @@ class SequencedGameDataClient(GameDataClient):
         *,
         states: list[MapGenerationState],
         stats_snapshots: list[dict[MapStat, StatValue]],
+        shady_items_snapshots: list[list[EItem]] | None = None,
     ) -> None:
         self.states = states
         self.stats_snapshots = stats_snapshots
+        self.shady_items_snapshots = shady_items_snapshots or [[]]
         self.state_reads = 0
         self.stat_reads = 0
+        self.shady_item_reads = 0
 
     def get_map_generation_state(self) -> MapGenerationState:
         index = min(self.state_reads, len(self.states) - 1)
@@ -86,6 +89,11 @@ class SequencedGameDataClient(GameDataClient):
         index = min(self.stat_reads, len(self.stats_snapshots) - 1)
         self.stat_reads += 1
         return self.stats_snapshots[index]
+
+    def get_shady_guy_items(self) -> list[EItem]:
+        index = min(self.shady_item_reads, len(self.shady_items_snapshots) - 1)
+        self.shady_item_reads += 1
+        return self.shady_items_snapshots[index]
 
 
 class GameDataClientTests(unittest.TestCase):
@@ -380,7 +388,7 @@ class GameDataClientTests(unittest.TestCase):
 
         self.assertEqual(
             client.wait_for_map_ready(previous_seed=1, timeout=1.0, poll_interval=0.001),
-            stable_stats,
+            (stable_stats, []),
         )
 
     def test_wait_for_map_ready_rejects_empty_stats(self) -> None:
@@ -399,7 +407,7 @@ class GameDataClientTests(unittest.TestCase):
 
         self.assertEqual(
             client.wait_for_map_ready(previous_seed=1, timeout=1.0, poll_interval=0.001),
-            stable_stats,
+            (stable_stats, []),
         )
 
     def test_wait_for_map_ready_allows_missing_stats(self) -> None:
@@ -420,7 +428,7 @@ class GameDataClientTests(unittest.TestCase):
 
         self.assertEqual(
             client.wait_for_map_ready(previous_seed=1, timeout=1.0, poll_interval=0.001),
-            stable_stats,
+            (stable_stats, []),
         )
 
     def test_wait_for_map_ready_treats_missing_previous_stat_as_zero_change(self) -> None:
@@ -446,7 +454,7 @@ class GameDataClientTests(unittest.TestCase):
                 timeout=1.0,
                 poll_interval=0.001,
             ),
-            new_stats,
+            (new_stats, []),
         )
 
     def test_wait_for_map_ready_does_not_treat_same_missing_stat_as_change(self) -> None:
@@ -496,7 +504,7 @@ class GameDataClientTests(unittest.TestCase):
                 timeout=1.0,
                 poll_interval=0.001,
             ),
-            new_stats,
+            (new_stats, []),
         )
 
     def test_wait_for_map_ready_detects_pointer_change_without_seed_change(self) -> None:
@@ -527,7 +535,31 @@ class GameDataClientTests(unittest.TestCase):
                 timeout=1.0,
                 poll_interval=0.001,
             ),
-            stable_stats,
+            (stable_stats, []),
+        )
+
+    def test_wait_for_map_ready_requires_stable_shady_items(self) -> None:
+        ready_state = MapGenerationState(
+            is_generating=False,
+            map_seed=2,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        stable_stats = full_stats(current=2)
+        client = SequencedGameDataClient(
+            states=[ready_state, ready_state, ready_state],
+            stats_snapshots=[stable_stats, stable_stats, stable_stats],
+            shady_items_snapshots=[
+                [EItem.Key],
+                [EItem.Beer],
+                [EItem.Beer],
+            ],
+        )
+
+        self.assertEqual(
+            client.wait_for_map_ready(previous_seed=1, timeout=1.0, poll_interval=0.001),
+            (stable_stats, [EItem.Beer]),
         )
 
     def test_wait_for_map_ready_times_out_when_ready_state_never_changes(self) -> None:

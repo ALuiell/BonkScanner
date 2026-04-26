@@ -147,6 +147,7 @@ class StatValue:
     max: int
 
 
+type MapReadyResult = tuple[dict[MapStat, StatValue], list[EItem]]
 type ShadyGuyVendorItems = dict[int, list[EItem]]
 
 
@@ -283,7 +284,7 @@ class GameDataClient:
         timeout: float = 10.0,
         poll_interval: float = 0.05,
         abort_condition: Callable[[], bool] | None = None,
-    ) -> dict[MapStat, StatValue]:
+    ) -> MapReadyResult:
         deadline = time.monotonic() + timeout
         generation_seen = False
         map_change_seen = False
@@ -304,9 +305,12 @@ class GameDataClient:
         )
         baseline_stats = self._normalize_ready_stats(previous_stats) if previous_stats is not None else None
         stable_stats: dict[MapStat, StatValue] | None = None
+        stable_items: list[EItem] | None = None
         ready_raw_stats: dict[MapStat, StatValue] | None = None
+        ready_items: list[EItem] | None = None
         stable_stats_seen = False
         last_stats_count = 0
+        last_shady_item_count = 0
         zero_defaulted_stats: set[MapStat] = set(self.EXPECTED_READY_STATS)
         last_state = MapGenerationState()
         last_error: Exception | None = None
@@ -355,18 +359,32 @@ class GameDataClient:
                     and last_state.has_loaded_map
                     and self._is_ready_stats(stats)
                 ):
-                    if ready_stats == stable_stats and ready_raw_stats is not None:
-                        return ready_raw_stats
+                    shady_items = self.get_shady_guy_items()
+                    last_shady_item_count = len(shady_items)
+                    if (
+                        ready_stats == stable_stats
+                        and shady_items == stable_items
+                        and ready_raw_stats is not None
+                        and ready_items is not None
+                    ):
+                        return ready_raw_stats, ready_items
                     stable_stats = ready_stats
+                    stable_items = shady_items
                     ready_raw_stats = stats
+                    ready_items = shady_items
                     stable_stats_seen = True
                 else:
+                    last_shady_item_count = 0
                     stable_stats = None
+                    stable_items = None
                     ready_raw_stats = None
+                    ready_items = None
             except MemoryReadError as exc:
                 last_error = exc
                 stable_stats = None
+                stable_items = None
                 ready_raw_stats = None
+                ready_items = None
 
             time.sleep(poll_interval)
 
@@ -375,6 +393,7 @@ class GameDataClient:
             f"Last state: {last_state}. "
             f"change_seen={map_change_seen}, generation_seen={generation_seen}, "
             f"stats_count={last_stats_count}, "
+            f"shady_items_count={last_shady_item_count}, "
             f"zero_defaulted_stats={self._format_stats(zero_defaulted_stats)}, "
             f"stable_stats_seen={stable_stats_seen}."
         )
