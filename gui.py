@@ -1844,7 +1844,7 @@ class MegabonkApp(ctk.CTk):
                     continue
 
                 try:
-                    raw_stats, _shady_guy_items = self.client.wait_for_map_ready(
+                    raw_stats = self.client.wait_for_map_ready(
                         previous_state=last_state,
                         previous_stats=last_stats,
                         require_change=not is_first_scan,

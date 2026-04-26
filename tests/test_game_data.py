@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import unittest
 
-from game_data import EItem, GameDataClient, MapGenerationState, MapStat, StatValue
+from game_data import GameDataClient, MapGenerationState, MapStat, StatValue
 from memory import MemoryReadError
 
 
@@ -16,7 +16,6 @@ class FakeMemory:
         integers: dict[int, int] | None = None,
         bytes_: dict[int, int] | None = None,
         strings: dict[int, str | None] | None = None,
-        scan_results: dict[bytes, list[int]] | None = None,
         broken_i32: set[int] | None = None,
         broken_ptr: set[int] | None = None,
         broken_u8: set[int] | None = None,
@@ -26,7 +25,6 @@ class FakeMemory:
         self.integers = integers or {}
         self.bytes = bytes_ or {}
         self.strings = strings or {}
-        self.scan_results = scan_results or {}
         self.broken_i32 = broken_i32 or set()
         self.broken_ptr = broken_ptr or set()
         self.broken_u8 = broken_u8 or set()
@@ -57,9 +55,6 @@ class FakeMemory:
         del max_length
         return self.strings.get(address)
 
-    def scan_all(self, pattern: bytes) -> list[int]:
-        return list(self.scan_results.get(pattern, []))
-
 
 def full_stats(current: int = 0, max_value: int = 1) -> dict[MapStat, StatValue]:
     return {stat: StatValue(current=current, max=max_value) for stat in MapStat}
@@ -71,14 +66,11 @@ class SequencedGameDataClient(GameDataClient):
         *,
         states: list[MapGenerationState],
         stats_snapshots: list[dict[MapStat, StatValue]],
-        shady_items_snapshots: list[list[EItem]] | None = None,
     ) -> None:
         self.states = states
         self.stats_snapshots = stats_snapshots
-        self.shady_items_snapshots = shady_items_snapshots or [[]]
         self.state_reads = 0
         self.stat_reads = 0
-        self.shady_item_reads = 0
 
     def get_map_generation_state(self) -> MapGenerationState:
         index = min(self.state_reads, len(self.states) - 1)
@@ -89,11 +81,6 @@ class SequencedGameDataClient(GameDataClient):
         index = min(self.stat_reads, len(self.stats_snapshots) - 1)
         self.stat_reads += 1
         return self.stats_snapshots[index]
-
-    def get_shady_guy_items(self) -> list[EItem]:
-        index = min(self.shady_item_reads, len(self.shady_items_snapshots) - 1)
-        self.shady_item_reads += 1
-        return self.shady_items_snapshots[index]
 
 
 class GameDataClientTests(unittest.TestCase):
@@ -188,99 +175,6 @@ class GameDataClientTests(unittest.TestCase):
             },
         )
         self.assertNotIn(MapStat.POTS, stats)
-
-    def test_get_shady_guy_vendor_items_reads_valid_offers(self) -> None:
-        base = 0x10000000
-        type_info = base + GameDataClient.SHADY_GUY_TYPE_INFO_OFFSET
-        class_ptr = 0x21000000
-        vendor_one = 0x31000000
-        vendor_two = 0x31000100
-        false_hit = 0x31000200
-        items_list_one = 0x41000000
-        items_list_two = 0x41000100
-        prices_list_one = 0x42000000
-        prices_list_two = 0x42000100
-        items_array_one = 0x43000000
-        items_array_two = 0x43000100
-        prices_array_one = 0x44000000
-        prices_array_two = 0x44000100
-        item_glove_blood = 0x51000000
-        item_beacon = 0x51000100
-        item_old_mask = 0x51000200
-        item_gym_sauce = 0x51000300
-        item_medkit = 0x51000400
-        scan_pattern = class_ptr.to_bytes(8, "little") + b"\x00" * 8
-
-        memory = FakeMemory(
-            module_base=base,
-            pointers={
-                type_info: class_ptr,
-                vendor_one + GameDataClient.OBJECT_MONITOR_OFFSET: 0,
-                vendor_one + GameDataClient.SHADY_GUY_ITEMS_OFFSET: items_list_one,
-                vendor_one + GameDataClient.SHADY_GUY_PRICES_OFFSET: prices_list_one,
-                vendor_two + GameDataClient.OBJECT_MONITOR_OFFSET: 0,
-                vendor_two + GameDataClient.SHADY_GUY_ITEMS_OFFSET: items_list_two,
-                vendor_two + GameDataClient.SHADY_GUY_PRICES_OFFSET: prices_list_two,
-                false_hit + GameDataClient.OBJECT_MONITOR_OFFSET: 0,
-                false_hit + GameDataClient.SHADY_GUY_ITEMS_OFFSET: 0,
-                false_hit + GameDataClient.SHADY_GUY_PRICES_OFFSET: 0,
-                items_list_one + GameDataClient.MANAGED_LIST_ARRAY_OFFSET: items_array_one,
-                items_list_two + GameDataClient.MANAGED_LIST_ARRAY_OFFSET: items_array_two,
-                prices_list_one + GameDataClient.MANAGED_LIST_ARRAY_OFFSET: prices_array_one,
-                prices_list_two + GameDataClient.MANAGED_LIST_ARRAY_OFFSET: prices_array_two,
-                items_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET: item_glove_blood,
-                items_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x8: item_beacon,
-                items_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x10: item_old_mask,
-                items_array_two + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET: item_gym_sauce,
-                items_array_two + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x8: item_medkit,
-            },
-            integers={
-                vendor_one + GameDataClient.SHADY_GUY_RARITY_OFFSET: 0,
-                vendor_two + GameDataClient.SHADY_GUY_RARITY_OFFSET: 0,
-                false_hit + GameDataClient.SHADY_GUY_RARITY_OFFSET: 0,
-                items_list_one + GameDataClient.MANAGED_LIST_COUNT_OFFSET: 3,
-                items_list_two + GameDataClient.MANAGED_LIST_COUNT_OFFSET: 2,
-                prices_list_one + GameDataClient.MANAGED_LIST_COUNT_OFFSET: 3,
-                prices_list_two + GameDataClient.MANAGED_LIST_COUNT_OFFSET: 2,
-                prices_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET: 50,
-                prices_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x4: 75,
-                prices_array_one + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x8: 100,
-                prices_array_two + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET: 60,
-                prices_array_two + GameDataClient.MANAGED_ARRAY_ITEMS_OFFSET + 0x4: 90,
-                item_glove_blood + GameDataClient.ITEM_DATA_EITEM_OFFSET: int(EItem.GloveBlood),
-                item_glove_blood + GameDataClient.ITEM_DATA_RARITY_OFFSET: 0,
-                item_beacon + GameDataClient.ITEM_DATA_EITEM_OFFSET: int(EItem.Beacon),
-                item_beacon + GameDataClient.ITEM_DATA_RARITY_OFFSET: 0,
-                item_old_mask + GameDataClient.ITEM_DATA_EITEM_OFFSET: int(EItem.OldMask),
-                item_old_mask + GameDataClient.ITEM_DATA_RARITY_OFFSET: 0,
-                item_gym_sauce + GameDataClient.ITEM_DATA_EITEM_OFFSET: int(EItem.GymSauce),
-                item_gym_sauce + GameDataClient.ITEM_DATA_RARITY_OFFSET: 0,
-                item_medkit + GameDataClient.ITEM_DATA_EITEM_OFFSET: int(EItem.Medkit),
-                item_medkit + GameDataClient.ITEM_DATA_RARITY_OFFSET: 0,
-            },
-            scan_results={
-                scan_pattern: [vendor_two, false_hit, vendor_one],
-            },
-        )
-        client = GameDataClient(memory=memory)
-
-        self.assertEqual(
-            client.get_shady_guy_vendor_items(),
-            {
-                vendor_one: [EItem.GloveBlood, EItem.Beacon, EItem.OldMask],
-                vendor_two: [EItem.GymSauce, EItem.Medkit],
-            },
-        )
-        self.assertEqual(
-            client.get_shady_guy_items(),
-            [
-                EItem.GloveBlood,
-                EItem.Beacon,
-                EItem.OldMask,
-                EItem.GymSauce,
-                EItem.Medkit,
-            ],
-        )
 
     def test_get_map_stats_returns_empty_when_root_pointer_is_null(self) -> None:
         base = 0x10000000
@@ -388,7 +282,7 @@ class GameDataClientTests(unittest.TestCase):
 
         self.assertEqual(
             client.wait_for_map_ready(previous_seed=1, timeout=1.0, poll_interval=0.001),
-            (stable_stats, []),
+            stable_stats,
         )
 
     def test_wait_for_map_ready_rejects_empty_stats(self) -> None:
@@ -407,7 +301,7 @@ class GameDataClientTests(unittest.TestCase):
 
         self.assertEqual(
             client.wait_for_map_ready(previous_seed=1, timeout=1.0, poll_interval=0.001),
-            (stable_stats, []),
+            stable_stats,
         )
 
     def test_wait_for_map_ready_allows_missing_stats(self) -> None:
@@ -428,7 +322,7 @@ class GameDataClientTests(unittest.TestCase):
 
         self.assertEqual(
             client.wait_for_map_ready(previous_seed=1, timeout=1.0, poll_interval=0.001),
-            (stable_stats, []),
+            stable_stats,
         )
 
     def test_wait_for_map_ready_treats_missing_previous_stat_as_zero_change(self) -> None:
@@ -454,7 +348,7 @@ class GameDataClientTests(unittest.TestCase):
                 timeout=1.0,
                 poll_interval=0.001,
             ),
-            (new_stats, []),
+            new_stats,
         )
 
     def test_wait_for_map_ready_does_not_treat_same_missing_stat_as_change(self) -> None:
@@ -504,7 +398,7 @@ class GameDataClientTests(unittest.TestCase):
                 timeout=1.0,
                 poll_interval=0.001,
             ),
-            (new_stats, []),
+            new_stats,
         )
 
     def test_wait_for_map_ready_detects_pointer_change_without_seed_change(self) -> None:
@@ -535,31 +429,7 @@ class GameDataClientTests(unittest.TestCase):
                 timeout=1.0,
                 poll_interval=0.001,
             ),
-            (stable_stats, []),
-        )
-
-    def test_wait_for_map_ready_requires_stable_shady_items(self) -> None:
-        ready_state = MapGenerationState(
-            is_generating=False,
-            map_seed=2,
-            current_map_ptr=0x40000000,
-            current_stage_ptr=0x40000100,
-            is_resetting=False,
-        )
-        stable_stats = full_stats(current=2)
-        client = SequencedGameDataClient(
-            states=[ready_state, ready_state, ready_state],
-            stats_snapshots=[stable_stats, stable_stats, stable_stats],
-            shady_items_snapshots=[
-                [EItem.Key],
-                [EItem.Beer],
-                [EItem.Beer],
-            ],
-        )
-
-        self.assertEqual(
-            client.wait_for_map_ready(previous_seed=1, timeout=1.0, poll_interval=0.001),
-            (stable_stats, [EItem.Beer]),
+            stable_stats,
         )
 
     def test_wait_for_map_ready_times_out_when_ready_state_never_changes(self) -> None:
