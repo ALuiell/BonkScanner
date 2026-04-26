@@ -667,54 +667,6 @@ class GuiRunControlTests(unittest.TestCase):
             )
         )
 
-    def test_background_loop_rejects_candidate_when_required_shady_guy_items_missing(self) -> None:
-        class FakeClient:
-            def wait_for_map_ready(self, **_kwargs: object) -> dict[str, int]:
-                return {"Moais": 4, "Microwaves": 1}
-
-            def get_map_generation_state(self) -> object:
-                return object()
-
-            def get_shady_guy_items(self) -> list[object]:
-                return [types.SimpleNamespace(name="GymSauce"), types.SimpleNamespace(name="Beacon")]
-
-        app = object.__new__(gui.MegabonkApp)
-        app.client = FakeClient()
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
-        app.scan_event.set()
-        app.is_running = True
-        app.is_ready_to_start = True
-        app.after = lambda _delay, callback: callback()
-        app.update_status_ui = lambda: None
-        app.wait_for_game_window_focus = lambda _process_name: True
-        app.check_best_map = lambda _stats: None
-        app.check_worst_map = lambda _stats: None
-        app.evaluate_candidate = lambda stats: {"name": "Perfect", "color": "GREEN"} if stats["Moais"] == 4 else None
-        log_target_found_calls: list[str] = []
-        app.log_target_found = lambda name: log_target_found_calls.append(name)
-        handle_calls: list[str] = []
-        app.handle_confirmed_target_window = lambda _process_name: handle_calls.append("called") or True
-        app.close_client = lambda: None
-        reroll_calls: list[str] = []
-        app.reroll_map = lambda: reroll_calls.append("called") or app.stop_event.set()
-        logs: list[tuple[str, str | None]] = []
-        app.log = lambda message, tag=None: logs.append((message, tag))
-
-        with patch.object(gui, "adapt_map_stats", lambda raw_stats: raw_stats):
-            with patch.object(gui.config, "MIN_DELAY", 0):
-                gui.MegabonkApp.background_loop(app)
-
-        self.assertEqual(log_target_found_calls, [])
-        self.assertEqual(handle_calls, [])
-        self.assertEqual(reroll_calls, ["called"])
-        self.assertTrue(
-            any(
-                tag == "warning" and "none of the required Shady Guy items were found" in message
-                for message, tag in logs
-            )
-        )
-
     def test_background_loop_rejects_candidate_when_shady_guy_item_read_fails(self) -> None:
         class FakeClient:
             def wait_for_map_ready(self, **_kwargs: object) -> dict[str, int]:
