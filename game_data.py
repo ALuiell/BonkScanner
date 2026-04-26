@@ -183,7 +183,6 @@ class GameDataClient:
     CONTAINER_MAX_OFFSET = 0x10
     CONTAINER_CURRENT_OFFSET = 0x14
     OBJECT_MONITOR_OFFSET = 0x8
-    OBJECT_CACHED_PTR_OFFSET = 0x10
     SHADY_GUY_RARITY_OFFSET = 0x90
     SHADY_GUY_ITEMS_OFFSET = 0x98
     SHADY_GUY_PRICES_OFFSET = 0xA0
@@ -509,8 +508,6 @@ class GameDataClient:
     def _read_shady_guy_vendor_items(self, vendor_address: int) -> list[EItem]:
         try:
             if self.memory.read_ptr(vendor_address + self.OBJECT_MONITOR_OFFSET) != 0:
-                return []
-            if self.memory.read_ptr(vendor_address + self.OBJECT_CACHED_PTR_OFFSET) == 0:
                 return []
 
             EItemRarity(self.memory.read_i32(vendor_address + self.SHADY_GUY_RARITY_OFFSET))
