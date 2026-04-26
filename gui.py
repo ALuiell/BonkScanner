@@ -12,7 +12,7 @@ from PIL import Image
 import updater
 import config
 import logic
-from game_data import EItem, GameDataClient, MapStat
+from game_data import EItem, GameDataClient
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
@@ -669,15 +669,6 @@ class MegabonkApp(ctk.CTk):
     @classmethod
     def has_required_shady_guy_item(cls, items: list[object]) -> bool:
         return any(cls.item_name(item) in REQUIRED_SHADY_GUY_ITEMS for item in items)
-
-    @staticmethod
-    def shady_guy_count(raw_stats: dict[object, object], stats: dict[str, int]) -> int:
-        shady_stat = raw_stats.get(MapStat.SHADY_GUY)
-        shady_count = getattr(shady_stat, "max", shady_stat) if shady_stat is not None else stats.get("Shady Guy", 0)
-        try:
-            return max(int(shady_count), 0)
-        except (TypeError, ValueError):
-            return 0
 
     def __init__(self):
         super().__init__()
@@ -1926,18 +1917,6 @@ class MegabonkApp(ctk.CTk):
                                 tag="warning",
                             )
                             candidate = None
-                        else:
-                            shady_guy_count = self.shady_guy_count(raw_stats, stats)
-                            expected_item_count = shady_guy_count * 3
-                            actual_item_count = len(shady_guy_items)
-                            if actual_item_count != expected_item_count:
-                                self.log(
-                                    f"[WAIT] Candidate '{t_name}{score_text}' rejected: expected "
-                                    f"{expected_item_count} Shady Guy items from {shady_guy_count} vendors, "
-                                    f"but read {actual_item_count}.",
-                                    tag="warning",
-                                )
-                                candidate = None
 
                     if candidate is None:
                         pass
