@@ -72,6 +72,135 @@ def center_toplevel(window, parent, width: int, height: int) -> None:
 
     window.geometry(f"{width}x{height}+{x}+{y}")
 
+
+def format_template_conditions(template: dict) -> str:
+    parts = []
+    sm_total = template.get("sm_total", 0)
+    shady = template.get("shady", 0)
+    moai = template.get("moai", 0)
+    micro = template.get("micro", 0)
+    boss = template.get("boss", 0)
+
+    if sm_total > 0:
+        parts.append(f"S+M: {sm_total}")
+    if shady > 0:
+        parts.append(f"S:{shady}")
+    if moai > 0:
+        parts.append(f"M:{moai}")
+    if micro > 0:
+        parts.append(f"Mic:{micro}")
+    if boss > 0:
+        parts.append(f"B:{boss}")
+
+    return ", ".join(parts) if parts else "Any"
+
+
+def build_template_payload(name: str, sm_total: str, shady: str, moai: str, micro: str, boss: str, source_template=None):
+    name = name.strip()
+    if not name:
+        return None
+
+    def parse_int(value: str) -> int:
+        value = value.strip()
+        return int(value) if value.isdigit() else 0
+
+    result = {
+        "name": name,
+        "sm_total": parse_int(sm_total),
+        "shady": parse_int(shady),
+        "moai": parse_int(moai),
+        "micro": parse_int(micro),
+        "boss": parse_int(boss),
+    }
+
+    if result["sm_total"] <= 0 or result["shady"] > 0 or result["moai"] > 0:
+        result.pop("sm_total", None)
+
+    if source_template:
+        for key, value in source_template.items():
+            if key not in result and key not in ["sm_total", "shady", "moai", "micro", "boss"]:
+                result[key] = value
+
+    return result
+
+
+class TemplateFormFrame(ctk.CTkFrame):
+    def __init__(self, parent, template_data=None):
+        super().__init__(parent, fg_color="transparent")
+        self.template_data = template_data or {}
+        self.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(self, text="Template Name:").grid(row=0, column=0, padx=10, pady=(10, 5), sticky="w")
+        self.name_entry = ctk.CTkEntry(self)
+        self.name_entry.grid(row=0, column=1, padx=10, pady=(10, 5), sticky="ew")
+
+        self.sm_var = ctk.StringVar(value="0")
+        self.shady_var = ctk.StringVar(value="0")
+        self.moai_var = ctk.StringVar(value="0")
+        self.shady_var.trace_add("write", self.update_sm_total)
+        self.moai_var.trace_add("write", self.update_sm_total)
+
+        ctk.CTkLabel(self, text="S+M Total (optional):").grid(row=1, column=0, padx=10, pady=5, sticky="w")
+        self.sm_entry = ctk.CTkEntry(self, textvariable=self.sm_var)
+        self.sm_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
+
+        ctk.CTkLabel(self, text="Shady Guy (min):").grid(row=2, column=0, padx=10, pady=5, sticky="w")
+        self.shady_entry = ctk.CTkEntry(self, textvariable=self.shady_var)
+        self.shady_entry.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
+
+        ctk.CTkLabel(self, text="Moais (min):").grid(row=3, column=0, padx=10, pady=5, sticky="w")
+        self.moai_entry = ctk.CTkEntry(self, textvariable=self.moai_var)
+        self.moai_entry.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
+
+        ctk.CTkLabel(self, text="Microwaves (min):").grid(row=4, column=0, padx=10, pady=5, sticky="w")
+        self.micro_entry = ctk.CTkEntry(self)
+        self.micro_entry.grid(row=4, column=1, padx=10, pady=5, sticky="ew")
+
+        ctk.CTkLabel(self, text="Boss Curses (min):").grid(row=5, column=0, padx=10, pady=5, sticky="w")
+        self.boss_entry = ctk.CTkEntry(self)
+        self.boss_entry.grid(row=5, column=1, padx=10, pady=5, sticky="ew")
+
+        self.load_template(self.template_data)
+
+    def load_template(self, template_data=None):
+        self.template_data = template_data or {}
+
+        self.name_entry.configure(state="normal")
+        self.name_entry.delete(0, "end")
+        self.name_entry.insert(0, self.template_data.get("name", ""))
+        if self.template_data.get("id", 100) <= 7:
+            self.name_entry.configure(state="disabled")
+
+        self.sm_var.set(str(self.template_data.get("sm_total", 0)))
+        self.shady_var.set(str(self.template_data.get("shady", 0)))
+        self.moai_var.set(str(self.template_data.get("moai", 0)))
+
+        self.micro_entry.delete(0, "end")
+        self.micro_entry.insert(0, str(self.template_data.get("micro", 0)))
+
+        self.boss_entry.delete(0, "end")
+        self.boss_entry.insert(0, str(self.template_data.get("boss", 0)))
+
+    def update_sm_total(self, *_):
+        try:
+            shady = int(self.shady_var.get().strip()) if self.shady_var.get().strip().isdigit() else 0
+            moai = int(self.moai_var.get().strip()) if self.moai_var.get().strip().isdigit() else 0
+            if shady > 0 or moai > 0:
+                self.sm_var.set(str(shady + moai))
+        except ValueError:
+            pass
+
+    def get_payload(self):
+        return build_template_payload(
+            name=self.name_entry.get(),
+            sm_total=self.sm_entry.get(),
+            shady=self.shady_entry.get(),
+            moai=self.moai_entry.get(),
+            micro=self.micro_entry.get(),
+            boss=self.boss_entry.get(),
+            source_template=self.template_data,
+        )
+
 class TemplateDialog(ctk.CTkToplevel):
     def __init__(self, parent, edit_template=None):
         super().__init__(parent)
@@ -86,113 +215,157 @@ class TemplateDialog(ctk.CTkToplevel):
         if os.path.exists(icon_path):
             self.after(200, lambda p=icon_path: self.iconbitmap(p))
         
-        self.grid_columnconfigure(1, weight=1)
-        
-        ctk.CTkLabel(self, text="Template Name:").grid(row=0, column=0, padx=10, pady=(15, 5), sticky="w")
-        self.name_entry = ctk.CTkEntry(self)
-        self.name_entry.grid(row=0, column=1, padx=10, pady=(15, 5), sticky="ew")
-        
-        self.sm_var = ctk.StringVar(value="0")
-        self.shady_var = ctk.StringVar(value="0")
-        self.moai_var = ctk.StringVar(value="0")
-        
-        # Auto-calculate S+M Total when Shady or Moai changes
-        self.shady_var.trace_add("write", self.update_sm_total)
-        self.moai_var.trace_add("write", self.update_sm_total)
-        
-        ctk.CTkLabel(self, text="S+M Total (optional):").grid(row=1, column=0, padx=10, pady=5, sticky="w")
-        self.sm_entry = ctk.CTkEntry(self, textvariable=self.sm_var)
-        self.sm_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
-        
-        ctk.CTkLabel(self, text="Shady Guy (min):").grid(row=2, column=0, padx=10, pady=5, sticky="w")
-        self.shady_entry = ctk.CTkEntry(self, textvariable=self.shady_var)
-        self.shady_entry.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
-        
-        ctk.CTkLabel(self, text="Moais (min):").grid(row=3, column=0, padx=10, pady=5, sticky="w")
-        self.moai_entry = ctk.CTkEntry(self, textvariable=self.moai_var)
-        self.moai_entry.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
-        
-        ctk.CTkLabel(self, text="Microwaves (min):").grid(row=4, column=0, padx=10, pady=5, sticky="w")
-        self.micro_entry = ctk.CTkEntry(self)
-        self.micro_entry.grid(row=4, column=1, padx=10, pady=5, sticky="ew")
-        
-        ctk.CTkLabel(self, text="Boss Curses (min):").grid(row=5, column=0, padx=10, pady=5, sticky="w")
-        self.boss_entry = ctk.CTkEntry(self)
-        self.boss_entry.grid(row=5, column=1, padx=10, pady=5, sticky="ew")
-        
-        # Populate if editing
-        if edit_template:
-            self.name_entry.insert(0, edit_template.get("name", ""))
-            # If default template, protect name change
-            if edit_template.get("id", 100) <= 7:
-                self.name_entry.configure(state="disabled")
-                
-            self.sm_var.set(str(edit_template.get("sm_total", 0)))
-            self.shady_var.set(str(edit_template.get("shady", 0)))
-            self.moai_var.set(str(edit_template.get("moai", 0)))
-            
-            self.micro_entry.insert(0, str(edit_template.get("micro", 0)))
-            self.boss_entry.insert(0, str(edit_template.get("boss", 0)))
-        else:
-            self.sm_var.set("0")
-            self.shady_var.set("0")
-            self.moai_var.set("0")
-            
-            self.micro_entry.insert(0, "0")
-            self.boss_entry.insert(0, "0")
+        self.grid_columnconfigure(0, weight=1)
+
+        self.form = TemplateFormFrame(self, template_data=edit_template)
+        self.form.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
         
         self.save_btn = ctk.CTkButton(self, text="Save Template", command=self.save, fg_color="#2FA572", hover_color="#106A43")
-        self.save_btn.grid(row=6, column=0, columnspan=2, pady=20)
+        self.save_btn.grid(row=1, column=0, pady=(0, 20))
         
         # Make modal
         self.transient(parent)
         self.grab_set()
-
-    def update_sm_total(self, *_):
-        try:
-            s_val = self.shady_var.get().strip()
-            m_val = self.moai_var.get().strip()
-            s = int(s_val) if s_val.isdigit() else 0
-            m = int(m_val) if m_val.isdigit() else 0
-            
-            # If user explicitly entered a shady or moai value, automatically update S+M total
-            if s > 0 or m > 0:
-                self.sm_var.set(str(s + m))
-        except ValueError:
-            pass
         
     def save(self):
-        name = self.name_entry.get().strip()
-        if not name:
+        self.result = self.form.get_payload()
+        if self.result is None:
             return
-            
-        def get_int(entry):
-            val = entry.get().strip()
-            return int(val) if val.isdigit() else 0
-            
-        self.result = {
-            "name": name,
-            "sm_total": get_int(self.sm_entry),
-            "shady": get_int(self.shady_entry),
-            "moai": get_int(self.moai_entry),
-            "micro": get_int(self.micro_entry),
-            "boss": get_int(self.boss_entry)
-        }
-        
-        # Drop sm_total if 0 or if individual values are defined so logic handles explicit shady/moai cleanly
-        s = self.result["shady"]
-        m = self.result["moai"]
-        if self.result["sm_total"] <= 0 or (s > 0 or m > 0):
-            if "sm_total" in self.result:
-                del self.result["sm_total"]
-        
-        if self.edit_template:
-            # Preserve properties like color, id when editing
-            for k, v in self.edit_template.items():
-                if k not in self.result and k not in ["sm_total", "shady", "moai", "micro", "boss"]:
-                    self.result[k] = v
-            
+
         self.destroy()
+
+
+class TemplateManagerDialog(ctk.CTkToplevel):
+    def __init__(self, parent, templates, on_save):
+        super().__init__(parent)
+        self.title("Manage Templates")
+        self.resizable(True, True)
+        center_toplevel(self, parent, 640, 720)
+        self.minsize(560, 520)
+
+        self.templates = [dict(template) for template in templates]
+        self.on_save = on_save
+        self.expanded_name = self.templates[0]["name"] if self.templates else None
+
+        icon_path = resource_path("media/bonkscanner_icon.ico")
+        if os.path.exists(icon_path):
+            self.after(200, lambda p=icon_path: self.iconbitmap(p))
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.grid(row=0, column=0, padx=18, pady=(18, 10), sticky="ew")
+        header.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            header,
+            text="Templates",
+            font=ctk.CTkFont(size=22, weight="bold"),
+        ).grid(row=0, column=0, sticky="w")
+
+        ctk.CTkLabel(
+            header,
+            text="Select a template from the list, and its settings will appear directly below the card.",
+            justify="left",
+            text_color=("gray35", "gray70"),
+        ).grid(row=1, column=0, pady=(4, 0), sticky="w")
+
+        self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_frame.grid(row=1, column=0, padx=12, pady=(0, 10), sticky="nsew")
+        self.scroll_frame.grid_columnconfigure(0, weight=1)
+
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="ew")
+        footer.grid_columnconfigure(0, weight=1)
+
+        self.close_btn = ctk.CTkButton(
+            footer,
+            text="Close",
+            width=100,
+            command=self.destroy,
+        )
+        self.close_btn.grid(row=0, column=1, sticky="e")
+
+        self.refresh_cards()
+        self.transient(parent)
+        self.grab_set()
+
+    def toggle_template(self, template_name: str):
+        self.expanded_name = None if self.expanded_name == template_name else template_name
+        self.refresh_cards()
+
+    def refresh_cards(self):
+        for widget in self.scroll_frame.winfo_children():
+            widget.destroy()
+
+        for idx, template in enumerate(self.templates):
+            template_name = template["name"]
+            color_name = template.get("color", "BLUE").upper()
+            hex_color = COLOR_MAP.get(color_name, COLOR_MAP["DEFAULT"])
+            is_expanded = self.expanded_name == template_name
+            is_builtin = template.get("id", 100) <= 7
+
+            card = ctk.CTkFrame(self.scroll_frame, corner_radius=12, border_width=1, border_color=("gray70", "gray25"))
+            card.grid(row=idx, column=0, padx=8, pady=8, sticky="ew")
+            card.grid_columnconfigure(0, weight=1)
+
+            header = ctk.CTkButton(
+                card,
+                text=f"{'▼' if is_expanded else '▶'} {template_name}",
+                anchor="w",
+                fg_color="transparent",
+                hover_color=("gray85", "gray20"),
+                text_color=hex_color,
+                font=ctk.CTkFont(size=15, weight="bold"),
+                command=lambda name=template_name: self.toggle_template(name),
+            )
+            header.grid(row=0, column=0, padx=12, pady=(12, 4), sticky="ew")
+
+            meta_text = format_template_conditions(template)
+            if is_builtin:
+                meta_text += "  •  Built-in"
+
+            ctk.CTkLabel(
+                card,
+                text=meta_text,
+                anchor="w",
+                justify="left",
+                text_color=("gray35", "gray72"),
+            ).grid(row=1, column=0, padx=16, pady=(0, 12), sticky="ew")
+
+            if not is_expanded:
+                continue
+
+            details = ctk.CTkFrame(card, fg_color=("gray92", "gray17"), corner_radius=10)
+            details.grid(row=2, column=0, padx=12, pady=(0, 12), sticky="ew")
+            details.grid_columnconfigure(0, weight=1)
+
+            form = TemplateFormFrame(details, template_data=template)
+            form.grid(row=0, column=0, padx=6, pady=(6, 2), sticky="ew")
+
+            buttons = ctk.CTkFrame(details, fg_color="transparent")
+            buttons.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
+            buttons.grid_columnconfigure(0, weight=1)
+
+            save_btn = ctk.CTkButton(
+                buttons,
+                text="Save Changes",
+                fg_color="#2FA572",
+                hover_color="#106A43",
+                command=lambda original=template_name, template_form=form: self.save_template(original, template_form),
+            )
+            save_btn.grid(row=0, column=1, padx=(8, 0), sticky="e")
+
+    def save_template(self, original_name: str, form: TemplateFormFrame):
+        updated_template = form.get_payload()
+        if updated_template is None:
+            return
+
+        if self.on_save and self.on_save(original_name, updated_template):
+            self.templates = [dict(template) for template in config.TEMPLATES]
+            self.expanded_name = updated_template["name"]
+            self.refresh_cards()
 
 class ScoresSettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent):
@@ -1167,23 +1340,7 @@ class MegabonkApp(ctk.CTk):
         
         self.checkboxes.clear()
         for t in config.TEMPLATES:
-            # Assembly of stats description
-            parts = []
-            sm_total = t.get("sm_total", 0)
-            shady = t.get("shady", 0)
-            moai = t.get("moai", 0)
-            micro = t.get("micro", 0)
-            boss = t.get("boss", 0)
-            
-            if sm_total > 0:
-                parts.append(f"S+M: {sm_total}")
-                
-            if shady > 0: parts.append(f"S:{shady}")
-            if moai > 0: parts.append(f"M:{moai}")
-            if micro > 0: parts.append(f"Mic:{micro}")
-            if boss > 0: parts.append(f"B:{boss}")
-            
-            desc = ", ".join(parts) if parts else "Any"
+            desc = format_template_conditions(t)
             
             # Ensure text is colored appropriately
             color_name = t.get("color", "BLUE").upper()
@@ -1225,44 +1382,39 @@ class MegabonkApp(ctk.CTk):
             
             self.refresh_templates()
             self.log(f"[+] Created new template: {dialog.result['name']}", tag="success")
+
+    def apply_template_edit(self, target_name: str, updated_template: dict) -> bool:
+        duplicate_name = next(
+            (template for template in config.TEMPLATES if template["name"] == updated_template["name"] and template["name"] != target_name),
+            None,
+        )
+        if duplicate_name:
+            self.log(f"[-] Template name '{updated_template['name']}' is already in use.", tag="warning")
+            return False
+
+        for index, template in enumerate(config.TEMPLATES):
+            if template["name"] == target_name:
+                config.TEMPLATES[index] = updated_template
+                break
+        else:
+            self.log(f"[-] Could not find template '{target_name}' to edit.", tag="error")
+            return False
+
+        config.user_config["TEMPLATES"] = config.TEMPLATES
+
+        if target_name != updated_template["name"] and target_name in config.ACTIVE_TEMPLATES:
+            config.ACTIVE_TEMPLATES.remove(target_name)
+            config.ACTIVE_TEMPLATES.append(updated_template["name"])
+            config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
+
+        config.save_config(config.user_config)
+        self.refresh_templates()
+        self.log(f"[*] Edited template: {updated_template['name']}", tag="success")
+        return True
             
     def edit_template_dialog(self):
-        select_dialog = DeleteDialog(self, config.TEMPLATES)
-        select_dialog.title("Select Template to Edit")
-        select_dialog.btn.configure(text="Edit", fg_color="#1f538d", hover_color="#14375e")
-        self.wait_window(select_dialog)
-        
-        target_name = select_dialog.result
-        if not target_name:
-            return
-            
-        target_template = next((t for t in config.TEMPLATES if t["name"] == target_name), None)
-        if not target_template:
-            return
-            
-        dialog = TemplateDialog(self, edit_template=target_template)
+        dialog = TemplateManagerDialog(self, config.TEMPLATES, self.apply_template_edit)
         self.wait_window(dialog)
-        
-        if dialog.result:
-            # Replace old template
-            for i, t in enumerate(config.TEMPLATES):
-                if t["name"] == target_name:
-                    config.TEMPLATES[i] = dialog.result
-                    break
-                    
-            config.user_config["TEMPLATES"] = config.TEMPLATES
-            
-            # Update check state mapping if name changed
-            if target_name != dialog.result["name"]:
-                if target_name in config.ACTIVE_TEMPLATES:
-                    config.ACTIVE_TEMPLATES.remove(target_name)
-                    config.ACTIVE_TEMPLATES.append(dialog.result["name"])
-                    config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
-                    
-            config.save_config(config.user_config)
-                
-            self.refresh_templates()
-            self.log(f"[*] Edited template: {dialog.result['name']}", tag="success")
 
     def del_template_dialog(self):
         custom_templates = [t for t in config.TEMPLATES if t.get("id", 0) > 7]

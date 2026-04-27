@@ -63,11 +63,14 @@
             "boss": 5
         },
         {
-            "id": 7,
             "name": "BOSS RUSH+",
+            "shady": 0,
+            "moai": 0,
+            "micro": 0,
+            "boss": 7,
+            "id": 7,
             "color": "MAGENTA",
-            "desc": "Boss: 7+",
-            "boss": 7
+            "desc": "Boss: 7+"
         }
     ],
     "ACTIVE_TEMPLATES": [
