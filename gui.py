@@ -245,7 +245,7 @@ class TemplateManagerDialog(ctk.CTkToplevel):
 
         self.templates = [dict(template) for template in templates]
         self.on_save = on_save
-        self.expanded_name = self.templates[0]["name"] if self.templates else None
+        self.expanded_name = None
 
         icon_path = resource_path("media/bonkscanner_icon.ico")
         if os.path.exists(icon_path):
