@@ -79,14 +79,16 @@ The project uses a grid layout. Most UI changes should happen in `gui.py`. Remem
 
 ---
 
+## Python Commands
+
+- Always run the full Python test suite via `run_tests.bat`.
+- For focused Python, pip, or unittest commands, use the project virtual environment: `.\.venv\Scripts\python.exe`
+- Never rely on the global `python` executable for this repository.
+- Example focused test command: `.\.venv\Scripts\python.exe -m unittest tests.test_gui_run_control`
+
+---
+
 ## ⚠️ Constraints & Known Issues
 - **Admin Rights:** Required to simulate keyboard input in most games.
 - **Process Name:** Defaults to `Megabonk.exe`. Can be changed in `config.json`.
 - **Game Updates:** Any major update to the game's engine or code may break memory offsets.
-
----
-
-## 🗺 Roadmap / Future Ideas
-- [ ] Support for multiple game versions/offsets.
-- [ ] Exporting session stats to CSV for long-term analysis.
-- [ ] Visual overlay on top of the game window.
