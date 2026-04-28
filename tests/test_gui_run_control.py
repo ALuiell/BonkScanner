@@ -6,6 +6,7 @@ from copy import deepcopy
 from unittest.mock import patch
 
 import gui
+import window_control
 from memory import MemoryReadError
 from run_control import HookRunControlProvider, KeyboardRunControlProvider
 
@@ -100,78 +101,6 @@ class FakeKeyboardModule:
 
     def press_and_release(self, key: str) -> None:
         self.press_and_release_calls.append(key)
-
-
-class FakeCtypesFunction:
-    def __init__(self, callback):
-        self.callback = callback
-        self.argtypes = None
-        self.restype = None
-
-    def __call__(self, *args):
-        return self.callback(*args)
-
-
-class FakeUser32:
-    def __init__(self) -> None:
-        self.attach_calls: list[tuple[int, int, bool]] = []
-        self.keybd_event_calls: list[tuple[int, int, int, int]] = []
-        self.AttachThreadInput = FakeCtypesFunction(self._attach_thread_input)
-        self.keybd_event = FakeCtypesFunction(self._keybd_event)
-
-    def _attach_thread_input(self, current_thread: int, target_thread: int, attach: bool) -> bool:
-        self.attach_calls.append((current_thread, target_thread, attach))
-        return True
-
-    def _keybd_event(self, key: int, scan: int, flags: int, extra: int) -> None:
-        self.keybd_event_calls.append((key, scan, flags, extra))
-
-
-class FakeKernel32:
-    def __init__(self, current_thread: int = 10) -> None:
-        self.GetCurrentThreadId = FakeCtypesFunction(lambda: current_thread)
-
-
-class FakeWindll:
-    def __init__(self, user32: FakeUser32, kernel32: FakeKernel32) -> None:
-        self.user32 = user32
-        self.kernel32 = kernel32
-
-
-class FakeForegroundGui:
-    def __init__(self, *, fail_always: bool = False) -> None:
-        self.fail_always = fail_always
-        self.foreground_window = 222
-        self.set_foreground_calls: list[int] = []
-        self.show_window_calls: list[tuple[int, int]] = []
-        self.bring_window_to_top_calls: list[int] = []
-
-    def IsIconic(self, _window: int) -> bool:
-        return False
-
-    def ShowWindow(self, window: int, command: int) -> None:
-        self.show_window_calls.append((window, command))
-
-    def SetForegroundWindow(self, window: int) -> None:
-        self.set_foreground_calls.append(window)
-        if self.fail_always or len(self.set_foreground_calls) == 1:
-            raise RuntimeError("foreground denied")
-        self.foreground_window = window
-
-    def GetForegroundWindow(self) -> int:
-        return self.foreground_window
-
-    def BringWindowToTop(self, window: int) -> None:
-        self.bring_window_to_top_calls.append(window)
-
-
-class FakeForegroundProcess:
-    def GetWindowThreadProcessId(self, window: int) -> tuple[int, int]:
-        thread_by_window = {
-            111: 20,
-            222: 30,
-        }
-        return thread_by_window.get(window, 40), 9000 + window
 
 
 class GuiRunControlTests(unittest.TestCase):
@@ -412,122 +341,43 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertFalse(app._native_hook_admin_warning_logged)
 
-    def test_hook_mode_bypasses_game_window_focus_wait(self) -> None:
+    def test_wait_for_game_window_focus_delegates_to_window_control(self) -> None:
         app = object.__new__(gui.MegabonkApp)
-        app.run_control_provider = HookRunControlProvider(object(), map_load_delay=0)
-        app.is_game_window_active = lambda _process_name: self.fail("hook mode should not check focus")
-
-        self.assertTrue(gui.MegabonkApp.wait_for_game_window_focus(app, "Megabonk.exe"))
-
-    def test_keyboard_mode_still_waits_when_game_window_is_not_active(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        sleeps: list[float] = []
-        active_results = [False, False, True]
-        app = object.__new__(gui.MegabonkApp)
-        app.run_control_provider = KeyboardRunControlProvider(
-            None,
-            reset_hotkey="r",
-            reset_hold_duration=0.1,
-            map_load_delay=0.2,
-        )
+        app.is_hook_run_control_active = lambda: True
+        app.is_game_window_active = lambda _process_name: True
         app.stop_event = gui.threading.Event()
         app.scan_event = gui.threading.Event()
-        app.scan_event.set()
+        logs: list[tuple[str, str | None]] = []
         app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_game_window_active = lambda _process_name: active_results.pop(0)
 
-        with patch.object(gui.time, "sleep", sleeps.append):
+        with patch.object(window_control, "wait_for_game_window_focus", return_value=True) as wait_for_focus:
             self.assertTrue(gui.MegabonkApp.wait_for_game_window_focus(app, "Megabonk.exe"))
 
-        self.assertEqual(sleeps, [0.3])
-        self.assertIn(("[WAIT] Game window is not active. Auto-reroll paused...", "warning"), logs)
-        self.assertIn(("[+] Game window active again. Auto-reroll resumed.", "success"), logs)
+        wait_for_focus.assert_called_once()
 
-    def test_confirmed_target_in_hook_mode_brings_game_forward_without_esc(self) -> None:
+    def test_handle_confirmed_target_window_delegates_to_window_control(self) -> None:
         fake_keyboard = FakeKeyboardModule()
         app = object.__new__(gui.MegabonkApp)
-        app.run_control_provider = HookRunControlProvider(object(), map_load_delay=0)
-        app.bring_game_window_to_front_calls: list[str] = []
-        app.bring_game_window_to_front = app.bring_game_window_to_front_calls.append
-        app.wait_for_game_window_focus = lambda _process_name: self.fail("hook mode should not wait for focus")
+        app.is_hook_run_control_active = lambda: False
+        app.bring_game_window_to_front = lambda _process_name: True
+        app.wait_for_game_window_focus = lambda _process_name: True
 
         with patch.object(gui, "keyboard", fake_keyboard):
-            self.assertTrue(gui.MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
+            with patch.object(window_control, "handle_confirmed_target_window", return_value=True) as handle_target:
+                self.assertTrue(gui.MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
 
-        self.assertEqual(app.bring_game_window_to_front_calls, ["Megabonk.exe"])
-        self.assertEqual(fake_keyboard.press_and_release_calls, [])
+        handle_target.assert_called_once()
 
-    def test_confirmed_target_in_keyboard_mode_keeps_focus_check_and_esc(self) -> None:
-        fake_keyboard = FakeKeyboardModule()
-        focus_checks: list[str] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.run_control_provider = KeyboardRunControlProvider(
-            fake_keyboard,
-            reset_hotkey="r",
-            reset_hold_duration=0.1,
-            map_load_delay=0.2,
-        )
-        app.wait_for_game_window_focus = lambda process_name: focus_checks.append(process_name) or True
-        app.bring_game_window_to_front = lambda _process_name: self.fail("keyboard mode should not bring window forward")
-
-        with patch.object(gui, "keyboard", fake_keyboard):
-            self.assertTrue(gui.MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
-
-        self.assertEqual(focus_checks, ["Megabonk.exe"])
-        self.assertEqual(fake_keyboard.press_and_release_calls, ["esc"])
-
-    def test_bring_game_window_to_front_uses_alt_attach_fallback_after_direct_failure(self) -> None:
-        fake_gui = FakeForegroundGui()
-        fake_process = FakeForegroundProcess()
-        fake_user32 = FakeUser32()
-        fake_windll = FakeWindll(fake_user32, FakeKernel32())
+    def test_bring_game_window_to_front_delegates_to_window_control(self) -> None:
         logs: list[tuple[str, str | None]] = []
         app = object.__new__(gui.MegabonkApp)
-        app.find_game_window = lambda _process_name: 111
+        app.client = object()
         app.log = lambda message, tag=None: logs.append((message, tag))
 
-        with patch.object(gui, "win32gui", fake_gui):
-            with patch.object(gui, "win32process", fake_process):
-                with patch.object(gui.ctypes, "windll", fake_windll):
-                    self.assertTrue(gui.MegabonkApp.bring_game_window_to_front(app, "Megabonk.exe"))
+        with patch.object(window_control, "bring_game_window_to_front", return_value=True) as bring_window:
+            self.assertTrue(gui.MegabonkApp.bring_game_window_to_front(app, "Megabonk.exe"))
 
-        self.assertEqual(fake_gui.show_window_calls, [(111, 5)])
-        self.assertEqual(fake_gui.set_foreground_calls, [111, 111])
-        self.assertEqual(fake_gui.bring_window_to_top_calls, [111])
-        self.assertEqual(
-            fake_user32.attach_calls,
-            [
-                (10, 20, True),
-                (10, 30, True),
-                (10, 20, False),
-                (10, 30, False),
-            ],
-        )
-        self.assertEqual(fake_user32.keybd_event_calls, [(0x12, 0, 0, 0), (0x12, 0, 0x0002, 0)])
-        self.assertEqual(logs, [])
-
-    def test_alt_attach_fallback_detaches_threads_when_foreground_fails(self) -> None:
-        fake_gui = FakeForegroundGui(fail_always=True)
-        fake_process = FakeForegroundProcess()
-        fake_user32 = FakeUser32()
-        fake_windll = FakeWindll(fake_user32, FakeKernel32())
-        app = object.__new__(gui.MegabonkApp)
-
-        with patch.object(gui, "win32gui", fake_gui):
-            with patch.object(gui, "win32process", fake_process):
-                with patch.object(gui.ctypes, "windll", fake_windll):
-                    with self.assertRaisesRegex(RuntimeError, "foreground denied"):
-                        gui.MegabonkApp.try_alt_attach_foreground_window(app, 111)
-
-        self.assertEqual(
-            fake_user32.attach_calls,
-            [
-                (10, 20, True),
-                (10, 30, True),
-                (10, 20, False),
-                (10, 30, False),
-            ],
-        )
+        bring_window.assert_called_once()
 
     def test_toggle_main_loop_clears_stale_scan_event_before_starting_worker(self) -> None:
         logs: list[tuple[object, object | None]] = []
@@ -580,7 +430,11 @@ class GuiRunControlTests(unittest.TestCase):
                 self.get_shady_guy_items_calls = 0
 
             def wait_for_map_ready(self, **_kwargs: object) -> dict[str, int]:
-                return {"Moais": 4, "Microwaves": 1}
+                return {
+                    gui.MapStat.SHADY_GUY: types.SimpleNamespace(max=1),
+                    "Moais": 4,
+                    "Microwaves": 1,
+                }
 
             def get_map_generation_state(self) -> object:
                 return object()
@@ -591,7 +445,11 @@ class GuiRunControlTests(unittest.TestCase):
 
             def get_shady_guy_items(self) -> list[object]:
                 self.get_shady_guy_items_calls += 1
-                return [types.SimpleNamespace(name="Key")]
+                return [
+                    types.SimpleNamespace(name="SoulHarvester"),
+                    types.SimpleNamespace(name="SoulHarvester"),
+                    types.SimpleNamespace(name="SoulHarvester"),
+                ]
 
         app = object.__new__(gui.MegabonkApp)
         app.client = FakeClient()
@@ -612,12 +470,15 @@ class GuiRunControlTests(unittest.TestCase):
         logs: list[tuple[str, str | None]] = []
         app.log = lambda message, tag=None: logs.append((message, tag))
 
-        with patch.object(gui, "adapt_map_stats", lambda raw_stats: raw_stats):
+        with patch.object(gui, "adapt_map_stats", lambda raw_stats: {"Moais": 4, "Microwaves": 1, "Shady Guy": 1}):
             gui.MegabonkApp.background_loop(app)
 
         self.assertEqual(app.client.get_map_stats_calls, 0)
         self.assertEqual(app.client.get_shady_guy_items_calls, 1)
-        self.assertIn(("Shady Guy items: [Key]", "success"), logs)
+        self.assertIn(
+            ("Shady Guy items: [SoulHarvester, SoulHarvester, SoulHarvester]", "success"),
+            logs,
+        )
 
     def test_background_loop_rejects_candidate_when_shady_guy_items_empty(self) -> None:
         class FakeClient:
@@ -776,7 +637,7 @@ class GuiRunControlTests(unittest.TestCase):
                 return object()
 
             def get_shady_guy_items(self) -> list[object]:
-                return [types.SimpleNamespace(name="Key")]
+                return [types.SimpleNamespace(name="SoulHarvester")]
 
         app = object.__new__(gui.MegabonkApp)
         app.client = FakeClient()

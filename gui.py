@@ -1,7 +1,5 @@
 import os
 import sys
-import ctypes
-from ctypes import wintypes
 import threading
 import time
 import datetime
@@ -18,13 +16,7 @@ from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
 import scanner_logic
-
-try:
-    import win32gui
-    import win32process
-except ImportError:
-    win32gui = None
-    win32process = None
+import window_control
 
 try:
     import keyboard
@@ -1588,17 +1580,7 @@ class MegabonkApp(ctk.CTk):
             self.client = None
 
     def get_game_process_id(self) -> int | None:
-        if self.client is None:
-            return None
-
-        memory = getattr(self.client, "memory", None)
-        pymem_client = getattr(memory, "_pm", None)
-        process_id = getattr(pymem_client, "process_id", None)
-
-        try:
-            return int(process_id) if process_id else None
-        except (TypeError, ValueError):
-            return None
+        return window_control.get_game_process_id(self.client)
 
     def is_hook_run_control_active(self) -> bool:
         return isinstance(self.run_control_provider, HookRunControlProvider)
@@ -1607,205 +1589,53 @@ class MegabonkApp(ctk.CTk):
         return isinstance(self.run_control_provider, KeyboardRunControlProvider)
 
     def is_game_window_active(self, process_name: str) -> bool:
-        if win32gui is None or win32process is None:
-            return True
-
-        foreground_window = win32gui.GetForegroundWindow()
-        if not foreground_window:
-            return False
-
-        game_process_id = self.get_game_process_id()
-        if game_process_id is not None:
-            try:
-                _, foreground_process_id = win32process.GetWindowThreadProcessId(foreground_window)
-                return int(foreground_process_id) == game_process_id
-            except Exception:
-                return False
-
-        try:
-            foreground_title = win32gui.GetWindowText(foreground_window) or ""
-        except Exception:
-            return False
-
-        expected_title = os.path.splitext(process_name)[0]
-        return bool(expected_title and expected_title.lower() in foreground_title.lower())
+        return window_control.is_game_window_active(process_name, self.client)
 
     def wait_for_game_window_focus(self, process_name: str) -> bool:
-        if self.is_hook_run_control_active():
-            return True
-
-        if self.is_game_window_active(process_name):
-            return True
-
-        self.log("[WAIT] Game window is not active. Auto-reroll paused...", tag="warning")
-
-        while (
-            not self.stop_event.is_set()
-            and self.scan_event.is_set()
-            and not self.is_game_window_active(process_name)
-        ):
-            time.sleep(0.3)
-
-        if self.stop_event.is_set() or not self.scan_event.is_set():
-            return False
-
-        self.log("[+] Game window active again. Auto-reroll resumed.", tag="success")
-        return True
+        return window_control.wait_for_game_window_focus(
+            process_name,
+            is_hook_run_control_active=self.is_hook_run_control_active,
+            is_game_window_active=self.is_game_window_active,
+            stop_event=self.stop_event,
+            scan_event=self.scan_event,
+            log=self.log,
+        )
 
     def bring_game_window_to_front(self, process_name: str) -> bool:
-        if win32gui is None or win32process is None:
-            self.log("[WAIT] Cannot bring game window to front: pywin32 is unavailable.", tag="warning")
-            return False
-
-        window = self.find_game_window(process_name)
-        if not window:
-            self.log("[WAIT] Cannot bring game window to front: game window was not found.", tag="warning")
-            return False
-
-        try:
-            self.show_game_window(window)
-            win32gui.SetForegroundWindow(window)
-            return True
-        except Exception as direct_exc:
-            try:
-                self.try_attach_foreground_window(window)
-                return True
-            except Exception as fallback_exc:
-                self.log(
-                    f"[WAIT] Cannot bring game window to front: {direct_exc}; "
-                    f"ALT attach fallback failed: {fallback_exc}",
-                    tag="warning",
-                )
-                return False
+        return window_control.bring_game_window_to_front(process_name, self.client, self.log)
 
     @staticmethod
     def show_game_window(window: int) -> None:
-        if hasattr(win32gui, "IsIconic") and win32gui.IsIconic(window):
-            win32gui.ShowWindow(window, 9)  # SW_RESTORE
-        elif hasattr(win32gui, "ShowWindow"):
-            win32gui.ShowWindow(window, 5)  # SW_SHOW
+        window_control.show_game_window(window)
 
     def try_attach_foreground_window(self, window: int) -> None:
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-        user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
-        user32.AttachThreadInput.restype = wintypes.BOOL
-        kernel32.GetCurrentThreadId.argtypes = []
-        kernel32.GetCurrentThreadId.restype = wintypes.DWORD
-
-        current_thread = int(kernel32.GetCurrentThreadId())
-        target_thread, _ = win32process.GetWindowThreadProcessId(window)
-        foreground_window = win32gui.GetForegroundWindow()
-        foreground_thread = None
-        if foreground_window:
-            foreground_thread, _ = win32process.GetWindowThreadProcessId(foreground_window)
-
-        attached_threads = []
-        seen_threads = set()
-        for thread_id in (target_thread, foreground_thread):
-            thread_id = int(thread_id) if thread_id else 0
-            if not thread_id or thread_id == current_thread or thread_id in seen_threads:
-                continue
-            seen_threads.add(thread_id)
-            if user32.AttachThreadInput(current_thread, thread_id, True):
-                attached_threads.append(thread_id)
-
-        try:
-            self.send_alt_keypress(user32)
-            if hasattr(win32gui, "BringWindowToTop"):
-                win32gui.BringWindowToTop(window)
-            win32gui.SetForegroundWindow(window)
-        finally:
-            for thread_id in attached_threads:
-                user32.AttachThreadInput(current_thread, thread_id, False)
+        window_control.try_attach_foreground_window(window)
 
     @staticmethod
     def send_alt_keypress(user32) -> None:
-        vk_menu = 0x12
-        keyeventf_keyup = 0x0002
-        user32.keybd_event(vk_menu, 0, 0, 0)
-        user32.keybd_event(vk_menu, 0, keyeventf_keyup, 0)
+        window_control.send_alt_keypress(user32)
 
     @staticmethod
     def is_visible_window(window: int) -> bool:
-        try:
-            return bool(window and (not hasattr(win32gui, "IsWindowVisible") or win32gui.IsWindowVisible(window)))
-        except Exception:
-            return False
+        return window_control.is_visible_window(window)
 
     def find_game_window(self, process_name: str) -> int | None:
-        game_process_id = self.get_game_process_id()
-        if game_process_id is not None:
-            window = self.find_game_window_by_pid(game_process_id)
-            if window:
-                return window
-
-        return self.find_game_window_by_title(process_name)
+        return window_control.find_game_window(process_name, self.client, self.log)
 
     def find_game_window_by_pid(self, process_id: int) -> int | None:
-        found_window = None
-
-        def enum_callback(window, _extra):
-            nonlocal found_window
-            if found_window is not None or not self.is_visible_window(window):
-                return
-
-            try:
-                _, window_process_id = win32process.GetWindowThreadProcessId(window)
-            except Exception:
-                return
-
-            if int(window_process_id) == process_id:
-                found_window = window
-
-        try:
-            win32gui.EnumWindows(enum_callback, None)
-        except Exception as exc:
-            self.log(f"[WAIT] Failed to enumerate game windows by PID: {exc}", tag="warning")
-
-        return found_window
+        return window_control.find_game_window_by_pid(process_id, self.log)
 
     def find_game_window_by_title(self, process_name: str) -> int | None:
-        expected_title = os.path.splitext(process_name)[0]
-        if not expected_title:
-            return None
-
-        found_window = None
-
-        def enum_callback(window, _extra):
-            nonlocal found_window
-            if found_window is not None or not self.is_visible_window(window):
-                return
-
-            try:
-                window_title = win32gui.GetWindowText(window) or ""
-            except Exception:
-                return
-
-            if expected_title.lower() in window_title.lower():
-                found_window = window
-
-        try:
-            win32gui.EnumWindows(enum_callback, None)
-        except Exception as exc:
-            self.log(f"[WAIT] Failed to enumerate game windows by title: {exc}", tag="warning")
-
-        return found_window
+        return window_control.find_game_window_by_title(process_name, self.log)
 
     def handle_confirmed_target_window(self, process_name: str) -> bool:
-        if self.is_hook_run_control_active():
-            self.bring_game_window_to_front(process_name)
-            if keyboard:
-                time.sleep(0.15)
-                keyboard.press_and_release("esc")
-            return True
-
-        if keyboard:
-            if not self.wait_for_game_window_focus(process_name):
-                return False
-            keyboard.press_and_release("esc")
-
-        return True
+        return window_control.handle_confirmed_target_window(
+            process_name,
+            is_hook_run_control_active=self.is_hook_run_control_active,
+            bring_game_window_to_front=self.bring_game_window_to_front,
+            wait_for_game_window_focus=self.wait_for_game_window_focus,
+            keyboard_module=keyboard,
+        )
 
     def background_loop(self):
         process_name = config.PROCESS_NAME.strip()
