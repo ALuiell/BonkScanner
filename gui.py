@@ -10,6 +10,7 @@ from PIL import Image
 import updater
 import config
 import logic
+import app_run_control
 from game_data import GameDataClient, MapStat
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
@@ -727,6 +728,21 @@ class MegabonkApp(ctk.CTk):
         # Threading events for efficient control
         self.stop_event = threading.Event()
         self.scan_event = threading.Event()
+        self.run_control = app_run_control.AppRunControl(
+            config=config,
+            keyboard_module=keyboard,
+            threading_module=threading,
+            NativeHookLoader=NativeHookLoader,
+            HookRunControlProvider=HookRunControlProvider,
+            KeyboardRunControlProvider=KeyboardRunControlProvider,
+            log=self.log,
+            stop_event=self.stop_event,
+            native_hook_loader=self.native_hook_loader,
+            native_hook_thread=self.native_hook_thread,
+            native_hook_generation=self.native_hook_generation,
+            run_control_provider=self.run_control_provider,
+            native_hook_admin_warning_logged=self._native_hook_admin_warning_logged,
+        )
         
         # Session Stats
         self.session_start_time = None
@@ -757,134 +773,149 @@ class MegabonkApp(ctk.CTk):
         # 1500 ms (1.5 seconds) delay ensures the user sees the window instantly
         self.after(1500, self.deferred_update_check)
 
-    def initialize_run_control(self):
-        if not getattr(config, "NATIVE_HOOK_ENABLED", True):
-            self.enable_keyboard_run_control()
-            return
-
-        self.enable_hook_run_control()
-
-    def apply_run_control_mode(self, *, detach_hooks: bool = True):
-        if getattr(config, "NATIVE_HOOK_ENABLED", True):
-            self.enable_hook_run_control()
-        else:
-            previous_loader = self.native_hook_loader
-            self.native_hook_generation += 1
-            self.native_hook_loader = None
-            self.native_hook_thread = None
-
-            if detach_hooks and previous_loader is not None:
-                try:
-                    result = previous_loader.uninitialize()
-                    self.log(f"[+] Native hooks detached for PID {result.pid}.", tag="success")
-                except HookProcessNotFoundError as exc:
-                    self.log(f"[WAIT] Native hook detach skipped: {exc}", tag="warning")
-                except HookLoadError as exc:
-                    self.log(f"[WAIT] Native hook detach failed; switching to keyboard restart: {exc}", tag="warning")
-
-            self.enable_keyboard_run_control()
-
-    def enable_keyboard_run_control(self):
-        self._native_hook_admin_warning_logged = False
-        self.run_control_provider = KeyboardRunControlProvider(
-            keyboard,
-            reset_hotkey=lambda: config.RESET_HOTKEY,
-            reset_hold_duration=lambda: config.RESET_HOLD_DURATION,
-            map_load_delay=lambda: config.MIN_DELAY,
-        )
-
-    def enable_hook_run_control(self):
-        if isinstance(self.run_control_provider, HookRunControlProvider):
-            return
-
-        self.warn_if_native_hook_needs_admin()
-
-        dll_path = getattr(config, "NATIVE_HOOK_DLL_PATH", "") or None
-        self.native_hook_loader = NativeHookLoader(
-            config.PROCESS_NAME,
-            dll_path=dll_path,
-            base_path=config.application_path,
-        )
-        self.run_control_provider = HookRunControlProvider(
-            self.native_hook_loader,
-            map_load_delay=lambda: config.MIN_DELAY,
-        )
-        self.native_hook_generation += 1
-        generation = self.native_hook_generation
-        self.native_hook_thread = threading.Thread(
-            target=self.native_hook_loop,
-            args=(self.native_hook_loader, generation),
-            daemon=True,
-        )
-        self.native_hook_thread.start()
-        self.log("[*] Native hook restart control enabled.")
-
-    def native_hook_loop(self, loader: NativeHookLoader, generation: int):
-        if loader is None:
-            return
-
-        logged_waiting = False
-        while not self.stop_event.is_set() and generation == self.native_hook_generation:
-            try:
-                result = loader.inject_once()
-                if generation != self.native_hook_generation:
-                    return
-                if result.skipped:
-                    self.log(f"[*] Native hook already injected for PID {result.pid}.")
-                else:
-                    self.log(f"[+] Native hook injected into PID {result.pid}.", tag="success")
-                return
-            except HookProcessNotFoundError:
-                if not logged_waiting:
-                    self.log(f"[WAIT] Waiting for process '{config.PROCESS_NAME}' before native hook injection.")
-                    logged_waiting = True
-                self.stop_event.wait(1.0)
-            except HookProcessNotReadyError as exc:
-                if not logged_waiting:
-                    self.log(f"[WAIT] {exc}")
-                    logged_waiting = True
-                self.stop_event.wait(1.0)
-            except HookLoadError as exc:
-                self.log(f"[-] Native hook injection failed: {exc}", tag="error")
-                return
-            except Exception as exc:
-                self.log(f"[-] Unexpected native hook loader error: {exc}", tag="error")
-                return
-
     def deferred_update_check(self):
         """Checks for updates after the main window is already visible."""
         threading.Thread(target=updater.check_and_update, args=(self, False), daemon=True).start()
 
+    def _ensure_run_control(self) -> app_run_control.AppRunControl:
+        admin_callback = self.__dict__.get("is_running_as_admin")
+        if not callable(admin_callback):
+            admin_callback = None
+        stop_event = self.__dict__.get("stop_event")
+        if stop_event is None:
+            stop_event = threading.Event()
+            self.__dict__["stop_event"] = stop_event
+
+        controller = self.__dict__.get("run_control")
+        if controller is None:
+            controller = app_run_control.AppRunControl(
+                config=config,
+                keyboard_module=keyboard,
+                threading_module=threading,
+                NativeHookLoader=NativeHookLoader,
+                HookRunControlProvider=HookRunControlProvider,
+                KeyboardRunControlProvider=KeyboardRunControlProvider,
+                log=self.log,
+                stop_event=stop_event,
+                native_hook_loader=self.native_hook_loader,
+                native_hook_thread=self.native_hook_thread,
+                native_hook_generation=self.native_hook_generation,
+                run_control_provider=self.run_control_provider,
+                native_hook_admin_warning_logged=self._native_hook_admin_warning_logged,
+                is_running_as_admin=admin_callback,
+            )
+            self.__dict__["run_control"] = controller
+            return controller
+
+        controller.config = config
+        controller.keyboard_module = keyboard
+        controller.threading_module = threading
+        controller.NativeHookLoader = NativeHookLoader
+        controller.HookRunControlProvider = HookRunControlProvider
+        controller.KeyboardRunControlProvider = KeyboardRunControlProvider
+        controller.log = self.log
+        controller.stop_event = stop_event
+        controller.native_hook_loader = self.native_hook_loader
+        controller.native_hook_thread = self.native_hook_thread
+        controller.native_hook_generation = self.native_hook_generation
+        controller.run_control_provider = self.run_control_provider
+        controller._native_hook_admin_warning_logged = self._native_hook_admin_warning_logged
+        controller._is_running_as_admin = admin_callback
+        return controller
+
+    @property
+    def native_hook_loader(self):
+        controller = self.__dict__.get("run_control")
+        if controller is not None:
+            return controller.native_hook_loader
+        return self.__dict__.get("_native_hook_loader")
+
+    @native_hook_loader.setter
+    def native_hook_loader(self, value):
+        controller = self.__dict__.get("run_control")
+        if controller is not None:
+            controller.native_hook_loader = value
+        self.__dict__["_native_hook_loader"] = value
+
+    @property
+    def native_hook_thread(self):
+        controller = self.__dict__.get("run_control")
+        if controller is not None:
+            return controller.native_hook_thread
+        return self.__dict__.get("_native_hook_thread")
+
+    @native_hook_thread.setter
+    def native_hook_thread(self, value):
+        controller = self.__dict__.get("run_control")
+        if controller is not None:
+            controller.native_hook_thread = value
+        self.__dict__["_native_hook_thread"] = value
+
+    @property
+    def native_hook_generation(self):
+        controller = self.__dict__.get("run_control")
+        if controller is not None:
+            return controller.native_hook_generation
+        return self.__dict__.get("_native_hook_generation", 0)
+
+    @native_hook_generation.setter
+    def native_hook_generation(self, value):
+        controller = self.__dict__.get("run_control")
+        if controller is not None:
+            controller.native_hook_generation = value
+        self.__dict__["_native_hook_generation"] = value
+
+    @property
+    def run_control_provider(self):
+        controller = self.__dict__.get("run_control")
+        if controller is not None:
+            return controller.run_control_provider
+        return self.__dict__.get("_run_control_provider")
+
+    @run_control_provider.setter
+    def run_control_provider(self, value):
+        controller = self.__dict__.get("run_control")
+        if controller is not None:
+            controller.run_control_provider = value
+        self.__dict__["_run_control_provider"] = value
+
+    @property
+    def _native_hook_admin_warning_logged(self):
+        controller = self.__dict__.get("run_control")
+        if controller is not None:
+            return controller._native_hook_admin_warning_logged
+        return self.__dict__.get("__native_hook_admin_warning_logged", False)
+
+    @_native_hook_admin_warning_logged.setter
+    def _native_hook_admin_warning_logged(self, value):
+        controller = self.__dict__.get("run_control")
+        if controller is not None:
+            controller._native_hook_admin_warning_logged = value
+        self.__dict__["__native_hook_admin_warning_logged"] = value
+
+    def initialize_run_control(self):
+        self.apply_run_control_mode(detach_hooks=False)
+
+    def apply_run_control_mode(self, *, detach_hooks: bool = True):
+        self._ensure_run_control().apply_run_control_mode(detach_hooks=detach_hooks)
+
+    def enable_keyboard_run_control(self):
+        self._ensure_run_control().enable_keyboard_run_control()
+
+    def enable_hook_run_control(self):
+        self._ensure_run_control().enable_hook_run_control()
+
+    def native_hook_loop(self, loader: NativeHookLoader, generation: int):
+        self._ensure_run_control().native_hook_loop(loader, generation)
+
     def check_admin_rights(self):
-        if os.name != 'nt':
-            return
-
-        if not self.is_running_as_admin():
-            if getattr(config, "NATIVE_HOOK_ENABLED", True):
-                self.warn_if_native_hook_needs_admin()
-                return
-
-            self.log("⚠️ WARNING: Script is not running as Administrator!", tag="warning")
-            self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
+        self._ensure_run_control().check_admin_rights()
 
     def is_running_as_admin(self) -> bool:
-        if os.name != 'nt':
-            return True
-
-        import ctypes
-        try:
-            return os.getuid() == 0
-        except AttributeError:
-            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        return self._ensure_run_control().is_running_as_admin()
 
     def warn_if_native_hook_needs_admin(self):
-        if (
-            getattr(config, "NATIVE_HOOK_ENABLED", True)
-            and not getattr(self, "_native_hook_admin_warning_logged", False)
-            and not self.is_running_as_admin()
-        ):
-            self.log("[*] Native hook may not inject without Administrator privileges; attempting anyway.", tag="warning")
-            self._native_hook_admin_warning_logged = True
+        self._ensure_run_control().warn_if_native_hook_needs_admin()
 
     def setup_ui(self):
         # Configure layout grid. Equal weight for left and right panels
