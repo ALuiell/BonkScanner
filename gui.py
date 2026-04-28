@@ -12,11 +12,12 @@ from PIL import Image
 import updater
 import config
 import logic
-from game_data import EItem, GameDataClient, MapStat
+from game_data import GameDataClient, MapStat
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
+import scanner_logic
 
 try:
     import win32gui
@@ -51,15 +52,6 @@ COLOR_MAP = {
     "LIGHTBLUE_EX": "#85C1E9",
     "DEFAULT": "#FFFFFF"
 }
-
-#[GlovePower, SoulHarvester, SpicyMeatball, CursedDoll, MoldyCheese, Oats]
-
-REQUIRED_SHADY_GUY_ITEMS = frozenset(
-    {
-        EItem.SoulHarvester.name
-    }
-)
-
 
 def center_toplevel(window, parent, width: int, height: int) -> None:
     """Center a modal dialog relative to its parent when possible."""
@@ -664,20 +656,15 @@ class SettingsDialog(ctk.CTkToplevel):
 class MegabonkApp(ctk.CTk):
     @staticmethod
     def item_name(item: object) -> str:
-        return str(getattr(item, "name", item))
+        return scanner_logic.item_name(item)
 
     @classmethod
     def has_required_shady_guy_item(cls, items: list[object]) -> bool:
-        return any(cls.item_name(item) in REQUIRED_SHADY_GUY_ITEMS for item in items)
+        return scanner_logic.has_required_shady_guy_item(items)
 
     @staticmethod
     def shady_guy_count(raw_stats: dict[object, object], stats: dict[str, int]) -> int:
-        shady_stat = raw_stats.get(MapStat.SHADY_GUY)
-        shady_count = getattr(shady_stat, "max", shady_stat) if shady_stat is not None else stats.get("Shady Guy", 0)
-        try:
-            return max(int(shady_count), 0)
-        except (TypeError, ValueError):
-            return 0
+        return scanner_logic.shady_guy_count(raw_stats, stats)
 
     def __init__(self):
         super().__init__()
@@ -1456,22 +1443,20 @@ class MegabonkApp(ctk.CTk):
 
     @staticmethod
     def format_stats(stats: dict) -> str:
-        shady = stats.get("Shady Guy", 0)
-        moai = stats.get("Moais", 0)
-        microwaves = logic.normalize_microwaves(stats.get("Microwaves"))
-        boss = stats.get("Boss Curses", 0)
-        magnet = stats.get("Magnet Shrines", 0)
-        return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}, Magnet: {magnet}, Score: {logic.calculate_score(stats, config.SCORES_SYSTEM):.1f}"
+        return scanner_logic.format_stats(stats, config.SCORES_SYSTEM)
         
     @staticmethod
     def calculate_map_score(stats: dict) -> float:
-        # Use the logic module's function which now uses the configured multipliers and weights
-        return logic.calculate_score(stats, config.SCORES_SYSTEM)
+        return scanner_logic.calculate_map_score(stats, config.SCORES_SYSTEM)
 
     def evaluate_candidate(self, stats: dict) -> dict | None:
-        if config.EVALUATION_MODE == "templates":
-            return logic.find_matching_template(stats, self.active_templates, config.TEMPLATES)
-        return logic.evaluate_map_by_scores(stats, config.SCORES_SYSTEM)
+        return scanner_logic.evaluate_candidate(
+            stats,
+            config.EVALUATION_MODE,
+            self.active_templates,
+            config.TEMPLATES,
+            config.SCORES_SYSTEM,
+        )
 
     def update_timer(self):
         if self.scanner_thread and self.scanner_thread.is_alive() and self.session_start_time:
@@ -1918,8 +1903,8 @@ class MegabonkApp(ctk.CTk):
                                 tag="warning",
                             )
                             candidate = None
-                        elif not self.has_required_shady_guy_item(shady_guy_items):
-                            required_items_text = ", ".join(sorted(REQUIRED_SHADY_GUY_ITEMS))
+                        elif not scanner_logic.has_required_shady_guy_item(shady_guy_items):
+                            required_items_text = ", ".join(sorted(scanner_logic.REQUIRED_SHADY_GUY_ITEMS))
                             self.log(
                                 f"[WAIT] Candidate '{t_name}{score_text}' rejected: none of the required "
                                 f"Shady Guy items were found ({required_items_text}).",
@@ -1927,7 +1912,7 @@ class MegabonkApp(ctk.CTk):
                             )
                             candidate = None
                         else:
-                            shady_guy_count = self.shady_guy_count(raw_stats, stats)
+                            shady_guy_count = scanner_logic.shady_guy_count(raw_stats, stats)
                             expected_item_count = shady_guy_count * 3
                             actual_item_count = len(shady_guy_items)
                             if actual_item_count != expected_item_count:
@@ -1942,7 +1927,7 @@ class MegabonkApp(ctk.CTk):
                     if candidate is None:
                         pass
                     else:
-                        shady_guy_items_text = ", ".join(self.item_name(item) for item in shady_guy_items)
+                        shady_guy_items_text = ", ".join(scanner_logic.item_name(item) for item in shady_guy_items)
                         self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
                         self.log(f"Map Stats: {self.format_stats(stats)}", tag="success")
                         self.log(
