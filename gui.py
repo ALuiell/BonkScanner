@@ -8,7 +8,6 @@ from PIL import Image
 
 import updater
 import config
-import logic
 import app_run_control
 from game_data import GameDataClient
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
