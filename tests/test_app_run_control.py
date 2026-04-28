@@ -113,6 +113,24 @@ class AppRunControlTests(unittest.TestCase):
         self.assertFalse(controller._native_hook_admin_warning_logged)
         self.assertIn(("[+] Native hooks detached for PID 1234.", "success"), logs)
 
+    def test_shutdown_detaches_native_hooks_and_clears_state(self) -> None:
+        loader = FakeDetachLoader()
+        logs: list[tuple[str, str | None]] = []
+        controller = self.make_controller(
+            native_hook_loader=loader,
+            native_hook_thread=object(),
+            native_hook_generation=4,
+            log=lambda message, tag=None: logs.append((message, tag)),
+        )
+
+        controller.shutdown()
+
+        self.assertEqual(loader.uninitialize_calls, 1)
+        self.assertIsNone(controller.native_hook_loader)
+        self.assertIsNone(controller.native_hook_thread)
+        self.assertEqual(controller.native_hook_generation, 5)
+        self.assertIn(("[+] Native hooks detached for PID 1234.", "success"), logs)
+
     def test_enable_hook_run_control_starts_daemon_worker_and_logs_restart(self) -> None:
         fake_loader = object()
         logs: list[tuple[str, str | None]] = []

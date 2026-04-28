@@ -301,36 +301,52 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app.scan_event.is_set())
         self.assertIn(("\n[!!!] Script STOPPED via Hotkey", "warning"), logs)
 
-    def test_on_closing_signals_stop_wakes_scanner_detaches_hooks_and_destroys_window(self) -> None:
-        loader = FakeDetachLoader()
+    def test_on_closing_delegates_native_hook_shutdown_to_run_control(self) -> None:
         logs: list[tuple[str, str | None]] = []
         destroyed: list[bool] = []
         keyboard_module = FakeKeyboardModule()
         client = FakeClient()
+        shutdown_calls: list[str] = []
         app = object.__new__(gui.MegabonkApp)
         app.client = client
         app.stop_event = gui.threading.Event()
         app.scan_event = gui.threading.Event()
-        app.native_hook_loader = loader
-        app.native_hook_thread = object()
+        app.native_hook_loader = "loader-sentinel"
+        app.native_hook_thread = "thread-sentinel"
         app.native_hook_generation = 7
+        app.run_control = types.SimpleNamespace(
+            config=gui.config,
+            keyboard_module=keyboard_module,
+            threading_module=gui.threading,
+            NativeHookLoader=gui.NativeHookLoader,
+            HookRunControlProvider=gui.HookRunControlProvider,
+            KeyboardRunControlProvider=gui.KeyboardRunControlProvider,
+            log=lambda message, tag=None: logs.append((message, tag)),
+            stop_event=app.stop_event,
+            native_hook_loader=app.native_hook_loader,
+            native_hook_thread=app.native_hook_thread,
+            native_hook_generation=app.native_hook_generation,
+            run_control_provider=None,
+            _native_hook_admin_warning_logged=False,
+            _is_running_as_admin=None,
+            shutdown=lambda: shutdown_calls.append("shutdown"),
+        )
         app.log = lambda message, tag=None: logs.append((message, tag))
         app.destroy = lambda: destroyed.append(True)
 
         with patch.object(gui, "keyboard", keyboard_module):
             gui.MegabonkApp.on_closing(app)
 
-        self.assertEqual(loader.uninitialize_calls, 1)
         self.assertEqual(client.close_calls, 1)
         self.assertIsNone(app.client)
         self.assertTrue(app.stop_event.is_set())
         self.assertTrue(app.scan_event.is_set())
-        self.assertIsNone(app.native_hook_loader)
-        self.assertIsNone(app.native_hook_thread)
-        self.assertEqual(app.native_hook_generation, 8)
+        self.assertEqual(app.native_hook_loader, "loader-sentinel")
+        self.assertEqual(app.native_hook_thread, "thread-sentinel")
+        self.assertEqual(app.native_hook_generation, 7)
+        self.assertEqual(shutdown_calls, ["shutdown"])
         self.assertEqual(keyboard_module.unhook_all_calls, 1)
         self.assertEqual(destroyed, [True])
-        self.assertIn(("[+] Native hooks detached for PID 1234.", "success"), logs)
 
 
 if __name__ == "__main__":
