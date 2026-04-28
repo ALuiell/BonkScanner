@@ -3,7 +3,6 @@ import sys
 import threading
 import time
 import datetime
-import subprocess
 import customtkinter as ctk
 from PIL import Image
 
@@ -11,12 +10,13 @@ import updater
 import config
 import logic
 import app_run_control
-from game_data import GameDataClient, MapStat
+from game_data import GameDataClient
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
-from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from memory import MemoryReadError
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
 import scanner_logic
+import scanner_loop
 import window_control
 
 try:
@@ -1668,192 +1668,30 @@ class MegabonkApp(ctk.CTk):
             keyboard_module=keyboard,
         )
 
+    def _create_scanner_loop(self):
+        return scanner_loop.ScannerLoop(
+            state=self,
+            config=config,
+            game_data_client_factory=GameDataClient,
+            adapt_map_stats=adapt_map_stats,
+            scanner_logic=scanner_logic,
+            stop_event=self.stop_event,
+            scan_event=self.scan_event,
+            log=self.log,
+            after=self.after,
+            update_status_ui=self.update_status_ui,
+            wait_for_game_window_focus=self.wait_for_game_window_focus,
+            check_best_map=self.check_best_map,
+            check_worst_map=self.check_worst_map,
+            evaluate_candidate=self.evaluate_candidate,
+            log_target_found=self.log_target_found,
+            handle_confirmed_target_window=self.handle_confirmed_target_window,
+            reroll_map=self.reroll_map,
+            close_client=self.close_client,
+        )
+
     def background_loop(self):
-        process_name = config.PROCESS_NAME.strip()
-        wait_state = None
-        last_state = None
-        last_stats = None
-        last_reroll_time = time.monotonic()
-        is_first_scan = True
-        
-        while not self.stop_event.is_set():
-            # 1. Wait for client
-            if self.client is None:
-                try:
-                    self.client = GameDataClient(process_name=process_name)
-                    self.log(f"[+] Game connected! Press '{config.HOTKEY}' to start auto-reroll.", tag="success")
-                    self.is_ready_to_start = True
-                    self.after(0, self.update_status_ui)
-                except ProcessNotFoundError:
-                    if wait_state != "process":
-                        self.log(f"[WAIT] Waiting for process '{process_name}'...", tag="warning")
-                        wait_state = "process"
-                        self.after(0, self.update_status_ui)
-                    time.sleep(1)
-                    continue
-                except ModuleNotFoundError:
-                    if wait_state != "module":
-                        self.log(f"[WAIT] Process found. Waiting for GameAssembly.dll...", tag="warning")
-                        wait_state = "module"
-                        self.after(0, self.update_status_ui)
-                    time.sleep(1)
-                    continue
-
-            # 2. Main scanner logic
-            was_waiting = not self.scan_event.is_set()
-            self.scan_event.wait() # Wait here until hotkey is pressed
-            if was_waiting:
-                is_first_scan = True
-                last_state = None
-                last_stats = None
-
-            if self.stop_event.is_set():
-                break
-                
-            try:
-                if not self.wait_for_game_window_focus(process_name):
-                    continue
-
-                try:
-                    raw_stats = self.client.wait_for_map_ready(
-                        previous_state=last_state,
-                        previous_stats=last_stats,
-                        require_change=not is_first_scan,
-                        abort_condition=lambda: self.stop_event.is_set() or not self.scan_event.is_set(),
-                        timeout=10.0
-                    )
-                except InterruptedError:
-                    # User paused while waiting for map
-                    continue
-
-                is_first_scan = False
-                last_state = self.client.get_map_generation_state()
-                last_stats = raw_stats
-                
-                stats = adapt_map_stats(raw_stats)
-                
-                self.check_best_map(stats)
-                self.check_worst_map(stats)
-                
-                candidate = self.evaluate_candidate(stats)
-                
-                if candidate is not None:
-                    if not self.wait_for_game_window_focus(process_name):
-                        continue
-
-                    t_name = candidate.get('name')
-                    t_color = candidate.get('color', 'BLUE').upper()
-                    score_text = (
-                        f" (Score: {candidate.get('score', 0):.1f})"
-                        if config.EVALUATION_MODE == "scores"
-                        else ""
-                    )
-
-                    try:
-                        shady_guy_items = self.client.get_shady_guy_items()
-                    except MemoryReadError as exc:
-                        self.log(
-                            f"[WAIT] Candidate '{t_name}{score_text}' rejected: failed to read Shady Guy items ({exc}).",
-                            tag="warning",
-                        )
-                        candidate = None
-                    else:
-                        if not shady_guy_items:
-                            self.log(
-                                f"[WAIT] Candidate '{t_name}{score_text}' rejected: Shady Guy items are empty.",
-                                tag="warning",
-                            )
-                            candidate = None
-                        elif not scanner_logic.has_required_shady_guy_item(shady_guy_items):
-                            required_items_text = ", ".join(sorted(scanner_logic.REQUIRED_SHADY_GUY_ITEMS))
-                            self.log(
-                                f"[WAIT] Candidate '{t_name}{score_text}' rejected: none of the required "
-                                f"Shady Guy items were found ({required_items_text}).",
-                                tag="warning",
-                            )
-                            candidate = None
-                        else:
-                            shady_guy_count = scanner_logic.shady_guy_count(raw_stats, stats)
-                            expected_item_count = shady_guy_count * 3
-                            actual_item_count = len(shady_guy_items)
-                            if actual_item_count != expected_item_count:
-                                self.log(
-                                    f"[WAIT] Candidate '{t_name}{score_text}' rejected: expected "
-                                    f"{expected_item_count} Shady Guy items from {shady_guy_count} vendors, "
-                                    f"but read {actual_item_count}.",
-                                    tag="warning",
-                                )
-                                candidate = None
-
-                    if candidate is None:
-                        pass
-                    else:
-                        shady_guy_items_text = ", ".join(scanner_logic.item_name(item) for item in shady_guy_items)
-                        self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
-                        self.log(f"Map Stats: {self.format_stats(stats)}", tag="success")
-                        self.log(
-                            f"Shady Guy items: [{shady_guy_items_text}]",
-                            tag="success",
-                        )
-
-                        self.log_target_found(t_name)
-
-                        if not self.handle_confirmed_target_window(process_name):
-                            continue
-
-                        self.is_running = False
-                        self.scan_event.clear()
-                        self.after(0, self.update_status_ui)
-                        continue
-
-                if candidate is None:
-                    self.log(f"Stats: {self.format_stats(stats)}")
-
-                if not self.wait_for_game_window_focus(process_name):
-                    continue
-
-                # Sleep to enforce MIN_DELAY for user comfort, but check for abort continuously
-                elapsed = time.monotonic() - last_reroll_time
-                while elapsed < config.MIN_DELAY:
-                    if self.stop_event.is_set() or not self.scan_event.is_set():
-                        break
-                    time.sleep(0.05)
-                    elapsed = time.monotonic() - last_reroll_time
-                    
-                if self.stop_event.is_set() or not self.scan_event.is_set():
-                    continue
-
-                self.reroll_map()
-                last_reroll_time = time.monotonic()
-                
-            except TimeoutError as exc:
-                self.log(f"[-] Map loading timeout: {exc}", tag="warning")
-                self.log(f"[*] Forcing reroll to unstick...", tag="warning")
-                self.reroll_map()
-                last_reroll_time = time.monotonic()
-                last_state = None
-                last_stats = None
-            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
-                self.is_running = False
-                self.is_ready_to_start = False
-                self.scan_event.clear()
-                self.close_client()
-                self.log(f"[-] Lost connection to the game: {exc}", tag="error")
-                wait_state = None
-                last_state = None
-                last_stats = None
-                self.after(0, self.update_status_ui)
-                time.sleep(1)
-            except Exception as e:
-                self.log(f"[-] Error during execution: {e}", tag="error")
-                time.sleep(1)
-
-        # Cleanup when stopping loop
-        self.close_client()
-        self.is_running = False
-        self.is_ready_to_start = False
-        self.scan_event.clear()
-        self.after(0, self.update_status_ui)
+        self._create_scanner_loop().run()
 
     def on_closing(self):
         self.stop_event.set()
