@@ -212,6 +212,7 @@ class NativeHookLoader:
 
     def _inject_into_pid(self, pid: int) -> None:
         process = self._open_process(pid)
+        local_module = None
         try:
             self._remote_load_library(process, self.dll_path)
             remote_module = self._find_remote_module_base(process, self.dll_path.name)
@@ -234,10 +235,13 @@ class NativeHookLoader:
             if exit_code != 0:
                 raise HookLoadError(f"BonkHook Initialize failed with status {exit_code}.")
         finally:
+            if local_module:
+                self._kernel32.FreeLibrary(local_module)
             self._kernel32.CloseHandle(process)
 
     def _invoke_export_in_pid(self, pid: int, export_name: bytes, parameter: int) -> int:
         process = self._open_process(pid)
+        local_module = None
         try:
             remote_module = self._find_remote_module_base(process, self.dll_path.name)
             if remote_module is None:
@@ -256,6 +260,8 @@ class NativeHookLoader:
             remote_export = remote_module + export_offset
             return self._create_remote_thread(process, remote_export, parameter)
         finally:
+            if local_module:
+                self._kernel32.FreeLibrary(local_module)
             self._kernel32.CloseHandle(process)
 
     def _remote_load_library(self, process: int, dll_path: Path) -> None:
@@ -551,6 +557,8 @@ class NativeHookLoader:
         self._kernel32.GetModuleHandleW.restype = ctypes.c_void_p
         self._kernel32.LoadLibraryW.argtypes = [ctypes.c_wchar_p]
         self._kernel32.LoadLibraryW.restype = ctypes.c_void_p
+        self._kernel32.FreeLibrary.argtypes = [ctypes.c_void_p]
+        self._kernel32.FreeLibrary.restype = ctypes.c_bool
         self._kernel32.GetProcAddress.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         self._kernel32.GetProcAddress.restype = ctypes.c_void_p
         self._kernel32.CloseHandle.argtypes = [ctypes.c_void_p]

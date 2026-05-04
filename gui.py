@@ -6,6 +6,7 @@ import threading
 import time
 import datetime
 import subprocess
+import webbrowser
 import customtkinter as ctk
 from PIL import Image
 
@@ -31,6 +32,8 @@ except ImportError:
     keyboard = None
 
 ctk.set_appearance_mode("dark")
+
+SUPPORT_URL = "https://ko-fi.com/H2H01YXPQ7"
 
 # Helper function to get correct path for bundled files in PyInstaller
 def resource_path(relative_path):
@@ -689,7 +692,7 @@ class SettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Settings")
-        self.geometry("400x390")
+        self.geometry("400x440")
         self.resizable(False, False)
         self._native_hook_toggle_guard = False
         
@@ -738,9 +741,18 @@ class SettingsDialog(ctk.CTkToplevel):
         self.update_btn = ctk.CTkButton(self, text="Check for Updates", fg_color="#1f538d", hover_color="#14375e", command=self.check_update)
         self.update_btn.grid(row=5, column=0, columnspan=2, pady=10)
 
+        self.support_btn = ctk.CTkButton(
+            self,
+            text="Support",
+            fg_color="#d97706",
+            hover_color="#b45309",
+            command=self.open_support_page,
+        )
+        self.support_btn.grid(row=6, column=0, columnspan=2, pady=(0, 10))
+
         # SAVE BUTTON
         self.save_btn = ctk.CTkButton(self, text="Save", fg_color="#2FA572", hover_color="#106A43", command=self.save)
-        self.save_btn.grid(row=6, column=0, columnspan=2, pady=10)
+        self.save_btn.grid(row=7, column=0, columnspan=2, pady=10)
         
         self.transient(parent)
         self.grab_set()
@@ -771,6 +783,9 @@ class SettingsDialog(ctk.CTkToplevel):
         # Force check updates, ignoring SKIPPED version
         threading.Thread(target=updater.check_and_update, args=(self.master, True), daemon=True).start()
         self.destroy()
+
+    def open_support_page(self):
+        webbrowser.open(SUPPORT_URL)
 
     def save(self):
         new_hotkey = self.hotkey_entry.get().strip()
