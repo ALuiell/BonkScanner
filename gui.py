@@ -585,27 +585,46 @@ class ScoresSettingsDialog(ctk.CTkToplevel):
 class DeleteDialog(ctk.CTkToplevel):
     def __init__(self, parent, custom_templates):
         super().__init__(parent)
-        self.title("Delete Template")
-        self.geometry("280x160")
+        self.title("Delete Templates")
+        self.geometry("340x420")
         self.resizable(False, False)
-        self.result = None
+        self.result = []
         
         # Set icon if available
         icon_path = resource_path("media/bonkscanner_icon.ico")
         if os.path.exists(icon_path):
             self.after(200, lambda p=icon_path: self.iconbitmap(p))
+            
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
         
-        self.combo = ctk.CTkComboBox(self, values=[t['name'] for t in custom_templates])
-        self.combo.pack(pady=(30, 10), padx=20, fill="x")
+        header_lbl = ctk.CTkLabel(self, text="Select templates to delete:", font=ctk.CTkFont(size=15, weight="bold"))
+        header_lbl.grid(row=0, column=0, padx=20, pady=(15, 5), sticky="w")
         
-        self.btn = ctk.CTkButton(self, text="Delete", fg_color="#b30000", hover_color="#800000", command=self.delete)
-        self.btn.pack(pady=10)
+        self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll_frame.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        
+        self.checkboxes = {}
+        for t in custom_templates:
+            var = ctk.BooleanVar(value=False)
+            cb = ctk.CTkCheckBox(self.scroll_frame, text=t['name'], variable=var)
+            cb.pack(anchor="w", padx=10, pady=6)
+            self.checkboxes[t['name']] = var
+            
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.grid(row=2, column=0, pady=(10, 20))
+        
+        self.cancel_btn = ctk.CTkButton(btn_frame, text="Cancel", width=100, command=self.destroy)
+        self.cancel_btn.grid(row=0, column=0, padx=10)
+        
+        self.del_btn = ctk.CTkButton(btn_frame, text="Delete Selected", width=120, fg_color="#b30000", hover_color="#800000", command=self.delete)
+        self.del_btn.grid(row=0, column=1, padx=10)
         
         self.transient(parent)
         self.grab_set()
         
     def delete(self):
-        self.result = self.combo.get()
+        self.result = [name for name, var in self.checkboxes.items() if var.get()]
         self.destroy()
 
 
@@ -1440,17 +1459,23 @@ class MegabonkApp(ctk.CTk):
         dialog = DeleteDialog(self, custom_templates)
         self.wait_window(dialog)
         if dialog.result:
-            config.TEMPLATES = [t for t in config.TEMPLATES if t['name'] != dialog.result]
+            deleted_count = len(dialog.result)
+            config.TEMPLATES = [t for t in config.TEMPLATES if t['name'] not in dialog.result]
             config.user_config["TEMPLATES"] = config.TEMPLATES
             
-            if dialog.result in config.ACTIVE_TEMPLATES:
-                config.ACTIVE_TEMPLATES.remove(dialog.result)
-                config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
+            for name in dialog.result:
+                if name in config.ACTIVE_TEMPLATES:
+                    config.ACTIVE_TEMPLATES.remove(name)
+                    
+            config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
                 
             config.save_config(config.user_config)
 
             self.refresh_templates()
-            self.log(f"[-] Deleted template: {dialog.result}", tag="warning")
+            if deleted_count == 1:
+                self.log(f"[-] Deleted template: {dialog.result[0]}", tag="warning")
+            else:
+                self.log(f"[-] Deleted {deleted_count} templates.", tag="warning")
 
     def open_settings_dialog(self):
         dialog = SettingsDialog(self)
