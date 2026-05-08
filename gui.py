@@ -56,6 +56,19 @@ COLOR_MAP = {
 }
 
 
+MODAL_SHOW_DELAY_MS = 60
+
+
+def set_toplevel_icon(window) -> None:
+    """Set the app icon before a modal becomes visible to avoid titlebar flicker."""
+    icon_path = resource_path("media/bonkscanner_icon.ico")
+    if os.path.exists(icon_path):
+        try:
+            window.iconbitmap(icon_path)
+        except Exception:
+            window.after(200, lambda p=icon_path: window.iconbitmap(p))
+
+
 def center_toplevel(window, parent, width: int, height: int) -> None:
     """Center a modal dialog relative to its parent when possible."""
     window.update_idletasks()
@@ -74,6 +87,21 @@ def center_toplevel(window, parent, width: int, height: int) -> None:
         y = max((screen_height - height) // 2, 0)
 
     window.geometry(f"{width}x{height}+{x}+{y}")
+
+
+def show_centered_toplevel(window, parent, width: int, height: int) -> None:
+    """Show a modal after CustomTkinter's initial Windows titlebar repaint settles."""
+    center_toplevel(window, parent, width, height)
+
+    def reveal():
+        if not window.winfo_exists():
+            return
+        window.deiconify()
+        window.lift()
+        window.focus_force()
+        window.grab_set()
+
+    window.after(MODAL_SHOW_DELAY_MS, reveal)
 
 
 def format_template_conditions(template: dict) -> str:
@@ -214,9 +242,7 @@ class TemplateDialog(ctk.CTkToplevel):
         self.edit_template = edit_template
         
         # Set icon if available
-        icon_path = resource_path("media/bonkscanner_icon.ico")
-        if os.path.exists(icon_path):
-            self.after(200, lambda p=icon_path: self.iconbitmap(p))
+        set_toplevel_icon(self)
         
         self.grid_columnconfigure(0, weight=1)
 
@@ -241,18 +267,17 @@ class TemplateDialog(ctk.CTkToplevel):
 class TemplateManagerDialog(ctk.CTkToplevel):
     def __init__(self, parent, templates, on_save):
         super().__init__(parent)
+        self.withdraw()  # Double buffering: hide while building UI
         self.title("Manage Templates")
         self.resizable(True, True)
-        center_toplevel(self, parent, 640, 720)
         self.minsize(560, 520)
 
         self.templates = [dict(template) for template in templates]
         self.on_save = on_save
         self.expanded_name = None
+        self.card_widgets = {}
 
-        icon_path = resource_path("media/bonkscanner_icon.ico")
-        if os.path.exists(icon_path):
-            self.after(200, lambda p=icon_path: self.iconbitmap(p))
+        set_toplevel_icon(self)
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -290,32 +315,29 @@ class TemplateManagerDialog(ctk.CTkToplevel):
         )
         self.close_btn.grid(row=0, column=1, sticky="e")
 
-        self.refresh_cards()
+        self.build_cards()
         self.transient(parent)
-        self.grab_set()
 
-    def toggle_template(self, template_name: str):
-        self.expanded_name = None if self.expanded_name == template_name else template_name
-        self.refresh_cards()
+        show_centered_toplevel(self, parent, 640, 720)
 
-    def refresh_cards(self):
+    def build_cards(self):
         for widget in self.scroll_frame.winfo_children():
             widget.destroy()
+        self.card_widgets.clear()
 
         for idx, template in enumerate(self.templates):
             template_name = template["name"]
             color_name = template.get("color", "BLUE").upper()
             hex_color = COLOR_MAP.get(color_name, COLOR_MAP["DEFAULT"])
-            is_expanded = self.expanded_name == template_name
             is_builtin = template.get("id", 100) <= 7
 
             card = ctk.CTkFrame(self.scroll_frame, corner_radius=12, border_width=1, border_color=("gray70", "gray25"))
             card.grid(row=idx, column=0, padx=8, pady=8, sticky="ew")
             card.grid_columnconfigure(0, weight=1)
 
-            header = ctk.CTkButton(
+            header_btn = ctk.CTkButton(
                 card,
-                text=f"{'▼' if is_expanded else '▶'} {template_name}",
+                text=f"▶ {template_name}",
                 anchor="w",
                 fg_color="transparent",
                 hover_color=("gray85", "gray20"),
@@ -323,7 +345,7 @@ class TemplateManagerDialog(ctk.CTkToplevel):
                 font=ctk.CTkFont(size=15, weight="bold"),
                 command=lambda name=template_name: self.toggle_template(name),
             )
-            header.grid(row=0, column=0, padx=12, pady=(12, 4), sticky="ew")
+            header_btn.grid(row=0, column=0, padx=12, pady=(12, 4), sticky="ew")
 
             meta_text = format_template_conditions(template)
             if is_builtin:
@@ -337,28 +359,85 @@ class TemplateManagerDialog(ctk.CTkToplevel):
                 text_color=("gray35", "gray72"),
             ).grid(row=1, column=0, padx=16, pady=(0, 12), sticky="ew")
 
-            if not is_expanded:
-                continue
+            self.card_widgets[template_name] = {
+                "card": card,
+                "header_btn": header_btn,
+                "template": template,
+                "details_frame": None,
+                "form": None,
+                "is_expanded": False,
+            }
 
-            details = ctk.CTkFrame(card, fg_color=("gray92", "gray17"), corner_radius=10)
+            if self.expanded_name == template_name:
+                self._expand_card(template_name)
+
+    def _ensure_card_details(self, name: str):
+        widgets = self.card_widgets.get(name)
+        if not widgets:
+            return None
+
+        if widgets["details_frame"] is not None:
+            return widgets["details_frame"]
+
+        details = ctk.CTkFrame(widgets["card"], fg_color=("gray92", "gray17"), corner_radius=10)
+        details.grid_columnconfigure(0, weight=1)
+
+        form = TemplateFormFrame(details, template_data=widgets["template"])
+        form.grid(row=0, column=0, padx=6, pady=(6, 2), sticky="ew")
+
+        buttons = ctk.CTkFrame(details, fg_color="transparent")
+        buttons.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
+        buttons.grid_columnconfigure(0, weight=1)
+
+        save_btn = ctk.CTkButton(
+            buttons,
+            text="Save Changes",
+            fg_color="#2FA572",
+            hover_color="#106A43",
+            command=lambda original=name, template_form=form: self.save_template(original, template_form),
+        )
+        save_btn.grid(row=0, column=1, padx=(8, 0), sticky="e")
+
+        widgets["details_frame"] = details
+        widgets["form"] = form
+        return details
+
+    def toggle_template(self, template_name: str):
+        if self.expanded_name == template_name:
+            self._collapse_card(self.expanded_name)
+            self.expanded_name = None
+        else:
+            if self.expanded_name:
+                self._collapse_card(self.expanded_name)
+            self.expanded_name = template_name
+            self._expand_card(self.expanded_name)
+
+    def _expand_card(self, name: str):
+        if name not in self.card_widgets:
+            return
+        widgets = self.card_widgets[name]
+        widgets["is_expanded"] = True
+
+        current_text = widgets["header_btn"].cget("text")
+        if current_text.startswith("▶ "):
+            widgets["header_btn"].configure(text="▼ " + current_text[2:])
+
+        details = self._ensure_card_details(name)
+        if details is not None:
             details.grid(row=2, column=0, padx=12, pady=(0, 12), sticky="ew")
-            details.grid_columnconfigure(0, weight=1)
 
-            form = TemplateFormFrame(details, template_data=template)
-            form.grid(row=0, column=0, padx=6, pady=(6, 2), sticky="ew")
+    def _collapse_card(self, name: str):
+        if name not in self.card_widgets:
+            return
+        widgets = self.card_widgets[name]
+        widgets["is_expanded"] = False
 
-            buttons = ctk.CTkFrame(details, fg_color="transparent")
-            buttons.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
-            buttons.grid_columnconfigure(0, weight=1)
+        current_text = widgets["header_btn"].cget("text")
+        if current_text.startswith("▼ "):
+            widgets["header_btn"].configure(text="▶ " + current_text[2:])
 
-            save_btn = ctk.CTkButton(
-                buttons,
-                text="Save Changes",
-                fg_color="#2FA572",
-                hover_color="#106A43",
-                command=lambda original=template_name, template_form=form: self.save_template(original, template_form),
-            )
-            save_btn.grid(row=0, column=1, padx=(8, 0), sticky="e")
+        if widgets["details_frame"] is not None:
+            widgets["details_frame"].grid_remove()
 
     def save_template(self, original_name: str, form: TemplateFormFrame):
         updated_template = form.get_payload()
@@ -368,7 +447,7 @@ class TemplateManagerDialog(ctk.CTkToplevel):
         if self.on_save and self.on_save(original_name, updated_template):
             self.templates = [dict(template) for template in config.TEMPLATES]
             self.expanded_name = updated_template["name"]
-            self.refresh_cards()
+            self.build_cards()
 
 class ScoresSettingsDialog(ctk.CTkToplevel):
     def __init__(self, parent):
@@ -585,15 +664,11 @@ class ScoresSettingsDialog(ctk.CTkToplevel):
 class DeleteDialog(ctk.CTkToplevel):
     def __init__(self, parent, custom_templates):
         super().__init__(parent)
+        self.withdraw()
         self.title("Delete Templates")
-        self.geometry("340x420")
         self.resizable(False, False)
         self.result = []
-        
-        # Set icon if available
-        icon_path = resource_path("media/bonkscanner_icon.ico")
-        if os.path.exists(icon_path):
-            self.after(200, lambda p=icon_path: self.iconbitmap(p))
+        set_toplevel_icon(self)
             
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -621,7 +696,7 @@ class DeleteDialog(ctk.CTkToplevel):
         self.del_btn.grid(row=0, column=1, padx=10)
         
         self.transient(parent)
-        self.grab_set()
+        show_centered_toplevel(self, parent, 340, 420)
         
     def delete(self):
         self.result = [name for name, var in self.checkboxes.items() if var.get()]
