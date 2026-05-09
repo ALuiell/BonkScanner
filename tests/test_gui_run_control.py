@@ -295,7 +295,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIsNone(app.native_hook_thread)
         self.assertEqual(app.native_hook_generation, 2)
         self.assertIsInstance(app.run_control_provider, KeyboardRunControlProvider)
-        self.assertIn(("[+] Native hooks detached for PID 1234.", "success"), logs)
+        self.assertIn(("[+] Game restart helper disconnected.", "success"), logs)
 
     def test_apply_run_control_mode_enables_hook_provider_and_starts_worker(self) -> None:
         fake_loader = object()
@@ -319,7 +319,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIsInstance(app.run_control_provider, HookRunControlProvider)
         self.assertEqual(app.native_hook_generation, 1)
         self.assertTrue(app.native_hook_thread.started)
-        self.assertIn(("[*] Native hook restart control enabled.", None), logs)
+        self.assertIn(("[*] Game restart helper enabled.", None), logs)
 
     def test_check_admin_rights_logs_hook_warning_when_hook_mode_is_enabled_without_admin(self) -> None:
         logs: list[tuple[str, str | None]] = []
@@ -333,7 +333,7 @@ class GuiRunControlTests(unittest.TestCase):
                 gui.MegabonkApp.check_admin_rights(app)
 
         self.assertIn(
-            ("[*] Native hook may not inject without Administrator privileges; attempting anyway.", "warning"),
+            ("[*] Game restart helper may need Administrator privileges; trying anyway.", "warning"),
             logs,
         )
         self.assertNotIn(("⚠️ WARNING: Script is not running as Administrator!", "warning"), logs)
@@ -350,7 +350,7 @@ class GuiRunControlTests(unittest.TestCase):
                 gui.MegabonkApp.check_admin_rights(app)
 
         self.assertNotIn(
-            ("[*] Native hook may not inject without Administrator privileges; attempting anyway.", "warning"),
+            ("[*] Game restart helper may need Administrator privileges; trying anyway.", "warning"),
             logs,
         )
         self.assertIn(("⚠️ WARNING: Script is not running as Administrator!", "warning"), logs)
@@ -375,7 +375,7 @@ class GuiRunControlTests(unittest.TestCase):
                     gui.MegabonkApp.enable_hook_run_control(app)
 
         self.assertIn(
-            ("[*] Native hook may not inject without Administrator privileges; attempting anyway.", "warning"),
+            ("[*] Game restart helper may need Administrator privileges; trying anyway.", "warning"),
             logs,
         )
 
@@ -399,7 +399,7 @@ class GuiRunControlTests(unittest.TestCase):
                     with patch.object(gui.threading, "Thread", FakeThread):
                         gui.MegabonkApp.enable_hook_run_control(app)
 
-        hook_warning = ("[*] Native hook may not inject without Administrator privileges; attempting anyway.", "warning")
+        hook_warning = ("[*] Game restart helper may need Administrator privileges; trying anyway.", "warning")
         self.assertEqual(logs.count(hook_warning), 1)
 
     def test_keyboard_mode_resets_hook_admin_warning_for_later_hook_enable(self) -> None:
@@ -443,7 +443,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn(("[WAIT] Game window is not active. Auto-reroll paused...", "warning"), logs)
         self.assertIn(("[+] Game window active again. Auto-reroll resumed.", "success"), logs)
 
-    def test_confirmed_target_in_hook_mode_brings_game_forward_without_esc(self) -> None:
+    def test_confirmed_target_in_hook_mode_brings_game_forward_and_closes_menu(self) -> None:
         fake_keyboard = FakeKeyboardModule()
         app = object.__new__(gui.MegabonkApp)
         app.run_control_provider = HookRunControlProvider(object(), map_load_delay=0)
@@ -455,7 +455,7 @@ class GuiRunControlTests(unittest.TestCase):
             self.assertTrue(gui.MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
 
         self.assertEqual(app.bring_game_window_to_front_calls, ["Megabonk.exe"])
-        self.assertEqual(fake_keyboard.press_and_release_calls, [])
+        self.assertEqual(fake_keyboard.press_and_release_calls, ["esc"])
 
     def test_confirmed_target_in_keyboard_mode_keeps_focus_check_and_esc(self) -> None:
         fake_keyboard = FakeKeyboardModule()
@@ -517,7 +517,7 @@ class GuiRunControlTests(unittest.TestCase):
             with patch.object(gui, "win32process", fake_process):
                 with patch.object(gui.ctypes, "windll", fake_windll):
                     with self.assertRaisesRegex(RuntimeError, "foreground denied"):
-                        gui.MegabonkApp.try_alt_attach_foreground_window(app, 111)
+                        gui.MegabonkApp.try_attach_foreground_window(app, 111)
 
         self.assertEqual(
             fake_user32.attach_calls,
@@ -654,7 +654,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIsNone(app.native_hook_thread)
         self.assertEqual(app.native_hook_generation, 8)
         self.assertEqual(destroyed, [True])
-        self.assertIn(("[+] Native hooks detached for PID 1234.", "success"), logs)
+        self.assertIn(("[+] Game restart helper disconnected.", "success"), logs)
 
     def test_on_closing_continues_when_native_hook_detach_fails(self) -> None:
         loader = FakeDetachLoader(error=gui.HookLoadError("remote status 17"))
@@ -679,7 +679,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.native_hook_generation, 3)
         self.assertEqual(destroyed, [True])
         self.assertIn(
-            ("[WAIT] Native hook detach failed during shutdown: remote status 17", "warning"),
+            ("[WAIT] Could not disconnect restart helper during shutdown. Details: remote status 17", "warning"),
             logs,
         )
 
@@ -707,7 +707,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(destroyed, [True])
         self.assertIn(
             (
-                "[WAIT] Native hook detach skipped during shutdown: Waiting for process 'Megabonk.exe'.",
+                "[WAIT] Game is already closed; restart helper shutdown skipped.",
                 "warning",
             ),
             logs,
@@ -726,7 +726,7 @@ class GuiRunControlTests(unittest.TestCase):
             gui.MegabonkApp.native_hook_loop(app, loader, 1)
 
         self.assertEqual(loader.inject_calls, 1)
-        self.assertIn(("[+] Native hook injected into PID 1234.", "success"), logs)
+        self.assertIn(("[+] Game restart helper connected successfully.", "success"), logs)
 
     def test_native_hook_loop_logs_injection_failure_without_admin(self) -> None:
         loader = FakeHookLoopLoader(inject_error=gui.HookLoadError("OpenProcess(1234) failed"))
@@ -742,10 +742,10 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(loader.inject_calls, 1)
         self.assertIn(
-            ("[-] Native hook injection failed: OpenProcess(1234) failed", "error"),
+            ("[-] Could not connect game restart helper. Details: OpenProcess(1234) failed", "error"),
             logs,
         )
-        self.assertNotIn(("[+] Native hook injected into PID 1234.", "success"), logs)
+        self.assertNotIn(("[+] Game restart helper connected successfully.", "success"), logs)
 
     def test_native_hook_loop_retries_when_game_runtime_is_not_ready(self) -> None:
         loader = FakeHookLoopLoader(
@@ -764,8 +764,8 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(loader.inject_calls, 2)
         self.assertEqual(waits, [1.0])
-        self.assertIn(("[WAIT] runtime not ready", None), logs)
-        self.assertIn(("[+] Native hook injected into PID 1234.", "success"), logs)
+        self.assertIn(("[WAIT] Game is starting up. Restart helper will connect automatically.", None), logs)
+        self.assertIn(("[+] Game restart helper connected successfully.", "success"), logs)
 
     def test_native_hook_loop_logs_success_for_admin_injection(self) -> None:
         loader = FakeHookLoopLoader(pid=6728)
@@ -780,7 +780,7 @@ class GuiRunControlTests(unittest.TestCase):
             gui.MegabonkApp.native_hook_loop(app, loader, 1)
 
         self.assertEqual(loader.inject_calls, 1)
-        self.assertIn(("[+] Native hook injected into PID 6728.", "success"), logs)
+        self.assertIn(("[+] Game restart helper connected successfully.", "success"), logs)
 
 
 if __name__ == "__main__":
