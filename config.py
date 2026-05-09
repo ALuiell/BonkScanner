@@ -116,6 +116,13 @@ def save_config(cfg_dict):
 
 user_config = load_config()
 
+def coerce_nonnegative_int(value, default=0):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(parsed, 0)
+
 # Migrate from MAP_LOAD_DELAY if MIN_DELAY is not found
 MIN_DELAY = user_config.get("MIN_DELAY", user_config.get("MAP_LOAD_DELAY", 0.3))
 MAP_LOAD_DELAY = MIN_DELAY
@@ -141,6 +148,7 @@ RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
 PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
 NATIVE_HOOK_ENABLED = user_config.get("NATIVE_HOOK_ENABLED", False)
 NATIVE_HOOK_DLL_PATH = user_config.get("NATIVE_HOOK_DLL_PATH", "")
+TOTAL_REROLLS = coerce_nonnegative_int(user_config.get("TOTAL_REROLLS", 0))
 
 # Load ignored updates
 SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
@@ -202,6 +210,7 @@ user_config["RESET_HOTKEY"] = RESET_HOTKEY
 user_config["PROCESS_NAME"] = PROCESS_NAME
 user_config["NATIVE_HOOK_ENABLED"] = NATIVE_HOOK_ENABLED
 user_config["NATIVE_HOOK_DLL_PATH"] = NATIVE_HOOK_DLL_PATH
+user_config["TOTAL_REROLLS"] = TOTAL_REROLLS
 user_config["TEMPLATES"] = TEMPLATES
 user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
 user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION

@@ -973,6 +973,7 @@ class MegabonkApp(ctk.CTk):
         self.stats_scroll = None
         self.stats_time_label = None
         self.stats_rerolls_label = None
+        self.stats_total_rerolls_label = None
         self.stats_rpm_label = None
         self.stats_best_label = None
         self.stats_worst_label = None
@@ -1008,7 +1009,7 @@ class MegabonkApp(ctk.CTk):
         
         # Session Stats
         self.session_start_time = None
-        self.total_rerolls = 0
+        self.session_rerolls = 0
         self.best_map_stats = None
         self.best_map_score = -1
         self.worst_map_stats = None
@@ -1054,11 +1055,11 @@ class MegabonkApp(ctk.CTk):
             if detach_hooks and previous_loader is not None:
                 try:
                     result = previous_loader.uninitialize()
-                    self.log(f"[+] Native hooks detached for PID {result.pid}.", tag="success")
+                    self.log("[+] Game restart helper disconnected.", tag="success")
                 except HookProcessNotFoundError as exc:
-                    self.log(f"[WAIT] Native hook detach skipped: {exc}", tag="warning")
+                    self.log("[WAIT] Game is already closed; restart helper disconnected.", tag="warning")
                 except HookLoadError as exc:
-                    self.log(f"[WAIT] Native hook detach failed; switching to keyboard restart: {exc}", tag="warning")
+                    self.log(f"[WAIT] Could not disconnect game restart helper; switching to keyboard restart. Details: {exc}", tag="warning")
 
             self.enable_keyboard_run_control()
 
@@ -1095,7 +1096,7 @@ class MegabonkApp(ctk.CTk):
             daemon=True,
         )
         self.native_hook_thread.start()
-        self.log("[*] Native hook restart control enabled.")
+        self.log("[*] Game restart helper enabled.")
 
     def native_hook_loop(self, loader: NativeHookLoader, generation: int):
         if loader is None:
@@ -1108,25 +1109,25 @@ class MegabonkApp(ctk.CTk):
                 if generation != self.native_hook_generation:
                     return
                 if result.skipped:
-                    self.log(f"[*] Native hook already injected for PID {result.pid}.")
+                    self.log("[*] Game restart helper is already connected.")
                 else:
-                    self.log(f"[+] Native hook injected into PID {result.pid}.", tag="success")
+                    self.log("[+] Game restart helper connected successfully.", tag="success")
                 return
             except HookProcessNotFoundError:
                 if not logged_waiting:
-                    self.log(f"[WAIT] Waiting for process '{config.PROCESS_NAME}' before native hook injection.")
+                    self.log("[WAIT] Waiting for the game before connecting restart helper.")
                     logged_waiting = True
                 self.stop_event.wait(1.0)
             except HookProcessNotReadyError as exc:
                 if not logged_waiting:
-                    self.log(f"[WAIT] {exc}")
+                    self.log("[WAIT] Game is starting up. Restart helper will connect automatically.")
                     logged_waiting = True
                 self.stop_event.wait(1.0)
             except HookLoadError as exc:
-                self.log(f"[-] Native hook injection failed: {exc}", tag="error")
+                self.log(f"[-] Could not connect game restart helper. Details: {exc}", tag="error")
                 return
             except Exception as exc:
-                self.log(f"[-] Unexpected native hook loader error: {exc}", tag="error")
+                self.log(f"[-] Unexpected restart helper error. Details: {exc}", tag="error")
                 return
 
     def deferred_update_check(self):
@@ -1161,7 +1162,7 @@ class MegabonkApp(ctk.CTk):
             and not getattr(self, "_native_hook_admin_warning_logged", False)
             and not self.is_running_as_admin()
         ):
-            self.log("[*] Native hook may not inject without Administrator privileges; attempting anyway.", tag="warning")
+            self.log("[*] Game restart helper may need Administrator privileges; trying anyway.", tag="warning")
             self._native_hook_admin_warning_logged = True
 
     def setup_ui(self):
@@ -1307,8 +1308,11 @@ class MegabonkApp(ctk.CTk):
         self.stats_time_label = ctk.CTkLabel(self.stats_scroll, text="Session Time: 00:00:00", font=ctk.CTkFont(size=15))
         self.stats_time_label.pack(anchor="w", pady=5)
         
-        self.stats_rerolls_label = ctk.CTkLabel(self.stats_scroll, text="Total Rerolls: 0", font=ctk.CTkFont(size=15))
+        self.stats_rerolls_label = ctk.CTkLabel(self.stats_scroll, text="Session Rerolls: 0", font=ctk.CTkFont(size=15))
         self.stats_rerolls_label.pack(anchor="w", pady=5)
+
+        self.stats_total_rerolls_label = ctk.CTkLabel(self.stats_scroll, text=f"Total Rerolls: {config.TOTAL_REROLLS}", font=ctk.CTkFont(size=15))
+        self.stats_total_rerolls_label.pack(anchor="w", pady=5)
         
         self.stats_rpm_label = ctk.CTkLabel(self.stats_scroll, text="Rerolls per Minute (RPM): 0.0", font=ctk.CTkFont(size=15))
         self.stats_rpm_label.pack(anchor="w", pady=5)
@@ -1629,7 +1633,7 @@ class MegabonkApp(ctk.CTk):
 
     def toggle_main_loop(self):
         if self.scanner_thread is None or not self.scanner_thread.is_alive():
-            self.log(f"\n[*] Starting monitor hook in {config.EVALUATION_MODE.upper()} mode...")
+            self.log(f"\n[*] Starting auto-reroll monitor in {config.EVALUATION_MODE.upper()} mode...")
             
             if config.EVALUATION_MODE == "templates":
                 # Start background process
@@ -1673,7 +1677,7 @@ class MegabonkApp(ctk.CTk):
             
             # Init Session Stats
             self.session_start_time = time.time()
-            self.total_rerolls = 0
+            self.session_rerolls = 0
             self.best_map_stats = None
             self.best_map_score = -1
             self.worst_map_stats = None
@@ -1693,7 +1697,7 @@ class MegabonkApp(ctk.CTk):
             self.scan_event.set() # Wake up the thread so it can exit
             self.is_running = False
             self.is_ready_to_start = False
-            self.log("\n[*] Stopping monitor hook...")
+            self.log("\n[*] Stopping auto-reroll monitor...")
             self.after(500, self.update_status_ui)
 
     @staticmethod
@@ -1721,15 +1725,16 @@ class MegabonkApp(ctk.CTk):
             td = datetime.timedelta(seconds=elapsed)
             self.stats_time_label.configure(text=f"Session Time: {td}")
             
-            if elapsed > 0 and self.total_rerolls > 0:
-                rpm = (self.total_rerolls / elapsed) * 60
+            if elapsed > 0 and self.session_rerolls > 0:
+                rpm = (self.session_rerolls / elapsed) * 60
                 self.stats_rpm_label.configure(text=f"Rerolls per Minute (RPM): {rpm:.1f}")
                 
         # Schedule next update
         self.after(1000, self.update_timer)
 
     def refresh_stats_ui(self):
-        self.stats_rerolls_label.configure(text=f"Total Rerolls: {self.total_rerolls}")
+        self.stats_rerolls_label.configure(text=f"Session Rerolls: {self.session_rerolls}")
+        self.stats_total_rerolls_label.configure(text=f"Total Rerolls: {config.TOTAL_REROLLS}")
         
         if self.best_map_stats:
             self.stats_best_label.configure(text=f"Best Map Found: {self.format_stats(self.best_map_stats)}")
@@ -1774,12 +1779,19 @@ class MegabonkApp(ctk.CTk):
             label.pack(anchor="w")
 
     def log_reroll_stats(self):
-        self.total_rerolls += 1
+        self.session_rerolls += 1
+        config.TOTAL_REROLLS += 1
+        config.user_config["TOTAL_REROLLS"] = config.TOTAL_REROLLS
+        try:
+            config.save_config(config.user_config)
+        except Exception as exc:
+            self.log(f"[-] Could not save Total Rerolls: {exc}", tag="warning")
+
         for name in self.template_stats:
             self.template_stats[name]['rerolls_since_last'] += 1
             
         # Update UI less frequently to prevent lag (e.g., every 5 rerolls)
-        if self.total_rerolls % 5 == 0:
+        if self.session_rerolls % 5 == 0:
             self.after(0, self.refresh_stats_ui)
 
     def log_target_found(self, template_name: str):
@@ -2018,7 +2030,7 @@ class MegabonkApp(ctk.CTk):
         try:
             win32gui.EnumWindows(enum_callback, None)
         except Exception as exc:
-            self.log(f"[WAIT] Failed to enumerate game windows by PID: {exc}", tag="warning")
+            self.log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
 
         return found_window
 
@@ -2045,7 +2057,7 @@ class MegabonkApp(ctk.CTk):
         try:
             win32gui.EnumWindows(enum_callback, None)
         except Exception as exc:
-            self.log(f"[WAIT] Failed to enumerate game windows by title: {exc}", tag="warning")
+            self.log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
 
         return found_window
 
@@ -2089,7 +2101,7 @@ class MegabonkApp(ctk.CTk):
                     continue
                 except ModuleNotFoundError:
                     if wait_state != "module":
-                        self.log(f"[WAIT] Process found. Waiting for GameAssembly.dll...", tag="warning")
+                        self.log("[WAIT] Game found. Waiting for it to finish loading...", tag="warning")
                         wait_state = "module"
                         self.after(0, self.update_status_ui)
                     time.sleep(1)
@@ -2178,8 +2190,8 @@ class MegabonkApp(ctk.CTk):
                 last_reroll_time = time.monotonic()
                 
             except TimeoutError as exc:
-                self.log(f"[-] Map loading timeout: {exc}", tag="warning")
-                self.log(f"[*] Forcing reroll to unstick...", tag="warning")
+                self.log(f"[-] Map took too long to load: {exc}", tag="warning")
+                self.log("[*] Restarting run to recover...", tag="warning")
                 self.reroll_map()
                 last_reroll_time = time.monotonic()
                 last_state = None
@@ -2189,7 +2201,7 @@ class MegabonkApp(ctk.CTk):
                 self.is_ready_to_start = False
                 self.scan_event.clear()
                 self.close_client()
-                self.log(f"[-] Lost connection to the game: {exc}", tag="error")
+                self.log(f"[-] Lost connection to the game. Details: {exc}", tag="error")
                 wait_state = None
                 last_state = None
                 last_stats = None
@@ -2217,13 +2229,13 @@ class MegabonkApp(ctk.CTk):
             self.native_hook_thread = None
             try:
                 result = hook_loader.uninitialize()
-                self.log(f"[+] Native hooks detached for PID {result.pid}.", tag="success")
+                self.log("[+] Game restart helper disconnected.", tag="success")
             except HookProcessNotFoundError as exc:
-                self.log(f"[WAIT] Native hook detach skipped during shutdown: {exc}", tag="warning")
+                self.log("[WAIT] Game is already closed; restart helper shutdown skipped.", tag="warning")
             except HookLoadError as exc:
-                self.log(f"[WAIT] Native hook detach failed during shutdown: {exc}", tag="warning")
+                self.log(f"[WAIT] Could not disconnect restart helper during shutdown. Details: {exc}", tag="warning")
             except Exception as exc:
-                self.log(f"[WAIT] Unexpected native hook detach error during shutdown: {exc}", tag="warning")
+                self.log(f"[WAIT] Unexpected restart helper shutdown error. Details: {exc}", tag="warning")
         if keyboard:
             keyboard.unhook_all()
         self.destroy()

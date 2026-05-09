@@ -181,6 +181,7 @@ class GuiRunControlTests(unittest.TestCase):
             "MAP_LOAD_DELAY": gui.config.MAP_LOAD_DELAY,
             "RESET_HOLD_DURATION": gui.config.RESET_HOLD_DURATION,
             "NATIVE_HOOK_ENABLED": gui.config.NATIVE_HOOK_ENABLED,
+            "TOTAL_REROLLS": gui.config.TOTAL_REROLLS,
         }
         self.original_user_config = deepcopy(gui.config.user_config)
 
@@ -553,6 +554,25 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app.is_running)
         self.assertFalse(app.is_ready_to_start)
         self.assertTrue(app.scanner_thread.started)
+
+    def test_log_reroll_stats_tracks_session_and_persistent_totals(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.session_rerolls = 3
+        app.template_stats = {"Perfect": {"rerolls_since_last": 2, "history": []}}
+        app.after = lambda _delay, callback: callback()
+        app.log = lambda _message, tag=None: None
+        app.best_map_stats = None
+        app.worst_map_stats = None
+
+        with patch.object(gui.config, "TOTAL_REROLLS", 10):
+            with patch.object(gui.config, "save_config") as save_config:
+                gui.MegabonkApp.log_reroll_stats(app)
+
+                self.assertEqual(app.session_rerolls, 4)
+                self.assertEqual(app.template_stats["Perfect"]["rerolls_since_last"], 3)
+                self.assertEqual(gui.config.TOTAL_REROLLS, 11)
+                self.assertEqual(gui.config.user_config["TOTAL_REROLLS"], 11)
+                save_config.assert_called_once_with(gui.config.user_config)
 
     def test_background_loop_cleanup_clears_scan_event_after_stop_wake(self) -> None:
         app = object.__new__(gui.MegabonkApp)
