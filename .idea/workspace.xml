@@ -6,11 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="3e83fc8f-c68b-495f-bc26-60740c3c180a" name="Changes" comment="update updater.py">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config.json" beforeDir="false" afterPath="$PROJECT_DIR$/config.json" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/gui.py" beforeDir="false" afterPath="$PROJECT_DIR$/gui.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/player_stats.py" beforeDir="false" afterPath="$PROJECT_DIR$/player_stats.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_player_stats.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_player_stats.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -277,7 +273,7 @@
       <workItem from="1778330057011" duration="1477000" />
       <workItem from="1778363857286" duration="1000" />
       <workItem from="1778367170407" duration="9458000" />
-      <workItem from="1778417979868" duration="5017000" />
+      <workItem from="1778417979868" duration="8290000" />
     </task>
     <task id="LOCAL-00002" summary="UI logic improved">
       <option name="closed" value="true" />
@@ -773,6 +769,6 @@
     <SUITE FILE_PATH="coverage/MegabonkReroll$gui.coverage" NAME="gui Coverage Results" MODIFIED="1776352633834" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/MegabonkReroll$.coverage" NAME=" Coverage Results" MODIFIED="1778331256381" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
     <SUITE FILE_PATH="coverage/MegabonkReroll$config.coverage" NAME="config Coverage Results" MODIFIED="1776214013616" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/MegabonkReroll$main.coverage" NAME="main Coverage Results" MODIFIED="1778421436732" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/MegabonkReroll$main.coverage" NAME="main Coverage Results" MODIFIED="1778442677267" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

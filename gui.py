@@ -62,6 +62,10 @@ RIGHT_TAB_BUTTON_WIDTH = 480
 VODS_LIST_WIDTH = 190
 VODS_STATUS_WIDTH = 300
 PLAYER_STATS_TIMELINE_WIDTH = 210
+PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
+PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
+PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
+PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#14375e"
 TAB_CONTENT_FG_COLOR = ("gray86", "gray17")
 RIGHT_TAB_TRANSITION_MS = 80
 
@@ -1077,7 +1081,6 @@ class MegabonkApp(ctk.CTk):
         self.player_stats_scroll = None
         self.player_stats_status_label = None
         self.player_stats_record_btn = None
-        self.player_stats_live_btn = None
         self.player_stats_slider = None
         self.player_stats_slider_time_label = None
         self.player_stats_timeline_label = None
@@ -1405,7 +1408,7 @@ class MegabonkApp(ctk.CTk):
         
         self.tab_logs = self.tabview.add("Logs")
         self.tab_stats = self.tabview.add("Session Stats")
-        self.tab_player_stats = self.tabview.add("Player Stats")
+        self.tab_player_stats = self.tabview.add("Live Stats")
         self.tab_vods = self.tabview.add("Recordings")
         set_equal_tab_button_width(self.tabview, RIGHT_TAB_BUTTON_WIDTH)
         for tab in (self.tab_logs, self.tab_stats, self.tab_player_stats, self.tab_vods):
@@ -1474,23 +1477,15 @@ class MegabonkApp(ctk.CTk):
 
         player_stats_controls = ctk.CTkFrame(self.player_stats_scroll, fg_color="transparent")
         player_stats_controls.pack(fill="x", pady=(0, 8))
-        player_stats_controls.grid_columnconfigure(2, weight=1)
+        player_stats_controls.grid_columnconfigure(1, weight=1)
 
         self.player_stats_record_btn = ctk.CTkButton(
             player_stats_controls,
-            text=f"Record Stats ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})",
+            text=f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})",
             width=150,
             command=self.toggle_player_stats_recording,
         )
         self.player_stats_record_btn.grid(row=0, column=0, sticky="w")
-
-        self.player_stats_live_btn = ctk.CTkButton(
-            player_stats_controls,
-            text="Live Stats",
-            width=80,
-            command=self.show_live_player_stats,
-        )
-        self.player_stats_live_btn.grid(row=0, column=1, sticky="w", padx=(8, 0))
 
         self.player_stats_timeline_label = ctk.CTkLabel(
             player_stats_controls,
@@ -1500,7 +1495,7 @@ class MegabonkApp(ctk.CTk):
             width=PLAYER_STATS_TIMELINE_WIDTH,
             anchor="e",
         )
-        self.player_stats_timeline_label.grid(row=0, column=2, sticky="e", padx=(8, 0))
+        self.player_stats_timeline_label.grid(row=0, column=1, sticky="e", padx=(8, 0))
 
         self.player_stats_slider = ctk.CTkSlider(
             self.player_stats_scroll,
@@ -2147,7 +2142,8 @@ class MegabonkApp(ctk.CTk):
                 self.refresh_player_stats_timeline_ui()
                 self._refresh_vods_list_if_visible()
                 self.display_player_stats_snapshot(snapshot)
-            elif self.player_stats_selected_snapshot_index is None:
+            elif not self.player_stats_vod_recorder.is_recording:
+                self.player_stats_selected_snapshot_index = None
                 self.display_player_stats(stats, status_text="Live player stats")
 
         self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
@@ -2178,6 +2174,24 @@ class MegabonkApp(ctk.CTk):
         if self.player_stats_vod_recorder.is_recording:
             self.player_stats_vod_recorder.stop()
             self.log("[*] Player stats recording stopped.")
+            self.player_stats_vod_snapshots = []
+            self.player_stats_selected_snapshot_index = None
+            try:
+                stats = self.read_player_stats()
+            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+                self.close_player_stats_client()
+                if self.player_stats_status_label is not None:
+                    self.player_stats_status_label.configure(text="Waiting for game/player stats...")
+                for label in self.player_stats_rows.values():
+                    label.configure(text="--")
+            except Exception as exc:
+                self.close_player_stats_client()
+                if self.player_stats_status_label is not None:
+                    self.player_stats_status_label.configure(text=f"Player stats unavailable: {exc}")
+                for label in self.player_stats_rows.values():
+                    label.configure(text="--")
+            else:
+                self.display_player_stats(stats, status_text="Live player stats")
             self._refresh_vods_list_if_visible()
         else:
             vod_path = self.player_stats_vod_recorder.start()
@@ -2204,10 +2218,6 @@ class MegabonkApp(ctk.CTk):
 
         self.refresh_player_stats_timeline_ui()
 
-    def show_live_player_stats(self):
-        self.player_stats_selected_snapshot_index = None
-        self.refresh_player_stats_timeline_ui()
-
     def on_player_stats_slider_changed(self, value):
         snapshot_count = len(self.player_stats_vod_snapshots)
         if snapshot_count == 0:
@@ -2223,14 +2233,20 @@ class MegabonkApp(ctk.CTk):
 
         if self.player_stats_record_btn is not None:
             if self.player_stats_vod_recorder.is_recording:
-                self.player_stats_record_btn.configure(text="Stop Recording")
+                self.player_stats_record_btn.configure(
+                    text="Stop Recording",
+                    fg_color=PLAYER_STATS_ACTIVE_BUTTON_COLOR,
+                    hover_color=PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR,
+                )
             else:
                 self.player_stats_record_btn.configure(
-                    text=f"Record Stats ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})",
+                    text=f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})",
+                    fg_color=PLAYER_STATS_INACTIVE_BUTTON_COLOR,
+                    hover_color=PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
                 )
 
         if self.player_stats_slider is not None:
-            if snapshot_count:
+            if self.player_stats_vod_recorder.is_recording and snapshot_count:
                 self.player_stats_slider.configure(
                     state="normal",
                     to=max(snapshot_count - 1, 1),
@@ -2244,23 +2260,23 @@ class MegabonkApp(ctk.CTk):
                 self.player_stats_slider.set(0)
 
         if self.player_stats_timeline_label is not None:
-            prefix = ""
             if self.player_stats_vod_recorder.is_recording:
                 prefix = f"Recording {self.player_stats_vod_recorder.elapsed_label()} | "
-
-            if snapshot_count:
-                selected = self.player_stats_selected_snapshot_index
-                mode = "Live" if selected is None else self.player_stats_vod_snapshots[selected].time_label
-                self.player_stats_timeline_label.configure(text=f"{prefix}{snapshot_count} snapshots | {mode}")
+                if snapshot_count:
+                    selected = self.player_stats_selected_snapshot_index
+                    mode = self.player_stats_vod_snapshots[selected].time_label if selected is not None else "--"
+                    self.player_stats_timeline_label.configure(text=f"{prefix}{snapshot_count} snapshots | {mode}")
+                else:
+                    self.player_stats_timeline_label.configure(text=f"{prefix}No snapshots")
             else:
-                self.player_stats_timeline_label.configure(text=f"{prefix}No snapshots")
+                self.player_stats_timeline_label.configure(text="Live stats")
 
         if self.player_stats_slider_time_label is not None:
-            if snapshot_count:
+            if self.player_stats_vod_recorder.is_recording and snapshot_count:
                 first = self.player_stats_vod_snapshots[0].time_label
                 last = self.player_stats_vod_snapshots[-1].time_label
                 selected = self.player_stats_selected_snapshot_index
-                current = "Live" if selected is None else self.player_stats_vod_snapshots[selected].time_label
+                current = self.player_stats_vod_snapshots[selected].time_label if selected is not None else "--"
                 self.player_stats_slider_time_label.configure(
                     text=f"Timeline: {first} - {last} | Selected: {current}",
                 )
@@ -2269,7 +2285,7 @@ class MegabonkApp(ctk.CTk):
                     text=f"Timeline: recording {self.player_stats_vod_recorder.elapsed_label()} | waiting for first snapshot",
                 )
             else:
-                self.player_stats_slider_time_label.configure(text="Timeline: --")
+                self.player_stats_slider_time_label.configure(text="Timeline: live stats")
 
     def refresh_vods_list(self):
         if self.vods_list_frame is None:
