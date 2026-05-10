@@ -5,10 +5,12 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="3e83fc8f-c68b-495f-bc26-60740c3c180a" name="Changes" comment="update updater.py">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/config.json" beforeDir="false" afterPath="$PROJECT_DIR$/config.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/config.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/gui.py" beforeDir="false" afterPath="$PROJECT_DIR$/gui.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/memory.py" beforeDir="false" afterPath="$PROJECT_DIR$/memory.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_memory.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_memory.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/player_stats.py" beforeDir="false" afterPath="$PROJECT_DIR$/player_stats.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_player_stats.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_player_stats.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -51,35 +53,35 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ACTIVE_CLOUD_PROJECT_ACCOUNT": "heaven99902@gmail.com",
-    "ACTIVE_CLOUD_PROJECT_ID": "gen-lang-client-0365629123",
-    "ACTIVE_CLOUD_PROJECT_NAME": "Default Gemini Project",
-    "ACTIVE_CLOUD_PROJECT_NUMBER": "120828823582",
-    "Python tests.Python tests for test_main.MainFlowTests.executor": "Run",
-    "Python tests.Python tests in test_game_data.py.executor": "Run",
-    "Python tests.Python tests in test_gui_run_control.py.executor": "Run",
-    "Python tests.Python tests in test_main.py.executor": "Run",
-    "Python tests.Python tests in test_memory.py.executor": "Run",
-    "Python tests.Python tests in test_runtime_stats.py.executor": "Run",
-    "Python.config.executor": "Run",
-    "Python.gui.executor": "Run",
-    "Python.main.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "com.google.cloudcode.ide_session_index": "20260427_0002",
-    "git-widget-placeholder": "vod__stats",
-    "ignore.virus.scanning.warn.message": "true",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "com.android.studio.ml.bot.mainConfigurable",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ACTIVE_CLOUD_PROJECT_ACCOUNT&quot;: &quot;heaven99902@gmail.com&quot;,
+    &quot;ACTIVE_CLOUD_PROJECT_ID&quot;: &quot;gen-lang-client-0365629123&quot;,
+    &quot;ACTIVE_CLOUD_PROJECT_NAME&quot;: &quot;Default Gemini Project&quot;,
+    &quot;ACTIVE_CLOUD_PROJECT_NUMBER&quot;: &quot;120828823582&quot;,
+    &quot;Python tests.Python tests for test_main.MainFlowTests.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests in test_game_data.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests in test_gui_run_control.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests in test_main.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests in test_memory.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python tests.Python tests in test_runtime_stats.py.executor&quot;: &quot;Run&quot;,
+    &quot;Python.config.executor&quot;: &quot;Run&quot;,
+    &quot;Python.gui.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;com.google.cloudcode.ide_session_index&quot;: &quot;20260427_0002&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;vod__stats&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.android.studio.ml.bot.mainConfigurable&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="F:\Python\MegabonkReroll" />
@@ -274,7 +276,8 @@
       <workItem from="1778327076472" duration="866000" />
       <workItem from="1778330057011" duration="1477000" />
       <workItem from="1778363857286" duration="1000" />
-      <workItem from="1778367170407" duration="5489000" />
+      <workItem from="1778367170407" duration="9458000" />
+      <workItem from="1778417979868" duration="5017000" />
     </task>
     <task id="LOCAL-00002" summary="UI logic improved">
       <option name="closed" value="true" />
@@ -770,6 +773,6 @@
     <SUITE FILE_PATH="coverage/MegabonkReroll$gui.coverage" NAME="gui Coverage Results" MODIFIED="1776352633834" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/MegabonkReroll$.coverage" NAME=" Coverage Results" MODIFIED="1778331256381" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
     <SUITE FILE_PATH="coverage/MegabonkReroll$config.coverage" NAME="config Coverage Results" MODIFIED="1776214013616" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/MegabonkReroll$main.coverage" NAME="main Coverage Results" MODIFIED="1778382057712" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/MegabonkReroll$main.coverage" NAME="main Coverage Results" MODIFIED="1778421436732" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

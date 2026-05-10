@@ -75,6 +75,7 @@
     ],
     "ACTIVE_TEMPLATES": [
         "MERCHANT",
+        "PERFECT",
         "PERFECT+"
     ],
     "SKIPPED_UPDATE_VERSION": "",
@@ -106,5 +107,7 @@
     },
     "NATIVE_HOOK_ENABLED": true,
     "NATIVE_HOOK_DLL_PATH": "",
-    "TOTAL_REROLLS": 0
+    "TOTAL_REROLLS": 44,
+    "PLAYER_STATS_RECORD_HOTKEY": "f8",
+    "PLAYER_STATS_RECORD_INTERVAL_SECONDS": 60
 }

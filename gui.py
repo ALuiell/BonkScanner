@@ -7,6 +7,26 @@ import time
 import datetime
 import subprocess
 import webbrowser
+
+
+def enable_windows_dpi_awareness() -> None:
+    if os.name != "nt":
+        return
+
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except Exception:
+        pass
+
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+
+enable_windows_dpi_awareness()
+
 import customtkinter as ctk
 from PIL import Image
 
@@ -19,6 +39,7 @@ from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from player_stats import PLAYER_STAT_GROUPS, PlayerStatsClient
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
+from vod_storage import VodRecorder, delete_vod, list_vods, load_vod, rename_vod
 
 try:
     import win32gui
@@ -36,6 +57,13 @@ ctk.set_appearance_mode("dark")
 
 SUPPORT_URL = "https://ko-fi.com/H2H01YXPQ7"
 PLAYER_STATS_REFRESH_MS = 10_000
+RIGHT_PANEL_MIN_WIDTH = 520
+RIGHT_TAB_BUTTON_WIDTH = 480
+VODS_LIST_WIDTH = 190
+VODS_STATUS_WIDTH = 300
+PLAYER_STATS_TIMELINE_WIDTH = 210
+TAB_CONTENT_FG_COLOR = ("gray86", "gray17")
+RIGHT_TAB_TRANSITION_MS = 80
 
 # Helper function to get correct path for bundled files in PyInstaller
 def resource_path(relative_path):
@@ -104,6 +132,14 @@ def show_centered_toplevel(window, parent, width: int, height: int) -> None:
         window.grab_set()
 
     window.after(MODAL_SHOW_DELAY_MS, reveal)
+
+
+def set_equal_tab_button_width(tabview, width: int) -> None:
+    segmented_button = getattr(tabview, "_segmented_button", None)
+    if segmented_button is None:
+        return
+
+    segmented_button.configure(width=width, dynamic_resizing=False)
 
 
 def format_template_conditions(template: dict) -> str:
@@ -705,6 +741,62 @@ class DeleteDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+class ConfirmDeleteRecordingDialog(ctk.CTkToplevel):
+    def __init__(self, parent, recording_name: str):
+        super().__init__(parent)
+        self.withdraw()
+        self.result = False
+        self.title("Delete Recording")
+        self.resizable(False, False)
+        set_toplevel_icon(self)
+
+        self.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self,
+            text="Delete this stats recording?",
+            font=ctk.CTkFont(size=16, weight="bold"),
+        ).grid(row=0, column=0, padx=22, pady=(20, 8), sticky="w")
+
+        ctk.CTkLabel(
+            self,
+            text=f"{recording_name}\n\nThis cannot be undone.",
+            justify="left",
+            wraplength=356,
+            text_color="#CFCFCF",
+        ).grid(row=1, column=0, padx=22, pady=(0, 18), sticky="w")
+
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="ew")
+        buttons.grid_columnconfigure((0, 1), weight=1)
+
+        ctk.CTkButton(
+            buttons,
+            text="Cancel",
+            command=self.cancel,
+        ).grid(row=0, column=0, padx=(0, 8), sticky="ew")
+
+        ctk.CTkButton(
+            buttons,
+            text="Delete",
+            fg_color="#b30000",
+            hover_color="#800000",
+            command=self.confirm,
+        ).grid(row=0, column=1, padx=(8, 0), sticky="ew")
+
+        self.protocol("WM_DELETE_WINDOW", self.cancel)
+        self.transient(parent)
+        show_centered_toplevel(self, parent, 400, 210)
+
+    def confirm(self):
+        self.result = True
+        self.destroy()
+
+    def cancel(self):
+        self.result = False
+        self.destroy()
+
+
 class NativeHookWarningDialog(ctk.CTkToplevel):
     def __init__(self, parent):
         super().__init__(parent)
@@ -972,6 +1064,7 @@ class MegabonkApp(ctk.CTk):
         self.tab_logs = None
         self.tab_stats = None
         self.tab_player_stats = None
+        self.tab_vods = None
         self.log_box = None
         self.stats_scroll = None
         self.stats_time_label = None
@@ -983,7 +1076,22 @@ class MegabonkApp(ctk.CTk):
         self.stats_avg_frame = None
         self.player_stats_scroll = None
         self.player_stats_status_label = None
+        self.player_stats_record_btn = None
+        self.player_stats_live_btn = None
+        self.player_stats_slider = None
+        self.player_stats_slider_time_label = None
+        self.player_stats_timeline_label = None
         self.player_stats_rows = {}
+        self.vods_list_frame = None
+        self.vods_status_label = None
+        self.vods_name_entry = None
+        self.vods_rename_btn = None
+        self.vods_delete_btn = None
+        self.vods_slider = None
+        self.vods_slider_time_label = None
+        self.vods_rows = {}
+        self.right_tab_transition_cover = None
+        self.right_tab_transition_after_id = None
         self.controls_frame = None
         self.settings_btn = None
         self.status_label = None
@@ -999,6 +1107,13 @@ class MegabonkApp(ctk.CTk):
         self.scanner_thread = None
         self.client = None
         self.player_stats_client = None
+        self.player_stats_vod_recorder = VodRecorder(
+            interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 60),
+        )
+        self.player_stats_vod_snapshots = []
+        self.player_stats_selected_snapshot_index = None
+        self.loaded_vod = None
+        self.loaded_vod_snapshot_index = None
         self.native_hook_loader = None
         self.native_hook_thread = None
         self.native_hook_generation = 0
@@ -1176,7 +1291,7 @@ class MegabonkApp(ctk.CTk):
     def setup_ui(self):
         # Configure layout grid. Equal weight for left and right panels
         self.grid_columnconfigure(0, weight=1) 
-        self.grid_columnconfigure(1, weight=1) 
+        self.grid_columnconfigure(1, weight=1, minsize=RIGHT_PANEL_MIN_WIDTH)
         self.grid_rowconfigure(1, weight=1)
         
         # Load shared settings image
@@ -1285,12 +1400,16 @@ class MegabonkApp(ctk.CTk):
         self.right_frame.grid_columnconfigure(0, weight=1)
         
         # TabView for Logs and Stats
-        self.tabview = ctk.CTkTabview(self.right_frame)
+        self.tabview = ctk.CTkTabview(self.right_frame, command=self.on_right_tab_changed)
         self.tabview.grid(row=0, column=0, padx=10, pady=(0, 10), sticky="nsew")
         
         self.tab_logs = self.tabview.add("Logs")
         self.tab_stats = self.tabview.add("Session Stats")
         self.tab_player_stats = self.tabview.add("Player Stats")
+        self.tab_vods = self.tabview.add("Recordings")
+        set_equal_tab_button_width(self.tabview, RIGHT_TAB_BUTTON_WIDTH)
+        for tab in (self.tab_logs, self.tab_stats, self.tab_player_stats, self.tab_vods):
+            tab.configure(fg_color=TAB_CONTENT_FG_COLOR)
         
         self.tab_logs.grid_rowconfigure(0, weight=1)
         self.tab_logs.grid_columnconfigure(0, weight=1)
@@ -1298,6 +1417,9 @@ class MegabonkApp(ctk.CTk):
         self.tab_stats.grid_columnconfigure(0, weight=1)
         self.tab_player_stats.grid_rowconfigure(0, weight=1)
         self.tab_player_stats.grid_columnconfigure(0, weight=1)
+        self.tab_vods.grid_rowconfigure(0, weight=1)
+        self.tab_vods.grid_columnconfigure(0, weight=0)
+        self.tab_vods.grid_columnconfigure(1, weight=1)
         
         # Log Textbox
         self.log_box = ctk.CTkTextbox(self.tab_logs, state="disabled", font=ctk.CTkFont(family="Consolas", size=13), wrap="none")
@@ -1313,7 +1435,7 @@ class MegabonkApp(ctk.CTk):
             self.log_box.tag_config(color_name, foreground=hex_code)
             
         # Stats Elements
-        self.stats_scroll = ctk.CTkScrollableFrame(self.tab_stats, fg_color="transparent")
+        self.stats_scroll = ctk.CTkScrollableFrame(self.tab_stats, fg_color=TAB_CONTENT_FG_COLOR)
         self.stats_scroll.grid(row=0, column=0, sticky="nsew")
         
         self.stats_time_label = ctk.CTkLabel(self.stats_scroll, text="Session Time: 00:00:00", font=ctk.CTkFont(size=15))
@@ -1339,7 +1461,7 @@ class MegabonkApp(ctk.CTk):
         self.stats_avg_frame.pack(fill="x", anchor="w")
 
         # Player Stats Elements
-        self.player_stats_scroll = ctk.CTkScrollableFrame(self.tab_player_stats, fg_color="transparent")
+        self.player_stats_scroll = ctk.CTkScrollableFrame(self.tab_player_stats, fg_color=TAB_CONTENT_FG_COLOR)
         self.player_stats_scroll.grid(row=0, column=0, sticky="nsew")
 
         self.player_stats_status_label = ctk.CTkLabel(
@@ -1349,6 +1471,55 @@ class MegabonkApp(ctk.CTk):
             text_color="#CCCCCC",
         )
         self.player_stats_status_label.pack(anchor="w", pady=(0, 8))
+
+        player_stats_controls = ctk.CTkFrame(self.player_stats_scroll, fg_color="transparent")
+        player_stats_controls.pack(fill="x", pady=(0, 8))
+        player_stats_controls.grid_columnconfigure(2, weight=1)
+
+        self.player_stats_record_btn = ctk.CTkButton(
+            player_stats_controls,
+            text=f"Record Stats ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})",
+            width=150,
+            command=self.toggle_player_stats_recording,
+        )
+        self.player_stats_record_btn.grid(row=0, column=0, sticky="w")
+
+        self.player_stats_live_btn = ctk.CTkButton(
+            player_stats_controls,
+            text="Live Stats",
+            width=80,
+            command=self.show_live_player_stats,
+        )
+        self.player_stats_live_btn.grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+        self.player_stats_timeline_label = ctk.CTkLabel(
+            player_stats_controls,
+            text="No snapshots",
+            font=ctk.CTkFont(size=13),
+            text_color="#CCCCCC",
+            width=PLAYER_STATS_TIMELINE_WIDTH,
+            anchor="e",
+        )
+        self.player_stats_timeline_label.grid(row=0, column=2, sticky="e", padx=(8, 0))
+
+        self.player_stats_slider = ctk.CTkSlider(
+            self.player_stats_scroll,
+            from_=0,
+            to=1,
+            number_of_steps=1,
+            command=self.on_player_stats_slider_changed,
+        )
+        self.player_stats_slider.pack(fill="x", pady=(0, 10))
+        self.player_stats_slider.configure(state="disabled")
+
+        self.player_stats_slider_time_label = ctk.CTkLabel(
+            self.player_stats_scroll,
+            text="Timeline: --",
+            font=ctk.CTkFont(size=12),
+            text_color="#AAAAAA",
+            anchor="w",
+        )
+        self.player_stats_slider_time_label.pack(fill="x", pady=(0, 10))
 
         self.player_stats_rows = {}
         for group_index, group in enumerate(PLAYER_STAT_GROUPS):
@@ -1377,6 +1548,100 @@ class MegabonkApp(ctk.CTk):
                 )
                 value_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
                 self.player_stats_rows[spec.label] = value_label
+
+        self.refresh_player_stats_timeline_ui()
+
+        # VOD Archive Elements
+        self.vods_list_frame = ctk.CTkScrollableFrame(self.tab_vods, width=VODS_LIST_WIDTH, fg_color=TAB_CONTENT_FG_COLOR)
+        self.vods_list_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+
+        vods_detail_frame = ctk.CTkScrollableFrame(self.tab_vods, fg_color=TAB_CONTENT_FG_COLOR)
+        vods_detail_frame.grid(row=0, column=1, sticky="nsew")
+
+        self.vods_status_label = ctk.CTkLabel(
+            vods_detail_frame,
+            text="Select a recording",
+            font=ctk.CTkFont(size=14),
+            text_color="#CCCCCC",
+            width=VODS_STATUS_WIDTH,
+            wraplength=VODS_STATUS_WIDTH,
+            anchor="w",
+        )
+        self.vods_status_label.pack(fill="x", anchor="w", pady=(0, 8))
+
+        vods_controls = ctk.CTkFrame(vods_detail_frame, fg_color="transparent")
+        vods_controls.pack(fill="x", pady=(0, 8))
+        vods_controls.grid_columnconfigure(0, weight=1)
+
+        self.vods_name_entry = ctk.CTkEntry(vods_controls, placeholder_text="Recording name")
+        self.vods_name_entry.grid(row=0, column=0, sticky="ew")
+
+        self.vods_rename_btn = ctk.CTkButton(
+            vods_controls,
+            text="Rename",
+            width=70,
+            command=self.rename_selected_vod,
+        )
+        self.vods_rename_btn.grid(row=0, column=1, padx=(8, 0))
+
+        self.vods_delete_btn = ctk.CTkButton(
+            vods_controls,
+            text="Delete",
+            width=64,
+            fg_color="#7A2424",
+            hover_color="#5A1A1A",
+            command=self.delete_selected_vod,
+        )
+        self.vods_delete_btn.grid(row=0, column=2, padx=(8, 0))
+
+        self.vods_slider = ctk.CTkSlider(
+            vods_detail_frame,
+            from_=0,
+            to=1,
+            number_of_steps=1,
+            command=self.on_vods_slider_changed,
+        )
+        self.vods_slider.pack(fill="x", pady=(0, 10))
+        self.vods_slider.configure(state="disabled")
+
+        self.vods_slider_time_label = ctk.CTkLabel(
+            vods_detail_frame,
+            text="Timeline: --",
+            font=ctk.CTkFont(size=12),
+            text_color="#AAAAAA",
+            anchor="w",
+        )
+        self.vods_slider_time_label.pack(fill="x", pady=(0, 10))
+
+        self.vods_rows = {}
+        for group_index, group in enumerate(PLAYER_STAT_GROUPS):
+            if group_index:
+                ctk.CTkFrame(vods_detail_frame, height=1, fg_color="#3A3A3A").pack(fill="x", pady=8)
+
+            for spec in group:
+                row = ctk.CTkFrame(vods_detail_frame, fg_color="transparent")
+                row.pack(fill="x", pady=1)
+                row.grid_columnconfigure(0, weight=1)
+
+                name_label = ctk.CTkLabel(
+                    row,
+                    text=spec.label,
+                    font=ctk.CTkFont(size=14, weight="bold"),
+                    anchor="w",
+                )
+                name_label.grid(row=0, column=0, sticky="ew")
+
+                value_label = ctk.CTkLabel(
+                    row,
+                    text="--",
+                    font=ctk.CTkFont(family="Consolas", size=14, weight="bold"),
+                    anchor="e",
+                    width=90,
+                )
+                value_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
+                self.vods_rows[spec.label] = value_label
+
+        self.refresh_vods_list()
         
         # Controls Setup
         self.controls_frame = ctk.CTkFrame(self.right_frame, fg_color="transparent")
@@ -1410,6 +1675,71 @@ class MegabonkApp(ctk.CTk):
         config.user_config["EVALUATION_MODE"] = config.EVALUATION_MODE
         config.save_config(config.user_config)
         self.log(f"[*] Switched to {config.EVALUATION_MODE} mode.")
+
+    def on_right_tab_changed(self):
+        self._show_right_tab_transition_cover()
+        if self._is_recordings_tab_active():
+            self.refresh_vods_list()
+        self.after_idle(self._refresh_right_tab_after_switch)
+
+    def _refresh_right_tab_after_switch(self):
+        if self.tabview is None or not self.winfo_exists():
+            return
+
+        self.tabview.update_idletasks()
+        self.right_frame.update_idletasks()
+
+    def _show_right_tab_transition_cover(self):
+        if self.tabview is None or not self.winfo_exists():
+            return
+
+        self._cancel_right_tab_transition()
+
+        try:
+            current_tab = self.tabview.tab(self.tabview.get())
+        except ValueError:
+            return
+
+        cover = ctk.CTkFrame(current_tab, fg_color=TAB_CONTENT_FG_COLOR, corner_radius=0)
+        cover.place(relx=0, rely=0, relwidth=1, relheight=1)
+        cover.lift()
+        self.right_tab_transition_cover = cover
+        self.right_tab_transition_after_id = self.after(
+            RIGHT_TAB_TRANSITION_MS,
+            self._hide_right_tab_transition_cover,
+        )
+
+    def _hide_right_tab_transition_cover(self):
+        if self.right_tab_transition_cover is not None:
+            self.right_tab_transition_cover.destroy()
+            self.right_tab_transition_cover = None
+
+        self.right_tab_transition_after_id = None
+        self.after_idle(self._refresh_right_tab_after_switch)
+
+    def _cancel_right_tab_transition(self):
+        transition_after_id = self.__dict__.get("right_tab_transition_after_id")
+        if transition_after_id is not None:
+            try:
+                self.after_cancel(transition_after_id)
+            except Exception:
+                pass
+            self.right_tab_transition_after_id = None
+
+        transition_cover = self.__dict__.get("right_tab_transition_cover")
+        if transition_cover is not None:
+            try:
+                transition_cover.destroy()
+            except Exception:
+                pass
+            self.right_tab_transition_cover = None
+
+    def _is_recordings_tab_active(self) -> bool:
+        return self.tabview is not None and self.tabview.get() == "Recordings"
+
+    def _refresh_vods_list_if_visible(self) -> None:
+        if self._is_recordings_tab_active():
+            self.refresh_vods_list()
 
     def refresh_scores_templates_list(self):
         for widget in self.scores_templates_frame.winfo_children():
@@ -1617,6 +1947,11 @@ class MegabonkApp(ctk.CTk):
                 # Always remove existing hotkeys before adding a new one
                 keyboard.unhook_all()
                 keyboard.add_hotkey(config.HOTKEY, self.hotkey_toggle_scanning)
+                if getattr(config, "PLAYER_STATS_RECORD_HOTKEY", ""):
+                    keyboard.add_hotkey(
+                        config.PLAYER_STATS_RECORD_HOTKEY,
+                        self.hotkey_toggle_player_stats_recording,
+                    )
             except Exception as e:
                 self.log(f"Error binding hotkey {config.HOTKEY}: {e}", tag="error")
                 
@@ -1634,6 +1969,9 @@ class MegabonkApp(ctk.CTk):
         status = "STARTED" if self.is_running else "STOPPED"
         self.log(f"\n[!!!] Script {status} via Hotkey", tag="success" if self.is_running else "warning")
         self.update_status_ui()
+
+    def hotkey_toggle_player_stats_recording(self):
+        self.after(0, self.toggle_player_stats_recording)
         
     def update_status_ui(self):
         if self.is_running:
@@ -1779,6 +2117,9 @@ class MegabonkApp(ctk.CTk):
             if elapsed > 0 and self.session_rerolls > 0:
                 rpm = (self.session_rerolls / elapsed) * 60
                 self.stats_rpm_label.configure(text=f"Rerolls per Minute (RPM): {rpm:.1f}")
+
+        if self.player_stats_vod_recorder.is_recording:
+            self.refresh_player_stats_timeline_ui(update_slider=False)
                 
         # Schedule next update
         self.after(1000, self.update_timer)
@@ -1799,12 +2140,15 @@ class MegabonkApp(ctk.CTk):
             for label in self.player_stats_rows.values():
                 label.configure(text="--")
         else:
-            if self.player_stats_status_label is not None:
-                self.player_stats_status_label.configure(text="Live player stats")
-            for label, stat in stats.items():
-                value_label = self.player_stats_rows.get(label)
-                if value_label is not None:
-                    value_label.configure(text=stat.display_value)
+            if self.player_stats_vod_recorder.should_capture():
+                snapshot = self.player_stats_vod_recorder.capture(stats)
+                self.player_stats_vod_snapshots.append(snapshot)
+                self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
+                self.refresh_player_stats_timeline_ui()
+                self._refresh_vods_list_if_visible()
+                self.display_player_stats_snapshot(snapshot)
+            elif self.player_stats_selected_snapshot_index is None:
+                self.display_player_stats(stats, status_text="Live player stats")
 
         self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
 
@@ -1812,6 +2156,299 @@ class MegabonkApp(ctk.CTk):
         if self.player_stats_client is None:
             self.player_stats_client = PlayerStatsClient(config.PROCESS_NAME)
         return self.player_stats_client.get_player_stats()
+
+    def display_player_stats(self, stats, *, status_text: str | None = None):
+        if status_text and self.player_stats_status_label is not None:
+            self.player_stats_status_label.configure(text=status_text)
+
+        for label, stat in stats.items():
+            value_label = self.player_stats_rows.get(label)
+            if value_label is not None:
+                value_label.configure(text=stat.display_value)
+
+    def display_player_stats_snapshot(self, snapshot):
+        index = self.player_stats_vod_snapshots.index(snapshot) + 1
+        total = len(self.player_stats_vod_snapshots)
+        self.display_player_stats(
+            snapshot.stats,
+            status_text=f"Recorded snapshot {index}/{total} at {snapshot.time_label}",
+        )
+
+    def toggle_player_stats_recording(self):
+        if self.player_stats_vod_recorder.is_recording:
+            self.player_stats_vod_recorder.stop()
+            self.log("[*] Player stats recording stopped.")
+            self._refresh_vods_list_if_visible()
+        else:
+            vod_path = self.player_stats_vod_recorder.start()
+            self.player_stats_vod_snapshots = []
+            self.player_stats_selected_snapshot_index = None
+            self.log(f"[*] Player stats recording started: {vod_path.name}", tag="success")
+            try:
+                stats = self.read_player_stats()
+            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+                self.close_player_stats_client()
+                if self.player_stats_status_label is not None:
+                    self.player_stats_status_label.configure(text="Recording stats; waiting for game/player stats...")
+            except Exception as exc:
+                self.close_player_stats_client()
+                if self.player_stats_status_label is not None:
+                    self.player_stats_status_label.configure(text=f"Recording stats; player stats unavailable: {exc}")
+            else:
+                snapshot = self.player_stats_vod_recorder.capture(stats)
+                self.player_stats_vod_snapshots.append(snapshot)
+                self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
+                self.display_player_stats_snapshot(snapshot)
+                self._refresh_vods_list_if_visible()
+            self._refresh_vods_list_if_visible()
+
+        self.refresh_player_stats_timeline_ui()
+
+    def show_live_player_stats(self):
+        self.player_stats_selected_snapshot_index = None
+        self.refresh_player_stats_timeline_ui()
+
+    def on_player_stats_slider_changed(self, value):
+        snapshot_count = len(self.player_stats_vod_snapshots)
+        if snapshot_count == 0:
+            return
+
+        index = min(max(int(round(float(value))), 0), snapshot_count - 1)
+        self.player_stats_selected_snapshot_index = index
+        self.display_player_stats_snapshot(self.player_stats_vod_snapshots[index])
+        self.refresh_player_stats_timeline_ui(update_slider=False)
+
+    def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True):
+        snapshot_count = len(self.player_stats_vod_snapshots)
+
+        if self.player_stats_record_btn is not None:
+            if self.player_stats_vod_recorder.is_recording:
+                self.player_stats_record_btn.configure(text="Stop Recording")
+            else:
+                self.player_stats_record_btn.configure(
+                    text=f"Record Stats ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})",
+                )
+
+        if self.player_stats_slider is not None:
+            if snapshot_count:
+                self.player_stats_slider.configure(
+                    state="normal",
+                    to=max(snapshot_count - 1, 1),
+                    number_of_steps=max(snapshot_count - 1, 1),
+                )
+                if update_slider:
+                    index = self.player_stats_selected_snapshot_index
+                    self.player_stats_slider.set(index if index is not None else snapshot_count - 1)
+            else:
+                self.player_stats_slider.configure(state="disabled", to=1, number_of_steps=1)
+                self.player_stats_slider.set(0)
+
+        if self.player_stats_timeline_label is not None:
+            prefix = ""
+            if self.player_stats_vod_recorder.is_recording:
+                prefix = f"Recording {self.player_stats_vod_recorder.elapsed_label()} | "
+
+            if snapshot_count:
+                selected = self.player_stats_selected_snapshot_index
+                mode = "Live" if selected is None else self.player_stats_vod_snapshots[selected].time_label
+                self.player_stats_timeline_label.configure(text=f"{prefix}{snapshot_count} snapshots | {mode}")
+            else:
+                self.player_stats_timeline_label.configure(text=f"{prefix}No snapshots")
+
+        if self.player_stats_slider_time_label is not None:
+            if snapshot_count:
+                first = self.player_stats_vod_snapshots[0].time_label
+                last = self.player_stats_vod_snapshots[-1].time_label
+                selected = self.player_stats_selected_snapshot_index
+                current = "Live" if selected is None else self.player_stats_vod_snapshots[selected].time_label
+                self.player_stats_slider_time_label.configure(
+                    text=f"Timeline: {first} - {last} | Selected: {current}",
+                )
+            elif self.player_stats_vod_recorder.is_recording:
+                self.player_stats_slider_time_label.configure(
+                    text=f"Timeline: recording {self.player_stats_vod_recorder.elapsed_label()} | waiting for first snapshot",
+                )
+            else:
+                self.player_stats_slider_time_label.configure(text="Timeline: --")
+
+    def refresh_vods_list(self):
+        if self.vods_list_frame is None:
+            return
+
+        for widget in self.vods_list_frame.winfo_children():
+            widget.destroy()
+
+        vods = list_vods()
+        if not vods:
+            ctk.CTkLabel(
+                self.vods_list_frame,
+                text="No saved recordings",
+                font=ctk.CTkFont(size=13),
+                text_color="#AAAAAA",
+            ).pack(anchor="w", pady=4)
+            return
+
+        selected_path = self.loaded_vod.metadata.path if self.loaded_vod is not None else None
+        for vod in vods:
+            is_selected = selected_path == vod.path
+            duration = self.format_duration(vod.duration_seconds)
+            button_text = f"{vod.name}\n{vod.snapshot_count} snapshots | {duration}"
+            button = ctk.CTkButton(
+                self.vods_list_frame,
+                text=button_text,
+                width=VODS_LIST_WIDTH - 24,
+                anchor="w",
+                fg_color="#1F6AA5" if is_selected else "#3A3A3A",
+                hover_color="#144870" if is_selected else "#4A4A4A",
+                command=lambda path=vod.path: self.load_selected_vod(path),
+            )
+            button.pack(fill="x", pady=3)
+
+    def load_selected_vod(self, path):
+        try:
+            self.loaded_vod = load_vod(path)
+        except Exception as exc:
+            self.loaded_vod = None
+            self.loaded_vod_snapshot_index = None
+            if self.vods_status_label is not None:
+                self.vods_status_label.configure(text=f"Could not load recording: {exc}")
+            return
+
+        self.loaded_vod_snapshot_index = 0 if self.loaded_vod.snapshots else None
+
+        if self.vods_name_entry is not None:
+            self.vods_name_entry.delete(0, "end")
+            self.vods_name_entry.insert(0, self.loaded_vod.metadata.name)
+
+        self.refresh_loaded_vod_ui()
+        self.refresh_vods_list()
+
+    def refresh_loaded_vod_ui(self, *, update_slider: bool = True):
+        if self.loaded_vod is None:
+            return
+
+        snapshot_count = len(self.loaded_vod.snapshots)
+        metadata = self.loaded_vod.metadata
+        duration = self.format_duration(metadata.duration_seconds)
+
+        if self.vods_status_label is not None:
+            self.vods_status_label.configure(
+                text=f"{metadata.created_label} | {snapshot_count} snapshots | {duration}",
+            )
+
+        if self.vods_slider is not None:
+            if snapshot_count:
+                self.vods_slider.configure(
+                    state="normal",
+                    to=max(snapshot_count - 1, 1),
+                    number_of_steps=max(snapshot_count - 1, 1),
+                )
+                if update_slider:
+                    self.vods_slider.set(self.loaded_vod_snapshot_index or 0)
+            else:
+                self.vods_slider.configure(state="disabled", to=1, number_of_steps=1)
+                self.vods_slider.set(0)
+
+        if snapshot_count:
+            index = self.loaded_vod_snapshot_index or 0
+            self.display_loaded_vod_snapshot(index)
+        else:
+            for label in self.vods_rows.values():
+                label.configure(text="--")
+            if self.vods_slider_time_label is not None:
+                self.vods_slider_time_label.configure(text="Timeline: --")
+
+    def display_loaded_vod_snapshot(self, index: int):
+        if self.loaded_vod is None or not self.loaded_vod.snapshots:
+            return
+
+        index = min(max(index, 0), len(self.loaded_vod.snapshots) - 1)
+        self.loaded_vod_snapshot_index = index
+        snapshot = self.loaded_vod.snapshots[index]
+        if self.vods_status_label is not None:
+            self.vods_status_label.configure(
+                text=(
+                    f"{self.loaded_vod.metadata.name} | "
+                    f"{index + 1}/{len(self.loaded_vod.snapshots)} at {snapshot.time_label}"
+                ),
+            )
+
+        if self.vods_slider_time_label is not None:
+            first = self.loaded_vod.snapshots[0].time_label
+            last = self.loaded_vod.snapshots[-1].time_label
+            self.vods_slider_time_label.configure(
+                text=f"Timeline: {first} - {last} | Selected: {snapshot.time_label}",
+            )
+
+        for spec_group in PLAYER_STAT_GROUPS:
+            for spec in spec_group:
+                value_label = self.vods_rows.get(spec.label)
+                if value_label is not None:
+                    stat = snapshot.stats.get(spec.label)
+                    value_label.configure(text=stat.display_value if stat is not None else "--")
+
+    def on_vods_slider_changed(self, value):
+        if self.loaded_vod is None or not self.loaded_vod.snapshots:
+            return
+
+        index = min(max(int(round(float(value))), 0), len(self.loaded_vod.snapshots) - 1)
+        self.display_loaded_vod_snapshot(index)
+
+    def rename_selected_vod(self):
+        if self.loaded_vod is None or self.vods_name_entry is None:
+            return
+
+        new_name = self.vods_name_entry.get().strip()
+        try:
+            metadata = rename_vod(self.loaded_vod.metadata.path, new_name)
+            self.loaded_vod = load_vod(metadata.path)
+        except Exception as exc:
+            if self.vods_status_label is not None:
+                self.vods_status_label.configure(text=f"Could not rename recording: {exc}")
+            return
+
+        self.refresh_loaded_vod_ui(update_slider=False)
+        self.refresh_vods_list()
+
+    def delete_selected_vod(self):
+        if self.loaded_vod is None:
+            return
+
+        dialog = ConfirmDeleteRecordingDialog(self, self.loaded_vod.metadata.name)
+        self.wait_window(dialog)
+        if not dialog.result:
+            return
+
+        path = self.loaded_vod.metadata.path
+        try:
+            delete_vod(path)
+        except Exception as exc:
+            if self.vods_status_label is not None:
+                self.vods_status_label.configure(text=f"Could not delete recording: {exc}")
+            return
+
+        self.loaded_vod = None
+        self.loaded_vod_snapshot_index = None
+        if self.vods_name_entry is not None:
+            self.vods_name_entry.delete(0, "end")
+        if self.vods_status_label is not None:
+            self.vods_status_label.configure(text="Select a recording")
+        if self.vods_slider is not None:
+            self.vods_slider.configure(state="disabled", to=1, number_of_steps=1)
+            self.vods_slider.set(0)
+        if self.vods_slider_time_label is not None:
+            self.vods_slider_time_label.configure(text="Timeline: --")
+        for label in self.vods_rows.values():
+            label.configure(text="--")
+        self.refresh_vods_list()
+
+    @staticmethod
+    def format_duration(seconds: int) -> str:
+        minutes, seconds = divmod(max(int(seconds), 0), 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
 
     def refresh_stats_ui(self):
         self.stats_rerolls_label.configure(text=f"Session Rerolls: {self.session_rerolls}")
@@ -2309,10 +2946,17 @@ class MegabonkApp(ctk.CTk):
         self.after(0, self.update_status_ui)
 
     def on_closing(self):
+        self._cancel_right_tab_transition()
         self.stop_event.set()
         self.scan_event.set() # Ensure thread wakes up to exit
         self.close_client()
         self.close_player_stats_client()
+        player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
+        if player_stats_vod_recorder is not None:
+            if player_stats_vod_recorder.is_recording:
+                player_stats_vod_recorder.stop()
+            else:
+                player_stats_vod_recorder.close()
         hook_loader = self.native_hook_loader
         if hook_loader is not None:
             self.native_hook_generation += 1

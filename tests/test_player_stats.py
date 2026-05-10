@@ -6,6 +6,7 @@ from memory import MemoryReadError
 from player_stats import (
     PlayerStatsClient,
     PlayerStatFormat,
+    PlayerStatsTimeline,
     format_player_stat_value,
 )
 
@@ -36,31 +37,35 @@ class FakeMemory:
         return self.floats[address]
 
 
+def build_player_stats_memory() -> FakeMemory:
+    base = 0x10000000
+    type_info = base + PlayerStatsClient.TYPE_INFO_OFFSET
+    class_ptr = 0x20000000
+    static_fields = 0x20000100
+    root = 0x20000200
+    owner_stats = 0x20000300
+    stats_context = 0x20000400
+    entries = 0x20000500
+
+    pointers = {
+        type_info: class_ptr,
+        class_ptr + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: static_fields,
+        static_fields + PlayerStatsClient.STATIC_ROOT_OFFSET: root,
+        root + PlayerStatsClient.OWNER_STATS_OFFSET: owner_stats,
+        owner_stats + PlayerStatsClient.STATS_CONTEXT_OFFSET: stats_context,
+        stats_context + PlayerStatsClient.STATS_ENTRIES_OFFSET: entries,
+    }
+    floats = {
+        entries + 0x2C: 198.0,
+        entries + 0x6C: 0.15,
+        entries + 0x28C: 0.09,
+    }
+    return FakeMemory(module_base=base, pointers=pointers, floats=floats)
+
+
 class PlayerStatsClientTests(unittest.TestCase):
     def build_memory(self) -> FakeMemory:
-        base = 0x10000000
-        type_info = base + PlayerStatsClient.TYPE_INFO_OFFSET
-        class_ptr = 0x20000000
-        static_fields = 0x20000100
-        root = 0x20000200
-        owner_stats = 0x20000300
-        stats_context = 0x20000400
-        entries = 0x20000500
-
-        pointers = {
-            type_info: class_ptr,
-            class_ptr + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: static_fields,
-            static_fields + PlayerStatsClient.STATIC_ROOT_OFFSET: root,
-            root + PlayerStatsClient.OWNER_STATS_OFFSET: owner_stats,
-            owner_stats + PlayerStatsClient.STATS_CONTEXT_OFFSET: stats_context,
-            stats_context + PlayerStatsClient.STATS_ENTRIES_OFFSET: entries,
-        }
-        floats = {
-            entries + 0x2C: 198.0,
-            entries + 0x6C: 0.15,
-            entries + 0x28C: 0.09,
-        }
-        return FakeMemory(module_base=base, pointers=pointers, floats=floats)
+        return build_player_stats_memory()
 
     def test_get_player_stats_reads_confirmed_offsets(self) -> None:
         client = PlayerStatsClient(memory=self.build_memory())
@@ -76,6 +81,51 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(format_player_stat_value(1.25, PlayerStatFormat.MULTIPLIER), "1.25x")
         self.assertEqual(format_player_stat_value(10.0, PlayerStatFormat.FLAT), "10")
         self.assertEqual(format_player_stat_value(None, PlayerStatFormat.FLAT), "--")
+
+
+class PlayerStatsTimelineTests(unittest.TestCase):
+    def test_timeline_captures_immediately_and_then_on_interval(self) -> None:
+        now = 1000.0
+        timeline = PlayerStatsTimeline(interval_seconds=60, clock=lambda: now)
+        stats = PlayerStatsClient(memory=build_player_stats_memory()).get_player_stats()
+
+        timeline.start()
+
+        self.assertTrue(timeline.should_capture())
+        first = timeline.capture(stats)
+        self.assertEqual(first.time_label, "00:00")
+        self.assertFalse(timeline.should_capture())
+
+        now += 59
+        self.assertFalse(timeline.should_capture())
+
+        now += 1
+        self.assertTrue(timeline.should_capture())
+        second = timeline.capture(stats)
+        self.assertEqual(second.time_label, "01:00")
+
+    def test_timeline_elapsed_label_tracks_recording_time(self) -> None:
+        now = 1000.0
+        timeline = PlayerStatsTimeline(interval_seconds=60, clock=lambda: now)
+
+        self.assertEqual(timeline.elapsed_label(), "00:00")
+
+        timeline.start()
+        now += 75
+
+        self.assertEqual(timeline.elapsed_seconds(), 75)
+        self.assertEqual(timeline.elapsed_label(), "01:15")
+
+    def test_timeline_clamps_snapshot_selection(self) -> None:
+        now = 1000.0
+        timeline = PlayerStatsTimeline(interval_seconds=60, clock=lambda: now)
+        stats = PlayerStatsClient(memory=build_player_stats_memory()).get_player_stats()
+
+        timeline.start()
+        first = timeline.capture(stats)
+
+        self.assertIs(timeline.get_snapshot(-100), first)
+        self.assertIs(timeline.get_snapshot(100), first)
 
 
 if __name__ == "__main__":

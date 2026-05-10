@@ -143,6 +143,11 @@ else:
         RESET_HOLD_DURATION = 0.4
 
 HOTKEY = user_config.get("HOTKEY", "f6")
+PLAYER_STATS_RECORD_HOTKEY = user_config.get("PLAYER_STATS_RECORD_HOTKEY", "f8")
+PLAYER_STATS_RECORD_INTERVAL_SECONDS = coerce_nonnegative_int(
+    user_config.get("PLAYER_STATS_RECORD_INTERVAL_SECONDS", 60),
+    60,
+) or 60
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
 PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
@@ -205,6 +210,8 @@ def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) 
 user_config["MIN_DELAY"] = MIN_DELAY
 user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
 user_config["HOTKEY"] = HOTKEY
+user_config["PLAYER_STATS_RECORD_HOTKEY"] = PLAYER_STATS_RECORD_HOTKEY
+user_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = PLAYER_STATS_RECORD_INTERVAL_SECONDS
 user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY
 user_config["PROCESS_NAME"] = PROCESS_NAME
