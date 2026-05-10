@@ -24,6 +24,7 @@ class VodStorageTests(unittest.TestCase):
                     "Damage": SimpleNamespace(value=1.25, display_value="1.25x"),
                     "Armor": SimpleNamespace(value=0.15, display_value="15%"),
                 },
+                ("Wrench x1",),
             )
             now += 60
             recorder.capture(
@@ -31,6 +32,7 @@ class VodStorageTests(unittest.TestCase):
                     "Damage": SimpleNamespace(value=1.5, display_value="1.5x"),
                     "Armor": SimpleNamespace(value=0.2, display_value="20%"),
                 },
+                ("Wrench x2", "Dice x1"),
             )
             recorder.stop()
 
@@ -39,6 +41,8 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.metadata.name, "Test run")
             self.assertEqual(loaded.metadata.snapshot_count, 2)
             self.assertEqual(loaded.snapshots[0].stats["Damage"].display_value, "1.25x")
+            self.assertEqual(loaded.snapshots[0].items, ("Wrench x1",))
+            self.assertEqual(loaded.snapshots[1].items, ("Wrench x2", "Dice x1"))
             self.assertEqual(loaded.snapshots[1].time_label, "01:00")
 
             vods = list_vods(Path(temp_dir))

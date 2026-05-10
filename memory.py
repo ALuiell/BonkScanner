@@ -147,6 +147,24 @@ class ProcessMemory:
         except UnicodeDecodeError:
             return None
 
+    def read_ascii_string(self, address: int, max_length: int = 128) -> str | None:
+        if not address:
+            return None
+
+        try:
+            raw = self.read_bytes(address, max_length)
+        except MemoryReadError:
+            return None
+
+        raw = raw.split(b"\x00", 1)[0]
+        if not raw:
+            return ""
+
+        try:
+            return raw.decode("ascii")
+        except UnicodeDecodeError:
+            return None
+
     @staticmethod
     def _missing_module_lookup(_handle: Any, module_name: str) -> Any:
         raise ModuleNotFoundError(f"Module lookup is not configured for '{module_name}'.")

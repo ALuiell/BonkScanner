@@ -18,10 +18,14 @@ class FakeMemory:
         module_base: int = 0x10000000,
         pointers: dict[int, int] | None = None,
         floats: dict[int, float] | None = None,
+        ints: dict[int, int] | None = None,
+        ascii_strings: dict[int, str] | None = None,
     ) -> None:
         self.module_base = module_base
         self.pointers = pointers or {}
         self.floats = floats or {}
+        self.ints = ints or {}
+        self.ascii_strings = ascii_strings or {}
 
     def module_offset(self, _module_name: str, offset: int) -> int:
         return self.module_base + offset
@@ -35,6 +39,17 @@ class FakeMemory:
         if address not in self.floats:
             raise MemoryReadError(f"missing float at 0x{address:X}")
         return self.floats[address]
+
+    def read_i32(self, address: int) -> int:
+        if address not in self.ints:
+            raise MemoryReadError(f"missing int at 0x{address:X}")
+        return self.ints[address]
+
+    def read_ascii_string(self, address: int, max_length: int = 128) -> str | None:
+        _ = max_length
+        if address not in self.ascii_strings:
+            raise MemoryReadError(f"missing ascii string at 0x{address:X}")
+        return self.ascii_strings[address]
 
 
 def build_player_stats_memory() -> FakeMemory:
@@ -60,7 +75,37 @@ def build_player_stats_memory() -> FakeMemory:
         entries + 0x6C: 0.15,
         entries + 0x28C: 0.09,
     }
-    return FakeMemory(module_base=base, pointers=pointers, floats=floats)
+    inventory_container = 0x20000600
+    passive_dict = 0x20000700
+    passive_entries = 0x20000800
+    item_value = 0x20000900
+    class_meta = 0x20000A00
+    class_name_ptr = 0x20000B00
+
+    pointers.update(
+        {
+            owner_stats + PlayerStatsClient.INVENTORY_CONTAINER_OFFSET: inventory_container,
+            inventory_container + PlayerStatsClient.PASSIVE_ITEM_DICT_OFFSET: passive_dict,
+            passive_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: passive_entries,
+            passive_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET: item_value,
+            item_value + PlayerStatsClient.ITEM_CLASS_META_OFFSET: class_meta,
+            class_meta + PlayerStatsClient.CLASS_META_NAME_PTR_OFFSET: class_name_ptr,
+        }
+    )
+    ints = {
+        passive_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+        item_value + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET: 2,
+    }
+    ascii_strings = {
+        class_name_ptr: "ItemWrench",
+    }
+    return FakeMemory(
+        module_base=base,
+        pointers=pointers,
+        floats=floats,
+        ints=ints,
+        ascii_strings=ascii_strings,
+    )
 
 
 class PlayerStatsClientTests(unittest.TestCase):
@@ -75,6 +120,13 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(stats["Max HP"].display_value, "198")
         self.assertEqual(stats["Armor"].display_value, "15%")
         self.assertEqual(stats["Difficulty"].display_value, "9%")
+
+    def test_get_passive_items_reads_item_names_and_counts(self) -> None:
+        client = PlayerStatsClient(memory=self.build_memory())
+
+        items = client.get_passive_items()
+
+        self.assertEqual(items, ("Wrench x2",))
 
     def test_format_player_stat_values_match_game_display_style(self) -> None:
         self.assertEqual(format_player_stat_value(0.15, PlayerStatFormat.PERCENT), "15%")
@@ -101,8 +153,9 @@ class PlayerStatsTimelineTests(unittest.TestCase):
 
         now += 1
         self.assertTrue(timeline.should_capture())
-        second = timeline.capture(stats)
+        second = timeline.capture(stats, ("Wrench x2",))
         self.assertEqual(second.time_label, "01:00")
+        self.assertEqual(second.items, ("Wrench x2",))
 
     def test_timeline_elapsed_label_tracks_recording_time(self) -> None:
         now = 1000.0

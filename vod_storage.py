@@ -142,7 +142,11 @@ class VodRecorder:
             return True
         return self.clock() - self.last_snapshot_time >= self.interval_seconds
 
-    def capture(self, stats: dict[str, PlayerStatValue]) -> VodSnapshot:
+    def capture(
+        self,
+        stats: dict[str, PlayerStatValue],
+        items: tuple[str, ...] = (),
+    ) -> VodSnapshot:
         if not self.is_recording or self._file is None:
             raise RuntimeError("VOD recorder is not active.")
 
@@ -154,6 +158,7 @@ class VodRecorder:
                 label: VodStatValue(value=stat.value, display_value=stat.display_value)
                 for label, stat in stats.items()
             },
+            items=tuple(items),
         )
         self._write_record(_snapshot_to_record(snapshot))
         self.last_snapshot_time = now

@@ -19,6 +19,12 @@ class MemoryReader(Protocol):
     def read_float(self, address: int) -> float:
         ...
 
+    def read_i32(self, address: int) -> int:
+        ...
+
+    def read_ascii_string(self, address: int, max_length: int = 128) -> str | None:
+        ...
+
 
 class PlayerStatFormat(Enum):
     FLAT = "flat"
@@ -98,6 +104,7 @@ class PlayerStatsSnapshot:
     elapsed_seconds: int
     captured_at: float
     stats: dict[str, PlayerStatValue]
+    items: tuple[str, ...] = ()
 
     @property
     def time_label(self) -> str:
@@ -151,13 +158,18 @@ class PlayerStatsTimeline:
             return True
         return self.clock() - self.last_snapshot_time >= self.interval_seconds
 
-    def capture(self, stats: dict[str, PlayerStatValue]) -> PlayerStatsSnapshot:
+    def capture(
+        self,
+        stats: dict[str, PlayerStatValue],
+        items: tuple[str, ...] = (),
+    ) -> PlayerStatsSnapshot:
         now = self.clock()
         start_time = self.start_time if self.start_time is not None else now
         snapshot = PlayerStatsSnapshot(
             elapsed_seconds=int(now - start_time),
             captured_at=now,
             stats=dict(stats),
+            items=tuple(items),
         )
         self.snapshots.append(snapshot)
         self.last_snapshot_time = now
@@ -179,6 +191,16 @@ class PlayerStatsClient:
     STATS_ENTRIES_OFFSET = 0x18
     STAT_VALUE_BASE_OFFSET = 0x2C
     STAT_SLOT_SIZE = 0x10
+    INVENTORY_CONTAINER_OFFSET = 0xA0
+    PASSIVE_ITEM_DICT_OFFSET = 0x50
+    DICT_ENTRIES_OFFSET = 0x18
+    DICT_COUNT_OFFSET = 0x20
+    DICT_ENTRY_START_OFFSET = 0x20
+    DICT_ENTRY_SIZE = 0x18
+    DICT_ENTRY_VALUE_OFFSET = 0x10
+    ITEM_CLASS_META_OFFSET = 0x0
+    ITEM_STACK_COUNT_OFFSET = 0x18
+    CLASS_META_NAME_PTR_OFFSET = 0x10
 
     def __init__(
         self,
@@ -220,7 +242,54 @@ class PlayerStatsClient:
 
         return stats
 
+    def get_passive_items(self) -> tuple[str, ...]:
+        owner_stats = self._resolve_owner_stats()
+        inventory_container = self.memory.read_ptr(owner_stats + self.INVENTORY_CONTAINER_OFFSET)
+        passive_item_dict = self.memory.read_ptr(inventory_container + self.PASSIVE_ITEM_DICT_OFFSET)
+        if not passive_item_dict:
+            return ()
+
+        entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return ()
+
+        count = self.memory.read_i32(passive_item_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return ()
+
+        items: list[str] = []
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            item_value = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+            if not item_value:
+                continue
+
+            class_meta = self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
+            name_ptr = self.memory.read_ptr(class_meta + self.CLASS_META_NAME_PTR_OFFSET) if class_meta else 0
+            raw_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
+            item_name = self._format_item_name(raw_name)
+            if not item_name:
+                continue
+
+            try:
+                stack_count = self.memory.read_i32(item_value + self.ITEM_STACK_COUNT_OFFSET)
+            except MemoryReadError:
+                stack_count = 1
+
+            items.append(f"{item_name} x{max(1, stack_count)}")
+
+        return tuple(items)
+
     def _resolve_stats_entries(self) -> int:
+        owner_stats = self._resolve_owner_stats()
+        stats_context = self.memory.read_ptr(owner_stats + self.STATS_CONTEXT_OFFSET)
+        entries = self.memory.read_ptr(stats_context + self.STATS_ENTRIES_OFFSET)
+        if not entries:
+            raise MemoryReadError("Player stats entries are not initialized.")
+
+        return entries
+
+    def _resolve_owner_stats(self) -> int:
         type_info_address = self.memory.module_offset(
             self.module_name,
             self.TYPE_INFO_OFFSET,
@@ -232,12 +301,29 @@ class PlayerStatsClient:
         static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
         root = self.memory.read_ptr(static_fields + self.STATIC_ROOT_OFFSET)
         owner_stats = self.memory.read_ptr(root + self.OWNER_STATS_OFFSET)
-        stats_context = self.memory.read_ptr(owner_stats + self.STATS_CONTEXT_OFFSET)
-        entries = self.memory.read_ptr(stats_context + self.STATS_ENTRIES_OFFSET)
-        if not entries:
-            raise MemoryReadError("Player stats entries are not initialized.")
+        if not owner_stats:
+            raise MemoryReadError("Player stats owner is not initialized.")
 
-        return entries
+        return owner_stats
+
+    @staticmethod
+    def _format_item_name(raw_name: str | None) -> str | None:
+        if not raw_name:
+            return None
+
+        value = raw_name[4:] if raw_name.startswith("Item") and len(raw_name) > 4 else raw_name
+        parts: list[str] = []
+        current = ""
+        for char in value:
+            if char.isupper() and current and not current[-1].isupper():
+                parts.append(current)
+                current = char
+            else:
+                current += char
+        if current:
+            parts.append(current)
+
+        return " ".join(parts) if parts else value
 
 
 def iter_player_stat_groups(

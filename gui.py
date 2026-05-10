@@ -66,6 +66,11 @@ PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
 PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
 PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
 PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#14375e"
+PLAYER_STATS_LABEL_FONT_SIZE = 13
+PLAYER_STATS_VALUE_FONT_SIZE = 13
+PLAYER_STATS_VALUE_WIDTH = 72
+PLAYER_STATS_ITEMS_WRAP_LENGTH = 360
+UI_SECTION_FG_COLOR = ("gray86", "gray18")
 TAB_CONTENT_FG_COLOR = ("gray86", "gray17")
 RIGHT_TAB_TRANSITION_MS = 80
 
@@ -1078,6 +1083,7 @@ class MegabonkApp(ctk.CTk):
         self.stats_best_label = None
         self.stats_worst_label = None
         self.stats_avg_frame = None
+        self.stats_avg_labels = {}
         self.player_stats_scroll = None
         self.player_stats_status_label = None
         self.player_stats_record_btn = None
@@ -1085,6 +1091,7 @@ class MegabonkApp(ctk.CTk):
         self.player_stats_slider_time_label = None
         self.player_stats_timeline_label = None
         self.player_stats_rows = {}
+        self.player_stats_items_label = None
         self.vods_list_frame = None
         self.vods_status_label = None
         self.vods_name_entry = None
@@ -1093,6 +1100,8 @@ class MegabonkApp(ctk.CTk):
         self.vods_slider = None
         self.vods_slider_time_label = None
         self.vods_rows = {}
+        self.vods_items_label = None
+        self.vods_list_signature = None
         self.right_tab_transition_cover = None
         self.right_tab_transition_after_id = None
         self.controls_frame = None
@@ -1350,11 +1359,11 @@ class MegabonkApp(ctk.CTk):
         self.tab_templates.grid_rowconfigure(0, weight=1)
         self.tab_templates.grid_columnconfigure(0, weight=1)
         
-        self.scrollable_templates = ctk.CTkScrollableFrame(self.tab_templates, fg_color="transparent")
+        self.scrollable_templates = ctk.CTkScrollableFrame(self.tab_templates, fg_color=TAB_CONTENT_FG_COLOR)
         self.scrollable_templates.grid(row=0, column=0, sticky="nsew")
         
         # Buttons frame (moved inside tab_templates)
-        self.template_btns_frame = ctk.CTkFrame(self.tab_templates, fg_color="transparent")
+        self.template_btns_frame = ctk.CTkFrame(self.tab_templates, fg_color=UI_SECTION_FG_COLOR)
         self.template_btns_frame.grid(row=1, column=0, padx=0, pady=(10, 0), sticky="ew")
         self.template_btns_frame.grid_columnconfigure((0, 4), weight=1)
         
@@ -1371,13 +1380,13 @@ class MegabonkApp(ctk.CTk):
         self.tab_scores.grid_rowconfigure(2, weight=1) # Row 2 is the scrollable desc frame
         self.tab_scores.grid_columnconfigure(0, weight=1)
         
-        self.scores_templates_frame = ctk.CTkFrame(self.tab_scores, fg_color="transparent")
+        self.scores_templates_frame = ctk.CTkFrame(self.tab_scores, fg_color=UI_SECTION_FG_COLOR)
         self.scores_templates_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
         
         self.scores_separator = ctk.CTkFrame(self.tab_scores, height=2, fg_color=("gray70", "gray30"))
         self.scores_separator.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
         
-        self.scores_scroll_desc = ctk.CTkScrollableFrame(self.tab_scores, fg_color="transparent")
+        self.scores_scroll_desc = ctk.CTkScrollableFrame(self.tab_scores, fg_color=TAB_CONTENT_FG_COLOR)
         self.scores_scroll_desc.grid(row=2, column=0, sticky="nsew")
         self.scores_scroll_desc.grid_columnconfigure(0, weight=1)
         
@@ -1385,7 +1394,7 @@ class MegabonkApp(ctk.CTk):
         self.scores_desc_label.grid(row=0, column=0, sticky="nw", padx=10, pady=10)
         
         # Scores buttons frame (moved inside tab_scores)
-        self.scores_btns_frame = ctk.CTkFrame(self.tab_scores, fg_color="transparent")
+        self.scores_btns_frame = ctk.CTkFrame(self.tab_scores, fg_color=UI_SECTION_FG_COLOR)
         self.scores_btns_frame.grid(row=3, column=0, padx=0, pady=(10, 0), sticky="ew")
         self.scores_btns_frame.grid_columnconfigure((0, 2), weight=1)
         
@@ -1460,7 +1469,7 @@ class MegabonkApp(ctk.CTk):
         self.stats_worst_label.pack(anchor="w", pady=5)
         
         ctk.CTkLabel(self.stats_scroll, text="\nAverage Rerolls per Target:", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", pady=5)
-        self.stats_avg_frame = ctk.CTkFrame(self.stats_scroll, fg_color="transparent")
+        self.stats_avg_frame = ctk.CTkFrame(self.stats_scroll, fg_color=UI_SECTION_FG_COLOR)
         self.stats_avg_frame.pack(fill="x", anchor="w")
 
         # Player Stats Elements
@@ -1475,7 +1484,7 @@ class MegabonkApp(ctk.CTk):
         )
         self.player_stats_status_label.pack(anchor="w", pady=(0, 8))
 
-        player_stats_controls = ctk.CTkFrame(self.player_stats_scroll, fg_color="transparent")
+        player_stats_controls = ctk.CTkFrame(self.player_stats_scroll, fg_color=UI_SECTION_FG_COLOR)
         player_stats_controls.pack(fill="x", pady=(0, 8))
         player_stats_controls.grid_columnconfigure(1, weight=1)
 
@@ -1516,20 +1525,42 @@ class MegabonkApp(ctk.CTk):
         )
         self.player_stats_slider_time_label.pack(fill="x", pady=(0, 10))
 
+        player_items_row = ctk.CTkFrame(self.player_stats_scroll, fg_color=UI_SECTION_FG_COLOR)
+        player_items_row.pack(fill="x", pady=1)
+        player_items_row.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            player_items_row,
+            text="Items",
+            font=ctk.CTkFont(size=PLAYER_STATS_LABEL_FONT_SIZE, weight="bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="nw")
+
+        self.player_stats_items_label = ctk.CTkLabel(
+            player_items_row,
+            text="--",
+            justify="left",
+            wraplength=PLAYER_STATS_ITEMS_WRAP_LENGTH,
+            anchor="e",
+        )
+        self.player_stats_items_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
+
+        ctk.CTkFrame(self.player_stats_scroll, height=1, fg_color="#3A3A3A").pack(fill="x", pady=8)
+
         self.player_stats_rows = {}
         for group_index, group in enumerate(PLAYER_STAT_GROUPS):
             if group_index:
                 ctk.CTkFrame(self.player_stats_scroll, height=1, fg_color="#3A3A3A").pack(fill="x", pady=8)
 
             for spec in group:
-                row = ctk.CTkFrame(self.player_stats_scroll, fg_color="transparent")
+                row = ctk.CTkFrame(self.player_stats_scroll, fg_color=UI_SECTION_FG_COLOR)
                 row.pack(fill="x", pady=1)
                 row.grid_columnconfigure(0, weight=1)
 
                 name_label = ctk.CTkLabel(
                     row,
                     text=spec.label,
-                    font=ctk.CTkFont(size=14, weight="bold"),
+                    font=ctk.CTkFont(size=PLAYER_STATS_LABEL_FONT_SIZE, weight="bold"),
                     anchor="w",
                 )
                 name_label.grid(row=0, column=0, sticky="ew")
@@ -1537,9 +1568,9 @@ class MegabonkApp(ctk.CTk):
                 value_label = ctk.CTkLabel(
                     row,
                     text="--",
-                    font=ctk.CTkFont(family="Consolas", size=14, weight="bold"),
+                    font=ctk.CTkFont(family="Consolas", size=PLAYER_STATS_VALUE_FONT_SIZE, weight="bold"),
                     anchor="e",
-                    width=90,
+                    width=PLAYER_STATS_VALUE_WIDTH,
                 )
                 value_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
                 self.player_stats_rows[spec.label] = value_label
@@ -1564,7 +1595,7 @@ class MegabonkApp(ctk.CTk):
         )
         self.vods_status_label.pack(fill="x", anchor="w", pady=(0, 8))
 
-        vods_controls = ctk.CTkFrame(vods_detail_frame, fg_color="transparent")
+        vods_controls = ctk.CTkFrame(vods_detail_frame, fg_color=UI_SECTION_FG_COLOR)
         vods_controls.pack(fill="x", pady=(0, 8))
         vods_controls.grid_columnconfigure(0, weight=1)
 
@@ -1608,20 +1639,42 @@ class MegabonkApp(ctk.CTk):
         )
         self.vods_slider_time_label.pack(fill="x", pady=(0, 10))
 
+        vod_items_row = ctk.CTkFrame(vods_detail_frame, fg_color=UI_SECTION_FG_COLOR)
+        vod_items_row.pack(fill="x", pady=1)
+        vod_items_row.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            vod_items_row,
+            text="Items",
+            font=ctk.CTkFont(size=PLAYER_STATS_LABEL_FONT_SIZE, weight="bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="nw")
+
+        self.vods_items_label = ctk.CTkLabel(
+            vod_items_row,
+            text="--",
+            justify="left",
+            wraplength=PLAYER_STATS_ITEMS_WRAP_LENGTH,
+            anchor="e",
+        )
+        self.vods_items_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
+
+        ctk.CTkFrame(vods_detail_frame, height=1, fg_color="#3A3A3A").pack(fill="x", pady=8)
+
         self.vods_rows = {}
         for group_index, group in enumerate(PLAYER_STAT_GROUPS):
             if group_index:
                 ctk.CTkFrame(vods_detail_frame, height=1, fg_color="#3A3A3A").pack(fill="x", pady=8)
 
             for spec in group:
-                row = ctk.CTkFrame(vods_detail_frame, fg_color="transparent")
+                row = ctk.CTkFrame(vods_detail_frame, fg_color=UI_SECTION_FG_COLOR)
                 row.pack(fill="x", pady=1)
                 row.grid_columnconfigure(0, weight=1)
 
                 name_label = ctk.CTkLabel(
                     row,
                     text=spec.label,
-                    font=ctk.CTkFont(size=14, weight="bold"),
+                    font=ctk.CTkFont(size=PLAYER_STATS_LABEL_FONT_SIZE, weight="bold"),
                     anchor="w",
                 )
                 name_label.grid(row=0, column=0, sticky="ew")
@@ -1629,9 +1682,9 @@ class MegabonkApp(ctk.CTk):
                 value_label = ctk.CTkLabel(
                     row,
                     text="--",
-                    font=ctk.CTkFont(family="Consolas", size=14, weight="bold"),
+                    font=ctk.CTkFont(family="Consolas", size=PLAYER_STATS_VALUE_FONT_SIZE, weight="bold"),
                     anchor="e",
-                    width=90,
+                    width=PLAYER_STATS_VALUE_WIDTH,
                 )
                 value_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
                 self.vods_rows[spec.label] = value_label
@@ -1639,7 +1692,7 @@ class MegabonkApp(ctk.CTk):
         self.refresh_vods_list()
         
         # Controls Setup
-        self.controls_frame = ctk.CTkFrame(self.right_frame, fg_color="transparent")
+        self.controls_frame = ctk.CTkFrame(self.right_frame, fg_color=UI_SECTION_FG_COLOR)
         self.controls_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
         
         self.controls_frame.grid_columnconfigure(1, weight=1)
@@ -1685,7 +1738,7 @@ class MegabonkApp(ctk.CTk):
         self.right_frame.update_idletasks()
 
     def _show_right_tab_transition_cover(self):
-        if self.tabview is None or not self.winfo_exists():
+        if RIGHT_TAB_TRANSITION_MS <= 0 or self.tabview is None or not self.winfo_exists():
             return
 
         self._cancel_right_tab_transition()
@@ -2121,22 +2174,26 @@ class MegabonkApp(ctk.CTk):
 
     def update_player_stats_timer(self):
         try:
-            stats = self.read_player_stats()
+            stats, items = self.read_player_stats()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
             if self.player_stats_status_label is not None:
                 self.player_stats_status_label.configure(text="Waiting for game/player stats...")
             for label in self.player_stats_rows.values():
                 label.configure(text="--")
+            if self.player_stats_items_label is not None:
+                self.player_stats_items_label.configure(text="--")
         except Exception as exc:
             self.close_player_stats_client()
             if self.player_stats_status_label is not None:
                 self.player_stats_status_label.configure(text=f"Player stats unavailable: {exc}")
             for label in self.player_stats_rows.values():
                 label.configure(text="--")
+            if self.player_stats_items_label is not None:
+                self.player_stats_items_label.configure(text="--")
         else:
             if self.player_stats_vod_recorder.should_capture():
-                snapshot = self.player_stats_vod_recorder.capture(stats)
+                snapshot = self.player_stats_vod_recorder.capture(stats, items)
                 self.player_stats_vod_snapshots.append(snapshot)
                 self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
                 self.refresh_player_stats_timeline_ui()
@@ -2144,16 +2201,16 @@ class MegabonkApp(ctk.CTk):
                 self.display_player_stats_snapshot(snapshot)
             elif not self.player_stats_vod_recorder.is_recording:
                 self.player_stats_selected_snapshot_index = None
-                self.display_player_stats(stats, status_text="Live player stats")
+                self.display_player_stats(stats, items, status_text="Live player stats")
 
         self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
 
     def read_player_stats(self):
         if self.player_stats_client is None:
             self.player_stats_client = PlayerStatsClient(config.PROCESS_NAME)
-        return self.player_stats_client.get_player_stats()
+        return self.player_stats_client.get_player_stats(), self.player_stats_client.get_passive_items()
 
-    def display_player_stats(self, stats, *, status_text: str | None = None):
+    def display_player_stats(self, stats, items=(), *, status_text: str | None = None):
         if status_text and self.player_stats_status_label is not None:
             self.player_stats_status_label.configure(text=status_text)
 
@@ -2162,11 +2219,15 @@ class MegabonkApp(ctk.CTk):
             if value_label is not None:
                 value_label.configure(text=stat.display_value)
 
+        if self.player_stats_items_label is not None:
+            self.player_stats_items_label.configure(text=self.format_items(items))
+
     def display_player_stats_snapshot(self, snapshot):
         index = self.player_stats_vod_snapshots.index(snapshot) + 1
         total = len(self.player_stats_vod_snapshots)
         self.display_player_stats(
             snapshot.stats,
+            snapshot.items,
             status_text=f"Recorded snapshot {index}/{total} at {snapshot.time_label}",
         )
 
@@ -2177,21 +2238,25 @@ class MegabonkApp(ctk.CTk):
             self.player_stats_vod_snapshots = []
             self.player_stats_selected_snapshot_index = None
             try:
-                stats = self.read_player_stats()
+                stats, items = self.read_player_stats()
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
                 self.close_player_stats_client()
                 if self.player_stats_status_label is not None:
                     self.player_stats_status_label.configure(text="Waiting for game/player stats...")
                 for label in self.player_stats_rows.values():
                     label.configure(text="--")
+                if self.player_stats_items_label is not None:
+                    self.player_stats_items_label.configure(text="--")
             except Exception as exc:
                 self.close_player_stats_client()
                 if self.player_stats_status_label is not None:
                     self.player_stats_status_label.configure(text=f"Player stats unavailable: {exc}")
                 for label in self.player_stats_rows.values():
                     label.configure(text="--")
+                if self.player_stats_items_label is not None:
+                    self.player_stats_items_label.configure(text="--")
             else:
-                self.display_player_stats(stats, status_text="Live player stats")
+                self.display_player_stats(stats, items, status_text="Live player stats")
             self._refresh_vods_list_if_visible()
         else:
             vod_path = self.player_stats_vod_recorder.start()
@@ -2199,7 +2264,7 @@ class MegabonkApp(ctk.CTk):
             self.player_stats_selected_snapshot_index = None
             self.log(f"[*] Player stats recording started: {vod_path.name}", tag="success")
             try:
-                stats = self.read_player_stats()
+                stats, items = self.read_player_stats()
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
                 self.close_player_stats_client()
                 if self.player_stats_status_label is not None:
@@ -2209,7 +2274,7 @@ class MegabonkApp(ctk.CTk):
                 if self.player_stats_status_label is not None:
                     self.player_stats_status_label.configure(text=f"Recording stats; player stats unavailable: {exc}")
             else:
-                snapshot = self.player_stats_vod_recorder.capture(stats)
+                snapshot = self.player_stats_vod_recorder.capture(stats, items)
                 self.player_stats_vod_snapshots.append(snapshot)
                 self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
                 self.display_player_stats_snapshot(snapshot)
@@ -2224,6 +2289,9 @@ class MegabonkApp(ctk.CTk):
             return
 
         index = min(max(int(round(float(value))), 0), snapshot_count - 1)
+        if self.player_stats_selected_snapshot_index == index:
+            return
+
         self.player_stats_selected_snapshot_index = index
         self.display_player_stats_snapshot(self.player_stats_vod_snapshots[index])
         self.refresh_player_stats_timeline_ui(update_slider=False)
@@ -2291,11 +2359,23 @@ class MegabonkApp(ctk.CTk):
         if self.vods_list_frame is None:
             return
 
+        vods = list_vods()
+        selected_path = self.loaded_vod.metadata.path if self.loaded_vod is not None else None
+        signature = (
+            str(selected_path) if selected_path is not None else "",
+            tuple(
+                (str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds)
+                for vod in vods
+            ),
+        )
+        if self.vods_list_signature == signature:
+            return
+
         for widget in self.vods_list_frame.winfo_children():
             widget.destroy()
 
-        vods = list_vods()
         if not vods:
+            self.vods_list_signature = signature
             ctk.CTkLabel(
                 self.vods_list_frame,
                 text="No saved recordings",
@@ -2304,7 +2384,6 @@ class MegabonkApp(ctk.CTk):
             ).pack(anchor="w", pady=4)
             return
 
-        selected_path = self.loaded_vod.metadata.path if self.loaded_vod is not None else None
         for vod in vods:
             is_selected = selected_path == vod.path
             duration = self.format_duration(vod.duration_seconds)
@@ -2319,6 +2398,8 @@ class MegabonkApp(ctk.CTk):
                 command=lambda path=vod.path: self.load_selected_vod(path),
             )
             button.pack(fill="x", pady=3)
+
+        self.vods_list_signature = signature
 
     def load_selected_vod(self, path):
         try:
@@ -2373,6 +2454,8 @@ class MegabonkApp(ctk.CTk):
                 label.configure(text="--")
             if self.vods_slider_time_label is not None:
                 self.vods_slider_time_label.configure(text="Timeline: --")
+            if self.vods_items_label is not None:
+                self.vods_items_label.configure(text="--")
 
     def display_loaded_vod_snapshot(self, index: int):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
@@ -2402,12 +2485,17 @@ class MegabonkApp(ctk.CTk):
                 if value_label is not None:
                     stat = snapshot.stats.get(spec.label)
                     value_label.configure(text=stat.display_value if stat is not None else "--")
+        if self.vods_items_label is not None:
+            self.vods_items_label.configure(text=self.format_items(snapshot.items))
 
     def on_vods_slider_changed(self, value):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
             return
 
         index = min(max(int(round(float(value))), 0), len(self.loaded_vod.snapshots) - 1)
+        if self.loaded_vod_snapshot_index == index:
+            return
+
         self.display_loaded_vod_snapshot(index)
 
     def rename_selected_vod(self):
@@ -2456,6 +2544,8 @@ class MegabonkApp(ctk.CTk):
             self.vods_slider_time_label.configure(text="Timeline: --")
         for label in self.vods_rows.values():
             label.configure(text="--")
+        if self.vods_items_label is not None:
+            self.vods_items_label.configure(text="--")
         self.refresh_vods_list()
 
     @staticmethod
@@ -2465,6 +2555,12 @@ class MegabonkApp(ctk.CTk):
         if hours:
             return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         return f"{minutes:02d}:{seconds:02d}"
+
+    @staticmethod
+    def format_items(items) -> str:
+        if not items:
+            return "--"
+        return ", ".join(items)
 
     def refresh_stats_ui(self):
         self.stats_rerolls_label.configure(text=f"Session Rerolls: {self.session_rerolls}")
@@ -2480,11 +2576,10 @@ class MegabonkApp(ctk.CTk):
         else:
             self.stats_worst_label.configure(text=f"Worst Map Found: None")
             
-        # Update Average Rerolls List
-        for widget in self.stats_avg_frame.winfo_children():
-            widget.destroy()
-            
+        # Update Average Rerolls List without rebuilding the whole section every time.
+        active_names = set()
         for name, data in self.template_stats.items():
+            active_names.add(name)
             color_tag = "BLUE"
             if config.EVALUATION_MODE == "templates":
                 for t in config.TEMPLATES:
@@ -2508,9 +2603,24 @@ class MegabonkApp(ctk.CTk):
                 avg_text = f"{avg:.1f} ({len(history)} found)"
             else:
                 avg_text = "N/A"
-                
-            label = ctk.CTkLabel(self.stats_avg_frame, text=f"  - {name}: {avg_text}", font=ctk.CTkFont(size=14), text_color=hex_color)
-            label.pack(anchor="w")
+
+            label = self.stats_avg_labels.get(name)
+            if label is None:
+                label = ctk.CTkLabel(
+                    self.stats_avg_frame,
+                    text="",
+                    font=ctk.CTkFont(size=14),
+                    anchor="w",
+                )
+                label.pack(fill="x", anchor="w")
+                self.stats_avg_labels[name] = label
+
+            label.configure(text=f"  - {name}: {avg_text}", text_color=hex_color)
+
+        stale_names = [name for name in self.stats_avg_labels if name not in active_names]
+        for name in stale_names:
+            label = self.stats_avg_labels.pop(name)
+            label.destroy()
 
     def log_reroll_stats(self):
         self.session_rerolls += 1
