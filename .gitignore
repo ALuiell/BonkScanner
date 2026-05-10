@@ -27,5 +27,6 @@ __pycache__/
 *.pyc
 .venv/
 .idea/
+.continue/agents/
 
 Dump
