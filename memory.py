@@ -116,6 +116,9 @@ class ProcessMemory:
     def read_i32(self, address: int) -> int:
         return struct.unpack("<i", self.read_bytes(address, 4))[0]
 
+    def read_float(self, address: int) -> float:
+        return struct.unpack("<f", self.read_bytes(address, 4))[0]
+
     def read_u8(self, address: int) -> int:
         return self.read_bytes(address, 1)[0]
 

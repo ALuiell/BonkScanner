@@ -16,6 +16,7 @@ import logic
 from game_data import GameDataClient
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from player_stats import PLAYER_STAT_GROUPS, PlayerStatsClient
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
 
@@ -34,6 +35,7 @@ except ImportError:
 ctk.set_appearance_mode("dark")
 
 SUPPORT_URL = "https://ko-fi.com/H2H01YXPQ7"
+PLAYER_STATS_REFRESH_MS = 10_000
 
 # Helper function to get correct path for bundled files in PyInstaller
 def resource_path(relative_path):
@@ -969,6 +971,7 @@ class MegabonkApp(ctk.CTk):
         self.tabview = None
         self.tab_logs = None
         self.tab_stats = None
+        self.tab_player_stats = None
         self.log_box = None
         self.stats_scroll = None
         self.stats_time_label = None
@@ -978,6 +981,9 @@ class MegabonkApp(ctk.CTk):
         self.stats_best_label = None
         self.stats_worst_label = None
         self.stats_avg_frame = None
+        self.player_stats_scroll = None
+        self.player_stats_status_label = None
+        self.player_stats_rows = {}
         self.controls_frame = None
         self.settings_btn = None
         self.status_label = None
@@ -992,6 +998,7 @@ class MegabonkApp(ctk.CTk):
         self.active_templates = []
         self.scanner_thread = None
         self.client = None
+        self.player_stats_client = None
         self.native_hook_loader = None
         self.native_hook_thread = None
         self.native_hook_generation = 0
@@ -1025,6 +1032,7 @@ class MegabonkApp(ctk.CTk):
         
         # Timer for updating elapsed time
         self.update_timer()
+        self.update_player_stats_timer()
         
         self.check_admin_rights()
         self.log(f"[*] Welcome to BonkScanner v{updater.CURRENT_VERSION}!", tag="success")
@@ -1282,11 +1290,14 @@ class MegabonkApp(ctk.CTk):
         
         self.tab_logs = self.tabview.add("Logs")
         self.tab_stats = self.tabview.add("Session Stats")
+        self.tab_player_stats = self.tabview.add("Player Stats")
         
         self.tab_logs.grid_rowconfigure(0, weight=1)
         self.tab_logs.grid_columnconfigure(0, weight=1)
         self.tab_stats.grid_rowconfigure(0, weight=1)
         self.tab_stats.grid_columnconfigure(0, weight=1)
+        self.tab_player_stats.grid_rowconfigure(0, weight=1)
+        self.tab_player_stats.grid_columnconfigure(0, weight=1)
         
         # Log Textbox
         self.log_box = ctk.CTkTextbox(self.tab_logs, state="disabled", font=ctk.CTkFont(family="Consolas", size=13), wrap="none")
@@ -1326,6 +1337,46 @@ class MegabonkApp(ctk.CTk):
         ctk.CTkLabel(self.stats_scroll, text="\nAverage Rerolls per Target:", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", pady=5)
         self.stats_avg_frame = ctk.CTkFrame(self.stats_scroll, fg_color="transparent")
         self.stats_avg_frame.pack(fill="x", anchor="w")
+
+        # Player Stats Elements
+        self.player_stats_scroll = ctk.CTkScrollableFrame(self.tab_player_stats, fg_color="transparent")
+        self.player_stats_scroll.grid(row=0, column=0, sticky="nsew")
+
+        self.player_stats_status_label = ctk.CTkLabel(
+            self.player_stats_scroll,
+            text="Waiting for game...",
+            font=ctk.CTkFont(size=14),
+            text_color="#CCCCCC",
+        )
+        self.player_stats_status_label.pack(anchor="w", pady=(0, 8))
+
+        self.player_stats_rows = {}
+        for group_index, group in enumerate(PLAYER_STAT_GROUPS):
+            if group_index:
+                ctk.CTkFrame(self.player_stats_scroll, height=1, fg_color="#3A3A3A").pack(fill="x", pady=8)
+
+            for spec in group:
+                row = ctk.CTkFrame(self.player_stats_scroll, fg_color="transparent")
+                row.pack(fill="x", pady=1)
+                row.grid_columnconfigure(0, weight=1)
+
+                name_label = ctk.CTkLabel(
+                    row,
+                    text=spec.label,
+                    font=ctk.CTkFont(size=14, weight="bold"),
+                    anchor="w",
+                )
+                name_label.grid(row=0, column=0, sticky="ew")
+
+                value_label = ctk.CTkLabel(
+                    row,
+                    text="--",
+                    font=ctk.CTkFont(family="Consolas", size=14, weight="bold"),
+                    anchor="e",
+                    width=90,
+                )
+                value_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
+                self.player_stats_rows[spec.label] = value_label
         
         # Controls Setup
         self.controls_frame = ctk.CTkFrame(self.right_frame, fg_color="transparent")
@@ -1732,6 +1783,36 @@ class MegabonkApp(ctk.CTk):
         # Schedule next update
         self.after(1000, self.update_timer)
 
+    def update_player_stats_timer(self):
+        try:
+            stats = self.read_player_stats()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            self.close_player_stats_client()
+            if self.player_stats_status_label is not None:
+                self.player_stats_status_label.configure(text="Waiting for game/player stats...")
+            for label in self.player_stats_rows.values():
+                label.configure(text="--")
+        except Exception as exc:
+            self.close_player_stats_client()
+            if self.player_stats_status_label is not None:
+                self.player_stats_status_label.configure(text=f"Player stats unavailable: {exc}")
+            for label in self.player_stats_rows.values():
+                label.configure(text="--")
+        else:
+            if self.player_stats_status_label is not None:
+                self.player_stats_status_label.configure(text="Live player stats")
+            for label, stat in stats.items():
+                value_label = self.player_stats_rows.get(label)
+                if value_label is not None:
+                    value_label.configure(text=stat.display_value)
+
+        self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
+
+    def read_player_stats(self):
+        if self.player_stats_client is None:
+            self.player_stats_client = PlayerStatsClient(config.PROCESS_NAME)
+        return self.player_stats_client.get_player_stats()
+
     def refresh_stats_ui(self):
         self.stats_rerolls_label.configure(text=f"Session Rerolls: {self.session_rerolls}")
         self.stats_total_rerolls_label.configure(text=f"Total Rerolls: {config.TOTAL_REROLLS}")
@@ -1855,6 +1936,15 @@ class MegabonkApp(ctk.CTk):
             except Exception:
                 pass
             self.client = None
+
+    def close_player_stats_client(self):
+        player_stats_client = self.__dict__.get("player_stats_client")
+        if player_stats_client:
+            try:
+                player_stats_client.close()
+            except Exception:
+                pass
+            self.player_stats_client = None
 
     def get_game_process_id(self) -> int | None:
         if self.client is None:
@@ -2222,6 +2312,7 @@ class MegabonkApp(ctk.CTk):
         self.stop_event.set()
         self.scan_event.set() # Ensure thread wakes up to exit
         self.close_client()
+        self.close_player_stats_client()
         hook_loader = self.native_hook_loader
         if hook_loader is not None:
             self.native_hook_generation += 1

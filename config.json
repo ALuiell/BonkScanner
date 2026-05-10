@@ -74,7 +74,8 @@
         }
     ],
     "ACTIVE_TEMPLATES": [
-        "PERFECT"
+        "MERCHANT",
+        "PERFECT+"
     ],
     "SKIPPED_UPDATE_VERSION": "",
     "EVALUATION_MODE": "templates",
@@ -104,5 +105,6 @@
         "base_target_score": 30.0
     },
     "NATIVE_HOOK_ENABLED": true,
-    "NATIVE_HOOK_DLL_PATH": ""
+    "NATIVE_HOOK_DLL_PATH": "",
+    "TOTAL_REROLLS": 0
 }

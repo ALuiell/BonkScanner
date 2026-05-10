@@ -1,0 +1,153 @@
+BonkScanner - Quick Manual
+==========================
+
+What It Is
+----------
+BonkScanner is a tool for automatic map rerolling in Megabonk.
+You launch the `.exe`, choose the search mode, and the program keeps rerolling
+until it finds a map that matches your target.
+
+
+What The Program Includes
+-------------------------
+- `Templates` mode
+- `Scores` mode
+- `Session stats`
+- standard reroll mode
+- `Native hook` mode
+- `Settings`
+- live log output
+
+
+How To Use It
+-------------
+1. Start the game.
+2. Start BonkScanner.exe.
+3. Choose `Templates` or `Scores`.
+4. Select the conditions you want.
+5. Start the scan.
+6. Wait for the target map.
+
+When a map matches your conditions, the program stops and shows the result in
+the log.
+
+
+Templates Mode
+--------------
+This is the strict rule-based mode.
+
+The map is checked against specific conditions, for example:
+- `Shady Guy`
+- `Moais`
+- `Microwaves`
+- `Boss Curses`
+- `S+M`
+
+Advantages:
+- simple and easy to understand;
+- good for targeted searching;
+- useful when you know exactly what kind of map you want.
+
+
+Scores Mode
+-----------
+This mode evaluates the map with an overall scoring system.
+
+Instead of using only strict template rules, the program looks at the general
+value of the map and places it into a tier such as:
+- `Light`
+- `Good`
+- `Perfect`
+- `Perfect+`
+
+Advantages:
+- more flexible filtering;
+- useful for finding generally strong maps;
+- better when strong maps can have different stat combinations.
+
+
+Templates vs Scores
+-------------------
+- `Templates` = strict conditions
+- `Scores` = flexible overall evaluation
+
+If you want clear and predictable matching, use `Templates`.
+If you want broader and smarter filtering, use `Scores`.
+
+
+Session Stats
+-------------
+`Session stats` show information about the current session.
+
+They help you quickly see:
+- how many rerolls happened;
+- how quickly target maps are found;
+- how the current session is going overall.
+
+
+Standard Mode And Native Hook
+-----------------------------
+Standard mode is the normal default reroll mode.
+It is the main option for most users.
+
+`Native hook` is an alternate reroll mode.
+It can be enabled in `Settings`.
+
+Advantages of `Native hook`:
+- may feel better in some usage scenarios;
+- may be more stable on some systems;
+- most importantly, it can keep working while the user is alt-tabbed and not
+  focused on the game window.
+
+If standard mode already works well, you can stay on it.
+If you want a better background-use option, try `Native hook`.
+
+
+Settings
+--------
+`Settings` contains the main program options.
+
+Most important items:
+- `Use native hook restart`
+  Enables `Native hook` mode.
+
+- `Min_delay`
+  The minimum delay between a reroll and the next check cycle.
+  If this value is too low, game behavior or reading stability may suffer.
+
+- `Duration Hold Reset`
+  How long the reroll key is held.
+  If it is too short, rerolls may sometimes fail.
+  If it is too long, the scan may feel slower.
+
+
+Config
+------
+The program uses `config.json`.
+
+This is the file where BonkScanner stores your settings, such as:
+- selected mode;
+- active templates;
+- `Scores` settings;
+- reroll settings;
+- `Native hook` state.
+
+You normally do not need to create this file yourself.
+BonkScanner creates and updates `config.json` automatically.
+
+
+Best Starting Point
+-------------------
+If you are new to the program:
+- start with `Templates`;
+- use standard mode first;
+- then try `Scores` and `Native hook` if you want more flexibility.
+
+
+Short Summary
+-------------
+- `Templates` = strict search
+- `Scores` = flexible evaluation
+- `Session stats` = stats for the current session
+- `Native hook` = alternate mode that can keep working while alt-tabbed
+- `config.json` = the file where the program stores your settings

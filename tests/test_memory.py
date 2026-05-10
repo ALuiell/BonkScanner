@@ -51,6 +51,11 @@ class ProcessMemoryTests(unittest.TestCase):
 
         self.assertEqual(reader.module_offset("GameAssembly.dll", 0x1234), 0x10001234)
 
+    def test_read_float_decodes_little_endian_float(self) -> None:
+        reader = self.create_reader({0x4000: struct.pack("<f", 1.25)})
+
+        self.assertAlmostEqual(reader.read_float(0x4000), 1.25)
+
     def test_read_bytes_raises_memory_error_on_missing_data(self) -> None:
         reader = self.create_reader({})
 
