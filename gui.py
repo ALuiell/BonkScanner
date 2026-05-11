@@ -9,6 +9,7 @@ import threading
 import time
 import webbrowser
 from ctypes import wintypes
+from functools import partial
 from pathlib import Path
 
 
@@ -85,10 +86,10 @@ except ImportError:
 
 SUPPORT_URL = "https://ko-fi.com/H2H01YXPQ7"
 PLAYER_STATS_REFRESH_MS = 10_000
-PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
-PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
-PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
-PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#14375e"
+PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#B93535"
+PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#DE4C3F"
+PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#2B3442"
+PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#394659"
 PLAYER_STATS_LABEL_FONT_SIZE = 13
 PLAYER_STATS_VALUE_FONT_SIZE = 13
 PLAYER_STATS_VALUE_WIDTH = 72
@@ -211,6 +212,42 @@ def _template_checkbox_stylesheet(color_hex: str) -> str:
     QCheckBox::indicator {{
         width: 16px;
         height: 16px;
+    }}
+    """
+
+
+def _template_color_hex(template: dict) -> str:
+    color_tag = template.get("color", "LIGHTBLUE_EX").upper()
+    return COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
+
+
+def _template_manager_card_stylesheet(color_hex: str, expanded: bool) -> str:
+    border_color = color_hex if expanded else "#3A4558"
+    background = "#151D2A" if expanded else "#121821"
+    return f"""
+    QFrame#TemplateManagerCard {{
+        background: {background};
+        border: 1px solid {border_color};
+        border-left: 4px solid {color_hex};
+        border-radius: 12px;
+    }}
+    """
+
+
+def _template_manager_header_stylesheet(color_hex: str) -> str:
+    return f"""
+    QPushButton {{
+        background: transparent;
+        border: none;
+        padding: 0;
+        color: {color_hex};
+        font-size: 15px;
+        font-weight: 800;
+        text-align: left;
+    }}
+    QPushButton:hover {{
+        background: transparent;
+        color: {color_hex};
     }}
     """
 
@@ -430,15 +467,24 @@ class TemplateDialog(QDialog):
 class TemplateManagerDialog(QDialog):
     def __init__(self, parent, templates, on_save):
         super().__init__(parent)
-        self.templates = templates
+        self.templates = [dict(template) for template in templates]
         self.on_save = on_save
-        self.setWindowTitle("Template Manager")
-        self.resize(680, 520)
+        self.setWindowTitle("Manage Templates")
+        self.resize(760, 760)
+        self.setMinimumSize(640, 560)
+        self.expanded_template_id: int | None = None
+        self.card_widgets: dict[int, dict[str, object]] = {}
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
         header = QLabel("Templates")
         header.setObjectName("SectionHeader")
         layout.addWidget(header)
+
+        subtitle = QLabel("Select a template from the list, and its settings will appear directly below the card.")
+        subtitle.setStyleSheet("color: #AAB4C4;")
+        layout.addWidget(subtitle)
 
         self.scroll, self.scroll_content, self.scroll_layout = _make_scroll_section()
         layout.addWidget(self.scroll, 1)
@@ -454,40 +500,104 @@ class TemplateManagerDialog(QDialog):
 
     def build_cards(self):
         _clear_layout(self.scroll_layout)
+        self.card_widgets.clear()
         for template in self.templates:
-            card = QGroupBox(template["name"])
+            template_id = int(template.get("id", 0))
+            color_hex = _template_color_hex(template)
+            card = QFrame()
+            card.setObjectName("TemplateManagerCard")
             card_layout = QVBoxLayout(card)
-            card_layout.addWidget(QLabel(format_template_conditions(template)))
-            actions = QHBoxLayout()
-            edit_btn = QPushButton("Edit")
-            edit_btn.clicked.connect(lambda _checked=False, t=template: self.save_template(t))
-            actions.addWidget(edit_btn)
-            actions.addStretch(1)
-            card_layout.addLayout(actions)
+            card_layout.setContentsMargins(16, 14, 16, 14)
+            card_layout.setSpacing(10)
+
+            header_btn = QPushButton(f"▶ {template['name']}")
+            header_btn.setCursor(Qt.PointingHandCursor)
+            header_btn.setStyleSheet(_template_manager_header_stylesheet(color_hex))
+            header_btn.clicked.connect(partial(self.toggle_template, template_id))
+            card_layout.addWidget(header_btn)
+
+            meta_text = format_template_conditions(template)
+            if template.get("id", 100) <= 7:
+                meta_text += "  •  Built-in"
+            meta_label = QLabel(meta_text)
+            meta_label.setStyleSheet("color: #C5CEDB;")
+            card_layout.addWidget(meta_label)
+
+            details = QFrame()
+            details_layout = QVBoxLayout(details)
+            details_layout.setContentsMargins(0, 8, 0, 0)
+            details_layout.setSpacing(12)
+            form = TemplateFormFrame(details, template)
+            details_layout.addWidget(form)
+
+            save_row = QHBoxLayout()
+            save_row.addStretch(1)
+            save_btn = QPushButton("Save")
+            save_btn.setObjectName("SuccessButton")
+            save_btn.clicked.connect(partial(self.save_template, template_id, form))
+            save_row.addWidget(save_btn)
+            details_layout.addLayout(save_row)
+            details.setVisible(False)
+            card_layout.addWidget(details)
+
+            self.card_widgets[template_id] = {
+                "card": card,
+                "header_btn": header_btn,
+                "details": details,
+                "template": template,
+                "form": form,
+                "color_hex": color_hex,
+            }
+            self._apply_card_state(template_id, expanded=template_id == self.expanded_template_id)
             self.scroll_layout.addWidget(card)
         self.scroll_layout.addStretch(1)
 
-    def _ensure_card_details(self, _widgets):
-        return None
-
-    def toggle_template(self, _widgets):
-        return None
-
-    def _expand_card(self, _widgets):
-        return None
-
-    def _collapse_card(self, _widgets):
-        return None
-
-    def save_template(self, template):
-        dialog = TemplateDialog(self, template)
-        if dialog.exec() != QDialog.Accepted or dialog.result_payload is None:
+    def _apply_card_state(self, template_id: int, *, expanded: bool) -> None:
+        widgets = self.card_widgets.get(template_id)
+        if widgets is None:
             return
-        payload = dialog.result_payload
+
+        template = widgets["template"]
+        header_btn = widgets["header_btn"]
+        details = widgets["details"]
+        color_hex = str(widgets["color_hex"])
+        header_btn.setText(f"{'▼' if expanded else '▶'} {template['name']}")
+        details.setVisible(expanded)
+        widgets["card"].setStyleSheet(_template_manager_card_stylesheet(color_hex, expanded))
+
+    def toggle_template(self, template_id: int) -> None:
+        if self.expanded_template_id == template_id:
+            self._apply_card_state(template_id, expanded=False)
+            self.expanded_template_id = None
+            return
+
+        if self.expanded_template_id is not None:
+            self._apply_card_state(self.expanded_template_id, expanded=False)
+
+        self.expanded_template_id = template_id
+        self._apply_card_state(template_id, expanded=True)
+
+    def save_template(self, template_id: int, form: TemplateFormFrame):
+        payload = form.get_payload()
+        if payload is None:
+            QMessageBox.warning(self, "Invalid Template", "Template name cannot be empty.")
+            return
+
+        template = next((item for item in self.templates if int(item.get("id", 0)) == template_id), None)
+        if template is None:
+            return
+
         payload["id"] = template.get("id")
-        index = self.templates.index(template)
-        self.templates[index] = payload
-        self.on_save()
+        original_name = template.get("name")
+        if callable(self.on_save) and not self.on_save(template, payload):
+            return
+
+        for index, existing in enumerate(self.templates):
+            if int(existing.get("id", 0)) == template_id:
+                self.templates[index] = payload
+                break
+
+        self.expanded_template_id = None
         self.build_cards()
 
 
@@ -904,11 +1014,11 @@ class MegabonkApp:
                     background: #10141B;
                 }
                 QGroupBox {
-                    border: 1px solid #243042;
+                    border: 1px solid #263241;
                     border-radius: 8px;
                     margin-top: 8px;
                     padding-top: 10px;
-                    background: #111827;
+                    background: #131A23;
                 }
                 QGroupBox::title {
                     subcontrol-origin: margin;
@@ -916,14 +1026,14 @@ class MegabonkApp:
                     padding: 0 4px;
                 }
                 QFrame#StatCard {
-                    background: #111827;
-                    border: 1px solid #243042;
+                    background: #131A23;
+                    border: 1px solid #263241;
                     border-radius: 8px;
                     padding: 8px;
                 }
                 QFrame#WarningCard {
-                    background: #3A2412;
-                    border: 1px solid #4A2E16;
+                    background: #312114;
+                    border: 1px solid #5E3417;
                     border-radius: 12px;
                 }
                 QLineEdit, QTextEdit, QPlainTextEdit, QListWidget {
@@ -931,81 +1041,109 @@ class MegabonkApp:
                     border: 1px solid #2B3648;
                     border-radius: 6px;
                     padding: 6px;
-                    selection-background-color: #1F6AA5;
+                    selection-background-color: #C53D32;
                 }
                 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QListWidget:focus {
-                    border-color: #3B82F6;
+                    border-color: #DE4C3F;
                 }
                 QPushButton {
-                    background: #1F6AA5;
-                    border: none;
+                    background: #2B3442;
+                    border: 1px solid #3C495B;
                     border-radius: 8px;
                     padding: 8px 12px;
                     color: white;
                     font-weight: 600;
                 }
                 QPushButton:hover {
-                    background: #2A80C0;
+                    background: #394659;
+                    border-color: #51647C;
                 }
                 QPushButton#DangerButton {
-                    background: #B91C1C;
+                    background: #8F2A2A;
+                    border-color: #A63636;
                 }
                 QPushButton#DangerButton:hover {
-                    background: #DC2626;
+                    background: #B53737;
+                    border-color: #CC4545;
                 }
                 QPushButton#SuccessButton {
-                    background: #2F9E6D;
+                    background: #B93535;
+                    border: 1px solid #D7483C;
+                    color: white;
+                    font-weight: 800;
                 }
                 QPushButton#SuccessButton:hover {
-                    background: #39B77F;
+                    background: #DE4C3F;
+                    border-color: #F06152;
                 }
                 QPushButton#SupportButton {
-                    background: #D97706;
+                    background: #D27A22;
+                    border: 1px solid #E38D37;
                 }
                 QPushButton#SupportButton:hover {
-                    background: #F59E0B;
+                    background: #E59236;
+                    border-color: #F0A956;
                 }
                 QPushButton[class="WideDialogButton"] {
                     min-height: 34px;
                     font-size: 14px;
                 }
                 QPushButton#SettingsButton {
-                    min-width: 118px;
-                    text-align: left;
+                    min-width: 44px;
+                    max-width: 44px;
+                    min-height: 40px;
+                    max-height: 40px;
+                    padding: 0;
+                    background: #252F3B;
+                    border: 1px solid #3D4B5F;
+                }
+                QPushButton#SettingsButton:hover {
+                    background: #394659;
+                    border-color: #556983;
                 }
                 QPushButton#ToggleButton {
                     min-width: 138px;
                     font-weight: 800;
                     letter-spacing: 0.5px;
+                    background: #C53D32;
+                    border: 1px solid #DE4C3F;
+                    color: white;
+                }
+                QPushButton#ToggleButton:hover {
+                    background: #DE4C3F;
+                    border-color: #F06152;
                 }
                 QTabWidget::pane {
-                    border: 1px solid #243042;
+                    border: 1px solid #263241;
                     border-radius: 8px;
                     top: -1px;
-                    background: #111827;
+                    background: #131A23;
                 }
                 QTabBar::tab {
-                    background: #1F2937;
+                    background: #171F29;
                     padding: 8px 12px;
                     margin-right: 4px;
                     border-top-left-radius: 6px;
                     border-top-right-radius: 6px;
                     min-width: 92px;
+                    border: 1px solid #263241;
                 }
                 QTabBar::tab:selected {
-                    background: #1F6AA5;
+                    background: #C53D32;
                     color: white;
                     font-weight: 700;
+                    border-color: #DE4C3F;
                 }
                 QTabBar::tab:hover:!selected {
-                    background: #273449;
+                    background: #2B3442;
+                    border-color: #3C495B;
                 }
                 QLabel#SectionHeader {
                     font-size: 20px;
                     font-weight: 700;
                 }
                 QLabel#WarningTitle {
-                    color: #FBBF24;
+                    color: #F59E0B;
                     background: transparent;
                     font-size: 20px;
                     font-weight: 800;
@@ -1027,15 +1165,15 @@ class MegabonkApp:
                     background: #111827;
                 }
                 QCheckBox::indicator:hover {
-                    border-color: #93C5FD;
+                    border-color: #DE4C3F;
                 }
                 QCheckBox::indicator:checked {
-                    background: #1F6AA5;
-                    border-color: #3B82F6;
+                    background: #C53D32;
+                    border-color: #DE4C3F;
                     image: url(__CHECKMARK_ICON__);
                 }
                 QCheckBox::indicator:checked:disabled {
-                    background: #34445E;
+                    background: #5E3834;
                 }
                 QScrollBar:vertical {
                     background: #111827;
@@ -1441,6 +1579,7 @@ class MegabonkApp:
         scores_layout.addWidget(self.scores_desc_label, 1)
         scores_buttons = QHBoxLayout()
         self.edit_scores_btn = QPushButton("Edit Settings")
+        _apply_button_icon(self.edit_scores_btn, "media/settings_icon.png", 18)
         self.edit_scores_btn.clicked.connect(self.open_scores_settings_dialog)
         scores_buttons.addWidget(self.edit_scores_btn)
         scores_buttons.addStretch(1)
@@ -1521,9 +1660,12 @@ class MegabonkApp:
         self.player_stats_items_label.setWordWrap(True)
         items_layout.addWidget(self.player_stats_items_label)
         player_content_layout.addWidget(items_group)
-        for group_index, group in enumerate(PLAYER_STAT_GROUPS):
-            stat_group = QGroupBox(f"Stats Group {group_index + 1}")
+        for group in PLAYER_STAT_GROUPS:
+            stat_group = QFrame()
+            stat_group.setObjectName("StatCard")
             group_layout = QFormLayout(stat_group)
+            group_layout.setContentsMargins(10, 10, 10, 10)
+            group_layout.setVerticalSpacing(6)
             for spec in group:
                 value_label = QLabel("--")
                 value_label.setMinimumWidth(PLAYER_STATS_VALUE_WIDTH)
@@ -1585,9 +1727,10 @@ class MegabonkApp:
         self.tabview.addTab(self.tab_vods, "Recordings")
 
         controls = QHBoxLayout()
-        self.settings_btn = QPushButton("Settings")
+        self.settings_btn = QPushButton("")
         self.settings_btn.setObjectName("SettingsButton")
         _apply_button_icon(self.settings_btn, "media/settings_icon.png", 20)
+        self.settings_btn.setToolTip("Settings")
         self.settings_btn.clicked.connect(self.open_settings_dialog)
         self.status_label = QLabel("Status: IDLE")
         self.status_label.setObjectName("StatusLabel")
@@ -1735,18 +1878,12 @@ class MegabonkApp:
                 config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
                 config.save_config(config.user_config)
                 self.refresh_templates()
-                return
+                return True
+        return False
 
     def edit_template_dialog(self):
-        selected = [t for t in config.TEMPLATES if self.checkboxes.get(t["name"]) and self.checkboxes[t["name"]].isChecked()]
-        if len(selected) != 1:
-            QMessageBox.information(self.window, "Select One Template", "Enable exactly one template checkbox before editing.")
-            return
-        template = selected[0]
-        dialog = TemplateDialog(self.window, template)
-        if dialog.exec() != QDialog.Accepted or dialog.result_payload is None:
-            return
-        self.apply_template_edit(template, dialog.result_payload)
+        dialog = TemplateManagerDialog(self.window, config.TEMPLATES, self.apply_template_edit)
+        dialog.exec()
 
     def del_template_dialog(self):
         custom_templates = [template for template in config.TEMPLATES if template.get("id", 0) > 7]
@@ -1810,7 +1947,7 @@ class MegabonkApp:
                 status = "WAITING FOR GAME"
             self.status_label.setText(f"Status: {status}")
             self.toggle_btn.setText("Stop")
-            self.toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
+            self.toggle_btn.setStyleSheet(_button_state_stylesheet("#8F2A2A", "#B53737"))
         else:
             self.status_label.setText("Status: IDLE")
             self.toggle_btn.setText(f"Start")

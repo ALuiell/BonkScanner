@@ -615,6 +615,60 @@ class GuiRunControlTests(unittest.TestCase):
         load_vod.assert_called_once_with(Path("C:/tmp/run.jsonl"))
         self.assertIs(app.loaded_vod, loaded_vod)
 
+    def test_edit_template_dialog_opens_template_manager(self) -> None:
+        opened: list[object] = []
+        fake_dialog = types.SimpleNamespace(exec=lambda: opened.append("exec"))
+        app = object.__new__(gui.MegabonkApp)
+        app.window = object()
+        app.apply_template_edit = lambda original, updated: opened.append((original, updated))
+        templates = [{"id": 1, "name": "LIGHT"}]
+
+        with patch.object(gui.config, "TEMPLATES", templates):
+            with patch.object(gui, "TemplateManagerDialog", return_value=fake_dialog) as dialog_cls:
+                gui.MegabonkApp.edit_template_dialog(app)
+
+        dialog_cls.assert_called_once_with(app.window, templates, app.apply_template_edit)
+        self.assertEqual(opened, ["exec"])
+
+    def test_template_manager_dialog_expands_selected_template(self) -> None:
+        gui.MegabonkApp._ensure_qt_application()
+        templates = [
+            {"id": 1, "name": "LIGHT", "color": "GREEN"},
+            {"id": 2, "name": "PERFECT", "color": "YELLOW"},
+        ]
+        dialog = gui.TemplateManagerDialog(None, templates, lambda _original, _updated: True)
+
+        first_details = dialog.card_widgets[1]["details"]
+        second_details = dialog.card_widgets[2]["details"]
+        self.assertTrue(first_details.isHidden())
+        self.assertTrue(second_details.isHidden())
+
+        dialog.toggle_template(2)
+        self.assertEqual(dialog.expanded_template_id, 2)
+        self.assertTrue(first_details.isHidden())
+        self.assertFalse(second_details.isHidden())
+
+        dialog.close()
+
+    def test_template_manager_dialog_save_updates_template_and_collapses_card(self) -> None:
+        gui.MegabonkApp._ensure_qt_application()
+        saved: list[tuple[dict, dict]] = []
+        templates = [{"id": 9, "name": "Custom", "micro": 1, "color": "MAGENTA"}]
+        dialog = gui.TemplateManagerDialog(None, templates, lambda original, updated: saved.append((original, updated)) or True)
+
+        form = dialog.card_widgets[9]["form"]
+        form.micro_entry.setText("3")
+        dialog.toggle_template(9)
+        dialog.save_template(9, form)
+
+        self.assertEqual(saved[0][0]["id"], 9)
+        self.assertEqual(saved[0][1]["micro"], 3)
+        self.assertEqual(dialog.templates[0]["micro"], 3)
+        self.assertIsNone(dialog.expanded_template_id)
+        self.assertTrue(dialog.card_widgets[9]["details"].isHidden())
+
+        dialog.close()
+
     def test_log_reroll_stats_tracks_session_and_persistent_totals(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.session_rerolls = 3
