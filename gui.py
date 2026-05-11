@@ -888,6 +888,15 @@ class SettingsDialog(QDialog):
         self.record_hotkey_entry = QLineEdit(getattr(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"))
         form_layout.addRow("Record Hotkey:", self.record_hotkey_entry)
 
+        self.toggle_skip_chest_animation_hotkey_entry = QLineEdit(
+            getattr(config, "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11")
+        )
+        self.toggle_auto_select_upgrades_hotkey_entry = QLineEdit(
+            getattr(config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f12")
+        )
+        form_layout.addRow("Toggle Chest Skip Hotkey:", self.toggle_skip_chest_animation_hotkey_entry)
+        form_layout.addRow("Toggle Auto Select Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)
+
         self.min_delay_entry = QLineEdit(str(config.MIN_DELAY))
         self.map_load_delay_entry = self.min_delay_entry
         form_layout.addRow("Min Reroll Delay (s):", self.min_delay_entry)
@@ -952,16 +961,22 @@ class SettingsDialog(QDialog):
         new_hotkey = _read_text(self.hotkey_entry).strip()
         new_reset_hotkey = _read_text(self.reset_hotkey_entry).strip()
         new_record_hotkey = _read_text(self.record_hotkey_entry).strip()
+        new_toggle_skip_chest_animation_hotkey = _read_text(self.toggle_skip_chest_animation_hotkey_entry).strip()
+        new_toggle_auto_select_upgrades_hotkey = _read_text(self.toggle_auto_select_upgrades_hotkey_entry).strip()
         native_hook_enabled = _read_bool(self.native_hook_enabled_var)
 
         config.user_config["HOTKEY"] = new_hotkey
         config.user_config["RESET_HOTKEY"] = new_reset_hotkey
         config.user_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
+        config.user_config["TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY"] = new_toggle_skip_chest_animation_hotkey
+        config.user_config["TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY"] = new_toggle_auto_select_upgrades_hotkey
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
 
         config.HOTKEY = new_hotkey
         config.RESET_HOTKEY = new_reset_hotkey
         config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
+        config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY = new_toggle_skip_chest_animation_hotkey
+        config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY = new_toggle_auto_select_upgrades_hotkey
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
 
         delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
@@ -1907,12 +1922,46 @@ class MegabonkApp:
         dialog = SettingsDialog(self.window, master=self)
         dialog.exec()
 
+    def toggle_game_setting(self, setting_key: str, label: str) -> bool:
+        loader = getattr(self, "native_hook_loader", None)
+        if loader is None:
+            dll_path = getattr(config, "NATIVE_HOOK_DLL_PATH", "") or None
+            loader = NativeHookLoader(
+                config.PROCESS_NAME,
+                dll_path=dll_path,
+                base_path=config.application_path,
+            )
+
+        try:
+            if setting_key == "skip_chest_animation":
+                toggled = loader.toggle_skip_chest_animation()
+            elif setting_key == "auto_select_upgrades":
+                toggled = loader.toggle_auto_select_upgrades()
+            else:
+                self.log(f"[WAIT] Unsupported game setting toggle: {label}", tag="warning")
+                return False
+        except HookLoadError as exc:
+            self.log(f"[WAIT] Could not toggle '{label}' live in the game. Details: {exc}", tag="warning")
+            return False
+
+        state_text = "ON" if toggled else "OFF"
+        self.log(f"[+] {label}: {state_text}", tag="success")
+        return True
+
     def setup_hotkeys(self):
         if keyboard:
             try:
                 keyboard.unhook_all()
                 keyboard.add_hotkey(config.HOTKEY, self.hotkey_toggle_scanning)
                 keyboard.add_hotkey(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording)
+                keyboard.add_hotkey(
+                    config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY,
+                    self.hotkey_toggle_skip_chest_animation,
+                )
+                keyboard.add_hotkey(
+                    config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
+                    self.hotkey_toggle_auto_select_upgrades,
+                )
             except Exception as exc:
                 self.log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
 
@@ -1942,6 +1991,12 @@ class MegabonkApp:
 
     def hotkey_toggle_player_stats_recording(self):
         self.after(0, self.toggle_player_stats_recording)
+
+    def hotkey_toggle_skip_chest_animation(self):
+        self.after(0, partial(self.toggle_game_setting, "skip_chest_animation", "Skip Chest Animation"))
+
+    def hotkey_toggle_auto_select_upgrades(self):
+        self.after(0, partial(self.toggle_game_setting, "auto_select_upgrades", "Auto Select LevelUp Upgrades"))
 
     def update_status_ui(self):
         if self.status_label is None or self.toggle_btn is None:

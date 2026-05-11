@@ -1,6 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace BonkHook;
 
@@ -9,6 +10,8 @@ internal static unsafe class HookExports
     private const nuint AlwaysManagerUpdateOffset = 0x4F7520;
     private const nuint GenerateMapMoveNextOffset = 0x4A26F0;
     private const nuint MapControllerRestartRunOffset = 0x4220B0;
+    private const nuint SaveManagerGetInstanceOffset = 0x525700;
+    private const nuint SaveManagerSaveConfigOffset = 0x524CC0;
     private const nuint MapControllerTypeInfoOffset = 0x2F58E08;
     private const nuint MapGenerationControllerTypeInfoOffset = 0x2F59000;
     private const nuint AlwaysManagerTypeInfoOffset = 0x2F6BAA8;
@@ -17,9 +20,15 @@ internal static unsafe class HookExports
     private const int MapControllerCurrentMapOffset = 0x10;
     private const int MapControllerCurrentStageOffset = 0x18;
     private const int MapGenerationIsGeneratingOffset = 0x10;
+    private const int SaveManagerConfigOffset = 0x20;
+    private const int ConfigSaveFileGameSettingsOffset = 0x18;
+    private const int CFGameSettingsAutoSelectUpgradesOffset = 0x68;
+    private const int CFGameSettingsSkipChestAnimationOffset = 0x78;
     private const int MH_OK = 0;
     private const int MH_ERROR_ALREADY_INITIALIZED = 1;
     private const int MH_ERROR_ENABLED = 5;
+    private const int ToggleSettingSkipChestAnimation = 1;
+    private const int ToggleSettingAutoSelectUpgrades = 2;
 
     private static readonly byte[] ExpectedAlwaysManagerUpdateBytes =
     [
@@ -31,9 +40,13 @@ internal static unsafe class HookExports
     private static IntPtr _originalGenerateMapMoveNext;
     private static IntPtr _gameAssembly;
     private static IntPtr _mapControllerRestartRun;
+    private static IntPtr _saveManagerGetInstance;
+    private static IntPtr _saveManagerSaveConfig;
     private static int _installed;
     private static int _restartRunRequested;
     private static int _snapshotReady;
+    private static int _toggleSettingRequest;
+    private static int _toggleSettingResult;
 
     [UnmanagedCallersOnly(EntryPoint = "Initialize")]
     public static uint Initialize(IntPtr _)
@@ -56,11 +69,15 @@ internal static unsafe class HookExports
             IntPtr generateMapMoveNext = gameAssembly + (nint)GenerateMapMoveNextOffset;
             _gameAssembly = gameAssembly;
             _mapControllerRestartRun = gameAssembly + (nint)MapControllerRestartRunOffset;
+            _saveManagerGetInstance = gameAssembly + (nint)SaveManagerGetInstanceOffset;
+            _saveManagerSaveConfig = gameAssembly + (nint)SaveManagerSaveConfigOffset;
             if (!HasExpectedBytes(alwaysManagerUpdate, ExpectedAlwaysManagerUpdateBytes))
             {
                 _installed = 0;
                 _gameAssembly = IntPtr.Zero;
                 _mapControllerRestartRun = IntPtr.Zero;
+                _saveManagerGetInstance = IntPtr.Zero;
+                _saveManagerSaveConfig = IntPtr.Zero;
                 return 11;
             }
 
@@ -69,6 +86,8 @@ internal static unsafe class HookExports
                 _installed = 0;
                 _gameAssembly = IntPtr.Zero;
                 _mapControllerRestartRun = IntPtr.Zero;
+                _saveManagerGetInstance = IntPtr.Zero;
+                _saveManagerSaveConfig = IntPtr.Zero;
                 return 12;
             }
 
@@ -94,6 +113,8 @@ internal static unsafe class HookExports
                 _installed = 0;
                 _gameAssembly = IntPtr.Zero;
                 _mapControllerRestartRun = IntPtr.Zero;
+                _saveManagerGetInstance = IntPtr.Zero;
+                _saveManagerSaveConfig = IntPtr.Zero;
                 return (uint)(50 + status);
             }
 
@@ -103,6 +124,8 @@ internal static unsafe class HookExports
                 _installed = 0;
                 _gameAssembly = IntPtr.Zero;
                 _mapControllerRestartRun = IntPtr.Zero;
+                _saveManagerGetInstance = IntPtr.Zero;
+                _saveManagerSaveConfig = IntPtr.Zero;
                 return (uint)(60 + status);
             }
 
@@ -125,8 +148,12 @@ internal static unsafe class HookExports
             _installed = 0;
             _gameAssembly = IntPtr.Zero;
             _mapControllerRestartRun = IntPtr.Zero;
+            _saveManagerGetInstance = IntPtr.Zero;
+            _saveManagerSaveConfig = IntPtr.Zero;
             Interlocked.Exchange(ref _restartRunRequested, 0);
             Interlocked.Exchange(ref _snapshotReady, 0);
+            Interlocked.Exchange(ref _toggleSettingRequest, 0);
+            Interlocked.Exchange(ref _toggleSettingResult, 0);
             return 0;
         }
         catch
@@ -157,6 +184,18 @@ internal static unsafe class HookExports
         }
 
         return Interlocked.Exchange(ref _snapshotReady, 0) != 0 ? 1u : 0u;
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "ToggleSkipChestAnimation")]
+    public static uint ToggleSkipChestAnimation(IntPtr _)
+    {
+        return QueueToggleSetting(ToggleSettingSkipChestAnimation);
+    }
+
+    [UnmanagedCallersOnly(EntryPoint = "ToggleAutoSelectUpgrades")]
+    public static uint ToggleAutoSelectUpgrades(IntPtr _)
+    {
+        return QueueToggleSetting(ToggleSettingAutoSelectUpgrades);
     }
 
     [UnmanagedCallersOnly]
@@ -201,24 +240,149 @@ internal static unsafe class HookExports
     {
         if (Interlocked.Exchange(ref _restartRunRequested, 0) == 0)
         {
-            return;
         }
-
-        IntPtr restartRun = _mapControllerRestartRun;
-        if (restartRun == IntPtr.Zero)
+        else
         {
-            IntPtr gameAssembly = GetModuleHandleW("GameAssembly.dll");
-            if (gameAssembly == IntPtr.Zero)
+            IntPtr restartRun = _mapControllerRestartRun;
+            if (restartRun == IntPtr.Zero)
             {
-                return;
+                IntPtr gameAssembly = GetModuleHandleW("GameAssembly.dll");
+                if (gameAssembly == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                restartRun = gameAssembly + (nint)MapControllerRestartRunOffset;
+                _mapControllerRestartRun = restartRun;
             }
 
-            restartRun = gameAssembly + (nint)MapControllerRestartRunOffset;
-            _mapControllerRestartRun = restartRun;
+            var restartRunFunc = (delegate* unmanaged<IntPtr, void>)restartRun;
+            restartRunFunc(IntPtr.Zero);
         }
 
-        var restartRunFunc = (delegate* unmanaged<IntPtr, void>)restartRun;
-        restartRunFunc(IntPtr.Zero);
+        int toggleRequest = Interlocked.Exchange(ref _toggleSettingRequest, 0);
+        if (toggleRequest != 0)
+        {
+            int toggleResult = ToggleSettingOnMainThread(toggleRequest);
+            Interlocked.Exchange(ref _toggleSettingResult, toggleResult);
+        }
+    }
+
+    private static uint QueueToggleSetting(int toggleKind)
+    {
+        if (Volatile.Read(ref _installed) == 0)
+        {
+            return 100;
+        }
+
+        if (toggleKind == 0)
+        {
+            return 110;
+        }
+
+        Interlocked.Exchange(ref _toggleSettingResult, 0);
+        Interlocked.Exchange(ref _toggleSettingRequest, toggleKind);
+
+        for (int i = 0; i < 200; i++)
+        {
+            int result = Volatile.Read(ref _toggleSettingResult);
+            if (result != 0)
+            {
+                return (uint)result;
+            }
+            Thread.Sleep(5);
+        }
+
+        Interlocked.CompareExchange(ref _toggleSettingRequest, 0, toggleKind);
+        return 120;
+    }
+
+    private static int ToggleSettingOnMainThread(int toggleKind)
+    {
+        IntPtr saveManager = GetSaveManagerInstance();
+        if (saveManager == IntPtr.Zero)
+        {
+            return 130;
+        }
+
+        IntPtr config = *(IntPtr*)((byte*)saveManager + SaveManagerConfigOffset);
+        if (config == IntPtr.Zero)
+        {
+            return 131;
+        }
+
+        IntPtr gameSettings = *(IntPtr*)((byte*)config + ConfigSaveFileGameSettingsOffset);
+        if (gameSettings == IntPtr.Zero)
+        {
+            return 132;
+        }
+
+        int fieldOffset = toggleKind switch
+        {
+            ToggleSettingSkipChestAnimation => CFGameSettingsSkipChestAnimationOffset,
+            ToggleSettingAutoSelectUpgrades => CFGameSettingsAutoSelectUpgradesOffset,
+            _ => 0,
+        };
+        if (fieldOffset == 0)
+        {
+            return 133;
+        }
+
+        int currentValue = *(int*)((byte*)gameSettings + fieldOffset);
+        int toggledValue = currentValue == 0 ? 1 : 0;
+        *(int*)((byte*)gameSettings + fieldOffset) = toggledValue;
+        SaveConfig(saveManager);
+        return toggledValue != 0 ? 1 : 2;
+    }
+
+    private static IntPtr GetSaveManagerInstance()
+    {
+        IntPtr getInstance = _saveManagerGetInstance;
+        if (getInstance == IntPtr.Zero)
+        {
+            IntPtr gameAssembly = _gameAssembly;
+            if (gameAssembly == IntPtr.Zero)
+            {
+                gameAssembly = GetModuleHandleW("GameAssembly.dll");
+                if (gameAssembly == IntPtr.Zero)
+                {
+                    return IntPtr.Zero;
+                }
+
+                _gameAssembly = gameAssembly;
+            }
+
+            getInstance = gameAssembly + (nint)SaveManagerGetInstanceOffset;
+            _saveManagerGetInstance = getInstance;
+        }
+
+        var getInstanceFunc = (delegate* unmanaged<IntPtr>)getInstance;
+        return getInstanceFunc();
+    }
+
+    private static void SaveConfig(IntPtr saveManager)
+    {
+        IntPtr saveConfig = _saveManagerSaveConfig;
+        if (saveConfig == IntPtr.Zero)
+        {
+            IntPtr gameAssembly = _gameAssembly;
+            if (gameAssembly == IntPtr.Zero)
+            {
+                gameAssembly = GetModuleHandleW("GameAssembly.dll");
+                if (gameAssembly == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                _gameAssembly = gameAssembly;
+            }
+
+            saveConfig = gameAssembly + (nint)SaveManagerSaveConfigOffset;
+            _saveManagerSaveConfig = saveConfig;
+        }
+
+        var saveConfigFunc = (delegate* unmanaged<IntPtr, IntPtr, void>)saveConfig;
+        saveConfigFunc(saveManager, IntPtr.Zero);
     }
 
     private static bool IsMapSnapshotReady()

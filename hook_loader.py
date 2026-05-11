@@ -263,6 +263,12 @@ class NativeHookLoader:
 
                 time.sleep(min(poll_seconds, remaining))
 
+    def toggle_skip_chest_animation(self) -> bool:
+        return self._invoke_toggle_export(b"ToggleSkipChestAnimation", "Skip Chest Animation")
+
+    def toggle_auto_select_upgrades(self) -> bool:
+        return self._invoke_toggle_export(b"ToggleAutoSelectUpgrades", "Auto Select Upgrades")
+
     def cleanup_cached_dll(self) -> None:
         with self._operation_lock:
             dll_path = self.dll_path
@@ -289,6 +295,16 @@ class NativeHookLoader:
 
             self._injected_pids.discard(pid)
             return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=False)
+
+    def _invoke_toggle_export(self, export_name: bytes, label: str) -> bool:
+        with self._operation_lock:
+            result = self.inject_once()
+            exit_code = self._invoke_export_in_pid(result.pid, export_name, 0)
+            if exit_code == 1:
+                return True
+            if exit_code == 2:
+                return False
+            raise HookLoadError(f"BonkHook {label} toggle failed with status {exit_code}.")
 
     def try_inject_once(
         self,
