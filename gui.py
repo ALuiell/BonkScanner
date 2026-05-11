@@ -86,10 +86,10 @@ except ImportError:
 
 SUPPORT_URL = "https://ko-fi.com/H2H01YXPQ7"
 PLAYER_STATS_REFRESH_MS = 10_000
-PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#B93535"
-PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#DE4C3F"
-PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#2B3442"
-PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#394659"
+PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
+PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
+PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
+PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#14375e"
 PLAYER_STATS_LABEL_FONT_SIZE = 13
 PLAYER_STATS_VALUE_FONT_SIZE = 13
 PLAYER_STATS_VALUE_WIDTH = 72
@@ -1041,48 +1041,41 @@ class MegabonkApp:
                     border: 1px solid #2B3648;
                     border-radius: 6px;
                     padding: 6px;
-                    selection-background-color: #C53D32;
+                    selection-background-color: #1F6AA5;
                 }
                 QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QListWidget:focus {
-                    border-color: #DE4C3F;
+                    border-color: #3B82F6;
                 }
                 QPushButton {
-                    background: #2B3442;
-                    border: 1px solid #3C495B;
+                    background: #1F6AA5;
+                    border: none;
                     border-radius: 8px;
                     padding: 8px 12px;
                     color: white;
                     font-weight: 600;
                 }
                 QPushButton:hover {
-                    background: #394659;
-                    border-color: #51647C;
+                    background: #2A80C0;
                 }
                 QPushButton#DangerButton {
-                    background: #8F2A2A;
-                    border-color: #A63636;
+                    background: #B91C1C;
                 }
                 QPushButton#DangerButton:hover {
-                    background: #B53737;
-                    border-color: #CC4545;
+                    background: #DC2626;
                 }
                 QPushButton#SuccessButton {
-                    background: #B93535;
-                    border: 1px solid #D7483C;
+                    background: #2F9E6D;
                     color: white;
                     font-weight: 800;
                 }
                 QPushButton#SuccessButton:hover {
-                    background: #DE4C3F;
-                    border-color: #F06152;
+                    background: #39B77F;
                 }
                 QPushButton#SupportButton {
-                    background: #D27A22;
-                    border: 1px solid #E38D37;
+                    background: #D97706;
                 }
                 QPushButton#SupportButton:hover {
-                    background: #E59236;
-                    border-color: #F0A956;
+                    background: #F59E0B;
                 }
                 QPushButton[class="WideDialogButton"] {
                     min-height: 34px;
@@ -1094,24 +1087,23 @@ class MegabonkApp:
                     min-height: 40px;
                     max-height: 40px;
                     padding: 0;
-                    background: #252F3B;
-                    border: 1px solid #3D4B5F;
+                    background: #2B3A4F;
+                    border: 1px solid #41556F;
                 }
                 QPushButton#SettingsButton:hover {
-                    background: #394659;
-                    border-color: #556983;
+                    background: #3A4D66;
+                    border-color: #58708D;
                 }
                 QPushButton#ToggleButton {
                     min-width: 138px;
                     font-weight: 800;
                     letter-spacing: 0.5px;
-                    background: #C53D32;
-                    border: 1px solid #DE4C3F;
+                    background: #1F6AA5;
+                    border: none;
                     color: white;
                 }
                 QPushButton#ToggleButton:hover {
-                    background: #DE4C3F;
-                    border-color: #F06152;
+                    background: #2A80C0;
                 }
                 QTabWidget::pane {
                     border: 1px solid #263241;
@@ -1120,23 +1112,20 @@ class MegabonkApp:
                     background: #131A23;
                 }
                 QTabBar::tab {
-                    background: #171F29;
+                    background: #1F2937;
                     padding: 8px 12px;
                     margin-right: 4px;
                     border-top-left-radius: 6px;
                     border-top-right-radius: 6px;
                     min-width: 92px;
-                    border: 1px solid #263241;
                 }
                 QTabBar::tab:selected {
-                    background: #C53D32;
+                    background: #1F6AA5;
                     color: white;
                     font-weight: 700;
-                    border-color: #DE4C3F;
                 }
                 QTabBar::tab:hover:!selected {
-                    background: #2B3442;
-                    border-color: #3C495B;
+                    background: #273449;
                 }
                 QLabel#SectionHeader {
                     font-size: 20px;
@@ -1165,15 +1154,15 @@ class MegabonkApp:
                     background: #111827;
                 }
                 QCheckBox::indicator:hover {
-                    border-color: #DE4C3F;
+                    border-color: #93C5FD;
                 }
                 QCheckBox::indicator:checked {
-                    background: #C53D32;
-                    border-color: #DE4C3F;
+                    background: #1F6AA5;
+                    border-color: #3B82F6;
                     image: url(__CHECKMARK_ICON__);
                 }
                 QCheckBox::indicator:checked:disabled {
-                    background: #5E3834;
+                    background: #34445E;
                 }
                 QScrollBar:vertical {
                     background: #111827;
@@ -1947,7 +1936,7 @@ class MegabonkApp:
                 status = "WAITING FOR GAME"
             self.status_label.setText(f"Status: {status}")
             self.toggle_btn.setText("Stop")
-            self.toggle_btn.setStyleSheet(_button_state_stylesheet("#8F2A2A", "#B53737"))
+            self.toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
         else:
             self.status_label.setText("Status: IDLE")
             self.toggle_btn.setText(f"Start")
@@ -2891,6 +2880,11 @@ class MegabonkApp:
                 self.log(f"[WAIT] Could not disconnect restart helper during shutdown. Details: {exc}", tag="warning")
             except Exception as exc:
                 self.log(f"[WAIT] Unexpected restart helper shutdown error. Details: {exc}", tag="warning")
+            finally:
+                try:
+                    hook_loader.cleanup_cached_dll()
+                except Exception as exc:
+                    self.log(f"[WAIT] Could not clean up cached restart helper DLL. Details: {exc}", tag="warning")
         if keyboard:
             try:
                 keyboard.unhook_all()

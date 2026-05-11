@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import threading
@@ -45,6 +46,7 @@ class FakeNativeHookLoader(NativeHookLoader):
         self.initialize_status = initialize_status
         self.injected: list[int] = []
         self.remote_exports: list[tuple[int, bytes, int]] = []
+        self.unloaded_pids: list[int] = []
 
     def _find_process_id(self) -> int | None:
         return self.pid
@@ -74,6 +76,10 @@ class FakeNativeHookLoader(NativeHookLoader):
             return self.uninitialize_status
         return 0
 
+    def _unload_remote_hook_module(self, pid: int, *, max_attempts: int = 8) -> None:
+        del max_attempts
+        self.unloaded_pids.append(pid)
+
 
 class FailingNativeHookLoader(FakeNativeHookLoader):
     def _inject_into_pid(self, pid: int) -> None:
@@ -92,16 +98,30 @@ class NativeHookLoaderTests(unittest.TestCase):
     def test_resolve_default_dll_path_uses_meipass_when_frozen(self) -> None:
         old_frozen = getattr(sys, "frozen", _MISSING)
         old_meipass = getattr(sys, "_MEIPASS", _MISSING)
+        old_local_appdata = os.environ.get("LOCALAPPDATA")
 
         with tempfile.TemporaryDirectory() as temp_dir:
+            bundle_root = Path(temp_dir) / "bundle"
+            bundled_dll = bundle_root / NativeHookLoader.DEFAULT_RELATIVE_DLL
+            bundled_dll.parent.mkdir(parents=True, exist_ok=True)
+            bundled_dll.write_bytes(b"bundled hook")
+            local_appdata = Path(temp_dir) / "local-appdata"
             try:
                 sys.frozen = True
-                sys._MEIPASS = temp_dir
+                sys._MEIPASS = str(bundle_root)
+                os.environ["LOCALAPPDATA"] = str(local_appdata)
 
                 path = NativeHookLoader.resolve_dll_path(base_path=Path("C:/BonkScanner"))
 
-                self.assertEqual(path, (Path(temp_dir) / NativeHookLoader.DEFAULT_RELATIVE_DLL).resolve())
+                expected = (local_appdata / "BonkScanner" / "native-hook" / "BonkHook.dll").resolve()
+                self.assertEqual(path, expected)
+                self.assertTrue(path.exists())
+                self.assertEqual(path.read_bytes(), b"bundled hook")
             finally:
+                if old_local_appdata is None:
+                    os.environ.pop("LOCALAPPDATA", None)
+                else:
+                    os.environ["LOCALAPPDATA"] = old_local_appdata
                 restore_sys_attr("frozen", old_frozen)
                 restore_sys_attr("_MEIPASS", old_meipass)
 
@@ -302,6 +322,7 @@ class NativeHookLoaderTests(unittest.TestCase):
 
         self.assertEqual(result, HookLoadResult(pid=1234, dll_path=dll_path, initialized=False))
         self.assertEqual(loader.remote_exports, [(1234, b"Uninitialize", 0)])
+        self.assertEqual(loader.unloaded_pids, [1234])
         self.assertEqual(loader._injected_pids, set())
 
     def test_uninitialize_raises_for_remote_error_status(self) -> None:

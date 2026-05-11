@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import ctypes
+import hashlib
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -58,6 +62,7 @@ class NativeHookLoader:
     MEM_COMMIT = 0x1000
     MEM_RESERVE = 0x2000
     MEM_RELEASE = 0x8000
+    MOVEFILE_DELAY_UNTIL_REBOOT = 0x00000004
     PAGE_NOACCESS = 0x01
     PAGE_READWRITE = 0x04
     PAGE_EXECUTE = 0x10
@@ -133,13 +138,80 @@ class NativeHookLoader:
             return Path(dll_path).expanduser().resolve()
 
         if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-            root = Path(sys._MEIPASS)
+            bundle_root = Path(sys._MEIPASS)
+            bundled_dll = (bundle_root / cls.DEFAULT_RELATIVE_DLL).resolve()
+            return cls._resolve_persistent_bundled_dll(bundled_dll)
         elif base_path:
             root = Path(base_path)
         else:
             root = Path.cwd()
 
         return (root / cls.DEFAULT_RELATIVE_DLL).resolve()
+
+    @classmethod
+    def _resolve_persistent_bundled_dll(cls, bundled_dll: Path) -> Path:
+        if not bundled_dll.exists():
+            return bundled_dll
+
+        cache_root = cls._persistent_hook_cache_dir()
+        cache_root.mkdir(parents=True, exist_ok=True)
+        target_path = cache_root / bundled_dll.name
+        copied_path = cls._sync_persistent_dll_copy(bundled_dll, target_path)
+        return copied_path if copied_path is not None else bundled_dll
+
+    @staticmethod
+    def _persistent_hook_cache_dir() -> Path:
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            return Path(local_appdata) / "BonkScanner" / "native-hook"
+        return Path(tempfile.gettempdir()) / "BonkScanner" / "native-hook"
+
+    @classmethod
+    def is_persistent_hook_cache_path(cls, path: Path) -> bool:
+        try:
+            path.resolve().relative_to(cls._persistent_hook_cache_dir().resolve())
+            return True
+        except ValueError:
+            return False
+        except OSError:
+            return False
+
+    @classmethod
+    def _sync_persistent_dll_copy(cls, source_path: Path, target_path: Path) -> Path | None:
+        if cls._same_file_contents(source_path, target_path):
+            return target_path
+
+        temp_target = target_path.with_suffix(target_path.suffix + ".tmp")
+        try:
+            shutil.copy2(source_path, temp_target)
+            temp_target.replace(target_path)
+            return target_path
+        except OSError:
+            try:
+                if temp_target.exists():
+                    temp_target.unlink()
+            except OSError:
+                pass
+            return target_path if target_path.exists() else None
+
+    @staticmethod
+    def _same_file_contents(source_path: Path, target_path: Path) -> bool:
+        if not target_path.exists():
+            return False
+        try:
+            if source_path.stat().st_size != target_path.stat().st_size:
+                return False
+        except OSError:
+            return False
+        return NativeHookLoader._file_digest(source_path) == NativeHookLoader._file_digest(target_path)
+
+    @staticmethod
+    def _file_digest(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
 
     def inject_once(self) -> HookLoadResult:
         with self._operation_lock:
@@ -191,6 +263,19 @@ class NativeHookLoader:
 
                 time.sleep(min(poll_seconds, remaining))
 
+    def cleanup_cached_dll(self) -> None:
+        with self._operation_lock:
+            dll_path = self.dll_path
+            if not self.is_persistent_hook_cache_path(dll_path):
+                return
+
+            cache_dir = dll_path.parent
+            if self._try_delete_cached_dll(dll_path, cache_dir):
+                return
+
+            self._spawn_cached_dll_cleanup_helper(dll_path, cache_dir)
+            self._schedule_delete_on_reboot(dll_path)
+
     def uninitialize(self) -> HookLoadResult:
         with self._operation_lock:
             pid = self._find_process_id()
@@ -200,6 +285,7 @@ class NativeHookLoader:
             exit_code = self._invoke_export_in_pid(pid, b"Uninitialize", 0)
             if exit_code != 0:
                 raise HookLoadError(f"BonkHook Uninitialize failed with status {exit_code}.")
+            self._unload_remote_hook_module(pid)
 
             self._injected_pids.discard(pid)
             return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=False)
@@ -282,6 +368,98 @@ class NativeHookLoader:
             if local_module:
                 self._kernel32.FreeLibrary(local_module)
             self._kernel32.CloseHandle(process)
+
+    def _unload_remote_hook_module(self, pid: int, *, max_attempts: int = 8) -> None:
+        process = self._open_process(pid)
+        try:
+            for _ in range(max(1, int(max_attempts))):
+                remote_module = self._find_remote_module_base(process, self.dll_path.name)
+                if remote_module is None:
+                    return
+
+                self._remote_free_library(process, remote_module)
+                time.sleep(0.02)
+
+            if self._find_remote_module_base(process, self.dll_path.name) is not None:
+                raise HookLoadError(f"Could not fully unload remote module: {self.dll_path.name}.")
+        finally:
+            self._kernel32.CloseHandle(process)
+
+    def _remote_free_library(self, process: int, remote_module: int) -> None:
+        free_library = self._kernel32.GetProcAddress(
+            self._kernel32.GetModuleHandleW("kernel32.dll"),
+            b"FreeLibrary",
+        )
+        if not free_library:
+            raise self._last_error("GetProcAddress(FreeLibrary) failed")
+
+        result = self._create_remote_thread(process, free_library, remote_module)
+        if result == 0:
+            raise HookLoadError("Remote FreeLibrary(BonkHook.dll) reported failure.")
+
+    @staticmethod
+    def _try_delete_cached_dll(dll_path: Path, cache_dir: Path) -> bool:
+        try:
+            if dll_path.exists():
+                dll_path.unlink()
+            try:
+                cache_dir.rmdir()
+            except OSError:
+                pass
+            return not dll_path.exists()
+        except OSError:
+            return False
+
+    def _spawn_cached_dll_cleanup_helper(self, dll_path: Path, cache_dir: Path) -> None:
+        command = (
+            '$dll=[IO.Path]::GetFullPath('
+            + self._powershell_single_quoted(str(dll_path))
+            + ');'
+            '$dir=[IO.Path]::GetFullPath('
+            + self._powershell_single_quoted(str(cache_dir))
+            + ');'
+            'for($i=0;$i -lt 120;$i++){'
+            'try{if(Test-Path -LiteralPath $dll){Remove-Item -LiteralPath $dll -Force -ErrorAction Stop};'
+            'if(!(Test-Path -LiteralPath $dll)){if(Test-Path -LiteralPath $dir){Remove-Item -LiteralPath $dir -Force -ErrorAction SilentlyContinue};exit 0}}'
+            'catch{};Start-Sleep -Milliseconds 500};'
+        )
+
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+
+        try:
+            subprocess.Popen(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-WindowStyle",
+                    "Hidden",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    command,
+                ],
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                startupinfo=startupinfo,
+                close_fds=True,
+            )
+        except Exception:
+            pass
+
+    def _schedule_delete_on_reboot(self, dll_path: Path) -> None:
+        try:
+            self._kernel32.MoveFileExW(
+                str(dll_path),
+                None,
+                self.MOVEFILE_DELAY_UNTIL_REBOOT,
+            )
+        except Exception:
+            pass
+
+    @staticmethod
+    def _powershell_single_quoted(value: str) -> str:
+        return "'" + value.replace("'", "''") + "'"
 
     def _remote_load_library(self, process: int, dll_path: Path) -> None:
         data = (str(dll_path) + "\0").encode("utf-16-le")
@@ -578,6 +756,8 @@ class NativeHookLoader:
         self._kernel32.LoadLibraryW.restype = ctypes.c_void_p
         self._kernel32.FreeLibrary.argtypes = [ctypes.c_void_p]
         self._kernel32.FreeLibrary.restype = ctypes.c_bool
+        self._kernel32.MoveFileExW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong]
+        self._kernel32.MoveFileExW.restype = ctypes.c_bool
         self._kernel32.GetProcAddress.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
         self._kernel32.GetProcAddress.restype = ctypes.c_void_p
         self._kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
