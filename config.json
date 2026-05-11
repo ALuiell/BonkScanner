@@ -106,7 +106,6 @@
         "base_target_score": 30.0
     },
     "NATIVE_HOOK_ENABLED": false,
-    "NATIVE_HOOK_DLL_PATH": "",
     "TOTAL_REROLLS": 65,
     "PLAYER_STATS_RECORD_HOTKEY": "f8",
     "PLAYER_STATS_RECORD_INTERVAL_SECONDS": 60,
