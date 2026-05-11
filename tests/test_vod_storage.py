@@ -5,10 +5,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from vod_storage import VodRecorder, delete_vod, list_vods, load_vod, load_vod_metadata, rename_vod
+from vod_storage import LEGACY_VODS_DIR, RECORDINGS_DIR, VodRecorder, delete_vod, list_vods, load_vod, load_vod_metadata, rename_vod
 
 
 class VodStorageTests(unittest.TestCase):
+    def test_recorder_defaults_to_stats_recordings_directory(self) -> None:
+        recorder = VodRecorder()
+
+        self.assertEqual(recorder.vods_dir, RECORDINGS_DIR)
+        self.assertNotEqual(recorder.vods_dir, LEGACY_VODS_DIR)
+
     def test_recorder_writes_loads_and_renames_vod(self) -> None:
         now = 1000.0
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -76,6 +82,36 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(metadata.name, "Fast metadata")
             self.assertEqual(metadata.snapshot_count, 2)
             self.assertEqual(metadata.duration_seconds, 60)
+
+    def test_list_vods_reads_legacy_directory_when_present(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            legacy_dir = Path(temp_dir) / "vods"
+            legacy_dir.mkdir(parents=True, exist_ok=True)
+            path = legacy_dir / "legacy-run.jsonl"
+            path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":1,"name":"Legacy run","created_at":"2026-05-10T16:00:00","snapshot_interval_seconds":60}',
+                        '{"type":"summary","duration_seconds":0,"snapshot_count":0}',
+                    ],
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            original_recordings_dir = RECORDINGS_DIR
+            original_legacy_dir = LEGACY_VODS_DIR
+            try:
+                import vod_storage
+
+                vod_storage.RECORDINGS_DIR = Path(temp_dir) / "stats_recordings"
+                vod_storage.LEGACY_VODS_DIR = legacy_dir
+                vods = list_vods()
+            finally:
+                vod_storage.RECORDINGS_DIR = original_recordings_dir
+                vod_storage.LEGACY_VODS_DIR = original_legacy_dir
+
+            self.assertEqual([vod.name for vod in vods], ["Legacy run"])
 
 
 if __name__ == "__main__":

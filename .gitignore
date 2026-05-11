@@ -28,5 +28,7 @@ __pycache__/
 .venv/
 .idea/
 .continue/agents/
+vods/
+stats_recordings/
 
 Dump

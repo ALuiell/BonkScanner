@@ -13,7 +13,8 @@ from player_stats import PlayerStatValue
 
 
 VOD_FORMAT_VERSION = 1
-VODS_DIR = Path(config.application_path) / "vods"
+RECORDINGS_DIR = Path(config.application_path) / "stats_recordings"
+LEGACY_VODS_DIR = Path(config.application_path) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
 
 
@@ -71,7 +72,7 @@ class VodRecorder:
         interval_seconds: int = 60,
         clock=time.monotonic,
     ) -> None:
-        self.vods_dir = vods_dir or VODS_DIR
+        self.vods_dir = vods_dir or RECORDINGS_DIR
         self.interval_seconds = max(1, int(interval_seconds))
         self.clock = clock
         self.path: Path | None = None
@@ -174,16 +175,23 @@ class VodRecorder:
 
 
 def list_vods(vods_dir: Path | None = None) -> list[VodMetadata]:
-    root = vods_dir or VODS_DIR
-    if not root.exists():
-        return []
+    roots = [vods_dir] if vods_dir is not None else [RECORDINGS_DIR, LEGACY_VODS_DIR]
 
     vods = []
-    for path in root.glob("*.jsonl"):
-        try:
-            vods.append(load_vod_metadata(path))
-        except (OSError, ValueError, json.JSONDecodeError):
+    seen_paths: set[Path] = set()
+    for root in roots:
+        if root is None or not root.exists():
             continue
+
+        for path in root.glob("*.jsonl"):
+            resolved_path = path.resolve()
+            if resolved_path in seen_paths:
+                continue
+            seen_paths.add(resolved_path)
+            try:
+                vods.append(load_vod_metadata(path))
+            except (OSError, ValueError, json.JSONDecodeError):
+                continue
     return sorted(vods, key=lambda vod: vod.created_at, reverse=True)
 
 
