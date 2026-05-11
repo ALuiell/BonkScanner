@@ -3,6 +3,7 @@ from __future__ import annotations
 import types
 import unittest
 from copy import deepcopy
+from pathlib import Path
 from unittest.mock import patch
 
 import gui
@@ -68,6 +69,14 @@ class FakeThread:
 
     def start(self) -> None:
         self.started = True
+
+    def is_alive(self) -> bool:
+        return self.started
+
+
+class FakeAliveThread:
+    def is_alive(self) -> bool:
+        return True
 
 
 class FakeHookLoopLoader:
@@ -554,6 +563,57 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app.is_running)
         self.assertFalse(app.is_ready_to_start)
         self.assertTrue(app.scanner_thread.started)
+
+    def test_hotkey_starts_scanning_inside_running_monitor(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.scanner_thread = FakeAliveThread()
+        app.scan_event = gui.threading.Event()
+        app.is_ready_to_start = True
+        app.is_running = False
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.update_status_ui = lambda: None
+
+        gui.MegabonkApp.toggle_scan_event(app)
+
+        self.assertTrue(app.is_running)
+        self.assertTrue(app.scan_event.is_set())
+        self.assertIn(("[*] Scan started. Looking for selected target...", None), logs)
+
+    def test_hotkey_pauses_scanning_without_stopping_monitor(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.scanner_thread = FakeAliveThread()
+        app.scan_event = gui.threading.Event()
+        app.scan_event.set()
+        app.is_ready_to_start = True
+        app.is_running = True
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.update_status_ui = lambda: None
+
+        gui.MegabonkApp.toggle_scan_event(app)
+
+        self.assertFalse(app.is_running)
+        self.assertFalse(app.scan_event.is_set())
+        self.assertIn(("[*] Scan paused. Press the scan hotkey again to resume.", None), logs)
+
+    def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:
+        loaded_vod = types.SimpleNamespace(
+            metadata=types.SimpleNamespace(path=Path("run.jsonl"), name="Run"),
+            snapshots=(),
+        )
+        app = object.__new__(gui.MegabonkApp)
+        app.loaded_vod = None
+        app.loaded_vod_snapshot_index = None
+        app.vods_name_entry = None
+        app.refresh_loaded_vod_ui = lambda: None
+        app.refresh_vods_list = lambda: None
+
+        with patch.object(gui, "load_vod", return_value=loaded_vod) as load_vod:
+            gui.MegabonkApp.load_selected_vod(app, "C:/tmp/run.jsonl")
+
+        load_vod.assert_called_once_with(Path("C:/tmp/run.jsonl"))
+        self.assertIs(app.loaded_vod, loaded_vod)
 
     def test_log_reroll_stats_tracks_session_and_persistent_totals(self) -> None:
         app = object.__new__(gui.MegabonkApp)

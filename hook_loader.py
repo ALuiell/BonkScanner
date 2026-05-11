@@ -153,6 +153,11 @@ class NativeHookLoader:
             if pid in self._injected_pids:
                 return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=True, skipped=True)
 
+            if self._is_hook_module_loaded(pid):
+                self._initialize_existing_hook(pid)
+                self._injected_pids.add(pid)
+                return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=True, skipped=True)
+
             self._ensure_ready_for_injection(pid)
             self._inject_into_pid(pid)
             self._injected_pids.add(pid)
@@ -209,6 +214,20 @@ class NativeHookLoader:
             if log is not None:
                 log(str(exc))
             return None
+
+    def _is_hook_module_loaded(self, pid: int) -> bool:
+        process = self._open_process(pid)
+        try:
+            return self._find_remote_module_base(process, self.dll_path.name) is not None
+        finally:
+            self._kernel32.CloseHandle(process)
+
+    def _initialize_existing_hook(self, pid: int) -> None:
+        exit_code = self._invoke_export_in_pid(pid, b"Initialize", 0)
+        if exit_code in self.TRANSIENT_INITIALIZE_STATUSES:
+            raise HookProcessNotReadyError("BonkHook Initialize reported that the game runtime is not ready.")
+        if exit_code != 0:
+            raise HookLoadError(f"BonkHook Initialize failed with status {exit_code}.")
 
     def _inject_into_pid(self, pid: int) -> None:
         process = self._open_process(pid)

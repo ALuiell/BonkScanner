@@ -1,12 +1,15 @@
+from __future__ import annotations
+
+import ctypes
+import datetime
+import html
 import os
 import sys
-import ctypes
-from ctypes import wintypes
 import threading
 import time
-import datetime
-import subprocess
 import webbrowser
+from ctypes import wintypes
+from pathlib import Path
 
 
 def enable_windows_dpi_awareness() -> None:
@@ -27,12 +30,38 @@ def enable_windows_dpi_awareness() -> None:
 
 enable_windows_dpi_awareness()
 
-import customtkinter as ctk
-from PIL import Image
+from PySide6.QtCore import QObject, QSize, Qt, QTimer, Signal, Slot
+from PySide6.QtGui import QCloseEvent, QFont, QIcon, QPixmap, QTextCursor
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QPlainTextEdit,
+    QScrollArea,
+    QSlider,
+    QSplitter,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
-import updater
 import config
 import logic
+import updater
 from game_data import GameDataClient
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
@@ -53,15 +82,9 @@ try:
 except ImportError:
     keyboard = None
 
-ctk.set_appearance_mode("dark")
 
 SUPPORT_URL = "https://ko-fi.com/H2H01YXPQ7"
 PLAYER_STATS_REFRESH_MS = 10_000
-RIGHT_PANEL_MIN_WIDTH = 520
-RIGHT_TAB_BUTTON_WIDTH = 480
-VODS_LIST_WIDTH = 190
-VODS_STATUS_WIDTH = 300
-PLAYER_STATS_TIMELINE_WIDTH = 210
 PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
 PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
 PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
@@ -70,85 +93,171 @@ PLAYER_STATS_LABEL_FONT_SIZE = 13
 PLAYER_STATS_VALUE_FONT_SIZE = 13
 PLAYER_STATS_VALUE_WIDTH = 72
 PLAYER_STATS_ITEMS_WRAP_LENGTH = 360
-UI_SECTION_FG_COLOR = ("gray86", "gray18")
-TAB_CONTENT_FG_COLOR = ("gray86", "gray17")
-RIGHT_TAB_TRANSITION_MS = 80
 
-# Helper function to get correct path for bundled files in PyInstaller
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
-    return os.path.join(base_path, relative_path)
-
-# Map text color names to hex colors for CustomTkinter
 COLOR_MAP = {
-    "WHITE": "#FFFFFF",
-    "CYAN": "#00FFFF",
-    "GREEN": "#55FF55",
-    "YELLOW": "#FFFF55",
-    "LIGHTRED_EX": "#FF6666",
-    "RED": "#FF4444",
-    "MAGENTA": "#FF55FF",
-    "BLUE": "#5DADE2",
-    "LIGHTBLUE_EX": "#85C1E9",
-    "DEFAULT": "#FFFFFF"
+    "WHITE": "#F8FAFC",
+    "CYAN": "#22D3EE",
+    "GREEN": "#22C55E",
+    "YELLOW": "#FACC15",
+    "LIGHTRED_EX": "#FB7185",
+    "RED": "#EF4444",
+    "MAGENTA": "#E879F9",
+    "BLUE": "#60A5FA",
+    "LIGHTBLUE_EX": "#93C5FD",
+    "DEFAULT": "#E5E7EB",
 }
 
 
-MODAL_SHOW_DELAY_MS = 60
+def resource_path(relative_path: str) -> str:
+    base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
 
 
-def set_toplevel_icon(window) -> None:
-    """Set the app icon before a modal becomes visible to avoid titlebar flicker."""
-    icon_path = resource_path("media/bonkscanner_icon.ico")
-    if os.path.exists(icon_path):
-        try:
-            window.iconbitmap(icon_path)
-        except Exception:
-            window.after(200, lambda p=icon_path: window.iconbitmap(p))
+def _read_text(widget) -> str:
+    if widget is None:
+        return ""
+    if hasattr(widget, "text"):
+        text_attr = getattr(widget, "text")
+        return text_attr() if callable(text_attr) else str(text_attr)
+    if hasattr(widget, "get"):
+        return str(widget.get())
+    return ""
 
 
-def center_toplevel(window, parent, width: int, height: int) -> None:
-    """Center a modal dialog relative to its parent when possible."""
-    window.update_idletasks()
-
-    if parent is not None and parent.winfo_exists():
-        parent_x = parent.winfo_x()
-        parent_y = parent.winfo_y()
-        parent_width = parent.winfo_width()
-        parent_height = parent.winfo_height()
-        x = parent_x + max((parent_width - width) // 2, 0)
-        y = parent_y + max((parent_height - height) // 2, 0)
-    else:
-        screen_width = window.winfo_screenwidth()
-        screen_height = window.winfo_screenheight()
-        x = max((screen_width - width) // 2, 0)
-        y = max((screen_height - height) // 2, 0)
-
-    window.geometry(f"{width}x{height}+{x}+{y}")
-
-
-def show_centered_toplevel(window, parent, width: int, height: int) -> None:
-    """Show a modal after CustomTkinter's initial Windows titlebar repaint settles."""
-    center_toplevel(window, parent, width, height)
-
-    def reveal():
-        if not window.winfo_exists():
-            return
-        window.deiconify()
-        window.lift()
-        window.focus_force()
-        window.grab_set()
-
-    window.after(MODAL_SHOW_DELAY_MS, reveal)
-
-
-def set_equal_tab_button_width(tabview, width: int) -> None:
-    segmented_button = getattr(tabview, "_segmented_button", None)
-    if segmented_button is None:
+def _set_text(widget, text: str) -> None:
+    if widget is None:
+        return
+    if hasattr(widget, "setText"):
+        widget.setText(text)
+        return
+    if hasattr(widget, "configure"):
+        widget.configure(text=text)
         return
 
-    segmented_button.configure(width=width, dynamic_resizing=False)
+
+def _clear_text_input(widget) -> None:
+    if widget is None:
+        return
+    if hasattr(widget, "clear"):
+        widget.clear()
+        return
+    if hasattr(widget, "delete"):
+        widget.delete(0, "end")
+
+
+def _set_text_input(widget, text: str) -> None:
+    if widget is None:
+        return
+    if hasattr(widget, "setText"):
+        widget.setText(text)
+        return
+    if hasattr(widget, "insert"):
+        widget.insert(0, text)
+
+
+def _read_bool(widget) -> bool:
+    if widget is None:
+        return False
+    if hasattr(widget, "isChecked"):
+        return bool(widget.isChecked())
+    if hasattr(widget, "get"):
+        return bool(widget.get())
+    return False
+
+
+def _set_bool(widget, value: bool) -> None:
+    if widget is None:
+        return
+    if hasattr(widget, "setChecked"):
+        widget.setChecked(value)
+        return
+    if hasattr(widget, "set"):
+        widget.set(value)
+
+
+def _safe_float(value: str, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _clear_layout(layout) -> None:
+    while layout.count():
+        item = layout.takeAt(0)
+        widget = item.widget()
+        child_layout = item.layout()
+        if widget is not None:
+            widget.deleteLater()
+        elif child_layout is not None:
+            _clear_layout(child_layout)
+
+
+def _template_checkbox_stylesheet(color_hex: str) -> str:
+    return f"""
+    QCheckBox {{
+        color: {color_hex};
+        background: #121A27;
+        border: 1px solid #2B3648;
+        border-left: 4px solid {color_hex};
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-weight: 700;
+    }}
+    QCheckBox:hover {{
+        background: #162133;
+        border-color: {color_hex};
+    }}
+    QCheckBox::indicator {{
+        width: 16px;
+        height: 16px;
+    }}
+    """
+
+
+def _apply_button_icon(button: QPushButton, relative_path: str, size: int = 22) -> None:
+    icon_path = resource_path(relative_path)
+    if not os.path.exists(icon_path):
+        return
+    button.setIcon(QIcon(icon_path))
+    button.setIconSize(QSize(size, size))
+
+
+def _button_state_stylesheet(background: str, hover: str) -> str:
+    return f"""
+    QPushButton {{
+        background: {background};
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 14px;
+        font-weight: 700;
+    }}
+    QPushButton:hover {{
+        background: {hover};
+    }}
+    """
+
+
+def _tier_color(tier: str) -> str:
+    return {
+        "Light": COLOR_MAP["WHITE"],
+        "Good": COLOR_MAP["GREEN"],
+        "Perfect": COLOR_MAP["YELLOW"],
+        "Perfect+": COLOR_MAP["LIGHTRED_EX"],
+    }.get(tier, COLOR_MAP["DEFAULT"])
+
+
+def _make_scroll_section() -> tuple[QScrollArea, QWidget, QVBoxLayout]:
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    content = QWidget()
+    layout = QVBoxLayout(content)
+    layout.setContentsMargins(8, 8, 8, 8)
+    layout.setSpacing(8)
+    scroll.setWidget(content)
+    return scroll, content, layout
 
 
 def format_template_conditions(template: dict) -> str:
@@ -173,7 +282,15 @@ def format_template_conditions(template: dict) -> str:
     return ", ".join(parts) if parts else "Any"
 
 
-def build_template_payload(name: str, sm_total: str, shady: str, moai: str, micro: str, boss: str, source_template=None):
+def build_template_payload(
+    name: str,
+    sm_total: str,
+    shady: str,
+    moai: str,
+    micro: str,
+    boss: str,
+    source_template=None,
+):
     name = name.strip()
     if not name:
         return None
@@ -202,880 +319,807 @@ def build_template_payload(name: str, sm_total: str, shady: str, moai: str, micr
     return result
 
 
-class TemplateFormFrame(ctk.CTkFrame):
-    def __init__(self, parent, template_data=None):
-        super().__init__(parent, fg_color="transparent")
+class UiInvoker(QObject):
+    call_now = Signal(object)
+    call_later = Signal(int, object)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.call_now.connect(self._execute_now)
+        self.call_later.connect(self._execute_later)
+
+    @Slot(object)
+    def _execute_now(self, callback) -> None:
+        callback()
+
+    @Slot(int, object)
+    def _execute_later(self, delay_ms: int, callback) -> None:
+        QTimer.singleShot(max(0, int(delay_ms)), callback)
+
+
+class _AppWindow(QMainWindow):
+    def __init__(self, owner) -> None:
+        super().__init__()
+        self.owner = owner
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self.owner._handle_window_close(event)
+
+
+class TemplateFormFrame(QWidget):
+    def __init__(self, parent=None, template_data=None):
+        super().__init__(parent)
         self.template_data = template_data or {}
-        self.grid_columnconfigure(1, weight=1)
+        layout = QFormLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
 
-        ctk.CTkLabel(self, text="Template Name:").grid(row=0, column=0, padx=10, pady=(10, 5), sticky="w")
-        self.name_entry = ctk.CTkEntry(self)
-        self.name_entry.grid(row=0, column=1, padx=10, pady=(10, 5), sticky="ew")
+        self.name_entry = QLineEdit()
+        layout.addRow("Template Name:", self.name_entry)
 
-        self.sm_var = ctk.StringVar(value="0")
-        self.shady_var = ctk.StringVar(value="0")
-        self.moai_var = ctk.StringVar(value="0")
-        self.shady_var.trace_add("write", self.update_sm_total)
-        self.moai_var.trace_add("write", self.update_sm_total)
+        self.sm_entry = QLineEdit()
+        self.shady_entry = QLineEdit()
+        self.moai_entry = QLineEdit()
+        self.micro_entry = QLineEdit()
+        self.boss_entry = QLineEdit()
 
-        ctk.CTkLabel(self, text="S+M Total (optional):").grid(row=1, column=0, padx=10, pady=5, sticky="w")
-        self.sm_entry = ctk.CTkEntry(self, textvariable=self.sm_var)
-        self.sm_entry.grid(row=1, column=1, padx=10, pady=5, sticky="ew")
+        layout.addRow("S+M Total (optional):", self.sm_entry)
+        layout.addRow("Shady Guy (min):", self.shady_entry)
+        layout.addRow("Moais (min):", self.moai_entry)
+        layout.addRow("Microwaves (min):", self.micro_entry)
+        layout.addRow("Boss Curses (min):", self.boss_entry)
 
-        ctk.CTkLabel(self, text="Shady Guy (min):").grid(row=2, column=0, padx=10, pady=5, sticky="w")
-        self.shady_entry = ctk.CTkEntry(self, textvariable=self.shady_var)
-        self.shady_entry.grid(row=2, column=1, padx=10, pady=5, sticky="ew")
-
-        ctk.CTkLabel(self, text="Moais (min):").grid(row=3, column=0, padx=10, pady=5, sticky="w")
-        self.moai_entry = ctk.CTkEntry(self, textvariable=self.moai_var)
-        self.moai_entry.grid(row=3, column=1, padx=10, pady=5, sticky="ew")
-
-        ctk.CTkLabel(self, text="Microwaves (min):").grid(row=4, column=0, padx=10, pady=5, sticky="w")
-        self.micro_entry = ctk.CTkEntry(self)
-        self.micro_entry.grid(row=4, column=1, padx=10, pady=5, sticky="ew")
-
-        ctk.CTkLabel(self, text="Boss Curses (min):").grid(row=5, column=0, padx=10, pady=5, sticky="w")
-        self.boss_entry = ctk.CTkEntry(self)
-        self.boss_entry.grid(row=5, column=1, padx=10, pady=5, sticky="ew")
-
+        self.shady_entry.textChanged.connect(self.update_sm_total)
+        self.moai_entry.textChanged.connect(self.update_sm_total)
         self.load_template(self.template_data)
 
     def load_template(self, template_data=None):
         self.template_data = template_data or {}
+        self.name_entry.setText(self.template_data.get("name", ""))
+        self.name_entry.setEnabled(self.template_data.get("id", 100) > 7)
+        self.sm_entry.setText(str(self.template_data.get("sm_total", 0)))
+        self.shady_entry.setText(str(self.template_data.get("shady", 0)))
+        self.moai_entry.setText(str(self.template_data.get("moai", 0)))
+        self.micro_entry.setText(str(self.template_data.get("micro", 0)))
+        self.boss_entry.setText(str(self.template_data.get("boss", 0)))
+        self.update_sm_total()
 
-        self.name_entry.configure(state="normal")
-        self.name_entry.delete(0, "end")
-        self.name_entry.insert(0, self.template_data.get("name", ""))
-        if self.template_data.get("id", 100) <= 7:
-            self.name_entry.configure(state="disabled")
-
-        self.sm_var.set(str(self.template_data.get("sm_total", 0)))
-        self.shady_var.set(str(self.template_data.get("shady", 0)))
-        self.moai_var.set(str(self.template_data.get("moai", 0)))
-
-        self.micro_entry.delete(0, "end")
-        self.micro_entry.insert(0, str(self.template_data.get("micro", 0)))
-
-        self.boss_entry.delete(0, "end")
-        self.boss_entry.insert(0, str(self.template_data.get("boss", 0)))
-
-    def update_sm_total(self, *_):
-        try:
-            shady = int(self.shady_var.get().strip()) if self.shady_var.get().strip().isdigit() else 0
-            moai = int(self.moai_var.get().strip()) if self.moai_var.get().strip().isdigit() else 0
-            if shady > 0 or moai > 0:
-                self.sm_var.set(str(shady + moai))
-        except ValueError:
-            pass
+    def update_sm_total(self) -> None:
+        shady = self.shady_entry.text().strip()
+        moai = self.moai_entry.text().strip()
+        if shady.isdigit() and moai.isdigit() and (int(shady) > 0 or int(moai) > 0):
+            self.sm_entry.setPlaceholderText("Disabled while individual S/M values are set")
+        else:
+            self.sm_entry.setPlaceholderText("")
 
     def get_payload(self):
         return build_template_payload(
-            name=self.name_entry.get(),
-            sm_total=self.sm_entry.get(),
-            shady=self.shady_entry.get(),
-            moai=self.moai_entry.get(),
-            micro=self.micro_entry.get(),
-            boss=self.boss_entry.get(),
+            self.name_entry.text(),
+            self.sm_entry.text(),
+            self.shady_entry.text(),
+            self.moai_entry.text(),
+            self.micro_entry.text(),
+            self.boss_entry.text(),
             source_template=self.template_data,
         )
 
-class TemplateDialog(ctk.CTkToplevel):
-    def __init__(self, parent, edit_template=None):
+
+class TemplateDialog(QDialog):
+    def __init__(self, parent=None, edit_template=None):
         super().__init__(parent)
-        self.title("Edit Template" if edit_template else "New Template")
-        self.geometry("340x420")
-        self.resizable(False, False)
-        self.result = None
-        self.edit_template = edit_template
-        
-        # Set icon if available
-        set_toplevel_icon(self)
-        
-        self.grid_columnconfigure(0, weight=1)
+        self.result_payload = None
+        self.setWindowTitle("Edit Template" if edit_template else "Add Template")
+        self.setModal(True)
+        self.resize(420, 260)
+        self.form = TemplateFormFrame(self, edit_template)
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.form)
+        self.save_btn = QPushButton("Save Template")
+        self.save_btn.clicked.connect(self.save)
+        layout.addWidget(self.save_btn)
 
-        self.form = TemplateFormFrame(self, template_data=edit_template)
-        self.form.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
-        
-        self.save_btn = ctk.CTkButton(self, text="Save Template", command=self.save, fg_color="#2FA572", hover_color="#106A43")
-        self.save_btn.grid(row=1, column=0, pady=(0, 20))
-        
-        # Make modal
-        self.transient(parent)
-        self.grab_set()
-        
     def save(self):
-        self.result = self.form.get_payload()
-        if self.result is None:
+        payload = self.form.get_payload()
+        if payload is None:
+            QMessageBox.warning(self, "Invalid Template", "Template name cannot be empty.")
             return
+        self.result_payload = payload
+        self.accept()
 
-        self.destroy()
 
-
-class TemplateManagerDialog(ctk.CTkToplevel):
+class TemplateManagerDialog(QDialog):
     def __init__(self, parent, templates, on_save):
         super().__init__(parent)
-        self.withdraw()  # Double buffering: hide while building UI
-        self.title("Manage Templates")
-        self.resizable(True, True)
-        self.minsize(560, 520)
-
-        self.templates = [dict(template) for template in templates]
+        self.templates = templates
         self.on_save = on_save
-        self.expanded_name = None
-        self.card_widgets = {}
+        self.setWindowTitle("Template Manager")
+        self.resize(680, 520)
 
-        set_toplevel_icon(self)
+        layout = QVBoxLayout(self)
+        header = QLabel("Templates")
+        header.setObjectName("SectionHeader")
+        layout.addWidget(header)
 
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.scroll, self.scroll_content, self.scroll_layout = _make_scroll_section()
+        layout.addWidget(self.scroll, 1)
 
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.grid(row=0, column=0, padx=18, pady=(18, 10), sticky="ew")
-        header.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            header,
-            text="Templates",
-            font=ctk.CTkFont(size=22, weight="bold"),
-        ).grid(row=0, column=0, sticky="w")
-
-        ctk.CTkLabel(
-            header,
-            text="Select a template from the list, and its settings will appear directly below the card.",
-            justify="left",
-            text_color=("gray35", "gray70"),
-        ).grid(row=1, column=0, pady=(4, 0), sticky="w")
-
-        self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll_frame.grid(row=1, column=0, padx=12, pady=(0, 10), sticky="nsew")
-        self.scroll_frame.grid_columnconfigure(0, weight=1)
-
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="ew")
-        footer.grid_columnconfigure(0, weight=1)
-
-        self.close_btn = ctk.CTkButton(
-            footer,
-            text="Close",
-            width=100,
-            command=self.destroy,
-        )
-        self.close_btn.grid(row=0, column=1, sticky="e")
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        buttons.addWidget(close_btn)
+        layout.addLayout(buttons)
 
         self.build_cards()
-        self.transient(parent)
-
-        show_centered_toplevel(self, parent, 640, 720)
 
     def build_cards(self):
-        for widget in self.scroll_frame.winfo_children():
-            widget.destroy()
-        self.card_widgets.clear()
+        _clear_layout(self.scroll_layout)
+        for template in self.templates:
+            card = QGroupBox(template["name"])
+            card_layout = QVBoxLayout(card)
+            card_layout.addWidget(QLabel(format_template_conditions(template)))
+            actions = QHBoxLayout()
+            edit_btn = QPushButton("Edit")
+            edit_btn.clicked.connect(lambda _checked=False, t=template: self.save_template(t))
+            actions.addWidget(edit_btn)
+            actions.addStretch(1)
+            card_layout.addLayout(actions)
+            self.scroll_layout.addWidget(card)
+        self.scroll_layout.addStretch(1)
 
-        for idx, template in enumerate(self.templates):
-            template_name = template["name"]
-            color_name = template.get("color", "BLUE").upper()
-            hex_color = COLOR_MAP.get(color_name, COLOR_MAP["DEFAULT"])
-            is_builtin = template.get("id", 100) <= 7
+    def _ensure_card_details(self, _widgets):
+        return None
 
-            card = ctk.CTkFrame(self.scroll_frame, corner_radius=12, border_width=1, border_color=("gray70", "gray25"))
-            card.grid(row=idx, column=0, padx=8, pady=8, sticky="ew")
-            card.grid_columnconfigure(0, weight=1)
+    def toggle_template(self, _widgets):
+        return None
 
-            header_btn = ctk.CTkButton(
-                card,
-                text=f"▶ {template_name}",
-                anchor="w",
-                fg_color="transparent",
-                hover_color=("gray85", "gray20"),
-                text_color=hex_color,
-                font=ctk.CTkFont(size=15, weight="bold"),
-                command=lambda name=template_name: self.toggle_template(name),
-            )
-            header_btn.grid(row=0, column=0, padx=12, pady=(12, 4), sticky="ew")
+    def _expand_card(self, _widgets):
+        return None
 
-            meta_text = format_template_conditions(template)
-            if is_builtin:
-                meta_text += "  •  Built-in"
+    def _collapse_card(self, _widgets):
+        return None
 
-            ctk.CTkLabel(
-                card,
-                text=meta_text,
-                anchor="w",
-                justify="left",
-                text_color=("gray35", "gray72"),
-            ).grid(row=1, column=0, padx=16, pady=(0, 12), sticky="ew")
-
-            self.card_widgets[template_name] = {
-                "card": card,
-                "header_btn": header_btn,
-                "template": template,
-                "details_frame": None,
-                "form": None,
-                "is_expanded": False,
-            }
-
-            if self.expanded_name == template_name:
-                self._expand_card(template_name)
-
-    def _ensure_card_details(self, name: str):
-        widgets = self.card_widgets.get(name)
-        if not widgets:
-            return None
-
-        if widgets["details_frame"] is not None:
-            return widgets["details_frame"]
-
-        details = ctk.CTkFrame(widgets["card"], fg_color=("gray92", "gray17"), corner_radius=10)
-        details.grid_columnconfigure(0, weight=1)
-
-        form = TemplateFormFrame(details, template_data=widgets["template"])
-        form.grid(row=0, column=0, padx=6, pady=(6, 2), sticky="ew")
-
-        buttons = ctk.CTkFrame(details, fg_color="transparent")
-        buttons.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="ew")
-        buttons.grid_columnconfigure(0, weight=1)
-
-        save_btn = ctk.CTkButton(
-            buttons,
-            text="Save Changes",
-            fg_color="#2FA572",
-            hover_color="#106A43",
-            command=lambda original=name, template_form=form: self.save_template(original, template_form),
-        )
-        save_btn.grid(row=0, column=1, padx=(8, 0), sticky="e")
-
-        widgets["details_frame"] = details
-        widgets["form"] = form
-        return details
-
-    def toggle_template(self, template_name: str):
-        if self.expanded_name == template_name:
-            self._collapse_card(self.expanded_name)
-            self.expanded_name = None
-        else:
-            if self.expanded_name:
-                self._collapse_card(self.expanded_name)
-            self.expanded_name = template_name
-            self._expand_card(self.expanded_name)
-
-    def _expand_card(self, name: str):
-        if name not in self.card_widgets:
+    def save_template(self, template):
+        dialog = TemplateDialog(self, template)
+        if dialog.exec() != QDialog.Accepted or dialog.result_payload is None:
             return
-        widgets = self.card_widgets[name]
-        widgets["is_expanded"] = True
+        payload = dialog.result_payload
+        payload["id"] = template.get("id")
+        index = self.templates.index(template)
+        self.templates[index] = payload
+        self.on_save()
+        self.build_cards()
 
-        current_text = widgets["header_btn"].cget("text")
-        if current_text.startswith("▶ "):
-            widgets["header_btn"].configure(text="▼ " + current_text[2:])
 
-        details = self._ensure_card_details(name)
-        if details is not None:
-            details.grid(row=2, column=0, padx=12, pady=(0, 12), sticky="ew")
-
-    def _collapse_card(self, name: str):
-        if name not in self.card_widgets:
-            return
-        widgets = self.card_widgets[name]
-        widgets["is_expanded"] = False
-
-        current_text = widgets["header_btn"].cget("text")
-        if current_text.startswith("▼ "):
-            widgets["header_btn"].configure(text="▶ " + current_text[2:])
-
-        if widgets["details_frame"] is not None:
-            widgets["details_frame"].grid_remove()
-
-    def save_template(self, original_name: str, form: TemplateFormFrame):
-        updated_template = form.get_payload()
-        if updated_template is None:
-            return
-
-        if self.on_save and self.on_save(original_name, updated_template):
-            self.templates = [dict(template) for template in config.TEMPLATES]
-            self.expanded_name = updated_template["name"]
-            self.build_cards()
-
-class ScoresSettingsDialog(ctk.CTkToplevel):
+class ScoresSettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.title("Scores Settings")
-        self.geometry("420x650")
-        self.resizable(False, False)
-        
-        icon_path = resource_path("media/bonkscanner_icon.ico")
-        if os.path.exists(icon_path):
-            self.after(200, lambda p=icon_path: self.iconbitmap(p))
-            
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-        
-        # Create a scrollable frame for the entire window
-        self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll_frame.grid(row=0, column=0, sticky="nsew")
-        self.scroll_frame.grid_columnconfigure(1, weight=1)
+        self.setWindowTitle("Scores Settings")
+        self.resize(460, 560)
+        self.setModal(True)
+        self.active_tier_checks: dict[str, QCheckBox] = {}
+        self.threshold_entries: dict[str, QLineEdit] = {}
+        self.weight_entries: dict[str, QLineEdit] = {}
+        self.multiplier_entries: dict[str, QLineEdit] = {}
 
-        self.row_idx = 0
-        
-        # ACTIVE TIERS
-        ctk.CTkLabel(self.scroll_frame, text="Active Tiers:", font=ctk.CTkFont(weight="bold")).grid(row=self.row_idx, column=0, columnspan=2, pady=(10, 5), sticky="w", padx=10)
-        self.row_idx += 1
-        
-        self.tier_vars = {}
-        for tier in ["Light", "Good", "Perfect", "Perfect+"]:
-            var = ctk.BooleanVar(value=tier in config.SCORES_SYSTEM.get("active_tiers", []))
-            cb = ctk.CTkCheckBox(self.scroll_frame, text=tier, variable=var)
-            cb.grid(row=self.row_idx, column=0, columnspan=2, padx=20, pady=2, sticky="w")
-            self.tier_vars[tier] = var
-            self.row_idx += 1
+        outer = QVBoxLayout(self)
+        scroll, scroll_content, scroll_layout = _make_scroll_section()
+        outer.addWidget(scroll, 1)
 
-        # THRESHOLDS CONFIGURATION
-        ctk.CTkLabel(self.scroll_frame, text="Thresholds:", font=ctk.CTkFont(weight="bold")).grid(row=self.row_idx, column=0, columnspan=2, pady=(15, 5), sticky="w", padx=10)
-        self.row_idx += 1
-        
-        # Mode Switch
-        self.manual_thresholds_var = ctk.BooleanVar(value=config.SCORES_SYSTEM.get("manual_thresholds", False))
-        self.manual_cb = ctk.CTkCheckBox(self.scroll_frame, text="Manual Thresholds", variable=self.manual_thresholds_var, command=self.toggle_thresholds_mode)
-        self.manual_cb.grid(row=self.row_idx, column=0, columnspan=2, padx=20, pady=5, sticky="w")
-        self.row_idx += 1
+        active_group = QGroupBox("Active Tiers")
+        active_layout = QVBoxLayout(active_group)
+        for tier in ("Light", "Good", "Perfect", "Perfect+"):
+            cb = QCheckBox(tier)
+            cb.setChecked(tier in config.SCORES_SYSTEM.get("active_tiers", []))
+            cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700;")
+            self.active_tier_checks[tier] = cb
+            active_layout.addWidget(cb)
+        scroll_layout.addWidget(active_group)
 
-        self.threshold_entries = {}
-        thresholds = config.SCORES_SYSTEM.get("thresholds", {})
-        for tier in ["Light", "Good", "Perfect", "Perfect+"]:
-            lbl = ctk.CTkLabel(self.scroll_frame, text=f"{tier}:")
-            lbl.grid(row=self.row_idx, column=0, padx=30, pady=2, sticky="w")
-            entry = ctk.CTkEntry(self.scroll_frame, width=100)
-            entry.insert(0, str(thresholds.get(tier, 0)))
-            entry.grid(row=self.row_idx, column=1, padx=10, pady=2, sticky="w")
+        threshold_group = QGroupBox("Thresholds")
+        threshold_layout = QGridLayout(threshold_group)
+        self.manual_thresholds_var = QCheckBox("Manual Thresholds")
+        self.manual_thresholds_var.setChecked(bool(config.SCORES_SYSTEM.get("manual_thresholds", False)))
+        self.manual_thresholds_var.toggled.connect(self.toggle_thresholds_mode)
+        threshold_layout.addWidget(self.manual_thresholds_var, 0, 0, 1, 2)
+        for row, tier in enumerate(("Light", "Good", "Perfect", "Perfect+"), start=1):
+            threshold_layout.addWidget(QLabel(f"{tier}:"), row, 0)
+            entry = QLineEdit(str(config.SCORES_SYSTEM.get("thresholds", {}).get(tier, 0)))
             self.threshold_entries[tier] = entry
-            self.row_idx += 1
-            
-        # WEIGHTS
-        ctk.CTkLabel(self.scroll_frame, text="Weights:", font=ctk.CTkFont(weight="bold")).grid(row=self.row_idx, column=0, columnspan=2, pady=(15, 5), sticky="w", padx=10)
-        self.row_idx += 1
-        
-        self.weight_entries = {}
-        self.weight_vars = {}
-        weights = config.SCORES_SYSTEM.get("weights", {})
-        for key in ["moais", "shady", "boss", "magnet"]:
-            ctk.CTkLabel(self.scroll_frame, text=f"{key.capitalize()}:").grid(row=self.row_idx, column=0, padx=20, pady=2, sticky="w")
-            entry = ctk.CTkEntry(self.scroll_frame, width=100)
-            entry.insert(0, str(weights.get(key, 0)))
-            entry.grid(row=self.row_idx, column=1, padx=10, pady=2, sticky="w")
-            
-            var = ctk.StringVar(value=entry.get())
-            entry.configure(textvariable=var)
-            var.trace_add("write", self.auto_update_thresholds)
-            self.weight_vars[key] = var
+            threshold_layout.addWidget(entry, row, 1)
+        scroll_layout.addWidget(threshold_group)
+
+        weight_group = QGroupBox("Weights")
+        weight_layout = QFormLayout(weight_group)
+        for key in ("moais", "shady", "boss", "magnet"):
+            entry = QLineEdit(str(config.SCORES_SYSTEM.get("weights", {}).get(key, 0)))
             self.weight_entries[key] = entry
-            self.row_idx += 1
-            
-        # MULTIPLIERS
-        ctk.CTkLabel(self.scroll_frame, text="Microwave Multipliers:", font=ctk.CTkFont(weight="bold")).grid(row=self.row_idx, column=0, columnspan=2, pady=(15, 5), sticky="w", padx=10)
-        self.row_idx += 1
-        
-        self.mult_entries = {}
-        self.mult_vars = {}
-        multipliers = config.SCORES_SYSTEM.get("multipliers", {}).get("microwave", {})
-        for key in ["1", "2"]:
-            ctk.CTkLabel(self.scroll_frame, text=f"{key} Microwave(s):").grid(row=self.row_idx, column=0, padx=20, pady=2, sticky="w")
-            entry = ctk.CTkEntry(self.scroll_frame, width=100)
-            entry.insert(0, str(multipliers.get(key, 1.0)))
-            entry.grid(row=self.row_idx, column=1, padx=10, pady=2, sticky="w")
-            
-            var = ctk.StringVar(value=entry.get())
-            entry.configure(textvariable=var)
-            var.trace_add("write", self.auto_update_thresholds)
-            self.mult_vars[key] = var
-            self.mult_entries[key] = entry
-            self.row_idx += 1
+            weight_layout.addRow(f"{key.capitalize()}:", entry)
+        scroll_layout.addWidget(weight_group)
 
-        # BUTTONS
-        self.buttons_frame = ctk.CTkFrame(self.scroll_frame, fg_color="transparent")
-        self.buttons_frame.grid(row=self.row_idx, column=0, columnspan=2, pady=20)
-        
-        self.reset_btn = ctk.CTkButton(self.buttons_frame, text="Reset to Defaults", command=self.reset_to_defaults, fg_color="#b30000", hover_color="#800000", width=140)
-        self.reset_btn.grid(row=0, column=0, padx=10)
+        multiplier_group = QGroupBox("Microwave Multipliers")
+        multiplier_layout = QFormLayout(multiplier_group)
+        for key in ("1", "2"):
+            entry = QLineEdit(str(config.SCORES_SYSTEM.get("multipliers", {}).get("microwave", {}).get(key, 1.0)))
+            self.multiplier_entries[key] = entry
+            multiplier_layout.addRow(f"{key} Microwave(s):", entry)
+        scroll_layout.addWidget(multiplier_group)
 
-        self.save_btn = ctk.CTkButton(self.buttons_frame, text="Save Settings", command=self.save, fg_color="#2FA572", hover_color="#106A43", width=140)
-        self.save_btn.grid(row=0, column=1, padx=10)
-        
-        self.toggle_thresholds_mode() # Initialize state
-        
-        self.transient(parent)
-        self.grab_set()
+        button_row = QHBoxLayout()
+        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.setObjectName("DangerButton")
+        reset_btn.clicked.connect(self.reset_to_defaults)
+        save_btn = QPushButton("Save Settings")
+        save_btn.setObjectName("SuccessButton")
+        save_btn.clicked.connect(self.save)
+        button_row.addWidget(reset_btn)
+        button_row.addStretch(1)
+        button_row.addWidget(save_btn)
+        scroll_layout.addLayout(button_row)
+        scroll_layout.addStretch(1)
+        self.toggle_thresholds_mode()
 
     def reset_to_defaults(self):
-        default_sys = config.DEFAULT_SCORES_SYSTEM
-            
-        # Reset Manual mode
-        self.manual_thresholds_var.set(default_sys["manual_thresholds"])
-        
-        # Reset Weights
-        for key in ["moais", "shady", "boss", "magnet"]:
-            self.weight_vars[key].set(str(default_sys["weights"].get(key, 0)))
-            
-        # Reset Multipliers
-        for key in ["1", "2"]:
-            self.mult_vars[key].set(str(default_sys["multipliers"]["microwave"].get(key, 1.0)))
-            
-        # Reset Thresholds
-        self.toggle_thresholds_mode() # this will re-enable manual threshold entries if needed
-        for tier in ["Light", "Good", "Perfect", "Perfect+"]:
-            if self.manual_thresholds_var.get():
-                 self.threshold_entries[tier].configure(state="normal")
-            self.threshold_entries[tier].delete(0, 'end')
-            self.threshold_entries[tier].insert(0, str(default_sys["thresholds"].get(tier, 0)))
-            
-        # Ensure auto update logic finishes state sync
-        self.toggle_thresholds_mode() 
-        
-    def auto_update_thresholds(self, *_):
-        if self.manual_thresholds_var.get():
-            return
-            
-        try:
-            current_weights = {}
-            for key, var in self.weight_vars.items():
-                val = var.get().strip()
-                if val: current_weights[key] = float(val)
-                else: current_weights[key] = 0.0
+        defaults = config.DEFAULT_SCORES_SYSTEM
+        self.manual_thresholds_var.setChecked(bool(defaults.get("manual_thresholds", False)))
+        for tier, cb in self.active_tier_checks.items():
+            cb.setChecked(tier in defaults.get("active_tiers", []))
+        for tier, entry in self.threshold_entries.items():
+            entry.setText(str(defaults.get("thresholds", {}).get(tier, 0.0)))
+        for key, entry in self.weight_entries.items():
+            entry.setText(str(defaults.get("weights", {}).get(key, 0.0)))
+        for key, entry in self.multiplier_entries.items():
+            entry.setText(str(defaults.get("multipliers", {}).get("microwave", {}).get(key, 1.0)))
+        self.toggle_thresholds_mode()
 
-            current_mults = {"microwave": {}}
-            for key, var in self.mult_vars.items():
-                val = var.get().strip()
-                if val: current_mults["microwave"][key] = float(val)
-                else: current_mults["microwave"][key] = 1.0
-
-            scaled = config.calculate_auto_thresholds(current_weights, current_mults)
-            
-            for tier, entry in self.threshold_entries.items():
-                entry.configure(state="normal")
-                entry.delete(0, 'end')
-                entry.insert(0, str(scaled.get(tier, 0)))
-                entry.configure(state="disabled")
-        except ValueError:
-            pass
+    def auto_update_thresholds(self):
+        thresholds = config.calculate_auto_thresholds(
+            {key: _safe_float(entry.text(), 0.0) for key, entry in self.weight_entries.items()},
+            {"microwave": {key: _safe_float(entry.text(), 1.0) for key, entry in self.multiplier_entries.items()}},
+        )
+        for tier, entry in self.threshold_entries.items():
+            entry.setText(str(thresholds.get(tier, 0.0)))
 
     def toggle_thresholds_mode(self):
-        is_manual = self.manual_thresholds_var.get()
-        if is_manual:
-            for entry in self.threshold_entries.values():
-                entry.configure(state="normal")
-        else:
-            for entry in self.threshold_entries.values():
-                entry.configure(state="disabled")
+        manual = self.manual_thresholds_var.isChecked()
+        if not manual:
             self.auto_update_thresholds()
-        
-    def save(self):
-        is_manual = self.manual_thresholds_var.get()
-            
-        thresholds = {}
-        for tier, entry in self.threshold_entries.items():
-            # If in auto mode, temporarily enable to read the value correctly just in case
-            if not is_manual:
-                entry.configure(state="normal")
-            try: thresholds[tier] = float(entry.get())
-            except ValueError: thresholds[tier] = config.SCORES_SYSTEM["thresholds"].get(tier, 0)
-            if not is_manual:
-                entry.configure(state="disabled")
-            
-        weights = {}
-        for key, entry in self.weight_entries.items():
-            try: weights[key] = float(entry.get())
-            except ValueError: weights[key] = config.SCORES_SYSTEM["weights"].get(key, 0)
-            
-        multipliers = {}
-        for key, entry in self.mult_entries.items():
-            try: multipliers[key] = float(entry.get())
-            except ValueError: multipliers[key] = config.SCORES_SYSTEM["multipliers"]["microwave"].get(key, 1.0)
-            
-        config.SCORES_SYSTEM["manual_thresholds"] = is_manual
-        config.SCORES_SYSTEM["thresholds"] = thresholds
-        config.SCORES_SYSTEM["weights"] = weights
-        config.SCORES_SYSTEM["multipliers"]["microwave"] = multipliers
-        
-        config.user_config["SCORES_SYSTEM"] = config.SCORES_SYSTEM
-        config.save_config(config.user_config)
-        
-        if hasattr(self.master, 'log'):
-            self.master.log("[*] Scores settings saved!", tag="success")
-            
-        # If active mode is scores, refresh the checkbox active states in case they changed
-        if config.EVALUATION_MODE == "scores":
-            if hasattr(self.master, 'refresh_scores_templates_list'):
-                self.master.refresh_scores_templates_list()
-        
-        self.destroy()
+        for entry in self.threshold_entries.values():
+            entry.setEnabled(manual)
 
-class DeleteDialog(ctk.CTkToplevel):
+    def save(self):
+        active_tiers = [tier for tier, cb in self.active_tier_checks.items() if cb.isChecked()]
+        if not active_tiers:
+            QMessageBox.warning(self, "Invalid Settings", "At least one score tier must stay active.")
+            return
+
+        scores_system = {
+            "manual_thresholds": self.manual_thresholds_var.isChecked(),
+            "base_target_score": config.SCORES_SYSTEM.get("base_target_score", 30.0),
+            "weights": {key: _safe_float(entry.text(), 0.0) for key, entry in self.weight_entries.items()},
+            "multipliers": {
+                "microwave": {key: _safe_float(entry.text(), 1.0) for key, entry in self.multiplier_entries.items()},
+            },
+            "thresholds": {tier: _safe_float(entry.text(), 0.0) for tier, entry in self.threshold_entries.items()},
+            "active_tiers": active_tiers,
+        }
+
+        if not scores_system["manual_thresholds"]:
+            scores_system["thresholds"] = config.calculate_auto_thresholds(
+                scores_system["weights"],
+                scores_system["multipliers"],
+            )
+
+        config.SCORES_SYSTEM = scores_system
+        config.user_config["SCORES_SYSTEM"] = scores_system
+        config.save_config(config.user_config)
+        self.accept()
+
+
+class DeleteDialog(QDialog):
     def __init__(self, parent, custom_templates):
         super().__init__(parent)
-        self.withdraw()
-        self.title("Delete Templates")
-        self.resizable(False, False)
-        self.result = []
-        set_toplevel_icon(self)
-            
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-        
-        header_lbl = ctk.CTkLabel(self, text="Select templates to delete:", font=ctk.CTkFont(size=15, weight="bold"))
-        header_lbl.grid(row=0, column=0, padx=20, pady=(15, 5), sticky="w")
-        
-        self.scroll_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll_frame.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
-        
-        self.checkboxes = {}
-        for t in custom_templates:
-            var = ctk.BooleanVar(value=False)
-            cb = ctk.CTkCheckBox(self.scroll_frame, text=t['name'], variable=var)
-            cb.pack(anchor="w", padx=10, pady=6)
-            self.checkboxes[t['name']] = var
-            
-        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.grid(row=2, column=0, pady=(10, 20))
-        
-        self.cancel_btn = ctk.CTkButton(btn_frame, text="Cancel", width=100, command=self.destroy)
-        self.cancel_btn.grid(row=0, column=0, padx=10)
-        
-        self.del_btn = ctk.CTkButton(btn_frame, text="Delete Selected", width=120, fg_color="#b30000", hover_color="#800000", command=self.delete)
-        self.del_btn.grid(row=0, column=1, padx=10)
-        
-        self.transient(parent)
-        show_centered_toplevel(self, parent, 340, 420)
-        
+        self.custom_templates = custom_templates
+        self.checks: dict[int, QCheckBox] = {}
+        self.setWindowTitle("Delete Templates")
+        self.resize(320, 280)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Select templates to delete:"))
+        scroll, _content, scroll_layout = _make_scroll_section()
+        layout.addWidget(scroll, 1)
+        for template in custom_templates:
+            cb = QCheckBox(template["name"])
+            self.checks[template["id"]] = cb
+            scroll_layout.addWidget(cb)
+        scroll_layout.addStretch(1)
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        delete_btn = QPushButton("Delete Selected")
+        delete_btn.setObjectName("DangerButton")
+        buttons.addButton(delete_btn, QDialogButtonBox.AcceptRole)
+        buttons.rejected.connect(self.reject)
+        delete_btn.clicked.connect(self.delete)
+        layout.addWidget(buttons)
+
     def delete(self):
-        self.result = [name for name, var in self.checkboxes.items() if var.get()]
-        self.destroy()
+        to_delete = {template_id for template_id, cb in self.checks.items() if cb.isChecked()}
+        if not to_delete:
+            self.reject()
+            return
+        config.TEMPLATES = [t for t in config.TEMPLATES if t.get("id") not in to_delete]
+        config.user_config["TEMPLATES"] = config.TEMPLATES
+        config.ACTIVE_TEMPLATES = [
+            name for name in config.ACTIVE_TEMPLATES
+            if name in {template["name"] for template in config.TEMPLATES}
+        ]
+        config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
+        config.save_config(config.user_config)
+        self.accept()
 
 
-class ConfirmDeleteRecordingDialog(ctk.CTkToplevel):
+class ConfirmDeleteRecordingDialog(QDialog):
     def __init__(self, parent, recording_name: str):
         super().__init__(parent)
-        self.withdraw()
         self.result = False
-        self.title("Delete Recording")
-        self.resizable(False, False)
-        set_toplevel_icon(self)
-
-        self.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            self,
-            text="Delete this stats recording?",
-            font=ctk.CTkFont(size=16, weight="bold"),
-        ).grid(row=0, column=0, padx=22, pady=(20, 8), sticky="w")
-
-        ctk.CTkLabel(
-            self,
-            text=f"{recording_name}\n\nThis cannot be undone.",
-            justify="left",
-            wraplength=356,
-            text_color="#CFCFCF",
-        ).grid(row=1, column=0, padx=22, pady=(0, 18), sticky="w")
-
-        buttons = ctk.CTkFrame(self, fg_color="transparent")
-        buttons.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="ew")
-        buttons.grid_columnconfigure((0, 1), weight=1)
-
-        ctk.CTkButton(
-            buttons,
-            text="Cancel",
-            command=self.cancel,
-        ).grid(row=0, column=0, padx=(0, 8), sticky="ew")
-
-        ctk.CTkButton(
-            buttons,
-            text="Delete",
-            fg_color="#b30000",
-            hover_color="#800000",
-            command=self.confirm,
-        ).grid(row=0, column=1, padx=(8, 0), sticky="ew")
-
-        self.protocol("WM_DELETE_WINDOW", self.cancel)
-        self.transient(parent)
-        show_centered_toplevel(self, parent, 400, 210)
+        self.setWindowTitle("Delete Recording")
+        self.setModal(True)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel(f"Delete recording '{recording_name}'?"))
+        buttons = QDialogButtonBox()
+        cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.RejectRole)
+        confirm_btn = buttons.addButton("Delete", QDialogButtonBox.AcceptRole)
+        confirm_btn.setObjectName("DangerButton")
+        cancel_btn.clicked.connect(self.cancel)
+        confirm_btn.clicked.connect(self.confirm)
+        layout.addWidget(buttons)
 
     def confirm(self):
         self.result = True
-        self.destroy()
+        self.accept()
 
     def cancel(self):
         self.result = False
-        self.destroy()
+        self.reject()
 
 
-class NativeHookWarningDialog(ctk.CTkToplevel):
+class NativeHookWarningDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.result = False
-        self.title("Native Hook Warning")
-        self.resizable(False, False)
+        self.setWindowTitle("Native Hook Warning")
+        self.setModal(True)
+        self.resize(525, 355)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 20, 18, 18)
+        layout.setSpacing(16)
 
-        icon_path = resource_path("media/bonkscanner_icon.ico")
-        if os.path.exists(icon_path):
-            self.after(200, lambda p=icon_path: self.iconbitmap(p))
+        card = QFrame()
+        card.setObjectName("WarningCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 16, 18, 14)
+        card_layout.setSpacing(8)
 
-        center_toplevel(self, parent, 440, 260)
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        title = QLabel("Enable Native Hook Restart?")
+        title.setObjectName("WarningTitle")
+        card_layout.addWidget(title)
 
-        self.protocol("WM_DELETE_WINDOW", self.cancel)
-
-        header = ctk.CTkFrame(self, fg_color="#3B2A18", corner_radius=10)
-        header.grid(row=0, column=0, padx=18, pady=(18, 10), sticky="ew")
-        header.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            header,
-            text="Enable Native Hook Restart?",
-            font=ctk.CTkFont(size=17, weight="bold"),
-            text_color="#F6C56F",
-        ).grid(row=0, column=0, padx=14, pady=(12, 4), sticky="w")
-
-        ctk.CTkLabel(
-            header,
-            text="This enables a lower-level memory restart path. Using this mode may not be considered entirely fair and could have consequences.",
-            justify="left",
-            wraplength=380,
-            text_color="#E8E8E8",
-        ).grid(row=1, column=0, padx=14, pady=(0, 12), sticky="w")
-
-        ctk.CTkLabel(
-            self,
-            text="You can safely switch back to standard keyboard restart at any time from Settings.\n\nThis dialog will appear whenever the native hook option is turned on.",
-            justify="left",
-            wraplength=396,
-            text_color="#CFCFCF",
-        ).grid(row=1, column=0, padx=22, pady=(0, 16), sticky="nw")
-
-        buttons = ctk.CTkFrame(self, fg_color="transparent")
-        buttons.grid(row=2, column=0, padx=18, pady=(0, 18), sticky="sew")
-        for column in range(2):
-            buttons.grid_columnconfigure(column, weight=1)
-
-        self.cancel_btn = ctk.CTkButton(
-            buttons,
-            text="Cancel",
-            fg_color="#b30000",
-            hover_color="#800000",
-            command=self.cancel,
+        summary = QLabel(
+            "This enables a lower-level memory restart path. Using this mode\n"
+            "may not be considered entirely fair and could have consequences."
         )
-        self.cancel_btn.grid(row=0, column=0, padx=(0, 8), sticky="ew")
+        summary.setWordWrap(True)
+        summary.setStyleSheet("background: transparent; font-size: 15px;")
+        card_layout.addWidget(summary)
+        layout.addWidget(card)
 
-        self.continue_btn = ctk.CTkButton(
-            buttons,
-            text="Continue",
-            fg_color="#2FA572",
-            hover_color="#106A43",
-            command=self.confirm,
+        switch_note = QLabel(
+            "You can safely switch back to standard keyboard restart at any time\n"
+            "from Settings."
         )
-        self.continue_btn.grid(row=0, column=1, padx=(8, 0), sticky="ew")
+        switch_note.setWordWrap(True)
+        switch_note.setStyleSheet("font-size: 15px;")
+        layout.addWidget(switch_note)
 
-        self.transient(parent)
-        self.grab_set()
+        repeat_note = QLabel("This dialog will appear whenever the native hook option is turned on.")
+        repeat_note.setWordWrap(True)
+        repeat_note.setStyleSheet("font-size: 15px;")
+        layout.addWidget(repeat_note)
+        layout.addStretch(1)
+
+        buttons = QHBoxLayout()
+        buttons.setSpacing(20)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("DangerButton")
+        cancel_btn.setProperty("class", "WideDialogButton")
+        cancel_btn.setMinimumHeight(34)
+        continue_btn = QPushButton("Continue")
+        continue_btn.setObjectName("SuccessButton")
+        continue_btn.setProperty("class", "WideDialogButton")
+        continue_btn.setMinimumHeight(34)
+        cancel_btn.clicked.connect(self.cancel)
+        continue_btn.clicked.connect(self.confirm)
+        buttons.addWidget(cancel_btn)
+        buttons.addWidget(continue_btn)
+        layout.addLayout(buttons)
 
     def confirm(self):
         self.result = True
-        self.destroy()
+        self.accept()
 
     def cancel(self):
         self.result = False
-        self.destroy()
+        self.reject()
 
 
-class SettingsDialog(ctk.CTkToplevel):
-    def __init__(self, parent):
+class SettingsDialog(QDialog):
+    def __init__(self, parent, master=None):
         super().__init__(parent)
-        self.title("Settings")
-        self.geometry("400x440")
-        self.resizable(False, False)
+        self.master = master or parent
         self._native_hook_toggle_guard = False
-        
-        # Set icon if available
-        icon_path = resource_path("media/bonkscanner_icon.ico")
-        if os.path.exists(icon_path):
-            self.after(200, lambda p=icon_path: self.iconbitmap(p))
-            
-        self.grid_columnconfigure(1, weight=1)
-        
-        # HOTKEY
-        ctk.CTkLabel(self, text="Scan Hotkey:").grid(row=0, column=0, padx=10, pady=10, sticky="w")
-        self.hotkey_entry = ctk.CTkEntry(self)
-        self.hotkey_entry.insert(0, config.HOTKEY)
-        self.hotkey_entry.grid(row=0, column=1, padx=10, pady=10, sticky="ew")
-        
-        # RESET_HOTKEY
-        ctk.CTkLabel(self, text="Reset Hotkey:").grid(row=1, column=0, padx=10, pady=10, sticky="w")
-        self.reset_hotkey_entry = ctk.CTkEntry(self)
-        self.reset_hotkey_entry.insert(0, config.RESET_HOTKEY)
-        self.reset_hotkey_entry.grid(row=1, column=1, padx=10, pady=10, sticky="ew")
-        
-        # MIN_DELAY
-        ctk.CTkLabel(self, text="Min Reroll Delay (s):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
-        self.min_delay_entry = ctk.CTkEntry(self)
-        self.min_delay_entry.insert(0, str(config.MIN_DELAY))
-        self.min_delay_entry.grid(row=2, column=1, padx=10, pady=10, sticky="ew")
+        self.setWindowTitle("Settings")
+        self.resize(420, 320)
+        self.setModal(True)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 14, 12, 14)
+        layout.setSpacing(14)
+
+        form_layout = QFormLayout()
+        form_layout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        form_layout.setFormAlignment(Qt.AlignTop)
+        form_layout.setHorizontalSpacing(18)
+        form_layout.setVerticalSpacing(14)
+        layout.addLayout(form_layout)
+
+        self.hotkey_entry = QLineEdit(config.HOTKEY)
+        form_layout.addRow("Scan Hotkey:", self.hotkey_entry)
+
+        self.reset_hotkey_entry = QLineEdit(config.RESET_HOTKEY)
+        form_layout.addRow("Reset Hotkey:", self.reset_hotkey_entry)
+
+        self.min_delay_entry = QLineEdit(str(config.MIN_DELAY))
         self.map_load_delay_entry = self.min_delay_entry
-        
-        # RESET_HOLD_DURATION
-        ctk.CTkLabel(self, text="Reset Hold Duration (s):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
-        self.reset_hold_duration_entry = ctk.CTkEntry(self)
-        self.reset_hold_duration_entry.insert(0, str(config.RESET_HOLD_DURATION))
-        self.reset_hold_duration_entry.grid(row=3, column=1, padx=10, pady=10, sticky="ew")
+        form_layout.addRow("Min Reroll Delay (s):", self.min_delay_entry)
 
-        self.native_hook_enabled_var = ctk.BooleanVar(value=getattr(config, "NATIVE_HOOK_ENABLED", True))
-        self.native_hook_enabled_check = ctk.CTkCheckBox(
-            self,
-            text="Use native hook restart",
-            variable=self.native_hook_enabled_var,
-            command=self.on_native_hook_toggle,
-        )
-        self.native_hook_enabled_check.grid(row=4, column=0, columnspan=2, padx=10, pady=10, sticky="w")
-        
-        # Check for updates button
-        self.update_btn = ctk.CTkButton(self, text="Check for Updates", fg_color="#1f538d", hover_color="#14375e", command=self.check_update)
-        self.update_btn.grid(row=5, column=0, columnspan=2, pady=10)
+        self.reset_hold_duration_entry = QLineEdit(str(config.RESET_HOLD_DURATION))
+        form_layout.addRow("Reset Hold Duration (s):", self.reset_hold_duration_entry)
 
-        self.support_btn = ctk.CTkButton(
-            self,
-            text="Support",
-            fg_color="#d97706",
-            hover_color="#b45309",
-            command=self.open_support_page,
-        )
-        self.support_btn.grid(row=6, column=0, columnspan=2, pady=(0, 10))
+        self.native_hook_enabled_var = QCheckBox("Use native hook restart")
+        self.native_hook_enabled_var.setChecked(bool(getattr(config, "NATIVE_HOOK_ENABLED", True)))
+        self.native_hook_enabled_var.toggled.connect(self.on_native_hook_toggle)
+        layout.addWidget(self.native_hook_enabled_var)
 
-        # SAVE BUTTON
-        self.save_btn = ctk.CTkButton(self, text="Save", fg_color="#2FA572", hover_color="#106A43", command=self.save)
-        self.save_btn.grid(row=7, column=0, columnspan=2, pady=10)
-        
-        self.transient(parent)
-        self.grab_set()
+        layout.addStretch(1)
+
+        button_row = QVBoxLayout()
+        button_row.setSpacing(10)
+        self.update_btn = QPushButton("Check for Updates")
+        self.update_btn.clicked.connect(self.check_update)
+        self.support_btn = QPushButton("Support")
+        self.support_btn.setObjectName("SupportButton")
+        self.support_btn.clicked.connect(self.open_support_page)
+        self.save_btn = QPushButton("Save")
+        self.save_btn.setObjectName("SuccessButton")
+        self.save_btn.clicked.connect(self.save)
+        button_row.addWidget(self.update_btn)
+        button_row.addWidget(self.support_btn)
+        button_row.addWidget(self.save_btn)
+        layout.addLayout(button_row)
 
     def _set_native_hook_checkbox_value(self, enabled: bool):
         self._native_hook_toggle_guard = True
         try:
-            self.native_hook_enabled_var.set(enabled)
+            _set_bool(self.native_hook_enabled_var, enabled)
         finally:
             self._native_hook_toggle_guard = False
 
     def prompt_native_hook_enable_confirmation(self) -> bool:
         dialog = NativeHookWarningDialog(self)
-        self.wait_window(dialog)
+        dialog.exec()
         return bool(dialog.result)
 
     def on_native_hook_toggle(self):
         if getattr(self, "_native_hook_toggle_guard", False):
             return
-
-        if not bool(self.native_hook_enabled_var.get()):
+        if not _read_bool(self.native_hook_enabled_var):
             return
-
         if not SettingsDialog.prompt_native_hook_enable_confirmation(self):
             SettingsDialog._set_native_hook_checkbox_value(self, False)
-        
+
     def check_update(self):
-        # Force check updates, ignoring SKIPPED version
         threading.Thread(target=updater.check_and_update, args=(self.master, True), daemon=True).start()
-        self.destroy()
+        if hasattr(self, "close"):
+            self.close()
 
     def open_support_page(self):
         webbrowser.open(SUPPORT_URL)
 
     def save(self):
-        new_hotkey = self.hotkey_entry.get().strip()
-        new_reset_hotkey = self.reset_hotkey_entry.get().strip()
-        native_hook_enabled = bool(self.native_hook_enabled_var.get())
-        
-        # Update values in user_config
+        new_hotkey = _read_text(self.hotkey_entry).strip()
+        new_reset_hotkey = _read_text(self.reset_hotkey_entry).strip()
+        native_hook_enabled = _read_bool(self.native_hook_enabled_var)
+
         config.user_config["HOTKEY"] = new_hotkey
         config.user_config["RESET_HOTKEY"] = new_reset_hotkey
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
-        
-        # Update module-level variables in config.py
+
         config.HOTKEY = new_hotkey
         config.RESET_HOTKEY = new_reset_hotkey
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
-        
+
         delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
         try:
-            new_delay = float(delay_entry.get())
+            new_delay = float(_read_text(delay_entry))
             config.user_config["MIN_DELAY"] = new_delay
             config.MIN_DELAY = new_delay
             config.MAP_LOAD_DELAY = new_delay
         except ValueError:
-            pass # Keep old value if new one is invalid
-            
+            pass
+
         try:
-            new_duration = float(self.reset_hold_duration_entry.get())
+            new_duration = float(_read_text(self.reset_hold_duration_entry))
             if new_duration < 0.01:
                 new_duration = 0.01
             config.user_config["RESET_HOLD_DURATION"] = new_duration
             config.RESET_HOLD_DURATION = new_duration
-            
-            # Attempt to automatically update the game config to match, minus 0.05 seconds
             game_val = round(new_duration - 0.05, 2)
             if game_val < 0.01:
                 game_val = 0.01
             config.update_game_reset_time(game_val)
-
         except ValueError:
-            pass # Keep old value if new one is invalid
-            
-        # Save to file
+            pass
+
         config.save_config(config.user_config)
-        
-        # Apply hotkey changes immediately without restart
-        if hasattr(self.master, 'setup_hotkeys'):
+
+        if hasattr(self.master, "setup_hotkeys"):
             self.master.setup_hotkeys()
             self.master.update_status_ui()
-            if hasattr(self.master, 'apply_run_control_mode'):
+            if hasattr(self.master, "apply_run_control_mode"):
                 self.master.apply_run_control_mode()
             self.master.log("[*] Settings saved and applied successfully!", tag="success")
-            
-        self.destroy()
+
+        if hasattr(self, "accept"):
+            self.accept()
+        elif hasattr(self, "destroy"):
+            self.destroy()
 
 
-class MegabonkApp(ctk.CTk):
+class MegabonkApp:
+    _qt_app: QApplication | None = None
+
+    @classmethod
+    def _ensure_qt_application(cls) -> QApplication:
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv)
+            cls._qt_app = app
+            app.setApplicationName("BonkScanner")
+            checkmark_path = resource_path("media/checkmark.svg").replace("\\", "/")
+            app.setStyleSheet(
+                """
+                QWidget {
+                    background: #10141B;
+                    color: #E5E7EB;
+                    font-size: 13px;
+                }
+                QDialog {
+                    background: #10141B;
+                }
+                QGroupBox {
+                    border: 1px solid #243042;
+                    border-radius: 8px;
+                    margin-top: 8px;
+                    padding-top: 10px;
+                    background: #111827;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 10px;
+                    padding: 0 4px;
+                }
+                QFrame#StatCard {
+                    background: #111827;
+                    border: 1px solid #243042;
+                    border-radius: 8px;
+                    padding: 8px;
+                }
+                QFrame#WarningCard {
+                    background: #3A2412;
+                    border: 1px solid #4A2E16;
+                    border-radius: 12px;
+                }
+                QLineEdit, QTextEdit, QPlainTextEdit, QListWidget {
+                    background: #0B1220;
+                    border: 1px solid #2B3648;
+                    border-radius: 6px;
+                    padding: 6px;
+                    selection-background-color: #1F6AA5;
+                }
+                QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QListWidget:focus {
+                    border-color: #3B82F6;
+                }
+                QPushButton {
+                    background: #1F6AA5;
+                    border: none;
+                    border-radius: 8px;
+                    padding: 8px 12px;
+                    color: white;
+                    font-weight: 600;
+                }
+                QPushButton:hover {
+                    background: #2A80C0;
+                }
+                QPushButton#DangerButton {
+                    background: #B91C1C;
+                }
+                QPushButton#DangerButton:hover {
+                    background: #DC2626;
+                }
+                QPushButton#SuccessButton {
+                    background: #2F9E6D;
+                }
+                QPushButton#SuccessButton:hover {
+                    background: #39B77F;
+                }
+                QPushButton#SupportButton {
+                    background: #D97706;
+                }
+                QPushButton#SupportButton:hover {
+                    background: #F59E0B;
+                }
+                QPushButton[class="WideDialogButton"] {
+                    min-height: 34px;
+                    font-size: 14px;
+                }
+                QPushButton#SettingsButton {
+                    min-width: 118px;
+                    text-align: left;
+                }
+                QPushButton#ToggleButton {
+                    min-width: 138px;
+                    font-weight: 800;
+                    letter-spacing: 0.5px;
+                }
+                QTabWidget::pane {
+                    border: 1px solid #243042;
+                    border-radius: 8px;
+                    top: -1px;
+                    background: #111827;
+                }
+                QTabBar::tab {
+                    background: #1F2937;
+                    padding: 8px 12px;
+                    margin-right: 4px;
+                    border-top-left-radius: 6px;
+                    border-top-right-radius: 6px;
+                    min-width: 92px;
+                }
+                QTabBar::tab:selected {
+                    background: #1F6AA5;
+                    color: white;
+                    font-weight: 700;
+                }
+                QTabBar::tab:hover:!selected {
+                    background: #273449;
+                }
+                QLabel#SectionHeader {
+                    font-size: 20px;
+                    font-weight: 700;
+                }
+                QLabel#WarningTitle {
+                    color: #FBBF24;
+                    background: transparent;
+                    font-size: 20px;
+                    font-weight: 800;
+                }
+                QLabel#StatusLabel {
+                    color: #D1D5DB;
+                    font-family: Consolas;
+                    font-weight: 700;
+                    padding-left: 14px;
+                }
+                QCheckBox {
+                    spacing: 8px;
+                }
+                QCheckBox::indicator {
+                    width: 20px;
+                    height: 20px;
+                    border-radius: 5px;
+                    border: 2px solid #6B7280;
+                    background: #111827;
+                }
+                QCheckBox::indicator:hover {
+                    border-color: #93C5FD;
+                }
+                QCheckBox::indicator:checked {
+                    background: #1F6AA5;
+                    border-color: #3B82F6;
+                    image: url(__CHECKMARK_ICON__);
+                }
+                QCheckBox::indicator:checked:disabled {
+                    background: #34445E;
+                }
+                QScrollBar:vertical {
+                    background: #111827;
+                    width: 12px;
+                    margin: 2px;
+                    border-radius: 6px;
+                }
+                QScrollBar::handle:vertical {
+                    background: #4B5563;
+                    min-height: 32px;
+                    border-radius: 6px;
+                }
+                QScrollBar::handle:vertical:hover {
+                    background: #6B7280;
+                }
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                    height: 0;
+                }
+                QScrollBar:horizontal {
+                    background: #111827;
+                    height: 12px;
+                    margin: 2px;
+                    border-radius: 6px;
+                }
+                QScrollBar::handle:horizontal {
+                    background: #4B5563;
+                    min-width: 32px;
+                    border-radius: 6px;
+                }
+                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                    width: 0;
+                }
+                QSlider::groove:horizontal {
+                    height: 7px;
+                    background: #243042;
+                    border-radius: 4px;
+                }
+                QSlider::handle:horizontal {
+                    background: #38BDF8;
+                    border: 2px solid #0F172A;
+                    width: 16px;
+                    margin: -6px 0;
+                    border-radius: 8px;
+                }
+                QSplitter::handle {
+                    background: #1B2433;
+                    margin: 0 6px;
+                    border-radius: 2px;
+                }
+                """
+                .replace("__CHECKMARK_ICON__", checkmark_path)
+            )
+        cls._qt_app = app
+        return app
+
     def __init__(self):
-        super().__init__()
-        
-        self.title(f"BonkScanner v{updater.CURRENT_VERSION}")
-        self.geometry("1150x550")
-        self.minsize(1050, 500)
-        
-        # Initialize attributes that might be flagged as defined outside __init__
-        self.top_frame = None
-        self.logo_label = None
-        
-        self.left_frame = None
+        self._ensure_qt_application()
+        self.window = _AppWindow(self)
+        self._invoker = UiInvoker()
+        self._close_protocol_handler = None
+        self._is_shutting_down = False
+        self._close_in_progress = False
+
+        self.setWindowTitle(f"BonkScanner v{updater.CURRENT_VERSION}")
+        self.resize(1280, 760)
+        self.setMinimumSize(1080, 640)
+        icon_path = resource_path("media/bonkscanner_icon.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
         self.left_tabview = None
         self.tab_templates = None
         self.tab_scores = None
-        
         self.scrollable_templates = None
-        self.template_btns_frame = None
-        self.add_btn = None
-        self.edit_btn = None
-        self.del_btn = None
-        
+        self.template_layout = None
         self.scores_templates_frame = None
-        self.scores_scroll_desc = None
+        self.scores_templates_layout = None
         self.scores_desc_label = None
-        self.scores_btns_frame = None
-        self.edit_scores_btn = None
-        self.scores_separator = None
-        
-        self.right_frame = None
         self.tabview = None
         self.tab_logs = None
         self.tab_stats = None
         self.tab_player_stats = None
         self.tab_vods = None
         self.log_box = None
-        self.stats_scroll = None
         self.stats_time_label = None
         self.stats_rerolls_label = None
         self.stats_total_rerolls_label = None
@@ -1083,8 +1127,8 @@ class MegabonkApp(ctk.CTk):
         self.stats_best_label = None
         self.stats_worst_label = None
         self.stats_avg_frame = None
+        self.stats_avg_layout = None
         self.stats_avg_labels = {}
-        self.player_stats_scroll = None
         self.player_stats_status_label = None
         self.player_stats_record_btn = None
         self.player_stats_slider = None
@@ -1101,18 +1145,10 @@ class MegabonkApp(ctk.CTk):
         self.vods_slider_time_label = None
         self.vods_rows = {}
         self.vods_items_label = None
-        self.vods_list_signature = None
-        self.right_tab_transition_cover = None
-        self.right_tab_transition_after_id = None
-        self.controls_frame = None
-        self.settings_btn = None
         self.status_label = None
         self.toggle_btn = None
-        
-        icon_path = resource_path("media/bonkscanner_icon.ico")
-        if os.path.exists(icon_path):
-            self.iconbitmap(icon_path)
-        
+        self.logo_label = None
+
         self.is_running = False
         self.is_ready_to_start = False
         self.active_templates = []
@@ -1133,49 +1169,81 @@ class MegabonkApp(ctk.CTk):
         self._native_hook_admin_warning_logged = False
         self.checkboxes = {}
         self.scores_checkboxes = {}
-        
         self.animation_active = False
         self.animation_frame = 0
-        
-        # Threading events for efficient control
         self.stop_event = threading.Event()
         self.scan_event = threading.Event()
-        
-        # Session Stats
         self.session_start_time = None
         self.session_rerolls = 0
         self.best_map_stats = None
         self.best_map_score = -1
         self.worst_map_stats = None
-        self.worst_map_score = float('inf')
-        # Detailed stats per template: { 'Template Name': {'rerolls_since_last': 0, 'history': []} }
+        self.worst_map_score = float("inf")
         self.template_stats = {}
-        
+        self.vods_list_signature = None
+
         self.setup_ui()
         self.refresh_templates()
         self.refresh_scores_templates_list()
         self.refresh_scores_ui()
         self.setup_hotkeys()
-        
-        # Timer for updating elapsed time
         self.update_timer()
         self.update_player_stats_timer()
-        
         self.check_admin_rights()
         self.log(f"[*] Welcome to BonkScanner v{updater.CURRENT_VERSION}!", tag="success")
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")
-        self.log(f"[*] Ready! Select templates and start the main process loop.")
+        self.log("[*] Ready! Select templates and start the main process loop.")
         self.apply_run_control_mode(detach_hooks=False)
-
-        # Check for updates AFTER the GUI has fully initialized and drawn
-        # 1500 ms (1.5 seconds) delay ensures the user sees the window instantly
         self.after(1500, self.deferred_update_check)
+
+    def __getattr__(self, name: str):
+        window = self.__dict__.get("window")
+        if window is not None and hasattr(window, name):
+            return getattr(window, name)
+        raise AttributeError(name)
+
+    @property
+    def qt_app(self) -> QApplication:
+        return self._ensure_qt_application()
+
+    def protocol(self, name: str, callback: object) -> None:
+        if name == "WM_DELETE_WINDOW":
+            self._close_protocol_handler = callback
+
+    def mainloop(self) -> int:
+        self.window.show()
+        return self.qt_app.exec()
+
+    def destroy(self):
+        self._close_in_progress = True
+        self.window.close()
+
+    def _handle_window_close(self, event: QCloseEvent) -> None:
+        if self._close_in_progress or self._is_shutting_down:
+            event.accept()
+            return
+        handler = self._close_protocol_handler or getattr(self, "on_closing", None)
+        if callable(handler):
+            event.ignore()
+            handler()
+            return
+        event.accept()
+
+    def after(self, delay_ms: int, callback):
+        self._invoker.call_later.emit(int(delay_ms), callback)
+        return None
+
+    def after_idle(self, callback):
+        self._invoker.call_now.emit(callback)
+        return None
+
+    def winfo_exists(self) -> bool:
+        return not self._is_shutting_down
 
     def initialize_run_control(self):
         if not getattr(config, "NATIVE_HOOK_ENABLED", True):
             self.enable_keyboard_run_control()
             return
-
         self.enable_hook_run_control()
 
     def apply_run_control_mode(self, *, detach_hooks: bool = True):
@@ -1189,12 +1257,15 @@ class MegabonkApp(ctk.CTk):
 
             if detach_hooks and previous_loader is not None:
                 try:
-                    result = previous_loader.uninitialize()
+                    previous_loader.uninitialize()
                     self.log("[+] Game restart helper disconnected.", tag="success")
-                except HookProcessNotFoundError as exc:
+                except HookProcessNotFoundError:
                     self.log("[WAIT] Game is already closed; restart helper disconnected.", tag="warning")
                 except HookLoadError as exc:
-                    self.log(f"[WAIT] Could not disconnect game restart helper; switching to keyboard restart. Details: {exc}", tag="warning")
+                    self.log(
+                        f"[WAIT] Could not disconnect game restart helper; switching to keyboard restart. Details: {exc}",
+                        tag="warning",
+                    )
 
             self.enable_keyboard_run_control()
 
@@ -1253,7 +1324,7 @@ class MegabonkApp(ctk.CTk):
                     self.log("[WAIT] Waiting for the game before connecting restart helper.")
                     logged_waiting = True
                 self.stop_event.wait(1.0)
-            except HookProcessNotReadyError as exc:
+            except HookProcessNotReadyError:
                 if not logged_waiting:
                     self.log("[WAIT] Game is starting up. Restart helper will connect automatically.")
                     logged_waiting = True
@@ -1266,463 +1337,277 @@ class MegabonkApp(ctk.CTk):
                 return
 
     def deferred_update_check(self):
-        """Checks for updates after the main window is already visible."""
         threading.Thread(target=updater.check_and_update, args=(self, False), daemon=True).start()
 
     def check_admin_rights(self):
-        if os.name != 'nt':
+        if os.name != "nt":
             return
-
         if not self.is_running_as_admin():
             if getattr(config, "NATIVE_HOOK_ENABLED", True):
                 self.warn_if_native_hook_needs_admin()
                 return
-
-            self.log("⚠️ WARNING: Script is not running as Administrator!", tag="warning")
-            self.log("⚠️ Hotkeys may not work while the game window is active.", tag="warning")
+            self.log("\u26a0\ufe0f WARNING: Script is not running as Administrator!", tag="warning")
+            self.log("\u26a0\ufe0f Hotkeys may not work while the game window is active.", tag="warning")
 
     def is_running_as_admin(self) -> bool:
-        if os.name != 'nt':
+        if os.name != "nt":
             return True
-
-        import ctypes
         try:
-            return os.getuid() == 0
-        except AttributeError:
-            return ctypes.windll.shell32.IsUserAnAdmin() != 0
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
 
     def warn_if_native_hook_needs_admin(self):
-        if (
-            getattr(config, "NATIVE_HOOK_ENABLED", True)
-            and not getattr(self, "_native_hook_admin_warning_logged", False)
-            and not self.is_running_as_admin()
-        ):
+        if self._native_hook_admin_warning_logged:
+            return
+        if not self.is_running_as_admin():
             self.log("[*] Game restart helper may need Administrator privileges; trying anyway.", tag="warning")
-            self._native_hook_admin_warning_logged = True
+        self._native_hook_admin_warning_logged = True
 
     def setup_ui(self):
-        # Configure layout grid. Equal weight for left and right panels
-        self.grid_columnconfigure(0, weight=1) 
-        self.grid_columnconfigure(1, weight=1, minsize=RIGHT_PANEL_MIN_WIDTH)
-        self.grid_rowconfigure(1, weight=1)
-        
-        # Load shared settings image
-        self.settings_image = None
-        settings_icon_path = resource_path("media/settings_icon.png")
-        if os.path.exists(settings_icon_path):
-            self.settings_image = ctk.CTkImage(light_image=Image.open(settings_icon_path),
-                                               dark_image=Image.open(settings_icon_path),
-                                               size=(20, 20))
-                                               
-        # --- Top Bar (Logo) ---
-        self.top_frame = ctk.CTkFrame(self, height=80, fg_color="transparent")
-        self.top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        self.top_frame.grid_columnconfigure(0, weight=1)
-        
-        try:
-            icon_path = resource_path("media/bonkscanner_icon.ico")
-            if os.path.exists(icon_path):
-                logo_image = ctk.CTkImage(light_image=Image.open(icon_path),
-                                          dark_image=Image.open(icon_path),
-                                          size=(40, 40))
-                self.logo_label = ctk.CTkLabel(self.top_frame, image=logo_image, text=" BonkScanner", 
-                                               font=ctk.CTkFont(size=24, weight="bold"))
-                self.logo_label.grid(row=0, column=0, pady=5)
+        central = QWidget()
+        self.setCentralWidget(central)
+        root_layout = QVBoxLayout(central)
+        root_layout.setContentsMargins(10, 10, 10, 10)
+        root_layout.setSpacing(10)
+
+        header_wrap = QWidget()
+        header = QVBoxLayout(header_wrap)
+        header.setContentsMargins(0, 4, 0, 8)
+        header.setSpacing(6)
+        header.setAlignment(Qt.AlignHCenter)
+
+        title = QLabel("BonkScanner")
+        title.setObjectName("SectionHeader")
+        title.setAlignment(Qt.AlignHCenter)
+        header.addWidget(title, 0, Qt.AlignHCenter)
+
+        logo_label = QLabel()
+        self.logo_label = logo_label
+        logo_label.setAlignment(Qt.AlignHCenter)
+        logo_path = resource_path("media/bonkscanner_icon2.png")
+        if os.path.exists(logo_path):
+            pixmap = QPixmap(logo_path)
+            if not pixmap.isNull():
+                logo_label.setPixmap(
+                    pixmap.scaled(72, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
             else:
-                self.logo_label = ctk.CTkLabel(self.top_frame, text="BonkScanner", 
-                                               font=ctk.CTkFont(size=24, weight="bold"))
-                self.logo_label.grid(row=0, column=0, pady=5)
-        except Exception:
-            self.logo_label = ctk.CTkLabel(self.top_frame, text="BonkScanner", 
-                                           font=ctk.CTkFont(size=24, weight="bold"))
-            self.logo_label.grid(row=0, column=0, pady=5)
-
-        # --- Left Panel ---
-        self.left_frame = ctk.CTkFrame(self)
-        self.left_frame.grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
-        self.left_frame.grid_rowconfigure(0, weight=1)
-        self.left_frame.grid_columnconfigure(0, weight=1)
-
-        self.left_tabview = ctk.CTkTabview(self.left_frame, command=self.on_left_tab_changed)
-        self.left_tabview.grid(row=0, column=0, padx=10, pady=(0, 10), sticky="nsew")
-        
-        self.tab_templates = self.left_tabview.add("Templates")
-        self.tab_scores = self.left_tabview.add("Scores")
-        
-        # Select active tab based on config
-        if config.EVALUATION_MODE == "scores":
-            self.left_tabview.set("Scores")
+                logo_label.setText("BONK")
         else:
-            self.left_tabview.set("Templates")
-            
-        # -- Templates Tab Setup --
-        self.tab_templates.grid_rowconfigure(0, weight=1)
-        self.tab_templates.grid_columnconfigure(0, weight=1)
-        
-        self.scrollable_templates = ctk.CTkScrollableFrame(self.tab_templates, fg_color=TAB_CONTENT_FG_COLOR)
-        self.scrollable_templates.grid(row=0, column=0, sticky="nsew")
-        
-        # Buttons frame (moved inside tab_templates)
-        self.template_btns_frame = ctk.CTkFrame(self.tab_templates, fg_color=UI_SECTION_FG_COLOR)
-        self.template_btns_frame.grid(row=1, column=0, padx=0, pady=(10, 0), sticky="ew")
-        self.template_btns_frame.grid_columnconfigure((0, 4), weight=1)
-        
-        self.add_btn = ctk.CTkButton(self.template_btns_frame, text="+ Add", width=60, command=self.add_template_dialog)
-        self.add_btn.grid(row=0, column=1, padx=5)
-        
-        self.edit_btn = ctk.CTkButton(self.template_btns_frame, text="✎ Edit", width=60, command=self.edit_template_dialog)
-        self.edit_btn.grid(row=0, column=2, padx=5)
-        
-        self.del_btn = ctk.CTkButton(self.template_btns_frame, text="- Delete", width=60, fg_color="#b30000", hover_color="#800000", command=self.del_template_dialog)
-        self.del_btn.grid(row=0, column=3, padx=5)
-        
-        # -- Scores Tab Setup --
-        self.tab_scores.grid_rowconfigure(2, weight=1) # Row 2 is the scrollable desc frame
-        self.tab_scores.grid_columnconfigure(0, weight=1)
-        
-        self.scores_templates_frame = ctk.CTkFrame(self.tab_scores, fg_color=UI_SECTION_FG_COLOR)
-        self.scores_templates_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
-        
-        self.scores_separator = ctk.CTkFrame(self.tab_scores, height=2, fg_color=("gray70", "gray30"))
-        self.scores_separator.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 5))
-        
-        self.scores_scroll_desc = ctk.CTkScrollableFrame(self.tab_scores, fg_color=TAB_CONTENT_FG_COLOR)
-        self.scores_scroll_desc.grid(row=2, column=0, sticky="nsew")
-        self.scores_scroll_desc.grid_columnconfigure(0, weight=1)
-        
-        self.scores_desc_label = ctk.CTkLabel(self.scores_scroll_desc, text="", justify="left", font=ctk.CTkFont(size=13))
-        self.scores_desc_label.grid(row=0, column=0, sticky="nw", padx=10, pady=10)
-        
-        # Scores buttons frame (moved inside tab_scores)
-        self.scores_btns_frame = ctk.CTkFrame(self.tab_scores, fg_color=UI_SECTION_FG_COLOR)
-        self.scores_btns_frame.grid(row=3, column=0, padx=0, pady=(10, 0), sticky="ew")
-        self.scores_btns_frame.grid_columnconfigure((0, 2), weight=1)
-        
-        if self.settings_image:
-            self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text=" Edit Settings", image=self.settings_image, compound="left", command=self.open_scores_settings_dialog)
-        else:
-            self.edit_scores_btn = ctk.CTkButton(self.scores_btns_frame, text="⚙ Edit Settings", command=self.open_scores_settings_dialog)
-            
-        self.edit_scores_btn.grid(row=0, column=1)
+            logo_label.setText("BONK")
+        header.addWidget(logo_label, 0, Qt.AlignHCenter)
+        root_layout.addWidget(header_wrap)
 
-        # --- Right Panel: Logs, Stats & Controls ---
-        self.right_frame = ctk.CTkFrame(self)
-        self.right_frame.grid(row=1, column=1, padx=(0, 10), pady=10, sticky="nsew")
-        self.right_frame.grid_rowconfigure(0, weight=1) # Give row 0 (TabView) the most weight
-        self.right_frame.grid_columnconfigure(0, weight=1)
-        
-        # TabView for Logs and Stats
-        self.tabview = ctk.CTkTabview(self.right_frame, command=self.on_right_tab_changed)
-        self.tabview.grid(row=0, column=0, padx=10, pady=(0, 10), sticky="nsew")
-        
-        self.tab_logs = self.tabview.add("Logs")
-        self.tab_stats = self.tabview.add("Session Stats")
-        self.tab_player_stats = self.tabview.add("Live Stats")
-        self.tab_vods = self.tabview.add("Recordings")
-        set_equal_tab_button_width(self.tabview, RIGHT_TAB_BUTTON_WIDTH)
-        for tab in (self.tab_logs, self.tab_stats, self.tab_player_stats, self.tab_vods):
-            tab.configure(fg_color=TAB_CONTENT_FG_COLOR)
-        
-        self.tab_logs.grid_rowconfigure(0, weight=1)
-        self.tab_logs.grid_columnconfigure(0, weight=1)
-        self.tab_stats.grid_rowconfigure(0, weight=1)
-        self.tab_stats.grid_columnconfigure(0, weight=1)
-        self.tab_player_stats.grid_rowconfigure(0, weight=1)
-        self.tab_player_stats.grid_columnconfigure(0, weight=1)
-        self.tab_vods.grid_rowconfigure(0, weight=1)
-        self.tab_vods.grid_columnconfigure(0, weight=0)
-        self.tab_vods.grid_columnconfigure(1, weight=1)
-        
-        # Log Textbox
-        self.log_box = ctk.CTkTextbox(self.tab_logs, state="disabled", font=ctk.CTkFont(family="Consolas", size=13), wrap="none")
-        self.log_box.grid(row=0, column=0, sticky="nsew")
-        
-        # Log tags config for colors
-        self.log_box.tag_config("warning", foreground="#FFA500")
-        self.log_box.tag_config("error", foreground="#FF4444")
-        self.log_box.tag_config("success", foreground="#00FF00")
-        
-        # Add tags for specific profile colors
-        for color_name, hex_code in COLOR_MAP.items():
-            self.log_box.tag_config(color_name, foreground=hex_code)
-            
-        # Stats Elements
-        self.stats_scroll = ctk.CTkScrollableFrame(self.tab_stats, fg_color=TAB_CONTENT_FG_COLOR)
-        self.stats_scroll.grid(row=0, column=0, sticky="nsew")
-        
-        self.stats_time_label = ctk.CTkLabel(self.stats_scroll, text="Session Time: 00:00:00", font=ctk.CTkFont(size=15))
-        self.stats_time_label.pack(anchor="w", pady=5)
-        
-        self.stats_rerolls_label = ctk.CTkLabel(self.stats_scroll, text="Session Rerolls: 0", font=ctk.CTkFont(size=15))
-        self.stats_rerolls_label.pack(anchor="w", pady=5)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        root_layout.addWidget(splitter, 1)
 
-        self.stats_total_rerolls_label = ctk.CTkLabel(self.stats_scroll, text=f"Total Rerolls: {config.TOTAL_REROLLS}", font=ctk.CTkFont(size=15))
-        self.stats_total_rerolls_label.pack(anchor="w", pady=5)
-        
-        self.stats_rpm_label = ctk.CTkLabel(self.stats_scroll, text="Rerolls per Minute (RPM): 0.0", font=ctk.CTkFont(size=15))
-        self.stats_rpm_label.pack(anchor="w", pady=5)
-        
-        self.stats_best_label = ctk.CTkLabel(self.stats_scroll, text="Best Map Found: None", font=ctk.CTkFont(size=15))
-        self.stats_best_label.pack(anchor="w", pady=5)
-        
-        self.stats_worst_label = ctk.CTkLabel(self.stats_scroll, text="Worst Map Found: None", font=ctk.CTkFont(size=15))
-        self.stats_worst_label.pack(anchor="w", pady=5)
-        
-        ctk.CTkLabel(self.stats_scroll, text="\nAverage Rerolls per Target:", font=ctk.CTkFont(size=15, weight="bold")).pack(anchor="w", pady=5)
-        self.stats_avg_frame = ctk.CTkFrame(self.stats_scroll, fg_color=UI_SECTION_FG_COLOR)
-        self.stats_avg_frame.pack(fill="x", anchor="w")
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        splitter.addWidget(left_panel)
 
-        # Player Stats Elements
-        self.player_stats_scroll = ctk.CTkScrollableFrame(self.tab_player_stats, fg_color=TAB_CONTENT_FG_COLOR)
-        self.player_stats_scroll.grid(row=0, column=0, sticky="nsew")
+        self.left_tabview = QTabWidget()
+        self.left_tabview.currentChanged.connect(self.on_left_tab_changed)
+        left_layout.addWidget(self.left_tabview)
 
-        self.player_stats_status_label = ctk.CTkLabel(
-            self.player_stats_scroll,
-            text="Waiting for game...",
-            font=ctk.CTkFont(size=14),
-            text_color="#CCCCCC",
-        )
-        self.player_stats_status_label.pack(anchor="w", pady=(0, 8))
+        self.tab_templates = QWidget()
+        templates_layout = QVBoxLayout(self.tab_templates)
+        self.scrollable_templates, _templates_content, self.template_layout = _make_scroll_section()
+        templates_layout.addWidget(self.scrollable_templates, 1)
+        template_buttons = QHBoxLayout()
+        self.add_btn = QPushButton("+ Add")
+        self.add_btn.clicked.connect(self.add_template_dialog)
+        self.edit_btn = QPushButton("Edit")
+        self.edit_btn.clicked.connect(self.edit_template_dialog)
+        self.del_btn = QPushButton("Delete")
+        self.del_btn.setObjectName("DangerButton")
+        self.del_btn.clicked.connect(self.del_template_dialog)
+        template_buttons.addWidget(self.add_btn)
+        template_buttons.addWidget(self.edit_btn)
+        template_buttons.addWidget(self.del_btn)
+        template_buttons.addStretch(1)
+        templates_layout.addLayout(template_buttons)
+        self.left_tabview.addTab(self.tab_templates, "Templates")
 
-        player_stats_controls = ctk.CTkFrame(self.player_stats_scroll, fg_color=UI_SECTION_FG_COLOR)
-        player_stats_controls.pack(fill="x", pady=(0, 8))
-        player_stats_controls.grid_columnconfigure(1, weight=1)
+        self.tab_scores = QWidget()
+        scores_layout = QVBoxLayout(self.tab_scores)
+        scores_group = QGroupBox("Active Tiers")
+        self.scores_templates_layout = QVBoxLayout(scores_group)
+        scores_layout.addWidget(scores_group)
+        self.scores_desc_label = QTextEdit()
+        self.scores_desc_label.setReadOnly(True)
+        scores_layout.addWidget(self.scores_desc_label, 1)
+        scores_buttons = QHBoxLayout()
+        self.edit_scores_btn = QPushButton("Edit Settings")
+        self.edit_scores_btn.clicked.connect(self.open_scores_settings_dialog)
+        scores_buttons.addWidget(self.edit_scores_btn)
+        scores_buttons.addStretch(1)
+        scores_layout.addLayout(scores_buttons)
+        self.left_tabview.addTab(self.tab_scores, "Scores")
+        self.left_tabview.setCurrentIndex(1 if config.EVALUATION_MODE == "scores" else 0)
 
-        self.player_stats_record_btn = ctk.CTkButton(
-            player_stats_controls,
-            text=f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})",
-            width=150,
-            command=self.toggle_player_stats_recording,
-        )
-        self.player_stats_record_btn.grid(row=0, column=0, sticky="w")
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([360, 900])
 
-        self.player_stats_timeline_label = ctk.CTkLabel(
-            player_stats_controls,
-            text="No snapshots",
-            font=ctk.CTkFont(size=13),
-            text_color="#CCCCCC",
-            width=PLAYER_STATS_TIMELINE_WIDTH,
-            anchor="e",
-        )
-        self.player_stats_timeline_label.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self.tabview = QTabWidget()
+        self.tabview.currentChanged.connect(self.on_right_tab_changed)
+        right_layout.addWidget(self.tabview, 1)
 
-        self.player_stats_slider = ctk.CTkSlider(
-            self.player_stats_scroll,
-            from_=0,
-            to=1,
-            number_of_steps=1,
-            command=self.on_player_stats_slider_changed,
-        )
-        self.player_stats_slider.pack(fill="x", pady=(0, 10))
-        self.player_stats_slider.configure(state="disabled")
+        self.tab_logs = QWidget()
+        logs_layout = QVBoxLayout(self.tab_logs)
+        self.log_box = QTextEdit()
+        self.log_box.setReadOnly(True)
+        self.log_box.setFont(QFont("Consolas", 11))
+        logs_layout.addWidget(self.log_box)
+        self.tabview.addTab(self.tab_logs, "Logs")
 
-        self.player_stats_slider_time_label = ctk.CTkLabel(
-            self.player_stats_scroll,
-            text="Timeline: --",
-            font=ctk.CTkFont(size=12),
-            text_color="#AAAAAA",
-            anchor="w",
-        )
-        self.player_stats_slider_time_label.pack(fill="x", pady=(0, 10))
+        self.tab_stats = QWidget()
+        stats_layout = QVBoxLayout(self.tab_stats)
+        stats_scroll, _stats_content, stats_content_layout = _make_scroll_section()
+        stats_layout.addWidget(stats_scroll)
+        self.stats_time_label = QLabel("Session Time: 00:00:00")
+        self.stats_rerolls_label = QLabel("Session Rerolls: 0")
+        self.stats_total_rerolls_label = QLabel(f"Total Rerolls: {config.TOTAL_REROLLS}")
+        self.stats_rpm_label = QLabel("Rerolls per Minute (RPM): 0.0")
+        self.stats_best_label = QLabel("Best Map Found: None")
+        self.stats_worst_label = QLabel("Worst Map Found: None")
+        for widget in (
+            self.stats_time_label,
+            self.stats_rerolls_label,
+            self.stats_total_rerolls_label,
+            self.stats_rpm_label,
+            self.stats_best_label,
+            self.stats_worst_label,
+        ):
+            widget.setWordWrap(True)
+            stats_content_layout.addWidget(widget)
+        stats_content_layout.addWidget(QLabel("Average Rerolls per Target:"))
+        self.stats_avg_frame = QWidget()
+        self.stats_avg_layout = QVBoxLayout(self.stats_avg_frame)
+        self.stats_avg_layout.setContentsMargins(0, 0, 0, 0)
+        self.stats_avg_layout.setSpacing(4)
+        stats_content_layout.addWidget(self.stats_avg_frame)
+        stats_content_layout.addStretch(1)
+        self.tabview.addTab(self.tab_stats, "Session Stats")
 
-        player_items_row = ctk.CTkFrame(self.player_stats_scroll, fg_color=UI_SECTION_FG_COLOR)
-        player_items_row.pack(fill="x", pady=1)
-        player_items_row.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            player_items_row,
-            text="Items",
-            font=ctk.CTkFont(size=PLAYER_STATS_LABEL_FONT_SIZE, weight="bold"),
-            anchor="w",
-        ).grid(row=0, column=0, sticky="nw")
-
-        self.player_stats_items_label = ctk.CTkLabel(
-            player_items_row,
-            text="--",
-            justify="left",
-            wraplength=PLAYER_STATS_ITEMS_WRAP_LENGTH,
-            anchor="e",
-        )
-        self.player_stats_items_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
-
-        ctk.CTkFrame(self.player_stats_scroll, height=1, fg_color="#3A3A3A").pack(fill="x", pady=8)
-
-        self.player_stats_rows = {}
+        self.tab_player_stats = QWidget()
+        player_layout = QVBoxLayout(self.tab_player_stats)
+        player_scroll, _player_content, player_content_layout = _make_scroll_section()
+        player_layout.addWidget(player_scroll)
+        self.player_stats_status_label = QLabel("Waiting for game...")
+        player_content_layout.addWidget(self.player_stats_status_label)
+        player_controls = QHBoxLayout()
+        self.player_stats_record_btn = QPushButton(f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})")
+        self.player_stats_record_btn.clicked.connect(self.toggle_player_stats_recording)
+        self.player_stats_timeline_label = QLabel("Live stats")
+        player_controls.addWidget(self.player_stats_record_btn)
+        player_controls.addStretch(1)
+        player_controls.addWidget(self.player_stats_timeline_label)
+        player_content_layout.addLayout(player_controls)
+        self.player_stats_slider = QSlider(Qt.Horizontal)
+        self.player_stats_slider.setEnabled(False)
+        self.player_stats_slider.valueChanged.connect(self.on_player_stats_slider_changed)
+        player_content_layout.addWidget(self.player_stats_slider)
+        self.player_stats_slider_time_label = QLabel("Timeline: live stats")
+        player_content_layout.addWidget(self.player_stats_slider_time_label)
+        items_group = QGroupBox("Items")
+        items_layout = QVBoxLayout(items_group)
+        self.player_stats_items_label = QLabel("--")
+        self.player_stats_items_label.setWordWrap(True)
+        items_layout.addWidget(self.player_stats_items_label)
+        player_content_layout.addWidget(items_group)
         for group_index, group in enumerate(PLAYER_STAT_GROUPS):
-            if group_index:
-                ctk.CTkFrame(self.player_stats_scroll, height=1, fg_color="#3A3A3A").pack(fill="x", pady=8)
-
+            stat_group = QGroupBox(f"Stats Group {group_index + 1}")
+            group_layout = QFormLayout(stat_group)
             for spec in group:
-                row = ctk.CTkFrame(self.player_stats_scroll, fg_color=UI_SECTION_FG_COLOR)
-                row.pack(fill="x", pady=1)
-                row.grid_columnconfigure(0, weight=1)
-
-                name_label = ctk.CTkLabel(
-                    row,
-                    text=spec.label,
-                    font=ctk.CTkFont(size=PLAYER_STATS_LABEL_FONT_SIZE, weight="bold"),
-                    anchor="w",
-                )
-                name_label.grid(row=0, column=0, sticky="ew")
-
-                value_label = ctk.CTkLabel(
-                    row,
-                    text="--",
-                    font=ctk.CTkFont(family="Consolas", size=PLAYER_STATS_VALUE_FONT_SIZE, weight="bold"),
-                    anchor="e",
-                    width=PLAYER_STATS_VALUE_WIDTH,
-                )
-                value_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
+                value_label = QLabel("--")
+                value_label.setMinimumWidth(PLAYER_STATS_VALUE_WIDTH)
+                value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.player_stats_rows[spec.label] = value_label
+                group_layout.addRow(spec.label, value_label)
+            player_content_layout.addWidget(stat_group)
+        player_content_layout.addStretch(1)
+        self.tabview.addTab(self.tab_player_stats, "Live Stats")
 
-        self.refresh_player_stats_timeline_ui()
-
-        # VOD Archive Elements
-        self.vods_list_frame = ctk.CTkScrollableFrame(self.tab_vods, width=VODS_LIST_WIDTH, fg_color=TAB_CONTENT_FG_COLOR)
-        self.vods_list_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-
-        vods_detail_frame = ctk.CTkScrollableFrame(self.tab_vods, fg_color=TAB_CONTENT_FG_COLOR)
-        vods_detail_frame.grid(row=0, column=1, sticky="nsew")
-
-        self.vods_status_label = ctk.CTkLabel(
-            vods_detail_frame,
-            text="Select a recording",
-            font=ctk.CTkFont(size=14),
-            text_color="#CCCCCC",
-            width=VODS_STATUS_WIDTH,
-            wraplength=VODS_STATUS_WIDTH,
-            anchor="w",
-        )
-        self.vods_status_label.pack(fill="x", anchor="w", pady=(0, 8))
-
-        vods_controls = ctk.CTkFrame(vods_detail_frame, fg_color=UI_SECTION_FG_COLOR)
-        vods_controls.pack(fill="x", pady=(0, 8))
-        vods_controls.grid_columnconfigure(0, weight=1)
-
-        self.vods_name_entry = ctk.CTkEntry(vods_controls, placeholder_text="Recording name")
-        self.vods_name_entry.grid(row=0, column=0, sticky="ew")
-
-        self.vods_rename_btn = ctk.CTkButton(
-            vods_controls,
-            text="Rename",
-            width=70,
-            command=self.rename_selected_vod,
-        )
-        self.vods_rename_btn.grid(row=0, column=1, padx=(8, 0))
-
-        self.vods_delete_btn = ctk.CTkButton(
-            vods_controls,
-            text="Delete",
-            width=64,
-            fg_color="#7A2424",
-            hover_color="#5A1A1A",
-            command=self.delete_selected_vod,
-        )
-        self.vods_delete_btn.grid(row=0, column=2, padx=(8, 0))
-
-        self.vods_slider = ctk.CTkSlider(
-            vods_detail_frame,
-            from_=0,
-            to=1,
-            number_of_steps=1,
-            command=self.on_vods_slider_changed,
-        )
-        self.vods_slider.pack(fill="x", pady=(0, 10))
-        self.vods_slider.configure(state="disabled")
-
-        self.vods_slider_time_label = ctk.CTkLabel(
-            vods_detail_frame,
-            text="Timeline: --",
-            font=ctk.CTkFont(size=12),
-            text_color="#AAAAAA",
-            anchor="w",
-        )
-        self.vods_slider_time_label.pack(fill="x", pady=(0, 10))
-
-        vod_items_row = ctk.CTkFrame(vods_detail_frame, fg_color=UI_SECTION_FG_COLOR)
-        vod_items_row.pack(fill="x", pady=1)
-        vod_items_row.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            vod_items_row,
-            text="Items",
-            font=ctk.CTkFont(size=PLAYER_STATS_LABEL_FONT_SIZE, weight="bold"),
-            anchor="w",
-        ).grid(row=0, column=0, sticky="nw")
-
-        self.vods_items_label = ctk.CTkLabel(
-            vod_items_row,
-            text="--",
-            justify="left",
-            wraplength=PLAYER_STATS_ITEMS_WRAP_LENGTH,
-            anchor="e",
-        )
-        self.vods_items_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
-
-        ctk.CTkFrame(vods_detail_frame, height=1, fg_color="#3A3A3A").pack(fill="x", pady=8)
-
-        self.vods_rows = {}
-        for group_index, group in enumerate(PLAYER_STAT_GROUPS):
-            if group_index:
-                ctk.CTkFrame(vods_detail_frame, height=1, fg_color="#3A3A3A").pack(fill="x", pady=8)
-
+        self.tab_vods = QWidget()
+        vods_layout = QHBoxLayout(self.tab_vods)
+        self.vods_list_frame = QListWidget()
+        self.vods_list_frame.currentItemChanged.connect(self._on_vod_selection_changed)
+        vods_layout.addWidget(self.vods_list_frame, 1)
+        vods_detail = QWidget()
+        vods_detail_layout = QVBoxLayout(vods_detail)
+        self.vods_status_label = QLabel("Select a recording")
+        vods_detail_layout.addWidget(self.vods_status_label)
+        name_row = QHBoxLayout()
+        self.vods_name_entry = QLineEdit()
+        self.vods_rename_btn = QPushButton("Rename")
+        self.vods_rename_btn.clicked.connect(self.rename_selected_vod)
+        self.vods_delete_btn = QPushButton("Delete")
+        self.vods_delete_btn.setObjectName("DangerButton")
+        self.vods_delete_btn.clicked.connect(self.delete_selected_vod)
+        name_row.addWidget(self.vods_name_entry, 1)
+        name_row.addWidget(self.vods_rename_btn)
+        name_row.addWidget(self.vods_delete_btn)
+        vods_detail_layout.addLayout(name_row)
+        self.vods_slider = QSlider(Qt.Horizontal)
+        self.vods_slider.setEnabled(False)
+        self.vods_slider.valueChanged.connect(self.on_vods_slider_changed)
+        vods_detail_layout.addWidget(self.vods_slider)
+        self.vods_slider_time_label = QLabel("Timeline: --")
+        vods_detail_layout.addWidget(self.vods_slider_time_label)
+        vod_items_group = QGroupBox("Items")
+        vod_items_layout = QVBoxLayout(vod_items_group)
+        self.vods_items_label = QLabel("--")
+        self.vods_items_label.setWordWrap(True)
+        vod_items_layout.addWidget(self.vods_items_label)
+        vods_detail_layout.addWidget(vod_items_group)
+        vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()
+        for group in PLAYER_STAT_GROUPS:
+            stat_group = QFrame()
+            stat_group.setObjectName("StatCard")
+            group_layout = QFormLayout(stat_group)
+            group_layout.setContentsMargins(10, 10, 10, 10)
+            group_layout.setVerticalSpacing(6)
             for spec in group:
-                row = ctk.CTkFrame(vods_detail_frame, fg_color=UI_SECTION_FG_COLOR)
-                row.pack(fill="x", pady=1)
-                row.grid_columnconfigure(0, weight=1)
-
-                name_label = ctk.CTkLabel(
-                    row,
-                    text=spec.label,
-                    font=ctk.CTkFont(size=PLAYER_STATS_LABEL_FONT_SIZE, weight="bold"),
-                    anchor="w",
-                )
-                name_label.grid(row=0, column=0, sticky="ew")
-
-                value_label = ctk.CTkLabel(
-                    row,
-                    text="--",
-                    font=ctk.CTkFont(family="Consolas", size=PLAYER_STATS_VALUE_FONT_SIZE, weight="bold"),
-                    anchor="e",
-                    width=PLAYER_STATS_VALUE_WIDTH,
-                )
-                value_label.grid(row=0, column=1, sticky="e", padx=(12, 0))
+                value_label = QLabel("--")
+                value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.vods_rows[spec.label] = value_label
+                group_layout.addRow(spec.label, value_label)
+            vods_scroll_layout.addWidget(stat_group)
+        vods_scroll_layout.addStretch(1)
+        vods_detail_layout.addWidget(vods_scroll, 1)
+        vods_layout.addWidget(vods_detail, 2)
+        self.tabview.addTab(self.tab_vods, "Recordings")
 
-        self.refresh_vods_list()
-        
-        # Controls Setup
-        self.controls_frame = ctk.CTkFrame(self.right_frame, fg_color=UI_SECTION_FG_COLOR)
-        self.controls_frame.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="ew")
-        
-        self.controls_frame.grid_columnconfigure(1, weight=1)
-        
-        if self.settings_image:
-            self.settings_btn = ctk.CTkButton(self.controls_frame, text="", image=self.settings_image, width=35, height=35, command=self.open_settings_dialog)
-        else:
-            self.settings_btn = ctk.CTkButton(self.controls_frame, text="⚙", width=35, height=35, command=self.open_settings_dialog, font=ctk.CTkFont(size=18))
-
-        self.settings_btn.grid(row=0, column=0, sticky="w")
-        
-        self.status_label = ctk.CTkLabel(self.controls_frame, text="Status: IDLE", font=ctk.CTkFont(family="Consolas", size=14, weight="bold"), text_color="#CCCCCC", width=250, anchor="w")
-        self.status_label.grid(row=0, column=1, sticky="w", padx=20)
-        
-        self.toggle_btn = ctk.CTkButton(
-            self.controls_frame, 
-            text="START", 
-            font=ctk.CTkFont(weight="bold"), 
-            command=self.toggle_main_loop,
-            height=35,
-            width=120
-        )
-        self.toggle_btn.grid(row=0, column=2, sticky="e")
+        controls = QHBoxLayout()
+        self.settings_btn = QPushButton("Settings")
+        self.settings_btn.setObjectName("SettingsButton")
+        _apply_button_icon(self.settings_btn, "media/settings_icon.png", 20)
+        self.settings_btn.clicked.connect(self.open_settings_dialog)
+        self.status_label = QLabel("Status: IDLE")
+        self.status_label.setObjectName("StatusLabel")
+        self.toggle_btn = QPushButton(f"Start")
+        self.toggle_btn.setObjectName("ToggleButton")
+        self.toggle_btn.clicked.connect(self.toggle_main_loop)
+        controls.addWidget(self.settings_btn)
+        controls.addWidget(self.status_label, 1)
+        controls.addWidget(self.toggle_btn)
+        right_layout.addLayout(controls)
 
     def on_left_tab_changed(self):
-        tab_name = self.left_tabview.get()
+        if self.left_tabview is None:
+            return
+        tab_name = self.left_tabview.tabText(self.left_tabview.currentIndex())
         config.EVALUATION_MODE = "scores" if tab_name == "Scores" else "templates"
         config.user_config["EVALUATION_MODE"] = config.EVALUATION_MODE
         config.save_config(config.user_config)
-        self.log(f"[*] Switched to {config.EVALUATION_MODE} mode.")
+        self.refresh_scores_ui()
+        self.update_status_ui()
 
     def on_right_tab_changed(self):
         self._show_right_tab_transition_cover()
@@ -1731,396 +1616,275 @@ class MegabonkApp(ctk.CTk):
         self.after_idle(self._refresh_right_tab_after_switch)
 
     def _refresh_right_tab_after_switch(self):
-        if self.tabview is None or not self.winfo_exists():
-            return
-
-        self.tabview.update_idletasks()
-        self.right_frame.update_idletasks()
+        if self._is_recordings_tab_active():
+            self.refresh_vods_list()
 
     def _show_right_tab_transition_cover(self):
-        if RIGHT_TAB_TRANSITION_MS <= 0 or self.tabview is None or not self.winfo_exists():
-            return
-
-        self._cancel_right_tab_transition()
-
-        try:
-            current_tab = self.tabview.tab(self.tabview.get())
-        except ValueError:
-            return
-
-        cover = ctk.CTkFrame(current_tab, fg_color=TAB_CONTENT_FG_COLOR, corner_radius=0)
-        cover.place(relx=0, rely=0, relwidth=1, relheight=1)
-        cover.lift()
-        self.right_tab_transition_cover = cover
-        self.right_tab_transition_after_id = self.after(
-            RIGHT_TAB_TRANSITION_MS,
-            self._hide_right_tab_transition_cover,
-        )
+        return None
 
     def _hide_right_tab_transition_cover(self):
-        if self.right_tab_transition_cover is not None:
-            self.right_tab_transition_cover.destroy()
-            self.right_tab_transition_cover = None
-
-        self.right_tab_transition_after_id = None
-        self.after_idle(self._refresh_right_tab_after_switch)
+        return None
 
     def _cancel_right_tab_transition(self):
-        transition_after_id = self.__dict__.get("right_tab_transition_after_id")
-        if transition_after_id is not None:
-            try:
-                self.after_cancel(transition_after_id)
-            except Exception:
-                pass
-            self.right_tab_transition_after_id = None
-
-        transition_cover = self.__dict__.get("right_tab_transition_cover")
-        if transition_cover is not None:
-            try:
-                transition_cover.destroy()
-            except Exception:
-                pass
-            self.right_tab_transition_cover = None
+        return None
 
     def _is_recordings_tab_active(self) -> bool:
-        return self.tabview is not None and self.tabview.get() == "Recordings"
+        return self.tabview.tabText(self.tabview.currentIndex()) == "Recordings"
 
-    def _refresh_vods_list_if_visible(self) -> None:
+    def _refresh_vods_list_if_visible(self):
         if self._is_recordings_tab_active():
             self.refresh_vods_list()
 
     def refresh_scores_templates_list(self):
-        for widget in self.scores_templates_frame.winfo_children():
-            widget.destroy()
-            
+        _clear_layout(self.scores_templates_layout)
         self.scores_checkboxes.clear()
-        
-        active_tiers = config.SCORES_SYSTEM.get("active_tiers", [])
-        colors = {
-            "Light": "WHITE",
-            "Good": "GREEN",
-            "Perfect": "YELLOW",
-            "Perfect+": "LIGHTRED_EX"
-        }
-        
-        for tier in ["Light", "Good", "Perfect", "Perfect+"]:
-            is_checked = tier in active_tiers
-            cb_var = ctk.BooleanVar(value=is_checked)
-            
-            # Using partial to correctly capture current 'tier' variable
-            from functools import partial
-            def save_scores_active(t, *_):
-                var = self.scores_checkboxes[t]
-                active = config.SCORES_SYSTEM.get("active_tiers", [])
-                if var.get() and t not in active:
-                    active.append(t)
-                elif not var.get() and t in active:
-                    active.remove(t)
-                config.SCORES_SYSTEM["active_tiers"] = active
-                config.user_config["SCORES_SYSTEM"] = config.SCORES_SYSTEM
-                config.save_config(config.user_config)
-                self.refresh_scores_ui()
-                
-            cb_var.trace_add("write", partial(save_scores_active, tier))
-            
-            color_name = colors.get(tier, "WHITE")
-            hex_color = COLOR_MAP.get(color_name, COLOR_MAP["DEFAULT"])
-            
-            cb = ctk.CTkCheckBox(
-                self.scores_templates_frame,
-                text=tier,
-                variable=cb_var,
-                font=ctk.CTkFont(size=13),
-                text_color=hex_color
-            )
-            cb.pack(anchor="w", padx=10, pady=6)
-            self.scores_checkboxes[tier] = cb_var
+        for tier in ("Light", "Good", "Perfect", "Perfect+"):
+            cb = QCheckBox(tier)
+            cb.setChecked(tier in config.SCORES_SYSTEM.get("active_tiers", []))
+            cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700;")
+            cb.toggled.connect(self.refresh_scores_ui)
+            self.scores_templates_layout.addWidget(cb)
+            self.scores_checkboxes[tier] = cb
+        self.scores_templates_layout.addStretch(1)
 
     def refresh_scores_ui(self):
-        s = config.SCORES_SYSTEM
-        desc = "Current Scores Settings:\n\n"
-        
-        desc += "Thresholds:\n"
-        
-        mode_text = "(Manual)" if s.get("manual_thresholds") else "(Auto-scaled)"
-        desc += f"Mode: {mode_text}\n"
-        
-        for k, v in s.get("thresholds", {}).items():
-            if k in s.get("active_tiers", []):
-                desc += f"  • {k}: {v}+\n"
-            
-        desc += "\nWeights:\n"
-        for k, v in s.get("weights", {}).items():
-            desc += f"  • {k.capitalize()}: {v}\n"
-            
-        desc += "\nMicrowave Multiplier:\n"
-        desc += f"  • 1 Microwave: x{s.get('multipliers', {}).get('microwave', {}).get('1', 1.0)}\n"
-        desc += f"  • 2 Microwaves: x{s.get('multipliers', {}).get('microwave', {}).get('2', 1.25)}\n"
-        
-        desc += "\nSpecial Rules:\n"
-        desc += "  • Perfect+ requires 2+ Microwaves.\n"
-        desc += "  • Perfect requires either 2+ Microwaves,\n    OR 1 Microwave + S+M≥8 + Boss≥2."
-            
-        self.scores_desc_label.configure(text=desc)
+        if self.scores_desc_label is None:
+            return
+        active_tiers = [tier for tier, cb in self.scores_checkboxes.items() if cb.isChecked()]
+        if active_tiers and active_tiers != config.SCORES_SYSTEM.get("active_tiers", []):
+            config.SCORES_SYSTEM["active_tiers"] = active_tiers
+            config.user_config["SCORES_SYSTEM"] = config.SCORES_SYSTEM
+            config.save_config(config.user_config)
+
+        weights = config.SCORES_SYSTEM.get("weights", {})
+        thresholds = config.SCORES_SYSTEM.get("thresholds", {})
+        multipliers = config.SCORES_SYSTEM.get("multipliers", {}).get("microwave", {})
+        lines = [
+            "<b>Score system</b>",
+            "",
+            f"Active tiers: {', '.join(config.SCORES_SYSTEM.get('active_tiers', [])) or 'None'}",
+            "",
+            "<b>Thresholds</b>",
+        ]
+        for tier in ("Light", "Good", "Perfect", "Perfect+"):
+            lines.append(f"{tier}: {thresholds.get(tier, 0.0)}")
+        lines.extend(
+            [
+                "",
+                "<b>Weights</b>",
+                f"Moais: {weights.get('moais', 0.0)}",
+                f"Shady: {weights.get('shady', 0.0)}",
+                f"Boss: {weights.get('boss', 0.0)}",
+                f"Magnet: {weights.get('magnet', 0.0)}",
+                "",
+                "<b>Microwave Multipliers</b>",
+                f"1 Microwave: {multipliers.get('1', 1.0)}",
+                f"2 Microwaves: {multipliers.get('2', 1.25)}",
+            ]
+        )
+        self.scores_desc_label.setHtml("<br>".join(lines))
 
     def open_scores_settings_dialog(self):
-        dialog = ScoresSettingsDialog(self)
-        self.wait_window(dialog)
-        self.refresh_scores_templates_list()
-        self.refresh_scores_ui()
+        dialog = ScoresSettingsDialog(self.window)
+        if dialog.exec() == QDialog.Accepted:
+            self.refresh_scores_templates_list()
+            self.refresh_scores_ui()
 
-    def save_checkbox_state(self, *_):
-        # Called when any checkbox is toggled
-        active = [name for name, var in self.checkboxes.items() if var.get()]
-        config.ACTIVE_TEMPLATES = active
-        config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
+    def save_checkbox_state(self):
+        selected = [name for name, cb in self.checkboxes.items() if cb.isChecked()]
+        config.ACTIVE_TEMPLATES = selected
+        config.user_config["ACTIVE_TEMPLATES"] = selected
         config.save_config(config.user_config)
 
     def refresh_templates(self):
-        for widget in self.scrollable_templates.winfo_children():
-            widget.destroy()
-        
+        _clear_layout(self.template_layout)
         self.checkboxes.clear()
-        for t in config.TEMPLATES:
-            desc = format_template_conditions(t)
-            
-            # Ensure text is colored appropriately
-            color_name = t.get("color", "BLUE").upper()
-            hex_color = COLOR_MAP.get(color_name, COLOR_MAP["DEFAULT"])
-            
-            # Restore state if it exists in ACTIVE_TEMPLATES, otherwise unchecked (if not first run)
-            is_checked = t['name'] in config.ACTIVE_TEMPLATES
-            cb_var = ctk.BooleanVar(value=is_checked)
-            # Add trace to automatically save on toggle
-            cb_var.trace_add("write", self.save_checkbox_state)
-            
-            cb = ctk.CTkCheckBox(
-                self.scrollable_templates, 
-                text=f"{t['name']} ({desc})",
-                variable=cb_var,
-                font=ctk.CTkFont(size=13),
-                text_color=hex_color
-            )
-            cb.pack(anchor="w", padx=10, pady=6)
-            self.checkboxes[t['name']] = cb_var
+        for template in config.TEMPLATES:
+            color_tag = template.get("color", "LIGHTBLUE_EX").upper()
+            color_hex = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
+            cb = QCheckBox(f"{template['name']} ({format_template_conditions(template)})")
+            cb.setChecked(template["name"] in config.ACTIVE_TEMPLATES)
+            cb.toggled.connect(self.save_checkbox_state)
+            cb.setStyleSheet(_template_checkbox_stylesheet(color_hex))
+            self.template_layout.addWidget(cb)
+            self.checkboxes[template["name"]] = cb
+        self.template_layout.addStretch(1)
 
     def add_template_dialog(self):
-        dialog = TemplateDialog(self)
-        self.wait_window(dialog)
-        if dialog.result:
-            new_id = max([t.get("id", 0) for t in config.TEMPLATES] + [0]) + 1
-            dialog.result["id"] = new_id
-            dialog.result["color"] = "BLUE" # user requested blue for custom profiles
-            
-            config.TEMPLATES.append(dialog.result)
-            config.user_config["TEMPLATES"] = config.TEMPLATES
-            
-            # Ensure new template is added to active
-            if dialog.result['name'] not in config.ACTIVE_TEMPLATES:
-                config.ACTIVE_TEMPLATES.append(dialog.result['name'])
-                config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
-                
-            config.save_config(config.user_config)
-            
-            self.refresh_templates()
-            self.log(f"[+] Created new template: {dialog.result['name']}", tag="success")
-
-    def apply_template_edit(self, target_name: str, updated_template: dict) -> bool:
-        duplicate_name = next(
-            (template for template in config.TEMPLATES if template["name"] == updated_template["name"] and template["name"] != target_name),
-            None,
-        )
-        if duplicate_name:
-            self.log(f"[-] Template name '{updated_template['name']}' is already in use.", tag="warning")
-            return False
-
-        for index, template in enumerate(config.TEMPLATES):
-            if template["name"] == target_name:
-                config.TEMPLATES[index] = updated_template
-                break
-        else:
-            self.log(f"[-] Could not find template '{target_name}' to edit.", tag="error")
-            return False
-
+        dialog = TemplateDialog(self.window)
+        if dialog.exec() != QDialog.Accepted or dialog.result_payload is None:
+            return
+        payload = dialog.result_payload
+        next_id = max([t.get("id", 0) for t in config.TEMPLATES] + [0]) + 1
+        payload["id"] = next_id
+        config.TEMPLATES = list(config.TEMPLATES) + [payload]
         config.user_config["TEMPLATES"] = config.TEMPLATES
-
-        if target_name != updated_template["name"] and target_name in config.ACTIVE_TEMPLATES:
-            config.ACTIVE_TEMPLATES.remove(target_name)
-            config.ACTIVE_TEMPLATES.append(updated_template["name"])
-            config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
-
         config.save_config(config.user_config)
         self.refresh_templates()
-        self.log(f"[*] Edited template: {updated_template['name']}", tag="success")
-        return True
-            
+
+    def apply_template_edit(self, original_template: dict, updated_template: dict):
+        for index, template in enumerate(config.TEMPLATES):
+            if template.get("id") == original_template.get("id"):
+                updated_template["id"] = original_template.get("id")
+                config.TEMPLATES[index] = updated_template
+                config.user_config["TEMPLATES"] = config.TEMPLATES
+                config.ACTIVE_TEMPLATES = [
+                    updated_template["name"] if name == original_template["name"] else name
+                    for name in config.ACTIVE_TEMPLATES
+                ]
+                config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
+                config.save_config(config.user_config)
+                self.refresh_templates()
+                return
+
     def edit_template_dialog(self):
-        dialog = TemplateManagerDialog(self, config.TEMPLATES, self.apply_template_edit)
-        self.wait_window(dialog)
+        selected = [t for t in config.TEMPLATES if self.checkboxes.get(t["name"]) and self.checkboxes[t["name"]].isChecked()]
+        if len(selected) != 1:
+            QMessageBox.information(self.window, "Select One Template", "Enable exactly one template checkbox before editing.")
+            return
+        template = selected[0]
+        dialog = TemplateDialog(self.window, template)
+        if dialog.exec() != QDialog.Accepted or dialog.result_payload is None:
+            return
+        self.apply_template_edit(template, dialog.result_payload)
 
     def del_template_dialog(self):
-        custom_templates = [t for t in config.TEMPLATES if t.get("id", 0) > 7]
+        custom_templates = [template for template in config.TEMPLATES if template.get("id", 0) > 7]
         if not custom_templates:
-            self.log("[-] No custom templates to delete. Built-in profiles are protected.", tag="warning")
+            QMessageBox.information(self.window, "No Custom Templates", "There are no custom templates to delete.")
             return
-            
-        dialog = DeleteDialog(self, custom_templates)
-        self.wait_window(dialog)
-        if dialog.result:
-            deleted_count = len(dialog.result)
-            config.TEMPLATES = [t for t in config.TEMPLATES if t['name'] not in dialog.result]
-            config.user_config["TEMPLATES"] = config.TEMPLATES
-            
-            for name in dialog.result:
-                if name in config.ACTIVE_TEMPLATES:
-                    config.ACTIVE_TEMPLATES.remove(name)
-                    
-            config.user_config["ACTIVE_TEMPLATES"] = config.ACTIVE_TEMPLATES
-                
-            config.save_config(config.user_config)
-
+        dialog = DeleteDialog(self.window, custom_templates)
+        if dialog.exec() == QDialog.Accepted:
             self.refresh_templates()
-            if deleted_count == 1:
-                self.log(f"[-] Deleted template: {dialog.result[0]}", tag="warning")
-            else:
-                self.log(f"[-] Deleted {deleted_count} templates.", tag="warning")
 
     def open_settings_dialog(self):
-        dialog = SettingsDialog(self)
-        self.wait_window(dialog)
+        dialog = SettingsDialog(self.window, master=self)
+        dialog.exec()
 
     def setup_hotkeys(self):
         if keyboard:
             try:
-                # Always remove existing hotkeys before adding a new one
                 keyboard.unhook_all()
                 keyboard.add_hotkey(config.HOTKEY, self.hotkey_toggle_scanning)
-                if getattr(config, "PLAYER_STATS_RECORD_HOTKEY", ""):
-                    keyboard.add_hotkey(
-                        config.PLAYER_STATS_RECORD_HOTKEY,
-                        self.hotkey_toggle_player_stats_recording,
-                    )
-            except Exception as e:
-                self.log(f"Error binding hotkey {config.HOTKEY}: {e}", tag="error")
-                
+                keyboard.add_hotkey(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording)
+            except Exception as exc:
+                self.log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
+
     def hotkey_toggle_scanning(self):
-        if not self.is_ready_to_start:
-            self.log(f"[WAIT] Scanner is not ready yet. Please wait for the game.", tag="warning")
+        self.after(0, self.toggle_scan_event)
+
+    def toggle_scan_event(self):
+        if self.scanner_thread is None or not self.scanner_thread.is_alive():
+            self.log(f"[WAIT] Press Start first, then press {config.HOTKEY.upper()} in game to begin scanning.", tag="warning")
+            self.update_status_ui()
             return
-            
-        self.is_running = not self.is_running
+
+        if not self.is_ready_to_start:
+            self.log("[WAIT] Scanner is still connecting to the game. Try the hotkey again once it is ARMED.", tag="warning")
+            self.update_status_ui()
+            return
+
         if self.is_running:
-            self.scan_event.set()
-        else:
+            self.is_running = False
             self.scan_event.clear()
-            
-        status = "STARTED" if self.is_running else "STOPPED"
-        self.log(f"\n[!!!] Script {status} via Hotkey", tag="success" if self.is_running else "warning")
+            self.log("[*] Scan paused. Press the scan hotkey again to resume.")
+        else:
+            self.is_running = True
+            self.scan_event.set()
+            self.log("[*] Scan started. Looking for selected target...")
         self.update_status_ui()
 
     def hotkey_toggle_player_stats_recording(self):
         self.after(0, self.toggle_player_stats_recording)
-        
+
     def update_status_ui(self):
-        if self.is_running:
-            self.animation_active = True
-            self.animate_scanner_indicator()
-        else:
-            self.animation_active = False
-            if self.is_ready_to_start:
-                self.status_label.configure(text=f"Status: GAME READY (Press {config.HOTKEY})")
-                self.toggle_btn.configure(text="STOP", fg_color="#b30000", hover_color="#800000")
-            else:
-                self.status_label.configure(text="Status: WAITING FOR GAME...")
-                if self.scanner_thread and self.scanner_thread.is_alive():
-                    self.toggle_btn.configure(text="STOP", fg_color="#b30000", hover_color="#800000")
-                else:
-                    self.toggle_btn.configure(text="START", fg_color="#1f538d", hover_color="#14375e")
-    
-    def animate_scanner_indicator(self):
-        if not self.animation_active:
+        if self.status_label is None or self.toggle_btn is None:
             return
-            
-        frames = ["|", "/", "-", "\\"]
-        char = frames[self.animation_frame]
-        self.status_label.configure(text=f"Status: SCANNING {char}", text_color="#00FF00")
-        self.toggle_btn.configure(text="PAUSE", fg_color="#b30000", hover_color="#800000")
-        
-        self.animation_frame = (self.animation_frame + 1) % len(frames)
-        self.after(150, self.animate_scanner_indicator)
+
+        if self.scanner_thread and self.scanner_thread.is_alive():
+            if self.is_running:
+                status = "RUNNING"
+            elif self.is_ready_to_start:
+                status = "ARMED"
+            else:
+                status = "WAITING FOR GAME"
+            self.status_label.setText(f"Status: {status}")
+            self.toggle_btn.setText("Stop")
+            self.toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
+        else:
+            self.status_label.setText("Status: IDLE")
+            self.toggle_btn.setText(f"Start")
+            self.toggle_btn.setStyleSheet("")
+
+    def animate_scanner_indicator(self):
+        return None
+
+    def _append_log(self, message, tag=None):
+        if self.log_box is None:
+            return
+
+        def colored_html(part: str, color_tag: str | None) -> str:
+            if color_tag:
+                color = COLOR_MAP.get(str(color_tag).upper(), COLOR_MAP["DEFAULT"])
+                return f'<span style="color:{color}">{html.escape(str(part))}</span>'
+            return html.escape(str(part))
+
+        if isinstance(tag, list):
+            line = "".join(colored_html(part, sub_tag) for part, sub_tag in zip(message, tag))
+        elif tag:
+            line = colored_html(message, tag)
+        else:
+            line = html.escape(str(message))
+
+        self.log_box.moveCursor(QTextCursor.End)
+        self.log_box.insertHtml(line + "<br>")
+        self.log_box.moveCursor(QTextCursor.End)
 
     def log(self, message, tag=None):
-        self.log_box.configure(state="normal")
-        
-        # Split message if it's a mixed tag line (e.g. for colored template outputs)
-        if isinstance(tag, list):
-            for part, sub_tag in zip(message, tag):
-                if sub_tag:
-                    self.log_box.insert("end", part, sub_tag)
-                else:
-                    self.log_box.insert("end", part)
-            self.log_box.insert("end", "\n")
-        elif tag:
-            self.log_box.insert("end", f"{message}\n", tag)
-        else:
-            self.log_box.insert("end", f"{message}\n")
-            
-        self.log_box.see("end")
-        self.log_box.configure(state="disabled")
+        if not hasattr(self, "_invoker"):
+            return
+        self.after(0, lambda m=message, t=tag: self._append_log(m, t))
 
     def toggle_main_loop(self):
         if self.scanner_thread is None or not self.scanner_thread.is_alive():
             self.log(f"\n[*] Starting auto-reroll monitor in {config.EVALUATION_MODE.upper()} mode...")
-            
+
             if config.EVALUATION_MODE == "templates":
-                # Start background process
-                self.active_templates = [name for name, var in self.checkboxes.items() if var.get()]
+                self.active_templates = [name for name, cb in self.checkboxes.items() if _read_bool(cb)]
                 if not self.active_templates:
                     self.log("[-] Error: You must select at least one template!", tag="error")
                     return
-                    
-                # Format the active profiles with colors
                 colored_parts = ["[*] Active profiles: "]
                 colored_tags = [None]
-                
-                for i, name in enumerate(self.active_templates):
-                    # Find color for this template
+                for index, name in enumerate(self.active_templates):
                     color_tag = "BLUE"
-                    for t in config.TEMPLATES:
-                        if t["name"] == name:
-                            color_tag = t.get("color", "BLUE").upper()
+                    for template in config.TEMPLATES:
+                        if template["name"] == name:
+                            color_tag = template.get("color", "BLUE").upper()
                             break
-                            
                     colored_parts.append(name)
                     colored_tags.append(color_tag)
-                    
-                    if i < len(self.active_templates) - 1:
+                    if index < len(self.active_templates) - 1:
                         colored_parts.append(", ")
                         colored_tags.append(None)
-                
                 self.log(colored_parts, tag=colored_tags)
-                
-                # Setup template stats for tracking
-                self.template_stats = {name: {'rerolls_since_last': 0, 'history': []} for name in self.active_templates}
+                self.template_stats = {name: {"rerolls_since_last": 0, "history": []} for name in self.active_templates}
             else:
-                # Scores mode
                 active_tiers = config.SCORES_SYSTEM.get("active_tiers", [])
                 if not active_tiers:
                     self.log("[-] Error: No active tiers selected in Scores mode!", tag="error")
                     return
-                    
                 self.log(f"[*] Active Tiers: {', '.join(active_tiers)}")
-                self.template_stats = {name: {'rerolls_since_last': 0, 'history': []} for name in active_tiers}
-            
-            # Init Session Stats
+                self.template_stats = {name: {"rerolls_since_last": 0, "history": []} for name in active_tiers}
+
             self.session_start_time = time.time()
             self.session_rerolls = 0
             self.best_map_stats = None
             self.best_map_score = -1
             self.worst_map_stats = None
-            self.worst_map_score = float('inf')
+            self.worst_map_score = float("inf")
             self.refresh_stats_ui()
-            
+
             self.is_running = False
             self.is_ready_to_start = False
             self.scan_event.clear()
@@ -2129,9 +1893,8 @@ class MegabonkApp(ctk.CTk):
             self.scanner_thread.start()
             self.update_status_ui()
         else:
-            # Stop background process
             self.stop_event.set()
-            self.scan_event.set() # Wake up the thread so it can exit
+            self.scan_event.set()
             self.is_running = False
             self.is_ready_to_start = False
             self.log("\n[*] Stopping auto-reroll monitor...")
@@ -2144,11 +1907,14 @@ class MegabonkApp(ctk.CTk):
         microwaves = logic.normalize_microwaves(stats.get("Microwaves"))
         boss = stats.get("Boss Curses", 0)
         magnet = stats.get("Magnet Shrines", 0)
-        return f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, Boss: {boss}, Magnet: {magnet}, Score: {logic.calculate_score(stats, config.SCORES_SYSTEM):.1f}"
-        
+        return (
+            f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, "
+            f"Boss: {boss}, Magnet: {magnet}, "
+            f"Score: {logic.calculate_score(stats, config.SCORES_SYSTEM):.1f}"
+        )
+
     @staticmethod
     def calculate_map_score(stats: dict) -> float:
-        # Use the logic module's function which now uses the configured multipliers and weights
         return logic.calculate_score(stats, config.SCORES_SYSTEM)
 
     def evaluate_candidate(self, stats: dict) -> dict | None:
@@ -2157,40 +1923,40 @@ class MegabonkApp(ctk.CTk):
         return logic.evaluate_map_by_scores(stats, config.SCORES_SYSTEM)
 
     def update_timer(self):
+        if self._is_shutting_down:
+            return
+
         if self.scanner_thread and self.scanner_thread.is_alive() and self.session_start_time:
             elapsed = int(time.time() - self.session_start_time)
             td = datetime.timedelta(seconds=elapsed)
-            self.stats_time_label.configure(text=f"Session Time: {td}")
-            
+            self.stats_time_label.setText(f"Session Time: {td}")
             if elapsed > 0 and self.session_rerolls > 0:
                 rpm = (self.session_rerolls / elapsed) * 60
-                self.stats_rpm_label.configure(text=f"Rerolls per Minute (RPM): {rpm:.1f}")
+                self.stats_rpm_label.setText(f"Rerolls per Minute (RPM): {rpm:.1f}")
 
         if self.player_stats_vod_recorder.is_recording:
             self.refresh_player_stats_timeline_ui(update_slider=False)
-                
-        # Schedule next update
+
         self.after(1000, self.update_timer)
 
     def update_player_stats_timer(self):
+        if self._is_shutting_down:
+            return
+
         try:
             stats, items = self.read_player_stats()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
-            if self.player_stats_status_label is not None:
-                self.player_stats_status_label.configure(text="Waiting for game/player stats...")
+            _set_text(self.player_stats_status_label, "Waiting for game/player stats...")
             for label in self.player_stats_rows.values():
-                label.configure(text="--")
-            if self.player_stats_items_label is not None:
-                self.player_stats_items_label.configure(text="--")
+                _set_text(label, "--")
+            _set_text(self.player_stats_items_label, "--")
         except Exception as exc:
             self.close_player_stats_client()
-            if self.player_stats_status_label is not None:
-                self.player_stats_status_label.configure(text=f"Player stats unavailable: {exc}")
+            _set_text(self.player_stats_status_label, f"Player stats unavailable: {exc}")
             for label in self.player_stats_rows.values():
-                label.configure(text="--")
-            if self.player_stats_items_label is not None:
-                self.player_stats_items_label.configure(text="--")
+                _set_text(label, "--")
+            _set_text(self.player_stats_items_label, "--")
         else:
             if self.player_stats_vod_recorder.should_capture():
                 snapshot = self.player_stats_vod_recorder.capture(stats, items)
@@ -2211,16 +1977,13 @@ class MegabonkApp(ctk.CTk):
         return self.player_stats_client.get_player_stats(), self.player_stats_client.get_passive_items()
 
     def display_player_stats(self, stats, items=(), *, status_text: str | None = None):
-        if status_text and self.player_stats_status_label is not None:
-            self.player_stats_status_label.configure(text=status_text)
-
+        if status_text:
+            _set_text(self.player_stats_status_label, status_text)
         for label, stat in stats.items():
             value_label = self.player_stats_rows.get(label)
             if value_label is not None:
-                value_label.configure(text=stat.display_value)
-
-        if self.player_stats_items_label is not None:
-            self.player_stats_items_label.configure(text=self.format_items(items))
+                _set_text(value_label, stat.display_value)
+        _set_text(self.player_stats_items_label, self.format_items(items))
 
     def display_player_stats_snapshot(self, snapshot):
         index = self.player_stats_vod_snapshots.index(snapshot) + 1
@@ -2241,20 +2004,16 @@ class MegabonkApp(ctk.CTk):
                 stats, items = self.read_player_stats()
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
                 self.close_player_stats_client()
-                if self.player_stats_status_label is not None:
-                    self.player_stats_status_label.configure(text="Waiting for game/player stats...")
+                _set_text(self.player_stats_status_label, "Waiting for game/player stats...")
                 for label in self.player_stats_rows.values():
-                    label.configure(text="--")
-                if self.player_stats_items_label is not None:
-                    self.player_stats_items_label.configure(text="--")
+                    _set_text(label, "--")
+                _set_text(self.player_stats_items_label, "--")
             except Exception as exc:
                 self.close_player_stats_client()
-                if self.player_stats_status_label is not None:
-                    self.player_stats_status_label.configure(text=f"Player stats unavailable: {exc}")
+                _set_text(self.player_stats_status_label, f"Player stats unavailable: {exc}")
                 for label in self.player_stats_rows.values():
-                    label.configure(text="--")
-                if self.player_stats_items_label is not None:
-                    self.player_stats_items_label.configure(text="--")
+                    _set_text(label, "--")
+                _set_text(self.player_stats_items_label, "--")
             else:
                 self.display_player_stats(stats, items, status_text="Live player stats")
             self._refresh_vods_list_if_visible()
@@ -2267,12 +2026,10 @@ class MegabonkApp(ctk.CTk):
                 stats, items = self.read_player_stats()
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
                 self.close_player_stats_client()
-                if self.player_stats_status_label is not None:
-                    self.player_stats_status_label.configure(text="Recording stats; waiting for game/player stats...")
+                _set_text(self.player_stats_status_label, "Recording stats; waiting for game/player stats...")
             except Exception as exc:
                 self.close_player_stats_client()
-                if self.player_stats_status_label is not None:
-                    self.player_stats_status_label.configure(text=f"Recording stats; player stats unavailable: {exc}")
+                _set_text(self.player_stats_status_label, f"Recording stats; player stats unavailable: {exc}")
             else:
                 snapshot = self.player_stats_vod_recorder.capture(stats, items)
                 self.player_stats_vod_snapshots.append(snapshot)
@@ -2287,11 +2044,9 @@ class MegabonkApp(ctk.CTk):
         snapshot_count = len(self.player_stats_vod_snapshots)
         if snapshot_count == 0:
             return
-
         index = min(max(int(round(float(value))), 0), snapshot_count - 1)
         if self.player_stats_selected_snapshot_index == index:
             return
-
         self.player_stats_selected_snapshot_index = index
         self.display_player_stats_snapshot(self.player_stats_vod_snapshots[index])
         self.refresh_player_stats_timeline_ui(update_slider=False)
@@ -2299,61 +2054,57 @@ class MegabonkApp(ctk.CTk):
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True):
         snapshot_count = len(self.player_stats_vod_snapshots)
 
-        if self.player_stats_record_btn is not None:
-            if self.player_stats_vod_recorder.is_recording:
-                self.player_stats_record_btn.configure(
-                    text="Stop Recording",
-                    fg_color=PLAYER_STATS_ACTIVE_BUTTON_COLOR,
-                    hover_color=PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR,
+        if self.player_stats_vod_recorder.is_recording:
+            self.player_stats_record_btn.setText("Stop Recording")
+            self.player_stats_record_btn.setStyleSheet(
+                _button_state_stylesheet(
+                    PLAYER_STATS_ACTIVE_BUTTON_COLOR,
+                    PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR,
                 )
-            else:
-                self.player_stats_record_btn.configure(
-                    text=f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})",
-                    fg_color=PLAYER_STATS_INACTIVE_BUTTON_COLOR,
-                    hover_color=PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
+            )
+        else:
+            self.player_stats_record_btn.setText(f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})")
+            self.player_stats_record_btn.setStyleSheet(
+                _button_state_stylesheet(
+                    PLAYER_STATS_INACTIVE_BUTTON_COLOR,
+                    PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
                 )
+            )
 
-        if self.player_stats_slider is not None:
-            if self.player_stats_vod_recorder.is_recording and snapshot_count:
-                self.player_stats_slider.configure(
-                    state="normal",
-                    to=max(snapshot_count - 1, 1),
-                    number_of_steps=max(snapshot_count - 1, 1),
-                )
-                if update_slider:
-                    index = self.player_stats_selected_snapshot_index
-                    self.player_stats_slider.set(index if index is not None else snapshot_count - 1)
-            else:
-                self.player_stats_slider.configure(state="disabled", to=1, number_of_steps=1)
-                self.player_stats_slider.set(0)
+        if self.player_stats_vod_recorder.is_recording and snapshot_count:
+            self.player_stats_slider.setEnabled(True)
+            self.player_stats_slider.setMaximum(max(snapshot_count - 1, 1))
+            if update_slider:
+                index = self.player_stats_selected_snapshot_index
+                self.player_stats_slider.setValue(index if index is not None else snapshot_count - 1)
+        else:
+            self.player_stats_slider.setEnabled(False)
+            self.player_stats_slider.setMaximum(1)
+            self.player_stats_slider.setValue(0)
 
-        if self.player_stats_timeline_label is not None:
-            if self.player_stats_vod_recorder.is_recording:
-                prefix = f"Recording {self.player_stats_vod_recorder.elapsed_label()} | "
-                if snapshot_count:
-                    selected = self.player_stats_selected_snapshot_index
-                    mode = self.player_stats_vod_snapshots[selected].time_label if selected is not None else "--"
-                    self.player_stats_timeline_label.configure(text=f"{prefix}{snapshot_count} snapshots | {mode}")
-                else:
-                    self.player_stats_timeline_label.configure(text=f"{prefix}No snapshots")
-            else:
-                self.player_stats_timeline_label.configure(text="Live stats")
-
-        if self.player_stats_slider_time_label is not None:
-            if self.player_stats_vod_recorder.is_recording and snapshot_count:
-                first = self.player_stats_vod_snapshots[0].time_label
-                last = self.player_stats_vod_snapshots[-1].time_label
+        if self.player_stats_vod_recorder.is_recording:
+            prefix = f"Recording {self.player_stats_vod_recorder.elapsed_label()} | "
+            if snapshot_count:
                 selected = self.player_stats_selected_snapshot_index
-                current = self.player_stats_vod_snapshots[selected].time_label if selected is not None else "--"
-                self.player_stats_slider_time_label.configure(
-                    text=f"Timeline: {first} - {last} | Selected: {current}",
-                )
-            elif self.player_stats_vod_recorder.is_recording:
-                self.player_stats_slider_time_label.configure(
-                    text=f"Timeline: recording {self.player_stats_vod_recorder.elapsed_label()} | waiting for first snapshot",
-                )
+                mode = self.player_stats_vod_snapshots[selected].time_label if selected is not None else "--"
+                self.player_stats_timeline_label.setText(f"{prefix}{snapshot_count} snapshots | {mode}")
             else:
-                self.player_stats_slider_time_label.configure(text="Timeline: live stats")
+                self.player_stats_timeline_label.setText(f"{prefix}No snapshots")
+        else:
+            self.player_stats_timeline_label.setText("Live stats")
+
+        if self.player_stats_vod_recorder.is_recording and snapshot_count:
+            first = self.player_stats_vod_snapshots[0].time_label
+            last = self.player_stats_vod_snapshots[-1].time_label
+            selected = self.player_stats_selected_snapshot_index
+            current = self.player_stats_vod_snapshots[selected].time_label if selected is not None else "--"
+            self.player_stats_slider_time_label.setText(f"Timeline: {first} - {last} | Selected: {current}")
+        elif self.player_stats_vod_recorder.is_recording:
+            self.player_stats_slider_time_label.setText(
+                f"Timeline: recording {self.player_stats_vod_recorder.elapsed_label()} | waiting for first snapshot"
+            )
+        else:
+            self.player_stats_slider_time_label.setText("Timeline: live stats")
 
     def refresh_vods_list(self):
         if self.vods_list_frame is None:
@@ -2363,60 +2114,54 @@ class MegabonkApp(ctk.CTk):
         selected_path = self.loaded_vod.metadata.path if self.loaded_vod is not None else None
         signature = (
             str(selected_path) if selected_path is not None else "",
-            tuple(
-                (str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds)
-                for vod in vods
-            ),
+            tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
         )
         if self.vods_list_signature == signature:
             return
 
-        for widget in self.vods_list_frame.winfo_children():
-            widget.destroy()
-
+        self.vods_list_frame.blockSignals(True)
+        self.vods_list_frame.clear()
         if not vods:
+            item = QListWidgetItem("No saved recordings")
+            item.setFlags(Qt.NoItemFlags)
+            self.vods_list_frame.addItem(item)
+            self.vods_list_frame.blockSignals(False)
             self.vods_list_signature = signature
-            ctk.CTkLabel(
-                self.vods_list_frame,
-                text="No saved recordings",
-                font=ctk.CTkFont(size=13),
-                text_color="#AAAAAA",
-            ).pack(anchor="w", pady=4)
             return
 
-        for vod in vods:
-            is_selected = selected_path == vod.path
+        selected_row = None
+        for row, vod in enumerate(vods):
             duration = self.format_duration(vod.duration_seconds)
-            button_text = f"{vod.name}\n{vod.snapshot_count} snapshots | {duration}"
-            button = ctk.CTkButton(
-                self.vods_list_frame,
-                text=button_text,
-                width=VODS_LIST_WIDTH - 24,
-                anchor="w",
-                fg_color="#1F6AA5" if is_selected else "#3A3A3A",
-                hover_color="#144870" if is_selected else "#4A4A4A",
-                command=lambda path=vod.path: self.load_selected_vod(path),
-            )
-            button.pack(fill="x", pady=3)
-
+            item = QListWidgetItem(f"{vod.name}\n{vod.snapshot_count} snapshots | {duration}")
+            item.setData(Qt.UserRole, str(vod.path))
+            self.vods_list_frame.addItem(item)
+            if selected_path == vod.path:
+                selected_row = row
+        if selected_row is not None:
+            self.vods_list_frame.setCurrentRow(selected_row)
+        self.vods_list_frame.blockSignals(False)
         self.vods_list_signature = signature
 
+    def _on_vod_selection_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None):
+        if current is None:
+            return
+        path_str = current.data(Qt.UserRole)
+        if path_str:
+            self.load_selected_vod(path_str)
+
     def load_selected_vod(self, path):
+        path = Path(path)
         try:
             self.loaded_vod = load_vod(path)
         except Exception as exc:
             self.loaded_vod = None
             self.loaded_vod_snapshot_index = None
-            if self.vods_status_label is not None:
-                self.vods_status_label.configure(text=f"Could not load recording: {exc}")
+            _set_text(self.vods_status_label, f"Could not load recording: {exc}")
             return
 
         self.loaded_vod_snapshot_index = 0 if self.loaded_vod.snapshots else None
-
-        if self.vods_name_entry is not None:
-            self.vods_name_entry.delete(0, "end")
-            self.vods_name_entry.insert(0, self.loaded_vod.metadata.name)
-
+        _clear_text_input(self.vods_name_entry)
+        _set_text_input(self.vods_name_entry, self.loaded_vod.metadata.name)
         self.refresh_loaded_vod_ui()
         self.refresh_vods_list()
 
@@ -2427,125 +2172,89 @@ class MegabonkApp(ctk.CTk):
         snapshot_count = len(self.loaded_vod.snapshots)
         metadata = self.loaded_vod.metadata
         duration = self.format_duration(metadata.duration_seconds)
-
-        if self.vods_status_label is not None:
-            self.vods_status_label.configure(
-                text=f"{metadata.created_label} | {snapshot_count} snapshots | {duration}",
-            )
-
-        if self.vods_slider is not None:
-            if snapshot_count:
-                self.vods_slider.configure(
-                    state="normal",
-                    to=max(snapshot_count - 1, 1),
-                    number_of_steps=max(snapshot_count - 1, 1),
-                )
-                if update_slider:
-                    self.vods_slider.set(self.loaded_vod_snapshot_index or 0)
-            else:
-                self.vods_slider.configure(state="disabled", to=1, number_of_steps=1)
-                self.vods_slider.set(0)
+        _set_text(self.vods_status_label, f"{metadata.created_label} | {snapshot_count} snapshots | {duration}")
 
         if snapshot_count:
-            index = self.loaded_vod_snapshot_index or 0
-            self.display_loaded_vod_snapshot(index)
+            self.vods_slider.setEnabled(True)
+            self.vods_slider.setMaximum(max(snapshot_count - 1, 1))
+            if update_slider:
+                self.vods_slider.setValue(self.loaded_vod_snapshot_index or 0)
+            self.display_loaded_vod_snapshot(self.loaded_vod_snapshot_index or 0)
         else:
+            self.vods_slider.setEnabled(False)
+            self.vods_slider.setMaximum(1)
+            self.vods_slider.setValue(0)
             for label in self.vods_rows.values():
-                label.configure(text="--")
-            if self.vods_slider_time_label is not None:
-                self.vods_slider_time_label.configure(text="Timeline: --")
-            if self.vods_items_label is not None:
-                self.vods_items_label.configure(text="--")
+                _set_text(label, "--")
+            _set_text(self.vods_slider_time_label, "Timeline: --")
+            _set_text(self.vods_items_label, "--")
 
     def display_loaded_vod_snapshot(self, index: int):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
             return
-
         index = min(max(index, 0), len(self.loaded_vod.snapshots) - 1)
         self.loaded_vod_snapshot_index = index
         snapshot = self.loaded_vod.snapshots[index]
-        if self.vods_status_label is not None:
-            self.vods_status_label.configure(
-                text=(
-                    f"{self.loaded_vod.metadata.name} | "
-                    f"{index + 1}/{len(self.loaded_vod.snapshots)} at {snapshot.time_label}"
-                ),
-            )
-
-        if self.vods_slider_time_label is not None:
-            first = self.loaded_vod.snapshots[0].time_label
-            last = self.loaded_vod.snapshots[-1].time_label
-            self.vods_slider_time_label.configure(
-                text=f"Timeline: {first} - {last} | Selected: {snapshot.time_label}",
-            )
-
+        _set_text(
+            self.vods_status_label,
+            f"{self.loaded_vod.metadata.name} | {index + 1}/{len(self.loaded_vod.snapshots)} at {snapshot.time_label}",
+        )
+        first = self.loaded_vod.snapshots[0].time_label
+        last = self.loaded_vod.snapshots[-1].time_label
+        _set_text(self.vods_slider_time_label, f"Timeline: {first} - {last} | Selected: {snapshot.time_label}")
         for spec_group in PLAYER_STAT_GROUPS:
             for spec in spec_group:
                 value_label = self.vods_rows.get(spec.label)
                 if value_label is not None:
                     stat = snapshot.stats.get(spec.label)
-                    value_label.configure(text=stat.display_value if stat is not None else "--")
-        if self.vods_items_label is not None:
-            self.vods_items_label.configure(text=self.format_items(snapshot.items))
+                    _set_text(value_label, stat.display_value if stat is not None else "--")
+        _set_text(self.vods_items_label, self.format_items(snapshot.items))
 
     def on_vods_slider_changed(self, value):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
             return
-
         index = min(max(int(round(float(value))), 0), len(self.loaded_vod.snapshots) - 1)
         if self.loaded_vod_snapshot_index == index:
             return
-
         self.display_loaded_vod_snapshot(index)
 
     def rename_selected_vod(self):
         if self.loaded_vod is None or self.vods_name_entry is None:
             return
-
-        new_name = self.vods_name_entry.get().strip()
+        new_name = _read_text(self.vods_name_entry).strip()
         try:
             metadata = rename_vod(self.loaded_vod.metadata.path, new_name)
             self.loaded_vod = load_vod(metadata.path)
         except Exception as exc:
-            if self.vods_status_label is not None:
-                self.vods_status_label.configure(text=f"Could not rename recording: {exc}")
+            _set_text(self.vods_status_label, f"Could not rename recording: {exc}")
             return
-
         self.refresh_loaded_vod_ui(update_slider=False)
         self.refresh_vods_list()
 
     def delete_selected_vod(self):
         if self.loaded_vod is None:
             return
-
-        dialog = ConfirmDeleteRecordingDialog(self, self.loaded_vod.metadata.name)
-        self.wait_window(dialog)
+        dialog = ConfirmDeleteRecordingDialog(self.window, self.loaded_vod.metadata.name)
+        dialog.exec()
         if not dialog.result:
             return
-
         path = self.loaded_vod.metadata.path
         try:
             delete_vod(path)
         except Exception as exc:
-            if self.vods_status_label is not None:
-                self.vods_status_label.configure(text=f"Could not delete recording: {exc}")
+            _set_text(self.vods_status_label, f"Could not delete recording: {exc}")
             return
-
         self.loaded_vod = None
         self.loaded_vod_snapshot_index = None
-        if self.vods_name_entry is not None:
-            self.vods_name_entry.delete(0, "end")
-        if self.vods_status_label is not None:
-            self.vods_status_label.configure(text="Select a recording")
-        if self.vods_slider is not None:
-            self.vods_slider.configure(state="disabled", to=1, number_of_steps=1)
-            self.vods_slider.set(0)
-        if self.vods_slider_time_label is not None:
-            self.vods_slider_time_label.configure(text="Timeline: --")
+        _clear_text_input(self.vods_name_entry)
+        _set_text(self.vods_status_label, "Select a recording")
+        self.vods_slider.setEnabled(False)
+        self.vods_slider.setMaximum(1)
+        self.vods_slider.setValue(0)
+        _set_text(self.vods_slider_time_label, "Timeline: --")
         for label in self.vods_rows.values():
-            label.configure(text="--")
-        if self.vods_items_label is not None:
-            self.vods_items_label.configure(text="--")
+            _set_text(label, "--")
+        _set_text(self.vods_items_label, "--")
         self.refresh_vods_list()
 
     @staticmethod
@@ -2563,64 +2272,48 @@ class MegabonkApp(ctk.CTk):
         return ", ".join(items)
 
     def refresh_stats_ui(self):
-        self.stats_rerolls_label.configure(text=f"Session Rerolls: {self.session_rerolls}")
-        self.stats_total_rerolls_label.configure(text=f"Total Rerolls: {config.TOTAL_REROLLS}")
-        
+        _set_text(self.stats_rerolls_label, f"Session Rerolls: {self.session_rerolls}")
+        _set_text(self.stats_total_rerolls_label, f"Total Rerolls: {config.TOTAL_REROLLS}")
+
         if self.best_map_stats:
-            self.stats_best_label.configure(text=f"Best Map Found: {self.format_stats(self.best_map_stats)}")
+            _set_text(self.stats_best_label, f"Best Map Found: {self.format_stats(self.best_map_stats)}")
         else:
-            self.stats_best_label.configure(text=f"Best Map Found: None")
-            
+            _set_text(self.stats_best_label, "Best Map Found: None")
+
         if self.worst_map_stats:
-            self.stats_worst_label.configure(text=f"Worst Map Found: {self.format_stats(self.worst_map_stats)}")
+            _set_text(self.stats_worst_label, f"Worst Map Found: {self.format_stats(self.worst_map_stats)}")
         else:
-            self.stats_worst_label.configure(text=f"Worst Map Found: None")
-            
-        # Update Average Rerolls List without rebuilding the whole section every time.
+            _set_text(self.stats_worst_label, "Worst Map Found: None")
+
         active_names = set()
         for name, data in self.template_stats.items():
             active_names.add(name)
             color_tag = "BLUE"
             if config.EVALUATION_MODE == "templates":
-                for t in config.TEMPLATES:
-                    if t["name"] == name:
-                        color_tag = t.get("color", "BLUE").upper()
+                for template in config.TEMPLATES:
+                    if template["name"] == name:
+                        color_tag = template.get("color", "BLUE").upper()
                         break
             else:
-                colors = {
-                    "Light": "WHITE",
-                    "Good": "GREEN",
-                    "Perfect": "YELLOW",
-                    "Perfect+": "LIGHTRED_EX"
-                }
+                colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
                 color_tag = colors.get(name, "BLUE")
-                
             hex_color = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
-            
-            history = data['history']
-            if len(history) > 0:
-                avg = sum(history) / len(history)
-                avg_text = f"{avg:.1f} ({len(history)} found)"
-            else:
-                avg_text = "N/A"
+            history = data["history"]
+            avg_text = f"{sum(history) / len(history):.1f} ({len(history)} found)" if history else "N/A"
 
             label = self.stats_avg_labels.get(name)
             if label is None:
-                label = ctk.CTkLabel(
-                    self.stats_avg_frame,
-                    text="",
-                    font=ctk.CTkFont(size=14),
-                    anchor="w",
-                )
-                label.pack(fill="x", anchor="w")
+                label = QLabel()
+                self.stats_avg_layout.addWidget(label)
                 self.stats_avg_labels[name] = label
-
-            label.configure(text=f"  - {name}: {avg_text}", text_color=hex_color)
+            label.setText(f"  - {name}: {avg_text}")
+            label.setStyleSheet(f"color: {hex_color};")
 
         stale_names = [name for name in self.stats_avg_labels if name not in active_names]
         for name in stale_names:
             label = self.stats_avg_labels.pop(name)
-            label.destroy()
+            self.stats_avg_layout.removeWidget(label)
+            label.deleteLater()
 
     def log_reroll_stats(self):
         self.session_rerolls += 1
@@ -2632,20 +2325,17 @@ class MegabonkApp(ctk.CTk):
             self.log(f"[-] Could not save Total Rerolls: {exc}", tag="warning")
 
         for name in self.template_stats:
-            self.template_stats[name]['rerolls_since_last'] += 1
-            
-        # Update UI less frequently to prevent lag (e.g., every 5 rerolls)
+            self.template_stats[name]["rerolls_since_last"] += 1
+
         if self.session_rerolls % 5 == 0:
             self.after(0, self.refresh_stats_ui)
 
     def log_target_found(self, template_name: str):
         if template_name in self.template_stats:
             data = self.template_stats[template_name]
-            # If the current counter is 0, it means it was found on the very first try, record as 1 attempt
-            attempts = data['rerolls_since_last'] if data['rerolls_since_last'] > 0 else 1
-            data['history'].append(attempts)
-            data['rerolls_since_last'] = 0
-            
+            attempts = data["rerolls_since_last"] if data["rerolls_since_last"] > 0 else 1
+            data["history"].append(attempts)
+            data["rerolls_since_last"] = 0
         self.after(0, self.refresh_stats_ui)
 
     def check_best_map(self, stats: dict):
@@ -2653,15 +2343,13 @@ class MegabonkApp(ctk.CTk):
         if score > self.best_map_score:
             self.best_map_score = score
             self.best_map_stats = stats
-            # Update UI immediately if a new best is found
             self.after(0, self.refresh_stats_ui)
-            
+
     def check_worst_map(self, stats: dict):
         score = self.calculate_map_score(stats)
         if score < self.worst_map_score:
             self.worst_map_score = score
             self.worst_map_stats = stats
-            # Update UI immediately if a new worst is found
             self.after(0, self.refresh_stats_ui)
 
     def reroll_map(self):
@@ -2712,11 +2400,9 @@ class MegabonkApp(ctk.CTk):
     def get_game_process_id(self) -> int | None:
         if self.client is None:
             return None
-
         memory = getattr(self.client, "memory", None)
         pymem_client = getattr(memory, "_pm", None)
         process_id = getattr(pymem_client, "process_id", None)
-
         try:
             return int(process_id) if process_id else None
         except (TypeError, ValueError):
@@ -2731,11 +2417,9 @@ class MegabonkApp(ctk.CTk):
     def is_game_window_active(self, process_name: str) -> bool:
         if win32gui is None or win32process is None:
             return True
-
         foreground_window = win32gui.GetForegroundWindow()
         if not foreground_window:
             return False
-
         game_process_id = self.get_game_process_id()
         if game_process_id is not None:
             try:
@@ -2743,34 +2427,23 @@ class MegabonkApp(ctk.CTk):
                 return int(foreground_process_id) == game_process_id
             except Exception:
                 return False
-
         try:
             foreground_title = win32gui.GetWindowText(foreground_window) or ""
         except Exception:
             return False
-
         expected_title = os.path.splitext(process_name)[0]
         return bool(expected_title and expected_title.lower() in foreground_title.lower())
 
     def wait_for_game_window_focus(self, process_name: str) -> bool:
         if self.is_hook_run_control_active():
             return True
-
         if self.is_game_window_active(process_name):
             return True
-
         self.log("[WAIT] Game window is not active. Auto-reroll paused...", tag="warning")
-
-        while (
-            not self.stop_event.is_set()
-            and self.scan_event.is_set()
-            and not self.is_game_window_active(process_name)
-        ):
+        while not self.stop_event.is_set() and self.scan_event.is_set() and not self.is_game_window_active(process_name):
             time.sleep(0.3)
-
         if self.stop_event.is_set() or not self.scan_event.is_set():
             return False
-
         self.log("[+] Game window active again. Auto-reroll resumed.", tag="success")
         return True
 
@@ -2778,12 +2451,10 @@ class MegabonkApp(ctk.CTk):
         if win32gui is None or win32process is None:
             self.log("[WAIT] Cannot bring game window to front: pywin32 is unavailable.", tag="warning")
             return False
-
         window = self.find_game_window(process_name)
         if not window:
             self.log("[WAIT] Cannot bring game window to front: game window was not found.", tag="warning")
             return False
-
         try:
             self.show_game_window(window)
             win32gui.SetForegroundWindow(window)
@@ -2794,8 +2465,7 @@ class MegabonkApp(ctk.CTk):
                 return True
             except Exception as fallback_exc:
                 self.log(
-                    f"[WAIT] Cannot bring game window to front: {direct_exc}; "
-                    f"ALT attach fallback failed: {fallback_exc}",
+                    f"[WAIT] Cannot bring game window to front: {direct_exc}; ALT attach fallback failed: {fallback_exc}",
                     tag="warning",
                 )
                 return False
@@ -2803,9 +2473,9 @@ class MegabonkApp(ctk.CTk):
     @staticmethod
     def show_game_window(window: int) -> None:
         if hasattr(win32gui, "IsIconic") and win32gui.IsIconic(window):
-            win32gui.ShowWindow(window, 9)  # SW_RESTORE
+            win32gui.ShowWindow(window, 9)
         elif hasattr(win32gui, "ShowWindow"):
-            win32gui.ShowWindow(window, 5)  # SW_SHOW
+            win32gui.ShowWindow(window, 5)
 
     def try_attach_foreground_window(self, window: int) -> None:
         user32 = ctypes.windll.user32
@@ -2861,7 +2531,6 @@ class MegabonkApp(ctk.CTk):
             window = self.find_game_window_by_pid(game_process_id)
             if window:
                 return window
-
         return self.find_game_window_by_title(process_name)
 
     def find_game_window_by_pid(self, process_id: int) -> int | None:
@@ -2871,12 +2540,10 @@ class MegabonkApp(ctk.CTk):
             nonlocal found_window
             if found_window is not None or not self.is_visible_window(window):
                 return
-
             try:
                 _, window_process_id = win32process.GetWindowThreadProcessId(window)
             except Exception:
                 return
-
             if int(window_process_id) == process_id:
                 found_window = window
 
@@ -2884,7 +2551,6 @@ class MegabonkApp(ctk.CTk):
             win32gui.EnumWindows(enum_callback, None)
         except Exception as exc:
             self.log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
-
         return found_window
 
     def find_game_window_by_title(self, process_name: str) -> int | None:
@@ -2898,12 +2564,10 @@ class MegabonkApp(ctk.CTk):
             nonlocal found_window
             if found_window is not None or not self.is_visible_window(window):
                 return
-
             try:
                 window_title = win32gui.GetWindowText(window) or ""
             except Exception:
                 return
-
             if expected_title.lower() in window_title.lower():
                 found_window = window
 
@@ -2911,7 +2575,6 @@ class MegabonkApp(ctk.CTk):
             win32gui.EnumWindows(enum_callback, None)
         except Exception as exc:
             self.log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
-
         return found_window
 
     def handle_confirmed_target_window(self, process_name: str) -> bool:
@@ -2936,9 +2599,8 @@ class MegabonkApp(ctk.CTk):
         last_stats = None
         last_reroll_time = time.monotonic()
         is_first_scan = True
-        
+
         while not self.stop_event.is_set():
-            # 1. Wait for client
             if self.client is None:
                 try:
                     self.client = GameDataClient(process_name=process_name)
@@ -2960,9 +2622,8 @@ class MegabonkApp(ctk.CTk):
                     time.sleep(1)
                     continue
 
-            # 2. Main scanner logic
             was_waiting = not self.scan_event.is_set()
-            self.scan_event.wait() # Wait here until hotkey is pressed
+            self.scan_event.wait()
             if was_waiting:
                 is_first_scan = True
                 last_state = None
@@ -2970,7 +2631,7 @@ class MegabonkApp(ctk.CTk):
 
             if self.stop_event.is_set():
                 break
-                
+
             try:
                 if not self.wait_for_game_window_focus(process_name):
                     continue
@@ -2981,38 +2642,33 @@ class MegabonkApp(ctk.CTk):
                         previous_stats=last_stats,
                         require_change=not is_first_scan,
                         abort_condition=lambda: self.stop_event.is_set() or not self.scan_event.is_set(),
-                        timeout=10.0
+                        timeout=10.0,
                     )
                 except InterruptedError:
-                    # User paused while waiting for map
                     continue
-                
+
                 is_first_scan = False
                 last_state = self.client.get_map_generation_state()
                 last_stats = raw_stats
-                
                 stats = adapt_map_stats(raw_stats)
-                
+
                 self.check_best_map(stats)
                 self.check_worst_map(stats)
-                
                 candidate = self.evaluate_candidate(stats)
-                
+
                 if candidate is not None:
                     if not self.wait_for_game_window_focus(process_name):
                         continue
 
-                    t_name = candidate.get('name')
-                    t_color = candidate.get('color', 'BLUE').upper()
+                    t_name = candidate.get("name")
+                    t_color = candidate.get("color", "BLUE").upper()
                     score_text = (
                         f" (Score: {candidate.get('score', 0):.1f})"
                         if config.EVALUATION_MODE == "scores"
                         else ""
                     )
-
                     self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
                     self.log(f"Map Stats: {self.format_stats(stats)}", tag="success")
-
                     self.log_target_found(t_name)
 
                     if not self.handle_confirmed_target_window(process_name):
@@ -3028,20 +2684,19 @@ class MegabonkApp(ctk.CTk):
                 if not self.wait_for_game_window_focus(process_name):
                     continue
 
-                # Sleep to enforce MIN_DELAY for user comfort, but check for abort continuously
                 elapsed = time.monotonic() - last_reroll_time
                 while elapsed < config.MIN_DELAY:
                     if self.stop_event.is_set() or not self.scan_event.is_set():
                         break
                     time.sleep(0.05)
                     elapsed = time.monotonic() - last_reroll_time
-                    
+
                 if self.stop_event.is_set() or not self.scan_event.is_set():
                     continue
 
                 self.reroll_map()
                 last_reroll_time = time.monotonic()
-                
+
             except TimeoutError as exc:
                 self.log(f"[-] Map took too long to load: {exc}", tag="warning")
                 self.log("[*] Restarting run to recover...", tag="warning")
@@ -3060,11 +2715,10 @@ class MegabonkApp(ctk.CTk):
                 last_stats = None
                 self.after(0, self.update_status_ui)
                 time.sleep(1)
-            except Exception as e:
-                self.log(f"[-] Error during execution: {e}", tag="error")
+            except Exception as exc:
+                self.log(f"[-] Error during execution: {exc}", tag="error")
                 time.sleep(1)
 
-        # Cleanup when stopping loop
         self.close_client()
         self.is_running = False
         self.is_ready_to_start = False
@@ -3072,9 +2726,12 @@ class MegabonkApp(ctk.CTk):
         self.after(0, self.update_status_ui)
 
     def on_closing(self):
+        if getattr(self, "_is_shutting_down", False):
+            return
+        self._is_shutting_down = True
         self._cancel_right_tab_transition()
         self.stop_event.set()
-        self.scan_event.set() # Ensure thread wakes up to exit
+        self.scan_event.set()
         self.close_client()
         self.close_player_stats_client()
         player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
@@ -3089,14 +2746,17 @@ class MegabonkApp(ctk.CTk):
             self.native_hook_loader = None
             self.native_hook_thread = None
             try:
-                result = hook_loader.uninitialize()
+                hook_loader.uninitialize()
                 self.log("[+] Game restart helper disconnected.", tag="success")
-            except HookProcessNotFoundError as exc:
+            except HookProcessNotFoundError:
                 self.log("[WAIT] Game is already closed; restart helper shutdown skipped.", tag="warning")
             except HookLoadError as exc:
                 self.log(f"[WAIT] Could not disconnect restart helper during shutdown. Details: {exc}", tag="warning")
             except Exception as exc:
                 self.log(f"[WAIT] Unexpected restart helper shutdown error. Details: {exc}", tag="warning")
         if keyboard:
-            keyboard.unhook_all()
+            try:
+                keyboard.unhook_all()
+            except Exception:
+                pass
         self.destroy()

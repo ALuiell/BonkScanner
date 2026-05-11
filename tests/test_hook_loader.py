@@ -29,6 +29,8 @@ class FakeNativeHookLoader(NativeHookLoader):
         snapshot_results: list[int] | None = None,
         uninitialize_status: int = 0,
         readiness_error: str | None = None,
+        remote_hook_loaded: bool = False,
+        initialize_status: int = 0,
     ) -> None:
         self.process_name = "Megabonk.exe"
         self.dll_path = dll_path
@@ -39,6 +41,8 @@ class FakeNativeHookLoader(NativeHookLoader):
         self.snapshot_results = list(snapshot_results) if snapshot_results is not None else None
         self.uninitialize_status = uninitialize_status
         self.readiness_error = readiness_error
+        self.remote_hook_loaded = remote_hook_loaded
+        self.initialize_status = initialize_status
         self.injected: list[int] = []
         self.remote_exports: list[tuple[int, bytes, int]] = []
 
@@ -52,8 +56,14 @@ class FakeNativeHookLoader(NativeHookLoader):
         if self.readiness_error is not None:
             raise HookProcessNotReadyError(self.readiness_error)
 
+    def _is_hook_module_loaded(self, pid: int) -> bool:
+        del pid
+        return self.remote_hook_loaded
+
     def _invoke_export_in_pid(self, pid: int, export_name: bytes, parameter: int) -> int:
         self.remote_exports.append((pid, export_name, parameter))
+        if export_name == b"Initialize":
+            return self.initialize_status
         if export_name == b"WaitForSnapshotReady":
             if self.snapshot_results is not None:
                 if len(self.snapshot_results) > 1:
@@ -144,6 +154,61 @@ class NativeHookLoaderTests(unittest.TestCase):
             loader = FakeNativeHookLoader(dll_path=dll_path, readiness_error="runtime not ready")
 
             with self.assertRaisesRegex(HookProcessNotReadyError, "runtime not ready"):
+                loader.inject_once()
+
+        self.assertEqual(loader.injected, [])
+        self.assertEqual(loader._injected_pids, set())
+
+    def test_inject_once_reuses_remote_hook_module_before_signature_check(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(
+                dll_path=dll_path,
+                readiness_error="AlwaysManager.Update bytes do not match the expected signature",
+                remote_hook_loaded=True,
+            )
+
+            result = loader.inject_once()
+
+        self.assertTrue(result.skipped)
+        self.assertEqual(loader.injected, [])
+        self.assertEqual(loader.remote_exports, [(1234, b"Initialize", 0)])
+        self.assertEqual(loader._injected_pids, {1234})
+
+    def test_request_restart_run_reuses_remote_hook_module_and_signals_export(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(
+                dll_path=dll_path,
+                readiness_error="AlwaysManager.Update bytes do not match the expected signature",
+                remote_hook_loaded=True,
+            )
+
+            result = loader.request_restart_run()
+
+        self.assertTrue(result.skipped)
+        self.assertEqual(loader.injected, [])
+        self.assertEqual(
+            loader.remote_exports,
+            [
+                (1234, b"Initialize", 0),
+                (1234, b"RequestRestartRun", 0),
+            ],
+        )
+
+    def test_existing_remote_hook_module_reports_transient_initialize_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(
+                dll_path=dll_path,
+                remote_hook_loaded=True,
+                initialize_status=12,
+            )
+
+            with self.assertRaisesRegex(HookProcessNotReadyError, "runtime is not ready"):
                 loader.inject_once()
 
         self.assertEqual(loader.injected, [])
