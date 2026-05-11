@@ -866,7 +866,7 @@ class SettingsDialog(QDialog):
         self.master = master or parent
         self._native_hook_toggle_guard = False
         self.setWindowTitle("Settings")
-        self.resize(420, 320)
+        self.resize(440, 380)
         self.setModal(True)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 14, 12, 14)
@@ -885,12 +885,18 @@ class SettingsDialog(QDialog):
         self.reset_hotkey_entry = QLineEdit(config.RESET_HOTKEY)
         form_layout.addRow("Reset Hotkey:", self.reset_hotkey_entry)
 
+        self.record_hotkey_entry = QLineEdit(getattr(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"))
+        form_layout.addRow("Record Hotkey:", self.record_hotkey_entry)
+
         self.min_delay_entry = QLineEdit(str(config.MIN_DELAY))
         self.map_load_delay_entry = self.min_delay_entry
         form_layout.addRow("Min Reroll Delay (s):", self.min_delay_entry)
 
         self.reset_hold_duration_entry = QLineEdit(str(config.RESET_HOLD_DURATION))
         form_layout.addRow("Reset Hold Duration (s):", self.reset_hold_duration_entry)
+
+        self.record_interval_entry = QLineEdit(str(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 60)))
+        form_layout.addRow("Snapshot Interval (s):", self.record_interval_entry)
 
         self.native_hook_enabled_var = QCheckBox("Use native hook restart")
         self.native_hook_enabled_var.setChecked(bool(getattr(config, "NATIVE_HOOK_ENABLED", True)))
@@ -945,14 +951,17 @@ class SettingsDialog(QDialog):
     def save(self):
         new_hotkey = _read_text(self.hotkey_entry).strip()
         new_reset_hotkey = _read_text(self.reset_hotkey_entry).strip()
+        new_record_hotkey = _read_text(self.record_hotkey_entry).strip()
         native_hook_enabled = _read_bool(self.native_hook_enabled_var)
 
         config.user_config["HOTKEY"] = new_hotkey
         config.user_config["RESET_HOTKEY"] = new_reset_hotkey
+        config.user_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
 
         config.HOTKEY = new_hotkey
         config.RESET_HOTKEY = new_reset_hotkey
+        config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
 
         delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
@@ -977,10 +986,21 @@ class SettingsDialog(QDialog):
         except ValueError:
             pass
 
+        try:
+            new_interval = max(1, int(float(_read_text(self.record_interval_entry))))
+            config.user_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = new_interval
+            config.PLAYER_STATS_RECORD_INTERVAL_SECONDS = new_interval
+            if hasattr(self.master, "player_stats_vod_recorder") and self.master.player_stats_vod_recorder is not None:
+                self.master.player_stats_vod_recorder.interval_seconds = new_interval
+        except ValueError:
+            pass
+
         config.save_config(config.user_config)
 
         if hasattr(self.master, "setup_hotkeys"):
             self.master.setup_hotkeys()
+            if hasattr(self.master, "refresh_player_stats_timeline_ui"):
+                self.master.refresh_player_stats_timeline_ui(update_slider=False)
             self.master.update_status_ui()
             if hasattr(self.master, "apply_run_control_mode"):
                 self.master.apply_run_control_mode()
