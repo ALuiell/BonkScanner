@@ -12,8 +12,6 @@ internal static unsafe class HookExports
     private const nuint MapControllerRestartRunOffset = 0x4220B0;
     private const nuint SaveManagerGetInstanceOffset = 0x525700;
     private const nuint SaveManagerSaveConfigOffset = 0x524CC0;
-    private const nuint SettingsTypeInfoOffset = 0x2F80B58;
-    private const nuint SettingsRefreshSettingsOffset = 0x374340;
     private const nuint MapControllerTypeInfoOffset = 0x2F58E08;
     private const nuint MapGenerationControllerTypeInfoOffset = 0x2F59000;
     private const nuint AlwaysManagerTypeInfoOffset = 0x2F6BAA8;
@@ -26,7 +24,6 @@ internal static unsafe class HookExports
     private const int ConfigSaveFileGameSettingsOffset = 0x18;
     private const int CFGameSettingsAutoSelectUpgradesOffset = 0x68;
     private const int CFGameSettingsSkipChestAnimationOffset = 0x78;
-    private const int SettingsInstanceStaticOffset = 0x8;
     private const int MH_OK = 0;
     private const int MH_ERROR_ALREADY_INITIALIZED = 1;
     private const int MH_ERROR_ENABLED = 5;
@@ -45,7 +42,6 @@ internal static unsafe class HookExports
     private static IntPtr _mapControllerRestartRun;
     private static IntPtr _saveManagerGetInstance;
     private static IntPtr _saveManagerSaveConfig;
-    private static IntPtr _settingsRefreshSettings;
     private static int _installed;
     private static int _restartRunRequested;
     private static int _snapshotReady;
@@ -154,7 +150,6 @@ internal static unsafe class HookExports
             _mapControllerRestartRun = IntPtr.Zero;
             _saveManagerGetInstance = IntPtr.Zero;
             _saveManagerSaveConfig = IntPtr.Zero;
-            _settingsRefreshSettings = IntPtr.Zero;
             Interlocked.Exchange(ref _restartRunRequested, 0);
             Interlocked.Exchange(ref _snapshotReady, 0);
             Interlocked.Exchange(ref _toggleSettingRequest, 0);
@@ -337,7 +332,6 @@ internal static unsafe class HookExports
         int toggledValue = currentValue == 0 ? 1 : 0;
         *(int*)((byte*)gameSettings + fieldOffset) = toggledValue;
         SaveConfig(saveManager);
-        RefreshSettingsUiIfPresent();
         return toggledValue != 0 ? 1 : 2;
     }
 
@@ -389,60 +383,6 @@ internal static unsafe class HookExports
 
         var saveConfigFunc = (delegate* unmanaged<IntPtr, IntPtr, void>)saveConfig;
         saveConfigFunc(saveManager, IntPtr.Zero);
-    }
-
-    private static void RefreshSettingsUiIfPresent()
-    {
-        IntPtr settingsInstance = GetSettingsInstance();
-        if (settingsInstance == IntPtr.Zero)
-        {
-            return;
-        }
-
-        IntPtr refreshSettings = _settingsRefreshSettings;
-        if (refreshSettings == IntPtr.Zero)
-        {
-            IntPtr gameAssembly = _gameAssembly;
-            if (gameAssembly == IntPtr.Zero)
-            {
-                gameAssembly = GetModuleHandleW("GameAssembly.dll");
-                if (gameAssembly == IntPtr.Zero)
-                {
-                    return;
-                }
-
-                _gameAssembly = gameAssembly;
-            }
-
-            refreshSettings = gameAssembly + (nint)SettingsRefreshSettingsOffset;
-            _settingsRefreshSettings = refreshSettings;
-        }
-
-        var refreshSettingsFunc = (delegate* unmanaged<IntPtr, IntPtr, void>)refreshSettings;
-        refreshSettingsFunc(settingsInstance, IntPtr.Zero);
-    }
-
-    private static IntPtr GetSettingsInstance()
-    {
-        IntPtr gameAssembly = _gameAssembly;
-        if (gameAssembly == IntPtr.Zero)
-        {
-            gameAssembly = GetModuleHandleW("GameAssembly.dll");
-            if (gameAssembly == IntPtr.Zero)
-            {
-                return IntPtr.Zero;
-            }
-
-            _gameAssembly = gameAssembly;
-        }
-
-        IntPtr settingsStaticFields = ReadStaticFields(gameAssembly, SettingsTypeInfoOffset);
-        if (settingsStaticFields == IntPtr.Zero)
-        {
-            return IntPtr.Zero;
-        }
-
-        return *(IntPtr*)((byte*)settingsStaticFields + SettingsInstanceStaticOffset);
     }
 
     private static bool IsMapSnapshotReady()
