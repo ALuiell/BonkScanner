@@ -892,7 +892,7 @@ class SettingsDialog(QDialog):
             getattr(config, "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11")
         )
         self.toggle_auto_select_upgrades_hotkey_entry = QLineEdit(
-            getattr(config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f12")
+            getattr(config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10")
         )
         form_layout.addRow("Toggle Chest Skip Hotkey:", self.toggle_skip_chest_animation_hotkey_entry)
         form_layout.addRow("Toggle Auto Select Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)

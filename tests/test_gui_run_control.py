@@ -219,7 +219,7 @@ class GuiRunControlTests(unittest.TestCase):
             reset_hotkey_entry=FakeEntry("r"),
             record_hotkey_entry=FakeEntry("f8"),
             toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
-            toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f12"),
+            toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
@@ -284,7 +284,7 @@ class GuiRunControlTests(unittest.TestCase):
             reset_hotkey_entry=FakeEntry("r"),
             record_hotkey_entry=FakeEntry("f8"),
             toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
-            toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f12"),
+            toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
@@ -643,12 +643,12 @@ class GuiRunControlTests(unittest.TestCase):
             with patch.object(gui.config, "HOTKEY", "f6"):
                 with patch.object(gui.config, "PLAYER_STATS_RECORD_HOTKEY", "f8"):
                     with patch.object(gui.config, "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11"):
-                        with patch.object(gui.config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f12"):
+                        with patch.object(gui.config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10"):
                             gui.MegabonkApp.setup_hotkeys(app)
 
         self.assertEqual(fake_keyboard.unhook_all_calls, 1)
         registered_hotkeys = [hotkey for hotkey, _callback in fake_keyboard.add_hotkey_calls]
-        self.assertEqual(registered_hotkeys, ["f6", "f8", "f11", "f12"])
+        self.assertEqual(registered_hotkeys, ["f6", "f8", "f11", "f10"])
         self.assertEqual(logs, [])
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:
