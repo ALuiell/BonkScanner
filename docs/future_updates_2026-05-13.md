@@ -120,3 +120,49 @@ Suggested config knobs:
 - `HOTKEY_SETTINGS_SAVE_MODE = immediate | deferred`
 - `HOTKEY_SETTINGS_SAVE_DEBOUNCE_MS = 3000`
 
+## 4. Built-In Help / Guide Dialog
+
+Goal:
+
+- Add an in-app help / guide button so common workflow notes and edge cases are
+  explained directly inside BonkScanner.
+
+Why this helps:
+
+- Reduces repeated user questions.
+- Makes the app feel more self-explanatory.
+- Avoids relying only on external README/manual files for operational details.
+
+Recommended format:
+
+- Add a `Help` or `Guide` button in the main UI.
+- Open a compact dialog with short practical sections instead of one long wall
+  of text.
+
+Suggested sections:
+
+- `Reroll`
+- `Templates`
+- `Hotkeys`
+- `Recording`
+- `Native Hook`
+- `Known Notes`
+
+Examples of notes to include:
+
+- If templates are changed during an active reroll cycle, press `Stop` and then
+  `Start` again so the new templates are applied cleanly.
+- Some hotkey setting changes apply to gameplay immediately, but the in-game
+  settings UI may only visually refresh after reopening that menu.
+- Native hook restart can only attach after the game reaches a safe initialized
+  runtime state.
+- Player stats recording continues until it is stopped manually, unless future
+  auto-split logic is added.
+
+Possible improvement:
+
+- Add a small `Common Questions` or `Important Notes` section for the most
+  frequent confusion points.
+- Keep entries short and practical, focused on user action rather than deep
+  technical explanations.
+
