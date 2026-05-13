@@ -34,6 +34,8 @@ class FakeNativeHookLoader(NativeHookLoader):
         initialize_status: int = 0,
     ) -> None:
         self.process_name = "Megabonk.exe"
+        self._dll_path_override = None
+        self._base_path = None
         self.dll_path = dll_path
         self._injected_pids: set[int] = set()
         self._operation_lock = threading.RLock()
@@ -178,6 +180,38 @@ class NativeHookLoaderTests(unittest.TestCase):
 
         self.assertEqual(loader.injected, [])
         self.assertEqual(loader._injected_pids, set())
+
+    def test_inject_once_recovers_missing_default_cached_dll(self) -> None:
+        old_frozen = getattr(sys, "frozen", _MISSING)
+        old_meipass = getattr(sys, "_MEIPASS", _MISSING)
+        old_local_appdata = os.environ.get("LOCALAPPDATA")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle_root = Path(temp_dir) / "bundle"
+            bundled_dll = bundle_root / NativeHookLoader.DEFAULT_RELATIVE_DLL
+            bundled_dll.parent.mkdir(parents=True, exist_ok=True)
+            bundled_dll.write_bytes(b"bundled hook")
+            local_appdata = Path(temp_dir) / "local-appdata"
+            try:
+                sys.frozen = True
+                sys._MEIPASS = str(bundle_root)
+                os.environ["LOCALAPPDATA"] = str(local_appdata)
+                cached_dll = NativeHookLoader.resolve_dll_path()
+                cached_dll.unlink()
+                loader = FakeNativeHookLoader(dll_path=cached_dll)
+
+                result = loader.inject_once()
+
+                self.assertEqual(result.dll_path, cached_dll)
+                self.assertTrue(cached_dll.exists())
+                self.assertEqual(cached_dll.read_bytes(), b"bundled hook")
+            finally:
+                if old_local_appdata is None:
+                    os.environ.pop("LOCALAPPDATA", None)
+                else:
+                    os.environ["LOCALAPPDATA"] = old_local_appdata
+                restore_sys_attr("frozen", old_frozen)
+                restore_sys_attr("_MEIPASS", old_meipass)
 
     def test_inject_once_reuses_remote_hook_module_before_signature_check(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
