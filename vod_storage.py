@@ -48,6 +48,7 @@ class VodMetadata:
     interval_seconds: int
     duration_seconds: int
     snapshot_count: int
+    run_seed: int | None = None
 
     @property
     def created_label(self) -> str:
@@ -83,7 +84,7 @@ class VodRecorder:
         self.is_recording = False
         self._file = None
 
-    def start(self, *, name: str | None = None) -> Path:
+    def start(self, *, name: str | None = None, seed: int | None = None) -> Path:
         self.vods_dir.mkdir(parents=True, exist_ok=True)
         created_at = datetime.now().replace(microsecond=0)
         file_stem = created_at.strftime("%Y-%m-%d_%H-%M-%S")
@@ -101,6 +102,7 @@ class VodRecorder:
                 "name": self.name,
                 "created_at": created_at.isoformat(),
                 "snapshot_interval_seconds": self.interval_seconds,
+                "run_seed": seed,
             },
         )
         return self.path
@@ -358,6 +360,12 @@ def _metadata_from_records(
     if summary_record is not None:
         duration_seconds = int(summary_record.get("duration_seconds", duration_seconds))
 
+    raw_run_seed = metadata_record.get("run_seed")
+    try:
+        run_seed = int(raw_run_seed) if raw_run_seed is not None else None
+    except (TypeError, ValueError):
+        run_seed = None
+
     return VodMetadata(
         path=path,
         name=str(metadata_record.get("name") or path.stem),
@@ -365,6 +373,7 @@ def _metadata_from_records(
         interval_seconds=int(metadata_record.get("snapshot_interval_seconds") or 60),
         duration_seconds=duration_seconds,
         snapshot_count=snapshot_count,
+        run_seed=run_seed,
     )
 
 

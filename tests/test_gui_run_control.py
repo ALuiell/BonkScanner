@@ -4,6 +4,7 @@ import types
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import gui
@@ -118,6 +119,35 @@ class FakeKeyboardModule:
         self.unhook_all_calls += 1
 
 
+class FakeRecordingRecorder:
+    def __init__(self, *, is_recording: bool = True) -> None:
+        self.is_recording = is_recording
+        self.start_calls: list[dict[str, object]] = []
+        self.stop_calls = 0
+
+    def start(self, *, name: str | None = None, seed: int | None = None) -> Path:
+        self.is_recording = True
+        self.start_calls.append({"name": name, "seed": seed})
+        return Path(f"recording-{len(self.start_calls)}.jsonl")
+
+    def stop(self) -> None:
+        self.is_recording = False
+        self.stop_calls += 1
+
+
+class FakeSeedStateClient:
+    def __init__(self, seeds: list[int | None]) -> None:
+        self.seeds = list(seeds)
+        self.close_calls = 0
+
+    def get_map_generation_state(self) -> SimpleNamespace:
+        seed = self.seeds.pop(0) if self.seeds else None
+        return SimpleNamespace(map_seed=seed)
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
 class FakeCtypesFunction:
     def __init__(self, callback):
         self.callback = callback
@@ -191,6 +221,26 @@ class FakeForegroundProcess:
 
 
 class GuiRunControlTests(unittest.TestCase):
+    def build_recording_app(self) -> gui.MegabonkApp:
+        app = object.__new__(gui.MegabonkApp)
+        app.player_stats_vod_recorder = FakeRecordingRecorder()
+        app.player_stats_vod_snapshots = ["snapshot"]
+        app.player_stats_selected_snapshot_index = 0
+        app.player_stats_recording_seed = None
+        app.player_stats_recording_seed_missing_since = None
+        app.player_stats_game_data_client = None
+        app.player_stats_status_label = None
+        app.player_stats_rows = {}
+        app.player_stats_items_label = None
+        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
+        app._refresh_vods_list_if_visible = lambda: None
+        app.display_player_stats = lambda *args, **kwargs: None
+        app.close_player_stats_client = lambda: None
+        app.read_player_stats = lambda: ({}, ())
+        app.log_messages = []
+        app.log = lambda message, tag=None: app.log_messages.append((message, tag))
+        return app
+
     def setUp(self) -> None:
         self.original_config_values = {
             "HOTKEY": gui.config.HOTKEY,
@@ -797,6 +847,42 @@ class GuiRunControlTests(unittest.TestCase):
             gui.MegabonkApp.background_loop(app)
 
         self.assertEqual(app.client.get_map_stats_calls, 0)
+
+    def test_recording_run_state_split_starts_new_file_when_seed_changes(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_recording_seed = 111
+        app.player_stats_game_data_client = FakeSeedStateClient([222])
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertEqual(action, "split")
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [{"name": None, "seed": 222}])
+        self.assertEqual(app.player_stats_recording_seed, 222)
+        self.assertEqual(app.player_stats_vod_snapshots, [])
+        self.assertIn("auto-split", app.log_messages[0][0])
+
+    def test_recording_run_state_stops_after_seed_missing_grace_period(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_recording_seed = 111
+        app.player_stats_game_data_client = FakeSeedStateClient([None, None])
+
+        with patch.object(gui.time, "monotonic", return_value=100.0):
+            first_action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        with patch.object(
+            gui.time,
+            "monotonic",
+            return_value=100.0 + gui.PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
+        ):
+            second_action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertIsNone(first_action)
+        self.assertEqual(second_action, "stopped")
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
+        self.assertFalse(app.player_stats_vod_recorder.is_recording)
+        self.assertIsNone(app.player_stats_recording_seed)
+        self.assertIn("auto-stopped", app.log_messages[0][0])
 
     def test_on_closing_detaches_native_hooks_and_invalidates_worker(self) -> None:
         loader = FakeDetachLoader()

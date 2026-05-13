@@ -24,7 +24,7 @@ class VodStorageTests(unittest.TestCase):
                 clock=lambda: now,
             )
 
-            path = recorder.start(name="Test run")
+            path = recorder.start(name="Test run", seed=12345)
             recorder.capture(
                 {
                     "Damage": SimpleNamespace(value=1.25, display_value="1.25x"),
@@ -45,6 +45,7 @@ class VodStorageTests(unittest.TestCase):
             loaded = load_vod(path)
 
             self.assertEqual(loaded.metadata.name, "Test run")
+            self.assertEqual(loaded.metadata.run_seed, 12345)
             self.assertEqual(loaded.metadata.snapshot_count, 2)
             self.assertEqual(loaded.snapshots[0].stats["Damage"].display_value, "1.25x")
             self.assertEqual(loaded.snapshots[0].items, ("Wrench x1",))
