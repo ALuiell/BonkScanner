@@ -51,50 +51,117 @@ DEFAULT_SCORES_SYSTEM = {
 # ==========================================
 # GAME CONFIG PARSER
 # ==========================================
+def get_game_config_path() -> str | None:
+    user_profile = os.environ.get('USERPROFILE', '')
+    if not user_profile:
+        return None
+    return os.path.join(
+        user_profile,
+        "AppData",
+        "LocalLow",
+        "Ved",
+        "Megabonk",
+        "Saves",
+        "LocalDir",
+        "config.json",
+    )
+
+
+def load_game_config() -> dict | None:
+    try:
+        game_config_path = get_game_config_path()
+        if not game_config_path or not os.path.exists(game_config_path):
+            return None
+        with open(game_config_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def save_game_config(data: dict) -> bool:
+    try:
+        game_config_path = get_game_config_path()
+        if not game_config_path:
+            return False
+        game_dir = os.path.dirname(game_config_path)
+        if not os.path.isdir(game_dir):
+            return False
+        with open(game_config_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+
+def get_game_settings() -> dict | None:
+    data = load_game_config()
+    settings = (data or {}).get("cfGameSettings")
+    return settings.copy() if isinstance(settings, dict) else None
+
+
+def get_game_setting(name: str, default=None):
+    settings = get_game_settings()
+    if not isinstance(settings, dict):
+        return default
+    return settings.get(name, default)
+
+
+def update_game_setting(name: str, value) -> bool:
+    try:
+        data = load_game_config()
+        if data is None:
+            return False
+        if "cfGameSettings" not in data or not isinstance(data["cfGameSettings"], dict):
+            data["cfGameSettings"] = {}
+        data["cfGameSettings"][name] = value
+        return save_game_config(data)
+    except Exception:
+        return False
+
+
+def toggle_game_setting(name: str) -> bool | None:
+    current_value = get_game_setting(name)
+    if current_value is None:
+        return None
+
+    enabled = bool(current_value)
+    toggled = not enabled
+
+    if isinstance(current_value, bool):
+        stored_value = toggled
+    elif isinstance(current_value, int):
+        stored_value = 1 if toggled else 0
+    elif isinstance(current_value, float):
+        stored_value = 1.0 if toggled else 0.0
+    else:
+        stored_value = 1 if toggled else 0
+
+    if not update_game_setting(name, stored_value):
+        return None
+    return toggled
+
+
 def get_game_reset_time() -> float | None:
     try:
-        user_profile = os.environ.get('USERPROFILE', '')
-        if not user_profile:
-            return None
-            
-        game_config_path = os.path.join(
-            user_profile, 
-            "AppData", "LocalLow", "Ved", "Megabonk", "Saves", "LocalDir", "config.json"
-        )
-        if os.path.exists(game_config_path):
-            with open(game_config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                quick_reset_time = data.get("cfGameSettings", {}).get("quick_reset_time")
-                if quick_reset_time is not None:
-                    # The game's config stores the time without a safety margin. In our app, we add 0.05s for reliability.
-                    return float(quick_reset_time) + 0.05
+        data = load_game_config()
+        if data is not None:
+            quick_reset_time = data.get("cfGameSettings", {}).get("quick_reset_time")
+            if quick_reset_time is not None:
+                # The game's config stores the time without a safety margin. In our app, we add 0.05s for reliability.
+                return float(quick_reset_time) + 0.05
     except Exception as e:
         pass
     return None
 
 def update_game_reset_time(game_val: float):
     try:
-        user_profile = os.environ.get('USERPROFILE', '')
-        if not user_profile:
+        data = load_game_config()
+        if data is None:
             return
-            
-        game_dir = os.path.join(user_profile, "AppData", "LocalLow", "Ved", "Megabonk", "Saves", "LocalDir")
-        game_config_path = os.path.join(game_dir, "config.json")
-        
-        # If the folders or file don't exist, we cannot update the game's config
-        if not os.path.exists(game_config_path):
-            return
-            
-        with open(game_config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            
         if "cfGameSettings" not in data:
             data["cfGameSettings"] = {}
-            
         data["cfGameSettings"]["quick_reset_time"] = game_val
-        
-        with open(game_config_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+        save_game_config(data)
     except Exception as e:
         pass
 
@@ -150,9 +217,10 @@ PLAYER_STATS_RECORD_INTERVAL_SECONDS = coerce_nonnegative_int(
 ) or 60
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
+TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY = user_config.get("TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11")
+TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY = user_config.get("TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10")
 PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
 NATIVE_HOOK_ENABLED = user_config.get("NATIVE_HOOK_ENABLED", False)
-NATIVE_HOOK_DLL_PATH = user_config.get("NATIVE_HOOK_DLL_PATH", "")
 TOTAL_REROLLS = coerce_nonnegative_int(user_config.get("TOTAL_REROLLS", 0))
 
 # Load ignored updates
@@ -214,15 +282,17 @@ user_config["PLAYER_STATS_RECORD_HOTKEY"] = PLAYER_STATS_RECORD_HOTKEY
 user_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = PLAYER_STATS_RECORD_INTERVAL_SECONDS
 user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY
+user_config["TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY"] = TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY
+user_config["TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY"] = TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY
 user_config["PROCESS_NAME"] = PROCESS_NAME
 user_config["NATIVE_HOOK_ENABLED"] = NATIVE_HOOK_ENABLED
-user_config["NATIVE_HOOK_DLL_PATH"] = NATIVE_HOOK_DLL_PATH
 user_config["TOTAL_REROLLS"] = TOTAL_REROLLS
 user_config["TEMPLATES"] = TEMPLATES
 user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
 user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION
 user_config["EVALUATION_MODE"] = EVALUATION_MODE
 user_config["SCORES_SYSTEM"] = SCORES_SYSTEM
+user_config.pop("NATIVE_HOOK_DLL_PATH", None)
 
 
 # If the config.json file did not exist initially (or did not contain TEMPLATES),

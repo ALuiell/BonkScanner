@@ -20,7 +20,7 @@ except Exception:
     QVBoxLayout = None
 
 
-CURRENT_VERSION = "2.0.0"
+CURRENT_VERSION = "2.0.1"
 GITHUB_REPO = "ALuiell/BonkScanner"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
@@ -108,7 +108,7 @@ def _show_update_dialog(app_instance, latest_version: str, release_notes: str) -
 
     notes = QTextEdit()
     notes.setReadOnly(True)
-    notes.setPlainText(release_notes)
+    _set_release_notes_content(notes, release_notes)
     layout.addWidget(notes, 1)
 
     layout.addWidget(QLabel("Would you like to download and install it now?"))
@@ -133,6 +133,18 @@ def _show_update_dialog(app_instance, latest_version: str, release_notes: str) -
     layout.addWidget(buttons)
     dialog.exec()
     return accepted["value"]
+
+
+def _set_release_notes_content(notes: QTextEdit, release_notes: str) -> None:
+    set_markdown = getattr(notes, "setMarkdown", None)
+    if callable(set_markdown):
+        try:
+            set_markdown(release_notes)
+            return
+        except Exception:
+            pass
+
+    notes.setPlainText(release_notes)
 
 
 def _download_and_apply_update(exe_path, download_url):

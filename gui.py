@@ -84,7 +84,10 @@ except ImportError:
     keyboard = None
 
 
-SUPPORT_URL = "https://ko-fi.com/H2H01YXPQ7"
+PATREON_SUPPORT_URL = "https://www.patreon.com/posts/bonkscanner-158115804?source=storefront"
+KOFI_SUPPORT_URL = "https://ko-fi.com/s/34dc062a82"
+PATREON_ICON_PATH = "media/patreon_logo.svg"
+KOFI_ICON_PATH = "media/kofi_logo.svg"
 PLAYER_STATS_REFRESH_MS = 10_000
 PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
 PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
@@ -888,6 +891,15 @@ class SettingsDialog(QDialog):
         self.record_hotkey_entry = QLineEdit(getattr(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"))
         form_layout.addRow("Record Hotkey:", self.record_hotkey_entry)
 
+        self.toggle_skip_chest_animation_hotkey_entry = QLineEdit(
+            getattr(config, "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11")
+        )
+        self.toggle_auto_select_upgrades_hotkey_entry = QLineEdit(
+            getattr(config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10")
+        )
+        form_layout.addRow("Toggle Chest Skip Hotkey:", self.toggle_skip_chest_animation_hotkey_entry)
+        form_layout.addRow("Toggle Auto Select Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)
+
         self.min_delay_entry = QLineEdit(str(config.MIN_DELAY))
         self.map_load_delay_entry = self.min_delay_entry
         form_layout.addRow("Min Reroll Delay (s):", self.min_delay_entry)
@@ -903,22 +915,58 @@ class SettingsDialog(QDialog):
         self.native_hook_enabled_var.toggled.connect(self.on_native_hook_toggle)
         layout.addWidget(self.native_hook_enabled_var)
 
-        layout.addStretch(1)
-
         button_row = QVBoxLayout()
         button_row.setSpacing(10)
         self.update_btn = QPushButton("Check for Updates")
         self.update_btn.clicked.connect(self.check_update)
-        self.support_btn = QPushButton("Support")
-        self.support_btn.setObjectName("SupportButton")
-        self.support_btn.clicked.connect(self.open_support_page)
         self.save_btn = QPushButton("Save")
         self.save_btn.setObjectName("SuccessButton")
         self.save_btn.clicked.connect(self.save)
         button_row.addWidget(self.update_btn)
-        button_row.addWidget(self.support_btn)
         button_row.addWidget(self.save_btn)
         layout.addLayout(button_row)
+
+        layout.addSpacing(6)
+
+        support_divider = QFrame()
+        support_divider.setObjectName("SupportDivider")
+        support_divider.setFrameShape(QFrame.HLine)
+        support_divider.setFrameShadow(QFrame.Plain)
+        layout.addWidget(support_divider)
+
+        support_label = QLabel("Support")
+        support_label.setObjectName("SupportSectionLabel")
+        support_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(support_label)
+
+        support_note = QLabel(
+            "BonkScanner is free to download here. "
+            "If you want, you can also support the project."
+        )
+        support_note.setObjectName("SupportSectionNote")
+        support_note.setAlignment(Qt.AlignCenter)
+        support_note.setWordWrap(True)
+        layout.addWidget(support_note)
+
+        support_button_row = QHBoxLayout()
+        support_button_row.setSpacing(10)
+        support_button_row.setAlignment(Qt.AlignHCenter)
+        self.patreon_btn = QPushButton("Patreon")
+        self.patreon_btn.setObjectName("PatreonButton")
+        self.patreon_btn.setIcon(QIcon(resource_path(PATREON_ICON_PATH)))
+        self.patreon_btn.setIconSize(QSize(18, 18))
+        self.patreon_btn.clicked.connect(self.open_patreon_support_page)
+        self.patreon_btn.setProperty("class", "SupportPlatformButton")
+        self.kofi_btn = QPushButton("Ko-fi")
+        self.kofi_btn.setObjectName("KofiButton")
+        self.kofi_btn.setIcon(QIcon(resource_path(KOFI_ICON_PATH)))
+        self.kofi_btn.setIconSize(QSize(18, 18))
+        self.kofi_btn.clicked.connect(self.open_kofi_support_page)
+        self.kofi_btn.setProperty("class", "SupportPlatformButton")
+        self._sync_support_button_sizes()
+        support_button_row.addWidget(self.patreon_btn)
+        support_button_row.addWidget(self.kofi_btn)
+        layout.addLayout(support_button_row)
 
     def _set_native_hook_checkbox_value(self, enabled: bool):
         self._native_hook_toggle_guard = True
@@ -926,6 +974,13 @@ class SettingsDialog(QDialog):
             _set_bool(self.native_hook_enabled_var, enabled)
         finally:
             self._native_hook_toggle_guard = False
+
+    def _sync_support_button_sizes(self):
+        buttons = [self.patreon_btn, self.kofi_btn]
+        target_width = max(button.sizeHint().width() for button in buttons)
+        for button in buttons:
+            button.setFixedWidth(target_width)
+            button.setFixedHeight(26)
 
     def prompt_native_hook_enable_confirmation(self) -> bool:
         dialog = NativeHookWarningDialog(self)
@@ -945,23 +1000,32 @@ class SettingsDialog(QDialog):
         if hasattr(self, "close"):
             self.close()
 
-    def open_support_page(self):
-        webbrowser.open(SUPPORT_URL)
+    def open_patreon_support_page(self):
+        webbrowser.open(PATREON_SUPPORT_URL)
+
+    def open_kofi_support_page(self):
+        webbrowser.open(KOFI_SUPPORT_URL)
 
     def save(self):
         new_hotkey = _read_text(self.hotkey_entry).strip()
         new_reset_hotkey = _read_text(self.reset_hotkey_entry).strip()
         new_record_hotkey = _read_text(self.record_hotkey_entry).strip()
+        new_toggle_skip_chest_animation_hotkey = _read_text(self.toggle_skip_chest_animation_hotkey_entry).strip()
+        new_toggle_auto_select_upgrades_hotkey = _read_text(self.toggle_auto_select_upgrades_hotkey_entry).strip()
         native_hook_enabled = _read_bool(self.native_hook_enabled_var)
 
         config.user_config["HOTKEY"] = new_hotkey
         config.user_config["RESET_HOTKEY"] = new_reset_hotkey
         config.user_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
+        config.user_config["TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY"] = new_toggle_skip_chest_animation_hotkey
+        config.user_config["TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY"] = new_toggle_auto_select_upgrades_hotkey
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
 
         config.HOTKEY = new_hotkey
         config.RESET_HOTKEY = new_reset_hotkey
         config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
+        config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY = new_toggle_skip_chest_animation_hotkey
+        config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY = new_toggle_auto_select_upgrades_hotkey
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
 
         delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
@@ -1091,11 +1155,57 @@ class MegabonkApp:
                 QPushButton#SuccessButton:hover {
                     background: #39B77F;
                 }
-                QPushButton#SupportButton {
-                    background: #D97706;
+                QFrame#SupportDivider {
+                    background: #243244;
+                    color: #243244;
+                    min-height: 1px;
+                    max-height: 1px;
                 }
-                QPushButton#SupportButton:hover {
-                    background: #F59E0B;
+                QLabel#SupportSectionLabel {
+                    color: #D7BF72;
+                    font-size: 15px;
+                    font-weight: 700;
+                    padding-top: 2px;
+                    padding-bottom: 0px;
+                }
+                QLabel#SupportSectionNote {
+                    color: #98A7BA;
+                    font-size: 14px;
+                    padding-left: 28px;
+                    padding-right: 28px;
+                    padding-top: 0px;
+                    padding-bottom: 2px;
+                }
+                QPushButton#PatreonButton {
+                    background: #22181A;
+                    color: #FF6F61;
+                    font-weight: 700;
+                    text-align: center;
+                    padding: 4px 10px;
+                    border: 1px solid #4B2B2F;
+                    border-radius: 10px;
+                }
+                QPushButton#PatreonButton:hover {
+                    background: #2B1D20;
+                    border: 1px solid #6A393F;
+                }
+                QPushButton#KofiButton {
+                    background: #181F24;
+                    color: #29ABE0;
+                    font-weight: 700;
+                    text-align: center;
+                    padding: 4px 10px;
+                    border: 1px solid #264555;
+                    border-radius: 10px;
+                }
+                QPushButton#KofiButton:hover {
+                    background: #1D262D;
+                    border: 1px solid #2F5F77;
+                }
+                QPushButton[class="SupportPlatformButton"] {
+                    min-height: 26px;
+                    max-height: 26px;
+                    font-size: 13px;
                 }
                 QPushButton[class="WideDialogButton"] {
                     min-height: 34px;
@@ -1907,12 +2017,46 @@ class MegabonkApp:
         dialog = SettingsDialog(self.window, master=self)
         dialog.exec()
 
+    def toggle_game_setting(self, setting_key: str, label: str) -> bool:
+        loader = getattr(self, "native_hook_loader", None)
+        if loader is None:
+            dll_path = getattr(config, "NATIVE_HOOK_DLL_PATH", "") or None
+            loader = NativeHookLoader(
+                config.PROCESS_NAME,
+                dll_path=dll_path,
+                base_path=config.application_path,
+            )
+
+        try:
+            if setting_key == "skip_chest_animation":
+                toggled = loader.toggle_skip_chest_animation()
+            elif setting_key == "auto_select_upgrades":
+                toggled = loader.toggle_auto_select_upgrades()
+            else:
+                self.log(f"[WAIT] Unsupported game setting toggle: {label}", tag="warning")
+                return False
+        except HookLoadError as exc:
+            self.log(f"[WAIT] Could not toggle '{label}' live in the game. Details: {exc}", tag="warning")
+            return False
+
+        state_text = "ON" if toggled else "OFF"
+        self.log(f"[+] {label}: {state_text}", tag="success")
+        return True
+
     def setup_hotkeys(self):
         if keyboard:
             try:
                 keyboard.unhook_all()
                 keyboard.add_hotkey(config.HOTKEY, self.hotkey_toggle_scanning)
                 keyboard.add_hotkey(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording)
+                keyboard.add_hotkey(
+                    config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY,
+                    self.hotkey_toggle_skip_chest_animation,
+                )
+                keyboard.add_hotkey(
+                    config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
+                    self.hotkey_toggle_auto_select_upgrades,
+                )
             except Exception as exc:
                 self.log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
 
@@ -1942,6 +2086,12 @@ class MegabonkApp:
 
     def hotkey_toggle_player_stats_recording(self):
         self.after(0, self.toggle_player_stats_recording)
+
+    def hotkey_toggle_skip_chest_animation(self):
+        self.after(0, partial(self.toggle_game_setting, "skip_chest_animation", "Skip Chest Animation"))
+
+    def hotkey_toggle_auto_select_upgrades(self):
+        self.after(0, partial(self.toggle_game_setting, "auto_select_upgrades", "Auto Select LevelUp Upgrades"))
 
     def update_status_ui(self):
         if self.status_label is None or self.toggle_btn is None:

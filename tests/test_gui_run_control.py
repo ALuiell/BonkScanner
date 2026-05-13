@@ -105,9 +105,17 @@ class FakeHookLoopLoader:
 class FakeKeyboardModule:
     def __init__(self) -> None:
         self.press_and_release_calls: list[str] = []
+        self.add_hotkey_calls: list[tuple[str, object]] = []
+        self.unhook_all_calls = 0
 
     def press_and_release(self, key: str) -> None:
         self.press_and_release_calls.append(key)
+
+    def add_hotkey(self, hotkey: str, callback: object) -> None:
+        self.add_hotkey_calls.append((hotkey, callback))
+
+    def unhook_all(self) -> None:
+        self.unhook_all_calls += 1
 
 
 class FakeCtypesFunction:
@@ -187,8 +195,11 @@ class GuiRunControlTests(unittest.TestCase):
         self.original_config_values = {
             "HOTKEY": gui.config.HOTKEY,
             "RESET_HOTKEY": gui.config.RESET_HOTKEY,
+            "PLAYER_STATS_RECORD_HOTKEY": gui.config.PLAYER_STATS_RECORD_HOTKEY,
             "MAP_LOAD_DELAY": gui.config.MAP_LOAD_DELAY,
             "RESET_HOLD_DURATION": gui.config.RESET_HOLD_DURATION,
+            "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY": gui.config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY,
+            "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY": gui.config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
             "NATIVE_HOOK_ENABLED": gui.config.NATIVE_HOOK_ENABLED,
             "TOTAL_REROLLS": gui.config.TOTAL_REROLLS,
         }
@@ -206,8 +217,12 @@ class GuiRunControlTests(unittest.TestCase):
         dialog = types.SimpleNamespace(
             hotkey_entry=FakeEntry("f7"),
             reset_hotkey_entry=FakeEntry("r"),
+            record_hotkey_entry=FakeEntry("f8"),
+            toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
+            toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
+            record_interval_entry=FakeEntry("60"),
             native_hook_enabled_var=FakeVar(False),
             master=master,
             destroy=lambda: destroyed.append(True),
@@ -267,8 +282,12 @@ class GuiRunControlTests(unittest.TestCase):
         dialog = types.SimpleNamespace(
             hotkey_entry=FakeEntry("f7"),
             reset_hotkey_entry=FakeEntry("r"),
+            record_hotkey_entry=FakeEntry("f8"),
+            toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
+            toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
+            record_interval_entry=FakeEntry("60"),
             native_hook_enabled_var=FakeVar(True),
             master=master,
             destroy=lambda: destroyed.append(True),
@@ -596,6 +615,41 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app.is_running)
         self.assertFalse(app.scan_event.is_set())
         self.assertIn(("[*] Scan paused. Press the scan hotkey again to resume.", None), logs)
+
+    def test_toggle_game_setting_logs_new_enabled_state(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.native_hook_loader = types.SimpleNamespace(toggle_skip_chest_animation=lambda: True)
+        app.log = lambda message, tag=None: logs.append((message, tag))
+
+        with patch.object(app.native_hook_loader, "toggle_skip_chest_animation", return_value=True) as toggle_setting:
+            changed = gui.MegabonkApp.toggle_game_setting(app, "skip_chest_animation", "Skip Chest Animation")
+
+        self.assertTrue(changed)
+        toggle_setting.assert_called_once_with()
+        self.assertIn(("[+] Skip Chest Animation: ON", "success"), logs)
+
+    def test_setup_hotkeys_registers_game_setting_hotkeys(self) -> None:
+        fake_keyboard = FakeKeyboardModule()
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.hotkey_toggle_scanning = lambda: None
+        app.hotkey_toggle_player_stats_recording = lambda: None
+        app.hotkey_toggle_skip_chest_animation = lambda: None
+        app.hotkey_toggle_auto_select_upgrades = lambda: None
+
+        with patch.object(gui, "keyboard", fake_keyboard):
+            with patch.object(gui.config, "HOTKEY", "f6"):
+                with patch.object(gui.config, "PLAYER_STATS_RECORD_HOTKEY", "f8"):
+                    with patch.object(gui.config, "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11"):
+                        with patch.object(gui.config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10"):
+                            gui.MegabonkApp.setup_hotkeys(app)
+
+        self.assertEqual(fake_keyboard.unhook_all_calls, 1)
+        registered_hotkeys = [hotkey for hotkey, _callback in fake_keyboard.add_hotkey_calls]
+        self.assertEqual(registered_hotkeys, ["f6", "f8", "f11", "f10"])
+        self.assertEqual(logs, [])
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:
         loaded_vod = types.SimpleNamespace(
