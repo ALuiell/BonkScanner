@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import threading
@@ -29,6 +30,8 @@ class FakeNativeHookLoader(NativeHookLoader):
         snapshot_results: list[int] | None = None,
         uninitialize_status: int = 0,
         readiness_error: str | None = None,
+        remote_hook_loaded: bool = False,
+        initialize_status: int = 0,
     ) -> None:
         self.process_name = "Megabonk.exe"
         self.dll_path = dll_path
@@ -39,8 +42,11 @@ class FakeNativeHookLoader(NativeHookLoader):
         self.snapshot_results = list(snapshot_results) if snapshot_results is not None else None
         self.uninitialize_status = uninitialize_status
         self.readiness_error = readiness_error
+        self.remote_hook_loaded = remote_hook_loaded
+        self.initialize_status = initialize_status
         self.injected: list[int] = []
         self.remote_exports: list[tuple[int, bytes, int]] = []
+        self.unloaded_pids: list[int] = []
 
     def _find_process_id(self) -> int | None:
         return self.pid
@@ -52,8 +58,14 @@ class FakeNativeHookLoader(NativeHookLoader):
         if self.readiness_error is not None:
             raise HookProcessNotReadyError(self.readiness_error)
 
+    def _is_hook_module_loaded(self, pid: int) -> bool:
+        del pid
+        return self.remote_hook_loaded
+
     def _invoke_export_in_pid(self, pid: int, export_name: bytes, parameter: int) -> int:
         self.remote_exports.append((pid, export_name, parameter))
+        if export_name == b"Initialize":
+            return self.initialize_status
         if export_name == b"WaitForSnapshotReady":
             if self.snapshot_results is not None:
                 if len(self.snapshot_results) > 1:
@@ -63,6 +75,10 @@ class FakeNativeHookLoader(NativeHookLoader):
         if export_name == b"Uninitialize":
             return self.uninitialize_status
         return 0
+
+    def _unload_remote_hook_module(self, pid: int, *, max_attempts: int = 8) -> None:
+        del max_attempts
+        self.unloaded_pids.append(pid)
 
 
 class FailingNativeHookLoader(FakeNativeHookLoader):
@@ -82,16 +98,30 @@ class NativeHookLoaderTests(unittest.TestCase):
     def test_resolve_default_dll_path_uses_meipass_when_frozen(self) -> None:
         old_frozen = getattr(sys, "frozen", _MISSING)
         old_meipass = getattr(sys, "_MEIPASS", _MISSING)
+        old_local_appdata = os.environ.get("LOCALAPPDATA")
 
         with tempfile.TemporaryDirectory() as temp_dir:
+            bundle_root = Path(temp_dir) / "bundle"
+            bundled_dll = bundle_root / NativeHookLoader.DEFAULT_RELATIVE_DLL
+            bundled_dll.parent.mkdir(parents=True, exist_ok=True)
+            bundled_dll.write_bytes(b"bundled hook")
+            local_appdata = Path(temp_dir) / "local-appdata"
             try:
                 sys.frozen = True
-                sys._MEIPASS = temp_dir
+                sys._MEIPASS = str(bundle_root)
+                os.environ["LOCALAPPDATA"] = str(local_appdata)
 
                 path = NativeHookLoader.resolve_dll_path(base_path=Path("C:/BonkScanner"))
 
-                self.assertEqual(path, (Path(temp_dir) / NativeHookLoader.DEFAULT_RELATIVE_DLL).resolve())
+                expected = (local_appdata / "BonkScanner" / "native-hook" / "BonkHook.dll").resolve()
+                self.assertEqual(path, expected)
+                self.assertTrue(path.exists())
+                self.assertEqual(path.read_bytes(), b"bundled hook")
             finally:
+                if old_local_appdata is None:
+                    os.environ.pop("LOCALAPPDATA", None)
+                else:
+                    os.environ["LOCALAPPDATA"] = old_local_appdata
                 restore_sys_attr("frozen", old_frozen)
                 restore_sys_attr("_MEIPASS", old_meipass)
 
@@ -144,6 +174,61 @@ class NativeHookLoaderTests(unittest.TestCase):
             loader = FakeNativeHookLoader(dll_path=dll_path, readiness_error="runtime not ready")
 
             with self.assertRaisesRegex(HookProcessNotReadyError, "runtime not ready"):
+                loader.inject_once()
+
+        self.assertEqual(loader.injected, [])
+        self.assertEqual(loader._injected_pids, set())
+
+    def test_inject_once_reuses_remote_hook_module_before_signature_check(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(
+                dll_path=dll_path,
+                readiness_error="AlwaysManager.Update bytes do not match the expected signature",
+                remote_hook_loaded=True,
+            )
+
+            result = loader.inject_once()
+
+        self.assertTrue(result.skipped)
+        self.assertEqual(loader.injected, [])
+        self.assertEqual(loader.remote_exports, [(1234, b"Initialize", 0)])
+        self.assertEqual(loader._injected_pids, {1234})
+
+    def test_request_restart_run_reuses_remote_hook_module_and_signals_export(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(
+                dll_path=dll_path,
+                readiness_error="AlwaysManager.Update bytes do not match the expected signature",
+                remote_hook_loaded=True,
+            )
+
+            result = loader.request_restart_run()
+
+        self.assertTrue(result.skipped)
+        self.assertEqual(loader.injected, [])
+        self.assertEqual(
+            loader.remote_exports,
+            [
+                (1234, b"Initialize", 0),
+                (1234, b"RequestRestartRun", 0),
+            ],
+        )
+
+    def test_existing_remote_hook_module_reports_transient_initialize_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dll_path = Path(temp_dir) / "BonkHook.dll"
+            dll_path.write_bytes(b"placeholder")
+            loader = FakeNativeHookLoader(
+                dll_path=dll_path,
+                remote_hook_loaded=True,
+                initialize_status=12,
+            )
+
+            with self.assertRaisesRegex(HookProcessNotReadyError, "runtime is not ready"):
                 loader.inject_once()
 
         self.assertEqual(loader.injected, [])
@@ -237,6 +322,7 @@ class NativeHookLoaderTests(unittest.TestCase):
 
         self.assertEqual(result, HookLoadResult(pid=1234, dll_path=dll_path, initialized=False))
         self.assertEqual(loader.remote_exports, [(1234, b"Uninitialize", 0)])
+        self.assertEqual(loader.unloaded_pids, [1234])
         self.assertEqual(loader._injected_pids, set())
 
     def test_uninitialize_raises_for_remote_error_status(self) -> None:

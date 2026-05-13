@@ -3,9 +3,9 @@ BonkScanner - Quick Manual
 
 What It Is
 ----------
-BonkScanner is a tool for automatic map rerolling in Megabonk.
-You launch the `.exe`, choose the search mode, and the program keeps rerolling
-until it finds a map that matches your target.
+BonkScanner is a desktop tool for automatic map rerolling in Megabonk.
+You launch the app, choose a search mode, and it keeps rerolling until it finds
+a map that matches your target.
 
 
 What The Program Includes
@@ -13,8 +13,10 @@ What The Program Includes
 - `Templates` mode
 - `Scores` mode
 - `Session stats`
-- standard reroll mode
-- `Native hook` mode
+- `Live Stats` recording
+- `Recordings` playback
+- standard keyboard restart mode
+- `Native hook` restart mode
 - `Settings`
 - live log output
 
@@ -22,11 +24,12 @@ What The Program Includes
 How To Use It
 -------------
 1. Start the game.
-2. Start BonkScanner.exe.
+2. Start BonkScanner.
 3. Choose `Templates` or `Scores`.
 4. Select the conditions you want.
-5. Start the scan.
-6. Wait for the target map.
+5. Press `Start`.
+6. Use the scan hotkey to arm the loop.
+7. Wait for the target map.
 
 When a map matches your conditions, the program stops and shows the result in
 the log.
@@ -47,6 +50,13 @@ Advantages:
 - simple and easy to understand;
 - good for targeted searching;
 - useful when you know exactly what kind of map you want.
+
+The `Templates` tab also includes an `Edit` button.
+It opens the template manager, where you can:
+- see all templates in one list;
+- open a template card;
+- change the values inline;
+- save the template directly there.
 
 
 Scores Mode
@@ -81,23 +91,37 @@ Session Stats
 
 They help you quickly see:
 - how many rerolls happened;
+- total rerolls saved by the app;
 - how quickly target maps are found;
 - how the current session is going overall.
 
 
+Live Stats And Recordings
+-------------------------
+The app can record player stats snapshots while you play.
+
+This is useful if you want to:
+- review how a run developed over time;
+- compare snapshots at different moments;
+- keep a local recording of player stats and item lists.
+
+You can start recording from the `Live Stats` tab or by using the record hotkey.
+The snapshot interval is configurable in `Settings`.
+
+
 Standard Mode And Native Hook
 -----------------------------
-Standard mode is the normal default reroll mode.
+Standard mode is the normal keyboard-based reroll mode.
 It is the main option for most users.
 
-`Native hook` is an alternate reroll mode.
+`Native hook` is an alternate restart mode.
 It can be enabled in `Settings`.
 
 Advantages of `Native hook`:
 - may feel better in some usage scenarios;
 - may be more stable on some systems;
-- most importantly, it can keep working while the user is alt-tabbed and not
-  focused on the game window.
+- can keep working more reliably while the user is alt-tabbed and not focused
+  on the game window.
 
 If standard mode already works well, you can stay on it.
 If you want a better background-use option, try `Native hook`.
@@ -107,18 +131,29 @@ Settings
 --------
 `Settings` contains the main program options.
 
-Most important items:
-- `Use native hook restart`
-  Enables `Native hook` mode.
+Important items:
+- `Scan Hotkey`
+  The hotkey used to arm or pause the main scan loop.
 
-- `Min_delay`
+- `Reset Hotkey`
+  The hotkey used by standard keyboard restart mode.
+
+- `Record Hotkey`
+  Starts or stops live player stats recording.
+
+- `Min Reroll Delay (s)`
   The minimum delay between a reroll and the next check cycle.
   If this value is too low, game behavior or reading stability may suffer.
 
-- `Duration Hold Reset`
-  How long the reroll key is held.
+- `Reset Hold Duration (s)`
+  How long the reroll key is held in standard keyboard restart mode.
   If it is too short, rerolls may sometimes fail.
-  If it is too long, the scan may feel slower.
+
+- `Snapshot Interval (s)`
+  How often the app saves a player stats snapshot while recording.
+
+- `Use native hook restart`
+  Enables `Native hook` mode.
 
 
 Config
@@ -130,6 +165,7 @@ This is the file where BonkScanner stores your settings, such as:
 - active templates;
 - `Scores` settings;
 - reroll settings;
+- recording hotkey and snapshot interval;
 - `Native hook` state.
 
 You normally do not need to create this file yourself.
@@ -141,13 +177,14 @@ Best Starting Point
 If you are new to the program:
 - start with `Templates`;
 - use standard mode first;
-- then try `Scores` and `Native hook` if you want more flexibility.
+- then try `Scores`, live recordings, and `Native hook` if you want more flexibility.
 
 
 Short Summary
 -------------
 - `Templates` = strict search
 - `Scores` = flexible evaluation
-- `Session stats` = stats for the current session
-- `Native hook` = alternate mode that can keep working while alt-tabbed
+- `Session stats` = current-session overview
+- `Live Stats` = real-time player stats and recording
+- `Native hook` = alternate restart mode that can work better in the background
 - `config.json` = the file where the program stores your settings

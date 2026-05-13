@@ -16,7 +16,7 @@ This document serves as a comprehensive guide for the Megabonk Reroll project. I
 
 ## 🛠 Tech Stack
 - **Language:** Python 3.12+
-- **UI Framework:** `customtkinter` (modern look for Tkinter).
+- **UI Framework:** `PySide6` (Qt widgets with a dark stylesheet-driven interface).
 - **Memory Access:** `pymem` for process attachment and memory reading.
 - **Automation:** `keyboard` for simulating key presses (requires Admin rights).
 - **Other Libs:** `Pillow` (icons), `pywin32` (window focus detection).
