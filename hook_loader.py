@@ -120,6 +120,8 @@ class NativeHookLoader:
         base_path: str | os.PathLike[str] | None = None,
     ) -> None:
         self.process_name = process_name
+        self._dll_path_override = dll_path
+        self._base_path = base_path
         self.dll_path = self.resolve_dll_path(dll_path=dll_path, base_path=base_path)
         self._injected_pids: set[int] = set()
         self._operation_lock = threading.RLock()
@@ -215,6 +217,7 @@ class NativeHookLoader:
 
     def inject_once(self) -> HookLoadResult:
         with self._operation_lock:
+            self._refresh_missing_default_dll_path()
             if not self.dll_path.exists():
                 raise HookLoadError(f"Native hook DLL was not found: {self.dll_path}")
 
@@ -234,6 +237,11 @@ class NativeHookLoader:
             self._inject_into_pid(pid)
             self._injected_pids.add(pid)
             return HookLoadResult(pid=pid, dll_path=self.dll_path, initialized=True)
+
+    def _refresh_missing_default_dll_path(self) -> None:
+        if self.dll_path.exists() or getattr(self, "_dll_path_override", None):
+            return
+        self.dll_path = self.resolve_dll_path(base_path=getattr(self, "_base_path", None))
 
     def request_restart_run(self) -> HookLoadResult:
         with self._operation_lock:
