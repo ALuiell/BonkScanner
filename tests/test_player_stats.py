@@ -7,6 +7,7 @@ from player_stats import (
     PlayerStatsClient,
     PlayerStatFormat,
     PlayerStatsTimeline,
+    calculate_chests_per_minute,
     format_player_stat_value,
 )
 
@@ -133,6 +134,21 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(format_player_stat_value(1.25, PlayerStatFormat.MULTIPLIER), "1.25x")
         self.assertEqual(format_player_stat_value(10.0, PlayerStatFormat.FLAT), "10")
         self.assertEqual(format_player_stat_value(None, PlayerStatFormat.FLAT), "--")
+
+    def test_calculate_chests_per_minute_matches_expected_formula(self) -> None:
+        value = calculate_chests_per_minute(15.0, 2.0)
+
+        self.assertAlmostEqual(value, 1.5424457965)
+
+    def test_calculate_chests_per_minute_returns_zero_for_non_positive_inputs(self) -> None:
+        self.assertEqual(calculate_chests_per_minute(0.0, 2.0), 0.0)
+        self.assertEqual(calculate_chests_per_minute(15.0, 0.0), 0.0)
+
+    def test_calculate_chests_per_minute_caps_elite_chance_at_one(self) -> None:
+        capped = calculate_chests_per_minute(1_000.0, 1.0)
+        expected = calculate_chests_per_minute(1.0 / 0.006, 1.0)
+
+        self.assertAlmostEqual(capped, expected)
 
 
 class PlayerStatsTimelineTests(unittest.TestCase):

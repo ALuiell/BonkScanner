@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from math import isfinite
+from math import isfinite, pi, sqrt
 import time
 from typing import Protocol
 
@@ -97,6 +97,34 @@ class PlayerStatValue:
     @property
     def display_value(self) -> str:
         return format_player_stat_value(self.value, self.spec.value_format)
+
+
+def calculate_chests_per_minute(
+    elite_spawn_increase: float,
+    powerup_drop_chance: float,
+    *,
+    kills_per_second: float = 200.0,
+) -> float:
+    if not all(
+        isfinite(value)
+        for value in (elite_spawn_increase, powerup_drop_chance, kills_per_second)
+    ):
+        return 0.0
+
+    if elite_spawn_increase <= 0.0 or powerup_drop_chance <= 0.0 or kills_per_second <= 0.0:
+        return 0.0
+
+    elite_chance = min(elite_spawn_increase * 0.006, 1.0)
+    elite_drop_multiplier = 1.0 + elite_chance
+    chest_chance_per_kill = 0.001 * powerup_drop_chance * elite_drop_multiplier
+    max_chest_rate_per_second = kills_per_second * chest_chance_per_kill
+    if max_chest_rate_per_second <= 0.0:
+        return 0.0
+
+    average_seconds_per_chest = sqrt((pi * 420.0) / (2.0 * max_chest_rate_per_second))
+    if average_seconds_per_chest <= 0.0:
+        return 0.0
+    return 60.0 / average_seconds_per_chest
 
 
 @dataclass(frozen=True)

@@ -232,6 +232,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_status_label = None
         app.player_stats_rows = {}
         app.player_stats_items_label = None
+        app.player_stats_chests_per_minute_label = None
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app.display_player_stats = lambda *args, **kwargs: None

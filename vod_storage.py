@@ -12,7 +12,7 @@ import config
 from player_stats import PlayerStatValue
 
 
-VOD_FORMAT_VERSION = 1
+VOD_FORMAT_VERSION = 2
 RECORDINGS_DIR = Path(config.application_path) / "stats_recordings"
 LEGACY_VODS_DIR = Path(config.application_path) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -30,6 +30,7 @@ class VodSnapshot:
     captured_at: float
     stats: dict[str, VodStatValue]
     items: tuple[str, ...] = ()
+    chests_per_minute: float | None = None
 
     @property
     def time_label(self) -> str:
@@ -149,6 +150,8 @@ class VodRecorder:
         self,
         stats: dict[str, PlayerStatValue],
         items: tuple[str, ...] = (),
+        *,
+        chests_per_minute: float | None = None,
     ) -> VodSnapshot:
         if not self.is_recording or self._file is None:
             raise RuntimeError("VOD recorder is not active.")
@@ -162,6 +165,7 @@ class VodRecorder:
                 for label, stat in stats.items()
             },
             items=tuple(items),
+            chests_per_minute=chests_per_minute,
         )
         self._write_record(_snapshot_to_record(snapshot))
         self.last_snapshot_time = now
@@ -390,6 +394,7 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
             for label, stat in snapshot.stats.items()
         },
         "items": list(snapshot.items),
+        "chests_per_minute": snapshot.chests_per_minute,
     }
 
 
@@ -407,7 +412,15 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
             if isinstance(value, dict)
         },
         items=tuple(str(item) for item in record.get("items") or ()),
+        chests_per_minute=_coerce_optional_float(record.get("chests_per_minute")),
     )
+
+
+def _coerce_optional_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _unique_path(path: Path) -> Path:

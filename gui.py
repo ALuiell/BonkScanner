@@ -66,7 +66,7 @@ import updater
 from game_data import GameDataClient
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
-from player_stats import PLAYER_STAT_GROUPS, PlayerStatsClient
+from player_stats import PLAYER_STAT_GROUPS, PlayerStatsClient, calculate_chests_per_minute
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
 from vod_storage import VodRecorder, delete_vod, list_vods, load_vod, rename_vod
@@ -1401,6 +1401,7 @@ class MegabonkApp:
         self.player_stats_timeline_label = None
         self.player_stats_rows = {}
         self.player_stats_items_label = None
+        self.player_stats_chests_per_minute_label = None
         self.vods_list_frame = None
         self.vods_status_label = None
         self.vods_name_entry = None
@@ -1410,6 +1411,7 @@ class MegabonkApp:
         self.vods_slider_time_label = None
         self.vods_rows = {}
         self.vods_items_label = None
+        self.vods_chests_per_minute_label = None
         self.status_label = None
         self.toggle_btn = None
         self.logo_label = None
@@ -1790,6 +1792,11 @@ class MegabonkApp:
         self.player_stats_items_label.setWordWrap(True)
         items_layout.addWidget(self.player_stats_items_label)
         player_content_layout.addWidget(items_group)
+        chest_rate_group = QGroupBox("Chest Rate")
+        chest_rate_layout = QVBoxLayout(chest_rate_group)
+        self.player_stats_chests_per_minute_label = QLabel("Average chests/min: --")
+        chest_rate_layout.addWidget(self.player_stats_chests_per_minute_label)
+        player_content_layout.addWidget(chest_rate_group)
         for group in PLAYER_STAT_GROUPS:
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
@@ -1838,6 +1845,11 @@ class MegabonkApp:
         self.vods_items_label.setWordWrap(True)
         vod_items_layout.addWidget(self.vods_items_label)
         vods_detail_layout.addWidget(vod_items_group)
+        vod_chest_rate_group = QGroupBox("Chest Rate")
+        vod_chest_rate_layout = QVBoxLayout(vod_chest_rate_group)
+        self.vods_chests_per_minute_label = QLabel("Average chests/min: --")
+        vod_chest_rate_layout.addWidget(self.vods_chests_per_minute_label)
+        vods_detail_layout.addWidget(vod_chest_rate_group)
         vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()
         for group in PLAYER_STAT_GROUPS:
             stat_group = QFrame()
@@ -2268,15 +2280,22 @@ class MegabonkApp:
             for label in self.player_stats_rows.values():
                 _set_text(label, "--")
             _set_text(self.player_stats_items_label, "--")
+            _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
         except Exception as exc:
             self.close_player_stats_client()
             _set_text(self.player_stats_status_label, f"Player stats unavailable: {exc}")
             for label in self.player_stats_rows.values():
                 _set_text(label, "--")
             _set_text(self.player_stats_items_label, "--")
+            _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
         else:
+            chests_per_minute = self.calculate_player_chests_per_minute(stats)
             if self.player_stats_vod_recorder.should_capture():
-                snapshot = self.player_stats_vod_recorder.capture(stats, items)
+                snapshot = self.player_stats_vod_recorder.capture(
+                    stats,
+                    items,
+                    chests_per_minute=chests_per_minute,
+                )
                 self.player_stats_vod_snapshots.append(snapshot)
                 self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
                 self.refresh_player_stats_timeline_ui()
@@ -2289,7 +2308,12 @@ class MegabonkApp:
                     if recording_state_action != "stopped"
                     else "Live player stats (recording auto-stopped after run end)"
                 )
-                self.display_player_stats(stats, items, status_text=status_text)
+                self.display_player_stats(
+                    stats,
+                    items,
+                    status_text=status_text,
+                    chests_per_minute=chests_per_minute,
+                )
 
         self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
 
@@ -2303,7 +2327,7 @@ class MegabonkApp:
             self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
         return self.player_stats_game_data_client.get_map_generation_state().map_seed
 
-    def display_player_stats(self, stats, items=(), *, status_text: str | None = None):
+    def display_player_stats(self, stats, items=(), *, status_text: str | None = None, chests_per_minute: float | None = None):
         if status_text:
             _set_text(self.player_stats_status_label, status_text)
         for label, stat in stats.items():
@@ -2311,6 +2335,12 @@ class MegabonkApp:
             if value_label is not None:
                 _set_text(value_label, stat.display_value)
         _set_text(self.player_stats_items_label, self.format_items(items))
+        if chests_per_minute is None:
+            chests_per_minute = self.calculate_player_chests_per_minute(stats)
+        _set_text(
+            self.player_stats_chests_per_minute_label,
+            self.format_chests_per_minute(chests_per_minute),
+        )
 
     def display_player_stats_snapshot(self, snapshot):
         index = self.player_stats_vod_snapshots.index(snapshot) + 1
@@ -2319,6 +2349,7 @@ class MegabonkApp:
             snapshot.stats,
             snapshot.items,
             status_text=f"Recorded snapshot {index}/{total} at {snapshot.time_label}",
+            chests_per_minute=self.resolve_snapshot_chests_per_minute(snapshot),
         )
 
     def toggle_player_stats_recording(self):
@@ -2337,7 +2368,11 @@ class MegabonkApp:
                 self.close_player_stats_client()
                 _set_text(self.player_stats_status_label, f"Recording stats; player stats unavailable: {exc}")
             else:
-                snapshot = self.player_stats_vod_recorder.capture(stats, items)
+                snapshot = self.player_stats_vod_recorder.capture(
+                    stats,
+                    items,
+                    chests_per_minute=self.calculate_player_chests_per_minute(stats),
+                )
                 self.player_stats_vod_snapshots.append(snapshot)
                 self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
                 self.display_player_stats_snapshot(snapshot)
@@ -2388,12 +2423,14 @@ class MegabonkApp:
                 for label in self.player_stats_rows.values():
                     _set_text(label, "--")
                 _set_text(self.player_stats_items_label, "--")
+                _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
             except Exception as exc:
                 self.close_player_stats_client()
                 _set_text(self.player_stats_status_label, f"Player stats unavailable: {exc}")
                 for label in self.player_stats_rows.values():
                     _set_text(label, "--")
                 _set_text(self.player_stats_items_label, "--")
+                _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
             else:
                 self.display_player_stats(stats, items, status_text="Live player stats")
         self._refresh_vods_list_if_visible()
@@ -2583,6 +2620,7 @@ class MegabonkApp:
                 _set_text(label, "--")
             _set_text(self.vods_slider_time_label, "Timeline: --")
             _set_text(self.vods_items_label, "--")
+            _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
 
     def display_loaded_vod_snapshot(self, index: int):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
@@ -2604,6 +2642,10 @@ class MegabonkApp:
                     stat = snapshot.stats.get(spec.label)
                     _set_text(value_label, stat.display_value if stat is not None else "--")
         _set_text(self.vods_items_label, self.format_items(snapshot.items))
+        _set_text(
+            self.vods_chests_per_minute_label,
+            self.format_chests_per_minute(self.resolve_snapshot_chests_per_minute(snapshot)),
+        )
 
     def on_vods_slider_changed(self, value):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
@@ -2650,6 +2692,7 @@ class MegabonkApp:
         for label in self.vods_rows.values():
             _set_text(label, "--")
         _set_text(self.vods_items_label, "--")
+        _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
         self.refresh_vods_list()
 
     @staticmethod
@@ -2665,6 +2708,29 @@ class MegabonkApp:
         if not items:
             return "--"
         return ", ".join(items)
+
+    @staticmethod
+    def calculate_player_chests_per_minute(stats) -> float | None:
+        elite_stat = stats.get("Elite Spawn Increase")
+        powerup_stat = stats.get("Powerup Drop Chance")
+        elite_spawn_increase = getattr(elite_stat, "value", None)
+        powerup_drop_chance = getattr(powerup_stat, "value", None)
+        if elite_spawn_increase is None or powerup_drop_chance is None:
+            return None
+        return calculate_chests_per_minute(elite_spawn_increase, powerup_drop_chance)
+
+    @classmethod
+    def resolve_snapshot_chests_per_minute(cls, snapshot) -> float | None:
+        stored_value = getattr(snapshot, "chests_per_minute", None)
+        if stored_value is not None:
+            return stored_value
+        return cls.calculate_player_chests_per_minute(snapshot.stats)
+
+    @staticmethod
+    def format_chests_per_minute(value: float | None) -> str:
+        if value is None:
+            return "Average chests/min: --"
+        return f"Average chests/min: {value:.2f}"
 
     def refresh_stats_ui(self):
         _set_text(self.stats_rerolls_label, f"Session Rerolls: {self.session_rerolls}")
