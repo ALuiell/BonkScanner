@@ -884,6 +884,33 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIsNone(app.player_stats_recording_seed)
         self.assertIn("auto-stopped", app.log_messages[0][0])
 
+    def test_update_player_stats_timer_auto_stops_recording_when_game_is_closed(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.after_calls = []
+        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        app.player_stats_recording_seed = 111
+        app.player_stats_game_data_client = FakeSeedStateClient([None, None])
+
+        def failing_read_player_stats() -> tuple[dict[str, object], tuple[()]]:
+            raise gui.ProcessNotFoundError("game closed")
+
+        app.read_player_stats = failing_read_player_stats
+
+        with patch.object(gui.time, "monotonic", return_value=100.0):
+            gui.MegabonkApp.update_player_stats_timer(app)
+
+        with patch.object(
+            gui.time,
+            "monotonic",
+            return_value=100.0 + gui.PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
+        ):
+            gui.MegabonkApp.update_player_stats_timer(app)
+
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
+        self.assertFalse(app.player_stats_vod_recorder.is_recording)
+        self.assertEqual(len(app.after_calls), 2)
+
     def test_on_closing_detaches_native_hooks_and_invalidates_worker(self) -> None:
         loader = FakeDetachLoader()
         logs: list[tuple[str, str | None]] = []

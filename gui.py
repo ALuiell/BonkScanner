@@ -2243,6 +2243,7 @@ class MegabonkApp:
         if self._is_shutting_down:
             return
 
+        recording_state_action = self._sync_player_stats_recording_run_state()
         try:
             stats, items = self.read_player_stats()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
@@ -2258,7 +2259,6 @@ class MegabonkApp:
                 _set_text(label, "--")
             _set_text(self.player_stats_items_label, "--")
         else:
-            recording_state_action = self._sync_player_stats_recording_run_state()
             if self.player_stats_vod_recorder.should_capture():
                 snapshot = self.player_stats_vod_recorder.capture(stats, items)
                 self.player_stats_vod_snapshots.append(snapshot)
