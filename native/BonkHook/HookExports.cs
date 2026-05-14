@@ -26,13 +26,18 @@ internal static unsafe class HookExports
     private const int MapGenerationIsGeneratingOffset = 0x10;
     private const int SaveManagerConfigOffset = 0x20;
     private const int ConfigSaveFileGameSettingsOffset = 0x18;
+    private const int ConfigSaveFileVisualsSettingsOffset = 0x38;
     private const int CFGameSettingsAutoSelectUpgradesOffset = 0x68;
     private const int CFGameSettingsSkipChestAnimationOffset = 0x78;
+    private const int CFVisualsSettingsParticleOpacityOffset = 0x1C;
     private const int MH_OK = 0;
     private const int MH_ERROR_ALREADY_INITIALIZED = 1;
     private const int MH_ERROR_ENABLED = 5;
     private const int ToggleSettingSkipChestAnimation = 1;
     private const int ToggleSettingAutoSelectUpgrades = 2;
+    private const int ToggleSettingParticlesOpacity = 3;
+    private const float ParticlesOpacityEnabledValue = 0.5f;
+    private const float ParticlesOpacityDisabledValue = 0.0f;
 
     private static readonly byte[] ExpectedAlwaysManagerUpdateBytes =
     [
@@ -53,6 +58,7 @@ internal static unsafe class HookExports
     private static IntPtr _il2CppGetCorlib;
     private static IntPtr _il2CppClassFromName;
     private static IntPtr _systemInt32Class;
+    private static IntPtr _systemSingleClass;
     private static int _installed;
     private static int _restartRunRequested;
     private static int _snapshotReady;
@@ -194,6 +200,12 @@ internal static unsafe class HookExports
         return QueueToggleSetting(ToggleSettingAutoSelectUpgrades);
     }
 
+    [UnmanagedCallersOnly(EntryPoint = "ToggleParticlesOpacity")]
+    public static uint ToggleParticlesOpacity(IntPtr _)
+    {
+        return QueueToggleSetting(ToggleSettingParticlesOpacity);
+    }
+
     [UnmanagedCallersOnly]
     private static void AlwaysManagerUpdateHook(IntPtr instance, IntPtr method)
     {
@@ -307,10 +319,35 @@ internal static unsafe class HookExports
             return 131;
         }
 
+        if (toggleKind == ToggleSettingParticlesOpacity)
+        {
+            IntPtr visualsSettings = *(IntPtr*)((byte*)config + ConfigSaveFileVisualsSettingsOffset);
+            if (visualsSettings == IntPtr.Zero)
+            {
+                return 132;
+            }
+
+            float currentOpacity = *(float*)((byte*)visualsSettings + CFVisualsSettingsParticleOpacityOffset);
+            bool enableParticles = currentOpacity <= 0.0f;
+            float toggledOpacity = enableParticles ? ParticlesOpacityEnabledValue : ParticlesOpacityDisabledValue;
+            IntPtr boxedValue = BoxSingle(toggledOpacity);
+            if (boxedValue != IntPtr.Zero && TryUpdateSettingThroughCurrentSettings(toggleKind, visualsSettings, boxedValue))
+            {
+                SaveConfig(saveManager);
+            }
+            else
+            {
+                *(float*)((byte*)visualsSettings + CFVisualsSettingsParticleOpacityOffset) = toggledOpacity;
+                SaveConfig(saveManager);
+            }
+
+            return enableParticles ? 1 : 2;
+        }
+
         IntPtr gameSettings = *(IntPtr*)((byte*)config + ConfigSaveFileGameSettingsOffset);
         if (gameSettings == IntPtr.Zero)
         {
-            return 132;
+            return 133;
         }
 
         int fieldOffset = toggleKind switch
@@ -321,12 +358,13 @@ internal static unsafe class HookExports
         };
         if (fieldOffset == 0)
         {
-            return 133;
+            return 134;
         }
 
         int currentValue = *(int*)((byte*)gameSettings + fieldOffset);
         int toggledValue = currentValue == 0 ? 1 : 0;
-        if (TryUpdateSettingThroughCurrentSettings(toggleKind, gameSettings, toggledValue))
+        IntPtr boxedIntValue = BoxInt32(toggledValue);
+        if (boxedIntValue != IntPtr.Zero && TryUpdateSettingThroughCurrentSettings(toggleKind, gameSettings, boxedIntValue))
         {
             SaveConfig(saveManager);
         }
@@ -339,7 +377,7 @@ internal static unsafe class HookExports
         return toggledValue != 0 ? 1 : 2;
     }
 
-    private static bool TryUpdateSettingThroughCurrentSettings(int toggleKind, IntPtr gameSettings, int toggledValue)
+    private static bool TryUpdateSettingThroughCurrentSettings(int toggleKind, IntPtr settingsObject, IntPtr boxedValue)
     {
         IntPtr gameAssembly = ResolveGameAssembly();
         if (gameAssembly == IntPtr.Zero)
@@ -365,7 +403,6 @@ internal static unsafe class HookExports
             return false;
         }
 
-        IntPtr boxedValue = BoxInt32(toggledValue);
         if (boxedValue == IntPtr.Zero)
         {
             return false;
@@ -379,7 +416,7 @@ internal static unsafe class HookExports
         }
 
         var betterUpdateFunc = (delegate* unmanaged<IntPtr, IntPtr, IntPtr, IntPtr, IntPtr, void>)betterUpdate;
-        betterUpdateFunc(currentSettings, settingName, boxedValue, gameSettings, methodInfo);
+        betterUpdateFunc(currentSettings, settingName, boxedValue, settingsObject, methodInfo);
         return true;
     }
 
@@ -414,6 +451,7 @@ internal static unsafe class HookExports
         {
             ToggleSettingSkipChestAnimation => "skip_chest_animation"u8,
             ToggleSettingAutoSelectUpgrades => "auto_select_upgrades"u8,
+            ToggleSettingParticlesOpacity => "particle_opacity"u8,
             _ => default,
         };
         if (name.IsEmpty)
@@ -493,6 +531,65 @@ internal static unsafe class HookExports
 
         _systemInt32Class = int32Class;
         return int32Class;
+    }
+
+    private static IntPtr BoxSingle(float value)
+    {
+        IntPtr singleClass = GetSystemSingleClass();
+        if (singleClass == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        IntPtr valueBox = ResolveIl2CppExport(ref _il2CppValueBox, "il2cpp_value_box");
+        if (valueBox == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        float valueToBox = value;
+        var valueBoxFunc = (delegate* unmanaged<IntPtr, void*, IntPtr>)valueBox;
+        return valueBoxFunc(singleClass, &valueToBox);
+    }
+
+    private static IntPtr GetSystemSingleClass()
+    {
+        IntPtr singleClass = _systemSingleClass;
+        if (singleClass != IntPtr.Zero)
+        {
+            return singleClass;
+        }
+
+        IntPtr getCorlib = ResolveIl2CppExport(ref _il2CppGetCorlib, "il2cpp_get_corlib");
+        IntPtr classFromName = ResolveIl2CppExport(ref _il2CppClassFromName, "il2cpp_class_from_name");
+        if (getCorlib == IntPtr.Zero || classFromName == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        var getCorlibFunc = (delegate* unmanaged<IntPtr>)getCorlib;
+        IntPtr corlib = getCorlibFunc();
+        if (corlib == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        ReadOnlySpan<byte> namespaceName = "System"u8;
+        ReadOnlySpan<byte> className = "Single"u8;
+        Span<byte> nullTerminatedNamespace = stackalloc byte[namespaceName.Length + 1];
+        Span<byte> nullTerminatedClassName = stackalloc byte[className.Length + 1];
+        namespaceName.CopyTo(nullTerminatedNamespace);
+        className.CopyTo(nullTerminatedClassName);
+
+        fixed (byte* namespacePtr = nullTerminatedNamespace)
+        fixed (byte* classNamePtr = nullTerminatedClassName)
+        {
+            var classFromNameFunc = (delegate* unmanaged<IntPtr, byte*, byte*, IntPtr>)classFromName;
+            singleClass = classFromNameFunc(corlib, namespacePtr, classNamePtr);
+        }
+
+        _systemSingleClass = singleClass;
+        return singleClass;
     }
 
     private static IntPtr GetSaveManagerInstance()
@@ -635,6 +732,7 @@ internal static unsafe class HookExports
         _il2CppGetCorlib = IntPtr.Zero;
         _il2CppClassFromName = IntPtr.Zero;
         _systemInt32Class = IntPtr.Zero;
+        _systemSingleClass = IntPtr.Zero;
     }
 
     private static IntPtr ReadStaticFields(IntPtr gameAssembly, nuint typeInfoOffset)

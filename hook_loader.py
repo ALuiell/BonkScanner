@@ -277,6 +277,9 @@ class NativeHookLoader:
     def toggle_auto_select_upgrades(self) -> bool:
         return self._invoke_toggle_export(b"ToggleAutoSelectUpgrades", "Auto Select Upgrades")
 
+    def toggle_particles_opacity(self) -> bool:
+        return self._invoke_toggle_export(b"ToggleParticlesOpacity", "Particles Opacity")
+
     def cleanup_cached_dll(self) -> None:
         with self._operation_lock:
             dll_path = self.dll_path

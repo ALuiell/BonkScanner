@@ -4,6 +4,7 @@ import types
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import gui
@@ -118,6 +119,35 @@ class FakeKeyboardModule:
         self.unhook_all_calls += 1
 
 
+class FakeRecordingRecorder:
+    def __init__(self, *, is_recording: bool = True) -> None:
+        self.is_recording = is_recording
+        self.start_calls: list[dict[str, object]] = []
+        self.stop_calls = 0
+
+    def start(self, *, name: str | None = None, seed: int | None = None) -> Path:
+        self.is_recording = True
+        self.start_calls.append({"name": name, "seed": seed})
+        return Path(f"recording-{len(self.start_calls)}.jsonl")
+
+    def stop(self) -> None:
+        self.is_recording = False
+        self.stop_calls += 1
+
+
+class FakeSeedStateClient:
+    def __init__(self, seeds: list[int | None]) -> None:
+        self.seeds = list(seeds)
+        self.close_calls = 0
+
+    def get_map_generation_state(self) -> SimpleNamespace:
+        seed = self.seeds.pop(0) if self.seeds else None
+        return SimpleNamespace(map_seed=seed)
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
 class FakeCtypesFunction:
     def __init__(self, callback):
         self.callback = callback
@@ -191,6 +221,26 @@ class FakeForegroundProcess:
 
 
 class GuiRunControlTests(unittest.TestCase):
+    def build_recording_app(self) -> gui.MegabonkApp:
+        app = object.__new__(gui.MegabonkApp)
+        app.player_stats_vod_recorder = FakeRecordingRecorder()
+        app.player_stats_vod_snapshots = ["snapshot"]
+        app.player_stats_selected_snapshot_index = 0
+        app.player_stats_recording_seed = None
+        app.player_stats_recording_seed_missing_since = None
+        app.player_stats_game_data_client = None
+        app.player_stats_status_label = None
+        app.player_stats_rows = {}
+        app.player_stats_items_label = None
+        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
+        app._refresh_vods_list_if_visible = lambda: None
+        app.display_player_stats = lambda *args, **kwargs: None
+        app.close_player_stats_client = lambda: None
+        app.read_player_stats = lambda: ({}, ())
+        app.log_messages = []
+        app.log = lambda message, tag=None: app.log_messages.append((message, tag))
+        return app
+
     def setUp(self) -> None:
         self.original_config_values = {
             "HOTKEY": gui.config.HOTKEY,
@@ -200,6 +250,7 @@ class GuiRunControlTests(unittest.TestCase):
             "RESET_HOLD_DURATION": gui.config.RESET_HOLD_DURATION,
             "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY": gui.config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY,
             "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY": gui.config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
+            "TOGGLE_PARTICLES_OPACITY_HOTKEY": gui.config.TOGGLE_PARTICLES_OPACITY_HOTKEY,
             "NATIVE_HOOK_ENABLED": gui.config.NATIVE_HOOK_ENABLED,
             "TOTAL_REROLLS": gui.config.TOTAL_REROLLS,
         }
@@ -220,6 +271,7 @@ class GuiRunControlTests(unittest.TestCase):
             record_hotkey_entry=FakeEntry("f8"),
             toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
             toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
+            toggle_particles_opacity_hotkey_entry=FakeEntry("f7"),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
@@ -285,6 +337,7 @@ class GuiRunControlTests(unittest.TestCase):
             record_hotkey_entry=FakeEntry("f8"),
             toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
             toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
+            toggle_particles_opacity_hotkey_entry=FakeEntry("f7"),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
@@ -629,6 +682,19 @@ class GuiRunControlTests(unittest.TestCase):
         toggle_setting.assert_called_once_with()
         self.assertIn(("[+] Skip Chest Animation: ON", "success"), logs)
 
+    def test_toggle_game_setting_supports_particles_opacity(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.native_hook_loader = types.SimpleNamespace(toggle_particles_opacity=lambda: True)
+        app.log = lambda message, tag=None: logs.append((message, tag))
+
+        with patch.object(app.native_hook_loader, "toggle_particles_opacity", return_value=False) as toggle_setting:
+            changed = gui.MegabonkApp.toggle_game_setting(app, "particle_opacity", "Particles Opacity")
+
+        self.assertTrue(changed)
+        toggle_setting.assert_called_once_with()
+        self.assertIn(("[+] Particles Opacity: OFF", "success"), logs)
+
     def test_setup_hotkeys_registers_game_setting_hotkeys(self) -> None:
         fake_keyboard = FakeKeyboardModule()
         logs: list[tuple[str, str | None]] = []
@@ -638,17 +704,19 @@ class GuiRunControlTests(unittest.TestCase):
         app.hotkey_toggle_player_stats_recording = lambda: None
         app.hotkey_toggle_skip_chest_animation = lambda: None
         app.hotkey_toggle_auto_select_upgrades = lambda: None
+        app.hotkey_toggle_particles_opacity = lambda: None
 
         with patch.object(gui, "keyboard", fake_keyboard):
             with patch.object(gui.config, "HOTKEY", "f6"):
                 with patch.object(gui.config, "PLAYER_STATS_RECORD_HOTKEY", "f8"):
                     with patch.object(gui.config, "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11"):
                         with patch.object(gui.config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10"):
-                            gui.MegabonkApp.setup_hotkeys(app)
+                            with patch.object(gui.config, "TOGGLE_PARTICLES_OPACITY_HOTKEY", "f7"):
+                                gui.MegabonkApp.setup_hotkeys(app)
 
         self.assertEqual(fake_keyboard.unhook_all_calls, 1)
         registered_hotkeys = [hotkey for hotkey, _callback in fake_keyboard.add_hotkey_calls]
-        self.assertEqual(registered_hotkeys, ["f6", "f8", "f11", "f10"])
+        self.assertEqual(registered_hotkeys, ["f6", "f8", "f11", "f10", "f7"])
         self.assertEqual(logs, [])
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:
@@ -797,6 +865,69 @@ class GuiRunControlTests(unittest.TestCase):
             gui.MegabonkApp.background_loop(app)
 
         self.assertEqual(app.client.get_map_stats_calls, 0)
+
+    def test_recording_run_state_split_starts_new_file_when_seed_changes(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_recording_seed = 111
+        app.player_stats_game_data_client = FakeSeedStateClient([222])
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertEqual(action, "split")
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [{"name": None, "seed": 222}])
+        self.assertEqual(app.player_stats_recording_seed, 222)
+        self.assertEqual(app.player_stats_vod_snapshots, [])
+        self.assertIn("auto-split", app.log_messages[0][0])
+
+    def test_recording_run_state_stops_after_seed_missing_grace_period(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_recording_seed = 111
+        app.player_stats_game_data_client = FakeSeedStateClient([None, None])
+
+        with patch.object(gui.time, "monotonic", return_value=100.0):
+            first_action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        with patch.object(
+            gui.time,
+            "monotonic",
+            return_value=100.0 + gui.PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
+        ):
+            second_action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertIsNone(first_action)
+        self.assertEqual(second_action, "stopped")
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
+        self.assertFalse(app.player_stats_vod_recorder.is_recording)
+        self.assertIsNone(app.player_stats_recording_seed)
+        self.assertIn("auto-stopped", app.log_messages[0][0])
+
+    def test_update_player_stats_timer_auto_stops_recording_when_game_is_closed(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.after_calls = []
+        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        app.player_stats_recording_seed = 111
+        app.player_stats_game_data_client = FakeSeedStateClient([None, None])
+
+        def failing_read_player_stats() -> tuple[dict[str, object], tuple[()]]:
+            raise gui.ProcessNotFoundError("game closed")
+
+        app.read_player_stats = failing_read_player_stats
+
+        with patch.object(gui.time, "monotonic", return_value=100.0):
+            gui.MegabonkApp.update_player_stats_timer(app)
+
+        with patch.object(
+            gui.time,
+            "monotonic",
+            return_value=100.0 + gui.PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
+        ):
+            gui.MegabonkApp.update_player_stats_timer(app)
+
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
+        self.assertFalse(app.player_stats_vod_recorder.is_recording)
+        self.assertEqual(len(app.after_calls), 2)
 
     def test_on_closing_detaches_native_hooks_and_invalidates_worker(self) -> None:
         loader = FakeDetachLoader()

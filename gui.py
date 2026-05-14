@@ -89,6 +89,7 @@ KOFI_SUPPORT_URL = "https://ko-fi.com/s/34dc062a82"
 PATREON_ICON_PATH = "media/patreon_logo.svg"
 KOFI_ICON_PATH = "media/kofi_logo.svg"
 PLAYER_STATS_REFRESH_MS = 10_000
+PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
 PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
 PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
 PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
@@ -897,8 +898,12 @@ class SettingsDialog(QDialog):
         self.toggle_auto_select_upgrades_hotkey_entry = QLineEdit(
             getattr(config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10")
         )
+        self.toggle_particles_opacity_hotkey_entry = QLineEdit(
+            getattr(config, "TOGGLE_PARTICLES_OPACITY_HOTKEY", "f7")
+        )
         form_layout.addRow("Toggle Chest Skip Hotkey:", self.toggle_skip_chest_animation_hotkey_entry)
         form_layout.addRow("Toggle Auto Select Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)
+        form_layout.addRow("Toggle Particles Opacity Hotkey:", self.toggle_particles_opacity_hotkey_entry)
 
         self.min_delay_entry = QLineEdit(str(config.MIN_DELAY))
         self.map_load_delay_entry = self.min_delay_entry
@@ -1012,6 +1017,7 @@ class SettingsDialog(QDialog):
         new_record_hotkey = _read_text(self.record_hotkey_entry).strip()
         new_toggle_skip_chest_animation_hotkey = _read_text(self.toggle_skip_chest_animation_hotkey_entry).strip()
         new_toggle_auto_select_upgrades_hotkey = _read_text(self.toggle_auto_select_upgrades_hotkey_entry).strip()
+        new_toggle_particles_opacity_hotkey = _read_text(self.toggle_particles_opacity_hotkey_entry).strip()
         native_hook_enabled = _read_bool(self.native_hook_enabled_var)
 
         config.user_config["HOTKEY"] = new_hotkey
@@ -1019,6 +1025,7 @@ class SettingsDialog(QDialog):
         config.user_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
         config.user_config["TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY"] = new_toggle_skip_chest_animation_hotkey
         config.user_config["TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY"] = new_toggle_auto_select_upgrades_hotkey
+        config.user_config["TOGGLE_PARTICLES_OPACITY_HOTKEY"] = new_toggle_particles_opacity_hotkey
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
 
         config.HOTKEY = new_hotkey
@@ -1026,6 +1033,7 @@ class SettingsDialog(QDialog):
         config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
         config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY = new_toggle_skip_chest_animation_hotkey
         config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY = new_toggle_auto_select_upgrades_hotkey
+        config.TOGGLE_PARTICLES_OPACITY_HOTKEY = new_toggle_particles_opacity_hotkey
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
 
         delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
@@ -1412,11 +1420,14 @@ class MegabonkApp:
         self.scanner_thread = None
         self.client = None
         self.player_stats_client = None
+        self.player_stats_game_data_client = None
         self.player_stats_vod_recorder = VodRecorder(
             interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 60),
         )
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
+        self.player_stats_recording_seed = None
+        self.player_stats_recording_seed_missing_since = None
         self.loaded_vod = None
         self.loaded_vod_snapshot_index = None
         self.native_hook_loader = None
@@ -2032,6 +2043,8 @@ class MegabonkApp:
                 toggled = loader.toggle_skip_chest_animation()
             elif setting_key == "auto_select_upgrades":
                 toggled = loader.toggle_auto_select_upgrades()
+            elif setting_key == "particle_opacity":
+                toggled = loader.toggle_particles_opacity()
             else:
                 self.log(f"[WAIT] Unsupported game setting toggle: {label}", tag="warning")
                 return False
@@ -2056,6 +2069,10 @@ class MegabonkApp:
                 keyboard.add_hotkey(
                     config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
                     self.hotkey_toggle_auto_select_upgrades,
+                )
+                keyboard.add_hotkey(
+                    config.TOGGLE_PARTICLES_OPACITY_HOTKEY,
+                    self.hotkey_toggle_particles_opacity,
                 )
             except Exception as exc:
                 self.log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
@@ -2092,6 +2109,9 @@ class MegabonkApp:
 
     def hotkey_toggle_auto_select_upgrades(self):
         self.after(0, partial(self.toggle_game_setting, "auto_select_upgrades", "Auto Select LevelUp Upgrades"))
+
+    def hotkey_toggle_particles_opacity(self):
+        self.after(0, partial(self.toggle_game_setting, "particle_opacity", "Particles Opacity"))
 
     def update_status_ui(self):
         if self.status_label is None or self.toggle_btn is None:
@@ -2239,6 +2259,7 @@ class MegabonkApp:
         if self._is_shutting_down:
             return
 
+        recording_state_action = self._sync_player_stats_recording_run_state()
         try:
             stats, items = self.read_player_stats()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
@@ -2263,7 +2284,12 @@ class MegabonkApp:
                 self.display_player_stats_snapshot(snapshot)
             elif not self.player_stats_vod_recorder.is_recording:
                 self.player_stats_selected_snapshot_index = None
-                self.display_player_stats(stats, items, status_text="Live player stats")
+                status_text = (
+                    "Live player stats"
+                    if recording_state_action != "stopped"
+                    else "Live player stats (recording auto-stopped after run end)"
+                )
+                self.display_player_stats(stats, items, status_text=status_text)
 
         self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
 
@@ -2271,6 +2297,11 @@ class MegabonkApp:
         if self.player_stats_client is None:
             self.player_stats_client = PlayerStatsClient(config.PROCESS_NAME)
         return self.player_stats_client.get_player_stats(), self.player_stats_client.get_passive_items()
+
+    def read_player_stats_recording_seed(self) -> int | None:
+        if self.player_stats_game_data_client is None:
+            self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
+        return self.player_stats_game_data_client.get_map_generation_state().map_seed
 
     def display_player_stats(self, stats, items=(), *, status_text: str | None = None):
         if status_text:
@@ -2292,31 +2323,10 @@ class MegabonkApp:
 
     def toggle_player_stats_recording(self):
         if self.player_stats_vod_recorder.is_recording:
-            self.player_stats_vod_recorder.stop()
-            self.log("[*] Player stats recording stopped.")
-            self.player_stats_vod_snapshots = []
-            self.player_stats_selected_snapshot_index = None
-            try:
-                stats, items = self.read_player_stats()
-            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-                self.close_player_stats_client()
-                _set_text(self.player_stats_status_label, "Waiting for game/player stats...")
-                for label in self.player_stats_rows.values():
-                    _set_text(label, "--")
-                _set_text(self.player_stats_items_label, "--")
-            except Exception as exc:
-                self.close_player_stats_client()
-                _set_text(self.player_stats_status_label, f"Player stats unavailable: {exc}")
-                for label in self.player_stats_rows.values():
-                    _set_text(label, "--")
-                _set_text(self.player_stats_items_label, "--")
-            else:
-                self.display_player_stats(stats, items, status_text="Live player stats")
-            self._refresh_vods_list_if_visible()
+            self._stop_player_stats_recording(log_message="[*] Player stats recording stopped.")
         else:
-            vod_path = self.player_stats_vod_recorder.start()
-            self.player_stats_vod_snapshots = []
-            self.player_stats_selected_snapshot_index = None
+            seed = self._read_player_stats_recording_seed_safe()
+            vod_path = self._start_player_stats_recording(seed=seed)
             self.log(f"[*] Player stats recording started: {vod_path.name}", tag="success")
             try:
                 stats, items = self.read_player_stats()
@@ -2335,6 +2345,95 @@ class MegabonkApp:
             self._refresh_vods_list_if_visible()
 
         self.refresh_player_stats_timeline_ui()
+
+    def _read_player_stats_recording_seed_safe(self) -> int | None:
+        try:
+            return self.read_player_stats_recording_seed()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            self.close_player_stats_game_data_client()
+            return None
+        except Exception:
+            self.close_player_stats_game_data_client()
+            return None
+
+    def _start_player_stats_recording(self, *, seed: int | None = None):
+        vod_path = self.player_stats_vod_recorder.start(seed=seed)
+        self.player_stats_vod_snapshots = []
+        self.player_stats_selected_snapshot_index = None
+        self.player_stats_recording_seed = seed
+        self.player_stats_recording_seed_missing_since = None
+        return vod_path
+
+    def _stop_player_stats_recording(
+        self,
+        *,
+        log_message: str | None = None,
+        log_tag: str | None = None,
+        refresh_live_stats: bool = True,
+    ) -> None:
+        self.player_stats_vod_recorder.stop()
+        self.player_stats_vod_snapshots = []
+        self.player_stats_selected_snapshot_index = None
+        self.player_stats_recording_seed = None
+        self.player_stats_recording_seed_missing_since = None
+        self.close_player_stats_game_data_client()
+        if log_message:
+            self.log(log_message, tag=log_tag)
+        if refresh_live_stats:
+            try:
+                stats, items = self.read_player_stats()
+            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+                self.close_player_stats_client()
+                _set_text(self.player_stats_status_label, "Waiting for game/player stats...")
+                for label in self.player_stats_rows.values():
+                    _set_text(label, "--")
+                _set_text(self.player_stats_items_label, "--")
+            except Exception as exc:
+                self.close_player_stats_client()
+                _set_text(self.player_stats_status_label, f"Player stats unavailable: {exc}")
+                for label in self.player_stats_rows.values():
+                    _set_text(label, "--")
+                _set_text(self.player_stats_items_label, "--")
+            else:
+                self.display_player_stats(stats, items, status_text="Live player stats")
+        self._refresh_vods_list_if_visible()
+
+    def _sync_player_stats_recording_run_state(self) -> str | None:
+        if not self.player_stats_vod_recorder.is_recording:
+            return None
+
+        now = time.monotonic()
+        current_seed = self._read_player_stats_recording_seed_safe()
+        if current_seed is None:
+            if self.player_stats_recording_seed_missing_since is None:
+                self.player_stats_recording_seed_missing_since = now
+                return None
+            if now - self.player_stats_recording_seed_missing_since < PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS:
+                return None
+            self._stop_player_stats_recording(
+                log_message="[*] Player stats recording auto-stopped: run seed disappeared.",
+                log_tag="warning",
+                refresh_live_stats=False,
+            )
+            self.refresh_player_stats_timeline_ui()
+            return "stopped"
+
+        self.player_stats_recording_seed_missing_since = None
+        if self.player_stats_recording_seed is None:
+            self.player_stats_recording_seed = current_seed
+            return None
+        if current_seed == self.player_stats_recording_seed:
+            return None
+
+        previous_seed = self.player_stats_recording_seed
+        self._stop_player_stats_recording(refresh_live_stats=False)
+        vod_path = self._start_player_stats_recording(seed=current_seed)
+        self.log(
+            f"[*] Player stats recording auto-split: seed {previous_seed} -> {current_seed}; new file {vod_path.name}",
+            tag="success",
+        )
+        self.refresh_player_stats_timeline_ui()
+        return "split"
 
     def on_player_stats_slider_changed(self, value):
         snapshot_count = len(self.player_stats_vod_snapshots)
@@ -2693,6 +2792,15 @@ class MegabonkApp:
                 pass
             self.player_stats_client = None
 
+    def close_player_stats_game_data_client(self):
+        game_data_client = self.__dict__.get("player_stats_game_data_client")
+        if game_data_client:
+            try:
+                game_data_client.close()
+            except Exception:
+                pass
+            self.player_stats_game_data_client = None
+
     def get_game_process_id(self) -> int | None:
         if self.client is None:
             return None
@@ -3030,6 +3138,7 @@ class MegabonkApp:
         self.scan_event.set()
         self.close_client()
         self.close_player_stats_client()
+        self.close_player_stats_game_data_client()
         player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
         if player_stats_vod_recorder is not None:
             if player_stats_vod_recorder.is_recording:
