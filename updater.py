@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -136,6 +137,15 @@ def _show_update_dialog(app_instance, latest_version: str, release_notes: str) -
 
 
 def _set_release_notes_content(notes: QTextEdit, release_notes: str) -> None:
+    if _looks_like_html(release_notes):
+        set_html = getattr(notes, "setHtml", None)
+        if callable(set_html):
+            try:
+                set_html(release_notes)
+                return
+            except Exception:
+                pass
+
     set_markdown = getattr(notes, "setMarkdown", None)
     if callable(set_markdown):
         try:
@@ -145,6 +155,12 @@ def _set_release_notes_content(notes: QTextEdit, release_notes: str) -> None:
             pass
 
     notes.setPlainText(release_notes)
+
+
+def _looks_like_html(text: str) -> bool:
+    if not isinstance(text, str):
+        return False
+    return re.search(r"<[A-Za-z][^>]*>", text) is not None
 
 
 def _download_and_apply_update(exe_path, download_url):
