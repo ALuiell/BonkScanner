@@ -275,7 +275,7 @@ class NativeHookLoader:
         return self._invoke_toggle_export(b"ToggleSkipChestAnimation", "Skip Chest Animation")
 
     def toggle_auto_select_upgrades(self) -> bool:
-        return self._invoke_toggle_export(b"ToggleAutoSelectUpgrades", "Auto Select Upgrades")
+        return self._invoke_toggle_export(b"ToggleAutoSelectUpgrades", "Auto Level-Up")
 
     def toggle_particles_opacity(self) -> bool:
         return self._invoke_toggle_export(b"ToggleParticlesOpacity", "Particles Opacity")

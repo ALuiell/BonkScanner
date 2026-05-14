@@ -902,7 +902,7 @@ class SettingsDialog(QDialog):
             getattr(config, "TOGGLE_PARTICLES_OPACITY_HOTKEY", "f7")
         )
         form_layout.addRow("Toggle Chest Skip Hotkey:", self.toggle_skip_chest_animation_hotkey_entry)
-        form_layout.addRow("Toggle Auto Select Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)
+        form_layout.addRow("Toggle Auto Level-Up Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)
         form_layout.addRow("Toggle Particles Opacity Hotkey:", self.toggle_particles_opacity_hotkey_entry)
 
         self.min_delay_entry = QLineEdit(str(config.MIN_DELAY))
@@ -2108,7 +2108,7 @@ class MegabonkApp:
         self.after(0, partial(self.toggle_game_setting, "skip_chest_animation", "Skip Chest Animation"))
 
     def hotkey_toggle_auto_select_upgrades(self):
-        self.after(0, partial(self.toggle_game_setting, "auto_select_upgrades", "Auto Select LevelUp Upgrades"))
+        self.after(0, partial(self.toggle_game_setting, "auto_select_upgrades", "Auto Level-Up"))
 
     def hotkey_toggle_particles_opacity(self):
         self.after(0, partial(self.toggle_game_setting, "particle_opacity", "Particles Opacity"))
