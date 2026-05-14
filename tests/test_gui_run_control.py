@@ -250,6 +250,7 @@ class GuiRunControlTests(unittest.TestCase):
             "RESET_HOLD_DURATION": gui.config.RESET_HOLD_DURATION,
             "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY": gui.config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY,
             "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY": gui.config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
+            "TOGGLE_PARTICLES_OPACITY_HOTKEY": gui.config.TOGGLE_PARTICLES_OPACITY_HOTKEY,
             "NATIVE_HOOK_ENABLED": gui.config.NATIVE_HOOK_ENABLED,
             "TOTAL_REROLLS": gui.config.TOTAL_REROLLS,
         }
@@ -270,6 +271,7 @@ class GuiRunControlTests(unittest.TestCase):
             record_hotkey_entry=FakeEntry("f8"),
             toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
             toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
+            toggle_particles_opacity_hotkey_entry=FakeEntry("f7"),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
@@ -335,6 +337,7 @@ class GuiRunControlTests(unittest.TestCase):
             record_hotkey_entry=FakeEntry("f8"),
             toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
             toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
+            toggle_particles_opacity_hotkey_entry=FakeEntry("f7"),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
@@ -679,6 +682,19 @@ class GuiRunControlTests(unittest.TestCase):
         toggle_setting.assert_called_once_with()
         self.assertIn(("[+] Skip Chest Animation: ON", "success"), logs)
 
+    def test_toggle_game_setting_supports_particles_opacity(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.native_hook_loader = types.SimpleNamespace(toggle_particles_opacity=lambda: True)
+        app.log = lambda message, tag=None: logs.append((message, tag))
+
+        with patch.object(app.native_hook_loader, "toggle_particles_opacity", return_value=False) as toggle_setting:
+            changed = gui.MegabonkApp.toggle_game_setting(app, "particle_opacity", "Particles Opacity")
+
+        self.assertTrue(changed)
+        toggle_setting.assert_called_once_with()
+        self.assertIn(("[+] Particles Opacity: OFF", "success"), logs)
+
     def test_setup_hotkeys_registers_game_setting_hotkeys(self) -> None:
         fake_keyboard = FakeKeyboardModule()
         logs: list[tuple[str, str | None]] = []
@@ -688,17 +704,19 @@ class GuiRunControlTests(unittest.TestCase):
         app.hotkey_toggle_player_stats_recording = lambda: None
         app.hotkey_toggle_skip_chest_animation = lambda: None
         app.hotkey_toggle_auto_select_upgrades = lambda: None
+        app.hotkey_toggle_particles_opacity = lambda: None
 
         with patch.object(gui, "keyboard", fake_keyboard):
             with patch.object(gui.config, "HOTKEY", "f6"):
                 with patch.object(gui.config, "PLAYER_STATS_RECORD_HOTKEY", "f8"):
                     with patch.object(gui.config, "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11"):
                         with patch.object(gui.config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10"):
-                            gui.MegabonkApp.setup_hotkeys(app)
+                            with patch.object(gui.config, "TOGGLE_PARTICLES_OPACITY_HOTKEY", "f7"):
+                                gui.MegabonkApp.setup_hotkeys(app)
 
         self.assertEqual(fake_keyboard.unhook_all_calls, 1)
         registered_hotkeys = [hotkey for hotkey, _callback in fake_keyboard.add_hotkey_calls]
-        self.assertEqual(registered_hotkeys, ["f6", "f8", "f11", "f10"])
+        self.assertEqual(registered_hotkeys, ["f6", "f8", "f11", "f10", "f7"])
         self.assertEqual(logs, [])
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:

@@ -898,8 +898,12 @@ class SettingsDialog(QDialog):
         self.toggle_auto_select_upgrades_hotkey_entry = QLineEdit(
             getattr(config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10")
         )
+        self.toggle_particles_opacity_hotkey_entry = QLineEdit(
+            getattr(config, "TOGGLE_PARTICLES_OPACITY_HOTKEY", "f7")
+        )
         form_layout.addRow("Toggle Chest Skip Hotkey:", self.toggle_skip_chest_animation_hotkey_entry)
         form_layout.addRow("Toggle Auto Select Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)
+        form_layout.addRow("Toggle Particles Opacity Hotkey:", self.toggle_particles_opacity_hotkey_entry)
 
         self.min_delay_entry = QLineEdit(str(config.MIN_DELAY))
         self.map_load_delay_entry = self.min_delay_entry
@@ -1013,6 +1017,7 @@ class SettingsDialog(QDialog):
         new_record_hotkey = _read_text(self.record_hotkey_entry).strip()
         new_toggle_skip_chest_animation_hotkey = _read_text(self.toggle_skip_chest_animation_hotkey_entry).strip()
         new_toggle_auto_select_upgrades_hotkey = _read_text(self.toggle_auto_select_upgrades_hotkey_entry).strip()
+        new_toggle_particles_opacity_hotkey = _read_text(self.toggle_particles_opacity_hotkey_entry).strip()
         native_hook_enabled = _read_bool(self.native_hook_enabled_var)
 
         config.user_config["HOTKEY"] = new_hotkey
@@ -1020,6 +1025,7 @@ class SettingsDialog(QDialog):
         config.user_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
         config.user_config["TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY"] = new_toggle_skip_chest_animation_hotkey
         config.user_config["TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY"] = new_toggle_auto_select_upgrades_hotkey
+        config.user_config["TOGGLE_PARTICLES_OPACITY_HOTKEY"] = new_toggle_particles_opacity_hotkey
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
 
         config.HOTKEY = new_hotkey
@@ -1027,6 +1033,7 @@ class SettingsDialog(QDialog):
         config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
         config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY = new_toggle_skip_chest_animation_hotkey
         config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY = new_toggle_auto_select_upgrades_hotkey
+        config.TOGGLE_PARTICLES_OPACITY_HOTKEY = new_toggle_particles_opacity_hotkey
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
 
         delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
@@ -2036,6 +2043,8 @@ class MegabonkApp:
                 toggled = loader.toggle_skip_chest_animation()
             elif setting_key == "auto_select_upgrades":
                 toggled = loader.toggle_auto_select_upgrades()
+            elif setting_key == "particle_opacity":
+                toggled = loader.toggle_particles_opacity()
             else:
                 self.log(f"[WAIT] Unsupported game setting toggle: {label}", tag="warning")
                 return False
@@ -2060,6 +2069,10 @@ class MegabonkApp:
                 keyboard.add_hotkey(
                     config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
                     self.hotkey_toggle_auto_select_upgrades,
+                )
+                keyboard.add_hotkey(
+                    config.TOGGLE_PARTICLES_OPACITY_HOTKEY,
+                    self.hotkey_toggle_particles_opacity,
                 )
             except Exception as exc:
                 self.log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
@@ -2096,6 +2109,9 @@ class MegabonkApp:
 
     def hotkey_toggle_auto_select_upgrades(self):
         self.after(0, partial(self.toggle_game_setting, "auto_select_upgrades", "Auto Select LevelUp Upgrades"))
+
+    def hotkey_toggle_particles_opacity(self):
+        self.after(0, partial(self.toggle_game_setting, "particle_opacity", "Particles Opacity"))
 
     def update_status_ui(self):
         if self.status_label is None or self.toggle_btn is None:
