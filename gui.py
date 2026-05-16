@@ -280,6 +280,12 @@ def _button_state_stylesheet(background: str, hover: str) -> str:
     """
 
 
+def _session_stats_label_stylesheet(accent: bool = False) -> str:
+    color = "#F3F4F6" if accent else "#D7DEE8"
+    weight = "700" if accent else "600"
+    return f"color: {color}; font-size: 17px; font-weight: {weight};"
+
+
 def _tier_color(tier: str) -> str:
     return {
         "Light": COLOR_MAP["WHITE"],
@@ -1387,7 +1393,6 @@ class MegabonkApp:
         self.log_box = None
         self.stats_time_label = None
         self.stats_rerolls_label = None
-        self.stats_total_rerolls_label = None
         self.stats_rpm_label = None
         self.stats_best_label = None
         self.stats_worst_label = None
@@ -1743,26 +1748,47 @@ class MegabonkApp:
         stats_layout.addWidget(stats_scroll)
         self.stats_time_label = QLabel("Session Time: 00:00:00")
         self.stats_rerolls_label = QLabel("Session Rerolls: 0")
-        self.stats_total_rerolls_label = QLabel(f"Total Rerolls: {config.TOTAL_REROLLS}")
         self.stats_rpm_label = QLabel("Rerolls per Minute (RPM): 0.0")
         self.stats_best_label = QLabel("Best Map Found: None")
         self.stats_worst_label = QLabel("Worst Map Found: None")
+
+        overview_group = QGroupBox("Session Overview")
+        overview_layout = QVBoxLayout(overview_group)
+        overview_layout.setContentsMargins(12, 12, 12, 12)
+        overview_layout.setSpacing(8)
         for widget in (
             self.stats_time_label,
             self.stats_rerolls_label,
-            self.stats_total_rerolls_label,
             self.stats_rpm_label,
+        ):
+            widget.setWordWrap(True)
+            widget.setStyleSheet(_session_stats_label_stylesheet(accent=True))
+            overview_layout.addWidget(widget)
+        stats_content_layout.addWidget(overview_group)
+
+        maps_group = QGroupBox("Map Highlights")
+        maps_layout = QVBoxLayout(maps_group)
+        maps_layout.setContentsMargins(12, 12, 12, 12)
+        maps_layout.setSpacing(10)
+        for widget in (
             self.stats_best_label,
             self.stats_worst_label,
         ):
             widget.setWordWrap(True)
-            stats_content_layout.addWidget(widget)
-        stats_content_layout.addWidget(QLabel("Average Rerolls per Target:"))
+            widget.setStyleSheet(_session_stats_label_stylesheet())
+            maps_layout.addWidget(widget)
+        stats_content_layout.addWidget(maps_group)
+
+        average_group = QGroupBox("Average Rerolls per Target")
+        average_layout = QVBoxLayout(average_group)
+        average_layout.setContentsMargins(12, 12, 12, 12)
+        average_layout.setSpacing(8)
         self.stats_avg_frame = QWidget()
         self.stats_avg_layout = QVBoxLayout(self.stats_avg_frame)
         self.stats_avg_layout.setContentsMargins(0, 0, 0, 0)
-        self.stats_avg_layout.setSpacing(4)
-        stats_content_layout.addWidget(self.stats_avg_frame)
+        self.stats_avg_layout.setSpacing(6)
+        average_layout.addWidget(self.stats_avg_frame)
+        stats_content_layout.addWidget(average_group)
         stats_content_layout.addStretch(1)
         self.tabview.addTab(self.tab_stats, "Session Stats")
 
@@ -2734,7 +2760,6 @@ class MegabonkApp:
 
     def refresh_stats_ui(self):
         _set_text(self.stats_rerolls_label, f"Session Rerolls: {self.session_rerolls}")
-        _set_text(self.stats_total_rerolls_label, f"Total Rerolls: {config.TOTAL_REROLLS}")
 
         if self.best_map_stats:
             _set_text(self.stats_best_label, f"Best Map Found: {self.format_stats(self.best_map_stats)}")
@@ -2765,10 +2790,11 @@ class MegabonkApp:
             label = self.stats_avg_labels.get(name)
             if label is None:
                 label = QLabel()
+                label.setWordWrap(True)
                 self.stats_avg_layout.addWidget(label)
                 self.stats_avg_labels[name] = label
-            label.setText(f"  - {name}: {avg_text}")
-            label.setStyleSheet(f"color: {hex_color};")
+            label.setText(f"{name}: {avg_text}")
+            label.setStyleSheet(f"color: {hex_color}; font-size: 16px; font-weight: 600;")
 
         stale_names = [name for name in self.stats_avg_labels if name not in active_names]
         for name in stale_names:
