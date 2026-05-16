@@ -289,25 +289,33 @@ class PlayerStatsClient:
             raise MemoryReadError(f"Passive item dictionary count is invalid: {count}")
 
         items: list[str] = []
+        broken_entries = 0
         for index in range(count):
             entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
-            item_value = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
-            if not item_value:
-                continue
-
-            class_meta = self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
-            name_ptr = self.memory.read_ptr(class_meta + self.CLASS_META_NAME_PTR_OFFSET) if class_meta else 0
-            raw_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
-            item_name = self._format_item_name(raw_name)
-            if not item_name:
-                continue
-
             try:
-                stack_count = self.memory.read_i32(item_value + self.ITEM_STACK_COUNT_OFFSET)
+                item_value = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+                if not item_value:
+                    continue
+
+                class_meta = self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
+                name_ptr = self.memory.read_ptr(class_meta + self.CLASS_META_NAME_PTR_OFFSET) if class_meta else 0
+                raw_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
+                item_name = self._format_item_name(raw_name)
+                if not item_name:
+                    continue
+
+                try:
+                    stack_count = self.memory.read_i32(item_value + self.ITEM_STACK_COUNT_OFFSET)
+                except MemoryReadError:
+                    stack_count = 1
             except MemoryReadError:
-                stack_count = 1
+                broken_entries += 1
+                continue
 
             items.append(f"{item_name} x{max(1, stack_count)}")
+
+        if count > 0 and not items and broken_entries:
+            raise MemoryReadError("Passive item dictionary entries could not be decoded.")
 
         return tuple(items)
 

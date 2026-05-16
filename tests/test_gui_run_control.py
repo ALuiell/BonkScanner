@@ -1053,6 +1053,26 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(snapshot_calls, [])
         self.assertEqual(timeline_calls, ["timeline"])
 
+    def test_refresh_live_player_stats_now_updates_live_view_while_recording(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=False)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app._is_live_stats_tab_active = lambda: True
+        display_calls: list[dict[str, object]] = []
+        app.display_player_stats = lambda stats, items=(), **kwargs: display_calls.append(
+            {"stats": stats, "items": tuple(items), "kwargs": kwargs}
+        )
+        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+
+        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertTrue(result)
+        self.assertEqual(len(display_calls), 1)
+        self.assertEqual(display_calls[0]["items"], ("Wrench x2",))
+        self.assertEqual(display_calls[0]["kwargs"]["status_text"], "Live player stats (recording)")
+
     def test_toggle_player_stats_recording_captures_snapshot_without_items(self) -> None:
         app = self.build_recording_app()
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False, should_capture=True)

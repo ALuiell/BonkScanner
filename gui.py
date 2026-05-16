@@ -2392,11 +2392,18 @@ class MegabonkApp:
                 self.display_player_stats_snapshot(snapshot, items_text=items_text)
             return True
 
-        if self.player_stats_vod_recorder.is_recording:
-            return True
-
-        self.player_stats_selected_snapshot_index = None
         if is_live_tab_active:
+            if self.player_stats_vod_recorder.is_recording:
+                self.display_player_stats(
+                    stats,
+                    items,
+                    status_text="Live player stats (recording)",
+                    chests_per_minute=chests_per_minute,
+                    items_text=items_text,
+                )
+                return True
+
+            self.player_stats_selected_snapshot_index = None
             self.display_player_stats(
                 stats,
                 items,
