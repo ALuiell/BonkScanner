@@ -129,6 +129,17 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertEqual(items, ("Wrench x2",))
 
+    def test_get_passive_items_raises_for_invalid_dictionary_count(self) -> None:
+        memory = self.build_memory()
+        passive_dict = 0x20000700
+        memory.ints[passive_dict + PlayerStatsClient.DICT_COUNT_OFFSET] = (
+            PlayerStatsClient.MAX_PASSIVE_ITEM_DICT_ENTRIES + 1
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        with self.assertRaises(MemoryReadError):
+            client.get_passive_items()
+
     def test_format_player_stat_values_match_game_display_style(self) -> None:
         self.assertEqual(format_player_stat_value(0.15, PlayerStatFormat.PERCENT), "15%")
         self.assertEqual(format_player_stat_value(1.25, PlayerStatFormat.MULTIPLIER), "1.25x")

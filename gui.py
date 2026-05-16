@@ -1929,6 +1929,8 @@ class MegabonkApp:
     def _refresh_right_tab_after_switch(self):
         if self._is_recordings_tab_active():
             self.refresh_vods_list()
+        if self._is_live_stats_tab_active():
+            self.refresh_live_player_stats_now()
 
     def _show_right_tab_transition_cover(self):
         return None
@@ -1938,6 +1940,9 @@ class MegabonkApp:
 
     def _cancel_right_tab_transition(self):
         return None
+
+    def _is_live_stats_tab_active(self) -> bool:
+        return self.tabview.tabText(self.tabview.currentIndex()) == "Live Stats"
 
     def _is_recordings_tab_active(self) -> bool:
         return self.tabview.tabText(self.tabview.currentIndex()) == "Recordings"
@@ -2298,69 +2303,125 @@ class MegabonkApp:
             return
 
         recording_state_action = self._sync_player_stats_recording_run_state()
-        try:
-            stats, items = self.read_player_stats()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            self.close_player_stats_client()
-            _set_text(self.player_stats_status_label, "Waiting for game/player stats...")
-            for label in self.player_stats_rows.values():
-                _set_text(label, "--")
-            _set_text(self.player_stats_items_label, "--")
-            _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
-        except Exception as exc:
-            self.close_player_stats_client()
-            _set_text(self.player_stats_status_label, f"Player stats unavailable: {exc}")
-            for label in self.player_stats_rows.values():
-                _set_text(label, "--")
-            _set_text(self.player_stats_items_label, "--")
-            _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
-        else:
-            chests_per_minute = self.calculate_player_chests_per_minute(stats)
-            if self.player_stats_vod_recorder.should_capture():
-                snapshot = self.player_stats_vod_recorder.capture(
-                    stats,
-                    items,
-                    chests_per_minute=chests_per_minute,
-                )
-                self.player_stats_vod_snapshots.append(snapshot)
-                self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
-                self.refresh_player_stats_timeline_ui()
-                self._refresh_vods_list_if_visible()
-                self.display_player_stats_snapshot(snapshot)
-            elif not self.player_stats_vod_recorder.is_recording:
-                self.player_stats_selected_snapshot_index = None
-                status_text = (
-                    "Live player stats"
-                    if recording_state_action != "stopped"
-                    else "Live player stats (recording auto-stopped after run end)"
-                )
-                self.display_player_stats(
-                    stats,
-                    items,
-                    status_text=status_text,
-                    chests_per_minute=chests_per_minute,
-                )
+        should_refresh = self._is_live_stats_tab_active() or self.player_stats_vod_recorder.is_recording
+        if should_refresh:
+            status_text = (
+                "Live player stats"
+                if recording_state_action != "stopped"
+                else "Live player stats (recording auto-stopped after run end)"
+            )
+            self.refresh_live_player_stats_now(status_text=status_text)
 
         self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
 
-    def read_player_stats(self):
+    def _get_player_stats_client(self) -> PlayerStatsClient:
         if self.player_stats_client is None:
             self.player_stats_client = PlayerStatsClient(config.PROCESS_NAME)
-        return self.player_stats_client.get_player_stats(), self.player_stats_client.get_passive_items()
+        return self.player_stats_client
+
+    def read_player_stats_only(self):
+        client = self._get_player_stats_client()
+        owner_stats = client.resolve_owner_stats()
+        return client.get_player_stats(owner_stats), owner_stats
+
+    def read_passive_items_only(self, owner_stats: int | None = None):
+        client = self._get_player_stats_client()
+        return client.get_passive_items(owner_stats)
+
+    def read_player_stats(self):
+        stats, owner_stats = self.read_player_stats_only()
+        return stats, self.read_passive_items_only(owner_stats)
 
     def read_player_stats_recording_seed(self) -> int | None:
         if self.player_stats_game_data_client is None:
             self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
         return self.player_stats_game_data_client.get_map_generation_state().map_seed
 
-    def display_player_stats(self, stats, items=(), *, status_text: str | None = None, chests_per_minute: float | None = None):
+    def _reset_live_player_stats_ui(self, status_text: str, *, items_text: str = "--") -> None:
+        _set_text(self.player_stats_status_label, status_text)
+        for label in self.player_stats_rows.values():
+            _set_text(label, "--")
+        _set_text(self.player_stats_items_label, items_text)
+        _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
+
+    def _read_live_player_stats_data(self):
+        stats, owner_stats = self.read_player_stats_only()
+        items = ()
+        items_available = True
+        try:
+            items = self.read_passive_items_only(owner_stats)
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            items_available = False
+        except Exception:
+            items_available = False
+        return stats, items, items_available
+
+    def refresh_live_player_stats_now(
+        self,
+        *,
+        status_text: str = "Live player stats",
+        waiting_status_text: str = "Waiting for game/player stats...",
+        unavailable_status_prefix: str = "Player stats unavailable",
+    ) -> bool:
+        try:
+            stats, items, items_available = self._read_live_player_stats_data()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            self.close_player_stats_client()
+            self._reset_live_player_stats_ui(waiting_status_text)
+            return False
+        except Exception as exc:
+            self.close_player_stats_client()
+            self._reset_live_player_stats_ui(f"{unavailable_status_prefix}: {exc}")
+            return False
+
+        chests_per_minute = self.calculate_player_chests_per_minute(stats)
+        items_text = None if items_available else "Items unavailable"
+        is_live_tab_active = self._is_live_stats_tab_active()
+
+        if self.player_stats_vod_recorder.should_capture():
+            snapshot = self.player_stats_vod_recorder.capture(
+                stats,
+                items if items_available else (),
+                chests_per_minute=chests_per_minute,
+            )
+            self.player_stats_vod_snapshots.append(snapshot)
+            self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
+            self.refresh_player_stats_timeline_ui()
+            self._refresh_vods_list_if_visible()
+            if is_live_tab_active:
+                self.display_player_stats_snapshot(snapshot, items_text=items_text)
+            return True
+
+        if self.player_stats_vod_recorder.is_recording:
+            return True
+
+        self.player_stats_selected_snapshot_index = None
+        if is_live_tab_active:
+            self.display_player_stats(
+                stats,
+                items,
+                status_text=status_text,
+                chests_per_minute=chests_per_minute,
+                items_text=items_text,
+            )
+        return True
+
+    def display_player_stats(
+        self,
+        stats,
+        items=(),
+        *,
+        status_text: str | None = None,
+        chests_per_minute: float | None = None,
+        items_text: str | None = None,
+    ):
         if status_text:
             _set_text(self.player_stats_status_label, status_text)
         for label, stat in stats.items():
             value_label = self.player_stats_rows.get(label)
             if value_label is not None:
                 _set_text(value_label, stat.display_value)
-        _set_text(self.player_stats_items_label, self.format_items(items))
+        _set_text(self.player_stats_items_label, items_text if items_text is not None else self.format_items(items))
         if chests_per_minute is None:
             chests_per_minute = self.calculate_player_chests_per_minute(stats)
         _set_text(
@@ -2368,7 +2429,7 @@ class MegabonkApp:
             self.format_chests_per_minute(chests_per_minute),
         )
 
-    def display_player_stats_snapshot(self, snapshot):
+    def display_player_stats_snapshot(self, snapshot, *, items_text: str | None = None):
         index = self.player_stats_vod_snapshots.index(snapshot) + 1
         total = len(self.player_stats_vod_snapshots)
         self.display_player_stats(
@@ -2376,6 +2437,7 @@ class MegabonkApp:
             snapshot.items,
             status_text=f"Recorded snapshot {index}/{total} at {snapshot.time_label}",
             chests_per_minute=self.resolve_snapshot_chests_per_minute(snapshot),
+            items_text=items_text,
         )
 
     def toggle_player_stats_recording(self):
@@ -2385,24 +2447,10 @@ class MegabonkApp:
             seed = self._read_player_stats_recording_seed_safe()
             vod_path = self._start_player_stats_recording(seed=seed)
             self.log(f"[*] Player stats recording started: {vod_path.name}", tag="success")
-            try:
-                stats, items = self.read_player_stats()
-            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-                self.close_player_stats_client()
-                _set_text(self.player_stats_status_label, "Recording stats; waiting for game/player stats...")
-            except Exception as exc:
-                self.close_player_stats_client()
-                _set_text(self.player_stats_status_label, f"Recording stats; player stats unavailable: {exc}")
-            else:
-                snapshot = self.player_stats_vod_recorder.capture(
-                    stats,
-                    items,
-                    chests_per_minute=self.calculate_player_chests_per_minute(stats),
-                )
-                self.player_stats_vod_snapshots.append(snapshot)
-                self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
-                self.display_player_stats_snapshot(snapshot)
-                self._refresh_vods_list_if_visible()
+            self.refresh_live_player_stats_now(
+                waiting_status_text="Recording stats; waiting for game/player stats...",
+                unavailable_status_prefix="Recording stats; player stats unavailable",
+            )
             self._refresh_vods_list_if_visible()
 
         self.refresh_player_stats_timeline_ui()
@@ -2441,24 +2489,7 @@ class MegabonkApp:
         if log_message:
             self.log(log_message, tag=log_tag)
         if refresh_live_stats:
-            try:
-                stats, items = self.read_player_stats()
-            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-                self.close_player_stats_client()
-                _set_text(self.player_stats_status_label, "Waiting for game/player stats...")
-                for label in self.player_stats_rows.values():
-                    _set_text(label, "--")
-                _set_text(self.player_stats_items_label, "--")
-                _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
-            except Exception as exc:
-                self.close_player_stats_client()
-                _set_text(self.player_stats_status_label, f"Player stats unavailable: {exc}")
-                for label in self.player_stats_rows.values():
-                    _set_text(label, "--")
-                _set_text(self.player_stats_items_label, "--")
-                _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
-            else:
-                self.display_player_stats(stats, items, status_text="Live player stats")
+            self.refresh_live_player_stats_now()
         self._refresh_vods_list_if_visible()
 
     def _sync_player_stats_recording_run_state(self) -> str | None:

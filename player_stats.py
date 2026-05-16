@@ -226,6 +226,7 @@ class PlayerStatsClient:
     DICT_ENTRY_START_OFFSET = 0x20
     DICT_ENTRY_SIZE = 0x18
     DICT_ENTRY_VALUE_OFFSET = 0x10
+    MAX_PASSIVE_ITEM_DICT_ENTRIES = 512
     ITEM_CLASS_META_OFFSET = 0x0
     ITEM_STACK_COUNT_OFFSET = 0x18
     CLASS_META_NAME_PTR_OFFSET = 0x10
@@ -254,8 +255,8 @@ class PlayerStatsClient:
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
 
-    def get_player_stats(self) -> dict[str, PlayerStatValue]:
-        entries = self._resolve_stats_entries()
+    def get_player_stats(self, owner_stats: int | None = None) -> dict[str, PlayerStatValue]:
+        entries = self._resolve_stats_entries(owner_stats)
         stats: dict[str, PlayerStatValue] = {}
 
         for group in PLAYER_STAT_GROUPS:
@@ -270,8 +271,8 @@ class PlayerStatsClient:
 
         return stats
 
-    def get_passive_items(self) -> tuple[str, ...]:
-        owner_stats = self._resolve_owner_stats()
+    def get_passive_items(self, owner_stats: int | None = None) -> tuple[str, ...]:
+        owner_stats = owner_stats or self._resolve_owner_stats()
         inventory_container = self.memory.read_ptr(owner_stats + self.INVENTORY_CONTAINER_OFFSET)
         passive_item_dict = self.memory.read_ptr(inventory_container + self.PASSIVE_ITEM_DICT_OFFSET)
         if not passive_item_dict:
@@ -284,6 +285,8 @@ class PlayerStatsClient:
         count = self.memory.read_i32(passive_item_dict + self.DICT_COUNT_OFFSET)
         if count <= 0:
             return ()
+        if count > self.MAX_PASSIVE_ITEM_DICT_ENTRIES:
+            raise MemoryReadError(f"Passive item dictionary count is invalid: {count}")
 
         items: list[str] = []
         for index in range(count):
@@ -308,8 +311,11 @@ class PlayerStatsClient:
 
         return tuple(items)
 
-    def _resolve_stats_entries(self) -> int:
-        owner_stats = self._resolve_owner_stats()
+    def resolve_owner_stats(self) -> int:
+        return self._resolve_owner_stats()
+
+    def _resolve_stats_entries(self, owner_stats: int | None = None) -> int:
+        owner_stats = owner_stats or self._resolve_owner_stats()
         stats_context = self.memory.read_ptr(owner_stats + self.STATS_CONTEXT_OFFSET)
         entries = self.memory.read_ptr(stats_context + self.STATS_ENTRIES_OFFSET)
         if not entries:

@@ -80,6 +80,28 @@ class FakeAliveThread:
         return True
 
 
+class FakeLabel:
+    def __init__(self, text: str = "") -> None:
+        self.value = text
+
+    def setText(self, text: str) -> None:
+        self.value = text
+
+    def text(self) -> str:
+        return self.value
+
+
+class FakeTabWidget:
+    def __init__(self, active_tab: str) -> None:
+        self.active_tab = active_tab
+
+    def currentIndex(self) -> int:
+        return 0
+
+    def tabText(self, _index: int) -> str:
+        return self.active_tab
+
+
 class FakeHookLoopLoader:
     def __init__(
         self,
@@ -120,10 +142,12 @@ class FakeKeyboardModule:
 
 
 class FakeRecordingRecorder:
-    def __init__(self, *, is_recording: bool = True) -> None:
+    def __init__(self, *, is_recording: bool = True, should_capture: bool = False) -> None:
         self.is_recording = is_recording
+        self.should_capture_value = should_capture
         self.start_calls: list[dict[str, object]] = []
         self.stop_calls = 0
+        self.capture_calls: list[dict[str, object]] = []
 
     def start(self, *, name: str | None = None, seed: int | None = None) -> Path:
         self.is_recording = True
@@ -133,6 +157,26 @@ class FakeRecordingRecorder:
     def stop(self) -> None:
         self.is_recording = False
         self.stop_calls += 1
+
+    def should_capture(self) -> bool:
+        return self.should_capture_value
+
+    def capture(self, stats, items=(), *, chests_per_minute=None):
+        snapshot = SimpleNamespace(
+            stats=stats,
+            items=tuple(items),
+            chests_per_minute=chests_per_minute,
+            time_label="00:00",
+        )
+        self.capture_calls.append(
+            {
+                "stats": stats,
+                "items": tuple(items),
+                "chests_per_minute": chests_per_minute,
+            }
+        )
+        self.should_capture_value = False
+        return snapshot
 
 
 class FakeSeedStateClient:
@@ -229,15 +273,18 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_recording_seed = None
         app.player_stats_recording_seed_missing_since = None
         app.player_stats_game_data_client = None
-        app.player_stats_status_label = None
+        app.player_stats_status_label = FakeLabel()
         app.player_stats_rows = {}
-        app.player_stats_items_label = None
-        app.player_stats_chests_per_minute_label = None
+        app.player_stats_items_label = FakeLabel()
+        app.player_stats_chests_per_minute_label = FakeLabel()
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app.display_player_stats = lambda *args, **kwargs: None
+        app.display_player_stats_snapshot = lambda *args, **kwargs: None
         app.close_player_stats_client = lambda: None
-        app.read_player_stats = lambda: ({}, ())
+        app.read_player_stats_only = lambda: ({}, 0x1234)
+        app.read_passive_items_only = lambda owner_stats=None: ()
+        app._is_live_stats_tab_active = lambda: True
         app.log_messages = []
         app.log = lambda message, tag=None: app.log_messages.append((message, tag))
         return app
@@ -911,10 +958,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_recording_seed = 111
         app.player_stats_game_data_client = FakeSeedStateClient([None, None])
 
-        def failing_read_player_stats() -> tuple[dict[str, object], tuple[()]]:
+        def failing_read_player_stats_only() -> tuple[dict[str, object], int]:
             raise gui.ProcessNotFoundError("game closed")
 
-        app.read_player_stats = failing_read_player_stats
+        app.read_player_stats_only = failing_read_player_stats_only
 
         with patch.object(gui.time, "monotonic", return_value=100.0):
             gui.MegabonkApp.update_player_stats_timer(app)
@@ -929,6 +976,132 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
         self.assertEqual(len(app.after_calls), 2)
+
+    def test_refresh_right_tab_after_switch_immediately_refreshes_live_stats(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.tabview = FakeTabWidget("Live Stats")
+        calls: list[str] = []
+        app.refresh_vods_list = lambda: calls.append("vods")
+        app.refresh_live_player_stats_now = lambda *args, **kwargs: calls.append("live")
+
+        gui.MegabonkApp._refresh_right_tab_after_switch(app)
+
+        self.assertEqual(calls, ["live"])
+
+    def test_update_player_stats_timer_skips_hidden_live_stats_when_not_recording(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.player_stats_vod_recorder.is_recording = False
+        app._is_live_stats_tab_active = lambda: False
+        app.after_calls = []
+        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        read_calls: list[str] = []
+        app.read_player_stats_only = lambda: read_calls.append("stats") or ({}, 0x1234)
+
+        gui.MegabonkApp.update_player_stats_timer(app)
+
+        self.assertEqual(read_calls, [])
+        self.assertEqual(len(app.after_calls), 1)
+
+    def test_refresh_live_player_stats_now_keeps_stats_when_items_fail(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app.player_stats_status_label = FakeLabel()
+        stat_label = FakeLabel()
+        app.player_stats_rows = {"Damage": stat_label}
+        app.player_stats_items_label = FakeLabel()
+        app.player_stats_chests_per_minute_label = FakeLabel()
+        app.close_player_stats_client = lambda: None
+        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
+        app._refresh_vods_list_if_visible = lambda: None
+        app._is_live_stats_tab_active = lambda: True
+        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+
+        def fail_items(owner_stats=None):
+            raise gui.MemoryReadError("items missing")
+
+        app.read_passive_items_only = fail_items
+
+        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertTrue(result)
+        self.assertEqual(app.player_stats_status_label.text(), "Live player stats")
+        self.assertEqual(stat_label.text(), "123")
+        self.assertEqual(app.player_stats_items_label.text(), "Items unavailable")
+        self.assertEqual(app.player_stats_chests_per_minute_label.text(), "Average chests/min: --")
+
+    def test_refresh_live_player_stats_now_captures_while_hidden_recording(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app._is_live_stats_tab_active = lambda: False
+        timeline_calls: list[str] = []
+        snapshot_calls: list[str] = []
+        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: timeline_calls.append("timeline")
+        app.display_player_stats_snapshot = lambda *args, **kwargs: snapshot_calls.append("snapshot")
+        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+
+        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertTrue(result)
+        self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["items"], ("Wrench x2",))
+        self.assertEqual(snapshot_calls, [])
+        self.assertEqual(timeline_calls, ["timeline"])
+
+    def test_toggle_player_stats_recording_captures_snapshot_without_items(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False, should_capture=True)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app._read_player_stats_recording_seed_safe = lambda: 321
+        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+
+        def fail_items(owner_stats=None):
+            raise gui.MemoryReadError("items missing")
+
+        app.read_passive_items_only = fail_items
+
+        gui.MegabonkApp.toggle_player_stats_recording(app)
+
+        self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["items"], ())
+
+    def test_stop_player_stats_recording_refreshes_live_stats_without_items(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True)
+        app.player_stats_vod_snapshots = ["snapshot"]
+        app.player_stats_selected_snapshot_index = 0
+        app.player_stats_recording_seed = 111
+        app.player_stats_recording_seed_missing_since = 200.0
+        app.player_stats_status_label = FakeLabel()
+        stat_label = FakeLabel()
+        app.player_stats_rows = {"Damage": stat_label}
+        app.player_stats_items_label = FakeLabel()
+        app.player_stats_chests_per_minute_label = FakeLabel()
+        app.close_player_stats_client = lambda: None
+        app.close_player_stats_game_data_client = lambda: None
+        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
+        app._refresh_vods_list_if_visible = lambda: None
+        app._is_live_stats_tab_active = lambda: True
+        app.log = lambda *args, **kwargs: None
+        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+
+        def fail_items(owner_stats=None):
+            raise gui.MemoryReadError("items missing")
+
+        app.read_passive_items_only = fail_items
+
+        gui.MegabonkApp._stop_player_stats_recording(app)
+
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
+        self.assertEqual(app.player_stats_status_label.text(), "Live player stats")
+        self.assertEqual(stat_label.text(), "123")
+        self.assertEqual(app.player_stats_items_label.text(), "Items unavailable")
 
     def test_on_closing_detaches_native_hooks_and_invalidates_worker(self) -> None:
         loader = FakeDetachLoader()
