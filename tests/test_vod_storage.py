@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from player_stats import WeaponSnapshot, WeaponStatFormat, WeaponStatValue
 from vod_storage import LEGACY_VODS_DIR, RECORDINGS_DIR, VodRecorder, delete_vod, list_vods, load_vod, load_vod_metadata, rename_vod
 
 
@@ -31,6 +32,27 @@ class VodStorageTests(unittest.TestCase):
                     "Armor": SimpleNamespace(value=0.15, display_value="15%"),
                 },
                 ("Wrench x1",),
+                (
+                    WeaponSnapshot(
+                        weapon_id=0,
+                        name="Fire Staff",
+                        level=3,
+                        upgrade_stat_ids=(12, 16, 9, 11),
+                        upgraded_stats={
+                            12: WeaponStatValue(12, "Damage", 10.0, WeaponStatFormat.FLAT),
+                            16: WeaponStatValue(16, "Projectiles", 2.0, WeaponStatFormat.FLAT),
+                            9: WeaponStatValue(9, "Size", 1.16, WeaponStatFormat.MULTIPLIER),
+                            11: WeaponStatValue(11, "Speed", 0.6, WeaponStatFormat.MULTIPLIER),
+                        },
+                        full_stats={
+                            12: WeaponStatValue(12, "Damage", 10.0, WeaponStatFormat.FLAT),
+                            16: WeaponStatValue(16, "Projectiles", 2.0, WeaponStatFormat.FLAT),
+                            9: WeaponStatValue(9, "Size", 1.16, WeaponStatFormat.MULTIPLIER),
+                            11: WeaponStatValue(11, "Speed", 0.6, WeaponStatFormat.MULTIPLIER),
+                            24: WeaponStatValue(24, "Knockback", 1.0, WeaponStatFormat.MULTIPLIER),
+                        },
+                    ),
+                ),
                 chests_per_minute=1.23,
                 game_time_seconds=21.52338219,
             )
@@ -41,6 +63,7 @@ class VodStorageTests(unittest.TestCase):
                     "Armor": SimpleNamespace(value=0.2, display_value="20%"),
                 },
                 ("Wrench x2", "Dice x1"),
+                (),
                 chests_per_minute=2.34,
                 game_time_seconds=81.75,
             )
@@ -53,9 +76,13 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.metadata.snapshot_count, 2)
             self.assertEqual(loaded.snapshots[0].stats["Damage"].display_value, "1.25x")
             self.assertEqual(loaded.snapshots[0].items, ("Wrench x1",))
+            self.assertEqual(loaded.snapshots[0].weapons[0].name, "Fire Staff")
+            self.assertEqual(loaded.snapshots[0].weapons[0].upgraded_stats[12].display_value, "10")
+            self.assertEqual(loaded.snapshots[0].weapons[0].upgraded_stats[11].display_value, "0.6x")
             self.assertEqual(loaded.snapshots[0].chests_per_minute, 1.23)
             self.assertAlmostEqual(loaded.snapshots[0].game_time_seconds, 21.52338219)
             self.assertEqual(loaded.snapshots[1].items, ("Wrench x2", "Dice x1"))
+            self.assertEqual(loaded.snapshots[1].weapons, ())
             self.assertEqual(loaded.snapshots[1].chests_per_minute, 2.34)
             self.assertAlmostEqual(loaded.snapshots[1].game_time_seconds, 81.75)
             self.assertEqual(loaded.snapshots[1].time_label, "01:00")
@@ -140,6 +167,7 @@ class VodStorageTests(unittest.TestCase):
             loaded = load_vod(path)
 
             self.assertIsNone(loaded.snapshots[0].game_time_seconds)
+            self.assertEqual(loaded.snapshots[0].weapons, ())
 
 
 if __name__ == "__main__":

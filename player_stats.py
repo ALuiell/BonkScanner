@@ -32,6 +32,12 @@ class PlayerStatFormat(Enum):
     MULTIPLIER = "multiplier"
 
 
+class WeaponStatFormat(Enum):
+    FLAT = "flat"
+    PERCENT = "percent"
+    MULTIPLIER = "multiplier"
+
+
 @dataclass(frozen=True)
 class PlayerStatSpec:
     label: str
@@ -88,7 +94,6 @@ PLAYER_STAT_GROUPS: tuple[tuple[PlayerStatSpec, ...], ...] = (
     ),
 )
 
-
 @dataclass(frozen=True)
 class PlayerStatValue:
     spec: PlayerStatSpec
@@ -97,6 +102,86 @@ class PlayerStatValue:
     @property
     def display_value(self) -> str:
         return format_player_stat_value(self.value, self.spec.value_format)
+
+
+@dataclass(frozen=True)
+class WeaponStatSpec:
+    label: str
+    value_format: WeaponStatFormat
+
+
+WEAPON_NAMES_BY_ID: dict[int, str] = {
+    0: "Fire Staff",
+    1: "Bone",
+    2: "Sword",
+    3: "Revolver",
+    4: "Aura",
+    5: "Axe",
+    6: "Bow",
+    7: "Aegis",
+    8: "Test",
+    9: "Lightning Staff",
+    10: "Flamewalker",
+    11: "Rockets",
+    12: "Bananarang",
+    13: "Tornado",
+    14: "Dexecutioner",
+    15: "Sniper",
+    16: "Frostwalker",
+    17: "Space Noodle",
+    18: "Dragons Breath",
+    19: "Chunkers",
+    20: "Mine",
+    21: "Poison Flask",
+    22: "Black Hole",
+    23: "Katana",
+    24: "Blood Magic",
+    25: "Bluetooth Dagger",
+    26: "Dice",
+    27: "Hero Sword",
+    28: "Corrupt Sword",
+    29: "Shotgun",
+    30: "Scythe",
+}
+
+WEAPON_STAT_SPECS: dict[int, WeaponStatSpec] = {
+    9: WeaponStatSpec("Size", WeaponStatFormat.MULTIPLIER),
+    10: WeaponStatSpec("Duration", WeaponStatFormat.MULTIPLIER),
+    11: WeaponStatSpec("Speed", WeaponStatFormat.MULTIPLIER),
+    12: WeaponStatSpec("Damage", WeaponStatFormat.FLAT),
+    15: WeaponStatSpec("Attack Speed", WeaponStatFormat.MULTIPLIER),
+    16: WeaponStatSpec("Projectiles", WeaponStatFormat.FLAT),
+    18: WeaponStatSpec("Crit Chance", WeaponStatFormat.PERCENT),
+    19: WeaponStatSpec("Crit Damage", WeaponStatFormat.MULTIPLIER),
+    24: WeaponStatSpec("Knockback", WeaponStatFormat.MULTIPLIER),
+    45: WeaponStatSpec("Projectile Bounces", WeaponStatFormat.FLAT),
+}
+
+ITEM_DISPLAY_NAME_BY_RAW_VALUE = {
+    "NoImplementation": "Golden Ring",
+}
+
+
+@dataclass(frozen=True)
+class WeaponStatValue:
+    stat_id: int
+    label: str
+    value: float | None
+    value_format: WeaponStatFormat
+
+    @property
+    def display_value(self) -> str:
+        return format_weapon_stat_value(self.value, self.value_format)
+
+
+@dataclass(frozen=True)
+class WeaponSnapshot:
+    weapon_id: int
+    name: str
+    level: int
+    upgrade_stat_ids: tuple[int, ...]
+    upgraded_stats: dict[int, WeaponStatValue]
+    full_stats: dict[int, WeaponStatValue]
 
 
 def calculate_chests_per_minute(
@@ -133,6 +218,7 @@ class PlayerStatsSnapshot:
     captured_at: float
     stats: dict[str, PlayerStatValue]
     items: tuple[str, ...] = ()
+    weapons: tuple[WeaponSnapshot, ...] = ()
     game_time_seconds: float | None = None
 
     @property
@@ -191,6 +277,7 @@ class PlayerStatsTimeline:
         self,
         stats: dict[str, PlayerStatValue],
         items: tuple[str, ...] = (),
+        weapons: tuple[WeaponSnapshot, ...] = (),
     ) -> PlayerStatsSnapshot:
         now = self.clock()
         start_time = self.start_time if self.start_time is not None else now
@@ -199,6 +286,7 @@ class PlayerStatsTimeline:
             captured_at=now,
             stats=dict(stats),
             items=tuple(items),
+            weapons=tuple(weapons),
         )
         self.snapshots.append(snapshot)
         self.last_snapshot_time = now
@@ -220,6 +308,15 @@ class PlayerStatsClient:
     STATS_CONTEXT_OFFSET = 0x10
     STATS_ENTRIES_OFFSET = 0x18
     RUN_TIMER_OFFSET = 0x20
+    PLAYER_INVENTORY_OFFSET = 0x28
+    WEAPON_INVENTORY_OFFSET = 0x28
+    WEAPONS_DICT_OFFSET = 0x18
+    WEAPON_DATA_OFFSET = 0x18
+    WEAPON_LEVEL_OFFSET = 0x20
+    WEAPON_STATS_DICT_OFFSET = 0x28
+    WEAPON_ID_OFFSET = 0x50
+    WEAPON_UPGRADE_DATA_OFFSET = 0xD8
+    UPGRADE_MODIFIERS_OFFSET = 0x18
     STAT_VALUE_BASE_OFFSET = 0x2C
     STAT_SLOT_SIZE = 0x10
     INVENTORY_CONTAINER_OFFSET = 0xA0
@@ -228,11 +325,28 @@ class PlayerStatsClient:
     DICT_COUNT_OFFSET = 0x20
     DICT_ENTRY_START_OFFSET = 0x20
     DICT_ENTRY_SIZE = 0x18
+    DICT_ENTRY_HASH_CODE_OFFSET = 0x0
+    DICT_ENTRY_KEY_OFFSET = 0x8
     DICT_ENTRY_VALUE_OFFSET = 0x10
     MAX_PASSIVE_ITEM_DICT_ENTRIES = 512
+    MAX_WEAPON_DICT_ENTRIES = 64
+    MAX_WEAPON_STATS_ENTRIES = 128
+    MAX_UPGRADE_MODIFIERS = 64
     ITEM_CLASS_META_OFFSET = 0x0
     ITEM_STACK_COUNT_OFFSET = 0x18
     CLASS_META_NAME_PTR_OFFSET = 0x10
+    LIST_ITEMS_OFFSET = 0x10
+    LIST_SIZE_OFFSET = 0x18
+    ARRAY_LENGTH_OFFSET = 0x18
+    ARRAY_DATA_OFFSET = 0x20
+    OBJECT_POINTER_SIZE = 0x8
+    WEAPON_DICT_ENTRY_SIZE = 0x18
+    WEAPON_DICT_ENTRY_KEY_OFFSET = 0x8
+    WEAPON_DICT_ENTRY_VALUE_OFFSET = 0x10
+    STAT_DICT_ENTRY_SIZE = 0x10
+    STAT_DICT_ENTRY_KEY_OFFSET = 0x8
+    STAT_DICT_ENTRY_VALUE_OFFSET = 0x0C
+    STAT_MODIFIER_STAT_OFFSET = 0x10
 
     def __init__(
         self,
@@ -322,6 +436,53 @@ class PlayerStatsClient:
 
         return tuple(items)
 
+    def get_live_weapons(self, owner_stats: int | None = None) -> tuple[WeaponSnapshot, ...]:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
+        if not player_inventory:
+            return ()
+
+        weapon_inventory = self.memory.read_ptr(player_inventory + self.WEAPON_INVENTORY_OFFSET)
+        if not weapon_inventory:
+            return ()
+
+        weapons_dict = self.memory.read_ptr(weapon_inventory + self.WEAPONS_DICT_OFFSET)
+        if not weapons_dict:
+            return ()
+
+        entries = self.memory.read_ptr(weapons_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return ()
+
+        count = self.memory.read_i32(weapons_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return ()
+        if count > self.MAX_WEAPON_DICT_ENTRIES:
+            raise MemoryReadError(f"Weapon dictionary count is invalid: {count}")
+
+        weapons: list[WeaponSnapshot] = []
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.WEAPON_DICT_ENTRY_SIZE)
+            try:
+                hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
+                if hash_code < 0:
+                    continue
+
+                weapon_id = self.memory.read_i32(entry + self.WEAPON_DICT_ENTRY_KEY_OFFSET)
+                weapon_base = self.memory.read_ptr(entry + self.WEAPON_DICT_ENTRY_VALUE_OFFSET)
+                if not weapon_base:
+                    continue
+
+                snapshot = self._read_weapon_snapshot(weapon_id, weapon_base)
+            except MemoryReadError:
+                continue
+
+            if snapshot is not None:
+                weapons.append(snapshot)
+
+        weapons.sort(key=lambda weapon: weapon.weapon_id)
+        return tuple(weapons)
+
     def get_run_timer(self) -> float:
         type_info_address = self.memory.module_offset(
             self.module_name,
@@ -372,6 +533,9 @@ class PlayerStatsClient:
             return None
 
         value = raw_name[4:] if raw_name.startswith("Item") and len(raw_name) > 4 else raw_name
+        if value in ITEM_DISPLAY_NAME_BY_RAW_VALUE:
+            return ITEM_DISPLAY_NAME_BY_RAW_VALUE[value]
+
         parts: list[str] = []
         current = ""
         for char in value:
@@ -384,6 +548,95 @@ class PlayerStatsClient:
             parts.append(current)
 
         return " ".join(parts) if parts else value
+
+    def _read_weapon_snapshot(self, weapon_id: int, weapon_base: int) -> WeaponSnapshot | None:
+        level = self.memory.read_i32(weapon_base + self.WEAPON_LEVEL_OFFSET)
+        weapon_data = self.memory.read_ptr(weapon_base + self.WEAPON_DATA_OFFSET)
+        weapon_stats_dict = self.memory.read_ptr(weapon_base + self.WEAPON_STATS_DICT_OFFSET)
+        if not weapon_data or not weapon_stats_dict:
+            return None
+
+        try:
+            resolved_weapon_id = self.memory.read_i32(weapon_data + self.WEAPON_ID_OFFSET)
+            if resolved_weapon_id >= 0:
+                weapon_id = resolved_weapon_id
+        except MemoryReadError:
+            pass
+
+        full_stats = self._read_weapon_stats_dict(weapon_stats_dict)
+        upgrade_data = self.memory.read_ptr(weapon_data + self.WEAPON_UPGRADE_DATA_OFFSET)
+        upgrade_modifiers = self.memory.read_ptr(upgrade_data + self.UPGRADE_MODIFIERS_OFFSET) if upgrade_data else 0
+        upgrade_stat_ids = self._read_upgrade_stat_ids(upgrade_modifiers)
+        upgraded_stats = {
+            stat_id: full_stats[stat_id]
+            for stat_id in upgrade_stat_ids
+            if stat_id in full_stats
+        }
+
+        return WeaponSnapshot(
+            weapon_id=weapon_id,
+            name=WEAPON_NAMES_BY_ID.get(weapon_id, f"Weapon {weapon_id}"),
+            level=max(level, 0),
+            upgrade_stat_ids=upgrade_stat_ids,
+            upgraded_stats=upgraded_stats,
+            full_stats=full_stats,
+        )
+
+    def _read_weapon_stats_dict(self, dictionary_address: int) -> dict[int, WeaponStatValue]:
+        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return {}
+
+        count = self.memory.read_i32(dictionary_address + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return {}
+        if count > self.MAX_WEAPON_STATS_ENTRIES:
+            raise MemoryReadError(f"Weapon stats dictionary count is invalid: {count}")
+
+        stats: dict[int, WeaponStatValue] = {}
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.STAT_DICT_ENTRY_SIZE)
+            hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
+            if hash_code < 0:
+                continue
+            stat_id = self.memory.read_i32(entry + self.STAT_DICT_ENTRY_KEY_OFFSET)
+            value = self.memory.read_float(entry + self.STAT_DICT_ENTRY_VALUE_OFFSET)
+            spec = WEAPON_STAT_SPECS.get(stat_id)
+            if spec is None:
+                spec = WeaponStatSpec(f"Stat {stat_id}", WeaponStatFormat.FLAT)
+            stats[stat_id] = WeaponStatValue(
+                stat_id=stat_id,
+                label=spec.label,
+                value=value,
+                value_format=spec.value_format,
+            )
+        return stats
+
+    def _read_upgrade_stat_ids(self, list_address: int) -> tuple[int, ...]:
+        if not list_address:
+            return ()
+
+        items_array = self.memory.read_ptr(list_address + self.LIST_ITEMS_OFFSET)
+        if not items_array:
+            return ()
+
+        size = self.memory.read_i32(list_address + self.LIST_SIZE_OFFSET)
+        if size <= 0:
+            return ()
+        if size > self.MAX_UPGRADE_MODIFIERS:
+            raise MemoryReadError(f"Upgrade modifier list size is invalid: {size}")
+
+        stat_ids: list[int] = []
+        seen: set[int] = set()
+        for index in range(size):
+            modifier_ptr = self.memory.read_ptr(items_array + self.ARRAY_DATA_OFFSET + (index * self.OBJECT_POINTER_SIZE))
+            if not modifier_ptr:
+                continue
+            stat_id = self.memory.read_i32(modifier_ptr + self.STAT_MODIFIER_STAT_OFFSET)
+            if stat_id not in seen:
+                seen.add(stat_id)
+                stat_ids.append(stat_id)
+        return tuple(stat_ids)
 
 
 def iter_player_stat_groups(
@@ -403,6 +656,19 @@ def format_player_stat_value(value: float | None, value_format: PlayerStatFormat
         return f"{_format_number(value * 100)}%"
 
     if value_format is PlayerStatFormat.MULTIPLIER:
+        return f"{_format_number(value)}x"
+
+    return _format_number(value)
+
+
+def format_weapon_stat_value(value: float | None, value_format: WeaponStatFormat) -> str:
+    if value is None or not isfinite(value):
+        return "--"
+
+    if value_format is WeaponStatFormat.PERCENT:
+        return f"{_format_number(value * 100)}%"
+
+    if value_format is WeaponStatFormat.MULTIPLIER:
         return f"{_format_number(value)}x"
 
     return _format_number(value)

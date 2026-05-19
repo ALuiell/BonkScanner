@@ -161,10 +161,11 @@ class FakeRecordingRecorder:
     def should_capture(self) -> bool:
         return self.should_capture_value
 
-    def capture(self, stats, items=(), *, chests_per_minute=None, game_time_seconds=None):
+    def capture(self, stats, items=(), weapons=(), *, chests_per_minute=None, game_time_seconds=None):
         snapshot = SimpleNamespace(
             stats=stats,
             items=tuple(items),
+            weapons=tuple(weapons),
             chests_per_minute=chests_per_minute,
             game_time_seconds=game_time_seconds,
             time_label="00:00",
@@ -173,6 +174,7 @@ class FakeRecordingRecorder:
             {
                 "stats": stats,
                 "items": tuple(items),
+                "weapons": tuple(weapons),
                 "chests_per_minute": chests_per_minute,
                 "game_time_seconds": game_time_seconds,
             }
@@ -1203,6 +1205,54 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn('color: #E879F9', result)
         self.assertIn('>Gloves Power</span> x1', result)
         self.assertIn('color: #FACC15', result)
+
+    def test_format_items_rich_text_supports_flappy_feathers_alias(self) -> None:
+        result = gui.MegabonkApp.format_items_rich_text(("Flappy Feathers x1",))
+
+        self.assertIn('>Flappy Feathers</span> x1', result)
+        self.assertIn('color: #60A5FA', result)
+
+    def test_format_items_rich_text_handles_display_name_variants(self) -> None:
+        result = gui.MegabonkApp.format_items_rich_text(
+            (
+                "Borgor x1",
+                "Bob Lantern x1",
+                "Bob's Lantern x1",
+                "Grandma's Secret Tonic x1",
+                "Gloves Cursed x1",
+                "No Implementation x1",
+                "Pot Steel x1",
+                "Sucky Hoof x1",
+            )
+        )
+
+        self.assertIn('>Borgor</span> x1', result)
+        self.assertIn('color: #22C55E', result)
+        self.assertIn(">Bob Lantern</span> x1", result)
+        self.assertIn(">Bob&#x27;s Lantern</span> x1", result)
+        self.assertIn(">Grandma&#x27;s Secret Tonic</span> x1", result)
+        self.assertIn(">Gloves Cursed</span> x1", result)
+        self.assertIn('color: #E879F9', result)
+        self.assertIn(">Golden Ring</span> x1", result)
+        self.assertIn('>Pot Steel</span> x1', result)
+        self.assertIn(">Sucky Hoof</span> x1", result)
+        self.assertIn('color: #FACC15', result)
+
+    def test_normalize_item_name_for_rarity_handles_aliases_and_gloves_rule(self) -> None:
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Flappy Feathers"), "Feathers")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Gloves Power"), "Glove Power")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Borgor"), "Borgar")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Bob Lantern"), "Bobs Lantern")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Bob's Lantern"), "Bobs Lantern")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Gloves Cursed"), "Glove Curse")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("No Implementation"), "Golden Ring")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Pot Steel"), "Pot")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Sucky Hoof"), "Sucky Magnet")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Wrench"), "Wrench")
+
+    def test_normalize_item_name_for_display_replaces_no_implementation(self) -> None:
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("No Implementation"), "Golden Ring")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("Sucky Hoof"), "Sucky Hoof")
 
     def test_split_item_stack_suffix_handles_plain_names(self) -> None:
         self.assertEqual(gui.MegabonkApp._split_item_stack_suffix("Wrench x2"), ("Wrench", " x2"))

@@ -66,7 +66,7 @@ import updater
 from game_data import GameDataClient
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
-from player_stats import PLAYER_STAT_GROUPS, PlayerStatsClient, calculate_chests_per_minute
+from player_stats import PLAYER_STAT_GROUPS, PlayerStatsClient, WeaponSnapshot, calculate_chests_per_minute
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
 from vod_storage import VodRecorder, delete_vod, list_vods, load_vod, rename_vod
@@ -160,9 +160,7 @@ ITEM_RARITY_BY_NAME = {
     "Credit Card Red": "UNCOMMON",
     "Leeching Crystal": "UNCOMMON",
     "Glove Lightning": "UNCOMMON",
-    "Gloves Lightning": "UNCOMMON",
     "Glove Poison": "UNCOMMON",
-    "Gloves Poison": "UNCOMMON",
     "Beacon": "UNCOMMON",
     "Pumpkin": "UNCOMMON",
     "Spiky Shield": "RARE",
@@ -182,9 +180,7 @@ ITEM_RARITY_BY_NAME = {
     "Gamer Goggles": "RARE",
     "Credit Card Green": "RARE",
     "Glove Blood": "RARE",
-    "Gloves Blood": "RARE",
     "Glove Curse": "RARE",
-    "Gloves Curse": "RARE",
     "Quins Mask": "RARE",
     "Bobs Lantern": "RARE",
     "Bonker": "LEGENDARY",
@@ -205,11 +201,42 @@ ITEM_RARITY_BY_NAME = {
     "Holy Book": "LEGENDARY",
     "Bloody Cleaver": "LEGENDARY",
     "Glove Power": "LEGENDARY",
-    "Gloves Power": "LEGENDARY",
     "Golden Ring": "LEGENDARY",
     "Snek": "LEGENDARY",
     "Pot": "LEGENDARY",
     "Wizards Hat": "LEGENDARY",
+}
+
+ITEM_RARITY_NAME_ALIASES = {
+    "Flappy Feathers": "Feathers",
+    "No Implementation": "Golden Ring",
+}
+
+
+ITEM_RARITY_FOLDED_NAME_ALIASES = {
+    "boblantern": "bobslantern",
+    "borgor": "borgar",
+    "flappyfeathers": "feathers",
+    "glovecursed": "glovecurse",
+    "glovescursed": "glovecurse",
+    "noimplementation": "goldenring",
+    "potsteel": "pot",
+    "suckyhoof": "suckymagnet",
+}
+
+
+ITEM_DISPLAY_NAME_ALIASES = {
+    "No Implementation": "Golden Ring",
+}
+
+
+def _fold_item_name_for_rarity(item_name: str) -> str:
+    return "".join(char.lower() for char in item_name if char.isalnum())
+
+
+ITEM_RARITY_NAME_BY_FOLDED_NAME = {
+    _fold_item_name_for_rarity(name): name
+    for name in ITEM_RARITY_BY_NAME
 }
 
 
@@ -1331,6 +1358,22 @@ class MegabonkApp:
                     max-height: 26px;
                     font-size: 13px;
                 }
+                QPushButton[class="SmallGhostButton"] {
+                    background: #18212E;
+                    color: #BBD0E5;
+                    font-size: 12px;
+                    font-weight: 600;
+                    padding: 3px 8px;
+                    border: 1px solid #2B3648;
+                    border-radius: 6px;
+                    min-height: 22px;
+                    max-height: 22px;
+                }
+                QPushButton[class="SmallGhostButton"]:hover {
+                    background: #1E2A39;
+                    border-color: #3A4D66;
+                    color: #E5E7EB;
+                }
                 QPushButton[class="WideDialogButton"] {
                     min-height: 34px;
                     font-size: 14px;
@@ -1425,12 +1468,13 @@ class MegabonkApp:
                     border-radius: 6px;
                 }
                 QScrollBar::handle:vertical {
-                    background: #4B5563;
+                    background: #7DD3FC;
                     min-height: 32px;
                     border-radius: 6px;
+                    border: 1px solid #BAE6FD;
                 }
                 QScrollBar::handle:vertical:hover {
-                    background: #6B7280;
+                    background: #A5E3FF;
                 }
                 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
                     height: 0;
@@ -1442,9 +1486,13 @@ class MegabonkApp:
                     border-radius: 6px;
                 }
                 QScrollBar::handle:horizontal {
-                    background: #4B5563;
+                    background: #7DD3FC;
                     min-width: 32px;
                     border-radius: 6px;
+                    border: 1px solid #BAE6FD;
+                }
+                QScrollBar::handle:horizontal:hover {
+                    background: #A5E3FF;
                 }
                 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
                     width: 0;
@@ -1514,10 +1562,19 @@ class MegabonkApp:
         self.player_stats_slider = None
         self.player_stats_slider_time_label = None
         self.player_stats_timeline_label = None
+        self.player_stats_detail_tabs = None
         self.player_stats_rows = {}
         self.player_stats_items_label = None
+        self.player_stats_items_toggle_btn = None
+        self.player_stats_items_expanded = False
+        self.player_stats_items_current = ()
+        self.player_stats_items_text_current = None
         self.player_stats_in_game_time_label = None
         self.player_stats_chests_per_minute_label = None
+        self.player_stats_weapons_status_label = None
+        self.player_stats_weapons_layout = None
+        self.player_stats_weapon_cards = []
+        self.player_stats_weapon_signature = None
         self.vods_list_frame = None
         self.vods_status_label = None
         self.vods_name_entry = None
@@ -1525,10 +1582,19 @@ class MegabonkApp:
         self.vods_delete_btn = None
         self.vods_slider = None
         self.vods_slider_time_label = None
+        self.vods_detail_tabs = None
         self.vods_rows = {}
         self.vods_items_label = None
+        self.vods_items_toggle_btn = None
+        self.vods_items_expanded = False
+        self.vods_items_current = ()
+        self.vods_items_text_current = None
         self.vods_in_game_time_label = None
         self.vods_chests_per_minute_label = None
+        self.vods_weapons_status_label = None
+        self.vods_weapons_layout = None
+        self.vods_weapon_cards = []
+        self.vods_weapon_signature = None
         self.status_label = None
         self.toggle_btn = None
         self.logo_label = None
@@ -1588,6 +1654,17 @@ class MegabonkApp:
         if window is not None and hasattr(window, name):
             return getattr(window, name)
         raise AttributeError(name)
+
+    @staticmethod
+    def _scope_prefix(scope: str) -> str:
+        scope_prefixes = {
+            "live": "player_stats",
+            "vod": "vods",
+        }
+        try:
+            return scope_prefixes[scope]
+        except KeyError as exc:
+            raise ValueError(f"Unknown UI scope: {scope}") from exc
 
     @property
     def qt_app(self) -> QApplication:
@@ -1930,6 +2007,11 @@ class MegabonkApp:
         self.player_stats_items_label.setTextFormat(Qt.RichText)
         self.player_stats_items_label.setWordWrap(True)
         items_layout.addWidget(self.player_stats_items_label)
+        self.player_stats_items_toggle_btn = QPushButton("Show all")
+        self.player_stats_items_toggle_btn.clicked.connect(self.toggle_player_items_expanded)
+        self.player_stats_items_toggle_btn.setProperty("class", "SmallGhostButton")
+        self.player_stats_items_toggle_btn.setVisible(False)
+        items_layout.addWidget(self.player_stats_items_toggle_btn, 0, Qt.AlignLeft)
         player_content_layout.addWidget(items_group)
         chest_rate_group = QGroupBox("Chest Rate + In-Game Time")
         chest_rate_layout = QVBoxLayout(chest_rate_group)
@@ -1938,6 +2020,11 @@ class MegabonkApp:
         self.player_stats_in_game_time_label = QLabel("In-Game Time: --")
         chest_rate_layout.addWidget(self.player_stats_in_game_time_label)
         player_content_layout.addWidget(chest_rate_group)
+        self.player_stats_detail_tabs = QTabWidget()
+        player_stats_tab = QWidget()
+        player_stats_tab_layout = QVBoxLayout(player_stats_tab)
+        player_stats_scroll, _player_stats_scroll_content, player_stats_scroll_layout = _make_scroll_section()
+        player_stats_tab_layout.addWidget(player_stats_scroll)
         for group in PLAYER_STAT_GROUPS:
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
@@ -1950,8 +2037,21 @@ class MegabonkApp:
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.player_stats_rows[spec.label] = value_label
                 group_layout.addRow(spec.label, value_label)
-            player_content_layout.addWidget(stat_group)
-        player_content_layout.addStretch(1)
+            player_stats_scroll_layout.addWidget(stat_group)
+        player_stats_scroll_layout.addStretch(1)
+        weapons_tab = QWidget()
+        weapons_tab_layout = QVBoxLayout(weapons_tab)
+        self.player_stats_weapons_status_label = QLabel("Waiting for weapon data...")
+        self.player_stats_weapons_status_label.setWordWrap(True)
+        weapons_tab_layout.addWidget(self.player_stats_weapons_status_label)
+        player_weapons_scroll, _player_weapons_scroll_content, player_weapons_scroll_layout = _make_scroll_section()
+        self.player_stats_weapons_layout = player_weapons_scroll_layout
+        weapons_tab_layout.addWidget(player_weapons_scroll)
+        self.player_stats_detail_tabs.addTab(player_stats_tab, "Stats")
+        self.player_stats_detail_tabs.addTab(weapons_tab, "Weapons")
+        player_content_layout.addWidget(self.player_stats_detail_tabs)
+        player_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
+        weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
         self.tabview.addTab(self.tab_player_stats, "Live Stats")
 
         self.tab_vods = QWidget()
@@ -1986,6 +2086,11 @@ class MegabonkApp:
         self.vods_items_label.setTextFormat(Qt.RichText)
         self.vods_items_label.setWordWrap(True)
         vod_items_layout.addWidget(self.vods_items_label)
+        self.vods_items_toggle_btn = QPushButton("Show all")
+        self.vods_items_toggle_btn.clicked.connect(self.toggle_vod_items_expanded)
+        self.vods_items_toggle_btn.setProperty("class", "SmallGhostButton")
+        self.vods_items_toggle_btn.setVisible(False)
+        vod_items_layout.addWidget(self.vods_items_toggle_btn, 0, Qt.AlignLeft)
         vods_detail_layout.addWidget(vod_items_group)
         vod_chest_rate_group = QGroupBox("Chest Rate + In-Game Time")
         vod_chest_rate_layout = QVBoxLayout(vod_chest_rate_group)
@@ -1994,7 +2099,11 @@ class MegabonkApp:
         self.vods_in_game_time_label = QLabel("In-Game Time: --")
         vod_chest_rate_layout.addWidget(self.vods_in_game_time_label)
         vods_detail_layout.addWidget(vod_chest_rate_group)
+        self.vods_detail_tabs = QTabWidget()
+        vod_stats_tab = QWidget()
+        vod_stats_tab_layout = QVBoxLayout(vod_stats_tab)
         vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()
+        vod_stats_tab_layout.addWidget(vods_scroll)
         for group in PLAYER_STAT_GROUPS:
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
@@ -2008,7 +2117,19 @@ class MegabonkApp:
                 group_layout.addRow(spec.label, value_label)
             vods_scroll_layout.addWidget(stat_group)
         vods_scroll_layout.addStretch(1)
-        vods_detail_layout.addWidget(vods_scroll, 1)
+        vod_weapons_tab = QWidget()
+        vod_weapons_tab_layout = QVBoxLayout(vod_weapons_tab)
+        self.vods_weapons_status_label = QLabel("Select a recording")
+        self.vods_weapons_status_label.setWordWrap(True)
+        vod_weapons_tab_layout.addWidget(self.vods_weapons_status_label)
+        vod_weapons_scroll, _vod_weapons_scroll_content, vod_weapons_scroll_layout = _make_scroll_section()
+        self.vods_weapons_layout = vod_weapons_scroll_layout
+        vod_weapons_tab_layout.addWidget(vod_weapons_scroll)
+        self.vods_detail_tabs.addTab(vod_stats_tab, "Stats")
+        self.vods_detail_tabs.addTab(vod_weapons_tab, "Weapons")
+        vod_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
+        vod_weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
+        vods_detail_layout.addWidget(self.vods_detail_tabs, 1)
         vods_layout.addWidget(vods_detail, 2)
         self.tabview.addTab(self.tab_vods, "Recordings")
 
@@ -2459,14 +2580,23 @@ class MegabonkApp:
         _set_text(self.player_stats_status_label, status_text)
         for label in self.player_stats_rows.values():
             _set_text(label, "--")
-        _set_items_text(self.player_stats_items_label, items_text=items_text)
+        self.player_stats_items_expanded = False
+        self._update_items_section("live", items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
+        self.player_stats_weapon_signature = None
+        self.display_weapon_cards(
+            (),
+            scope="live",
+            status_text="Waiting for weapon data...",
+        )
 
     def _read_live_player_stats_data(self):
         stats, owner_stats = self.read_player_stats_only()
         items = ()
         items_available = True
+        weapons: tuple[WeaponSnapshot, ...] = ()
+        weapons_available = False
         run_timer_seconds = None
         try:
             items = self.read_passive_items_only(owner_stats)
@@ -2474,6 +2604,17 @@ class MegabonkApp:
             items_available = False
         except Exception:
             items_available = False
+        if self.player_stats_vod_recorder.is_recording or self._is_live_stats_tab_active():
+            try:
+                client = self._get_player_stats_client()
+                weapons = client.get_live_weapons(owner_stats)
+                weapons_available = True
+            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+                weapons = ()
+                weapons_available = False
+            except Exception:
+                weapons = ()
+                weapons_available = False
         try:
             client = self._get_player_stats_client()
             run_timer_seconds = client.get_run_timer()
@@ -2481,7 +2622,7 @@ class MegabonkApp:
             run_timer_seconds = None
         except Exception:
             run_timer_seconds = None
-        return stats, items, items_available, run_timer_seconds
+        return stats, items, items_available, weapons, weapons_available, run_timer_seconds
 
     def refresh_live_player_stats_now(
         self,
@@ -2491,7 +2632,7 @@ class MegabonkApp:
         unavailable_status_prefix: str = "Player stats unavailable",
     ) -> bool:
         try:
-            stats, items, items_available, run_timer_seconds = self._read_live_player_stats_data()
+            stats, items, items_available, weapons, weapons_available, run_timer_seconds = self._read_live_player_stats_data()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
             self._reset_live_player_stats_ui(waiting_status_text)
@@ -2509,6 +2650,7 @@ class MegabonkApp:
             snapshot = self.player_stats_vod_recorder.capture(
                 stats,
                 items if items_available else (),
+                weapons if weapons_available else (),
                 chests_per_minute=chests_per_minute,
                 game_time_seconds=run_timer_seconds,
             )
@@ -2525,6 +2667,8 @@ class MegabonkApp:
                 self.display_player_stats(
                     stats,
                     items,
+                    weapons=weapons if weapons_available else (),
+                    weapons_available=weapons_available,
                     status_text="Live player stats (recording)",
                     chests_per_minute=chests_per_minute,
                     items_text=items_text,
@@ -2536,6 +2680,8 @@ class MegabonkApp:
             self.display_player_stats(
                 stats,
                 items,
+                weapons=weapons if weapons_available else (),
+                weapons_available=weapons_available,
                 status_text=status_text,
                 chests_per_minute=chests_per_minute,
                 items_text=items_text,
@@ -2548,6 +2694,8 @@ class MegabonkApp:
         stats,
         items=(),
         *,
+        weapons=(),
+        weapons_available: bool = True,
         status_text: str | None = None,
         chests_per_minute: float | None = None,
         items_text: str | None = None,
@@ -2559,7 +2707,7 @@ class MegabonkApp:
             value_label = self.player_stats_rows.get(label)
             if value_label is not None:
                 _set_text(value_label, stat.display_value)
-        _set_items_text(self.player_stats_items_label, items, items_text=items_text)
+        self._update_items_section("live", items, items_text=items_text)
         if chests_per_minute is None:
             chests_per_minute = self.calculate_player_chests_per_minute(stats)
         _set_text(
@@ -2570,6 +2718,11 @@ class MegabonkApp:
             self.player_stats_in_game_time_label,
             self.format_in_game_time(game_time_seconds),
         )
+        self.display_weapon_cards(
+            weapons if weapons_available else (),
+            scope="live",
+            status_text=None if weapons_available else "Weapons unavailable",
+        )
 
     def display_player_stats_snapshot(self, snapshot, *, items_text: str | None = None):
         index = self.player_stats_vod_snapshots.index(snapshot) + 1
@@ -2577,6 +2730,7 @@ class MegabonkApp:
         self.display_player_stats(
             snapshot.stats,
             snapshot.items,
+            weapons=getattr(snapshot, "weapons", ()),
             status_text=(
                 f"Recorded snapshot {index}/{total} at {snapshot.time_label}"
                 f" | {self.format_in_game_time(snapshot.game_time_seconds)}"
@@ -2822,9 +2976,12 @@ class MegabonkApp:
             for label in self.vods_rows.values():
                 _set_text(label, "--")
             _set_text(self.vods_slider_time_label, "Timeline: --")
-            _set_items_text(self.vods_items_label, items_text="--")
+            self.vods_items_expanded = False
+            self._update_items_section("vod", items_text="--")
             _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
             _set_text(self.vods_in_game_time_label, "In-Game Time: --")
+            self.vods_weapon_signature = None
+            self.display_weapon_cards((), scope="vod", status_text="No weapon data in this recording")
 
     def display_loaded_vod_snapshot(self, index: int):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
@@ -2848,7 +3005,7 @@ class MegabonkApp:
                 if value_label is not None:
                     stat = snapshot.stats.get(spec.label)
                     _set_text(value_label, stat.display_value if stat is not None else "--")
-        _set_items_text(self.vods_items_label, snapshot.items)
+        self._update_items_section("vod", snapshot.items)
         _set_text(
             self.vods_chests_per_minute_label,
             self.format_chests_per_minute(self.resolve_snapshot_chests_per_minute(snapshot)),
@@ -2857,6 +3014,7 @@ class MegabonkApp:
             self.vods_in_game_time_label,
             self.format_in_game_time(snapshot.game_time_seconds),
         )
+        self.display_weapon_cards(getattr(snapshot, "weapons", ()), scope="vod")
 
     def on_vods_slider_changed(self, value):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
@@ -2902,10 +3060,174 @@ class MegabonkApp:
         _set_text(self.vods_slider_time_label, "Timeline: --")
         for label in self.vods_rows.values():
             _set_text(label, "--")
-        _set_items_text(self.vods_items_label, items_text="--")
+        self.vods_items_expanded = False
+        self._update_items_section("vod", items_text="--")
         _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
+        self.vods_weapon_signature = None
+        self.display_weapon_cards((), scope="vod", status_text="Select a recording")
         self.refresh_vods_list()
+
+    def toggle_player_items_expanded(self) -> None:
+        self.player_stats_items_expanded = not self.player_stats_items_expanded
+        self._update_items_section(
+            "live",
+            self.player_stats_items_current,
+            items_text=self.player_stats_items_text_current,
+        )
+
+    def toggle_vod_items_expanded(self) -> None:
+        self.vods_items_expanded = not self.vods_items_expanded
+        self._update_items_section(
+            "vod",
+            self.vods_items_current,
+            items_text=self.vods_items_text_current,
+        )
+
+    def _update_items_section(self, scope: str, items=(), *, items_text: str | None = None) -> None:
+        prefix = self._scope_prefix(scope)
+        label = self.__dict__.get(f"{prefix}_items_label")
+        button = self.__dict__.get(f"{prefix}_items_toggle_btn")
+        expanded = bool(self.__dict__.get(f"{prefix}_items_expanded", False))
+        setattr(self, f"{prefix}_items_current", tuple(items or ()))
+        setattr(self, f"{prefix}_items_text_current", items_text)
+
+        if label is None:
+            return
+
+        if items_text is not None:
+            _set_items_text(label, items_text=items_text)
+            if button is not None:
+                button.setVisible(False)
+            return
+
+        items = tuple(items or ())
+        preview_items, has_more = self._items_preview(items)
+        visible_items = items if expanded or not has_more else preview_items
+        if hasattr(label, "setTextFormat"):
+            text = self.format_items_rich_text(visible_items)
+            if has_more and not expanded:
+                text = f'{text} <span style="color:#98A7BA;">...</span>'
+            label.setText(text)
+        else:
+            text = self.format_items(visible_items)
+            if has_more and not expanded:
+                text = f"{text} ..."
+            _set_text(label, text)
+
+        if button is not None:
+            button.setVisible(has_more)
+            button.setText("Show less" if expanded and has_more else "Show all")
+
+    @staticmethod
+    def _items_preview(items) -> tuple[tuple[str, ...], bool]:
+        items = tuple(items or ())
+        if len(items) <= 1:
+            return items, False
+
+        preview: list[str] = []
+        max_chars = 90
+        current_length = 0
+        for item in items:
+            separator_length = 2 if preview else 0
+            projected_length = current_length + separator_length + len(item)
+            if preview and projected_length > max_chars:
+                break
+            preview.append(item)
+            current_length = projected_length
+
+        if not preview:
+            preview.append(items[0])
+        return tuple(preview), len(preview) < len(items)
+
+    def display_weapon_cards(self, weapons, *, scope: str, status_text: str | None = None) -> None:
+        prefix = self._scope_prefix(scope)
+        layout_attr = f"{prefix}_weapons_layout"
+        status_attr = f"{prefix}_weapons_status_label"
+        cards_attr = f"{prefix}_weapon_cards"
+        signature_attr = f"{prefix}_weapon_signature"
+
+        layout = getattr(self, layout_attr, None)
+        status_label = getattr(self, status_attr, None)
+        if layout is None or status_label is None:
+            return
+
+        weapons = tuple(weapons or ())
+        signature = self._weapon_signature(weapons)
+        if getattr(self, signature_attr, None) == signature and status_text is None:
+            return
+
+        setattr(self, signature_attr, signature)
+        _clear_layout(layout)
+        setattr(self, cards_attr, [])
+
+        if status_text is not None:
+            _set_text(status_label, status_text)
+        else:
+            _set_text(status_label, "" if weapons else "No weapons available")
+
+        if not weapons:
+            return
+
+        cards = []
+        for weapon in weapons:
+            card = self._build_weapon_card(weapon)
+            layout.addWidget(card)
+            cards.append(card)
+        layout.addStretch(1)
+        setattr(self, cards_attr, cards)
+
+    def _build_weapon_card(self, weapon: WeaponSnapshot) -> QFrame:
+        card = QFrame()
+        card.setObjectName("StatCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        weapon_name_label = QLabel(weapon.name)
+        weapon_name_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        weapon_level_label = QLabel(f"Lv. {weapon.level}")
+        weapon_level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        weapon_level_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        header_layout.addWidget(weapon_name_label, 1)
+        header_layout.addWidget(weapon_level_label)
+        layout.addLayout(header_layout)
+
+        rows = QFormLayout()
+        rows.setContentsMargins(0, 0, 0, 0)
+        rows.setVerticalSpacing(6)
+        has_rows = False
+        for stat_id in weapon.upgrade_stat_ids:
+            stat = weapon.upgraded_stats.get(stat_id)
+            if stat is None:
+                continue
+            value_label = QLabel(stat.display_value)
+            value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            rows.addRow(stat.label, value_label)
+            has_rows = True
+        if has_rows:
+            layout.addLayout(rows)
+        else:
+            layout.addWidget(QLabel("No upgraded stats decoded"))
+        return card
+
+    @staticmethod
+    def _weapon_signature(weapons) -> tuple:
+        return tuple(
+            (
+                weapon.weapon_id,
+                weapon.level,
+                tuple(
+                    (stat_id, weapon.upgraded_stats[stat_id].display_value)
+                    for stat_id in weapon.upgrade_stat_ids
+                    if stat_id in weapon.upgraded_stats
+                ),
+            )
+            for weapon in weapons
+        )
 
     @staticmethod
     def format_duration(seconds: int) -> str:
@@ -2940,9 +3262,11 @@ class MegabonkApp:
     @classmethod
     def _format_single_item_rich_text(cls, item_text: str) -> str:
         item_name, suffix = cls._split_item_stack_suffix(item_text)
-        rarity = ITEM_RARITY_BY_NAME.get(item_name)
+        display_name = cls._normalize_item_name_for_display(item_name)
+        rarity_name = cls._normalize_item_name_for_rarity(display_name)
+        rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
         color = ITEM_RARITY_COLOR_MAP.get(rarity)
-        escaped_name = html.escape(item_name)
+        escaped_name = html.escape(display_name)
         if color:
             escaped_name = f'<span style="color: {color}; font-weight: 700;">{escaped_name}</span>'
         escaped_suffix = html.escape(suffix)
@@ -2956,6 +3280,23 @@ class MegabonkApp:
         if separator and suffix.isdigit():
             return name, f"{separator}{suffix}"
         return item_text, ""
+
+    @staticmethod
+    def _normalize_item_name_for_rarity(item_name: str) -> str:
+        normalized = " ".join(item_name.split())
+        if normalized in ITEM_RARITY_NAME_ALIASES:
+            return ITEM_RARITY_NAME_ALIASES[normalized]
+        if normalized.startswith("Gloves "):
+            normalized = f"Glove {normalized[len('Gloves '):]}"
+
+        folded = _fold_item_name_for_rarity(normalized)
+        folded = ITEM_RARITY_FOLDED_NAME_ALIASES.get(folded, folded)
+        return ITEM_RARITY_NAME_BY_FOLDED_NAME.get(folded, normalized)
+
+    @staticmethod
+    def _normalize_item_name_for_display(item_name: str) -> str:
+        normalized = " ".join(item_name.split())
+        return ITEM_DISPLAY_NAME_ALIASES.get(normalized, normalized)
 
     @staticmethod
     def calculate_player_chests_per_minute(stats) -> float | None:

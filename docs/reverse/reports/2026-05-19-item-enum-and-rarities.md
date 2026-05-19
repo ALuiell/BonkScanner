@@ -361,11 +361,52 @@ Live validation on 2026-05-19:
 - duplicate keys observed: `0`
 - missing enum id from live item data: `50 WeebHeadset`
 
+## Passive Inventory Display Name Notes
+
+Important implementation detail:
+
+- `DataManager.itemData` / `EItem` names are the static catalog source.
+- The live passive inventory path currently identifies items from the item
+  object's class metadata name.
+- Those runtime class names are close to the enum names, but not always exact.
+- UI rarity coloring should therefore normalize runtime display names back to
+  the catalog name before looking up rarity.
+
+Observed runtime display-name differences from a spawned-all-items validation:
+
+| Runtime class name | Display name from class | Catalog / rarity key | Confirmed rarity | UI display guidance |
+|---|---|---|---|---|
+| `ItemBorgor` | `Borgor` | `Borgar` | `Common` | keep visible name as `Borgor`; use `Borgar` for rarity |
+| `ItemBobLantern` | `Bob Lantern` | `BobsLantern` | `Epic` | keep visible name as `Bob Lantern`; use `BobsLantern` for rarity |
+| `ItemFlappyFeathers` | `Flappy Feathers` | `Feathers` | `Rare` | keep visible name as `Flappy Feathers`; use `Feathers` for rarity |
+| `ItemGlovesBlood` | `Gloves Blood` | `GloveBlood` | `Epic` | plural `Gloves` maps to singular catalog `Glove` |
+| `ItemGlovesCursed` | `Gloves Cursed` | `GloveCurse` | `Epic` | `Cursed` maps to catalog `Curse` |
+| `ItemGlovesLightning` | `Gloves Lightning` | `GloveLightning` | `Rare` | plural `Gloves` maps to singular catalog `Glove` |
+| `ItemGlovesPoison` | `Gloves Poison` | `GlovePoison` | `Rare` | plural `Gloves` maps to singular catalog `Glove` |
+| `ItemGlovesPower` | `Gloves Power` | `GlovePower` | `Legendary` | plural `Gloves` maps to singular catalog `Glove` |
+| `ItemNoImplementation` | `No Implementation` | `GoldenRing` | `Legendary` | display this as `Golden Ring`; the runtime class name is misleading |
+| `ItemPotSteel` | `Pot Steel` | `Pot` | `Legendary` | keep visible name as `Pot Steel`; use `Pot` for rarity |
+| `ItemSuckyHoof` | `Sucky Hoof` | `SuckyMagnet` | `Legendary` | keep visible name as `Sucky Hoof`; use `SuckyMagnet` for rarity |
+
+Suggested display normalization:
+
+- Remove the leading `Item` prefix from runtime class names.
+- Split CamelCase for user-facing text.
+- Apply explicit raw-name overrides before generic formatting when the class
+  name is misleading, especially `ItemNoImplementation -> Golden Ring`.
+- For rarity lookup, compare a folded key that ignores spaces, punctuation, and
+  apostrophes, then apply known aliases such as `Borgor -> Borgar`,
+  `PotSteel -> Pot`, and `SuckyHoof -> SuckyMagnet`.
+- Keep `Quest` and unresolved items visually neutral unless the UI intentionally
+  adds a separate treatment for them.
+
 ## Recommended Implementation Shape
 
 For name decoding:
 
 - use the dumped `EItem` enum as the source of truth for id-to-name mapping
+- when reading live passive inventory by class metadata, normalize runtime class
+  names through the display-name notes above before rarity lookup
 
 For rarity decoding:
 
@@ -398,4 +439,3 @@ For unresolved ids:
   catalog.
 - `Quest` items are present and should not be merged into the normal four-tier
   rarity display without an intentional UX decision.
-

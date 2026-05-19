@@ -9,10 +9,10 @@ import time
 from typing import Any
 
 import config
-from player_stats import PlayerStatValue
+from player_stats import PlayerStatValue, WeaponSnapshot, WeaponStatFormat, WeaponStatValue
 
 
-VOD_FORMAT_VERSION = 2
+VOD_FORMAT_VERSION = 3
 RECORDINGS_DIR = Path(config.application_path) / "stats_recordings"
 LEGACY_VODS_DIR = Path(config.application_path) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -30,6 +30,7 @@ class VodSnapshot:
     captured_at: float
     stats: dict[str, VodStatValue]
     items: tuple[str, ...] = ()
+    weapons: tuple[WeaponSnapshot, ...] = ()
     chests_per_minute: float | None = None
     game_time_seconds: float | None = None
 
@@ -151,6 +152,7 @@ class VodRecorder:
         self,
         stats: dict[str, PlayerStatValue],
         items: tuple[str, ...] = (),
+        weapons: tuple[WeaponSnapshot, ...] = (),
         *,
         chests_per_minute: float | None = None,
         game_time_seconds: float | None = None,
@@ -167,6 +169,7 @@ class VodRecorder:
                 for label, stat in stats.items()
             },
             items=tuple(items),
+            weapons=tuple(weapons),
             chests_per_minute=chests_per_minute,
             game_time_seconds=game_time_seconds,
         )
@@ -397,6 +400,7 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
             for label, stat in snapshot.stats.items()
         },
         "items": list(snapshot.items),
+        "weapons": [_weapon_to_record(weapon) for weapon in snapshot.weapons],
         "chests_per_minute": snapshot.chests_per_minute,
     }
     if snapshot.game_time_seconds is not None:
@@ -418,6 +422,7 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
             if isinstance(value, dict)
         },
         items=tuple(str(item) for item in record.get("items") or ()),
+        weapons=tuple(_record_to_weapon(weapon) for weapon in record.get("weapons") or ()),
         chests_per_minute=_coerce_optional_float(record.get("chests_per_minute")),
         game_time_seconds=_coerce_optional_float(
             record.get("game_time_seconds", record.get("in_game_elapsed_seconds"))
@@ -425,11 +430,96 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
     )
 
 
+def _weapon_to_record(weapon: WeaponSnapshot) -> dict[str, Any]:
+    return {
+        "id": weapon.weapon_id,
+        "name": weapon.name,
+        "level": weapon.level,
+        "upgrade_stat_ids": list(weapon.upgrade_stat_ids),
+        "upgraded_stats": {
+            str(stat_id): _weapon_stat_value_to_record(value)
+            for stat_id, value in weapon.upgraded_stats.items()
+        },
+        "full_stats": {
+            str(stat_id): _weapon_stat_value_to_record(value)
+            for stat_id, value in weapon.full_stats.items()
+        },
+    }
+
+
+def _weapon_stat_value_to_record(value: WeaponStatValue) -> dict[str, Any]:
+    return {
+        "label": value.label,
+        "value": value.value,
+        "display": value.display_value,
+        "value_format": value.value_format.value,
+    }
+
+
+def _record_to_weapon(record: Any) -> WeaponSnapshot:
+    if not isinstance(record, dict):
+        return WeaponSnapshot(weapon_id=-1, name="Unknown Weapon", level=0, upgrade_stat_ids=(), upgraded_stats={}, full_stats={})
+
+    raw_upgraded_stats = record.get("upgraded_stats") or {}
+    raw_full_stats = record.get("full_stats") or {}
+    upgrade_stat_ids = tuple(
+        int(stat_id)
+        for stat_id in record.get("upgrade_stat_ids") or ()
+        if _is_int_like(stat_id)
+    )
+    return WeaponSnapshot(
+        weapon_id=_coerce_int(record.get("id"), default=-1),
+        name=str(record.get("name") or "Unknown Weapon"),
+        level=max(_coerce_int(record.get("level"), default=0), 0),
+        upgrade_stat_ids=upgrade_stat_ids,
+        upgraded_stats=_record_to_weapon_stats(raw_upgraded_stats),
+        full_stats=_record_to_weapon_stats(raw_full_stats),
+    )
+
+
+def _record_to_weapon_stats(raw_stats: Any) -> dict[int, WeaponStatValue]:
+    if not isinstance(raw_stats, dict):
+        return {}
+
+    stats: dict[int, WeaponStatValue] = {}
+    for raw_stat_id, raw_value in raw_stats.items():
+        if not _is_int_like(raw_stat_id) or not isinstance(raw_value, dict):
+            continue
+        stat_id = int(raw_stat_id)
+        value_format_name = str(raw_value.get("value_format") or WeaponStatFormat.FLAT.value)
+        try:
+            value_format = WeaponStatFormat(value_format_name)
+        except ValueError:
+            value_format = WeaponStatFormat.FLAT
+        stats[stat_id] = WeaponStatValue(
+            stat_id=stat_id,
+            label=str(raw_value.get("label") or f"Stat {stat_id}"),
+            value=_coerce_optional_float(raw_value.get("value")),
+            value_format=value_format,
+        )
+    return stats
+
+
 def _coerce_optional_float(value: Any) -> float | None:
     try:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_int(value: Any, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _is_int_like(value: Any) -> bool:
+    try:
+        int(value)
+        return True
+    except (TypeError, ValueError):
+        return False
 
 
 def _unique_path(path: Path) -> Path:

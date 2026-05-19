@@ -6,7 +6,20 @@ This file is a small backlog of product and hook ideas that came up during
 testing. The goal is to keep them in one place with a short description of
 expected behavior, likely implementation shape, and any obvious caveats.
 
+Status legend:
+
+- `[Done]` implemented in the current branch
+- `[Partial]` some meaningful work is done, but the feature is not fully complete
+- `[Open]` not implemented yet
+
 ## 1. Hotkey for Particles Opacity
+
+Status: `[Done]`
+
+Current branch notes:
+
+- Native hook export and loader support for `ToggleParticlesOpacity` are implemented.
+- The optional config knobs for custom `ON/OFF` target values are still not added.
 
 Goal:
 
@@ -38,6 +51,14 @@ Possible improvement:
   without touching code again.
 
 ## 2. Auto-Split Player Stats Recording By Run
+
+Status: `[Done]`
+
+Current branch notes:
+
+- Recording now tracks run seed changes and auto-splits into a new file when the seed changes.
+- Missing seed is handled with a grace window and auto-stop after the run ends.
+- The suggested config knobs are still not exposed as user-facing settings.
 
 Goal:
 
@@ -75,6 +96,8 @@ Suggested config knobs:
 - `PLAYER_STATS_MISSING_SEED_GRACE_SECONDS = 3`
 
 ## 3. Rework Settings Save Behavior To Reduce Micro-Stutters
+
+Status: `[Open]`
 
 Current issue:
 
@@ -122,6 +145,8 @@ Suggested config knobs:
 
 ## 4. Built-In Help / Guide Dialog
 
+Status: `[Open]`
+
 Goal:
 
 - Add an in-app help / guide button so common workflow notes and edge cases are
@@ -167,6 +192,15 @@ Possible improvement:
   technical explanations.
 
 ## 5. Compare Runs By In-Game Time
+
+Status: `[Partial]`
+
+Current branch notes:
+
+- Phase 1 is done: run timer reverse path is documented in `docs/reverse/reports/2026-05-18-current-run-time.md`.
+- Phase 2 is done: recordings now store `game_time_seconds` in snapshots.
+- Phase 3 is mostly done: the existing recordings viewer shows in-game time and remains backward-compatible with older recordings.
+- The dedicated `Compare Runs` tab and time-synced side-by-side compare workflow are still not implemented.
 
 Goal:
 
@@ -270,6 +304,14 @@ Possible improvements:
 
 ## 6. Decouple Live Stats From Passive Item Reads
 
+Status: `[Done]`
+
+Current branch notes:
+
+- Live stats and passive item reads are now split into separate calls.
+- Passive item read failure no longer resets valid player stats and instead falls back to `Items unavailable`.
+- The live stats tab also refreshes immediately when opened instead of waiting only for the background timer.
+
 Current issue:
 
 - The `Live Stats` refresh path currently reads player stats and passive items
@@ -321,6 +363,23 @@ Nice-to-have follow-up:
   `Live Stats` tab instead of waiting for the next background timer tick.
 
 ## 7. Performance Update
+
+Status: `[Partial]`
+
+Current branch notes:
+
+- Done:
+  - passive item dictionary hard cap
+  - split player stat / passive item reads
+  - resolve `owner_stats` once per refresh and reuse it
+  - gate idle live-stats polling by visible tab or active recording
+  - immediate refresh when the user opens the live stats tab
+- Still open:
+  - deferred native hook `SaveConfig()` instead of same-frame save
+  - `ProcessMemory` module base caching
+  - reduced VOD flush frequency and batched/final flush behavior
+  - reduced config write frequency for reroll/session counters
+  - hook idle atomic micro-optimizations
 
 Scope:
 
@@ -421,6 +480,13 @@ Validation plan:
   recording auto-stop.
 
 ## 8. Add Upgraded Weapon Details To Live Stats And Recordings
+
+Status: `[Partial]`
+
+Current branch notes:
+
+- Reverse research is done and documented in `docs/reverse/reports/2026-05-19-live-weapon-stats-and-upgrades.md`.
+- Item rarity support for the current UI is implemented separately, but upgraded weapon details themselves are not yet shown in `Live Stats` or stored in recordings.
 
 Goal:
 

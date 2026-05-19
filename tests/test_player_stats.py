@@ -7,8 +7,10 @@ from player_stats import (
     PlayerStatsClient,
     PlayerStatFormat,
     PlayerStatsTimeline,
+    WeaponStatFormat,
     calculate_chests_per_minute,
     format_player_stat_value,
+    format_weapon_stat_value,
 )
 
 
@@ -139,6 +141,9 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertEqual(items, ("Wrench x2",))
 
+    def test_format_item_name_replaces_no_implementation_with_golden_ring(self) -> None:
+        self.assertEqual(PlayerStatsClient._format_item_name("ItemNoImplementation"), "Golden Ring")
+
     def test_get_run_timer_reads_confirmed_static_float(self) -> None:
         client = PlayerStatsClient(memory=self.build_memory())
 
@@ -201,6 +206,13 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(format_player_stat_value(10.0, PlayerStatFormat.FLAT), "10")
         self.assertEqual(format_player_stat_value(None, PlayerStatFormat.FLAT), "--")
 
+    def test_format_weapon_stat_values_follow_weapon_ui_rules(self) -> None:
+        self.assertEqual(format_weapon_stat_value(10.0, WeaponStatFormat.FLAT), "10")
+        self.assertEqual(format_weapon_stat_value(2.0, WeaponStatFormat.FLAT), "2")
+        self.assertEqual(format_weapon_stat_value(1.16, WeaponStatFormat.MULTIPLIER), "1.16x")
+        self.assertEqual(format_weapon_stat_value(0.6, WeaponStatFormat.MULTIPLIER), "0.6x")
+        self.assertEqual(format_weapon_stat_value(0.34, WeaponStatFormat.PERCENT), "34%")
+
     def test_calculate_chests_per_minute_matches_expected_formula(self) -> None:
         value = calculate_chests_per_minute(15.0, 2.0)
 
@@ -238,6 +250,80 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         second = timeline.capture(stats, ("Wrench x2",))
         self.assertEqual(second.time_label, "01:00")
         self.assertEqual(second.items, ("Wrench x2",))
+
+    def test_get_live_weapons_filters_stats_by_upgrade_pool(self) -> None:
+        memory = build_player_stats_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x21000000
+        weapon_inventory = 0x21000100
+        weapons_dict = 0x21000200
+        weapon_entries = 0x21000300
+        weapon_base = 0x21000400
+        weapon_data = 0x21000500
+        weapon_stats_dict = 0x21000600
+        weapon_stat_entries = 0x21000700
+        upgrade_data = 0x21000800
+        upgrade_modifiers = 0x21000900
+        upgrade_items = 0x21000A00
+        damage_modifier = 0x21000B00
+        speed_modifier = 0x21000C00
+
+        memory.pointers.update(
+            {
+                owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
+                player_inventory + PlayerStatsClient.WEAPON_INVENTORY_OFFSET: weapon_inventory,
+                weapon_inventory + PlayerStatsClient.WEAPONS_DICT_OFFSET: weapons_dict,
+                weapons_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: weapon_entries,
+                weapon_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.WEAPON_DICT_ENTRY_VALUE_OFFSET: weapon_base,
+                weapon_base + PlayerStatsClient.WEAPON_DATA_OFFSET: weapon_data,
+                weapon_base + PlayerStatsClient.WEAPON_STATS_DICT_OFFSET: weapon_stats_dict,
+                weapon_stats_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: weapon_stat_entries,
+                weapon_data + PlayerStatsClient.WEAPON_UPGRADE_DATA_OFFSET: upgrade_data,
+                upgrade_data + PlayerStatsClient.UPGRADE_MODIFIERS_OFFSET: upgrade_modifiers,
+                upgrade_modifiers + PlayerStatsClient.LIST_ITEMS_OFFSET: upgrade_items,
+                upgrade_items + PlayerStatsClient.ARRAY_DATA_OFFSET: damage_modifier,
+                upgrade_items + PlayerStatsClient.ARRAY_DATA_OFFSET + PlayerStatsClient.OBJECT_POINTER_SIZE: speed_modifier,
+            }
+        )
+        memory.ints.update(
+            {
+                weapons_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                weapon_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                weapon_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET: 0,
+                weapon_base + PlayerStatsClient.WEAPON_LEVEL_OFFSET: 3,
+                weapon_data + PlayerStatsClient.WEAPON_ID_OFFSET: 0,
+                weapon_stats_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 3,
+                weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET: 12,
+                weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_SIZE + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_SIZE + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET: 16,
+                weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + (2 * PlayerStatsClient.STAT_DICT_ENTRY_SIZE) + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + (2 * PlayerStatsClient.STAT_DICT_ENTRY_SIZE) + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET: 11,
+                upgrade_modifiers + PlayerStatsClient.LIST_SIZE_OFFSET: 2,
+                damage_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+                speed_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 11,
+            }
+        )
+        memory.floats.update(
+            {
+                weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 10.0,
+                weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_SIZE + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 2.0,
+                weapon_stat_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + (2 * PlayerStatsClient.STAT_DICT_ENTRY_SIZE) + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 0.6,
+            }
+        )
+
+        client = PlayerStatsClient(memory=memory)
+
+        weapons = client.get_live_weapons()
+
+        self.assertEqual(len(weapons), 1)
+        self.assertEqual(weapons[0].name, "Fire Staff")
+        self.assertEqual(weapons[0].level, 3)
+        self.assertEqual(weapons[0].upgrade_stat_ids, (12, 11))
+        self.assertEqual(tuple(weapons[0].upgraded_stats), (12, 11))
+        self.assertEqual(weapons[0].upgraded_stats[12].display_value, "10")
+        self.assertEqual(weapons[0].upgraded_stats[11].display_value, "0.6x")
+        self.assertIn(16, weapons[0].full_stats)
 
     def test_timeline_elapsed_label_tracks_recording_time(self) -> None:
         now = 1000.0
