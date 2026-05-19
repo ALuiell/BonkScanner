@@ -161,11 +161,12 @@ class FakeRecordingRecorder:
     def should_capture(self) -> bool:
         return self.should_capture_value
 
-    def capture(self, stats, items=(), *, chests_per_minute=None):
+    def capture(self, stats, items=(), *, chests_per_minute=None, game_time_seconds=None):
         snapshot = SimpleNamespace(
             stats=stats,
             items=tuple(items),
             chests_per_minute=chests_per_minute,
+            game_time_seconds=game_time_seconds,
             time_label="00:00",
         )
         self.capture_calls.append(
@@ -173,6 +174,7 @@ class FakeRecordingRecorder:
                 "stats": stats,
                 "items": tuple(items),
                 "chests_per_minute": chests_per_minute,
+                "game_time_seconds": game_time_seconds,
             }
         )
         self.should_capture_value = False
@@ -273,9 +275,11 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_recording_seed = None
         app.player_stats_recording_seed_missing_since = None
         app.player_stats_game_data_client = None
+        app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 21.5)
         app.player_stats_status_label = FakeLabel()
         app.player_stats_rows = {}
         app.player_stats_items_label = FakeLabel()
+        app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
@@ -1012,7 +1016,9 @@ class GuiRunControlTests(unittest.TestCase):
         stat_label = FakeLabel()
         app.player_stats_rows = {"Damage": stat_label}
         app.player_stats_items_label = FakeLabel()
+        app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
+        app._get_player_stats_client = lambda: SimpleNamespace(get_run_timer=lambda: 21.5)
         app.close_player_stats_client = lambda: None
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
@@ -1031,6 +1037,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(stat_label.text(), "123")
         self.assertEqual(app.player_stats_items_label.text(), "Items unavailable")
         self.assertEqual(app.player_stats_chests_per_minute_label.text(), "Average chests/min: --")
+        self.assertEqual(app.player_stats_in_game_time_label.text(), "In-Game Time: 00:21")
 
     def test_refresh_live_player_stats_now_captures_while_hidden_recording(self) -> None:
         app = self.build_recording_app()
@@ -1050,6 +1057,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["items"], ("Wrench x2",))
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["game_time_seconds"], 21.5)
         self.assertEqual(snapshot_calls, [])
         self.assertEqual(timeline_calls, ["timeline"])
 
@@ -1102,7 +1110,9 @@ class GuiRunControlTests(unittest.TestCase):
         stat_label = FakeLabel()
         app.player_stats_rows = {"Damage": stat_label}
         app.player_stats_items_label = FakeLabel()
+        app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
+        app._get_player_stats_client = lambda: SimpleNamespace(get_run_timer=lambda: 21.5)
         app.close_player_stats_client = lambda: None
         app.close_player_stats_game_data_client = lambda: None
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
@@ -1122,6 +1132,81 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_status_label.text(), "Live player stats")
         self.assertEqual(stat_label.text(), "123")
         self.assertEqual(app.player_stats_items_label.text(), "Items unavailable")
+        self.assertEqual(app.player_stats_in_game_time_label.text(), "In-Game Time: 00:21")
+
+    def test_display_player_stats_snapshot_shows_in_game_time_in_status_and_summary(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.player_stats_vod_snapshots = []
+        calls: list[dict[str, object]] = []
+        snapshot = SimpleNamespace(
+            stats={"Damage": SimpleNamespace(display_value="123", value=1.23)},
+            items=("Wrench x2",),
+            chests_per_minute=1.5,
+            game_time_seconds=81.75,
+            time_label="01:00",
+        )
+        app.player_stats_vod_snapshots = [snapshot]
+        app.display_player_stats = lambda stats, items=(), **kwargs: calls.append(
+            {"stats": stats, "items": tuple(items), "kwargs": kwargs}
+        )
+
+        gui.MegabonkApp.display_player_stats_snapshot(app, snapshot)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0]["kwargs"]["status_text"], "Recorded snapshot 1/1 at 01:00 | In-Game Time: 01:21")
+        self.assertEqual(calls[0]["kwargs"]["game_time_seconds"], 81.75)
+
+    def test_display_loaded_vod_snapshot_shows_legacy_in_game_fallback(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.vods_status_label = FakeLabel()
+        app.vods_slider_time_label = FakeLabel()
+        app.vods_items_label = FakeLabel()
+        app.vods_in_game_time_label = FakeLabel()
+        app.vods_chests_per_minute_label = FakeLabel()
+        app.vods_rows = {"Damage": FakeLabel()}
+        app.loaded_vod_snapshot_index = None
+        snapshot = SimpleNamespace(
+            stats={"Damage": SimpleNamespace(display_value="123", value=1.23)},
+            items=("Wrench x1",),
+            chests_per_minute=1.23,
+            game_time_seconds=None,
+            time_label="00:00",
+        )
+        metadata = SimpleNamespace(name="Legacy run")
+        app.loaded_vod = SimpleNamespace(metadata=metadata, snapshots=[snapshot])
+
+        gui.MegabonkApp.display_loaded_vod_snapshot(app, 0)
+
+        self.assertEqual(app.vods_status_label.text(), "Legacy run | 1/1 at 00:00 | In-Game Time: --")
+        self.assertEqual(app.vods_in_game_time_label.text(), "In-Game Time: --")
+        self.assertEqual(app.vods_items_label.text(), "Wrench x1")
+
+    def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
+        self.assertEqual(gui.MegabonkApp.format_in_game_time(None), "In-Game Time: --")
+        self.assertEqual(gui.MegabonkApp.format_in_game_time(21.52338219), "In-Game Time: 00:21")
+        self.assertEqual(gui.MegabonkApp.format_in_game_time(3661.9), "In-Game Time: 01:01:01")
+
+    def test_format_items_rich_text_colors_name_only(self) -> None:
+        result = gui.MegabonkApp.format_items_rich_text(("Wrench x2", "Bonker x1", "Crypt Key x1"))
+
+        self.assertIn('color: #22C55E', result)
+        self.assertIn('>Wrench</span> x2', result)
+        self.assertIn('color: #FACC15', result)
+        self.assertIn('>Bonker</span> x1', result)
+        self.assertIn('Crypt Key x1', result)
+        self.assertNotIn('color: #22C55E;">Wrench x2</span>', result)
+
+    def test_format_items_rich_text_supports_gloves_aliases(self) -> None:
+        result = gui.MegabonkApp.format_items_rich_text(("Gloves Blood x1", "Gloves Power x1"))
+
+        self.assertIn('>Gloves Blood</span> x1', result)
+        self.assertIn('color: #E879F9', result)
+        self.assertIn('>Gloves Power</span> x1', result)
+        self.assertIn('color: #FACC15', result)
+
+    def test_split_item_stack_suffix_handles_plain_names(self) -> None:
+        self.assertEqual(gui.MegabonkApp._split_item_stack_suffix("Wrench x2"), ("Wrench", " x2"))
+        self.assertEqual(gui.MegabonkApp._split_item_stack_suffix("Ghost"), ("Ghost", ""))
 
     def test_on_closing_detaches_native_hooks_and_invalidates_worker(self) -> None:
         loader = FakeDetachLoader()

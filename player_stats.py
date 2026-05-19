@@ -133,6 +133,7 @@ class PlayerStatsSnapshot:
     captured_at: float
     stats: dict[str, PlayerStatValue]
     items: tuple[str, ...] = ()
+    game_time_seconds: float | None = None
 
     @property
     def time_label(self) -> str:
@@ -212,11 +213,13 @@ class PlayerStatsTimeline:
 
 class PlayerStatsClient:
     TYPE_INFO_OFFSET = 0x02F6A4B8
+    RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
     STATIC_ROOT_OFFSET = 0x0
     OWNER_STATS_OFFSET = 0x40
     STATS_CONTEXT_OFFSET = 0x10
     STATS_ENTRIES_OFFSET = 0x18
+    RUN_TIMER_OFFSET = 0x20
     STAT_VALUE_BASE_OFFSET = 0x2C
     STAT_SLOT_SIZE = 0x10
     INVENTORY_CONTAINER_OFFSET = 0xA0
@@ -318,6 +321,21 @@ class PlayerStatsClient:
             raise MemoryReadError("Passive item dictionary entries could not be decoded.")
 
         return tuple(items)
+
+    def get_run_timer(self) -> float:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.RUN_TIMER_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("Run timer type info is not initialized.")
+
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError("Run timer static fields are not initialized.")
+
+        return self.memory.read_float(static_fields + self.RUN_TIMER_OFFSET)
 
     def resolve_owner_stats(self) -> int:
         return self._resolve_owner_stats()

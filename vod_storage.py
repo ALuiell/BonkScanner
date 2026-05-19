@@ -31,6 +31,7 @@ class VodSnapshot:
     stats: dict[str, VodStatValue]
     items: tuple[str, ...] = ()
     chests_per_minute: float | None = None
+    game_time_seconds: float | None = None
 
     @property
     def time_label(self) -> str:
@@ -152,6 +153,7 @@ class VodRecorder:
         items: tuple[str, ...] = (),
         *,
         chests_per_minute: float | None = None,
+        game_time_seconds: float | None = None,
     ) -> VodSnapshot:
         if not self.is_recording or self._file is None:
             raise RuntimeError("VOD recorder is not active.")
@@ -166,6 +168,7 @@ class VodRecorder:
             },
             items=tuple(items),
             chests_per_minute=chests_per_minute,
+            game_time_seconds=game_time_seconds,
         )
         self._write_record(_snapshot_to_record(snapshot))
         self.last_snapshot_time = now
@@ -382,7 +385,7 @@ def _metadata_from_records(
 
 
 def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
-    return {
+    record = {
         "type": "snapshot",
         "elapsed_seconds": snapshot.elapsed_seconds,
         "captured_at": snapshot.captured_at,
@@ -396,6 +399,9 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         "items": list(snapshot.items),
         "chests_per_minute": snapshot.chests_per_minute,
     }
+    if snapshot.game_time_seconds is not None:
+        record["game_time_seconds"] = snapshot.game_time_seconds
+    return record
 
 
 def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
@@ -413,6 +419,9 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
         },
         items=tuple(str(item) for item in record.get("items") or ()),
         chests_per_minute=_coerce_optional_float(record.get("chests_per_minute")),
+        game_time_seconds=_coerce_optional_float(
+            record.get("game_time_seconds", record.get("in_game_elapsed_seconds"))
+        ),
     )
 
 

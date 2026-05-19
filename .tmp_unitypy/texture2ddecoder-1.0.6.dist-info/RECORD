@@ -1,0 +1,11 @@
+texture2ddecoder-1.0.6.dist-info/INSTALLER,sha256=zuuue4knoyJ-UwPPXg8fezS7VCrXJQrAP7zeNuwvFQg,4
+texture2ddecoder-1.0.6.dist-info/LICENSE,sha256=rCG0D_ovp7iegipUOc-jcqawGPJGtCugjpPrcwz_r9I,1083
+texture2ddecoder-1.0.6.dist-info/METADATA,sha256=gGmJzaOZKUCbUPsUWlqFhv2MbK-xoXGQgOnlNa9_SVc,8598
+texture2ddecoder-1.0.6.dist-info/RECORD,,
+texture2ddecoder-1.0.6.dist-info/WHEEL,sha256=WFs4qLATAby_Y9S8ihXebRh4IdVK5VlOR-pJlENTzb0,100
+texture2ddecoder-1.0.6.dist-info/top_level.txt,sha256=pzf3VJTeqRp4kilxzf9niTKwCqWE-veR0YWrf7S2SS4,17
+texture2ddecoder/__init__.py,sha256=Yio3YlblKq5OLd24gA4cPEF9FwSMXcxK8ZV-G-HvUPk,1038
+texture2ddecoder/__pycache__/__init__.cpython-312.pyc,,
+texture2ddecoder/_texture2ddecoder.pyd,sha256=IM4jeWe0jLnnpX63dOFH-mdzAYkBC06gqjsMbZVNTUU,134144
+texture2ddecoder/_texture2ddecoder.pyi,sha256=SeI1gEsfSPstiqgrkd8M1sKJcxM7dNhV87RGspI1nJc,1490
+texture2ddecoder/py.typed,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0

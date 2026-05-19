@@ -420,3 +420,97 @@ Validation plan:
 - Verify VOD files remain valid after normal stop, app close, and unexpected
   recording auto-stop.
 
+## 8. Add Upgraded Weapon Details To Live Stats And Recordings
+
+Goal:
+
+- Add current run weapons to `Live Stats`.
+- Show each weapon's level.
+- Show the weapon-specific stats that are actually upgraded by that weapon.
+- Store the same weapon details in player stats / VOD recordings.
+
+Why this helps:
+
+- Current `weaponStats` in memory contains all effective weapon stats, including
+  stats that are not part of that weapon's own level-up pool.
+- For user-facing build review, the useful view is usually:
+  - weapon name
+  - weapon level
+  - upgraded stat values for that weapon
+- Recordings become much more useful for comparing build progression across
+  runs, because weapon power spikes can be lined up with player stats, items,
+  and run time.
+
+Confirmed reverse source:
+
+- Reverse doc:
+  `F:\Python\MegabonkReroll\docs\reverse\reports\2026-05-19-live-weapon-stats-and-upgrades.md`
+- Stable path:
+  `GameAssembly.dll + 0x2F6A4B8` -> static root -> `PlayerStatsNew +0x28`
+  -> `PlayerInventory +0x28` -> `WeaponInventory +0x18`
+  -> `Dictionary<EWeapon, WeaponBase>`
+- Per weapon:
+  - `WeaponBase +0x20` -> `level`
+  - `WeaponBase +0x28` -> full `Dictionary<EStat, float>` current stats
+  - `WeaponBase +0x18` -> `WeaponData`
+  - `WeaponData +0xD8` -> `UpgradeData`
+  - `UpgradeData +0x18` -> `List<StatModifier> upgradeModifiers`
+
+Recommended behavior:
+
+- Parse the full `weaponStats` dictionary for each live weapon.
+- Parse `upgradeModifiers` for the same weapon.
+- Use `upgradeModifiers[*].stat` as the whitelist for default UI display.
+- Show only whitelisted stats in the normal `Live Stats` weapon section.
+- Optionally expose the complete `weaponStats` dictionary in an advanced/debug
+  view.
+- In recordings, store enough data to reconstruct both views later:
+  - weapon id / name
+  - level
+  - full stats
+  - upgrade stat ids
+  - upgraded-only stat values
+
+Suggested snapshot schema:
+
+```text
+weapons: [
+  {
+    "id": 0,
+    "name": "FireStaff",
+    "level": 3,
+    "full_stats": {
+      "12": 10.0,
+      "16": 2.0
+    },
+    "upgrade_stat_ids": [9, 16, 12, 11],
+    "upgraded_stats": {
+      "9": 1.16,
+      "16": 2.0,
+      "12": 10.0,
+      "11": 0.6
+    }
+  }
+]
+```
+
+Implementation order:
+
+- Add a dedicated memory reader for live weapons.
+- Return a normalized weapon snapshot structure.
+- Add a compact weapon section to `Live Stats`.
+- Extend VOD/player stats snapshot writing with optional `weapons`.
+- Update recording viewer to tolerate old recordings without `weapons`.
+- Add comparison UI later if useful.
+
+Caveats:
+
+- Avoid heap scans as the primary source because old run weapon objects can
+  remain in memory.
+- Always resolve weapons through the live `PlayerStatsNew -> PlayerInventory`
+  chain.
+- `UpgradeData.GetUpgradeOffer(rarity, eWeapon)` may still apply offer-time
+  rarity scaling or special selection behavior; `upgradeModifiers` is the
+  confirmed source for the weapon's upgrade stat pool, not necessarily the exact
+  currently offered upgrade roll.
+

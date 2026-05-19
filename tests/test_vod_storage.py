@@ -32,6 +32,7 @@ class VodStorageTests(unittest.TestCase):
                 },
                 ("Wrench x1",),
                 chests_per_minute=1.23,
+                game_time_seconds=21.52338219,
             )
             now += 60
             recorder.capture(
@@ -41,6 +42,7 @@ class VodStorageTests(unittest.TestCase):
                 },
                 ("Wrench x2", "Dice x1"),
                 chests_per_minute=2.34,
+                game_time_seconds=81.75,
             )
             recorder.stop()
 
@@ -52,8 +54,10 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].stats["Damage"].display_value, "1.25x")
             self.assertEqual(loaded.snapshots[0].items, ("Wrench x1",))
             self.assertEqual(loaded.snapshots[0].chests_per_minute, 1.23)
+            self.assertAlmostEqual(loaded.snapshots[0].game_time_seconds, 21.52338219)
             self.assertEqual(loaded.snapshots[1].items, ("Wrench x2", "Dice x1"))
             self.assertEqual(loaded.snapshots[1].chests_per_minute, 2.34)
+            self.assertAlmostEqual(loaded.snapshots[1].game_time_seconds, 81.75)
             self.assertEqual(loaded.snapshots[1].time_label, "01:00")
 
             vods = list_vods(Path(temp_dir))
@@ -117,6 +121,25 @@ class VodStorageTests(unittest.TestCase):
                 vod_storage.LEGACY_VODS_DIR = original_legacy_dir
 
             self.assertEqual([vod.name for vod in vods], ["Legacy run"])
+
+    def test_load_vod_keeps_backward_compatibility_when_in_game_time_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "old-format.jsonl"
+            path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":2,"name":"Old run","created_at":"2026-05-10T16:00:00","snapshot_interval_seconds":60}',
+                        '{"type":"snapshot","elapsed_seconds":0,"captured_at":1000.0,"stats":{"Damage":{"value":1.25,"display":"1.25x"}},"items":["Wrench x1"],"chests_per_minute":1.23}',
+                        '{"type":"summary","duration_seconds":0,"snapshot_count":1}',
+                    ],
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            loaded = load_vod(path)
+
+            self.assertIsNone(loaded.snapshots[0].game_time_seconds)
 
 
 if __name__ == "__main__":

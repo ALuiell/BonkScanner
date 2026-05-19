@@ -112,6 +112,106 @@ COLOR_MAP = {
     "DEFAULT": "#E5E7EB",
 }
 
+ITEM_RARITY_COLOR_MAP = {
+    "COMMON": COLOR_MAP["GREEN"],
+    "UNCOMMON": COLOR_MAP["BLUE"],
+    "RARE": COLOR_MAP["MAGENTA"],
+    "LEGENDARY": COLOR_MAP["YELLOW"],
+}
+
+ITEM_RARITY_BY_NAME = {
+    "Key": "COMMON",
+    "Slippery Ring": "COMMON",
+    "Gym Sauce": "COMMON",
+    "Battery": "COMMON",
+    "Forbidden Juice": "COMMON",
+    "Moldy Cheese": "COMMON",
+    "Golden Glove": "COMMON",
+    "Ghost": "COMMON",
+    "Turbo Socks": "COMMON",
+    "Clover": "COMMON",
+    "Skuleg": "COMMON",
+    "Oats": "COMMON",
+    "Cursed Doll": "COMMON",
+    "Borgar": "COMMON",
+    "Medkit": "COMMON",
+    "Boss Buster": "COMMON",
+    "Tactical Glasses": "COMMON",
+    "Cactus": "COMMON",
+    "Ice Crystal": "COMMON",
+    "Time Bracelet": "COMMON",
+    "Wrench": "COMMON",
+    "Old Mask": "COMMON",
+    "Beer": "UNCOMMON",
+    "Cowards Cloak": "UNCOMMON",
+    "Phantom Shroud": "UNCOMMON",
+    "Demon Blade": "UNCOMMON",
+    "Golden Sneakers": "UNCOMMON",
+    "Demonic Blood": "UNCOMMON",
+    "Golden Shield": "UNCOMMON",
+    "Feathers": "UNCOMMON",
+    "Echo Shard": "UNCOMMON",
+    "Backpack": "UNCOMMON",
+    "Campfire": "UNCOMMON",
+    "Electric Plug": "UNCOMMON",
+    "Brass Knuckles": "UNCOMMON",
+    "Idle Juice": "UNCOMMON",
+    "Unstable Transfusion": "UNCOMMON",
+    "Credit Card Red": "UNCOMMON",
+    "Leeching Crystal": "UNCOMMON",
+    "Glove Lightning": "UNCOMMON",
+    "Gloves Lightning": "UNCOMMON",
+    "Glove Poison": "UNCOMMON",
+    "Gloves Poison": "UNCOMMON",
+    "Beacon": "UNCOMMON",
+    "Pumpkin": "UNCOMMON",
+    "Spiky Shield": "RARE",
+    "Grandmas Secret Tonic": "RARE",
+    "Demonic Soul": "RARE",
+    "Beefy Ring": "RARE",
+    "Slutty Cannon": "RARE",
+    "Shattered Wisdom": "RARE",
+    "Rollerblades": "RARE",
+    "Eagle Claw": "RARE",
+    "Scarf": "RARE",
+    "Bob Dead": "RARE",
+    "Mirror": "RARE",
+    "Gasmask": "RARE",
+    "Toxic Barrel": "RARE",
+    "Kevin": "RARE",
+    "Gamer Goggles": "RARE",
+    "Credit Card Green": "RARE",
+    "Glove Blood": "RARE",
+    "Gloves Blood": "RARE",
+    "Glove Curse": "RARE",
+    "Gloves Curse": "RARE",
+    "Quins Mask": "RARE",
+    "Bobs Lantern": "RARE",
+    "Bonker": "LEGENDARY",
+    "Giant Fork": "LEGENDARY",
+    "Spicy Meatball": "LEGENDARY",
+    "Chonkplate": "LEGENDARY",
+    "Lightning Orb": "LEGENDARY",
+    "Ice Cube": "LEGENDARY",
+    "Dragonfire": "LEGENDARY",
+    "Za Warudo": "LEGENDARY",
+    "Overpowered Lamp": "LEGENDARY",
+    "Sucky Magnet": "LEGENDARY",
+    "Anvil": "LEGENDARY",
+    "Energy Core": "LEGENDARY",
+    "Soul Harvester": "LEGENDARY",
+    "Joes Dagger": "LEGENDARY",
+    "Speed Boi": "LEGENDARY",
+    "Holy Book": "LEGENDARY",
+    "Bloody Cleaver": "LEGENDARY",
+    "Glove Power": "LEGENDARY",
+    "Gloves Power": "LEGENDARY",
+    "Golden Ring": "LEGENDARY",
+    "Snek": "LEGENDARY",
+    "Pot": "LEGENDARY",
+    "Wizards Hat": "LEGENDARY",
+}
+
 
 def resource_path(relative_path: str) -> str:
     base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
@@ -138,6 +238,16 @@ def _set_text(widget, text: str) -> None:
     if hasattr(widget, "configure"):
         widget.configure(text=text)
         return
+
+
+def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
+    text = items_text if items_text is not None else MegabonkApp.format_items(items)
+    if widget is None:
+        return
+    if hasattr(widget, "setTextFormat"):
+        widget.setText(MegabonkApp.format_items_rich_text(items) if items_text is None else text)
+        return
+    _set_text(widget, text)
 
 
 def _clear_text_input(widget) -> None:
@@ -1406,6 +1516,7 @@ class MegabonkApp:
         self.player_stats_timeline_label = None
         self.player_stats_rows = {}
         self.player_stats_items_label = None
+        self.player_stats_in_game_time_label = None
         self.player_stats_chests_per_minute_label = None
         self.vods_list_frame = None
         self.vods_status_label = None
@@ -1416,6 +1527,7 @@ class MegabonkApp:
         self.vods_slider_time_label = None
         self.vods_rows = {}
         self.vods_items_label = None
+        self.vods_in_game_time_label = None
         self.vods_chests_per_minute_label = None
         self.status_label = None
         self.toggle_btn = None
@@ -1815,13 +1927,16 @@ class MegabonkApp:
         items_group = QGroupBox("Items")
         items_layout = QVBoxLayout(items_group)
         self.player_stats_items_label = QLabel("--")
+        self.player_stats_items_label.setTextFormat(Qt.RichText)
         self.player_stats_items_label.setWordWrap(True)
         items_layout.addWidget(self.player_stats_items_label)
         player_content_layout.addWidget(items_group)
-        chest_rate_group = QGroupBox("Chest Rate")
+        chest_rate_group = QGroupBox("Chest Rate + In-Game Time")
         chest_rate_layout = QVBoxLayout(chest_rate_group)
         self.player_stats_chests_per_minute_label = QLabel("Average chests/min: --")
         chest_rate_layout.addWidget(self.player_stats_chests_per_minute_label)
+        self.player_stats_in_game_time_label = QLabel("In-Game Time: --")
+        chest_rate_layout.addWidget(self.player_stats_in_game_time_label)
         player_content_layout.addWidget(chest_rate_group)
         for group in PLAYER_STAT_GROUPS:
             stat_group = QFrame()
@@ -1868,13 +1983,16 @@ class MegabonkApp:
         vod_items_group = QGroupBox("Items")
         vod_items_layout = QVBoxLayout(vod_items_group)
         self.vods_items_label = QLabel("--")
+        self.vods_items_label.setTextFormat(Qt.RichText)
         self.vods_items_label.setWordWrap(True)
         vod_items_layout.addWidget(self.vods_items_label)
         vods_detail_layout.addWidget(vod_items_group)
-        vod_chest_rate_group = QGroupBox("Chest Rate")
+        vod_chest_rate_group = QGroupBox("Chest Rate + In-Game Time")
         vod_chest_rate_layout = QVBoxLayout(vod_chest_rate_group)
         self.vods_chests_per_minute_label = QLabel("Average chests/min: --")
         vod_chest_rate_layout.addWidget(self.vods_chests_per_minute_label)
+        self.vods_in_game_time_label = QLabel("In-Game Time: --")
+        vod_chest_rate_layout.addWidget(self.vods_in_game_time_label)
         vods_detail_layout.addWidget(vod_chest_rate_group)
         vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()
         for group in PLAYER_STAT_GROUPS:
@@ -2341,20 +2459,29 @@ class MegabonkApp:
         _set_text(self.player_stats_status_label, status_text)
         for label in self.player_stats_rows.values():
             _set_text(label, "--")
-        _set_text(self.player_stats_items_label, items_text)
+        _set_items_text(self.player_stats_items_label, items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
+        _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
 
     def _read_live_player_stats_data(self):
         stats, owner_stats = self.read_player_stats_only()
         items = ()
         items_available = True
+        run_timer_seconds = None
         try:
             items = self.read_passive_items_only(owner_stats)
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             items_available = False
         except Exception:
             items_available = False
-        return stats, items, items_available
+        try:
+            client = self._get_player_stats_client()
+            run_timer_seconds = client.get_run_timer()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            run_timer_seconds = None
+        except Exception:
+            run_timer_seconds = None
+        return stats, items, items_available, run_timer_seconds
 
     def refresh_live_player_stats_now(
         self,
@@ -2364,7 +2491,7 @@ class MegabonkApp:
         unavailable_status_prefix: str = "Player stats unavailable",
     ) -> bool:
         try:
-            stats, items, items_available = self._read_live_player_stats_data()
+            stats, items, items_available, run_timer_seconds = self._read_live_player_stats_data()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
             self._reset_live_player_stats_ui(waiting_status_text)
@@ -2383,6 +2510,7 @@ class MegabonkApp:
                 stats,
                 items if items_available else (),
                 chests_per_minute=chests_per_minute,
+                game_time_seconds=run_timer_seconds,
             )
             self.player_stats_vod_snapshots.append(snapshot)
             self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
@@ -2400,6 +2528,7 @@ class MegabonkApp:
                     status_text="Live player stats (recording)",
                     chests_per_minute=chests_per_minute,
                     items_text=items_text,
+                    game_time_seconds=run_timer_seconds,
                 )
                 return True
 
@@ -2410,6 +2539,7 @@ class MegabonkApp:
                 status_text=status_text,
                 chests_per_minute=chests_per_minute,
                 items_text=items_text,
+                game_time_seconds=run_timer_seconds,
             )
         return True
 
@@ -2421,6 +2551,7 @@ class MegabonkApp:
         status_text: str | None = None,
         chests_per_minute: float | None = None,
         items_text: str | None = None,
+        game_time_seconds: float | None = None,
     ):
         if status_text:
             _set_text(self.player_stats_status_label, status_text)
@@ -2428,12 +2559,16 @@ class MegabonkApp:
             value_label = self.player_stats_rows.get(label)
             if value_label is not None:
                 _set_text(value_label, stat.display_value)
-        _set_text(self.player_stats_items_label, items_text if items_text is not None else self.format_items(items))
+        _set_items_text(self.player_stats_items_label, items, items_text=items_text)
         if chests_per_minute is None:
             chests_per_minute = self.calculate_player_chests_per_minute(stats)
         _set_text(
             self.player_stats_chests_per_minute_label,
             self.format_chests_per_minute(chests_per_minute),
+        )
+        _set_text(
+            self.player_stats_in_game_time_label,
+            self.format_in_game_time(game_time_seconds),
         )
 
     def display_player_stats_snapshot(self, snapshot, *, items_text: str | None = None):
@@ -2442,9 +2577,13 @@ class MegabonkApp:
         self.display_player_stats(
             snapshot.stats,
             snapshot.items,
-            status_text=f"Recorded snapshot {index}/{total} at {snapshot.time_label}",
+            status_text=(
+                f"Recorded snapshot {index}/{total} at {snapshot.time_label}"
+                f" | {self.format_in_game_time(snapshot.game_time_seconds)}"
+            ),
             chests_per_minute=self.resolve_snapshot_chests_per_minute(snapshot),
             items_text=items_text,
+            game_time_seconds=snapshot.game_time_seconds,
         )
 
     def toggle_player_stats_recording(self):
@@ -2683,8 +2822,9 @@ class MegabonkApp:
             for label in self.vods_rows.values():
                 _set_text(label, "--")
             _set_text(self.vods_slider_time_label, "Timeline: --")
-            _set_text(self.vods_items_label, "--")
+            _set_items_text(self.vods_items_label, items_text="--")
             _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
+            _set_text(self.vods_in_game_time_label, "In-Game Time: --")
 
     def display_loaded_vod_snapshot(self, index: int):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
@@ -2694,7 +2834,10 @@ class MegabonkApp:
         snapshot = self.loaded_vod.snapshots[index]
         _set_text(
             self.vods_status_label,
-            f"{self.loaded_vod.metadata.name} | {index + 1}/{len(self.loaded_vod.snapshots)} at {snapshot.time_label}",
+            (
+                f"{self.loaded_vod.metadata.name} | {index + 1}/{len(self.loaded_vod.snapshots)}"
+                f" at {snapshot.time_label} | {self.format_in_game_time(snapshot.game_time_seconds)}"
+            ),
         )
         first = self.loaded_vod.snapshots[0].time_label
         last = self.loaded_vod.snapshots[-1].time_label
@@ -2705,10 +2848,14 @@ class MegabonkApp:
                 if value_label is not None:
                     stat = snapshot.stats.get(spec.label)
                     _set_text(value_label, stat.display_value if stat is not None else "--")
-        _set_text(self.vods_items_label, self.format_items(snapshot.items))
+        _set_items_text(self.vods_items_label, snapshot.items)
         _set_text(
             self.vods_chests_per_minute_label,
             self.format_chests_per_minute(self.resolve_snapshot_chests_per_minute(snapshot)),
+        )
+        _set_text(
+            self.vods_in_game_time_label,
+            self.format_in_game_time(snapshot.game_time_seconds),
         )
 
     def on_vods_slider_changed(self, value):
@@ -2755,23 +2902,60 @@ class MegabonkApp:
         _set_text(self.vods_slider_time_label, "Timeline: --")
         for label in self.vods_rows.values():
             _set_text(label, "--")
-        _set_text(self.vods_items_label, "--")
+        _set_items_text(self.vods_items_label, items_text="--")
         _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
+        _set_text(self.vods_in_game_time_label, "In-Game Time: --")
         self.refresh_vods_list()
 
     @staticmethod
     def format_duration(seconds: int) -> str:
+        return MegabonkApp.format_elapsed_time(seconds)
+
+    @staticmethod
+    def format_elapsed_time(seconds: float | int) -> str:
         minutes, seconds = divmod(max(int(seconds), 0), 60)
         hours, minutes = divmod(minutes, 60)
         if hours:
             return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         return f"{minutes:02d}:{seconds:02d}"
 
+    @classmethod
+    def format_in_game_time(cls, seconds: float | None) -> str:
+        if seconds is None:
+            return "In-Game Time: --"
+        return f"In-Game Time: {cls.format_elapsed_time(seconds)}"
+
     @staticmethod
     def format_items(items) -> str:
         if not items:
             return "--"
         return ", ".join(items)
+
+    @classmethod
+    def format_items_rich_text(cls, items) -> str:
+        if not items:
+            return "--"
+        return ", ".join(cls._format_single_item_rich_text(item) for item in items)
+
+    @classmethod
+    def _format_single_item_rich_text(cls, item_text: str) -> str:
+        item_name, suffix = cls._split_item_stack_suffix(item_text)
+        rarity = ITEM_RARITY_BY_NAME.get(item_name)
+        color = ITEM_RARITY_COLOR_MAP.get(rarity)
+        escaped_name = html.escape(item_name)
+        if color:
+            escaped_name = f'<span style="color: {color}; font-weight: 700;">{escaped_name}</span>'
+        escaped_suffix = html.escape(suffix)
+        return f"{escaped_name}{escaped_suffix}"
+
+    @staticmethod
+    def _split_item_stack_suffix(item_text: str) -> tuple[str, str]:
+        if not item_text:
+            return "", ""
+        name, separator, suffix = item_text.rpartition(" x")
+        if separator and suffix.isdigit():
+            return name, f"{separator}{suffix}"
+        return item_text, ""
 
     @staticmethod
     def calculate_player_chests_per_minute(stats) -> float | None:

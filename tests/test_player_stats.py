@@ -71,10 +71,20 @@ def build_player_stats_memory() -> FakeMemory:
         owner_stats + PlayerStatsClient.STATS_CONTEXT_OFFSET: stats_context,
         stats_context + PlayerStatsClient.STATS_ENTRIES_OFFSET: entries,
     }
+    run_timer_type_info = base + PlayerStatsClient.RUN_TIMER_TYPE_INFO_OFFSET
+    run_timer_class_ptr = 0x20000C00
+    run_timer_static_fields = 0x20000D00
+    pointers.update(
+        {
+            run_timer_type_info: run_timer_class_ptr,
+            run_timer_class_ptr + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: run_timer_static_fields,
+        }
+    )
     floats = {
         entries + 0x2C: 198.0,
         entries + 0x6C: 0.15,
         entries + 0x28C: 0.09,
+        run_timer_static_fields + PlayerStatsClient.RUN_TIMER_OFFSET: 21.52338219,
     }
     inventory_container = 0x20000600
     passive_dict = 0x20000700
@@ -128,6 +138,13 @@ class PlayerStatsClientTests(unittest.TestCase):
         items = client.get_passive_items()
 
         self.assertEqual(items, ("Wrench x2",))
+
+    def test_get_run_timer_reads_confirmed_static_float(self) -> None:
+        client = PlayerStatsClient(memory=self.build_memory())
+
+        value = client.get_run_timer()
+
+        self.assertAlmostEqual(value, 21.52338219)
 
     def test_get_passive_items_uses_default_stack_when_count_is_unreadable(self) -> None:
         memory = self.build_memory()
