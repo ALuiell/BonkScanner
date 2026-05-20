@@ -2276,10 +2276,9 @@ class MegabonkApp:
             self.active_templates = list(active_names)
 
         existing_stats = getattr(self, "template_stats", {})
-        self.template_stats = {
-            name: existing_stats.get(name, {"rerolls_since_last": 0, "history": []})
-            for name in active_names
-        }
+        for name in active_names:
+            existing_stats.setdefault(name, {"rerolls_since_last": 0, "history": []})
+        self.template_stats = existing_stats
 
         if hasattr(self, "stats_avg_labels") and hasattr(self, "stats_avg_layout"):
             self.refresh_stats_ui()
@@ -3379,9 +3378,11 @@ class MegabonkApp:
         else:
             _set_text(self.stats_worst_label, "Worst Map Found: None")
 
+        current_active_names = set(self._get_active_profile_names())
         active_names = set()
         for name, data in self.template_stats.items():
             active_names.add(name)
+            is_currently_active = name in current_active_names
             color_tag = "BLUE"
             if config.EVALUATION_MODE == "templates":
                 for template in config.TEMPLATES:
@@ -3401,8 +3402,11 @@ class MegabonkApp:
                 label.setWordWrap(True)
                 self.stats_avg_layout.addWidget(label)
                 self.stats_avg_labels[name] = label
-            label.setText(f"{name}: {avg_text}")
-            label.setStyleSheet(f"color: {hex_color}; font-size: 16px; font-weight: 600;")
+            suffix = "" if is_currently_active else " (inactive)"
+            label.setText(f"{name}{suffix}: {avg_text}")
+            opacity_hex = hex_color if is_currently_active else "#94A3B8"
+            font_weight = "600" if is_currently_active else "500"
+            label.setStyleSheet(f"color: {opacity_hex}; font-size: 16px; font-weight: {font_weight};")
 
         stale_names = [name for name in self.stats_avg_labels if name not in active_names]
         for name in stale_names:

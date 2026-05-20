@@ -904,7 +904,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.active_templates, ["Alpha", "Gamma"])
         self.assertEqual(app.template_stats["Alpha"]["history"], [3])
         self.assertEqual(app.template_stats["Gamma"], {"rerolls_since_last": 0, "history": []})
-        self.assertNotIn("Beta", app.template_stats)
+        self.assertEqual(app.template_stats["Beta"], {"rerolls_since_last": 1, "history": [4]})
         self.assertEqual(logs, [("[*] Active templates updated live: Alpha, Gamma", None)])
         save_config.assert_called_once_with(gui.config.user_config)
 
@@ -939,6 +939,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(
             app.template_stats,
             {
+                "Good": {"rerolls_since_last": 4, "history": [2]},
                 "Light": {"rerolls_since_last": 0, "history": []},
                 "Perfect": {"rerolls_since_last": 0, "history": []},
             },
