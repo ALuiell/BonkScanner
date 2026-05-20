@@ -20,6 +20,38 @@ from vod_storage import (
 
 
 class VodStorageTests(unittest.TestCase):
+    def test_recorder_batches_snapshot_flushes_but_flushes_metadata_and_summary(self) -> None:
+        class FakeFile:
+            def __init__(self) -> None:
+                self.flush_calls = 0
+                self.closed = False
+                self.parts: list[str] = []
+
+            def write(self, chunk: str) -> None:
+                self.parts.append(chunk)
+
+            def flush(self) -> None:
+                self.flush_calls += 1
+
+            def close(self) -> None:
+                self.closed = True
+
+        fake_file = FakeFile()
+        recorder = VodRecorder(vods_dir=Path("."), interval_seconds=30, clock=lambda: 1000.0)
+        recorder.path = Path("fake.jsonl")
+        recorder.name = "Fake"
+        recorder.start_time = 1000.0
+        recorder.is_recording = True
+        recorder._file = fake_file
+
+        recorder._write_record({"type": "metadata"}, flush=True)
+        for index in range(1, 4):
+            recorder.snapshot_count = index
+            recorder._write_record({"type": "snapshot", "index": index}, flush=(index % 3 == 0))
+        recorder._write_record({"type": "summary"}, flush=True)
+
+        self.assertEqual(fake_file.flush_calls, 3)
+
     def test_recorder_defaults_to_stats_recordings_directory(self) -> None:
         recorder = VodRecorder()
 

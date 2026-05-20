@@ -16,6 +16,7 @@ VOD_FORMAT_VERSION = 3
 RECORDINGS_DIR = Path(config.application_path) / "stats_recordings"
 LEGACY_VODS_DIR = Path(config.application_path) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
+SNAPSHOT_FLUSH_EVERY = 3
 
 
 @dataclass(frozen=True)
@@ -107,6 +108,7 @@ class VodRecorder:
                 "snapshot_interval_seconds": self.interval_seconds,
                 "run_seed": seed,
             },
+            flush=True,
         )
         return self.path
 
@@ -120,7 +122,9 @@ class VodRecorder:
                     "duration_seconds": self.elapsed_seconds(),
                     "snapshot_count": self.snapshot_count,
                 },
+                flush=True,
             )
+            self._file.flush()
             self._file.close()
             self._file = None
         if self.path is not None and self.snapshot_count == 0:
@@ -179,17 +183,21 @@ class VodRecorder:
             chests_per_minute=chests_per_minute,
             game_time_seconds=game_time_seconds,
         )
-        self._write_record(_snapshot_to_record(snapshot))
-        self.last_snapshot_time = now
         self.snapshot_count += 1
+        self._write_record(
+            _snapshot_to_record(snapshot),
+            flush=(self.snapshot_count % SNAPSHOT_FLUSH_EVERY == 0),
+        )
+        self.last_snapshot_time = now
         return snapshot
 
-    def _write_record(self, record: dict[str, Any]) -> None:
+    def _write_record(self, record: dict[str, Any], *, flush: bool = False) -> None:
         if self._file is None:
             raise RuntimeError("VOD recorder file is not open.")
         self._file.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
         self._file.write("\n")
-        self._file.flush()
+        if flush:
+            self._file.flush()
 
 
 def list_vods(vods_dir: Path | None = None) -> list[VodMetadata]:

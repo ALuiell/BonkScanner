@@ -21,7 +21,7 @@ except Exception:
     QVBoxLayout = None
 
 
-CURRENT_VERSION = "2.0.3"
+CURRENT_VERSION = "2.0.4"
 GITHUB_REPO = "ALuiell/BonkScanner"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
