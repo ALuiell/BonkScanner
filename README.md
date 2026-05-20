@@ -1,8 +1,7 @@
 # Megabonk Reroll (BonkScanner)
 
-**BonkScanner** is a Windows desktop tool for automatic map rerolling in Megabonk.
-It reads map stats directly from the game process, evaluates each map in real
-time, and restarts the run until a selected template or score target is found.
+**BonkScanner** is a Windows desktop tool for Megabonk reroll automation and live run inspection.
+It reads map data directly from the game process, evaluates each reset in real time, and can keep rerolling until a selected template or score tier is found.
 
 ## Quick Start on Windows
 1. Install **Python 3.12 x64**.
@@ -10,54 +9,121 @@ time, and restarts the run until a selected template or score target is found.
 3. Run `start.bat`.
 4. Launch the app with `.\.venv\Scripts\python.exe main.py`.
 
-`start.bat` is the regular setup entry point. It will:
+`start.bat` is the normal setup entry point. It will:
 - create `.venv` if it does not exist;
-- install all runtime dependencies from `requirements.txt`;
+- install runtime dependencies from `requirements.txt`;
 - stop after the environment is ready.
 
-## What The App Includes
-- `Templates` mode for strict rule-based map filtering.
-- `Scores` mode for flexible score/tier-based evaluation.
-- colored template list with an in-app template manager;
-- session stats and persistent total reroll tracking;
-- live player stats recording with snapshot timeline playback;
-- optional native hook restart mode;
-- configurable hotkeys and timing settings in the main settings dialog.
+## What The App Does
+- rerolls maps automatically until the current map matches selected filters;
+- supports two evaluation modes: `Templates` and `Scores`;
+- shows session reroll stats and persistent total reroll tracking;
+- reads live player stats, passive items, weapon upgrades, and run time directly from memory;
+- records live stat snapshots into saved recordings with timeline playback;
+- auto-splits recordings when the detected run seed changes;
+- can use standard keyboard reset or the optional native hook restart path;
+- can toggle several in-game settings through dedicated hotkeys;
+- stores app settings, templates, score rules, and update preferences in `config.json`.
 
-## How It Works
-1. The app attaches to the configured game process with `pymem`.
-2. It reads interactable counters directly from memory through `game_data.py`.
-3. The values are converted into runtime stats and evaluated by the selected mode.
-4. If the map does not meet the conditions, the app restarts the run.
-5. Before evaluating a new map, the app waits for a stable ready-state snapshot so dirty reads are less likely.
+## Main UI Areas
 
-## Main Features
-- **Templates Mode:** Use strict requirements such as `S+M`, `Microwaves`, `Boss Curses`, `Shady Guy`, and `Moais`.
-- **Scores Mode:** Rate maps through weighted stats and thresholds like `Light`, `Good`, `Perfect`, and `Perfect+`.
-- **Template Manager:** Open `Edit` in the `Templates` tab to browse all templates, expand one, edit values inline, and save.
-- **Live Stats Recording:** Record player stats snapshots at a configurable interval and review them in the built-in timeline UI.
-- **Native Hook Restart:** Optional alternate restart path that can continue working more reliably while alt-tabbed on some systems.
-- **Data-Driven Settings:** Hotkeys, delays, templates, score settings, and recording settings are saved in `config.json`.
+### Left Side
+- `Templates`: strict rule-based filtering with selectable active templates.
+- `Scores`: weighted score evaluation with selectable target tiers and a dedicated scores settings dialog.
+
+### Right Side
+- `Logs`: scanner activity, warnings, and result messages.
+- `Session Stats`: current session counters and average rerolls per target.
+- `Live Stats`: live player stats, items, chest rate, in-game time, and weapon upgrade details.
+- `Recordings`: saved live-stats recordings with rename, delete, cleanup, and timeline review tools.
+
+## How Scanning Works
+1. BonkScanner attaches to the configured game process with `pymem`.
+2. It reads map-ready state and interactable counters from memory.
+3. Runtime values are evaluated by the active `Templates` or `Scores` mode.
+4. If the map does not match, the app restarts the run.
+5. Before accepting a snapshot, the scanner waits for a stable ready-state so transient map-load reads are less likely.
+
+## Evaluation Modes
+
+### Templates Mode
+Use strict requirements such as:
+- `S+M`
+- `Microwaves`
+- `Boss Curses`
+- `Shady Guy`
+- `Moais`
+
+The built-in template manager lets you:
+- create custom templates;
+- edit template values inline;
+- enable only the templates you want the scanner to stop on;
+- delete custom templates.
+
+### Scores Mode
+Use weighted scoring instead of hard requirements.
+
+Current score configuration supports:
+- configurable stat weights;
+- microwave multipliers;
+- auto-calculated or manual score thresholds;
+- active target tiers: `Light`, `Good`, `Perfect`, `Perfect+`.
+
+## Live Stats And Recordings
+
+### Live Stats
+The `Live Stats` tab shows:
+- grouped player stat cards;
+- passive items list;
+- average chests per minute;
+- in-game timer;
+- weapon list with current level and upgraded stats.
+
+### Recording
+The built-in recorder can:
+- start and stop from the UI or a hotkey;
+- save snapshots at a configurable interval;
+- include run seed metadata when available;
+- automatically stop if the run seed disappears;
+- automatically split into a new file when a new run seed is detected.
+
+### Saved Recordings
+Recordings are stored in `stats_recordings\` as `.jsonl` files and can be:
+- reviewed with a timeline slider;
+- renamed in-app;
+- deleted individually;
+- batch-cleaned by minimum snapshot count.
+
+Legacy recordings from `vods\` are still read when present.
 
 ## Settings
-The main `Settings` dialog includes:
+The main `Settings` dialog currently includes:
 - `Scan Hotkey`
 - `Reset Hotkey`
 - `Record Hotkey`
+- `Toggle Chest Skip Hotkey`
+- `Toggle Auto Level-Up Hotkey`
+- `Toggle Particles Opacity Hotkey`
 - `Min Reroll Delay (s)`
 - `Reset Hold Duration (s)`
 - `Snapshot Interval (s)`
 - `Use native hook restart`
+- `Check for Updates`
 
 Notes:
-- `Reset Hold Duration` matters for standard keyboard restart mode.
-- `Snapshot Interval` controls how often live player stats recordings save a snapshot.
-- `Record Hotkey` toggles player stats recording without needing to click the UI button.
+- `Reset Hold Duration` is used for standard keyboard reset mode.
+- the app also syncs the game's `quick_reset_time` value when that setting is changed;
+- toggle hotkeys update supported values inside the game's own config when available;
+- native hook mode shows an extra confirmation when enabled and may work better while alt-tabbed on some systems.
+
+## Auto-Update Behavior
+- source runs (`python main.py`) do not auto-update themselves;
+- packaged builds can check for updates from the settings dialog;
+- skipped update versions are remembered in `config.json`.
 
 ## Portable Native Build
 
-`BonkHook` is built through a project-local toolchain and does not require a
-globally installed .NET SDK or Visual Studio Build Tools.
+`BonkHook` is built through a project-local toolchain and does not require a globally installed .NET SDK or Visual Studio Build Tools.
 
 Use these entry points on Windows x64:
 
@@ -82,17 +148,18 @@ Requirements and constraints:
 - `.tools\` will be larger because it also stores NuGet packages and dotnet CLI caches.
 
 ## Project Structure
-- `main.py` - entry point for the desktop app.
-- `gui.py` - main PySide6 interface and application flow.
-- `config.py` - loads `config.json` and exposes runtime settings.
+- `main.py` - desktop app entry point.
+- `gui.py` - main PySide6 UI, scanner flow, live stats UI, and recordings UI.
+- `config.py` - app config, game config integration, templates, and score settings.
 - `logic.py` - template and score evaluation logic.
-- `game_data.py` - reads map-ready state and interactable counters from memory.
+- `game_data.py` - map-ready state, counters, and seed-related runtime reads.
 - `memory.py` - low-level `pymem` wrappers and memory helpers.
-- `runtime_stats.py` - adapts typed memory values into runtime stats.
-- `vod_storage.py` - player stats recording and replay storage.
+- `player_stats.py` - live player stats, passive items, weapons, and chest-rate calculations.
+- `vod_storage.py` - saved recordings format, metadata cache, load, rename, and cleanup helpers.
+- `run_control.py` - keyboard and hook-based restart providers.
 - `hook_loader.py` - native hook bootstrap, injection, restart, and cleanup logic.
+- `updater.py` - packaged-build update checks and update application flow.
 - `native\BonkHook` - NativeAOT hook project.
-- `requirements.txt` - Python runtime dependencies.
 
 ## Dependencies
 Runtime dependencies are listed in `requirements.txt`:
@@ -103,10 +170,12 @@ Runtime dependencies are listed in `requirements.txt`:
 - `requests~=2.33.1`
 - `pywin32>=306`
 
-Note: keyboard-based restart and hotkey handling may require Administrator privileges on Windows.
+Notes:
+- global hotkeys and keyboard-driven restart may require Administrator privileges on Windows;
+- native hook mode may also benefit from elevated launch depending on the system and game process state.
 
 ## Manual Developer Setup
-If you want to work manually instead of using `start.bat`:
+If you want to run manually instead of using `start.bat`:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -122,12 +191,13 @@ tools\build_native_hook.bat
 ```
 
 ## Basic Usage
-1. Start the game and wait until the target scene is loaded.
+1. Start Megabonk and wait until the target scene is loaded.
 2. Run `start.bat` if the environment is not ready yet.
 3. Launch BonkScanner.
 4. Choose `Templates` or `Scores`.
-5. Configure the templates, score settings, or live stats settings you need.
-6. Press `Start`, then use the scan hotkey to arm the loop.
-7. When a matching map is found, the app stops and logs the result.
+5. Configure your filters, score tiers, and optional recording settings.
+6. Press `Start`.
+7. Press the scan hotkey in-game to arm or pause the scanning loop.
+8. When a matching map is found, the app stops and logs the result.
 
 BonkScanner is meant to reduce repetition, speed up rerolling, and make target hunting less frustrating.
