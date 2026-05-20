@@ -1605,6 +1605,7 @@ class MegabonkApp:
         self.player_stats_chests_per_minute_label = None
         self.player_stats_mob_kills_label = None
         self.player_stats_level_label = None
+        self.player_stats_new_items_label = None
         self.player_stats_weapons_status_label = None
         self.player_stats_weapons_layout = None
         self.player_stats_weapon_cards = []
@@ -1627,6 +1628,7 @@ class MegabonkApp:
         self.vods_chests_per_minute_label = None
         self.vods_mob_kills_label = None
         self.vods_level_label = None
+        self.vods_new_items_label = None
         self.vods_weapons_status_label = None
         self.vods_weapons_layout = None
         self.vods_weapon_cards = []
@@ -2050,7 +2052,8 @@ class MegabonkApp:
         self.player_stats_items_toggle_btn.setVisible(False)
         items_layout.addWidget(self.player_stats_items_toggle_btn, 0, Qt.AlignLeft)
         player_content_layout.addWidget(items_group)
-        chest_rate_group = QGroupBox("Chest Rate + In-Game Time + Kills + Level")
+        live_summary_row = QHBoxLayout()
+        chest_rate_group = QGroupBox("Run Summary")
         chest_rate_layout = QVBoxLayout(chest_rate_group)
         self.player_stats_chests_per_minute_label = QLabel("Average chests/min: --")
         chest_rate_layout.addWidget(self.player_stats_chests_per_minute_label)
@@ -2060,7 +2063,15 @@ class MegabonkApp:
         chest_rate_layout.addWidget(self.player_stats_mob_kills_label)
         self.player_stats_level_label = QLabel("Level: --")
         chest_rate_layout.addWidget(self.player_stats_level_label)
-        player_content_layout.addWidget(chest_rate_group)
+        live_summary_row.addWidget(chest_rate_group, 1)
+        live_new_items_group = QGroupBox("New Items")
+        live_new_items_layout = QVBoxLayout(live_new_items_group)
+        self.player_stats_new_items_label = QLabel("Live snapshot")
+        self.player_stats_new_items_label.setTextFormat(Qt.RichText)
+        self.player_stats_new_items_label.setWordWrap(True)
+        live_new_items_layout.addWidget(self.player_stats_new_items_label)
+        live_summary_row.addWidget(live_new_items_group, 1)
+        player_content_layout.addLayout(live_summary_row)
         self.player_stats_detail_tabs = QTabWidget()
         player_stats_tab = QWidget()
         player_stats_tab_layout = QVBoxLayout(player_stats_tab)
@@ -2136,7 +2147,8 @@ class MegabonkApp:
         self.vods_items_toggle_btn.setVisible(False)
         vod_items_layout.addWidget(self.vods_items_toggle_btn, 0, Qt.AlignLeft)
         vods_detail_layout.addWidget(vod_items_group)
-        vod_chest_rate_group = QGroupBox("Chest Rate + In-Game Time + Kills + Level")
+        vod_summary_row = QHBoxLayout()
+        vod_chest_rate_group = QGroupBox("Run Summary")
         vod_chest_rate_layout = QVBoxLayout(vod_chest_rate_group)
         self.vods_chests_per_minute_label = QLabel("Average chests/min: --")
         vod_chest_rate_layout.addWidget(self.vods_chests_per_minute_label)
@@ -2146,7 +2158,15 @@ class MegabonkApp:
         vod_chest_rate_layout.addWidget(self.vods_mob_kills_label)
         self.vods_level_label = QLabel("Level: --")
         vod_chest_rate_layout.addWidget(self.vods_level_label)
-        vods_detail_layout.addWidget(vod_chest_rate_group)
+        vod_summary_row.addWidget(vod_chest_rate_group, 1)
+        vod_new_items_group = QGroupBox("New Items")
+        vod_new_items_layout = QVBoxLayout(vod_new_items_group)
+        self.vods_new_items_label = QLabel("No previous snapshot")
+        self.vods_new_items_label.setTextFormat(Qt.RichText)
+        self.vods_new_items_label.setWordWrap(True)
+        vod_new_items_layout.addWidget(self.vods_new_items_label)
+        vod_summary_row.addWidget(vod_new_items_group, 1)
+        vods_detail_layout.addLayout(vod_summary_row)
         self.vods_detail_tabs = QTabWidget()
         vod_stats_tab = QWidget()
         vod_stats_tab_layout = QVBoxLayout(vod_stats_tab)
@@ -2678,6 +2698,7 @@ class MegabonkApp:
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
         _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
         _set_text(self.player_stats_level_label, "Level: --")
+        _set_text(self.player_stats_new_items_label, "Live snapshot")
         self.player_stats_weapon_signature = None
         self.display_weapon_cards(
             (),
@@ -2836,6 +2857,7 @@ class MegabonkApp:
         game_time_seconds: float | None = None,
         mob_kills: int | None = None,
         player_level: int | None = None,
+        new_items_text: str | None = None,
     ):
         if status_text:
             _set_text(self.player_stats_status_label, status_text)
@@ -2862,6 +2884,10 @@ class MegabonkApp:
             self.player_stats_level_label,
             self.format_player_level(player_level),
         )
+        if new_items_text is not None:
+            _set_text(self.player_stats_new_items_label, new_items_text)
+        else:
+            _set_text(self.player_stats_new_items_label, "Live snapshot")
         self.display_weapon_cards(
             weapons if weapons_available else (),
             scope="live",
@@ -2884,7 +2910,20 @@ class MegabonkApp:
             game_time_seconds=snapshot.game_time_seconds,
             mob_kills=getattr(snapshot, "mob_kills", None),
             player_level=getattr(snapshot, "player_level", None),
+            new_items_text=self.format_snapshot_new_items(
+                self._previous_player_stats_snapshot(snapshot),
+                snapshot,
+            ),
         )
+
+    def _previous_player_stats_snapshot(self, snapshot):
+        try:
+            index = self.player_stats_vod_snapshots.index(snapshot)
+        except ValueError:
+            return None
+        if index <= 0:
+            return None
+        return self.player_stats_vod_snapshots[index - 1]
 
     def toggle_player_stats_recording(self):
         if self.player_stats_vod_recorder.is_recording:
@@ -3176,6 +3215,7 @@ class MegabonkApp:
             _set_text(self.vods_in_game_time_label, "In-Game Time: --")
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
             _set_text(self.vods_level_label, "Level: --")
+            _set_text(self.vods_new_items_label, "No previous snapshot")
             self.vods_weapon_signature = None
             self.display_weapon_cards((), scope="vod", status_text="No weapon data in this recording")
 
@@ -3218,6 +3258,11 @@ class MegabonkApp:
             self.vods_level_label,
             self.format_player_level(getattr(snapshot, "player_level", None)),
         )
+        previous_snapshot = self.loaded_vod.snapshots[index - 1] if index > 0 else None
+        _set_text(
+            self.vods_new_items_label,
+            self.format_snapshot_new_items(previous_snapshot, snapshot),
+        )
         self.display_weapon_cards(getattr(snapshot, "weapons", ()), scope="vod")
 
     def on_vods_slider_changed(self, value):
@@ -3258,6 +3303,7 @@ class MegabonkApp:
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
         _set_text(self.vods_level_label, "Level: --")
+        _set_text(self.vods_new_items_label, "No previous snapshot")
         self.vods_weapon_signature = None
         self.display_weapon_cards((), scope="vod", status_text="Select a recording")
 
@@ -3491,6 +3537,44 @@ class MegabonkApp:
         if not items:
             return "--"
         return ", ".join(items)
+
+    @classmethod
+    def format_snapshot_new_items(cls, previous_snapshot, snapshot) -> str:
+        if previous_snapshot is None:
+            return "No previous snapshot"
+        new_items = cls.diff_new_items(getattr(previous_snapshot, "items", ()), getattr(snapshot, "items", ()))
+        if not new_items:
+            return "No new items since previous snapshot"
+        return cls.format_new_items_rich_text(new_items)
+
+    @classmethod
+    def diff_new_items(cls, previous_items, current_items) -> tuple[str, ...]:
+        previous_counts = cls._item_counts(previous_items)
+        current_counts = cls._item_counts(current_items)
+        new_items: list[str] = []
+        for name, current_count in current_counts.items():
+            delta = current_count - previous_counts.get(name, 0)
+            if delta > 0:
+                new_items.append(f"{name} x{delta}")
+        return tuple(new_items)
+
+    @classmethod
+    def format_new_items_rich_text(cls, items) -> str:
+        if not items:
+            return "No new items since previous snapshot"
+        return ", ".join(f"+ {cls._format_single_item_rich_text(item)}" for item in items)
+
+    @classmethod
+    def _item_counts(cls, items) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in items or ():
+            name, suffix = cls._split_item_stack_suffix(str(item))
+            name = cls._normalize_item_name_for_display(name)
+            count = 1
+            if suffix.startswith(" x") and suffix[2:].isdigit():
+                count = int(suffix[2:])
+            counts[name] = counts.get(name, 0) + max(1, count)
+        return counts
 
     @classmethod
     def format_items_rich_text(cls, items) -> str:

@@ -312,6 +312,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_chests_per_minute_label = FakeLabel()
         app.player_stats_mob_kills_label = FakeLabel()
         app.player_stats_level_label = FakeLabel()
+        app.player_stats_new_items_label = FakeLabel()
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app.display_player_stats = lambda *args, **kwargs: None
@@ -1146,6 +1147,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_chests_per_minute_label = FakeLabel()
         app.player_stats_mob_kills_label = FakeLabel()
         app.player_stats_level_label = FakeLabel()
+        app.player_stats_new_items_label = FakeLabel()
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -1172,6 +1174,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_in_game_time_label.text(), "In-Game Time: 00:21")
         self.assertEqual(app.player_stats_mob_kills_label.text(), "Mob Kills: 37")
         self.assertEqual(app.player_stats_level_label.text(), "Level: 2")
+        self.assertEqual(app.player_stats_new_items_label.text(), "Live snapshot")
 
     def test_refresh_live_player_stats_now_captures_while_hidden_recording(self) -> None:
         app = self.build_recording_app()
@@ -1250,6 +1253,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_chests_per_minute_label = FakeLabel()
         app.player_stats_mob_kills_label = FakeLabel()
         app.player_stats_level_label = FakeLabel()
+        app.player_stats_new_items_label = FakeLabel()
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -1277,6 +1281,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_in_game_time_label.text(), "In-Game Time: 00:21")
         self.assertEqual(app.player_stats_mob_kills_label.text(), "Mob Kills: 37")
         self.assertEqual(app.player_stats_level_label.text(), "Level: 2")
+        self.assertEqual(app.player_stats_new_items_label.text(), "Live snapshot")
 
     def test_display_player_stats_snapshot_shows_in_game_time_in_status_and_summary(self) -> None:
         app = object.__new__(gui.MegabonkApp)
@@ -1313,6 +1318,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_chests_per_minute_label = FakeLabel()
         app.vods_mob_kills_label = FakeLabel()
         app.vods_level_label = FakeLabel()
+        app.vods_new_items_label = FakeLabel()
         app.vods_rows = {"Damage": FakeLabel()}
         app.loaded_vod_snapshot_index = None
         snapshot = SimpleNamespace(
@@ -1333,6 +1339,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.vods_in_game_time_label.text(), "In-Game Time: --")
         self.assertEqual(app.vods_mob_kills_label.text(), "Mob Kills: --")
         self.assertEqual(app.vods_level_label.text(), "Level: --")
+        self.assertEqual(app.vods_new_items_label.text(), "No previous snapshot")
         self.assertEqual(app.vods_items_label.text(), "Wrench x1")
 
     def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
@@ -1347,6 +1354,23 @@ class GuiRunControlTests(unittest.TestCase):
     def test_format_player_level_formats_missing_and_positive_values(self) -> None:
         self.assertEqual(gui.MegabonkApp.format_player_level(None), "Level: --")
         self.assertEqual(gui.MegabonkApp.format_player_level(4), "Level: 4")
+
+    def test_diff_new_items_includes_new_stacks_and_new_names(self) -> None:
+        result = gui.MegabonkApp.diff_new_items(
+            ("Wrench x1", "Dice x1"),
+            ("Wrench x3", "Dice x1", "Holy Book x1"),
+        )
+
+        self.assertEqual(result, ("Wrench x2", "Holy Book x1"))
+
+    def test_format_snapshot_new_items_handles_first_snapshot_and_no_changes(self) -> None:
+        snapshot = SimpleNamespace(items=("Wrench x1",))
+
+        self.assertEqual(gui.MegabonkApp.format_snapshot_new_items(None, snapshot), "No previous snapshot")
+        self.assertEqual(
+            gui.MegabonkApp.format_snapshot_new_items(snapshot, SimpleNamespace(items=("Wrench x1",))),
+            "No new items since previous snapshot",
+        )
 
     def test_format_items_rich_text_colors_name_only(self) -> None:
         result = gui.MegabonkApp.format_items_rich_text(("Wrench x2", "Bonker x1", "Crypt Key x1"))
