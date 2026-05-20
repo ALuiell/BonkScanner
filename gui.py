@@ -2077,7 +2077,11 @@ class MegabonkApp:
         player_stats_tab_layout = QVBoxLayout(player_stats_tab)
         player_stats_scroll, _player_stats_scroll_content, player_stats_scroll_layout = _make_scroll_section()
         player_stats_tab_layout.addWidget(player_stats_scroll)
-        for group in PLAYER_STAT_GROUPS:
+        player_stats_grid = QGridLayout()
+        player_stats_grid.setContentsMargins(0, 0, 0, 0)
+        player_stats_grid.setHorizontalSpacing(8)
+        player_stats_grid.setVerticalSpacing(8)
+        for index, group in enumerate(PLAYER_STAT_GROUPS):
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
             group_layout = QFormLayout(stat_group)
@@ -2089,7 +2093,10 @@ class MegabonkApp:
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.player_stats_rows[spec.label] = value_label
                 group_layout.addRow(spec.label, value_label)
-            player_stats_scroll_layout.addWidget(stat_group)
+            player_stats_grid.addWidget(stat_group, index // 2, index % 2)
+        player_stats_grid.setColumnStretch(0, 1)
+        player_stats_grid.setColumnStretch(1, 1)
+        player_stats_scroll_layout.addLayout(player_stats_grid)
         player_stats_scroll_layout.addStretch(1)
         weapons_tab = QWidget()
         weapons_tab_layout = QVBoxLayout(weapons_tab)
@@ -2097,6 +2104,7 @@ class MegabonkApp:
         self.player_stats_weapons_status_label.setWordWrap(True)
         weapons_tab_layout.addWidget(self.player_stats_weapons_status_label)
         player_weapons_scroll, _player_weapons_scroll_content, player_weapons_scroll_layout = _make_scroll_section()
+        player_weapons_scroll_layout.setContentsMargins(0, 0, 0, 0)
         self.player_stats_weapons_layout = player_weapons_scroll_layout
         weapons_tab_layout.addWidget(player_weapons_scroll)
         self.player_stats_detail_tabs.addTab(player_stats_tab, "Stats")
@@ -2172,7 +2180,11 @@ class MegabonkApp:
         vod_stats_tab_layout = QVBoxLayout(vod_stats_tab)
         vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()
         vod_stats_tab_layout.addWidget(vods_scroll)
-        for group in PLAYER_STAT_GROUPS:
+        vods_stats_grid = QGridLayout()
+        vods_stats_grid.setContentsMargins(0, 0, 0, 0)
+        vods_stats_grid.setHorizontalSpacing(8)
+        vods_stats_grid.setVerticalSpacing(8)
+        for index, group in enumerate(PLAYER_STAT_GROUPS):
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
             group_layout = QFormLayout(stat_group)
@@ -2183,7 +2195,10 @@ class MegabonkApp:
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.vods_rows[spec.label] = value_label
                 group_layout.addRow(spec.label, value_label)
-            vods_scroll_layout.addWidget(stat_group)
+            vods_stats_grid.addWidget(stat_group, index // 2, index % 2)
+        vods_stats_grid.setColumnStretch(0, 1)
+        vods_stats_grid.setColumnStretch(1, 1)
+        vods_scroll_layout.addLayout(vods_stats_grid)
         vods_scroll_layout.addStretch(1)
         vod_weapons_tab = QWidget()
         vod_weapons_tab_layout = QVBoxLayout(vod_weapons_tab)
@@ -2191,6 +2206,7 @@ class MegabonkApp:
         self.vods_weapons_status_label.setWordWrap(True)
         vod_weapons_tab_layout.addWidget(self.vods_weapons_status_label)
         vod_weapons_scroll, _vod_weapons_scroll_content, vod_weapons_scroll_layout = _make_scroll_section()
+        vod_weapons_scroll_layout.setContentsMargins(0, 0, 0, 0)
         self.vods_weapons_layout = vod_weapons_scroll_layout
         vod_weapons_tab_layout.addWidget(vod_weapons_scroll)
         self.vods_detail_tabs.addTab(vod_stats_tab, "Stats")
@@ -3443,10 +3459,17 @@ class MegabonkApp:
             return
 
         cards = []
-        for weapon in weapons:
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+        for index, weapon in enumerate(weapons):
             card = self._build_weapon_card(weapon)
-            layout.addWidget(card)
+            grid.addWidget(card, index // 2, index % 2)
             cards.append(card)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        layout.addLayout(grid)
         layout.addStretch(1)
         setattr(self, cards_attr, cards)
 
