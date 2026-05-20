@@ -73,7 +73,7 @@ class VodRecorder:
         self,
         *,
         vods_dir: Path | None = None,
-        interval_seconds: int = 60,
+        interval_seconds: int = 30,
         clock=time.monotonic,
     ) -> None:
         self.vods_dir = vods_dir or RECORDINGS_DIR
@@ -110,8 +110,9 @@ class VodRecorder:
         )
         return self.path
 
-    def stop(self) -> None:
+    def stop(self) -> str:
         self.is_recording = False
+        status = "kept"
         if self._file is not None:
             self._write_record(
                 {
@@ -122,6 +123,11 @@ class VodRecorder:
             )
             self._file.close()
             self._file = None
+        if self.path is not None and self.snapshot_count == 0:
+            self.path.unlink(missing_ok=True)
+            clear_vod_metadata_cache()
+            status = "deleted_empty"
+        return status
 
     def close(self) -> None:
         if self._file is not None:
@@ -311,6 +317,16 @@ def delete_vod(path: Path) -> None:
     clear_vod_metadata_cache()
 
 
+def delete_vods_below_snapshot_count(min_snapshot_count: int, vods_dir: Path | None = None) -> int:
+    threshold = max(0, int(min_snapshot_count))
+    removed = 0
+    for metadata in list_vods(vods_dir):
+        if metadata.snapshot_count < threshold:
+            delete_vod(metadata.path)
+            removed += 1
+    return removed
+
+
 def _iter_records(path: Path):
     with path.open("r", encoding="utf-8") as file:
         for line in file:
@@ -380,7 +396,7 @@ def _metadata_from_records(
         path=path,
         name=str(metadata_record.get("name") or path.stem),
         created_at=str(metadata_record.get("created_at") or ""),
-        interval_seconds=int(metadata_record.get("snapshot_interval_seconds") or 60),
+        interval_seconds=int(metadata_record.get("snapshot_interval_seconds") or 30),
         duration_seconds=duration_seconds,
         snapshot_count=snapshot_count,
         run_seed=run_seed,

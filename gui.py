@@ -69,7 +69,7 @@ from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from player_stats import PLAYER_STAT_GROUPS, PlayerStatsClient, WeaponSnapshot, calculate_chests_per_minute
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
-from vod_storage import VodRecorder, delete_vod, list_vods, load_vod, rename_vod
+from vod_storage import VodRecorder, delete_vod, delete_vods_below_snapshot_count, list_vods, load_vod, rename_vod
 
 try:
     import win32gui
@@ -938,6 +938,37 @@ class ConfirmDeleteRecordingDialog(QDialog):
         self.reject()
 
 
+class CleanupRecordingsDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.threshold: int | None = None
+        self.setWindowTitle("Clean Recordings")
+        self.setModal(True)
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Remove all recordings where snapshot count is less than:"))
+        self.threshold_entry = QLineEdit("2")
+        layout.addWidget(self.threshold_entry)
+        buttons = QDialogButtonBox()
+        cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.RejectRole)
+        confirm_btn = buttons.addButton("Remove", QDialogButtonBox.AcceptRole)
+        confirm_btn.setObjectName("DangerButton")
+        cancel_btn.clicked.connect(self.reject)
+        confirm_btn.clicked.connect(self.confirm)
+        layout.addWidget(buttons)
+
+    def confirm(self):
+        try:
+            threshold = int(float(_read_text(self.threshold_entry)))
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Count", "Please enter a valid snapshot count.")
+            return
+        if threshold < 0:
+            QMessageBox.warning(self, "Invalid Count", "Snapshot count cannot be negative.")
+            return
+        self.threshold = threshold
+        self.accept()
+
+
 class NativeHookWarningDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -1055,7 +1086,7 @@ class SettingsDialog(QDialog):
         self.reset_hold_duration_entry = QLineEdit(str(config.RESET_HOLD_DURATION))
         form_layout.addRow("Reset Hold Duration (s):", self.reset_hold_duration_entry)
 
-        self.record_interval_entry = QLineEdit(str(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 60)))
+        self.record_interval_entry = QLineEdit(str(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30)))
         form_layout.addRow("Snapshot Interval (s):", self.record_interval_entry)
 
         self.native_hook_enabled_var = QCheckBox("Use native hook restart")
@@ -1607,7 +1638,7 @@ class MegabonkApp:
         self.player_stats_client = None
         self.player_stats_game_data_client = None
         self.player_stats_vod_recorder = VodRecorder(
-            interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 60),
+            interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
         )
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
@@ -2067,11 +2098,14 @@ class MegabonkApp:
         self.vods_name_entry = QLineEdit()
         self.vods_rename_btn = QPushButton("Rename")
         self.vods_rename_btn.clicked.connect(self.rename_selected_vod)
+        self.vods_cleanup_btn = QPushButton("Clean Short")
+        self.vods_cleanup_btn.clicked.connect(self.cleanup_recordings_by_snapshot_count)
         self.vods_delete_btn = QPushButton("Delete")
         self.vods_delete_btn.setObjectName("DangerButton")
         self.vods_delete_btn.clicked.connect(self.delete_selected_vod)
         name_row.addWidget(self.vods_name_entry, 1)
         name_row.addWidget(self.vods_rename_btn)
+        name_row.addWidget(self.vods_cleanup_btn)
         name_row.addWidget(self.vods_delete_btn)
         vods_detail_layout.addLayout(name_row)
         self.vods_slider = QSlider(Qt.Horizontal)
@@ -3081,19 +3115,7 @@ class MegabonkApp:
         self.refresh_loaded_vod_ui(update_slider=False)
         self.refresh_vods_list()
 
-    def delete_selected_vod(self):
-        if self.loaded_vod is None:
-            return
-        dialog = ConfirmDeleteRecordingDialog(self.window, self.loaded_vod.metadata.name)
-        dialog.exec()
-        if not dialog.result:
-            return
-        path = self.loaded_vod.metadata.path
-        try:
-            delete_vod(path)
-        except Exception as exc:
-            _set_text(self.vods_status_label, f"Could not delete recording: {exc}")
-            return
+    def _clear_loaded_vod_selection(self) -> None:
         self.loaded_vod = None
         self.loaded_vod_snapshot_index = None
         _clear_text_input(self.vods_name_entry)
@@ -3110,6 +3132,39 @@ class MegabonkApp:
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
         self.vods_weapon_signature = None
         self.display_weapon_cards((), scope="vod", status_text="Select a recording")
+
+    def cleanup_recordings_by_snapshot_count(self):
+        dialog = CleanupRecordingsDialog(self.window)
+        if dialog.exec() != QDialog.Accepted or dialog.threshold is None:
+            return
+
+        selected_path = self.loaded_vod.metadata.path if self.loaded_vod is not None else None
+        try:
+            removed = delete_vods_below_snapshot_count(dialog.threshold)
+        except Exception as exc:
+            _set_text(self.vods_status_label, f"Could not clean recordings: {exc}")
+            return
+
+        if selected_path is not None and not selected_path.exists():
+            self._clear_loaded_vod_selection()
+
+        self.refresh_vods_list()
+        self.log(f"[*] Removed {removed} recordings with snapshot count below {dialog.threshold}.", tag="success")
+
+    def delete_selected_vod(self):
+        if self.loaded_vod is None:
+            return
+        dialog = ConfirmDeleteRecordingDialog(self.window, self.loaded_vod.metadata.name)
+        dialog.exec()
+        if not dialog.result:
+            return
+        path = self.loaded_vod.metadata.path
+        try:
+            delete_vod(path)
+        except Exception as exc:
+            _set_text(self.vods_status_label, f"Could not delete recording: {exc}")
+            return
+        self._clear_loaded_vod_selection()
         self.refresh_vods_list()
 
     def toggle_player_items_expanded(self) -> None:

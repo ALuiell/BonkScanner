@@ -6,7 +6,17 @@ import unittest
 from pathlib import Path
 
 from player_stats import WeaponSnapshot, WeaponStatFormat, WeaponStatValue
-from vod_storage import LEGACY_VODS_DIR, RECORDINGS_DIR, VodRecorder, delete_vod, list_vods, load_vod, load_vod_metadata, rename_vod
+from vod_storage import (
+    LEGACY_VODS_DIR,
+    RECORDINGS_DIR,
+    VodRecorder,
+    delete_vod,
+    delete_vods_below_snapshot_count,
+    list_vods,
+    load_vod,
+    load_vod_metadata,
+    rename_vod,
+)
 
 
 class VodStorageTests(unittest.TestCase):
@@ -168,6 +178,48 @@ class VodStorageTests(unittest.TestCase):
 
             self.assertIsNone(loaded.snapshots[0].game_time_seconds)
             self.assertEqual(loaded.snapshots[0].weapons, ())
+
+    def test_delete_vods_below_snapshot_count_removes_only_short_recordings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            short_path = root / "short.jsonl"
+            short_path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":3,"name":"Short","created_at":"2026-05-10T16:00:00","snapshot_interval_seconds":30}',
+                        '{"type":"summary","duration_seconds":5,"snapshot_count":1}',
+                    ],
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            keep_path = root / "keep.jsonl"
+            keep_path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":3,"name":"Keep","created_at":"2026-05-10T16:01:00","snapshot_interval_seconds":30}',
+                        '{"type":"summary","duration_seconds":30,"snapshot_count":3}',
+                    ],
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            removed = delete_vods_below_snapshot_count(2, root)
+
+            self.assertEqual(removed, 1)
+            self.assertFalse(short_path.exists())
+            self.assertTrue(keep_path.exists())
+
+    def test_recorder_stop_deletes_empty_recordings(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(vods_dir=Path(temp_dir), interval_seconds=30, clock=lambda: 1000.0)
+
+            path = recorder.start(name="Empty run", seed=123)
+            status = recorder.stop()
+
+            self.assertEqual(status, "deleted_empty")
+            self.assertFalse(path.exists())
 
 
 if __name__ == "__main__":

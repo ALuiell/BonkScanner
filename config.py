@@ -212,9 +212,9 @@ else:
 HOTKEY = user_config.get("HOTKEY", "f6")
 PLAYER_STATS_RECORD_HOTKEY = user_config.get("PLAYER_STATS_RECORD_HOTKEY", "f8")
 PLAYER_STATS_RECORD_INTERVAL_SECONDS = coerce_nonnegative_int(
-    user_config.get("PLAYER_STATS_RECORD_INTERVAL_SECONDS", 60),
-    60,
-) or 60
+    user_config.get("PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
+    30,
+) or 30
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
 TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY = user_config.get("TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11")
