@@ -169,13 +169,25 @@ class FakeRecordingRecorder:
     def should_capture(self) -> bool:
         return self.should_capture_value
 
-    def capture(self, stats, items=(), weapons=(), *, chests_per_minute=None, game_time_seconds=None):
+    def capture(
+        self,
+        stats,
+        items=(),
+        weapons=(),
+        *,
+        chests_per_minute=None,
+        game_time_seconds=None,
+        mob_kills=None,
+        player_level=None,
+    ):
         snapshot = SimpleNamespace(
             stats=stats,
             items=tuple(items),
             weapons=tuple(weapons),
             chests_per_minute=chests_per_minute,
             game_time_seconds=game_time_seconds,
+            mob_kills=mob_kills,
+            player_level=player_level,
             time_label="00:00",
         )
         self.capture_calls.append(
@@ -185,6 +197,8 @@ class FakeRecordingRecorder:
                 "weapons": tuple(weapons),
                 "chests_per_minute": chests_per_minute,
                 "game_time_seconds": game_time_seconds,
+                "mob_kills": mob_kills,
+                "player_level": player_level,
             }
         )
         self.should_capture_value = False
@@ -284,13 +298,20 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_selected_snapshot_index = 0
         app.player_stats_recording_seed = None
         app.player_stats_recording_seed_missing_since = None
+        app.player_stats_recording_run_time_seconds = None
         app.player_stats_game_data_client = None
-        app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 21.5)
+        app.player_stats_client = SimpleNamespace(
+            get_run_timer=lambda: 21.5,
+            get_killed_mobs=lambda: 37,
+            get_player_level=lambda owner_stats=None: 2,
+        )
         app.player_stats_status_label = FakeLabel()
         app.player_stats_rows = {}
         app.player_stats_items_label = FakeLabel()
         app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
+        app.player_stats_mob_kills_label = FakeLabel()
+        app.player_stats_level_label = FakeLabel()
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app.display_player_stats = lambda *args, **kwargs: None
@@ -1008,6 +1029,8 @@ class GuiRunControlTests(unittest.TestCase):
     def test_recording_run_state_split_starts_new_file_when_seed_changes(self) -> None:
         app = self.build_recording_app()
         app.player_stats_recording_seed = 111
+        app.player_stats_recording_run_time_seconds = 120.0
+        app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 4.0, get_killed_mobs=lambda: 37)
         app.player_stats_game_data_client = FakeSeedStateClient([222])
 
         action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
@@ -1018,6 +1041,22 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_recording_seed, 222)
         self.assertEqual(app.player_stats_vod_snapshots, [])
         self.assertIn("auto-split", app.log_messages[0][0])
+
+    def test_recording_run_state_does_not_split_when_seed_changes_between_stages(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_recording_seed = 111
+        app.player_stats_recording_run_time_seconds = 120.0
+        app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 123.0, get_killed_mobs=lambda: 37)
+        app.player_stats_game_data_client = FakeSeedStateClient([222])
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertIsNone(action)
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
+        self.assertEqual(app.player_stats_recording_seed, 222)
+        self.assertEqual(app.player_stats_recording_run_time_seconds, 123.0)
+        self.assertEqual(app.log_messages, [])
 
     def test_recording_run_state_stops_after_seed_missing_grace_period(self) -> None:
         app = self.build_recording_app()
@@ -1105,7 +1144,13 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_items_label = FakeLabel()
         app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
-        app._get_player_stats_client = lambda: SimpleNamespace(get_run_timer=lambda: 21.5)
+        app.player_stats_mob_kills_label = FakeLabel()
+        app.player_stats_level_label = FakeLabel()
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            get_run_timer=lambda: 21.5,
+            get_killed_mobs=lambda: 37,
+            get_player_level=lambda owner_stats=None: 2,
+        )
         app.close_player_stats_client = lambda: None
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
@@ -1125,6 +1170,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_items_label.text(), "Items unavailable")
         self.assertEqual(app.player_stats_chests_per_minute_label.text(), "Average chests/min: --")
         self.assertEqual(app.player_stats_in_game_time_label.text(), "In-Game Time: 00:21")
+        self.assertEqual(app.player_stats_mob_kills_label.text(), "Mob Kills: 37")
+        self.assertEqual(app.player_stats_level_label.text(), "Level: 2")
 
     def test_refresh_live_player_stats_now_captures_while_hidden_recording(self) -> None:
         app = self.build_recording_app()
@@ -1145,6 +1192,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["items"], ("Wrench x2",))
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["game_time_seconds"], 21.5)
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["mob_kills"], 37)
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["player_level"], 2)
         self.assertEqual(snapshot_calls, [])
         self.assertEqual(timeline_calls, ["timeline"])
 
@@ -1199,7 +1248,13 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_items_label = FakeLabel()
         app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
-        app._get_player_stats_client = lambda: SimpleNamespace(get_run_timer=lambda: 21.5)
+        app.player_stats_mob_kills_label = FakeLabel()
+        app.player_stats_level_label = FakeLabel()
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            get_run_timer=lambda: 21.5,
+            get_killed_mobs=lambda: 37,
+            get_player_level=lambda owner_stats=None: 2,
+        )
         app.close_player_stats_client = lambda: None
         app.close_player_stats_game_data_client = lambda: None
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
@@ -1220,6 +1275,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(stat_label.text(), "123")
         self.assertEqual(app.player_stats_items_label.text(), "Items unavailable")
         self.assertEqual(app.player_stats_in_game_time_label.text(), "In-Game Time: 00:21")
+        self.assertEqual(app.player_stats_mob_kills_label.text(), "Mob Kills: 37")
+        self.assertEqual(app.player_stats_level_label.text(), "Level: 2")
 
     def test_display_player_stats_snapshot_shows_in_game_time_in_status_and_summary(self) -> None:
         app = object.__new__(gui.MegabonkApp)
@@ -1230,6 +1287,8 @@ class GuiRunControlTests(unittest.TestCase):
             items=("Wrench x2",),
             chests_per_minute=1.5,
             game_time_seconds=81.75,
+            mob_kills=42,
+            player_level=4,
             time_label="01:00",
         )
         app.player_stats_vod_snapshots = [snapshot]
@@ -1242,6 +1301,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["kwargs"]["status_text"], "Recorded snapshot 1/1 at 01:00 | In-Game Time: 01:21")
         self.assertEqual(calls[0]["kwargs"]["game_time_seconds"], 81.75)
+        self.assertEqual(calls[0]["kwargs"]["mob_kills"], 42)
+        self.assertEqual(calls[0]["kwargs"]["player_level"], 4)
 
     def test_display_loaded_vod_snapshot_shows_legacy_in_game_fallback(self) -> None:
         app = object.__new__(gui.MegabonkApp)
@@ -1250,6 +1311,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_items_label = FakeLabel()
         app.vods_in_game_time_label = FakeLabel()
         app.vods_chests_per_minute_label = FakeLabel()
+        app.vods_mob_kills_label = FakeLabel()
+        app.vods_level_label = FakeLabel()
         app.vods_rows = {"Damage": FakeLabel()}
         app.loaded_vod_snapshot_index = None
         snapshot = SimpleNamespace(
@@ -1257,6 +1320,8 @@ class GuiRunControlTests(unittest.TestCase):
             items=("Wrench x1",),
             chests_per_minute=1.23,
             game_time_seconds=None,
+            mob_kills=None,
+            player_level=None,
             time_label="00:00",
         )
         metadata = SimpleNamespace(name="Legacy run")
@@ -1266,12 +1331,22 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(app.vods_status_label.text(), "Legacy run | 1/1 at 00:00 | In-Game Time: --")
         self.assertEqual(app.vods_in_game_time_label.text(), "In-Game Time: --")
+        self.assertEqual(app.vods_mob_kills_label.text(), "Mob Kills: --")
+        self.assertEqual(app.vods_level_label.text(), "Level: --")
         self.assertEqual(app.vods_items_label.text(), "Wrench x1")
 
     def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
         self.assertEqual(gui.MegabonkApp.format_in_game_time(None), "In-Game Time: --")
         self.assertEqual(gui.MegabonkApp.format_in_game_time(21.52338219), "In-Game Time: 00:21")
         self.assertEqual(gui.MegabonkApp.format_in_game_time(3661.9), "In-Game Time: 01:01:01")
+
+    def test_format_mob_kills_formats_missing_and_positive_values(self) -> None:
+        self.assertEqual(gui.MegabonkApp.format_mob_kills(None), "Mob Kills: --")
+        self.assertEqual(gui.MegabonkApp.format_mob_kills(42), "Mob Kills: 42")
+
+    def test_format_player_level_formats_missing_and_positive_values(self) -> None:
+        self.assertEqual(gui.MegabonkApp.format_player_level(None), "Level: --")
+        self.assertEqual(gui.MegabonkApp.format_player_level(4), "Level: 4")
 
     def test_format_items_rich_text_colors_name_only(self) -> None:
         result = gui.MegabonkApp.format_items_rich_text(("Wrench x2", "Bonker x1", "Crypt Key x1"))

@@ -23,12 +23,14 @@ class FakeMemory:
         floats: dict[int, float] | None = None,
         ints: dict[int, int] | None = None,
         ascii_strings: dict[int, str] | None = None,
+        mono_strings: dict[int, str] | None = None,
     ) -> None:
         self.module_base = module_base
         self.pointers = pointers or {}
         self.floats = floats or {}
         self.ints = ints or {}
         self.ascii_strings = ascii_strings or {}
+        self.mono_strings = mono_strings or {}
 
     def module_offset(self, _module_name: str, offset: int) -> int:
         return self.module_base + offset
@@ -54,6 +56,12 @@ class FakeMemory:
             raise MemoryReadError(f"missing ascii string at 0x{address:X}")
         return self.ascii_strings[address]
 
+    def read_mono_string(self, address: int, max_length: int = 512) -> str | None:
+        _ = max_length
+        if address not in self.mono_strings:
+            raise MemoryReadError(f"missing mono string at 0x{address:X}")
+        return self.mono_strings[address]
+
 
 def build_player_stats_memory() -> FakeMemory:
     base = 0x10000000
@@ -76,10 +84,25 @@ def build_player_stats_memory() -> FakeMemory:
     run_timer_type_info = base + PlayerStatsClient.RUN_TIMER_TYPE_INFO_OFFSET
     run_timer_class_ptr = 0x20000C00
     run_timer_static_fields = 0x20000D00
+    run_stats_type_info = base + PlayerStatsClient.RUN_STATS_TYPE_INFO_OFFSET
+    run_stats_class_ptr = 0x20000E00
+    run_stats_static_fields = 0x20000F00
+    run_stats_dict = 0x20001000
+    run_stats_entries = 0x20001100
+    kills_key = 0x20001200
+    player_inventory = 0x20001600
+    player_xp = 0x20001700
     pointers.update(
         {
             run_timer_type_info: run_timer_class_ptr,
             run_timer_class_ptr + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: run_timer_static_fields,
+            run_stats_type_info: run_stats_class_ptr,
+            run_stats_class_ptr + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: run_stats_static_fields,
+            run_stats_static_fields + PlayerStatsClient.RUN_STATS_DICT_OFFSET: run_stats_dict,
+            run_stats_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: run_stats_entries,
+            run_stats_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: kills_key,
+            owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
+            player_inventory + PlayerStatsClient.PLAYER_XP_OFFSET: player_xp,
         }
     )
     floats = {
@@ -87,6 +110,7 @@ def build_player_stats_memory() -> FakeMemory:
         entries + 0x6C: 0.15,
         entries + 0x28C: 0.09,
         run_timer_static_fields + PlayerStatsClient.RUN_TIMER_OFFSET: 21.52338219,
+        run_stats_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.RUN_STATS_ENTRY_VALUE_OFFSET: 37.0,
     }
     inventory_container = 0x20000600
     passive_dict = 0x20000700
@@ -108,9 +132,15 @@ def build_player_stats_memory() -> FakeMemory:
     ints = {
         passive_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
         item_value + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET: 2,
+        run_stats_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+        run_stats_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+        player_xp + PlayerStatsClient.PLAYER_XP_LEVEL_OFFSET: 2,
     }
     ascii_strings = {
         class_name_ptr: "ItemWrench",
+    }
+    mono_strings = {
+        kills_key: "kills",
     }
     return FakeMemory(
         module_base=base,
@@ -118,6 +148,7 @@ def build_player_stats_memory() -> FakeMemory:
         floats=floats,
         ints=ints,
         ascii_strings=ascii_strings,
+        mono_strings=mono_strings,
     )
 
 
@@ -150,6 +181,43 @@ class PlayerStatsClientTests(unittest.TestCase):
         value = client.get_run_timer()
 
         self.assertAlmostEqual(value, 21.52338219)
+
+    def test_get_killed_mobs_reads_run_stats_kills(self) -> None:
+        client = PlayerStatsClient(memory=self.build_memory())
+
+        value = client.get_killed_mobs()
+
+        self.assertEqual(value, 37)
+
+    def test_get_player_level_reads_live_player_xp_level(self) -> None:
+        client = PlayerStatsClient(memory=self.build_memory())
+
+        value = client.get_player_level()
+
+        self.assertEqual(value, 2)
+
+    def test_get_killed_mobs_raises_when_entries_are_unavailable(self) -> None:
+        memory = self.build_memory()
+        run_stats_dict = 0x20001000
+        del memory.pointers[run_stats_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET]
+        client = PlayerStatsClient(memory=memory)
+
+        with self.assertRaises(MemoryReadError):
+            client.get_killed_mobs()
+
+    def test_get_killed_mobs_raises_when_kills_entry_is_missing(self) -> None:
+        memory = self.build_memory()
+        run_stats_entries = 0x20001100
+        del memory.mono_strings[0x20001200]
+        memory.ints[
+            run_stats_entries
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET
+        ] = 1
+        client = PlayerStatsClient(memory=memory)
+
+        with self.assertRaises(MemoryReadError):
+            client.get_killed_mobs()
 
     def test_get_passive_items_uses_default_stack_when_count_is_unreadable(self) -> None:
         memory = self.build_memory()

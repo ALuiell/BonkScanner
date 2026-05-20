@@ -25,6 +25,8 @@ Update this file whenever a path is meaningfully changed or newly confirmed.
 | Static item catalog / item rarities | future `player_stats.py`, `gui.py`, metadata helpers | `GameAssembly.dll + 0x2F85790` -> `DataManager.Instance` -> `+0xB8 itemData` -> `ItemData +0x60 rarity`; enum names from dumped `EItem` | `docs/reverse/reports/2026-05-19-item-enum-and-rarities.md` | high | 2026-05-19 |
 | Live weapon inventory / upgraded weapon stats | future `player_stats.py`, `gui.py`, `vod_storage.py` | same root to `PlayerStatsNew`, then `+0x28` -> `PlayerInventory` -> `+0x28` -> `WeaponInventory` -> `+0x18` weapons dictionary; each `WeaponBase +0x20` level, `+0x28` full stats, `+0x18 -> WeaponData +0xD8 -> UpgradeData +0x18` upgrade stat pool | `docs/reverse/reports/2026-05-19-live-weapon-stats-and-upgrades.md` | high | 2026-05-19 |
 | Current run time | `player_stats.py`, `gui.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F62398` -> `class_ptr` -> `+0xB8` -> `MyTime` static fields -> `+0x20` -> `runTimer` float seconds | `docs/reverse/reports/2026-05-18-current-run-time.md` | high | 2026-05-18 |
+| Run kill counter | `player_stats.py`, `gui.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F7A170` -> `RunStats` static fields -> `+0x0` stats dictionary -> key `kills` -> inline `float` at dictionary entry `+0x10`; stable root is the dictionary, final leaf requires key scan | `docs/reverse/reports/2026-05-20-run-kills-counter-path-details.md` | high | 2026-05-20 |
+| Live player level | future `player_stats.py`, `gui.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F6A4B8` -> `class_ptr` -> `+0xB8` -> `root` -> `+0x40` -> `PlayerStatsNew` -> `+0x28` -> `PlayerInventory` -> `+0x30` -> `PlayerXp` -> `+0x14` -> `level` int | `docs/reverse/reports/2026-05-20-live-player-level.md` | high | 2026-05-20 |
 | Native hook readiness / AlwaysManager path | `hook_loader.py`, `native/BonkHook/*` | `GameAssembly.dll + 0x2F6BAA8` for current AlwaysManager-related path used by hook readiness | `hook_loader.py`, `docs/reverse/memory-and-hooks-reference.md` | medium | 2026-05-11 |
 
 ## Notes Per Feature
@@ -114,6 +116,21 @@ What “healthy” looks like:
 - value starts near zero on new run
 - value increases during active gameplay
 - VOD snapshots include `in_game_elapsed_seconds`
+
+### Run kill counter
+
+Risk:
+
+- primary path depends on boxed-value decoding inside `RunStats.stats`
+- current confidence is dump-strong but not CE-live-validated
+- fallback `Potato.totalKills` may be debug-oriented rather than canonical HUD data
+
+What "healthy" looks like:
+
+- value matches the in-game kill counter during an active run
+- value starts near zero on a fresh run
+- value increases on enemy kills and does not drift during idle moments
+- live snapshots and recordings preserve `mob_kills`
 
 ### Native hook
 

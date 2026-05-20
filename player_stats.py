@@ -25,6 +25,9 @@ class MemoryReader(Protocol):
     def read_ascii_string(self, address: int, max_length: int = 128) -> str | None:
         ...
 
+    def read_mono_string(self, address: int, max_length: int = 512) -> str | None:
+        ...
+
 
 class PlayerStatFormat(Enum):
     FLAT = "flat"
@@ -220,6 +223,8 @@ class PlayerStatsSnapshot:
     items: tuple[str, ...] = ()
     weapons: tuple[WeaponSnapshot, ...] = ()
     game_time_seconds: float | None = None
+    mob_kills: int | None = None
+    player_level: int | None = None
 
     @property
     def time_label(self) -> str:
@@ -302,6 +307,8 @@ class PlayerStatsTimeline:
 class PlayerStatsClient:
     TYPE_INFO_OFFSET = 0x02F6A4B8
     RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398
+    RUN_STATS_TYPE_INFO_OFFSET = 0x02F7A170
+    POTATO_TYPE_INFO_OFFSET = 0x02F6FC78
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
     STATIC_ROOT_OFFSET = 0x0
     OWNER_STATS_OFFSET = 0x40
@@ -315,6 +322,8 @@ class PlayerStatsClient:
     WEAPON_LEVEL_OFFSET = 0x20
     WEAPON_STATS_DICT_OFFSET = 0x28
     WEAPON_ID_OFFSET = 0x50
+    PLAYER_XP_OFFSET = 0x30
+    PLAYER_XP_LEVEL_OFFSET = 0x14
     WEAPON_UPGRADE_DATA_OFFSET = 0xD8
     UPGRADE_MODIFIERS_OFFSET = 0x18
     STAT_VALUE_BASE_OFFSET = 0x2C
@@ -347,6 +356,9 @@ class PlayerStatsClient:
     STAT_DICT_ENTRY_KEY_OFFSET = 0x8
     STAT_DICT_ENTRY_VALUE_OFFSET = 0x0C
     STAT_MODIFIER_STAT_OFFSET = 0x10
+    RUN_STATS_DICT_OFFSET = 0x0
+    RUN_STATS_ENTRY_VALUE_OFFSET = 0x10
+    MAX_RUN_STATS_ENTRIES = 256
 
     def __init__(
         self,
@@ -497,6 +509,61 @@ class PlayerStatsClient:
             raise MemoryReadError("Run timer static fields are not initialized.")
 
         return self.memory.read_float(static_fields + self.RUN_TIMER_OFFSET)
+
+    def get_killed_mobs(self) -> int:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.RUN_STATS_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("RunStats type info is not initialized.")
+
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError("RunStats static fields are not initialized.")
+
+        stats_dict = self.memory.read_ptr(static_fields + self.RUN_STATS_DICT_OFFSET)
+        if not stats_dict:
+            raise MemoryReadError("RunStats.stats dictionary is not initialized.")
+
+        entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            raise MemoryReadError("RunStats.stats entries are not initialized.")
+
+        count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
+
+        if count <= 0:
+            return 0
+        if count > self.MAX_RUN_STATS_ENTRIES:
+            raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
+
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
+            if hash_code < 0:
+                continue
+            key_ptr = self.memory.read_ptr(entry + self.DICT_ENTRY_KEY_OFFSET)
+            if not key_ptr:
+                continue
+            key = self.memory.read_mono_string(key_ptr)
+            if key != "kills":
+                continue
+            return max(0, int(self.memory.read_float(entry + self.RUN_STATS_ENTRY_VALUE_OFFSET)))
+
+        raise MemoryReadError("RunStats.stats does not contain a 'kills' entry.")
+
+    def get_player_level(self, owner_stats: int | None = None) -> int:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
+        if not player_inventory:
+            raise MemoryReadError("Player inventory is not initialized.")
+
+        player_xp = self.memory.read_ptr(player_inventory + self.PLAYER_XP_OFFSET)
+        if not player_xp:
+            raise MemoryReadError("Player XP is not initialized.")
+
+        return max(0, self.memory.read_i32(player_xp + self.PLAYER_XP_LEVEL_OFFSET))
 
     def resolve_owner_stats(self) -> int:
         return self._resolve_owner_stats()

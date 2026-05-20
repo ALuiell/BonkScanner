@@ -97,6 +97,8 @@ class VodStorageTests(unittest.TestCase):
                 ),
                 chests_per_minute=1.23,
                 game_time_seconds=21.52338219,
+                mob_kills=37,
+                player_level=2,
             )
             now += 60
             recorder.capture(
@@ -108,6 +110,8 @@ class VodStorageTests(unittest.TestCase):
                 (),
                 chests_per_minute=2.34,
                 game_time_seconds=81.75,
+                mob_kills=12,
+                player_level=4,
             )
             recorder.stop()
 
@@ -123,10 +127,14 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].weapons[0].upgraded_stats[11].display_value, "0.6x")
             self.assertEqual(loaded.snapshots[0].chests_per_minute, 1.23)
             self.assertAlmostEqual(loaded.snapshots[0].game_time_seconds, 21.52338219)
+            self.assertEqual(loaded.snapshots[0].mob_kills, 37)
+            self.assertEqual(loaded.snapshots[0].player_level, 2)
             self.assertEqual(loaded.snapshots[1].items, ("Wrench x2", "Dice x1"))
             self.assertEqual(loaded.snapshots[1].weapons, ())
             self.assertEqual(loaded.snapshots[1].chests_per_minute, 2.34)
             self.assertAlmostEqual(loaded.snapshots[1].game_time_seconds, 81.75)
+            self.assertEqual(loaded.snapshots[1].mob_kills, 12)
+            self.assertEqual(loaded.snapshots[1].player_level, 4)
             self.assertEqual(loaded.snapshots[1].time_label, "01:00")
 
             vods = list_vods(Path(temp_dir))
@@ -134,10 +142,44 @@ class VodStorageTests(unittest.TestCase):
 
             renamed = rename_vod(path, "Renamed run")
             self.assertEqual(renamed.name, "Renamed run")
-            self.assertEqual(load_vod(path).metadata.name, "Renamed run")
-
-            delete_vod(path)
+            self.assertEqual(renamed.path.name, "Renamed run.jsonl")
             self.assertFalse(path.exists())
+            self.assertEqual(load_vod(renamed.path).metadata.name, "Renamed run")
+
+            delete_vod(renamed.path)
+            self.assertFalse(renamed.path.exists())
+
+    def test_rename_vod_sanitizes_filename_and_avoids_collisions(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first_path = root / "first.jsonl"
+            first_path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":3,"name":"First","created_at":"2026-05-10T16:00:00","snapshot_interval_seconds":30}',
+                        '{"type":"summary","duration_seconds":0,"snapshot_count":0}',
+                    ],
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            second_path = root / "Target_Name.jsonl"
+            second_path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":3,"name":"Second","created_at":"2026-05-10T16:01:00","snapshot_interval_seconds":30}',
+                        '{"type":"summary","duration_seconds":0,"snapshot_count":0}',
+                    ],
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            renamed = rename_vod(first_path, 'Target:Name')
+
+            self.assertEqual(renamed.path.name, "Target_Name-1.jsonl")
+            self.assertTrue(renamed.path.exists())
+            self.assertEqual(load_vod(renamed.path).metadata.name, "Target:Name")
 
     def test_load_vod_metadata_skips_snapshot_payload_parsing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -209,6 +251,7 @@ class VodStorageTests(unittest.TestCase):
             loaded = load_vod(path)
 
             self.assertIsNone(loaded.snapshots[0].game_time_seconds)
+            self.assertIsNone(loaded.snapshots[0].mob_kills)
             self.assertEqual(loaded.snapshots[0].weapons, ())
 
     def test_delete_vods_below_snapshot_count_removes_only_short_recordings(self) -> None:

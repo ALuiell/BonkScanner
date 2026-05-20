@@ -90,6 +90,7 @@ PATREON_ICON_PATH = "media/patreon_logo.svg"
 KOFI_ICON_PATH = "media/kofi_logo.svg"
 PLAYER_STATS_REFRESH_MS = 10_000
 PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
+PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS = 3.0
 PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
 PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
 PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
@@ -1602,6 +1603,8 @@ class MegabonkApp:
         self.player_stats_items_text_current = None
         self.player_stats_in_game_time_label = None
         self.player_stats_chests_per_minute_label = None
+        self.player_stats_mob_kills_label = None
+        self.player_stats_level_label = None
         self.player_stats_weapons_status_label = None
         self.player_stats_weapons_layout = None
         self.player_stats_weapon_cards = []
@@ -1622,6 +1625,8 @@ class MegabonkApp:
         self.vods_items_text_current = None
         self.vods_in_game_time_label = None
         self.vods_chests_per_minute_label = None
+        self.vods_mob_kills_label = None
+        self.vods_level_label = None
         self.vods_weapons_status_label = None
         self.vods_weapons_layout = None
         self.vods_weapon_cards = []
@@ -1644,6 +1649,7 @@ class MegabonkApp:
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = None
         self.player_stats_recording_seed_missing_since = None
+        self.player_stats_recording_run_time_seconds = None
         self.loaded_vod = None
         self.loaded_vod_snapshot_index = None
         self.native_hook_loader = None
@@ -2044,12 +2050,16 @@ class MegabonkApp:
         self.player_stats_items_toggle_btn.setVisible(False)
         items_layout.addWidget(self.player_stats_items_toggle_btn, 0, Qt.AlignLeft)
         player_content_layout.addWidget(items_group)
-        chest_rate_group = QGroupBox("Chest Rate + In-Game Time")
+        chest_rate_group = QGroupBox("Chest Rate + In-Game Time + Kills + Level")
         chest_rate_layout = QVBoxLayout(chest_rate_group)
         self.player_stats_chests_per_minute_label = QLabel("Average chests/min: --")
         chest_rate_layout.addWidget(self.player_stats_chests_per_minute_label)
         self.player_stats_in_game_time_label = QLabel("In-Game Time: --")
         chest_rate_layout.addWidget(self.player_stats_in_game_time_label)
+        self.player_stats_mob_kills_label = QLabel("Mob Kills: --")
+        chest_rate_layout.addWidget(self.player_stats_mob_kills_label)
+        self.player_stats_level_label = QLabel("Level: --")
+        chest_rate_layout.addWidget(self.player_stats_level_label)
         player_content_layout.addWidget(chest_rate_group)
         self.player_stats_detail_tabs = QTabWidget()
         player_stats_tab = QWidget()
@@ -2126,12 +2136,16 @@ class MegabonkApp:
         self.vods_items_toggle_btn.setVisible(False)
         vod_items_layout.addWidget(self.vods_items_toggle_btn, 0, Qt.AlignLeft)
         vods_detail_layout.addWidget(vod_items_group)
-        vod_chest_rate_group = QGroupBox("Chest Rate + In-Game Time")
+        vod_chest_rate_group = QGroupBox("Chest Rate + In-Game Time + Kills + Level")
         vod_chest_rate_layout = QVBoxLayout(vod_chest_rate_group)
         self.vods_chests_per_minute_label = QLabel("Average chests/min: --")
         vod_chest_rate_layout.addWidget(self.vods_chests_per_minute_label)
         self.vods_in_game_time_label = QLabel("In-Game Time: --")
         vod_chest_rate_layout.addWidget(self.vods_in_game_time_label)
+        self.vods_mob_kills_label = QLabel("Mob Kills: --")
+        vod_chest_rate_layout.addWidget(self.vods_mob_kills_label)
+        self.vods_level_label = QLabel("Level: --")
+        vod_chest_rate_layout.addWidget(self.vods_level_label)
         vods_detail_layout.addWidget(vod_chest_rate_group)
         self.vods_detail_tabs = QTabWidget()
         vod_stats_tab = QWidget()
@@ -2662,6 +2676,8 @@ class MegabonkApp:
         self._update_items_section("live", items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
+        _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
+        _set_text(self.player_stats_level_label, "Level: --")
         self.player_stats_weapon_signature = None
         self.display_weapon_cards(
             (),
@@ -2676,6 +2692,8 @@ class MegabonkApp:
         weapons: tuple[WeaponSnapshot, ...] = ()
         weapons_available = False
         run_timer_seconds = None
+        mob_kills = None
+        player_level = None
         try:
             items = self.read_passive_items_only(owner_stats)
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
@@ -2700,7 +2718,30 @@ class MegabonkApp:
             run_timer_seconds = None
         except Exception:
             run_timer_seconds = None
-        return stats, items, items_available, weapons, weapons_available, run_timer_seconds
+        try:
+            client = self._get_player_stats_client()
+            mob_kills = client.get_killed_mobs()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            mob_kills = None
+        except Exception:
+            mob_kills = None
+        try:
+            client = self._get_player_stats_client()
+            player_level = client.get_player_level(owner_stats)
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            player_level = None
+        except Exception:
+            player_level = None
+        return (
+            stats,
+            items,
+            items_available,
+            weapons,
+            weapons_available,
+            run_timer_seconds,
+            mob_kills,
+            player_level,
+        )
 
     def refresh_live_player_stats_now(
         self,
@@ -2710,7 +2751,16 @@ class MegabonkApp:
         unavailable_status_prefix: str = "Player stats unavailable",
     ) -> bool:
         try:
-            stats, items, items_available, weapons, weapons_available, run_timer_seconds = self._read_live_player_stats_data()
+            (
+                stats,
+                items,
+                items_available,
+                weapons,
+                weapons_available,
+                run_timer_seconds,
+                mob_kills,
+                player_level,
+            ) = self._read_live_player_stats_data()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
             self._reset_live_player_stats_ui(waiting_status_text)
@@ -2731,6 +2781,8 @@ class MegabonkApp:
                 weapons if weapons_available else (),
                 chests_per_minute=chests_per_minute,
                 game_time_seconds=run_timer_seconds,
+                mob_kills=mob_kills,
+                player_level=player_level,
             )
             self.player_stats_vod_snapshots.append(snapshot)
             self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
@@ -2751,6 +2803,8 @@ class MegabonkApp:
                     chests_per_minute=chests_per_minute,
                     items_text=items_text,
                     game_time_seconds=run_timer_seconds,
+                    mob_kills=mob_kills,
+                    player_level=player_level,
                 )
                 return True
 
@@ -2764,6 +2818,8 @@ class MegabonkApp:
                 chests_per_minute=chests_per_minute,
                 items_text=items_text,
                 game_time_seconds=run_timer_seconds,
+                mob_kills=mob_kills,
+                player_level=player_level,
             )
         return True
 
@@ -2778,6 +2834,8 @@ class MegabonkApp:
         chests_per_minute: float | None = None,
         items_text: str | None = None,
         game_time_seconds: float | None = None,
+        mob_kills: int | None = None,
+        player_level: int | None = None,
     ):
         if status_text:
             _set_text(self.player_stats_status_label, status_text)
@@ -2795,6 +2853,14 @@ class MegabonkApp:
         _set_text(
             self.player_stats_in_game_time_label,
             self.format_in_game_time(game_time_seconds),
+        )
+        _set_text(
+            self.player_stats_mob_kills_label,
+            self.format_mob_kills(mob_kills),
+        )
+        _set_text(
+            self.player_stats_level_label,
+            self.format_player_level(player_level),
         )
         self.display_weapon_cards(
             weapons if weapons_available else (),
@@ -2816,6 +2882,8 @@ class MegabonkApp:
             chests_per_minute=self.resolve_snapshot_chests_per_minute(snapshot),
             items_text=items_text,
             game_time_seconds=snapshot.game_time_seconds,
+            mob_kills=getattr(snapshot, "mob_kills", None),
+            player_level=getattr(snapshot, "player_level", None),
         )
 
     def toggle_player_stats_recording(self):
@@ -2823,7 +2891,11 @@ class MegabonkApp:
             self._stop_player_stats_recording(log_message="[*] Player stats recording stopped.")
         else:
             seed = self._read_player_stats_recording_seed_safe()
-            vod_path = self._start_player_stats_recording(seed=seed)
+            run_time_seconds = self._read_player_stats_recording_run_timer_safe()
+            vod_path = self._start_player_stats_recording(
+                seed=seed,
+                run_time_seconds=run_time_seconds,
+            )
             self.log(f"[*] Player stats recording started: {vod_path.name}", tag="success")
             self.refresh_live_player_stats_now(
                 waiting_status_text="Recording stats; waiting for game/player stats...",
@@ -2843,12 +2915,40 @@ class MegabonkApp:
             self.close_player_stats_game_data_client()
             return None
 
-    def _start_player_stats_recording(self, *, seed: int | None = None):
+    def _read_player_stats_recording_run_timer_safe(self) -> float | None:
+        try:
+            return self._get_player_stats_client().get_run_timer()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            self.close_player_stats_client()
+            return None
+        except Exception:
+            self.close_player_stats_client()
+            return None
+
+    @staticmethod
+    def _seed_change_looks_like_same_run(
+        previous_run_time_seconds: float | None,
+        current_run_time_seconds: float | None,
+    ) -> bool:
+        if previous_run_time_seconds is None or current_run_time_seconds is None:
+            return False
+        return (
+            current_run_time_seconds + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
+            >= previous_run_time_seconds
+        )
+
+    def _start_player_stats_recording(
+        self,
+        *,
+        seed: int | None = None,
+        run_time_seconds: float | None = None,
+    ):
         vod_path = self.player_stats_vod_recorder.start(seed=seed)
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = seed
         self.player_stats_recording_seed_missing_since = None
+        self.player_stats_recording_run_time_seconds = run_time_seconds
         return vod_path
 
     def _stop_player_stats_recording(
@@ -2863,6 +2963,7 @@ class MegabonkApp:
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = None
         self.player_stats_recording_seed_missing_since = None
+        self.player_stats_recording_run_time_seconds = None
         self.close_player_stats_game_data_client()
         if log_message:
             self.log(log_message, tag=log_tag)
@@ -2876,6 +2977,7 @@ class MegabonkApp:
 
         now = time.monotonic()
         current_seed = self._read_player_stats_recording_seed_safe()
+        current_run_time_seconds = self._read_player_stats_recording_run_timer_safe()
         if current_seed is None:
             if self.player_stats_recording_seed_missing_since is None:
                 self.player_stats_recording_seed_missing_since = now
@@ -2893,13 +2995,27 @@ class MegabonkApp:
         self.player_stats_recording_seed_missing_since = None
         if self.player_stats_recording_seed is None:
             self.player_stats_recording_seed = current_seed
+            self.player_stats_recording_run_time_seconds = current_run_time_seconds
             return None
         if current_seed == self.player_stats_recording_seed:
+            self.player_stats_recording_run_time_seconds = current_run_time_seconds
             return None
 
         previous_seed = self.player_stats_recording_seed
+        previous_run_time_seconds = self.player_stats_recording_run_time_seconds
+        if self._seed_change_looks_like_same_run(
+            previous_run_time_seconds,
+            current_run_time_seconds,
+        ):
+            self.player_stats_recording_seed = current_seed
+            self.player_stats_recording_run_time_seconds = current_run_time_seconds
+            return None
+
         self._stop_player_stats_recording(refresh_live_stats=False)
-        vod_path = self._start_player_stats_recording(seed=current_seed)
+        vod_path = self._start_player_stats_recording(
+            seed=current_seed,
+            run_time_seconds=current_run_time_seconds,
+        )
         self.log(
             f"[*] Player stats recording auto-split: seed {previous_seed} -> {current_seed}; new file {vod_path.name}",
             tag="success",
@@ -3058,6 +3174,8 @@ class MegabonkApp:
             self._update_items_section("vod", items_text="--")
             _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
             _set_text(self.vods_in_game_time_label, "In-Game Time: --")
+            _set_text(self.vods_mob_kills_label, "Mob Kills: --")
+            _set_text(self.vods_level_label, "Level: --")
             self.vods_weapon_signature = None
             self.display_weapon_cards((), scope="vod", status_text="No weapon data in this recording")
 
@@ -3091,6 +3209,14 @@ class MegabonkApp:
         _set_text(
             self.vods_in_game_time_label,
             self.format_in_game_time(snapshot.game_time_seconds),
+        )
+        _set_text(
+            self.vods_mob_kills_label,
+            self.format_mob_kills(getattr(snapshot, "mob_kills", None)),
+        )
+        _set_text(
+            self.vods_level_label,
+            self.format_player_level(getattr(snapshot, "player_level", None)),
         )
         self.display_weapon_cards(getattr(snapshot, "weapons", ()), scope="vod")
 
@@ -3130,6 +3256,8 @@ class MegabonkApp:
         self._update_items_section("vod", items_text="--")
         _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
+        _set_text(self.vods_mob_kills_label, "Mob Kills: --")
+        _set_text(self.vods_level_label, "Level: --")
         self.vods_weapon_signature = None
         self.display_weapon_cards((), scope="vod", status_text="Select a recording")
 
@@ -3345,6 +3473,18 @@ class MegabonkApp:
         if seconds is None:
             return "In-Game Time: --"
         return f"In-Game Time: {cls.format_elapsed_time(seconds)}"
+
+    @staticmethod
+    def format_mob_kills(value: int | None) -> str:
+        if value is None:
+            return "Mob Kills: --"
+        return f"Mob Kills: {max(0, int(value))}"
+
+    @staticmethod
+    def format_player_level(value: int | None) -> str:
+        if value is None:
+            return "Level: --"
+        return f"Level: {max(0, int(value))}"
 
     @staticmethod
     def format_items(items) -> str:

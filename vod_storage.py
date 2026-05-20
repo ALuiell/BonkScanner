@@ -34,6 +34,8 @@ class VodSnapshot:
     weapons: tuple[WeaponSnapshot, ...] = ()
     chests_per_minute: float | None = None
     game_time_seconds: float | None = None
+    mob_kills: int | None = None
+    player_level: int | None = None
 
     @property
     def time_label(self) -> str:
@@ -166,6 +168,8 @@ class VodRecorder:
         *,
         chests_per_minute: float | None = None,
         game_time_seconds: float | None = None,
+        mob_kills: int | None = None,
+        player_level: int | None = None,
     ) -> VodSnapshot:
         if not self.is_recording or self._file is None:
             raise RuntimeError("VOD recorder is not active.")
@@ -182,6 +186,8 @@ class VodRecorder:
             weapons=tuple(weapons),
             chests_per_minute=chests_per_minute,
             game_time_seconds=game_time_seconds,
+            mob_kills=mob_kills,
+            player_level=player_level,
         )
         self.snapshot_count += 1
         self._write_record(
@@ -305,6 +311,7 @@ def rename_vod(path: Path, new_name: str) -> VodMetadata:
     if not new_name:
         raise ValueError("VOD name cannot be empty.")
 
+    target_path = _renamed_vod_path(path, new_name)
     records = list(_iter_records(path))
     if not records or records[0].get("type") != "metadata":
         raise ValueError(f"VOD metadata is missing in {path}")
@@ -315,9 +322,11 @@ def rename_vod(path: Path, new_name: str) -> VodMetadata:
         for record in records:
             file.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")))
             file.write("\n")
-    os.replace(temp_path, path)
+    os.replace(temp_path, target_path)
+    if target_path != path:
+        path.unlink(missing_ok=True)
     clear_vod_metadata_cache()
-    return load_vod_metadata(path)
+    return load_vod_metadata(target_path)
 
 
 def delete_vod(path: Path) -> None:
@@ -429,6 +438,10 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
     }
     if snapshot.game_time_seconds is not None:
         record["game_time_seconds"] = snapshot.game_time_seconds
+    if snapshot.mob_kills is not None:
+        record["mob_kills"] = snapshot.mob_kills
+    if snapshot.player_level is not None:
+        record["player_level"] = snapshot.player_level
     return record
 
 
@@ -451,7 +464,16 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
         game_time_seconds=_coerce_optional_float(
             record.get("game_time_seconds", record.get("in_game_elapsed_seconds"))
         ),
+        mob_kills=_coerce_optional_int(record.get("mob_kills", record.get("mobs_alive"))),
+        player_level=_coerce_optional_int(record.get("player_level")),
     )
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _weapon_to_record(weapon: WeaponSnapshot) -> dict[str, Any]:
@@ -555,3 +577,18 @@ def _unique_path(path: Path) -> Path:
         if not candidate.exists():
             return candidate
     raise FileExistsError(f"Could not create a unique VOD path for {path}")
+
+
+def _renamed_vod_path(path: Path, new_name: str) -> Path:
+    safe_stem = _sanitize_vod_filename(new_name)
+    candidate = path.with_name(f"{safe_stem}{path.suffix}")
+    if candidate == path:
+        return path
+    return _unique_path(candidate)
+
+
+def _sanitize_vod_filename(value: str) -> str:
+    invalid_chars = '<>:"/\\|?*'
+    safe = "".join("_" if char in invalid_chars else char for char in value)
+    safe = " ".join(safe.split()).strip(" .")
+    return safe or "recording"
