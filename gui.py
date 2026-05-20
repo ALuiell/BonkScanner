@@ -2157,6 +2157,7 @@ class MegabonkApp:
         config.user_config["EVALUATION_MODE"] = config.EVALUATION_MODE
         config.save_config(config.user_config)
         self.refresh_scores_ui()
+        self._sync_runtime_filters(announce=True)
         self.update_status_ui()
 
     def on_right_tab_changed(self):
@@ -2210,6 +2211,7 @@ class MegabonkApp:
             config.SCORES_SYSTEM["active_tiers"] = active_tiers
             config.user_config["SCORES_SYSTEM"] = config.SCORES_SYSTEM
             config.save_config(config.user_config)
+            self._sync_runtime_filters(announce=True)
 
         weights = config.SCORES_SYSTEM.get("weights", {})
         thresholds = config.SCORES_SYSTEM.get("thresholds", {})
@@ -2245,11 +2247,52 @@ class MegabonkApp:
             self.refresh_scores_templates_list()
             self.refresh_scores_ui()
 
-    def save_checkbox_state(self):
-        selected = [name for name, cb in self.checkboxes.items() if cb.isChecked()]
+    def save_checkbox_state(self, *_args):
+        selected = [name for name, cb in self.checkboxes.items() if _read_bool(cb)]
         config.ACTIVE_TEMPLATES = selected
         config.user_config["ACTIVE_TEMPLATES"] = selected
         config.save_config(config.user_config)
+
+        self._sync_runtime_filters(announce=True)
+
+    def _is_main_loop_active(self) -> bool:
+        scanner_thread = getattr(self, "scanner_thread", None)
+        return scanner_thread is not None and scanner_thread.is_alive()
+
+    def _get_selected_template_names(self) -> list[str]:
+        checkboxes = getattr(self, "checkboxes", {})
+        return [name for name, cb in checkboxes.items() if _read_bool(cb)]
+
+    def _get_active_profile_names(self) -> list[str]:
+        if config.EVALUATION_MODE == "templates":
+            return self._get_selected_template_names()
+        return list(config.SCORES_SYSTEM.get("active_tiers", []))
+
+    def _sync_runtime_filters(self, *, announce: bool = False) -> None:
+        active_names = self._get_active_profile_names()
+        previous_names = list(getattr(self, "template_stats", {}).keys())
+
+        if config.EVALUATION_MODE == "templates":
+            self.active_templates = list(active_names)
+
+        existing_stats = getattr(self, "template_stats", {})
+        self.template_stats = {
+            name: existing_stats.get(name, {"rerolls_since_last": 0, "history": []})
+            for name in active_names
+        }
+
+        if hasattr(self, "stats_avg_labels") and hasattr(self, "stats_avg_layout"):
+            self.refresh_stats_ui()
+
+        if not announce or not self._is_main_loop_active():
+            return
+
+        if active_names == previous_names:
+            return
+
+        mode_label = "tiers" if config.EVALUATION_MODE == "scores" else "templates"
+        names_text = ", ".join(active_names) if active_names else "none"
+        self.log(f"[*] Active {mode_label} updated live: {names_text}")
 
     def refresh_templates(self):
         _clear_layout(self.template_layout)
@@ -2264,6 +2307,7 @@ class MegabonkApp:
             self.template_layout.addWidget(cb)
             self.checkboxes[template["name"]] = cb
         self.template_layout.addStretch(1)
+        self._sync_runtime_filters(announce=True)
 
     def add_template_dialog(self):
         dialog = TemplateDialog(self.window)
@@ -2448,7 +2492,7 @@ class MegabonkApp:
             self.log(f"\n[*] Starting auto-reroll monitor in {config.EVALUATION_MODE.upper()} mode...")
 
             if config.EVALUATION_MODE == "templates":
-                self.active_templates = [name for name, cb in self.checkboxes.items() if _read_bool(cb)]
+                self.active_templates = self._get_selected_template_names()
                 if not self.active_templates:
                     self.log("[-] Error: You must select at least one template!", tag="error")
                     return
@@ -2489,6 +2533,7 @@ class MegabonkApp:
             self.stop_event.clear()
             self.scanner_thread = threading.Thread(target=self.background_loop, daemon=True)
             self.scanner_thread.start()
+            self._sync_runtime_filters()
             self.update_status_ui()
         else:
             self.stop_event.set()
@@ -3374,7 +3419,7 @@ class MegabonkApp:
         except Exception as exc:
             self.log(f"[-] Could not save Total Rerolls: {exc}", tag="warning")
 
-        for name in self.template_stats:
+        for name in list(self.template_stats):
             self.template_stats[name]["rerolls_since_last"] += 1
 
         if self.session_rerolls % 5 == 0:

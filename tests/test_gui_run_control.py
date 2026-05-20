@@ -30,6 +30,14 @@ class FakeVar:
         self.value = value
 
 
+class FakeCheckbox:
+    def __init__(self, value: bool) -> None:
+        self.value = value
+
+    def isChecked(self) -> bool:
+        return self.value
+
+
 class FakeSettingsMaster:
     def __init__(self) -> None:
         self.events: list[str] = []
@@ -307,6 +315,10 @@ class GuiRunControlTests(unittest.TestCase):
             "TOGGLE_PARTICLES_OPACITY_HOTKEY": gui.config.TOGGLE_PARTICLES_OPACITY_HOTKEY,
             "NATIVE_HOOK_ENABLED": gui.config.NATIVE_HOOK_ENABLED,
             "TOTAL_REROLLS": gui.config.TOTAL_REROLLS,
+            "ACTIVE_TEMPLATES": deepcopy(gui.config.ACTIVE_TEMPLATES),
+            "EVALUATION_MODE": gui.config.EVALUATION_MODE,
+            "SCORES_SYSTEM": deepcopy(gui.config.SCORES_SYSTEM),
+            "TEMPLATES": deepcopy(gui.config.TEMPLATES),
         }
         self.original_user_config = deepcopy(gui.config.user_config)
 
@@ -863,6 +875,78 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertEqual(gui.config.TOTAL_REROLLS, 11)
                 self.assertEqual(gui.config.user_config["TOTAL_REROLLS"], 11)
                 save_config.assert_called_once_with(gui.config.user_config)
+
+    def test_save_checkbox_state_updates_runtime_templates_without_restart(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.checkboxes = {
+            "Alpha": FakeCheckbox(True),
+            "Beta": FakeCheckbox(False),
+            "Gamma": FakeCheckbox(True),
+        }
+        app.active_templates = ["Alpha"]
+        app.template_stats = {
+            "Alpha": {"rerolls_since_last": 2, "history": [3]},
+            "Beta": {"rerolls_since_last": 1, "history": [4]},
+        }
+        app.session_rerolls = 7
+        app.scanner_thread = FakeAliveThread()
+        app.stats_avg_labels = {}
+        app.stats_avg_layout = SimpleNamespace(removeWidget=lambda _widget: None)
+        app.refresh_stats_ui = lambda: None
+        logs: list[tuple[str, str | None]] = []
+        app.log = lambda message, tag=None: logs.append((message, tag))
+
+        with patch.object(gui.config, "EVALUATION_MODE", "templates"):
+            with patch.object(gui.config, "save_config") as save_config:
+                gui.MegabonkApp.save_checkbox_state(app)
+
+        self.assertEqual(gui.config.ACTIVE_TEMPLATES, ["Alpha", "Gamma"])
+        self.assertEqual(app.active_templates, ["Alpha", "Gamma"])
+        self.assertEqual(app.template_stats["Alpha"]["history"], [3])
+        self.assertEqual(app.template_stats["Gamma"], {"rerolls_since_last": 0, "history": []})
+        self.assertNotIn("Beta", app.template_stats)
+        self.assertEqual(logs, [("[*] Active templates updated live: Alpha, Gamma", None)])
+        save_config.assert_called_once_with(gui.config.user_config)
+
+    def test_refresh_scores_ui_updates_runtime_tiers_without_restart(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.scores_desc_label = SimpleNamespace(setHtml=lambda _text: None)
+        app.scores_checkboxes = {
+            "Light": FakeCheckbox(True),
+            "Good": FakeCheckbox(False),
+            "Perfect": FakeCheckbox(True),
+            "Perfect+": FakeCheckbox(False),
+        }
+        app.template_stats = {"Good": {"rerolls_since_last": 4, "history": [2]}}
+        app.scanner_thread = FakeAliveThread()
+        app.stats_avg_labels = {}
+        app.stats_avg_layout = SimpleNamespace(removeWidget=lambda _widget: None)
+        app.refresh_stats_ui = lambda: None
+        logs: list[tuple[str, str | None]] = []
+        app.log = lambda message, tag=None: logs.append((message, tag))
+
+        original_scores = deepcopy(gui.config.SCORES_SYSTEM)
+        updated_scores = deepcopy(gui.config.SCORES_SYSTEM)
+        updated_scores["active_tiers"] = ["Good"]
+        gui.config.SCORES_SYSTEM = updated_scores
+        gui.config.user_config["SCORES_SYSTEM"] = updated_scores
+
+        with patch.object(gui.config, "EVALUATION_MODE", "scores"):
+            with patch.object(gui.config, "save_config") as save_config:
+                gui.MegabonkApp.refresh_scores_ui(app)
+
+        self.assertEqual(gui.config.SCORES_SYSTEM["active_tiers"], ["Light", "Perfect"])
+        self.assertEqual(
+            app.template_stats,
+            {
+                "Light": {"rerolls_since_last": 0, "history": []},
+                "Perfect": {"rerolls_since_last": 0, "history": []},
+            },
+        )
+        self.assertEqual(logs, [("[*] Active tiers updated live: Light, Perfect", None)])
+        save_config.assert_called_once_with(gui.config.user_config)
+        gui.config.SCORES_SYSTEM = original_scores
+        gui.config.user_config["SCORES_SYSTEM"] = original_scores
 
     def test_background_loop_cleanup_clears_scan_event_after_stop_wake(self) -> None:
         app = object.__new__(gui.MegabonkApp)
