@@ -36,6 +36,9 @@ class VodSnapshot:
     game_time_seconds: float | None = None
     mob_kills: int | None = None
     player_level: int | None = None
+    map_seed: int | None = None
+    stage_ptr: int = 0
+    stage_time_seconds: float | None = None
 
     @property
     def time_label(self) -> str:
@@ -170,6 +173,9 @@ class VodRecorder:
         game_time_seconds: float | None = None,
         mob_kills: int | None = None,
         player_level: int | None = None,
+        map_seed: int | None = None,
+        stage_ptr: int = 0,
+        stage_time_seconds: float | None = None,
     ) -> VodSnapshot:
         if not self.is_recording or self._file is None:
             raise RuntimeError("VOD recorder is not active.")
@@ -188,6 +194,9 @@ class VodRecorder:
             game_time_seconds=game_time_seconds,
             mob_kills=mob_kills,
             player_level=player_level,
+            map_seed=map_seed,
+            stage_ptr=stage_ptr,
+            stage_time_seconds=stage_time_seconds,
         )
         self.snapshot_count += 1
         self._write_record(
@@ -442,6 +451,12 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         record["mob_kills"] = snapshot.mob_kills
     if snapshot.player_level is not None:
         record["player_level"] = snapshot.player_level
+    if snapshot.map_seed is not None:
+        record["map_seed"] = snapshot.map_seed
+    if snapshot.stage_ptr:
+        record["stage_ptr"] = snapshot.stage_ptr
+    if snapshot.stage_time_seconds is not None:
+        record["stage_time_seconds"] = snapshot.stage_time_seconds
     return record
 
 
@@ -466,6 +481,9 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
         ),
         mob_kills=_coerce_optional_int(record.get("mob_kills", record.get("mobs_alive"))),
         player_level=_coerce_optional_int(record.get("player_level")),
+        map_seed=_coerce_optional_int(record.get("map_seed", record.get("run_seed"))),
+        stage_ptr=_coerce_int(record.get("stage_ptr")),
+        stage_time_seconds=_coerce_optional_float(record.get("stage_time_seconds")),
     )
 
 

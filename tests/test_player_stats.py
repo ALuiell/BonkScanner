@@ -106,6 +106,7 @@ def build_player_stats_memory() -> FakeMemory:
         }
     )
     floats = {
+        run_timer_static_fields + PlayerStatsClient.STAGE_TIMER_OFFSET: 9.75,
         entries + 0x2C: 198.0,
         entries + 0x6C: 0.15,
         entries + 0x28C: 0.09,
@@ -181,6 +182,13 @@ class PlayerStatsClientTests(unittest.TestCase):
         value = client.get_run_timer()
 
         self.assertAlmostEqual(value, 21.52338219)
+
+    def test_get_stage_timer_reads_confirmed_static_float(self) -> None:
+        client = PlayerStatsClient(memory=self.build_memory())
+
+        value = client.get_stage_timer()
+
+        self.assertAlmostEqual(value, 9.75)
 
     def test_get_killed_mobs_reads_run_stats_kills(self) -> None:
         client = PlayerStatsClient(memory=self.build_memory())

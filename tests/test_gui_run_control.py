@@ -179,6 +179,9 @@ class FakeRecordingRecorder:
         game_time_seconds=None,
         mob_kills=None,
         player_level=None,
+        map_seed=None,
+        stage_ptr=0,
+        stage_time_seconds=None,
     ):
         snapshot = SimpleNamespace(
             stats=stats,
@@ -188,6 +191,9 @@ class FakeRecordingRecorder:
             game_time_seconds=game_time_seconds,
             mob_kills=mob_kills,
             player_level=player_level,
+            map_seed=map_seed,
+            stage_ptr=stage_ptr,
+            stage_time_seconds=stage_time_seconds,
             time_label="00:00",
         )
         self.capture_calls.append(
@@ -199,6 +205,9 @@ class FakeRecordingRecorder:
                 "game_time_seconds": game_time_seconds,
                 "mob_kills": mob_kills,
                 "player_level": player_level,
+                "map_seed": map_seed,
+                "stage_ptr": stage_ptr,
+                "stage_time_seconds": stage_time_seconds,
             }
         )
         self.should_capture_value = False
@@ -206,13 +215,20 @@ class FakeRecordingRecorder:
 
 
 class FakeSeedStateClient:
-    def __init__(self, seeds: list[int | None]) -> None:
-        self.seeds = list(seeds)
+    def __init__(self, states: list[object]) -> None:
+        self.states = list(states)
         self.close_calls = 0
 
     def get_map_generation_state(self) -> SimpleNamespace:
-        seed = self.seeds.pop(0) if self.seeds else None
-        return SimpleNamespace(map_seed=seed)
+        state = self.states.pop(0) if self.states else None
+        if isinstance(state, SimpleNamespace):
+            return state
+        if isinstance(state, dict):
+            return SimpleNamespace(
+                map_seed=state.get("map_seed"),
+                current_stage_ptr=state.get("current_stage_ptr", 0),
+            )
+        return SimpleNamespace(map_seed=state, current_stage_ptr=0)
 
     def close(self) -> None:
         self.close_calls += 1
@@ -297,6 +313,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = ["snapshot"]
         app.player_stats_selected_snapshot_index = 0
         app.player_stats_recording_seed = None
+        app.player_stats_recording_stage_ptr = 0
         app.player_stats_recording_seed_missing_since = None
         app.player_stats_recording_run_time_seconds = None
         app.player_stats_game_data_client = None
@@ -313,6 +330,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_mob_kills_label = FakeLabel()
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
+        app.player_stats_stage_summary_labels = []
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app.display_player_stats = lambda *args, **kwargs: None
@@ -1030,9 +1048,12 @@ class GuiRunControlTests(unittest.TestCase):
     def test_recording_run_state_split_starts_new_file_when_seed_changes(self) -> None:
         app = self.build_recording_app()
         app.player_stats_recording_seed = 111
+        app.player_stats_recording_stage_ptr = 0x1000
         app.player_stats_recording_run_time_seconds = 120.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 4.0, get_killed_mobs=lambda: 37)
-        app.player_stats_game_data_client = FakeSeedStateClient([222])
+        app.player_stats_game_data_client = FakeSeedStateClient(
+            [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000)]
+        )
 
         action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
 
@@ -1046,9 +1067,12 @@ class GuiRunControlTests(unittest.TestCase):
     def test_recording_run_state_does_not_split_when_seed_changes_between_stages(self) -> None:
         app = self.build_recording_app()
         app.player_stats_recording_seed = 111
+        app.player_stats_recording_stage_ptr = 0x1000
         app.player_stats_recording_run_time_seconds = 120.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 123.0, get_killed_mobs=lambda: 37)
-        app.player_stats_game_data_client = FakeSeedStateClient([222])
+        app.player_stats_game_data_client = FakeSeedStateClient(
+            [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000)]
+        )
 
         action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
 
@@ -1056,6 +1080,27 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
         self.assertEqual(app.player_stats_recording_seed, 222)
+        self.assertEqual(app.player_stats_recording_stage_ptr, 0x2000)
+        self.assertEqual(app.player_stats_recording_run_time_seconds, 123.0)
+        self.assertEqual(app.log_messages, [])
+
+    def test_recording_run_state_does_not_split_when_stage_ptr_changes_inside_same_run(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_recording_seed = 111
+        app.player_stats_recording_stage_ptr = 0x1000
+        app.player_stats_recording_run_time_seconds = 120.0
+        app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 123.0, get_killed_mobs=lambda: 37)
+        app.player_stats_game_data_client = FakeSeedStateClient(
+            [SimpleNamespace(map_seed=111, current_stage_ptr=0x2000)]
+        )
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertIsNone(action)
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
+        self.assertEqual(app.player_stats_recording_seed, 111)
+        self.assertEqual(app.player_stats_recording_stage_ptr, 0x2000)
         self.assertEqual(app.player_stats_recording_run_time_seconds, 123.0)
         self.assertEqual(app.log_messages, [])
 
@@ -1080,6 +1125,110 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
         self.assertIsNone(app.player_stats_recording_seed)
         self.assertIn("auto-stopped", app.log_messages[0][0])
+
+    def test_build_stage_summary_tracks_stage_transitions_and_item_stack_gains(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=20.0,
+                stage_time_seconds=20.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=100,
+                items=("Wrench x1",),
+            ),
+            SimpleNamespace(
+                game_time_seconds=40.0,
+                stage_time_seconds=40.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=160,
+                items=("Wrench x2", "Beacon x1"),
+            ),
+            SimpleNamespace(
+                game_time_seconds=60.0,
+                stage_time_seconds=1.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                mob_kills=200,
+                items=("Wrench x2", "Beacon x1"),
+            ),
+            SimpleNamespace(
+                game_time_seconds=90.0,
+                stage_time_seconds=31.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                mob_kills=260,
+                items=("Wrench x3", "Beacon x1", "Ghost x1"),
+            ),
+            SimpleNamespace(
+                game_time_seconds=120.0,
+                stage_time_seconds=45.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                mob_kills=300,
+                items=("Wrench x3", "Beacon x1", "Ghost x1"),
+            ),
+            SimpleNamespace(
+                game_time_seconds=150.0,
+                stage_time_seconds=2.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                mob_kills=360,
+                items=("Wrench x3", "Beacon x2", "Ghost x1"),
+            ),
+            SimpleNamespace(
+                game_time_seconds=180.0,
+                stage_time_seconds=590.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                mob_kills=420,
+                items=("Wrench x3", "Beacon x3", "Ghost x2"),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["kills"], "60")
+        self.assertEqual(rows[0]["items"], "2")
+        self.assertEqual(rows[0]["time"], "00:40")
+        self.assertEqual(rows[1]["kills"], "60")
+        self.assertEqual(rows[1]["items"], "2")
+        self.assertEqual(rows[1]["time"], "00:31")
+        self.assertEqual(rows[2]["kills"], "0")
+        self.assertEqual(rows[2]["items"], "0")
+        self.assertEqual(rows[3]["kills"], "60")
+        self.assertEqual(rows[3]["items"], "3")
+
+    def test_build_stage_summary_counts_duplicate_item_entries(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=5.0,
+                stage_time_seconds=5.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=10,
+                items=("Wrench x1", "Cheese x1"),
+            ),
+            SimpleNamespace(
+                game_time_seconds=15.0,
+                stage_time_seconds=15.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=20,
+                items=("Wrench x3", "Cheese x1", "Cheese x1", "Anvil x2"),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["items"], "5")
+
+    def test_item_total_count_includes_stacks_and_duplicate_entries(self) -> None:
+        total = gui.MegabonkApp._item_total_count(
+            ("Wrench x3", "Anvil x2", "Anvil x1", "Moldy Cheese")
+        )
+
+        self.assertEqual(total, 7)
 
     def test_update_player_stats_timer_auto_stops_recording_when_game_is_closed(self) -> None:
         app = self.build_recording_app()
@@ -1148,6 +1297,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_mob_kills_label = FakeLabel()
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
+        app.player_stats_stage_summary_labels = []
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -1254,6 +1404,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_mob_kills_label = FakeLabel()
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
+        app.player_stats_stage_summary_labels = []
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -1319,6 +1470,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_mob_kills_label = FakeLabel()
         app.vods_level_label = FakeLabel()
         app.vods_new_items_label = FakeLabel()
+        app.vods_stage_summary_labels = []
         app.vods_rows = {"Damage": FakeLabel()}
         app.loaded_vod_snapshot_index = None
         snapshot = SimpleNamespace(

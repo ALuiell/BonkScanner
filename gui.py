@@ -91,6 +91,7 @@ KOFI_ICON_PATH = "media/kofi_logo.svg"
 PLAYER_STATS_REFRESH_MS = 10_000
 PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
 PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS = 3.0
+PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS = 300.0
 PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
 PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
 PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
@@ -1596,6 +1597,7 @@ class MegabonkApp:
         self.player_stats_timeline_label = None
         self.player_stats_detail_tabs = None
         self.player_stats_rows = {}
+        self.player_stats_items_group = None
         self.player_stats_items_label = None
         self.player_stats_items_toggle_btn = None
         self.player_stats_items_expanded = False
@@ -1606,6 +1608,7 @@ class MegabonkApp:
         self.player_stats_mob_kills_label = None
         self.player_stats_level_label = None
         self.player_stats_new_items_label = None
+        self.player_stats_stage_summary_labels = []
         self.player_stats_weapons_status_label = None
         self.player_stats_weapons_layout = None
         self.player_stats_weapon_cards = []
@@ -1619,6 +1622,7 @@ class MegabonkApp:
         self.vods_slider_time_label = None
         self.vods_detail_tabs = None
         self.vods_rows = {}
+        self.vods_items_group = None
         self.vods_items_label = None
         self.vods_items_toggle_btn = None
         self.vods_items_expanded = False
@@ -1629,6 +1633,7 @@ class MegabonkApp:
         self.vods_mob_kills_label = None
         self.vods_level_label = None
         self.vods_new_items_label = None
+        self.vods_stage_summary_labels = []
         self.vods_weapons_status_label = None
         self.vods_weapons_layout = None
         self.vods_weapon_cards = []
@@ -1650,6 +1655,7 @@ class MegabonkApp:
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = None
+        self.player_stats_recording_stage_ptr = 0
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = None
         self.loaded_vod = None
@@ -2041,6 +2047,7 @@ class MegabonkApp:
         self.player_stats_slider_time_label = QLabel("Timeline: live stats")
         player_content_layout.addWidget(self.player_stats_slider_time_label)
         items_group = QGroupBox("Items")
+        self.player_stats_items_group = items_group
         items_layout = QVBoxLayout(items_group)
         self.player_stats_items_label = QLabel("--")
         self.player_stats_items_label.setTextFormat(Qt.RichText)
@@ -2052,7 +2059,10 @@ class MegabonkApp:
         self.player_stats_items_toggle_btn.setVisible(False)
         items_layout.addWidget(self.player_stats_items_toggle_btn, 0, Qt.AlignLeft)
         player_content_layout.addWidget(items_group)
-        live_summary_row = QHBoxLayout()
+        live_summary_grid = QGridLayout()
+        live_summary_grid.setContentsMargins(0, 0, 0, 0)
+        live_summary_grid.setHorizontalSpacing(8)
+        live_summary_grid.setVerticalSpacing(8)
         chest_rate_group = QGroupBox("Run Summary")
         chest_rate_layout = QVBoxLayout(chest_rate_group)
         self.player_stats_chests_per_minute_label = QLabel("Average chests/min: --")
@@ -2063,15 +2073,53 @@ class MegabonkApp:
         chest_rate_layout.addWidget(self.player_stats_mob_kills_label)
         self.player_stats_level_label = QLabel("Level: --")
         chest_rate_layout.addWidget(self.player_stats_level_label)
-        live_summary_row.addWidget(chest_rate_group, 1)
+        live_summary_grid.addWidget(chest_rate_group, 0, 0)
+        live_stage_summary_group = QGroupBox("Stage Summary")
+        live_stage_summary_layout = QGridLayout(live_stage_summary_group)
+        live_stage_summary_layout.setContentsMargins(10, 10, 10, 10)
+        live_stage_summary_layout.setHorizontalSpacing(10)
+        live_stage_summary_layout.setVerticalSpacing(4)
+        for column, header in enumerate(("Stage", "Time", "Kills", "Items")):
+            label = QLabel(header)
+            label.setStyleSheet("font-weight: 700; color: #F3F4F6;")
+            label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            live_stage_summary_layout.addWidget(label, 0, column)
+        self.player_stats_stage_summary_labels = []
+        for index in range(4):
+            stage_label = QLabel(str(index + 1))
+            time_label = QLabel("--")
+            kills_label = QLabel("--")
+            items_label = QLabel("--")
+            stage_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            for value_label in (time_label, kills_label, items_label):
+                value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            live_stage_summary_layout.addWidget(stage_label, index + 1, 0)
+            live_stage_summary_layout.addWidget(time_label, index + 1, 1)
+            live_stage_summary_layout.addWidget(kills_label, index + 1, 2)
+            live_stage_summary_layout.addWidget(items_label, index + 1, 3)
+            self.player_stats_stage_summary_labels.append(
+                {
+                    "stage": stage_label,
+                    "time": time_label,
+                    "kills": kills_label,
+                    "items": items_label,
+                }
+            )
+        live_stage_summary_layout.setColumnStretch(0, 1)
+        live_stage_summary_layout.setColumnStretch(1, 2)
+        live_stage_summary_layout.setColumnStretch(2, 1)
+        live_stage_summary_layout.setColumnStretch(3, 1)
+        live_summary_grid.addWidget(live_stage_summary_group, 0, 1)
         live_new_items_group = QGroupBox("New Items")
         live_new_items_layout = QVBoxLayout(live_new_items_group)
         self.player_stats_new_items_label = QLabel("Live snapshot")
         self.player_stats_new_items_label.setTextFormat(Qt.RichText)
         self.player_stats_new_items_label.setWordWrap(True)
         live_new_items_layout.addWidget(self.player_stats_new_items_label)
-        live_summary_row.addWidget(live_new_items_group, 1)
-        player_content_layout.addLayout(live_summary_row)
+        live_summary_grid.addWidget(live_new_items_group, 0, 2, 1, 2)
+        for column in range(4):
+            live_summary_grid.setColumnStretch(column, 1)
+        player_content_layout.addLayout(live_summary_grid)
         self.player_stats_detail_tabs = QTabWidget()
         player_stats_tab = QWidget()
         player_stats_tab_layout = QVBoxLayout(player_stats_tab)
@@ -2144,6 +2192,7 @@ class MegabonkApp:
         self.vods_slider_time_label = QLabel("Timeline: --")
         vods_detail_layout.addWidget(self.vods_slider_time_label)
         vod_items_group = QGroupBox("Items")
+        self.vods_items_group = vod_items_group
         vod_items_layout = QVBoxLayout(vod_items_group)
         self.vods_items_label = QLabel("--")
         self.vods_items_label.setTextFormat(Qt.RichText)
@@ -2155,7 +2204,10 @@ class MegabonkApp:
         self.vods_items_toggle_btn.setVisible(False)
         vod_items_layout.addWidget(self.vods_items_toggle_btn, 0, Qt.AlignLeft)
         vods_detail_layout.addWidget(vod_items_group)
-        vod_summary_row = QHBoxLayout()
+        vod_summary_grid = QGridLayout()
+        vod_summary_grid.setContentsMargins(0, 0, 0, 0)
+        vod_summary_grid.setHorizontalSpacing(8)
+        vod_summary_grid.setVerticalSpacing(8)
         vod_chest_rate_group = QGroupBox("Run Summary")
         vod_chest_rate_layout = QVBoxLayout(vod_chest_rate_group)
         self.vods_chests_per_minute_label = QLabel("Average chests/min: --")
@@ -2166,15 +2218,53 @@ class MegabonkApp:
         vod_chest_rate_layout.addWidget(self.vods_mob_kills_label)
         self.vods_level_label = QLabel("Level: --")
         vod_chest_rate_layout.addWidget(self.vods_level_label)
-        vod_summary_row.addWidget(vod_chest_rate_group, 1)
+        vod_summary_grid.addWidget(vod_chest_rate_group, 0, 0)
+        vod_stage_summary_group = QGroupBox("Stage Summary")
+        vod_stage_summary_layout = QGridLayout(vod_stage_summary_group)
+        vod_stage_summary_layout.setContentsMargins(10, 10, 10, 10)
+        vod_stage_summary_layout.setHorizontalSpacing(10)
+        vod_stage_summary_layout.setVerticalSpacing(4)
+        for column, header in enumerate(("Stage", "Time", "Kills", "Items")):
+            label = QLabel(header)
+            label.setStyleSheet("font-weight: 700; color: #F3F4F6;")
+            label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            vod_stage_summary_layout.addWidget(label, 0, column)
+        self.vods_stage_summary_labels = []
+        for index in range(4):
+            stage_label = QLabel(str(index + 1))
+            time_label = QLabel("--")
+            kills_label = QLabel("--")
+            items_label = QLabel("--")
+            stage_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            for value_label in (time_label, kills_label, items_label):
+                value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            vod_stage_summary_layout.addWidget(stage_label, index + 1, 0)
+            vod_stage_summary_layout.addWidget(time_label, index + 1, 1)
+            vod_stage_summary_layout.addWidget(kills_label, index + 1, 2)
+            vod_stage_summary_layout.addWidget(items_label, index + 1, 3)
+            self.vods_stage_summary_labels.append(
+                {
+                    "stage": stage_label,
+                    "time": time_label,
+                    "kills": kills_label,
+                    "items": items_label,
+                }
+            )
+        vod_stage_summary_layout.setColumnStretch(0, 1)
+        vod_stage_summary_layout.setColumnStretch(1, 2)
+        vod_stage_summary_layout.setColumnStretch(2, 1)
+        vod_stage_summary_layout.setColumnStretch(3, 1)
+        vod_summary_grid.addWidget(vod_stage_summary_group, 0, 1)
         vod_new_items_group = QGroupBox("New Items")
         vod_new_items_layout = QVBoxLayout(vod_new_items_group)
         self.vods_new_items_label = QLabel("No previous snapshot")
         self.vods_new_items_label.setTextFormat(Qt.RichText)
         self.vods_new_items_label.setWordWrap(True)
         vod_new_items_layout.addWidget(self.vods_new_items_label)
-        vod_summary_row.addWidget(vod_new_items_group, 1)
-        vods_detail_layout.addLayout(vod_summary_row)
+        vod_summary_grid.addWidget(vod_new_items_group, 0, 2, 1, 2)
+        for column in range(4):
+            vod_summary_grid.setColumnStretch(column, 1)
+        vods_detail_layout.addLayout(vod_summary_grid)
         self.vods_detail_tabs = QTabWidget()
         vod_stats_tab = QWidget()
         vod_stats_tab_layout = QVBoxLayout(vod_stats_tab)
@@ -2699,10 +2789,13 @@ class MegabonkApp:
         stats, owner_stats = self.read_player_stats_only()
         return stats, self.read_passive_items_only(owner_stats)
 
-    def read_player_stats_recording_seed(self) -> int | None:
+    def read_player_stats_recording_state(self):
         if self.player_stats_game_data_client is None:
             self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
-        return self.player_stats_game_data_client.get_map_generation_state().map_seed
+        return self.player_stats_game_data_client.get_map_generation_state()
+
+    def read_player_stats_recording_seed(self) -> int | None:
+        return self.read_player_stats_recording_state().map_seed
 
     def _reset_live_player_stats_ui(self, status_text: str, *, items_text: str = "--") -> None:
         _set_text(self.player_stats_status_label, status_text)
@@ -2715,6 +2808,7 @@ class MegabonkApp:
         _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
         _set_text(self.player_stats_level_label, "Level: --")
         _set_text(self.player_stats_new_items_label, "Live snapshot")
+        self._set_stage_summary_labels(self.player_stats_stage_summary_labels, None)
         self.player_stats_weapon_signature = None
         self.display_weapon_cards(
             (),
@@ -2729,8 +2823,11 @@ class MegabonkApp:
         weapons: tuple[WeaponSnapshot, ...] = ()
         weapons_available = False
         run_timer_seconds = None
+        stage_timer_seconds = None
         mob_kills = None
         player_level = None
+        map_seed = None
+        stage_ptr = 0
         try:
             items = self.read_passive_items_only(owner_stats)
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
@@ -2757,6 +2854,13 @@ class MegabonkApp:
             run_timer_seconds = None
         try:
             client = self._get_player_stats_client()
+            stage_timer_seconds = client.get_stage_timer()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            stage_timer_seconds = None
+        except Exception:
+            stage_timer_seconds = None
+        try:
+            client = self._get_player_stats_client()
             mob_kills = client.get_killed_mobs()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             mob_kills = None
@@ -2769,6 +2873,18 @@ class MegabonkApp:
             player_level = None
         except Exception:
             player_level = None
+        try:
+            recording_state = self.read_player_stats_recording_state()
+            map_seed = recording_state.map_seed
+            stage_ptr = recording_state.current_stage_ptr
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            self.close_player_stats_game_data_client()
+            map_seed = None
+            stage_ptr = 0
+        except Exception:
+            self.close_player_stats_game_data_client()
+            map_seed = None
+            stage_ptr = 0
         return (
             stats,
             items,
@@ -2776,8 +2892,11 @@ class MegabonkApp:
             weapons,
             weapons_available,
             run_timer_seconds,
+            stage_timer_seconds,
             mob_kills,
             player_level,
+            map_seed,
+            stage_ptr,
         )
 
     def refresh_live_player_stats_now(
@@ -2795,8 +2914,11 @@ class MegabonkApp:
                 weapons,
                 weapons_available,
                 run_timer_seconds,
+                stage_timer_seconds,
                 mob_kills,
                 player_level,
+                map_seed,
+                stage_ptr,
             ) = self._read_live_player_stats_data()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
@@ -2820,6 +2942,9 @@ class MegabonkApp:
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
                 player_level=player_level,
+                map_seed=map_seed,
+                stage_ptr=stage_ptr,
+                stage_time_seconds=stage_timer_seconds,
             )
             self.player_stats_vod_snapshots.append(snapshot)
             self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
@@ -2842,6 +2967,7 @@ class MegabonkApp:
                     game_time_seconds=run_timer_seconds,
                     mob_kills=mob_kills,
                     player_level=player_level,
+                    stage_summary_rows=self.build_stage_summary(self.player_stats_vod_snapshots),
                 )
                 return True
 
@@ -2857,6 +2983,7 @@ class MegabonkApp:
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
                 player_level=player_level,
+                stage_summary_rows=None,
             )
         return True
 
@@ -2874,6 +3001,7 @@ class MegabonkApp:
         mob_kills: int | None = None,
         player_level: int | None = None,
         new_items_text: str | None = None,
+        stage_summary_rows: list[dict[str, str]] | None = None,
     ):
         if status_text:
             _set_text(self.player_stats_status_label, status_text)
@@ -2904,6 +3032,7 @@ class MegabonkApp:
             _set_text(self.player_stats_new_items_label, new_items_text)
         else:
             _set_text(self.player_stats_new_items_label, "Live snapshot")
+        self._set_stage_summary_labels(self.player_stats_stage_summary_labels, stage_summary_rows)
         self.display_weapon_cards(
             weapons if weapons_available else (),
             scope="live",
@@ -2930,6 +3059,9 @@ class MegabonkApp:
                 self._previous_player_stats_snapshot(snapshot),
                 snapshot,
             ),
+            stage_summary_rows=self.build_stage_summary(
+                self.player_stats_vod_snapshots[:index]
+            ),
         )
 
     def _previous_player_stats_snapshot(self, snapshot):
@@ -2945,10 +3077,13 @@ class MegabonkApp:
         if self.player_stats_vod_recorder.is_recording:
             self._stop_player_stats_recording(log_message="[*] Player stats recording stopped.")
         else:
-            seed = self._read_player_stats_recording_seed_safe()
+            state = self._read_player_stats_recording_state_safe()
+            seed = state.map_seed if state is not None else None
+            stage_ptr = state.current_stage_ptr if state is not None else 0
             run_time_seconds = self._read_player_stats_recording_run_timer_safe()
             vod_path = self._start_player_stats_recording(
                 seed=seed,
+                stage_ptr=stage_ptr,
                 run_time_seconds=run_time_seconds,
             )
             self.log(f"[*] Player stats recording started: {vod_path.name}", tag="success")
@@ -2963,6 +3098,16 @@ class MegabonkApp:
     def _read_player_stats_recording_seed_safe(self) -> int | None:
         try:
             return self.read_player_stats_recording_seed()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            self.close_player_stats_game_data_client()
+            return None
+        except Exception:
+            self.close_player_stats_game_data_client()
+            return None
+
+    def _read_player_stats_recording_state_safe(self):
+        try:
+            return self.read_player_stats_recording_state()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_game_data_client()
             return None
@@ -2992,16 +3137,36 @@ class MegabonkApp:
             >= previous_run_time_seconds
         )
 
+    @staticmethod
+    def _stage_change_looks_like_same_run(
+        previous_stage_ptr: int,
+        current_stage_ptr: int,
+        previous_run_time_seconds: float | None,
+        current_run_time_seconds: float | None,
+    ) -> bool:
+        if (
+            not previous_stage_ptr
+            or not current_stage_ptr
+            or previous_stage_ptr == current_stage_ptr
+        ):
+            return False
+        return MegabonkApp._seed_change_looks_like_same_run(
+            previous_run_time_seconds,
+            current_run_time_seconds,
+        )
+
     def _start_player_stats_recording(
         self,
         *,
         seed: int | None = None,
+        stage_ptr: int = 0,
         run_time_seconds: float | None = None,
     ):
         vod_path = self.player_stats_vod_recorder.start(seed=seed)
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = seed
+        self.player_stats_recording_stage_ptr = stage_ptr
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = run_time_seconds
         return vod_path
@@ -3017,6 +3182,7 @@ class MegabonkApp:
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = None
+        self.player_stats_recording_stage_ptr = 0
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = None
         self.close_player_stats_game_data_client()
@@ -3031,7 +3197,11 @@ class MegabonkApp:
             return None
 
         now = time.monotonic()
-        current_seed = self._read_player_stats_recording_seed_safe()
+        current_state = self._read_player_stats_recording_state_safe()
+        current_seed = current_state.map_seed if current_state is not None else None
+        current_stage_ptr = (
+            current_state.current_stage_ptr if current_state is not None else 0
+        )
         current_run_time_seconds = self._read_player_stats_recording_run_timer_safe()
         if current_seed is None:
             if self.player_stats_recording_seed_missing_since is None:
@@ -3050,25 +3220,42 @@ class MegabonkApp:
         self.player_stats_recording_seed_missing_since = None
         if self.player_stats_recording_seed is None:
             self.player_stats_recording_seed = current_seed
+            self.player_stats_recording_stage_ptr = current_stage_ptr
             self.player_stats_recording_run_time_seconds = current_run_time_seconds
             return None
-        if current_seed == self.player_stats_recording_seed:
+        if (
+            current_seed == self.player_stats_recording_seed
+            and current_stage_ptr == self.player_stats_recording_stage_ptr
+        ):
             self.player_stats_recording_run_time_seconds = current_run_time_seconds
             return None
 
         previous_seed = self.player_stats_recording_seed
+        previous_stage_ptr = self.player_stats_recording_stage_ptr
         previous_run_time_seconds = self.player_stats_recording_run_time_seconds
+        if self._stage_change_looks_like_same_run(
+            previous_stage_ptr,
+            current_stage_ptr,
+            previous_run_time_seconds,
+            current_run_time_seconds,
+        ):
+            self.player_stats_recording_seed = current_seed
+            self.player_stats_recording_stage_ptr = current_stage_ptr
+            self.player_stats_recording_run_time_seconds = current_run_time_seconds
+            return None
         if self._seed_change_looks_like_same_run(
             previous_run_time_seconds,
             current_run_time_seconds,
         ):
             self.player_stats_recording_seed = current_seed
+            self.player_stats_recording_stage_ptr = current_stage_ptr
             self.player_stats_recording_run_time_seconds = current_run_time_seconds
             return None
 
         self._stop_player_stats_recording(refresh_live_stats=False)
         vod_path = self._start_player_stats_recording(
             seed=current_seed,
+            stage_ptr=current_stage_ptr,
             run_time_seconds=current_run_time_seconds,
         )
         self.log(
@@ -3232,6 +3419,7 @@ class MegabonkApp:
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
             _set_text(self.vods_level_label, "Level: --")
             _set_text(self.vods_new_items_label, "No previous snapshot")
+            self._set_stage_summary_labels(self.vods_stage_summary_labels, None)
             self.vods_weapon_signature = None
             self.display_weapon_cards((), scope="vod", status_text="No weapon data in this recording")
 
@@ -3273,6 +3461,10 @@ class MegabonkApp:
         _set_text(
             self.vods_level_label,
             self.format_player_level(getattr(snapshot, "player_level", None)),
+        )
+        self._set_stage_summary_labels(
+            self.vods_stage_summary_labels,
+            self.build_stage_summary(self.loaded_vod.snapshots[: index + 1]),
         )
         previous_snapshot = self.loaded_vod.snapshots[index - 1] if index > 0 else None
         _set_text(
@@ -3320,6 +3512,7 @@ class MegabonkApp:
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
         _set_text(self.vods_level_label, "Level: --")
         _set_text(self.vods_new_items_label, "No previous snapshot")
+        self._set_stage_summary_labels(self.vods_stage_summary_labels, None)
         self.vods_weapon_signature = None
         self.display_weapon_cards((), scope="vod", status_text="Select a recording")
 
@@ -3375,6 +3568,7 @@ class MegabonkApp:
 
     def _update_items_section(self, scope: str, items=(), *, items_text: str | None = None) -> None:
         prefix = self._scope_prefix(scope)
+        group = self.__dict__.get(f"{prefix}_items_group")
         label = self.__dict__.get(f"{prefix}_items_label")
         button = self.__dict__.get(f"{prefix}_items_toggle_btn")
         expanded = bool(self.__dict__.get(f"{prefix}_items_expanded", False))
@@ -3385,12 +3579,14 @@ class MegabonkApp:
             return
 
         if items_text is not None:
+            self._set_items_group_title(group, None)
             _set_items_text(label, items_text=items_text)
             if button is not None:
                 button.setVisible(False)
             return
 
         items = tuple(items or ())
+        self._set_items_group_title(group, self._item_total_count(items))
         preview_items, has_more = self._items_preview(items)
         visible_items = items if expanded or not has_more else preview_items
         if hasattr(label, "setTextFormat"):
@@ -3407,6 +3603,17 @@ class MegabonkApp:
         if button is not None:
             button.setVisible(has_more)
             button.setText("Show less" if expanded and has_more else "Show all")
+
+    @classmethod
+    def _item_total_count(cls, items) -> int:
+        return sum(cls._item_counts(items).values())
+
+    @staticmethod
+    def _set_items_group_title(group, total_count: int | None) -> None:
+        if group is None or not hasattr(group, "setTitle"):
+            return
+        title = "Items" if total_count is None else f"Items ({total_count} total)"
+        group.setTitle(title)
 
     @staticmethod
     def _items_preview(items) -> tuple[tuple[str, ...], bool]:
@@ -3598,6 +3805,169 @@ class MegabonkApp:
                 count = int(suffix[2:])
             counts[name] = counts.get(name, 0) + max(1, count)
         return counts
+
+    @classmethod
+    def build_stage_summary(cls, snapshots) -> list[dict[str, str]]:
+        rows = [
+            {
+                "label": f"Stage {index}",
+                "kills": "--",
+                "time": "--",
+                "items": "--",
+            }
+            for index in range(1, 5)
+        ]
+        if not snapshots:
+            return rows
+
+        stage_buckets: dict[int, list[object]] = {index: [] for index in range(1, 5)}
+        stage_item_gains: dict[int, int] = {index: 0 for index in range(1, 5)}
+        current_stage_index = 1
+        previous_snapshot = None
+        for snapshot in snapshots:
+            if previous_snapshot is not None:
+                next_stage_index = cls._resolve_next_stage_index(
+                    current_stage_index,
+                    previous_snapshot,
+                    snapshot,
+                )
+                current_stage_index = min(max(next_stage_index, current_stage_index), 4)
+                stage_item_gains[current_stage_index] += cls._item_gain_between_snapshots(
+                    previous_snapshot,
+                    snapshot,
+                )
+            stage_buckets[current_stage_index].append(snapshot)
+            previous_snapshot = snapshot
+
+        for stage_index, bucket in stage_buckets.items():
+            if not bucket:
+                continue
+            first_snapshot = bucket[0]
+            last_snapshot = bucket[-1]
+            start_run_time = cls._estimate_stage_start_run_time(first_snapshot)
+            end_run_time = getattr(last_snapshot, "game_time_seconds", None)
+            duration_text = "--"
+            if start_run_time is not None and end_run_time is not None:
+                duration_text = cls.format_elapsed_time(max(0.0, end_run_time - start_run_time))
+
+            kills_text = "--"
+            first_kills = getattr(first_snapshot, "mob_kills", None)
+            last_kills = getattr(last_snapshot, "mob_kills", None)
+            if first_kills is not None and last_kills is not None:
+                kills_text = str(max(0, int(last_kills) - int(first_kills)))
+
+            items_text = str(stage_item_gains[stage_index])
+            rows[stage_index - 1] = {
+                "label": f"Stage {stage_index}",
+                "kills": kills_text,
+                "time": duration_text,
+                "items": items_text,
+            }
+
+        return rows
+
+    @classmethod
+    def _resolve_next_stage_index(cls, current_stage_index: int, previous_snapshot, snapshot) -> int:
+        previous_stage_ptr = int(getattr(previous_snapshot, "stage_ptr", 0) or 0)
+        current_stage_ptr = int(getattr(snapshot, "stage_ptr", 0) or 0)
+        previous_seed = getattr(previous_snapshot, "map_seed", None)
+        current_seed = getattr(snapshot, "map_seed", None)
+        if (
+            current_stage_index < 3
+            and (
+                (
+                    previous_stage_ptr
+                    and current_stage_ptr
+                    and current_stage_ptr != previous_stage_ptr
+                )
+                or (
+                    previous_stage_ptr == 0
+                    and current_stage_ptr == 0
+                    and previous_seed is not None
+                    and current_seed is not None
+                    and current_seed != previous_seed
+                )
+            )
+        ):
+            return current_stage_index + 1
+
+        if current_stage_index == 3 and cls._looks_like_stage_four_transition(previous_snapshot, snapshot):
+            return 4
+        return current_stage_index
+
+    @classmethod
+    def _looks_like_stage_four_transition(cls, previous_snapshot, snapshot) -> bool:
+        previous_stage_ptr = int(getattr(previous_snapshot, "stage_ptr", 0) or 0)
+        current_stage_ptr = int(getattr(snapshot, "stage_ptr", 0) or 0)
+        previous_seed = getattr(previous_snapshot, "map_seed", None)
+        current_seed = getattr(snapshot, "map_seed", None)
+        previous_stage_time = getattr(previous_snapshot, "stage_time_seconds", None)
+        current_stage_time = getattr(snapshot, "stage_time_seconds", None)
+        previous_run_time = getattr(previous_snapshot, "game_time_seconds", None)
+        current_run_time = getattr(snapshot, "game_time_seconds", None)
+        if (
+            not previous_stage_ptr
+            or not current_stage_ptr
+            or previous_stage_ptr != current_stage_ptr
+            or previous_seed != current_seed
+            or previous_stage_time is None
+            or current_stage_time is None
+            or previous_run_time is None
+            or current_run_time is None
+        ):
+            return False
+        if current_run_time <= previous_run_time:
+            return False
+        if current_stage_time < 10.0 and current_stage_time + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS < previous_stage_time:
+            return True
+        return (
+            previous_stage_time < 60.0
+            and current_stage_time - previous_stage_time >= PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS
+        )
+
+    @staticmethod
+    def _estimate_stage_start_run_time(snapshot) -> float | None:
+        run_time = getattr(snapshot, "game_time_seconds", None)
+        stage_time = getattr(snapshot, "stage_time_seconds", None)
+        if run_time is None:
+            return None
+        if stage_time is None:
+            return float(run_time)
+        if stage_time >= PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS:
+            return float(run_time)
+        return max(0.0, float(run_time) - float(stage_time))
+
+    @classmethod
+    def _item_gain_between_snapshots(cls, first_snapshot, last_snapshot) -> int:
+        first_counts = cls._item_counts(getattr(first_snapshot, "items", ()))
+        last_counts = cls._item_counts(getattr(last_snapshot, "items", ()))
+        total_gain = 0
+        for name, current_count in last_counts.items():
+            total_gain += max(0, current_count - first_counts.get(name, 0))
+        return total_gain
+
+    @staticmethod
+    def _set_stage_summary_labels(labels, rows) -> None:
+        default_rows = [
+            {
+                "label": f"Stage {index}",
+                "kills": "--",
+                "time": "--",
+                "items": "--",
+            }
+            for index in range(1, 5)
+        ]
+        rows = rows or default_rows
+        for labels_by_column, row in zip(labels, rows):
+            if isinstance(labels_by_column, dict):
+                labels_by_column["stage"].setText(str(row["label"]).replace("Stage ", ""))
+                labels_by_column["time"].setText(row["time"])
+                labels_by_column["kills"].setText(row["kills"])
+                labels_by_column["items"].setText(row["items"])
+            else:
+                labels_by_column.setText(
+                    f"{row['label']}: Kills {row['kills']} | Time {row['time']} | Items {row['items']}"
+                )
 
     @classmethod
     def format_items_rich_text(cls, items) -> str:

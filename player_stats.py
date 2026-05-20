@@ -314,6 +314,7 @@ class PlayerStatsClient:
     OWNER_STATS_OFFSET = 0x40
     STATS_CONTEXT_OFFSET = 0x10
     STATS_ENTRIES_OFFSET = 0x18
+    STAGE_TIMER_OFFSET = 0x1C
     RUN_TIMER_OFFSET = 0x20
     PLAYER_INVENTORY_OFFSET = 0x28
     WEAPON_INVENTORY_OFFSET = 0x28
@@ -509,6 +510,21 @@ class PlayerStatsClient:
             raise MemoryReadError("Run timer static fields are not initialized.")
 
         return self.memory.read_float(static_fields + self.RUN_TIMER_OFFSET)
+
+    def get_stage_timer(self) -> float:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.RUN_TIMER_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("Stage timer type info is not initialized.")
+
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError("Stage timer static fields are not initialized.")
+
+        return self.memory.read_float(static_fields + self.STAGE_TIMER_OFFSET)
 
     def get_killed_mobs(self) -> int:
         type_info_address = self.memory.module_offset(
