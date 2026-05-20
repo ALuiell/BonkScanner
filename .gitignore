@@ -28,6 +28,7 @@ __pycache__/
 .venv/
 .idea/
 .continue/agents/
+.tmp_unitypy/
 vods/
 stats_recordings/
 
