@@ -20,7 +20,8 @@ It reads map data directly from the game process, evaluates each reset in real t
 - shows session reroll stats and persistent total reroll tracking;
 - reads live player stats, passive items, weapon upgrades, and run time directly from memory;
 - records live stat snapshots into saved recordings with timeline playback;
-- auto-splits recordings when the detected run seed changes;
+- tracks stage summaries for live runs and recordings, including time, kills, and item gains per stage;
+- auto-splits recordings when a new run is detected without splitting normal stage transitions;
 - can use standard keyboard reset or the optional native hook restart path;
 - can toggle several in-game settings through dedicated hotkeys;
 - stores app settings, templates, score rules, and update preferences in `config.json`.
@@ -74,10 +75,17 @@ Current score configuration supports:
 ### Live Stats
 The `Live Stats` tab shows:
 - grouped player stat cards;
-- passive items list;
+- passive items list with rarity highlighting and total item count;
 - average chests per minute;
 - in-game timer;
+- mob kill count with thousands separators;
+- `Stage Summary` with per-stage time, kills, and gained item counts;
+- `New Items` gained since the previous snapshot when reviewing a recording timeline;
 - weapon list with current level and upgraded stats.
+
+Passive item reads use the normal passive inventory path first and fall back to
+the main `PlayerInventory.ItemInventory` path when needed. This helps with runs
+where items were added by mods or external tools.
 
 ### Recording
 The built-in recorder can:
@@ -85,12 +93,13 @@ The built-in recorder can:
 - save snapshots at a configurable interval;
 - include run seed metadata when available;
 - automatically stop if the run seed disappears;
-- automatically split into a new file when a new run seed is detected.
+- automatically split into a new file when a new run is detected;
+- keep one recording together across normal stage transitions even if the map seed changes.
 
 ### Saved Recordings
 Recordings are stored in `stats_recordings\` as `.jsonl` files and can be:
 - reviewed with a timeline slider;
-- renamed in-app;
+- renamed in-app, including the actual file name on disk;
 - deleted individually;
 - batch-cleaned by minimum snapshot count.
 

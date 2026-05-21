@@ -37,6 +37,47 @@ Inside the dictionary:
 - **item stack/count** is at `entry.value + 0x18`
 - item **class pointer** is at `entry.value + 0x0`
 
+## Update 2026-05-21: PlayerInventory ItemInventory Fallback
+
+Live testing with a modded/cheat-spawned run showed that the older
+`PlayerStatsNew + 0xA0 -> +0x50` passive dictionary can be empty even while the
+HUD visibly contains passive items. In that run, the active items were found in
+the main `PlayerInventory` object instead:
+
+1. resolve `PlayerStatsNew` from the same stable root
+2. `PlayerStatsNew + 0x28` -> `PlayerInventory`
+3. `PlayerInventory + 0x20` -> `ItemInventory`
+4. `ItemInventory + 0x10` -> item dictionary
+
+The dictionary layout and item object layout matched the existing reader:
+
+- dictionary `count` is at `+0x20`
+- dictionary `entries` pointer is at `+0x18`
+- each entry is `0x18` bytes
+- entry `value` is at `entry + 0x10`
+- `entry.value + 0x18` is the stack/count
+- `entry.value + 0x0 -> class_meta + 0x10` gives the ASCII item class name
+
+Observed live state:
+
+- old path: `PlayerStatsNew + 0xA0 -> +0x50` resolved to `0x0`
+- new fallback: `PlayerInventory + 0x20 -> ItemInventory + 0x10`
+  resolved to a dictionary with `count = 19`
+- decoded examples matched the HUD:
+  - `ItemBonker -> Bonker x99`
+  - `ItemChonkplate -> Chonkplate x21`
+  - `ItemClover -> Clover x199`
+  - `ItemWrench -> Wrench x1`
+
+Implementation guidance:
+
+- Prefer the older `PlayerStatsNew + 0xA0 -> +0x50` path first for backward
+  compatibility with previously verified sessions.
+- If that dictionary is missing or decodes no items, fall back to
+  `PlayerStatsNew + 0x28 -> PlayerInventory + 0x20 -> ItemInventory + 0x10`.
+- Avoid broad heap scans; this fallback stays rooted in the same live
+  `PlayerStatsNew` object used for weapons and player level.
+
 ## Stable Root Path
 
 Confirmed stable root:
@@ -175,11 +216,15 @@ Recommended reader flow:
 1. resolve `PlayerStatsNew` from the stable `GameAssembly.dll + 0x2F6A4B8` chain
 2. read pointer at `PlayerStatsNew + 0xA0`
 3. read pointer at `that + 0x50`
-4. treat that object as the passive item dictionary
-5. read:
+4. if missing or empty, read fallback:
+   - `PlayerStatsNew + 0x28` -> `PlayerInventory`
+   - `PlayerInventory + 0x20` -> `ItemInventory`
+   - `ItemInventory + 0x10` -> item dictionary
+5. treat the resolved object as the passive item dictionary
+6. read:
    - `entries = dict + 0x18`
    - `count = dict + 0x20`
-6. for each entry:
+7. for each entry:
    - read `value` from `entry + 0x10`
    - read `item_count` from `value + 0x18`
    - read `class_meta` from `value + 0x0`
@@ -210,8 +255,11 @@ And for each item:
 Current confidence:
 
 - stable root path to `PlayerStatsNew`: **high**
-- `PlayerStatsNew + 0xA0 -> +0x50` as passive item dictionary: **high**
+- `PlayerStatsNew + 0xA0 -> +0x50` as passive item dictionary: **medium-high**
+- `PlayerStatsNew + 0x28 -> PlayerInventory + 0x20 -> ItemInventory + 0x10`
+  as runtime item dictionary fallback: **high**
 - `item_value + 0x18` as item count: **high**
 - `item_value + 0x0 -> class_meta + 0x10` as item name source: **high**
 
-This is the current best implementation target for passive item inventory between sessions.
+The current implementation should use both rooted paths: old passive container
+first, then the `PlayerInventory.ItemInventory` fallback.

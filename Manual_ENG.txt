@@ -13,8 +13,9 @@ What The Program Includes
 - `Templates` mode
 - `Scores` mode
 - `Session stats`
-- `Live Stats` recording
+- `Live Stats` recording and run inspection
 - `Recordings` playback
+- stage summaries for live runs and recordings
 - standard keyboard restart mode
 - `Native hook` restart mode
 - `Settings`
@@ -103,7 +104,25 @@ The app can record player stats snapshots while you play.
 This is useful if you want to:
 - review how a run developed over time;
 - compare snapshots at different moments;
-- keep a local recording of player stats and item lists.
+- keep a local recording of player stats, item lists, weapons, and stage progress.
+
+The `Live Stats` and `Recordings` tabs can show:
+- current player level and mob kills;
+- passive items with rarity colors and a total item count;
+- weapon levels and upgraded weapon stats;
+- a `Stage Summary` table with time, kills, and item gains for stages 1-4;
+- a `New Items` card that shows what changed since the previous snapshot.
+
+Large kill counts are formatted with thousands separators, for example
+`1,291,146`, so long runs are easier to read.
+
+Recordings are designed to stay together across normal stage transitions. If a
+map seed changes because the run moved to the next stage, the app should not
+split the recording into a new file.
+
+Passive item reading uses the normal passive inventory path first and can fall
+back to the main `PlayerInventory.ItemInventory` path. This helps when items are
+added by mods or external tools.
 
 You can start recording from the `Live Stats` tab or by using the record hotkey.
 The snapshot interval is configurable in `Settings`.
@@ -186,5 +205,6 @@ Short Summary
 - `Scores` = flexible evaluation
 - `Session stats` = current-session overview
 - `Live Stats` = real-time player stats and recording
+- `Stage Summary` = per-stage time, kills, and item gains
 - `Native hook` = alternate restart mode that can work better in the background
 - `config.json` = the file where the program stores your settings

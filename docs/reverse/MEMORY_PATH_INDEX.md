@@ -21,7 +21,7 @@ Update this file whenever a path is meaningfully changed or newly confirmed.
 | --- | --- | --- | --- | --- | --- |
 | Map stats / interactables | `game_data.py`, `runtime_stats.py`, `logic.py` | `GameAssembly.dll + 0x2FB5E68` to interactables static path; related readiness controllers at `0x2F58E08` and `0x2F59000` | `game_data.py`, `AGENT.md`, future dedicated report if refreshed | medium | 2026-05-11 |
 | Player stats tab | `player_stats.py`, `gui.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F6A4B8` -> `class_ptr` -> `+0xB8` -> `root` -> `+0x40` -> `PlayerStatsNew` -> `+0x10` -> stats context -> `+0x18` -> entries | `docs/reverse/reports/2026-05-11-player-stats-tab-memory-path.md` | high | 2026-05-11 |
-| Passive item inventory | `player_stats.py`, `gui.py`, `vod_storage.py` | same root to `PlayerStatsNew`, then `+0xA0` -> inventory object -> `+0x50` passive item dictionary | `docs/reverse/reports/2026-05-11-item-inventory-addresses.md` | high | 2026-05-11 |
+| Passive item inventory | `player_stats.py`, `gui.py`, `vod_storage.py` | same root to `PlayerStatsNew`; primary `+0xA0` -> inventory object -> `+0x50` passive item dictionary; fallback `+0x28` -> `PlayerInventory` -> `+0x20` `ItemInventory` -> `+0x10` item dictionary | `docs/reverse/reports/2026-05-11-item-inventory-addresses.md` | high | 2026-05-21 |
 | Static item catalog / item rarities | future `player_stats.py`, `gui.py`, metadata helpers | `GameAssembly.dll + 0x2F85790` -> `DataManager.Instance` -> `+0xB8 itemData` -> `ItemData +0x60 rarity`; enum names from dumped `EItem` | `docs/reverse/reports/2026-05-19-item-enum-and-rarities.md` | high | 2026-05-19 |
 | Live weapon inventory / upgraded weapon stats | future `player_stats.py`, `gui.py`, `vod_storage.py` | same root to `PlayerStatsNew`, then `+0x28` -> `PlayerInventory` -> `+0x28` -> `WeaponInventory` -> `+0x18` weapons dictionary; each `WeaponBase +0x20` level, `+0x28` full stats, `+0x18 -> WeaponData +0xD8 -> UpgradeData +0x18` upgrade stat pool | `docs/reverse/reports/2026-05-19-live-weapon-stats-and-upgrades.md` | high | 2026-05-19 |
 | Current run time | `player_stats.py`, `gui.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F62398` -> `class_ptr` -> `+0xB8` -> `MyTime` static fields -> `+0x20` -> `runTimer` float seconds | `docs/reverse/reports/2026-05-18-current-run-time.md` | high | 2026-05-18 |
@@ -63,6 +63,8 @@ Risk:
 
 - easiest place to get fooled by stale session pointers
 - dictionary layout and metadata name path are both possible failure points
+- older `PlayerStatsNew +0xA0 -> +0x50` path can be empty while live items are
+  present in `PlayerInventory.ItemInventory`
 
 What “healthy” looks like:
 

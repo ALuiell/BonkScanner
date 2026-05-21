@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QComboBox,
     QPushButton,
     QPlainTextEdit,
     QScrollArea,
@@ -91,6 +92,7 @@ KOFI_ICON_PATH = "media/kofi_logo.svg"
 PLAYER_STATS_REFRESH_MS = 10_000
 PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
 PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS = 3.0
+PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS = 5.0
 PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS = 300.0
 PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
 PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
@@ -100,6 +102,20 @@ PLAYER_STATS_LABEL_FONT_SIZE = 13
 PLAYER_STATS_VALUE_FONT_SIZE = 13
 PLAYER_STATS_VALUE_WIDTH = 72
 PLAYER_STATS_ITEMS_WRAP_LENGTH = 360
+ITEM_SORT_DEFAULT = "default"
+ITEM_SORT_RARITY_DESC = "rarity_desc"
+ITEM_SORT_RARITY_ASC = "rarity_asc"
+ITEM_SORT_LABELS = {
+    ITEM_SORT_DEFAULT: "Default",
+    ITEM_SORT_RARITY_DESC: "Rarity ↓",
+    ITEM_SORT_RARITY_ASC: "Rarity ↑",
+}
+ITEM_RARITY_SORT_ORDER = {
+    "COMMON": 0,
+    "UNCOMMON": 1,
+    "RARE": 2,
+    "LEGENDARY": 3,
+}
 
 COLOR_MAP = {
     "WHITE": "#F8FAFC",
@@ -1600,6 +1616,8 @@ class MegabonkApp:
         self.player_stats_items_group = None
         self.player_stats_items_label = None
         self.player_stats_items_toggle_btn = None
+        self.player_stats_items_sort_combo = None
+        self.player_stats_items_sort_mode = ITEM_SORT_DEFAULT
         self.player_stats_items_expanded = False
         self.player_stats_items_current = ()
         self.player_stats_items_text_current = None
@@ -1625,6 +1643,8 @@ class MegabonkApp:
         self.vods_items_group = None
         self.vods_items_label = None
         self.vods_items_toggle_btn = None
+        self.vods_items_sort_combo = None
+        self.vods_items_sort_mode = ITEM_SORT_DEFAULT
         self.vods_items_expanded = False
         self.vods_items_current = ()
         self.vods_items_text_current = None
@@ -2057,7 +2077,18 @@ class MegabonkApp:
         self.player_stats_items_toggle_btn.clicked.connect(self.toggle_player_items_expanded)
         self.player_stats_items_toggle_btn.setProperty("class", "SmallGhostButton")
         self.player_stats_items_toggle_btn.setVisible(False)
-        items_layout.addWidget(self.player_stats_items_toggle_btn, 0, Qt.AlignLeft)
+        items_actions = QHBoxLayout()
+        self.player_stats_items_sort_combo = QComboBox()
+        for mode, label in ITEM_SORT_LABELS.items():
+            self.player_stats_items_sort_combo.addItem(label, mode)
+        self.player_stats_items_sort_combo.currentIndexChanged.connect(
+            lambda _index: self.on_items_sort_changed("live")
+        )
+        items_actions.addWidget(self.player_stats_items_toggle_btn, 0, Qt.AlignLeft)
+        items_actions.addStretch(1)
+        items_actions.addWidget(QLabel("Sort:"))
+        items_actions.addWidget(self.player_stats_items_sort_combo)
+        items_layout.addLayout(items_actions)
         player_content_layout.addWidget(items_group)
         live_summary_grid = QGridLayout()
         live_summary_grid.setContentsMargins(0, 0, 0, 0)
@@ -2202,7 +2233,18 @@ class MegabonkApp:
         self.vods_items_toggle_btn.clicked.connect(self.toggle_vod_items_expanded)
         self.vods_items_toggle_btn.setProperty("class", "SmallGhostButton")
         self.vods_items_toggle_btn.setVisible(False)
-        vod_items_layout.addWidget(self.vods_items_toggle_btn, 0, Qt.AlignLeft)
+        vod_items_actions = QHBoxLayout()
+        self.vods_items_sort_combo = QComboBox()
+        for mode, label in ITEM_SORT_LABELS.items():
+            self.vods_items_sort_combo.addItem(label, mode)
+        self.vods_items_sort_combo.currentIndexChanged.connect(
+            lambda _index: self.on_items_sort_changed("vod")
+        )
+        vod_items_actions.addWidget(self.vods_items_toggle_btn, 0, Qt.AlignLeft)
+        vod_items_actions.addStretch(1)
+        vod_items_actions.addWidget(QLabel("Sort:"))
+        vod_items_actions.addWidget(self.vods_items_sort_combo)
+        vod_items_layout.addLayout(vod_items_actions)
         vods_detail_layout.addWidget(vod_items_group)
         vod_summary_grid = QGridLayout()
         vod_summary_grid.setContentsMargins(0, 0, 0, 0)
@@ -3566,11 +3608,25 @@ class MegabonkApp:
             items_text=self.vods_items_text_current,
         )
 
+    def on_items_sort_changed(self, scope: str) -> None:
+        prefix = self._scope_prefix(scope)
+        combo = self.__dict__.get(f"{prefix}_items_sort_combo")
+        mode = ITEM_SORT_DEFAULT
+        if combo is not None and hasattr(combo, "currentData"):
+            mode = combo.currentData() or ITEM_SORT_DEFAULT
+        setattr(self, f"{prefix}_items_sort_mode", mode)
+        self._update_items_section(
+            scope,
+            self.__dict__.get(f"{prefix}_items_current", ()),
+            items_text=self.__dict__.get(f"{prefix}_items_text_current"),
+        )
+
     def _update_items_section(self, scope: str, items=(), *, items_text: str | None = None) -> None:
         prefix = self._scope_prefix(scope)
         group = self.__dict__.get(f"{prefix}_items_group")
         label = self.__dict__.get(f"{prefix}_items_label")
         button = self.__dict__.get(f"{prefix}_items_toggle_btn")
+        sort_combo = self.__dict__.get(f"{prefix}_items_sort_combo")
         expanded = bool(self.__dict__.get(f"{prefix}_items_expanded", False))
         setattr(self, f"{prefix}_items_current", tuple(items or ()))
         setattr(self, f"{prefix}_items_text_current", items_text)
@@ -3583,12 +3639,20 @@ class MegabonkApp:
             _set_items_text(label, items_text=items_text)
             if button is not None:
                 button.setVisible(False)
+            if sort_combo is not None:
+                sort_combo.setEnabled(False)
             return
 
         items = tuple(items or ())
         self._set_items_group_title(group, self._item_total_count(items))
-        preview_items, has_more = self._items_preview(items)
-        visible_items = items if expanded or not has_more else preview_items
+        sorted_items = self.sort_items_for_display(
+            items,
+            self.__dict__.get(f"{prefix}_items_sort_mode", ITEM_SORT_DEFAULT),
+        )
+        preview_items, has_more = self._items_preview(sorted_items)
+        visible_items = sorted_items if expanded or not has_more else preview_items
+        if sort_combo is not None:
+            sort_combo.setEnabled(bool(items))
         if hasattr(label, "setTextFormat"):
             text = self.format_items_rich_text(visible_items)
             if has_more and not expanded:
@@ -3614,6 +3678,30 @@ class MegabonkApp:
             return
         title = "Items" if total_count is None else f"Items ({total_count} total)"
         group.setTitle(title)
+
+    @classmethod
+    def sort_items_for_display(cls, items, mode: str | None) -> tuple[str, ...]:
+        items = tuple(items or ())
+        if mode == ITEM_SORT_DEFAULT or not items:
+            return items
+        reverse = mode == ITEM_SORT_RARITY_DESC
+        if mode not in (ITEM_SORT_RARITY_ASC, ITEM_SORT_RARITY_DESC):
+            return items
+
+        def sort_key(entry) -> tuple[int, int]:
+            index, item = entry
+            rarity_rank = cls._item_rarity_rank(str(item))
+            return (-rarity_rank if reverse else rarity_rank, index)
+
+        return tuple(item for _index, item in sorted(enumerate(items), key=sort_key))
+
+    @classmethod
+    def _item_rarity_rank(cls, item_text: str) -> int:
+        item_name, _suffix = cls._split_item_stack_suffix(item_text)
+        display_name = cls._normalize_item_name_for_display(item_name)
+        rarity_name = cls._normalize_item_name_for_rarity(display_name)
+        rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
+        return ITEM_RARITY_SORT_ORDER.get(rarity, -1)
 
     @staticmethod
     def _items_preview(items) -> tuple[tuple[str, ...], bool]:
@@ -3754,7 +3842,11 @@ class MegabonkApp:
     def format_mob_kills(value: int | None) -> str:
         if value is None:
             return "Mob Kills: --"
-        return f"Mob Kills: {max(0, int(value))}"
+        return f"Mob Kills: {MegabonkApp.format_count(value)}"
+
+    @staticmethod
+    def format_count(value: int | float) -> str:
+        return f"{max(0, int(value)):,}"
 
     @staticmethod
     def format_player_level(value: int | None) -> str:
@@ -3826,12 +3918,18 @@ class MegabonkApp:
         previous_snapshot = None
         for snapshot in snapshots:
             if previous_snapshot is not None:
+                previous_stage_index = current_stage_index
                 next_stage_index = cls._resolve_next_stage_index(
                     current_stage_index,
                     previous_snapshot,
                     snapshot,
                 )
                 current_stage_index = min(max(next_stage_index, current_stage_index), 4)
+                if (
+                    current_stage_index > previous_stage_index
+                    and cls._is_stage_transition_boundary_snapshot(snapshot)
+                ):
+                    stage_buckets[previous_stage_index].append(snapshot)
                 stage_item_gains[current_stage_index] += cls._item_gain_between_snapshots(
                     previous_snapshot,
                     snapshot,
@@ -3856,7 +3954,7 @@ class MegabonkApp:
             first_kills = getattr(first_snapshot, "mob_kills", None)
             last_kills = getattr(last_snapshot, "mob_kills", None)
             if first_kills is not None and last_kills is not None:
-                kills_text = str(max(0, int(last_kills) - int(first_kills)))
+                kills_text = cls.format_count(int(last_kills) - int(first_kills))
 
             items_text = str(stage_item_gains[stage_index])
             rows[stage_index - 1] = {
@@ -3896,6 +3994,13 @@ class MegabonkApp:
         if current_stage_index == 3 and cls._looks_like_stage_four_transition(previous_snapshot, snapshot):
             return 4
         return current_stage_index
+
+    @staticmethod
+    def _is_stage_transition_boundary_snapshot(snapshot) -> bool:
+        stage_time = getattr(snapshot, "stage_time_seconds", None)
+        if stage_time is None:
+            return False
+        return 0.0 <= float(stage_time) <= PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS
 
     @classmethod
     def _looks_like_stage_four_transition(cls, previous_snapshot, snapshot) -> bool:

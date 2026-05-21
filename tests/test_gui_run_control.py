@@ -1188,18 +1188,53 @@ class GuiRunControlTests(unittest.TestCase):
 
         rows = gui.MegabonkApp.build_stage_summary(snapshots)
 
-        self.assertEqual(rows[0]["kills"], "60")
+        self.assertEqual(rows[0]["kills"], "100")
         self.assertEqual(rows[0]["items"], "2")
-        self.assertEqual(rows[0]["time"], "00:40")
+        self.assertEqual(rows[0]["time"], "01:00")
         self.assertEqual(rows[1]["kills"], "60")
         self.assertEqual(rows[1]["items"], "2")
         self.assertEqual(rows[1]["time"], "00:30")
-        self.assertEqual(rows[2]["kills"], "0")
+        self.assertEqual(rows[2]["kills"], "60")
         self.assertEqual(rows[2]["items"], "0")
-        self.assertEqual(rows[2]["time"], "00:00")
+        self.assertEqual(rows[2]["time"], "00:30")
         self.assertEqual(rows[3]["kills"], "60")
         self.assertEqual(rows[3]["time"], "00:30")
         self.assertEqual(rows[3]["items"], "3")
+
+    def test_build_stage_summary_uses_early_new_stage_snapshot_as_previous_boundary(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=1310.0,
+                stage_time_seconds=1310.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=90_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=1320.0,
+                stage_time_seconds=1.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                mob_kills=92_100,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=1380.0,
+                stage_time_seconds=61.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                mob_kills=101_000,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["kills"], "2,100")
+        self.assertEqual(rows[0]["time"], "22:00")
+        self.assertEqual(rows[1]["kills"], "8,900")
+        self.assertEqual(rows[1]["time"], "01:00")
 
     def test_build_stage_summary_time_ignores_stage_timer_boss_skips(self) -> None:
         snapshots = [
@@ -1295,6 +1330,22 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         self.assertEqual(total, 7)
+
+    def test_sort_items_for_display_supports_rarity_modes(self) -> None:
+        items = ("Wrench x1", "Anvil x1", "Beacon x1", "Spiky Shield x1", "Key x1")
+
+        self.assertEqual(
+            gui.MegabonkApp.sort_items_for_display(items, gui.ITEM_SORT_DEFAULT),
+            items,
+        )
+        self.assertEqual(
+            gui.MegabonkApp.sort_items_for_display(items, gui.ITEM_SORT_RARITY_DESC),
+            ("Anvil x1", "Spiky Shield x1", "Beacon x1", "Wrench x1", "Key x1"),
+        )
+        self.assertEqual(
+            gui.MegabonkApp.sort_items_for_display(items, gui.ITEM_SORT_RARITY_ASC),
+            ("Wrench x1", "Key x1", "Beacon x1", "Spiky Shield x1", "Anvil x1"),
+        )
 
     def test_update_player_stats_timer_auto_stops_recording_when_game_is_closed(self) -> None:
         app = self.build_recording_app()
@@ -1568,6 +1619,7 @@ class GuiRunControlTests(unittest.TestCase):
     def test_format_mob_kills_formats_missing_and_positive_values(self) -> None:
         self.assertEqual(gui.MegabonkApp.format_mob_kills(None), "Mob Kills: --")
         self.assertEqual(gui.MegabonkApp.format_mob_kills(42), "Mob Kills: 42")
+        self.assertEqual(gui.MegabonkApp.format_mob_kills(1291146), "Mob Kills: 1,291,146")
 
     def test_format_player_level_formats_missing_and_positive_values(self) -> None:
         self.assertEqual(gui.MegabonkApp.format_player_level(None), "Level: --")
