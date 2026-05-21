@@ -1190,7 +1190,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["kills"], "60")
         self.assertEqual(rows[0]["items"], "2")
-        self.assertEqual(rows[0]["time"], "00:20")
+        self.assertEqual(rows[0]["time"], "00:40")
         self.assertEqual(rows[1]["kills"], "60")
         self.assertEqual(rows[1]["items"], "2")
         self.assertEqual(rows[1]["time"], "00:30")
@@ -1230,6 +1230,30 @@ class GuiRunControlTests(unittest.TestCase):
             SimpleNamespace(
                 game_time_seconds=1320.0,
                 stage_time_seconds=1330.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=110_000,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["time"], "22:00")
+
+    def test_build_stage_summary_stage_one_time_starts_from_run_zero(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=180.0,
+                stage_time_seconds=180.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=12_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=1320.0,
+                stage_time_seconds=1320.0,
                 stage_ptr=0x1000,
                 map_seed=11,
                 mob_kills=110_000,

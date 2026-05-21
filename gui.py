@@ -3845,6 +3845,8 @@ class MegabonkApp:
             first_snapshot = bucket[0]
             last_snapshot = bucket[-1]
             start_run_time = getattr(first_snapshot, "game_time_seconds", None)
+            if stage_index == 1 and start_run_time is not None:
+                start_run_time = 0.0
             end_run_time = getattr(last_snapshot, "game_time_seconds", None)
             duration_text = "--"
             if start_run_time is not None and end_run_time is not None:
