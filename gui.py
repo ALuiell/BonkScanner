@@ -3844,7 +3844,7 @@ class MegabonkApp:
                 continue
             first_snapshot = bucket[0]
             last_snapshot = bucket[-1]
-            start_run_time = cls._estimate_stage_start_run_time(first_snapshot)
+            start_run_time = getattr(first_snapshot, "game_time_seconds", None)
             end_run_time = getattr(last_snapshot, "game_time_seconds", None)
             duration_text = "--"
             if start_run_time is not None and end_run_time is not None:
@@ -3924,18 +3924,6 @@ class MegabonkApp:
             previous_stage_time < 60.0
             and current_stage_time - previous_stage_time >= PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS
         )
-
-    @staticmethod
-    def _estimate_stage_start_run_time(snapshot) -> float | None:
-        run_time = getattr(snapshot, "game_time_seconds", None)
-        stage_time = getattr(snapshot, "stage_time_seconds", None)
-        if run_time is None:
-            return None
-        if stage_time is None:
-            return float(run_time)
-        if stage_time >= PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS:
-            return float(run_time)
-        return max(0.0, float(run_time) - float(stage_time))
 
     @classmethod
     def _item_gain_between_snapshots(cls, first_snapshot, last_snapshot) -> int:

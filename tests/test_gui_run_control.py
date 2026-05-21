@@ -1190,14 +1190,56 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["kills"], "60")
         self.assertEqual(rows[0]["items"], "2")
-        self.assertEqual(rows[0]["time"], "00:40")
+        self.assertEqual(rows[0]["time"], "00:20")
         self.assertEqual(rows[1]["kills"], "60")
         self.assertEqual(rows[1]["items"], "2")
-        self.assertEqual(rows[1]["time"], "00:31")
+        self.assertEqual(rows[1]["time"], "00:30")
         self.assertEqual(rows[2]["kills"], "0")
         self.assertEqual(rows[2]["items"], "0")
+        self.assertEqual(rows[2]["time"], "00:00")
         self.assertEqual(rows[3]["kills"], "60")
+        self.assertEqual(rows[3]["time"], "00:30")
         self.assertEqual(rows[3]["items"], "3")
+
+    def test_build_stage_summary_time_ignores_stage_timer_boss_skips(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=0.0,
+                stage_time_seconds=0.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=0,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=480.0,
+                stage_time_seconds=480.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=20_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=481.0,
+                stage_time_seconds=595.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=20_500,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=1320.0,
+                stage_time_seconds=1330.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=110_000,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["time"], "22:00")
 
     def test_build_stage_summary_counts_duplicate_item_entries(self) -> None:
         snapshots = [
