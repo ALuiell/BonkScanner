@@ -1188,7 +1188,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         rows = gui.MegabonkApp.build_stage_summary(snapshots)
 
-        self.assertEqual(rows[0]["kills"], "100")
+        self.assertEqual(rows[0]["kills"], "200")
         self.assertEqual(rows[0]["items"], "2")
         self.assertEqual(rows[0]["time"], "01:00")
         self.assertEqual(rows[1]["kills"], "60")
@@ -1231,7 +1231,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         rows = gui.MegabonkApp.build_stage_summary(snapshots)
 
-        self.assertEqual(rows[0]["kills"], "2,100")
+        self.assertEqual(rows[0]["kills"], "92,100")
         self.assertEqual(rows[0]["time"], "22:00")
         self.assertEqual(rows[1]["kills"], "8,900")
         self.assertEqual(rows[1]["time"], "01:00")
@@ -1299,6 +1299,46 @@ class GuiRunControlTests(unittest.TestCase):
         rows = gui.MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["time"], "22:00")
+
+    def test_build_stage_summary_stage_one_kills_ignores_missing_initial_kill_reads(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=0.0,
+                stage_time_seconds=0.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=None,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=10.0,
+                stage_time_seconds=10.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=None,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=20.0,
+                stage_time_seconds=20.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=12,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=30.0,
+                stage_time_seconds=30.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=128,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["kills"], "128")
 
     def test_build_stage_summary_counts_duplicate_item_entries(self) -> None:
         snapshots = [

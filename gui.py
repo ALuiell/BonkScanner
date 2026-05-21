@@ -3951,9 +3951,14 @@ class MegabonkApp:
                 duration_text = cls.format_elapsed_time(max(0.0, end_run_time - start_run_time))
 
             kills_text = "--"
-            first_kills = getattr(first_snapshot, "mob_kills", None)
-            last_kills = getattr(last_snapshot, "mob_kills", None)
-            if first_kills is not None and last_kills is not None:
+            kill_snapshots = [
+                candidate
+                for candidate in bucket
+                if getattr(candidate, "mob_kills", None) is not None
+            ]
+            if kill_snapshots:
+                first_kills = 0 if stage_index == 1 else getattr(kill_snapshots[0], "mob_kills", None)
+                last_kills = getattr(kill_snapshots[-1], "mob_kills", None)
                 kills_text = cls.format_count(int(last_kills) - int(first_kills))
 
             items_text = str(stage_item_gains[stage_index])
