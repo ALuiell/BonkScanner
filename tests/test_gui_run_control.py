@@ -1340,6 +1340,54 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["kills"], "128")
 
+    def test_build_stage_summary_later_stage_kills_use_transition_baseline_when_reads_are_missing(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=100.0,
+                stage_time_seconds=100.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=10_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=120.0,
+                stage_time_seconds=1.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                mob_kills=12_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=130.0,
+                stage_time_seconds=11.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                mob_kills=None,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=140.0,
+                stage_time_seconds=21.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                mob_kills=None,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=150.0,
+                stage_time_seconds=31.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                mob_kills=18_500,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[1]["kills"], "6,500")
+
     def test_build_stage_summary_counts_duplicate_item_entries(self) -> None:
         snapshots = [
             SimpleNamespace(

@@ -3914,9 +3914,12 @@ class MegabonkApp:
 
         stage_buckets: dict[int, list[object]] = {index: [] for index in range(1, 5)}
         stage_item_gains: dict[int, int] = {index: 0 for index in range(1, 5)}
+        stage_kill_baselines: dict[int, int] = {1: 0}
+        last_known_mob_kills: int | None = None
         current_stage_index = 1
         previous_snapshot = None
         for snapshot in snapshots:
+            snapshot_mob_kills = getattr(snapshot, "mob_kills", None)
             if previous_snapshot is not None:
                 previous_stage_index = current_stage_index
                 next_stage_index = cls._resolve_next_stage_index(
@@ -3930,11 +3933,19 @@ class MegabonkApp:
                     and cls._is_stage_transition_boundary_snapshot(snapshot)
                 ):
                     stage_buckets[previous_stage_index].append(snapshot)
+                if current_stage_index > previous_stage_index:
+                    baseline = getattr(snapshot, "mob_kills", None)
+                    if baseline is None:
+                        baseline = last_known_mob_kills
+                    if baseline is not None:
+                        stage_kill_baselines[current_stage_index] = max(0, int(baseline))
                 stage_item_gains[current_stage_index] += cls._item_gain_between_snapshots(
                     previous_snapshot,
                     snapshot,
                 )
             stage_buckets[current_stage_index].append(snapshot)
+            if snapshot_mob_kills is not None:
+                last_known_mob_kills = max(0, int(snapshot_mob_kills))
             previous_snapshot = snapshot
 
         for stage_index, bucket in stage_buckets.items():
@@ -3957,7 +3968,9 @@ class MegabonkApp:
                 if getattr(candidate, "mob_kills", None) is not None
             ]
             if kill_snapshots:
-                first_kills = 0 if stage_index == 1 else getattr(kill_snapshots[0], "mob_kills", None)
+                first_kills = stage_kill_baselines.get(stage_index)
+                if first_kills is None:
+                    first_kills = getattr(kill_snapshots[0], "mob_kills", None)
                 last_kills = getattr(kill_snapshots[-1], "mob_kills", None)
                 kills_text = cls.format_count(int(last_kills) - int(first_kills))
 
