@@ -173,6 +173,35 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertEqual(items, ("Wrench x2",))
 
+    def test_get_passive_items_falls_back_to_player_item_inventory(self) -> None:
+        memory = self.build_memory()
+        owner_stats = 0x20000300
+        inventory_container = 0x20000600
+        player_inventory = 0x20001600
+        item_inventory = 0x20001800
+        item_dict = 0x20001900
+        item_entries = 0x20001A00
+        item_value = 0x20001B00
+        class_meta = 0x20001C00
+        class_name_ptr = 0x20001D00
+        memory.pointers[inventory_container + PlayerStatsClient.PASSIVE_ITEM_DICT_OFFSET] = 0
+        memory.pointers[player_inventory + PlayerStatsClient.ITEM_INVENTORY_OFFSET] = item_inventory
+        memory.pointers[item_inventory + PlayerStatsClient.ITEM_INVENTORY_ITEMS_DICT_OFFSET] = item_dict
+        memory.pointers[item_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET] = item_entries
+        memory.pointers[
+            item_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET
+        ] = item_value
+        memory.pointers[item_value + PlayerStatsClient.ITEM_CLASS_META_OFFSET] = class_meta
+        memory.pointers[class_meta + PlayerStatsClient.CLASS_META_NAME_PTR_OFFSET] = class_name_ptr
+        memory.ints[item_dict + PlayerStatsClient.DICT_COUNT_OFFSET] = 1
+        memory.ints[item_value + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET] = 199
+        memory.ascii_strings[class_name_ptr] = "ItemClover"
+        client = PlayerStatsClient(memory=memory)
+
+        items = client.get_passive_items(owner_stats)
+
+        self.assertEqual(items, ("Clover x199",))
+
     def test_format_item_name_replaces_no_implementation_with_golden_ring(self) -> None:
         self.assertEqual(PlayerStatsClient._format_item_name("ItemNoImplementation"), "Golden Ring")
 

@@ -329,6 +329,8 @@ class PlayerStatsClient:
     UPGRADE_MODIFIERS_OFFSET = 0x18
     STAT_VALUE_BASE_OFFSET = 0x2C
     STAT_SLOT_SIZE = 0x10
+    ITEM_INVENTORY_OFFSET = 0x20
+    ITEM_INVENTORY_ITEMS_DICT_OFFSET = 0x10
     INVENTORY_CONTAINER_OFFSET = 0xA0
     PASSIVE_ITEM_DICT_OFFSET = 0x50
     DICT_ENTRIES_OFFSET = 0x18
@@ -404,10 +406,25 @@ class PlayerStatsClient:
     def get_passive_items(self, owner_stats: int | None = None) -> tuple[str, ...]:
         owner_stats = owner_stats or self._resolve_owner_stats()
         inventory_container = self.memory.read_ptr(owner_stats + self.INVENTORY_CONTAINER_OFFSET)
-        passive_item_dict = self.memory.read_ptr(inventory_container + self.PASSIVE_ITEM_DICT_OFFSET)
+        passive_item_dict = self.memory.read_ptr(inventory_container + self.PASSIVE_ITEM_DICT_OFFSET) if inventory_container else 0
+        if passive_item_dict:
+            items = self._read_passive_item_dictionary(passive_item_dict)
+            if items:
+                return items
+
+        player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
+        item_inventory = self.memory.read_ptr(player_inventory + self.ITEM_INVENTORY_OFFSET) if player_inventory else 0
+        passive_item_dict = (
+            self.memory.read_ptr(item_inventory + self.ITEM_INVENTORY_ITEMS_DICT_OFFSET)
+            if item_inventory
+            else 0
+        )
         if not passive_item_dict:
             return ()
 
+        return self._read_passive_item_dictionary(passive_item_dict)
+
+    def _read_passive_item_dictionary(self, passive_item_dict: int) -> tuple[str, ...]:
         entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
         if not entries:
             return ()
