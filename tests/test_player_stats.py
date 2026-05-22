@@ -430,6 +430,140 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         self.assertEqual(weapons[0].upgraded_stats[11].display_value, "0.6x")
         self.assertIn(16, weapons[0].full_stats)
 
+    def test_get_live_tomes_reads_levels_and_effective_values(self) -> None:
+        memory = build_player_stats_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x22000000
+        tome_inventory = 0x22000100
+        tome_levels_dict = 0x22000200
+        tome_levels_entries = 0x22000300
+        tome_upgrades_dict = 0x22000400
+        tome_upgrades_entries = 0x22000500
+        damage_modifier = 0x22000600
+        armor_modifier = 0x22000700
+
+        memory.pointers.update(
+            {
+                owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
+                player_inventory + PlayerStatsClient.TOME_INVENTORY_OFFSET: tome_inventory,
+                tome_inventory + PlayerStatsClient.TOME_LEVELS_DICT_OFFSET: tome_levels_dict,
+                tome_inventory + PlayerStatsClient.TOME_UPGRADES_DICT_OFFSET: tome_upgrades_dict,
+                tome_levels_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: tome_levels_entries,
+                tome_upgrades_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: tome_upgrades_entries,
+                tome_upgrades_entries
+                + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+                + PlayerStatsClient.WEAPON_DICT_ENTRY_VALUE_OFFSET: damage_modifier,
+                tome_upgrades_entries
+                + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+                + PlayerStatsClient.DICT_ENTRY_SIZE
+                + PlayerStatsClient.WEAPON_DICT_ENTRY_VALUE_OFFSET: armor_modifier,
+            }
+        )
+        memory.ints.update(
+            {
+                tome_levels_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 2,
+                tome_levels_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                tome_levels_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET: 0,
+                tome_levels_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 3,
+                tome_levels_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_SIZE + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                tome_levels_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_SIZE + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET: 5,
+                tome_levels_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.STAT_DICT_ENTRY_SIZE + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 2,
+                tome_upgrades_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 2,
+                tome_upgrades_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                tome_upgrades_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET: 0,
+                tome_upgrades_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_SIZE + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                tome_upgrades_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_SIZE + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET: 5,
+                damage_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+                armor_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 4,
+            }
+        )
+        memory.floats.update(
+            {
+                damage_modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET: 1.25,
+                armor_modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET: 0.2,
+            }
+        )
+
+        client = PlayerStatsClient(memory=memory)
+
+        tomes = client.get_live_tomes()
+
+        self.assertEqual(len(tomes), 2)
+        self.assertEqual(tomes[0].name, "Damage")
+        self.assertEqual(tomes[0].level, 3)
+        self.assertEqual(tomes[0].stat_id, 12)
+        self.assertEqual(tomes[0].stat_label, "Damage")
+        self.assertEqual(tomes[0].display_value, "1.25x")
+        self.assertEqual(tomes[1].name, "Armor")
+        self.assertEqual(tomes[1].level, 2)
+        self.assertEqual(tomes[1].stat_label, "Armor")
+        self.assertEqual(tomes[1].display_value, "20%")
+
+    def test_get_live_tomes_returns_empty_when_tome_inventory_is_missing(self) -> None:
+        client = PlayerStatsClient(memory=build_player_stats_memory())
+
+        tomes = client.get_live_tomes()
+
+        self.assertEqual(tomes, ())
+
+    def test_get_live_banishes_reads_items_and_tomes(self) -> None:
+        memory = build_player_stats_memory()
+        base = memory.module_base
+        type_info = base + PlayerStatsClient.RUN_UNLOCKABLES_TYPE_INFO_OFFSET
+        class_ptr = 0x23000000
+        static_fields = 0x23000100
+        item_set = 0x23000200
+        upgradable_set = 0x23000300
+        item_slots = 0x23000400
+        upgradable_slots = 0x23000500
+        item_data = 0x23000600
+        item_klass = 0x23000700
+        item_klass_name = 0x23000800
+        tome_data = 0x23000900
+        tome_klass = 0x23000A00
+        tome_klass_name = 0x23000B00
+
+        memory.pointers.update(
+            {
+                type_info: class_ptr,
+                class_ptr + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: static_fields,
+                static_fields + PlayerStatsClient.RUN_UNLOCKABLES_BANISHED_ITEMS_OFFSET: item_set,
+                static_fields + PlayerStatsClient.RUN_UNLOCKABLES_BANISHED_UPGRADABLES_OFFSET: upgradable_set,
+                item_set + PlayerStatsClient.HASHSET_SLOTS_OFFSET: item_slots,
+                upgradable_set + PlayerStatsClient.HASHSET_SLOTS_OFFSET: upgradable_slots,
+                item_slots + PlayerStatsClient.HASHSET_SLOT_START_OFFSET + PlayerStatsClient.HASHSET_SLOT_VALUE_OFFSET: item_data,
+                upgradable_slots + PlayerStatsClient.HASHSET_SLOT_START_OFFSET + PlayerStatsClient.HASHSET_SLOT_VALUE_OFFSET: tome_data,
+                item_data + PlayerStatsClient.OBJECT_KLASS_OFFSET: item_klass,
+                item_klass + PlayerStatsClient.KLASS_NAME_PTR_OFFSET: item_klass_name,
+                tome_data + PlayerStatsClient.OBJECT_KLASS_OFFSET: tome_klass,
+                tome_klass + PlayerStatsClient.KLASS_NAME_PTR_OFFSET: tome_klass_name,
+            }
+        )
+        memory.ints.update(
+            {
+                item_set + PlayerStatsClient.HASHSET_COUNT_OFFSET: 1,
+                item_set + PlayerStatsClient.HASHSET_LAST_INDEX_OFFSET: 1,
+                upgradable_set + PlayerStatsClient.HASHSET_COUNT_OFFSET: 1,
+                upgradable_set + PlayerStatsClient.HASHSET_LAST_INDEX_OFFSET: 1,
+                item_slots + PlayerStatsClient.HASHSET_SLOT_START_OFFSET + PlayerStatsClient.HASHSET_SLOT_HASH_CODE_OFFSET: 1,
+                upgradable_slots + PlayerStatsClient.HASHSET_SLOT_START_OFFSET + PlayerStatsClient.HASHSET_SLOT_HASH_CODE_OFFSET: 1,
+                item_data + PlayerStatsClient.ITEM_DATA_ENUM_OFFSET: 35,
+                tome_data + PlayerStatsClient.TOME_DATA_ENUM_OFFSET: 15,
+            }
+        )
+        memory.ascii_strings.update(
+            {
+                item_klass_name: "ItemData",
+                tome_klass_name: "TomeData",
+            }
+        )
+
+        client = PlayerStatsClient(memory=memory)
+
+        banishes = client.get_live_banishes()
+
+        self.assertEqual(banishes, ("Clover", "Golden Tome"))
+
     def test_timeline_elapsed_label_tracks_recording_time(self) -> None:
         now = 1000.0
         timeline = PlayerStatsTimeline(interval_seconds=60, clock=lambda: now)

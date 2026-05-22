@@ -9,7 +9,14 @@ import time
 from typing import Any
 
 import config
-from player_stats import PlayerStatValue, WeaponSnapshot, WeaponStatFormat, WeaponStatValue
+from player_stats import (
+    PlayerStatFormat,
+    PlayerStatValue,
+    TomeSnapshot,
+    WeaponSnapshot,
+    WeaponStatFormat,
+    WeaponStatValue,
+)
 
 
 VOD_FORMAT_VERSION = 3
@@ -32,6 +39,8 @@ class VodSnapshot:
     stats: dict[str, VodStatValue]
     items: tuple[str, ...] = ()
     weapons: tuple[WeaponSnapshot, ...] = ()
+    tomes: tuple[TomeSnapshot, ...] = ()
+    banishes: tuple[str, ...] = ()
     chests_per_minute: float | None = None
     game_time_seconds: float | None = None
     mob_kills: int | None = None
@@ -168,6 +177,8 @@ class VodRecorder:
         stats: dict[str, PlayerStatValue],
         items: tuple[str, ...] = (),
         weapons: tuple[WeaponSnapshot, ...] = (),
+        tomes: tuple[TomeSnapshot, ...] = (),
+        banishes: tuple[str, ...] = (),
         *,
         chests_per_minute: float | None = None,
         game_time_seconds: float | None = None,
@@ -190,6 +201,8 @@ class VodRecorder:
             },
             items=tuple(items),
             weapons=tuple(weapons),
+            tomes=tuple(tomes),
+            banishes=tuple(banishes),
             chests_per_minute=chests_per_minute,
             game_time_seconds=game_time_seconds,
             mob_kills=mob_kills,
@@ -443,6 +456,8 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         },
         "items": list(snapshot.items),
         "weapons": [_weapon_to_record(weapon) for weapon in snapshot.weapons],
+        "tomes": [_tome_to_record(tome) for tome in snapshot.tomes],
+        "banishes": list(snapshot.banishes),
         "chests_per_minute": snapshot.chests_per_minute,
     }
     if snapshot.game_time_seconds is not None:
@@ -475,6 +490,8 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
         },
         items=tuple(str(item) for item in record.get("items") or ()),
         weapons=tuple(_record_to_weapon(weapon) for weapon in record.get("weapons") or ()),
+        tomes=tuple(_record_to_tome(tome) for tome in record.get("tomes") or ()),
+        banishes=tuple(str(item) for item in record.get("banishes") or ()),
         chests_per_minute=_coerce_optional_float(record.get("chests_per_minute")),
         game_time_seconds=_coerce_optional_float(
             record.get("game_time_seconds", record.get("in_game_elapsed_seconds"))
@@ -511,6 +528,19 @@ def _weapon_to_record(weapon: WeaponSnapshot) -> dict[str, Any]:
     }
 
 
+def _tome_to_record(tome: TomeSnapshot) -> dict[str, Any]:
+    return {
+        "id": tome.tome_id,
+        "name": tome.name,
+        "level": tome.level,
+        "stat_id": tome.stat_id,
+        "stat_label": tome.stat_label,
+        "value": tome.value,
+        "display": tome.display_value,
+        "value_format": tome.value_format.value,
+    }
+
+
 def _weapon_stat_value_to_record(value: WeaponStatValue) -> dict[str, Any]:
     return {
         "label": value.label,
@@ -538,6 +568,34 @@ def _record_to_weapon(record: Any) -> WeaponSnapshot:
         upgrade_stat_ids=upgrade_stat_ids,
         upgraded_stats=_record_to_weapon_stats(raw_upgraded_stats),
         full_stats=_record_to_weapon_stats(raw_full_stats),
+    )
+
+
+def _record_to_tome(record: Any) -> TomeSnapshot:
+    if not isinstance(record, dict):
+        return TomeSnapshot(
+            tome_id=-1,
+            name="Unknown Tome",
+            level=0,
+            stat_id=None,
+            stat_label="Unknown",
+            value=None,
+            value_format=PlayerStatFormat.FLAT,
+        )
+
+    value_format_name = str(record.get("value_format") or PlayerStatFormat.FLAT.value)
+    try:
+        value_format = PlayerStatFormat(value_format_name)
+    except ValueError:
+        value_format = PlayerStatFormat.FLAT
+    return TomeSnapshot(
+        tome_id=_coerce_int(record.get("id"), default=-1),
+        name=str(record.get("name") or "Unknown Tome"),
+        level=max(_coerce_int(record.get("level"), default=0), 0),
+        stat_id=_coerce_optional_int(record.get("stat_id")),
+        stat_label=str(record.get("stat_label") or "Unknown"),
+        value=_coerce_optional_float(record.get("value")),
+        value_format=value_format,
     )
 
 

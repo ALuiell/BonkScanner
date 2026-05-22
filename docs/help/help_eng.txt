@@ -1,0 +1,132 @@
+BonkScanner - Quick Help
+========================
+
+Quick Start
+-----------
+1. Launch Megabonk and wait until the target scene is fully loaded.
+2. Open BonkScanner.
+3. Choose `Templates` or `Scores` on the left side.
+4. Configure the active templates or score tiers.
+5. Press `Start`.
+6. Use the scan hotkey in-game to arm or pause the loop.
+7. When a map matches your conditions, BonkScanner stops and writes the result to `Logs`.
+
+Search Modes
+------------
+`Templates`
+- Strict search based on exact conditions.
+- Best when you want specific values such as `Shady Guy`, `Moais`, `Microwaves`, `Boss Curses`, or `S+M`.
+
+`Scores`
+- Flexible search based on overall map value.
+- Better when you want generally strong maps instead of one exact combination.
+
+Important:
+- The active left-side tab decides which mode is currently used.
+- You can change active templates or score tiers while a search loop is already running. BonkScanner applies the new active filters live.
+
+Main UI Areas
+-------------
+Left side:
+- `Templates` - strict rule-based filtering with active template selection.
+- `Scores` - weighted map evaluation with active score tier selection.
+
+Right side:
+- `Logs` - scanner activity, warnings, wait states, and match results.
+- `Session Stats` - session time, reroll count, RPM, best and worst maps, and averages per target.
+- `Live Stats` - current run stats, items, weapons, tomes, and recording controls.
+- `Recordings` - saved recordings viewer with timeline, rename, delete, and cleanup actions.
+
+Reroll and Restart
+------------------
+- Standard keyboard restart is still the default and simplest option.
+- If rerolls feel unstable, first try increasing `Min Reroll Delay (s)` or `Reset Hold Duration (s)` a little.
+- BonkScanner waits for a safe map-ready and memory-read state, so short pauses between restart and evaluation are normal.
+
+Live Stats
+----------
+The `Live Stats` tab shows:
+- current player stats;
+- passive items with rarity highlighting and sorting;
+- `Average chests/min`;
+- `In-Game Time`;
+- `Mob Kills`;
+- `Level`;
+- `Stage Summary`;
+- `New Items`;
+- `Banishes`.
+
+Additional tabs inside `Live Stats`:
+- `Stats` - main character stats;
+- `Weapons` - current weapons, their levels, and upgraded weapon stats;
+- `Tomes` - current tomes, their levels, and active effects.
+
+If some sections temporarily say that data is unavailable, that is not always an error. During loading, some memory pointers may not be ready yet.
+
+Recording and Recordings
+------------------------
+- Recording can be started from `Live Stats` or through the `Record Hotkey`.
+- Snapshots are saved using the interval from `Snapshot Interval (s)`.
+- Saved runs can later be reviewed in the `Recordings` tab.
+
+Inside `Recordings`, you can:
+- scrub the timeline;
+- inspect stats, items, weapons, tomes, stage summary, and banishes by snapshot;
+- rename a recording;
+- delete a recording;
+- clean short recordings by snapshot count.
+
+Recording behavior:
+- normal stage transitions should not split a recording into a new file;
+- when the app detects a truly new run, recording can automatically continue into a new file;
+- if the current run seed disappears and stays unavailable, recording can stop automatically;
+- older files remain compatible even if they do not contain newer fields such as `weapons`, `tomes`, or `banishes`.
+
+Hotkeys and Game Toggles
+------------------------
+`Settings` currently includes:
+- `Scan Hotkey`
+- `Reset Hotkey`
+- `Record Hotkey`
+- `Toggle Chest Skip Hotkey`
+- `Toggle Auto Level-Up Hotkey`
+- `Toggle Particles Opacity Hotkey`
+
+Important:
+- Some hotkeys on Windows may require Administrator privileges.
+- Game toggles can apply immediately even if the in-game settings menu only refreshes visually after reopening it.
+- Supported game-setting toggles are applied live through the app when the hook path is available.
+- If a hotkey does nothing, first make sure the game is open and BonkScanner has attached cleanly.
+
+Native Hook
+-----------
+- `Use native hook restart` enables the alternate restart path.
+- This mode can be more convenient while alt-tabbed or running in the background.
+- Native hook attach only works after the game reaches a safe initialized runtime state.
+- If native hook does not connect yet, let the game reach a stable menu or in-run state and try again.
+- You can always switch back to standard keyboard restart from `Settings`.
+
+Settings and Updates
+--------------------
+Main settings:
+- `Scan Hotkey` - starts or pauses the scan loop while the app is running.
+- `Reset Hotkey` - the keyboard restart hotkey used by standard restart mode.
+- `Record Hotkey` - starts or stops live stats recording.
+- `Toggle Chest Skip Hotkey` - toggles the supported chest-skip game setting.
+- `Toggle Auto Level-Up Hotkey` - toggles the supported auto level-up game setting.
+- `Toggle Particles Opacity Hotkey` - toggles the supported particles opacity game setting.
+- `Min Reroll Delay (s)` - minimum delay before the app evaluates the next reroll result.
+- `Reset Hold Duration (s)` - keyboard reset hold time in the app. This setting also syncs the game's `quick_reset_time` value. If you change it, restart the game so the in-game restart timing fully picks up the new value.
+- `Snapshot Interval (s)` - how often recording saves a new snapshot.
+- `Use native hook restart` - enables the alternate restart path.
+- `Check for Updates` - checks for a newer packaged build when that updater flow is available.
+
+Other notes:
+- Main user settings are stored in `config.json`.
+
+If Something Looks Wrong
+------------------------
+- Start with the `Logs` tab. It usually explains why the app is waiting, warning, or refusing an action.
+- Brief memory-read failures during loading screens or unstable game states are expected.
+- Filter changes now apply live, so you usually do not need to restart the search loop just to update active templates or score tiers.
+- If something looks stuck after major settings changes, the fastest recovery step is often restarting the loop with `Stop` -> `Start`.

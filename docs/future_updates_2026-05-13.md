@@ -145,7 +145,15 @@ Suggested config knobs:
 
 ## 4. Built-In Help / Guide Dialog
 
-Status: `[Open]`
+Status: `[Done]`
+
+Current branch notes:
+
+- Main UI now includes a compact `?` help button next to the settings button.
+- Help opens as an in-app dialog instead of relying only on external docs.
+- The dialog currently exposes language tabs for `ENG`, `UA`, and `RU`.
+- Help content is stored in `docs/help/` as separate text files instead of being hardcoded in `gui.py`.
+- Packaged builds include those help files through the current PyInstaller paths.
 
 Goal:
 
@@ -481,12 +489,13 @@ Validation plan:
 
 ## 8. Add Upgraded Weapon Details To Live Stats And Recordings
 
-Status: `[Partial]`
+Status: `[Done]`
 
 Current branch notes:
 
 - Reverse research is done and documented in `docs/reverse/reports/2026-05-19-live-weapon-stats-and-upgrades.md`.
-- Item rarity support for the current UI is implemented separately, but upgraded weapon details themselves are not yet shown in `Live Stats` or stored in recordings.
+- Upgraded weapon details are shown in `Live Stats`.
+- Recordings store weapon snapshots and the viewer remains compatible with older files that do not contain weapon data.
 
 Goal:
 
@@ -582,16 +591,20 @@ Caveats:
 
 ## 9. Track Tomes In Live Stats And Recordings
 
-Status: `[Open]`
+Status: `[Done]`
 
 Current branch notes:
 
-- Tomes are partially covered by existing reverse notes.
-- The live `PlayerInventory` layout already identifies a likely tome inventory
-  pointer:
-  `PlayerStatsNew +0x28 -> PlayerInventory +0x48 -> tomeInventory`.
-- Chaos Tome upgrade behavior has historical reverse notes in
-  `docs/reverse/HISTORY-DONT-USE/2026-04-25-chaos-tome-upgrades.md`.
+- Live tome tracking is implemented.
+- The rooted runtime path is confirmed:
+  `PlayerStatsNew +0x28 -> PlayerInventory +0x48 -> TomeInventory`.
+- The implementation uses:
+  - `TomeInventory +0x18` -> `tomeLevels`
+  - `TomeInventory +0x28` -> `tomeUpgrade`
+- `Live Stats` and `Recordings` now show tome cards with name, level, and live
+  effective modifier.
+- Recordings store optional `tomes` and remain backward-compatible with older
+  files.
 
 Goal:
 
@@ -641,13 +654,19 @@ Caveats:
 
 ## 10. Track Item Bans
 
-Status: `[Open]`
+Status: `[Done]`
 
 Current branch notes:
 
-- Passive item inventory and static item catalog paths are already documented.
-- Item ban state has not yet been confirmed as a stable memory path.
-- This likely needs a focused reverse pass.
+- Live banish tracking is implemented and CE-validated.
+- The confirmed rooted source is:
+  `GameAssembly.dll + 0x2F7A210 -> RunUnlockables static fields`.
+- Runtime separation is now confirmed:
+  - `banishedItems` -> passive item banishes
+  - `banishedUpgradables` -> tome/upgradable banishes
+- The app merges both into one compact `Banishes` UI card in appearance order,
+  per user preference.
+- Recordings store optional `banishes` and older files remain loadable.
 
 Goal:
 
@@ -686,12 +705,10 @@ Questions to answer:
 
 Caveats:
 
-- `ItemData.inItemPool` may be static/default catalog state, not necessarily
-  the live run ban state.
-- A false positive here would be misleading, because users may assume a shown
-  ban is guaranteed to affect future offers.
-- This feature should probably display uncertain/unknown state explicitly until
-  the memory path is confirmed across multiple runs.
+- Raw `HashSet` slot order should not be used as the presentation order.
+- `banishedUpgradables` currently decodes tomes correctly, but should be
+  re-checked if the game later banishes other upgradable types through the same
+  structure.
 
 ## 11. Find A Reliable Runtime Signal For True Menu / Non-Gameplay State
 

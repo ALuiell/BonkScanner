@@ -24,8 +24,10 @@ Update this file whenever a path is meaningfully changed or newly confirmed.
 | Passive item inventory | `player_stats.py`, `gui.py`, `vod_storage.py` | same root to `PlayerStatsNew`; primary `+0xA0` -> inventory object -> `+0x50` passive item dictionary; fallback `+0x28` -> `PlayerInventory` -> `+0x20` `ItemInventory` -> `+0x10` item dictionary | `docs/reverse/reports/2026-05-11-item-inventory-addresses.md` | high | 2026-05-21 |
 | Static item catalog / item rarities | future `player_stats.py`, `gui.py`, metadata helpers | `GameAssembly.dll + 0x2F85790` -> `DataManager.Instance` -> `+0xB8 itemData` -> `ItemData +0x60 rarity`; enum names from dumped `EItem` | `docs/reverse/reports/2026-05-19-item-enum-and-rarities.md` | high | 2026-05-19 |
 | Live weapon inventory / upgraded weapon stats | future `player_stats.py`, `gui.py`, `vod_storage.py` | same root to `PlayerStatsNew`, then `+0x28` -> `PlayerInventory` -> `+0x28` -> `WeaponInventory` -> `+0x18` weapons dictionary; each `WeaponBase +0x20` level, `+0x28` full stats, `+0x18 -> WeaponData +0xD8 -> UpgradeData +0x18` upgrade stat pool | `docs/reverse/reports/2026-05-19-live-weapon-stats-and-upgrades.md` | high | 2026-05-19 |
+| Live tome inventory / effective tome upgrades | `player_stats.py`, `gui.py`, `vod_storage.py` | same root to `PlayerStatsNew`, then `+0x28` -> `PlayerInventory` -> `+0x48` -> `TomeInventory`; `+0x18` `tomeLevels` dictionary and `+0x28` `tomeUpgrade` dictionary | `docs/reverse/reports/2026-05-22-live-tomes.md` | high | 2026-05-22 |
 | Current run time | `player_stats.py`, `gui.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F62398` -> `class_ptr` -> `+0xB8` -> `MyTime` static fields -> `+0x20` -> `runTimer` float seconds | `docs/reverse/reports/2026-05-18-current-run-time.md` | high | 2026-05-18 |
 | Run kill counter | `player_stats.py`, `gui.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F7A170` -> `RunStats` static fields -> `+0x0` stats dictionary -> key `kills` -> inline `float` at dictionary entry `+0x10`; stable root is the dictionary, final leaf requires key scan | `docs/reverse/reports/2026-05-20-run-kills-counter-path-details.md` | high | 2026-05-20 |
+| Live run banishes (items + tomes) | `player_stats.py`, `gui.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F7A210` -> `RunUnlockables` static fields; `+0x0` `banishedItems` `HashSet<ItemData>` and `+0x8` `banishedUpgradables` `HashSet<UnlockableBase>` | `docs/reverse/reports/2026-05-22-item-bans-runtime-path.md` | high | 2026-05-22 |
 | Live player level | future `player_stats.py`, `gui.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F6A4B8` -> `class_ptr` -> `+0xB8` -> `root` -> `+0x40` -> `PlayerStatsNew` -> `+0x28` -> `PlayerInventory` -> `+0x30` -> `PlayerXp` -> `+0x14` -> `level` int | `docs/reverse/reports/2026-05-20-live-player-level.md` | high | 2026-05-20 |
 | Native hook readiness / AlwaysManager path | `hook_loader.py`, `native/BonkHook/*` | `GameAssembly.dll + 0x2F6BAA8` for current AlwaysManager-related path used by hook readiness | `hook_loader.py`, `docs/reverse/memory-and-hooks-reference.md` | medium | 2026-05-11 |
 
@@ -104,6 +106,23 @@ What "healthy" looks like:
   weapon-specific upgraded stat pool
 - recordings can store weapon snapshots without breaking old files
 
+### Live tome inventory / effective tome upgrades
+
+Risk:
+
+- stale post-run `TomeInventory` objects may remain in memory
+- special tome internals can be more complex than the single live modifier we
+  currently display
+- future builds may keep the same rooted path but change dictionary/value
+  layouts
+
+What "healthy" looks like:
+
+- tome names match the current run tomes
+- levels match the in-game tome levels
+- the displayed stat/value reflects the live effective modifier
+- recordings can store tome snapshots without breaking old files
+
 ### Current run time
 
 Risk:
@@ -133,6 +152,21 @@ What "healthy" looks like:
 - value starts near zero on a fresh run
 - value increases on enemy kills and does not drift during idle moments
 - live snapshots and recordings preserve `mob_kills`
+
+### Live run banishes
+
+Risk:
+
+- `HashSet` slot order is not a safe user-facing order by itself
+- `banishedUpgradables` may later include more than tomes
+- stale post-run static state should be re-checked after game updates
+
+What "healthy" looks like:
+
+- fresh run starts with empty banish sets
+- passive item banish appears in `banishedItems`
+- tome banish appears in `banishedUpgradables`
+- live UI and recordings preserve banishes in stable appearance order
 
 ### Native hook
 
