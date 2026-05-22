@@ -580,3 +580,242 @@ Caveats:
   confirmed source for the weapon's upgrade stat pool, not necessarily the exact
   currently offered upgrade roll.
 
+## 9. Track Tomes In Live Stats And Recordings
+
+Status: `[Open]`
+
+Current branch notes:
+
+- Tomes are partially covered by existing reverse notes.
+- The live `PlayerInventory` layout already identifies a likely tome inventory
+  pointer:
+  `PlayerStatsNew +0x28 -> PlayerInventory +0x48 -> tomeInventory`.
+- Chaos Tome upgrade behavior has historical reverse notes in
+  `docs/reverse/HISTORY-DONT-USE/2026-04-25-chaos-tome-upgrades.md`.
+
+Goal:
+
+- Add tome tracking to `Live Stats`.
+- Store tome snapshots in recordings.
+- Show tome progression in playback, similar to weapons/items.
+
+Why this helps:
+
+- Tomes are a major part of run scaling and build identity.
+- Current recordings can show player stats, items, and weapons, but not the
+  tome layer that may explain why stats changed.
+- Tome snapshots would make later run review much easier, especially for
+  comparing build paths.
+
+Likely implementation shape:
+
+- Confirm the live `tomeInventory` layout from
+  `PlayerInventory +0x48`.
+- Identify whether tomes are stored as:
+  - a dictionary keyed by tome id,
+  - a list of active tome objects,
+  - or a custom inventory structure.
+- Decode per tome:
+  - tome id / name
+  - level or stack count, if applicable
+  - rarity, if stored
+  - upgraded stat/effect, if available
+- Add a normalized `TomeSnapshot` data structure in `player_stats.py`.
+- Extend `vod_storage.py` snapshot schema with optional `tomes`.
+- Add a compact UI section or card under `Live Stats` / `Recordings`.
+
+Questions to answer:
+
+- Are all tome effects represented in one inventory object, or are special
+  tomes like Chaos stored/applied through separate state?
+- Does tome data contain final applied stat modifiers, or only source tome ids?
+- Are tome effects already reflected in player stats only, or can we show the
+  exact tome source of each stat change?
+
+Caveats:
+
+- Some tome data may be static catalog data while live inventory only stores ids.
+- Chaos Tome may need special handling because its stat selection and scaling
+  path differs from normal tome data.
+- Avoid heap scans; prefer rooted `PlayerStatsNew -> PlayerInventory` paths.
+
+## 10. Track Item Bans
+
+Status: `[Open]`
+
+Current branch notes:
+
+- Passive item inventory and static item catalog paths are already documented.
+- Item ban state has not yet been confirmed as a stable memory path.
+- This likely needs a focused reverse pass.
+
+Goal:
+
+- Detect which items are currently banned/removed from the item pool.
+- Show banned items in the UI.
+- Store ban state in recordings so item pool decisions can be reviewed later.
+
+Why this helps:
+
+- Item bans affect future chest/shop/item offer quality.
+- Reviewing a run without knowing the ban list can make item progression harder
+  to explain.
+- For build analysis, bans are useful context next to `Items`, `New Items`, and
+  `Stage Summary`.
+
+Likely implementation shape:
+
+- Start from the static item catalog:
+  `DataManager.Instance -> itemData Dictionary<EItem, ItemData>`.
+- Investigate whether live bans mutate:
+  - `ItemData.inItemPool`,
+  - a player-specific banned item set/list,
+  - an encounter/shop offer filter,
+  - or another runtime item pool structure.
+- Decode banned item ids into display names using the existing item enum/name
+  normalization.
+- Add a `Banned Items` card or a collapsible section near the item list.
+- Store optional `banned_items` in VOD snapshots.
+
+Questions to answer:
+
+- Are bans global for the run, character-specific, or offer-source-specific?
+- Does the game keep original item catalog state and overlay bans elsewhere?
+- Are temporary exclusions and permanent bans represented in the same structure?
+- Do mods/cheats update the same ban path as normal gameplay?
+
+Caveats:
+
+- `ItemData.inItemPool` may be static/default catalog state, not necessarily
+  the live run ban state.
+- A false positive here would be misleading, because users may assume a shown
+  ban is guaranteed to affect future offers.
+- This feature should probably display uncertain/unknown state explicitly until
+  the memory path is confirmed across multiple runs.
+
+## 11. Find A Reliable Runtime Signal For True Menu / Non-Gameplay State
+
+Status: `[Open]`
+
+Current branch notes:
+
+- Existing recording auto-stop logic can reliably detect full process exit, but
+  not `Exit to Menu` from an active run.
+- Current known run signals are not sufficient because they can remain frozen in
+  memory after leaving the run.
+- This needs a focused reverse pass before `Live Stats` recording auto-stop can
+  be considered robust.
+
+Reverse task:
+
+- Find a reliable runtime signal that distinguishes active run gameplay from:
+  - main menu
+  - post-run / returned-to-menu state
+- The signal must remain valid even if old run pointers, seed, stats, or items
+  still remain in memory as a frozen snapshot.
+
+Verified manual observations on build `2026-05-14`:
+
+- Cold menu:
+  - `map_seed = 0`
+  - `current_map_ptr = 0`
+  - `current_stage_ptr = 0`
+  - `has_loaded_map = False`
+- Active run:
+  - `map_seed` is non-zero
+  - `current_map_ptr` and `current_stage_ptr` are non-zero
+  - `has_loaded_map = True`
+- After `Exit to Menu` from a run:
+  - `map_seed` stays stuck at the previous run value
+  - `current_map_ptr` and `current_stage_ptr` stay stuck
+  - `has_loaded_map = True`
+  - `is_resetting = False`
+  - player stats and items can also stay stuck as a frozen snapshot of the last
+    run
+
+What this means:
+
+- Current known signals are not enough to reliably detect that the run has
+  ended and the player has returned to menu.
+- `ProcessNotFound` only covers full game exit, not `Exit to Menu`.
+
+Primary goal:
+
+- Find a stable memory or runtime-logic signal that reliably indicates one of:
+  - the player is currently in main menu
+  - an active run is no longer in progress
+  - the game is currently not in gameplay state
+  - post-run / menu state differs from active in-run state even when old run
+    objects still remain in memory
+
+Preferred candidate types:
+
+- global game-state enum
+- menu / open-screen state
+- scene/state-machine current state
+- pause/menu controller state, if it distinguishes:
+  - paused during a run
+  - main menu
+- run/session active flag
+- map/session ownership flag that resets on real run end even if old objects are
+  still retained in memory
+
+Weak signals that should not be used as the final solution without strong
+confirmation:
+
+- `map_seed` alone
+- `current_map_ptr` alone
+- `current_stage_ptr` alone
+- `has_loaded_map` alone
+- `stats stopped changing for a while`
+- `items are empty`
+- a generic `pause` flag that does not distinguish paused gameplay from main
+  menu
+
+Required validation states:
+
+- cold menu after fresh game launch
+- active run gameplay
+- paused run
+- exited from run back to menu
+
+Extra validation states if possible:
+
+- during death / end-run transition
+- after full process exit
+
+Expected reverse report output:
+
+- the found entity / field / method / offset / path
+- what that state actually means
+- how it behaves in:
+  - menu
+  - active run
+  - paused run
+  - post-run menu
+- how reliable the signal is
+- whether it is safe to use for:
+  - recording auto-stop on menu
+  - recording keep-alive during paused run
+  - recording auto-split only on true new run
+
+Ranking guidance if multiple candidates are found:
+
+- best primary signal
+- possible fallback signal
+- unsafe / weak signals that should not be used
+
+Implementation target after reverse:
+
+- `process gone => stop`
+- `true menu / non-gameplay state => stop after grace`
+- `new run state => split recording`
+- `paused active run => do not stop`
+
+Why this matters:
+
+- This is the missing piece for making `Live Stats` recording lifecycle
+  trustworthy.
+- Without a true gameplay/menu discriminator, auto-stop can silently fail and
+  keep recording stale snapshots from a dead run context.
+
