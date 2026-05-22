@@ -145,7 +145,15 @@ Suggested config knobs:
 
 ## 4. Built-In Help / Guide Dialog
 
-Status: `[Open]`
+Status: `[Done]`
+
+Current branch notes:
+
+- Main UI now includes a compact `?` help button next to the settings button.
+- Help opens as an in-app dialog instead of relying only on external docs.
+- The dialog currently exposes language tabs for `ENG`, `UA`, and `RU`.
+- Help content is stored in `docs/help/` as separate text files instead of being hardcoded in `gui.py`.
+- Packaged builds include those help files through the current PyInstaller paths.
 
 Goal:
 
