@@ -1774,6 +1774,7 @@ class MegabonkApp:
         self.player_stats_rows = {}
         self.player_stats_items_group = None
         self.player_stats_items_label = None
+        self.player_stats_items_rarity_label = None
         self.player_stats_items_toggle_btn = None
         self.player_stats_items_sort_combo = None
         self.player_stats_items_sort_mode = ITEM_SORT_DEFAULT
@@ -1807,6 +1808,7 @@ class MegabonkApp:
         self.vods_rows = {}
         self.vods_items_group = None
         self.vods_items_label = None
+        self.vods_items_rarity_label = None
         self.vods_items_toggle_btn = None
         self.vods_items_sort_combo = None
         self.vods_items_sort_mode = ITEM_SORT_DEFAULT
@@ -2248,6 +2250,10 @@ class MegabonkApp:
         self.player_stats_items_toggle_btn.setProperty("class", "SmallGhostButton")
         self.player_stats_items_toggle_btn.setVisible(False)
         items_actions = QHBoxLayout()
+        self.player_stats_items_rarity_label = QLabel("")
+        self.player_stats_items_rarity_label.setTextFormat(Qt.RichText)
+        self.player_stats_items_rarity_label.setStyleSheet("font-size: 14px;")
+        self.player_stats_items_rarity_label.setVisible(False)
         self.player_stats_items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             self.player_stats_items_sort_combo.addItem(label, mode)
@@ -2255,6 +2261,7 @@ class MegabonkApp:
             lambda _index: self.on_items_sort_changed("live")
         )
         items_actions.addWidget(self.player_stats_items_toggle_btn, 0, Qt.AlignLeft)
+        items_actions.addWidget(self.player_stats_items_rarity_label, 0, Qt.AlignLeft)
         items_actions.addStretch(1)
         items_actions.addWidget(QLabel("Sort:"))
         items_actions.addWidget(self.player_stats_items_sort_combo)
@@ -2422,6 +2429,10 @@ class MegabonkApp:
         self.vods_items_toggle_btn.setProperty("class", "SmallGhostButton")
         self.vods_items_toggle_btn.setVisible(False)
         vod_items_actions = QHBoxLayout()
+        self.vods_items_rarity_label = QLabel("")
+        self.vods_items_rarity_label.setTextFormat(Qt.RichText)
+        self.vods_items_rarity_label.setStyleSheet("font-size: 14px;")
+        self.vods_items_rarity_label.setVisible(False)
         self.vods_items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             self.vods_items_sort_combo.addItem(label, mode)
@@ -2429,6 +2440,7 @@ class MegabonkApp:
             lambda _index: self.on_items_sort_changed("vod")
         )
         vod_items_actions.addWidget(self.vods_items_toggle_btn, 0, Qt.AlignLeft)
+        vod_items_actions.addWidget(self.vods_items_rarity_label, 0, Qt.AlignLeft)
         vod_items_actions.addStretch(1)
         vod_items_actions.addWidget(QLabel("Sort:"))
         vod_items_actions.addWidget(self.vods_items_sort_combo)
@@ -3915,6 +3927,7 @@ class MegabonkApp:
         prefix = self._scope_prefix(scope)
         group = self.__dict__.get(f"{prefix}_items_group")
         label = self.__dict__.get(f"{prefix}_items_label")
+        rarity_label = self.__dict__.get(f"{prefix}_items_rarity_label")
         button = self.__dict__.get(f"{prefix}_items_toggle_btn")
         sort_combo = self.__dict__.get(f"{prefix}_items_sort_combo")
         expanded = bool(self.__dict__.get(f"{prefix}_items_expanded", False))
@@ -3927,6 +3940,7 @@ class MegabonkApp:
         if items_text is not None:
             self._set_items_group_title(group, None)
             _set_items_text(label, items_text=items_text)
+            self._set_items_rarity_summary_label(rarity_label, ())
             if button is not None:
                 button.setVisible(False)
             if sort_combo is not None:
@@ -3935,6 +3949,7 @@ class MegabonkApp:
 
         items = tuple(items or ())
         self._set_items_group_title(group, self._item_total_count(items))
+        self._set_items_rarity_summary_label(rarity_label, items)
         sorted_items = self.sort_items_for_display(
             items,
             self.__dict__.get(f"{prefix}_items_sort_mode", ITEM_SORT_DEFAULT),
@@ -3961,6 +3976,45 @@ class MegabonkApp:
     @classmethod
     def _item_total_count(cls, items) -> int:
         return sum(cls._item_counts(items).values())
+
+    @classmethod
+    def _item_rarity_totals(cls, items) -> dict[str, int]:
+        rarity_totals = {
+            "LEGENDARY": 0,
+            "RARE": 0,
+            "UNCOMMON": 0,
+            "COMMON": 0,
+        }
+        for item_name, count in cls._item_counts(items).items():
+            display_name = cls._normalize_item_name_for_display(item_name)
+            rarity_name = cls._normalize_item_name_for_rarity(display_name)
+            rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
+            if rarity in rarity_totals:
+                rarity_totals[rarity] += count
+        return rarity_totals
+
+    @classmethod
+    def format_items_rarity_summary_rich_text(cls, items) -> str:
+        rarity_totals = cls._item_rarity_totals(items)
+        parts: list[str] = []
+        for rarity in ("LEGENDARY", "RARE", "UNCOMMON", "COMMON"):
+            total = rarity_totals.get(rarity, 0)
+            if total <= 0:
+                continue
+            color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
+            parts.append(
+                f'<span style="color:{color}; font-weight:700;">&#9679;</span> '
+                f'<span style="color:#E5E7EB;">{html.escape(str(total))}</span>'
+            )
+        return "  ".join(parts)
+
+    @staticmethod
+    def _set_items_rarity_summary_label(label, items) -> None:
+        if label is None:
+            return
+        text = MegabonkApp.format_items_rarity_summary_rich_text(items)
+        label.setVisible(bool(text))
+        label.setText(text)
 
     @staticmethod
     def _set_items_group_title(group, total_count: int | None) -> None:
