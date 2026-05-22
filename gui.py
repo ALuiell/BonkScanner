@@ -2298,6 +2298,7 @@ class MegabonkApp:
             time_label = QLabel("--")
             kills_label = QLabel("--")
             items_label = QLabel("--")
+            items_label.setTextFormat(Qt.RichText)
             stage_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             for value_label in (time_label, kills_label, items_label):
                 value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -2477,6 +2478,7 @@ class MegabonkApp:
             time_label = QLabel("--")
             kills_label = QLabel("--")
             items_label = QLabel("--")
+            items_label.setTextFormat(Qt.RichText)
             stage_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             for value_label in (time_label, kills_label, items_label):
                 value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -3994,6 +3996,15 @@ class MegabonkApp:
         return rarity_totals
 
     @classmethod
+    def _empty_item_rarity_totals(cls) -> dict[str, int]:
+        return {
+            "LEGENDARY": 0,
+            "RARE": 0,
+            "UNCOMMON": 0,
+            "COMMON": 0,
+        }
+
+    @classmethod
     def format_items_rarity_summary_rich_text(cls, items) -> str:
         rarity_totals = cls._item_rarity_totals(items)
         parts: list[str] = []
@@ -4368,7 +4379,9 @@ class MegabonkApp:
             return rows
 
         stage_buckets: dict[int, list[object]] = {index: [] for index in range(1, 5)}
-        stage_item_gains: dict[int, int] = {index: 0 for index in range(1, 5)}
+        stage_item_gains: dict[int, dict[str, int]] = {
+            index: cls._empty_item_rarity_totals() for index in range(1, 5)
+        }
         stage_kill_baselines: dict[int, int] = {1: 0}
         last_known_mob_kills: int | None = None
         current_stage_index = 1
@@ -4394,10 +4407,9 @@ class MegabonkApp:
                         baseline = last_known_mob_kills
                     if baseline is not None:
                         stage_kill_baselines[current_stage_index] = max(0, int(baseline))
-                stage_item_gains[current_stage_index] += cls._item_gain_between_snapshots(
-                    previous_snapshot,
-                    snapshot,
-                )
+                item_gains = cls._item_rarity_gain_between_snapshots(previous_snapshot, snapshot)
+                for rarity, count in item_gains.items():
+                    stage_item_gains[current_stage_index][rarity] += count
             stage_buckets[current_stage_index].append(snapshot)
             if snapshot_mob_kills is not None:
                 last_known_mob_kills = max(0, int(snapshot_mob_kills))
@@ -4429,7 +4441,7 @@ class MegabonkApp:
                 last_kills = getattr(kill_snapshots[-1], "mob_kills", None)
                 kills_text = cls.format_count(int(last_kills) - int(first_kills))
 
-            items_text = str(stage_item_gains[stage_index])
+            items_text = cls._format_stage_item_rarity_summary(stage_item_gains[stage_index])
             rows[stage_index - 1] = {
                 "label": f"Stage {stage_index}",
                 "kills": kills_text,
@@ -4513,6 +4525,35 @@ class MegabonkApp:
         for name, current_count in last_counts.items():
             total_gain += max(0, current_count - first_counts.get(name, 0))
         return total_gain
+
+    @classmethod
+    def _item_rarity_gain_between_snapshots(cls, first_snapshot, last_snapshot) -> dict[str, int]:
+        first_counts = cls._item_counts(getattr(first_snapshot, "items", ()))
+        last_counts = cls._item_counts(getattr(last_snapshot, "items", ()))
+        rarity_gains = cls._empty_item_rarity_totals()
+        for name, current_count in last_counts.items():
+            gain = max(0, current_count - first_counts.get(name, 0))
+            if gain <= 0:
+                continue
+            rarity_name = cls._normalize_item_name_for_rarity(name)
+            rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
+            if rarity in rarity_gains:
+                rarity_gains[rarity] += gain
+        return rarity_gains
+
+    @classmethod
+    def _format_stage_item_rarity_summary(cls, rarity_totals: dict[str, int]) -> str:
+        parts: list[str] = []
+        for rarity in ("LEGENDARY", "RARE", "UNCOMMON", "COMMON"):
+            total = int(rarity_totals.get(rarity, 0))
+            if total <= 0:
+                continue
+            color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
+            parts.append(
+                f'<span style="color:{color}; font-weight:700;">&#9679;</span> '
+                f'<span style="color:#E5E7EB;">{html.escape(str(total))}</span>'
+            )
+        return " ".join(parts) if parts else '<span style="color:#98A7BA;">--</span>'
 
     @staticmethod
     def _set_stage_summary_labels(labels, rows) -> None:
