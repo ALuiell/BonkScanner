@@ -141,7 +141,7 @@ def _set_release_notes_content(notes: QTextEdit, release_notes: str) -> None:
         set_html = getattr(notes, "setHtml", None)
         if callable(set_html):
             try:
-                set_html(_format_release_notes_html(release_notes))
+                set_html(release_notes)
                 return
             except Exception:
                 pass
@@ -161,39 +161,6 @@ def _looks_like_html(text: str) -> bool:
     if not isinstance(text, str):
         return False
     return re.search(r"<[A-Za-z][^>]*>", text) is not None
-
-
-def _format_release_notes_html(release_notes: str) -> str:
-    if not isinstance(release_notes, str):
-        return ""
-
-    formatted = release_notes.strip()
-    styled_tags = {
-        "h2": "margin:0 0 14px 0; padding-bottom:10px; color:#0f172a; "
-        "font-size:22px; font-weight:700; border-bottom:1px solid #dbe4f0;",
-        "h3": "margin:18px 0 8px 0; color:#1d4ed8; font-size:15px; "
-        "font-weight:700; letter-spacing:0.6px; text-transform:uppercase;",
-        "p": "margin:0 0 10px 0;",
-        "ul": "margin:0 0 8px 0; padding-left:20px;",
-        "li": "margin:0 0 8px 0;",
-        "code": "font-family:'Consolas','Courier New',monospace; font-size:12px; "
-        "background-color:#e8eefc; color:#1e3a8a; padding:2px 6px; border-radius:4px;",
-    }
-    for tag, style in styled_tags.items():
-        formatted = re.sub(
-            rf"<{tag}\b[^>]*>",
-            f'<{tag} style="{style}">',
-            formatted,
-            flags=re.IGNORECASE,
-        )
-
-    return (
-        "<div style=\"font-family:'Segoe UI',sans-serif; font-size:13px; "
-        "line-height:1.5; color:#1f2937; background-color:#f8fafc; "
-        "padding:16px 18px;\">"
-        f"{formatted}"
-        "</div>"
-    )
 
 
 def _download_and_apply_update(exe_path, download_url):
