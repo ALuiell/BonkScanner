@@ -4,6 +4,7 @@ import ctypes
 import datetime
 import html
 import os
+import re
 import sys
 import threading
 import time
@@ -1062,6 +1063,158 @@ class NativeHookWarningDialog(QDialog):
         self.reject()
 
 
+class HelpDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("BonkScanner Help")
+        self.resize(700, 620)
+        self.setMinimumSize(560, 420)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        title = QLabel("Quick Help")
+        title.setObjectName("SectionHeader")
+        layout.addWidget(title)
+
+        subtitle = QLabel(
+            "Practical notes for BonkScanner's main features, common workflows, and non-obvious behavior."
+        )
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet("color: #AAB4C4;")
+        layout.addWidget(subtitle)
+
+        tabs = QTabWidget()
+        tabs.addTab(self._build_language_tab("docs/help/help_eng.txt", self._fallback_eng_text()), "ENG")
+        tabs.addTab(self._build_language_tab("docs/help/help_ukr.txt", self._fallback_ukr_text()), "UA")
+        tabs.addTab(self._build_language_tab("docs/help/help_ru.txt", self._fallback_ru_text()), "RU")
+        layout.addWidget(tabs, 1)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch(1)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        button_row.addWidget(close_btn)
+        layout.addLayout(button_row)
+
+    def _build_language_tab(self, relative_path: str, fallback_text: str) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        content = QTextEdit()
+        content.setReadOnly(True)
+        content.setHtml(self._render_help_html(self._load_help_text(relative_path, fallback_text)))
+        layout.addWidget(content)
+        return tab
+
+    @staticmethod
+    def _load_help_text(relative_path: str, fallback_text: str) -> str:
+        help_path = Path(resource_path(relative_path))
+        try:
+            return help_path.read_text(encoding="utf-8")
+        except OSError:
+            return fallback_text
+
+    @staticmethod
+    def _render_help_html(text: str) -> str:
+        lines = text.splitlines()
+        parts = [
+            "<div style='font-size:13px; line-height:1.5; color:#DCE4EF;'>",
+        ]
+        in_list = False
+        in_numbered_list = False
+
+        def close_lists() -> None:
+            nonlocal in_list, in_numbered_list
+            if in_list:
+                parts.append("</ul>")
+                in_list = False
+            if in_numbered_list:
+                parts.append("</ol>")
+                in_numbered_list = False
+
+        for index, raw_line in enumerate(lines):
+            line = raw_line.rstrip()
+            stripped = line.strip()
+            next_line = lines[index + 1].rstrip() if index + 1 < len(lines) else ""
+
+            if not stripped:
+                close_lists()
+                parts.append("<div style='height:8px;'></div>")
+                continue
+
+            if set(stripped) == {"="} or set(stripped) == {"-"}:
+                continue
+
+            escaped = HelpDialog._format_inline_help_text(stripped)
+
+            if next_line and set(next_line.strip()) == {"="}:
+                close_lists()
+                parts.append(
+                    f"<h2 style='color:#F3F4F6; margin:0 0 10px 0; font-size:20px;'>{escaped}</h2>"
+                )
+                continue
+
+            if next_line and set(next_line.strip()) == {"-"}:
+                close_lists()
+                parts.append(
+                    f"<h3 style='color:#D7BF72; margin:10px 0 6px 0; font-size:16px;'>{escaped}</h3>"
+                )
+                continue
+
+            if stripped.startswith("- "):
+                if in_numbered_list:
+                    parts.append("</ol>")
+                    in_numbered_list = False
+                if not in_list:
+                    parts.append("<ul style='margin:2px 0 10px 18px; padding-left:12px;'>")
+                    in_list = True
+                parts.append(f"<li style='margin-bottom:4px;'>{HelpDialog._format_inline_help_text(stripped[2:])}</li>")
+                continue
+
+            if re.match(r"^\d+\.\s+", stripped):
+                if in_list:
+                    parts.append("</ul>")
+                    in_list = False
+                if not in_numbered_list:
+                    parts.append("<ol style='margin:2px 0 10px 18px; padding-left:12px;'>")
+                    in_numbered_list = True
+                item_text = re.sub(r"^\d+\.\s+", "", stripped, count=1)
+                parts.append(f"<li style='margin-bottom:4px;'>{HelpDialog._format_inline_help_text(item_text)}</li>")
+                continue
+
+            close_lists()
+            parts.append(f"<p style='margin:0 0 8px 0;'>{escaped}</p>")
+
+        close_lists()
+        parts.append("</div>")
+        return "".join(parts)
+
+    @staticmethod
+    def _format_inline_help_text(text: str) -> str:
+        escaped = html.escape(text)
+        return re.sub(
+            r"`([^`]+)`",
+            r"<span style='background:#162133; color:#B9D9FF; border:1px solid #29415A; border-radius:4px; padding:1px 4px;'>\1</span>",
+            escaped,
+        )
+
+    @staticmethod
+    def _fallback_ru_text() -> str:
+        return "Файл справки не найден.\n\nПроверьте наличие docs/help/help_ru.txt рядом с приложением."
+
+    @staticmethod
+    def _fallback_eng_text() -> str:
+        return "Help file not found.\n\nPlease check that docs/help/help_eng.txt is present next to the application."
+
+    @staticmethod
+    def _fallback_ukr_text() -> str:
+        return "Файл довідки не знайдено.\n\nПеревірте, що docs/help/help_ukr.txt знаходиться поруч із застосунком."
+
+
 class SettingsDialog(QDialog):
     def __init__(self, parent, master=None):
         super().__init__(parent)
@@ -1433,7 +1586,7 @@ class MegabonkApp:
                     min-height: 34px;
                     font-size: 14px;
                 }
-                QPushButton#SettingsButton {
+                QPushButton#SettingsButton, QPushButton#HelpButton {
                     min-width: 44px;
                     max-width: 44px;
                     min-height: 40px;
@@ -1442,7 +1595,7 @@ class MegabonkApp:
                     background: #2B3A4F;
                     border: 1px solid #41556F;
                 }
-                QPushButton#SettingsButton:hover {
+                QPushButton#SettingsButton:hover, QPushButton#HelpButton:hover {
                     background: #3A4D66;
                     border-color: #58708D;
                 }
@@ -2408,12 +2561,17 @@ class MegabonkApp:
         _apply_button_icon(self.settings_btn, "media/settings_icon.png", 20)
         self.settings_btn.setToolTip("Settings")
         self.settings_btn.clicked.connect(self.open_settings_dialog)
+        self.help_btn = QPushButton("?")
+        self.help_btn.setObjectName("HelpButton")
+        self.help_btn.setToolTip("Help")
+        self.help_btn.clicked.connect(self.open_help_dialog)
         self.status_label = QLabel("Status: IDLE")
         self.status_label.setObjectName("StatusLabel")
         self.toggle_btn = QPushButton(f"Start")
         self.toggle_btn.setObjectName("ToggleButton")
         self.toggle_btn.clicked.connect(self.toggle_main_loop)
         controls.addWidget(self.settings_btn)
+        controls.addWidget(self.help_btn)
         controls.addWidget(self.status_label, 1)
         controls.addWidget(self.toggle_btn)
         right_layout.addLayout(controls)
@@ -2620,6 +2778,10 @@ class MegabonkApp:
 
     def open_settings_dialog(self):
         dialog = SettingsDialog(self.window, master=self)
+        dialog.exec()
+
+    def open_help_dialog(self):
+        dialog = HelpDialog(self.window)
         dialog.exec()
 
     def toggle_game_setting(self, setting_key: str, label: str) -> bool:
