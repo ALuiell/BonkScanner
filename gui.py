@@ -101,6 +101,7 @@ PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
 PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS = 3.0
 PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS = 5.0
 PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS = 300.0
+PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS = 2
 PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
 PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
 PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
@@ -4385,9 +4386,12 @@ class MegabonkApp:
         stage_kill_baselines: dict[int, int] = {1: 0}
         last_known_mob_kills: int | None = None
         current_stage_index = 1
+        item_gain_tracker = None
         previous_snapshot = None
         for snapshot in snapshots:
             snapshot_mob_kills = getattr(snapshot, "mob_kills", None)
+            if item_gain_tracker is None:
+                item_gain_tracker = cls._create_stage_item_gain_tracker(getattr(snapshot, "items", ()))
             if previous_snapshot is not None:
                 previous_stage_index = current_stage_index
                 next_stage_index = cls._resolve_next_stage_index(
@@ -4407,7 +4411,10 @@ class MegabonkApp:
                         baseline = last_known_mob_kills
                     if baseline is not None:
                         stage_kill_baselines[current_stage_index] = max(0, int(baseline))
-                item_gains = cls._item_rarity_gain_between_snapshots(previous_snapshot, snapshot)
+                item_gains = cls._update_stage_item_gain_tracker(
+                    item_gain_tracker,
+                    getattr(snapshot, "items", ()),
+                )
                 for rarity, count in item_gains.items():
                     stage_item_gains[current_stage_index][rarity] += count
             stage_buckets[current_stage_index].append(snapshot)
@@ -4539,6 +4546,49 @@ class MegabonkApp:
             rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
             if rarity in rarity_gains:
                 rarity_gains[rarity] += gain
+        return rarity_gains
+
+    @classmethod
+    def _create_stage_item_gain_tracker(cls, items) -> dict[str, dict[str, int]]:
+        return {
+            "confirmed_counts": cls._item_counts(items),
+            "pending_drop_streaks": {},
+        }
+
+    @classmethod
+    def _update_stage_item_gain_tracker(cls, tracker: dict[str, dict[str, int]], items) -> dict[str, int]:
+        confirmed_counts = tracker.setdefault("confirmed_counts", {})
+        pending_drop_streaks = tracker.setdefault("pending_drop_streaks", {})
+        current_counts = cls._item_counts(items)
+        rarity_gains = cls._empty_item_rarity_totals()
+
+        for name in set(confirmed_counts) | set(current_counts) | set(pending_drop_streaks):
+            current_count = current_counts.get(name, 0)
+            confirmed_count = confirmed_counts.get(name, 0)
+            if current_count >= confirmed_count:
+                pending_drop_streaks.pop(name, None)
+                gain = current_count - confirmed_count
+                if gain > 0:
+                    rarity_name = cls._normalize_item_name_for_rarity(name)
+                    rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
+                    if rarity in rarity_gains:
+                        rarity_gains[rarity] += gain
+                if current_count > 0:
+                    confirmed_counts[name] = current_count
+                else:
+                    confirmed_counts.pop(name, None)
+                continue
+
+            streak = int(pending_drop_streaks.get(name, 0)) + 1
+            if streak >= PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS:
+                pending_drop_streaks.pop(name, None)
+                if current_count > 0:
+                    confirmed_counts[name] = current_count
+                else:
+                    confirmed_counts.pop(name, None)
+                continue
+            pending_drop_streaks[name] = streak
+
         return rarity_gains
 
     @classmethod

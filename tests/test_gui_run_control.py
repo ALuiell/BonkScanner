@@ -1203,17 +1203,19 @@ class GuiRunControlTests(unittest.TestCase):
         rows = gui.MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "200")
-        self.assertEqual(rows[0]["items"], "2")
         self.assertEqual(rows[0]["time"], "01:00")
+        self.assertIn("#60A5FA", rows[0]["items"])
+        self.assertIn(">1</span>", rows[0]["items"])
+        self.assertIn("#22C55E", rows[0]["items"])
         self.assertEqual(rows[1]["kills"], "60")
-        self.assertEqual(rows[1]["items"], "2")
         self.assertEqual(rows[1]["time"], "00:30")
+        self.assertIn("#22C55E", rows[1]["items"])
         self.assertEqual(rows[2]["kills"], "60")
-        self.assertEqual(rows[2]["items"], "0")
         self.assertEqual(rows[2]["time"], "00:30")
+        self.assertIn("#98A7BA", rows[2]["items"])
         self.assertEqual(rows[3]["kills"], "60")
         self.assertEqual(rows[3]["time"], "00:30")
-        self.assertEqual(rows[3]["items"], "3")
+        self.assertIn("#60A5FA", rows[3]["items"])
 
     def test_build_stage_summary_uses_early_new_stage_snapshot_as_previous_boundary(self) -> None:
         snapshots = [
@@ -1424,7 +1426,97 @@ class GuiRunControlTests(unittest.TestCase):
 
         rows = gui.MegabonkApp.build_stage_summary(snapshots)
 
-        self.assertEqual(rows[0]["items"], "5")
+        self.assertIn("#FACC15", rows[0]["items"])
+        self.assertIn("#22C55E", rows[0]["items"])
+
+    def test_build_stage_summary_ignores_single_snapshot_item_drop_recoveries(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=10.0,
+                stage_time_seconds=10.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=10,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=20.0,
+                stage_time_seconds=20.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=20,
+                items=("Za Warudo x1",),
+            ),
+            SimpleNamespace(
+                game_time_seconds=30.0,
+                stage_time_seconds=30.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=30,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=40.0,
+                stage_time_seconds=40.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=40,
+                items=("Za Warudo x1",),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["items"].count("&#9679;"), 1)
+        self.assertIn(">1</span>", rows[0]["items"])
+
+    def test_build_stage_summary_counts_reacquired_items_after_confirmed_consumption(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=10.0,
+                stage_time_seconds=10.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=10,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=20.0,
+                stage_time_seconds=20.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=20,
+                items=("Za Warudo x1",),
+            ),
+            SimpleNamespace(
+                game_time_seconds=30.0,
+                stage_time_seconds=30.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=30,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=40.0,
+                stage_time_seconds=40.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=40,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=50.0,
+                stage_time_seconds=50.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=50,
+                items=("Za Warudo x1",),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertIn(">2</span>", rows[0]["items"])
 
     def test_item_total_count_includes_stacks_and_duplicate_entries(self) -> None:
         total = gui.MegabonkApp._item_total_count(
