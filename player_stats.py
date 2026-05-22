@@ -42,6 +42,21 @@ class WeaponStatFormat(Enum):
 
 
 @dataclass(frozen=True)
+class TomeSnapshot:
+    tome_id: int
+    name: str
+    level: int
+    stat_id: int | None
+    stat_label: str
+    value: float | None
+    value_format: PlayerStatFormat
+
+    @property
+    def display_value(self) -> str:
+        return format_player_stat_value(self.value, self.value_format)
+
+
+@dataclass(frozen=True)
 class PlayerStatSpec:
     label: str
     stat_id: int | None
@@ -160,6 +175,127 @@ WEAPON_STAT_SPECS: dict[int, WeaponStatSpec] = {
     45: WeaponStatSpec("Projectile Bounces", WeaponStatFormat.FLAT),
 }
 
+TOME_NAMES_BY_ID: dict[int, str] = {
+    0: "Damage",
+    1: "Agility",
+    2: "Cooldown",
+    3: "Quantity",
+    4: "Knockback",
+    5: "Armor",
+    6: "Health",
+    7: "Regeneration",
+    8: "Size",
+    9: "Projectile Speed",
+    10: "Duration",
+    11: "Evasion",
+    12: "Attraction",
+    13: "Luck",
+    14: "XP",
+    15: "Golden",
+    16: "Precision",
+    17: "Shield",
+    18: "Blood",
+    19: "Thorns",
+    20: "Bounce",
+    21: "Cursed",
+    22: "Silver",
+    23: "Balance",
+    24: "Chaos",
+    25: "Gambler",
+    26: "Hoarder",
+}
+
+ITEM_ENUM_NAMES_BY_ID: dict[int, str] = {
+    0: "Key",
+    1: "Beer",
+    2: "SpikyShield",
+    3: "Bonker",
+    4: "SlipperyRing",
+    5: "CowardsCloak",
+    6: "GymSauce",
+    7: "Battery",
+    8: "PhantomShroud",
+    9: "ForbiddenJuice",
+    10: "DemonBlade",
+    11: "GrandmasSecretTonic",
+    12: "GiantFork",
+    13: "MoldyCheese",
+    14: "GoldenSneakers",
+    15: "SpicyMeatball",
+    16: "Chonkplate",
+    17: "LightningOrb",
+    18: "IceCube",
+    19: "DemonicBlood",
+    20: "DemonicSoul",
+    21: "BeefyRing",
+    22: "Dragonfire",
+    23: "GoldenGlove",
+    24: "GoldenShield",
+    25: "ZaWarudo",
+    26: "OverpoweredLamp",
+    27: "Feathers",
+    28: "Ghost",
+    29: "SluttyCannon",
+    30: "TurboSocks",
+    31: "ShatteredWisdom",
+    32: "EchoShard",
+    33: "SuckyMagnet",
+    34: "Backpack",
+    35: "Clover",
+    36: "Campfire",
+    37: "Rollerblades",
+    38: "Skuleg",
+    39: "EagleClaw",
+    40: "Scarf",
+    41: "Anvil",
+    42: "Oats",
+    43: "CursedDoll",
+    44: "EnergyCore",
+    45: "ElectricPlug",
+    46: "BobDead",
+    47: "SoulHarvester",
+    48: "Mirror",
+    49: "JoesDagger",
+    50: "WeebHeadset",
+    51: "SpeedBoi",
+    52: "Gasmask",
+    53: "ToxicBarrel",
+    54: "HolyBook",
+    55: "BrassKnuckles",
+    56: "IdleJuice",
+    57: "Kevin",
+    58: "Borgar",
+    59: "Medkit",
+    60: "GamerGoggles",
+    61: "UnstableTransfusion",
+    62: "BloodyCleaver",
+    63: "CreditCardRed",
+    64: "CreditCardGreen",
+    65: "BossBuster",
+    66: "LeechingCrystal",
+    67: "TacticalGlasses",
+    68: "Cactus",
+    69: "CageKey",
+    70: "IceCrystal",
+    71: "TimeBracelet",
+    72: "GloveLightning",
+    73: "GlovePoison",
+    74: "GloveBlood",
+    75: "GloveCurse",
+    76: "GlovePower",
+    77: "Wrench",
+    78: "Beacon",
+    79: "GoldenRing",
+    80: "QuinsMask",
+    81: "CryptKey",
+    82: "OldMask",
+    83: "Snek",
+    84: "Pot",
+    85: "BobsLantern",
+    86: "Pumpkin",
+    87: "WizardsHat",
+}
+
 ITEM_DISPLAY_NAME_BY_RAW_VALUE = {
     "NoImplementation": "Golden Ring",
 }
@@ -222,6 +358,8 @@ class PlayerStatsSnapshot:
     stats: dict[str, PlayerStatValue]
     items: tuple[str, ...] = ()
     weapons: tuple[WeaponSnapshot, ...] = ()
+    tomes: tuple[TomeSnapshot, ...] = ()
+    banishes: tuple[str, ...] = ()
     game_time_seconds: float | None = None
     mob_kills: int | None = None
     player_level: int | None = None
@@ -283,6 +421,8 @@ class PlayerStatsTimeline:
         stats: dict[str, PlayerStatValue],
         items: tuple[str, ...] = (),
         weapons: tuple[WeaponSnapshot, ...] = (),
+        tomes: tuple[TomeSnapshot, ...] = (),
+        banishes: tuple[str, ...] = (),
     ) -> PlayerStatsSnapshot:
         now = self.clock()
         start_time = self.start_time if self.start_time is not None else now
@@ -292,6 +432,8 @@ class PlayerStatsTimeline:
             stats=dict(stats),
             items=tuple(items),
             weapons=tuple(weapons),
+            tomes=tuple(tomes),
+            banishes=tuple(banishes),
         )
         self.snapshots.append(snapshot)
         self.last_snapshot_time = now
@@ -308,6 +450,7 @@ class PlayerStatsClient:
     TYPE_INFO_OFFSET = 0x02F6A4B8
     RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398
     RUN_STATS_TYPE_INFO_OFFSET = 0x02F7A170
+    RUN_UNLOCKABLES_TYPE_INFO_OFFSET = 0x02F7A210
     POTATO_TYPE_INFO_OFFSET = 0x02F6FC78
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
     STATIC_ROOT_OFFSET = 0x0
@@ -318,7 +461,10 @@ class PlayerStatsClient:
     RUN_TIMER_OFFSET = 0x20
     PLAYER_INVENTORY_OFFSET = 0x28
     WEAPON_INVENTORY_OFFSET = 0x28
+    TOME_INVENTORY_OFFSET = 0x48
     WEAPONS_DICT_OFFSET = 0x18
+    TOME_LEVELS_DICT_OFFSET = 0x18
+    TOME_UPGRADES_DICT_OFFSET = 0x28
     WEAPON_DATA_OFFSET = 0x18
     WEAPON_LEVEL_OFFSET = 0x20
     WEAPON_STATS_DICT_OFFSET = 0x28
@@ -352,6 +498,8 @@ class PlayerStatsClient:
     ARRAY_LENGTH_OFFSET = 0x18
     ARRAY_DATA_OFFSET = 0x20
     OBJECT_POINTER_SIZE = 0x8
+    OBJECT_KLASS_OFFSET = 0x0
+    KLASS_NAME_PTR_OFFSET = 0x10
     WEAPON_DICT_ENTRY_SIZE = 0x18
     WEAPON_DICT_ENTRY_KEY_OFFSET = 0x8
     WEAPON_DICT_ENTRY_VALUE_OFFSET = 0x10
@@ -359,9 +507,22 @@ class PlayerStatsClient:
     STAT_DICT_ENTRY_KEY_OFFSET = 0x8
     STAT_DICT_ENTRY_VALUE_OFFSET = 0x0C
     STAT_MODIFIER_STAT_OFFSET = 0x10
+    STAT_MODIFIER_VALUE_OFFSET = 0x18
     RUN_STATS_DICT_OFFSET = 0x0
     RUN_STATS_ENTRY_VALUE_OFFSET = 0x10
     MAX_RUN_STATS_ENTRIES = 256
+    HASHSET_SLOTS_OFFSET = 0x18
+    HASHSET_COUNT_OFFSET = 0x20
+    HASHSET_LAST_INDEX_OFFSET = 0x24
+    HASHSET_SLOT_START_OFFSET = 0x20
+    HASHSET_SLOT_SIZE = 0x10
+    HASHSET_SLOT_HASH_CODE_OFFSET = 0x0
+    HASHSET_SLOT_VALUE_OFFSET = 0x8
+    ITEM_DATA_ENUM_OFFSET = 0x54
+    TOME_DATA_ENUM_OFFSET = 0x50
+    RUN_UNLOCKABLES_BANISHED_ITEMS_OFFSET = 0x0
+    RUN_UNLOCKABLES_BANISHED_UPGRADABLES_OFFSET = 0x8
+    MAX_BANISHED_UNLOCKABLES = 128
 
     def __init__(
         self,
@@ -512,6 +673,73 @@ class PlayerStatsClient:
 
         weapons.sort(key=lambda weapon: weapon.weapon_id)
         return tuple(weapons)
+
+    def get_live_tomes(self, owner_stats: int | None = None) -> tuple[TomeSnapshot, ...]:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        try:
+            player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
+        except MemoryReadError:
+            return ()
+        if not player_inventory:
+            return ()
+
+        try:
+            tome_inventory = self.memory.read_ptr(player_inventory + self.TOME_INVENTORY_OFFSET)
+        except MemoryReadError:
+            return ()
+        if not tome_inventory:
+            return ()
+
+        tome_levels = self._read_tome_levels_dict(
+            self.memory.read_ptr(tome_inventory + self.TOME_LEVELS_DICT_OFFSET)
+        )
+        tome_upgrades = self._read_tome_upgrades_dict(
+            self.memory.read_ptr(tome_inventory + self.TOME_UPGRADES_DICT_OFFSET)
+        )
+        tome_ids = sorted(set(tome_levels) | set(tome_upgrades))
+        snapshots: list[TomeSnapshot] = []
+        for tome_id in tome_ids:
+            upgrade = tome_upgrades.get(tome_id)
+            if upgrade is None:
+                stat_id = None
+                stat_label = "No live upgrade decoded"
+                value = None
+                value_format = PlayerStatFormat.FLAT
+            else:
+                stat_id, stat_label, value, value_format = upgrade
+            snapshots.append(
+                TomeSnapshot(
+                    tome_id=tome_id,
+                    name=TOME_NAMES_BY_ID.get(tome_id, f"Tome {tome_id}"),
+                    level=max(tome_levels.get(tome_id, 0), 0),
+                    stat_id=stat_id,
+                    stat_label=stat_label,
+                    value=value,
+                    value_format=value_format,
+                )
+            )
+        return tuple(snapshots)
+
+    def get_live_banishes(self) -> tuple[str, ...]:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.RUN_UNLOCKABLES_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            return ()
+
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            return ()
+
+        item_set = self.memory.read_ptr(static_fields + self.RUN_UNLOCKABLES_BANISHED_ITEMS_OFFSET)
+        upgradable_set = self.memory.read_ptr(
+            static_fields + self.RUN_UNLOCKABLES_BANISHED_UPGRADABLES_OFFSET
+        )
+        item_banishes = self._read_banished_items_set(item_set)
+        upgradable_banishes = self._read_banished_upgradables_set(upgradable_set)
+        return tuple(item_banishes + upgradable_banishes)
 
     def get_run_timer(self) -> float:
         type_info_address = self.memory.module_offset(
@@ -712,6 +940,64 @@ class PlayerStatsClient:
             )
         return stats
 
+    def _read_tome_levels_dict(self, dictionary_address: int) -> dict[int, int]:
+        if not dictionary_address:
+            return {}
+
+        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return {}
+
+        count = self.memory.read_i32(dictionary_address + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return {}
+        if count > self.MAX_WEAPON_DICT_ENTRIES:
+            raise MemoryReadError(f"Tome levels dictionary count is invalid: {count}")
+
+        levels: dict[int, int] = {}
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.STAT_DICT_ENTRY_SIZE)
+            hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
+            if hash_code < 0:
+                continue
+            tome_id = self.memory.read_i32(entry + self.STAT_DICT_ENTRY_KEY_OFFSET)
+            level = self.memory.read_i32(entry + self.STAT_DICT_ENTRY_VALUE_OFFSET)
+            levels[tome_id] = level
+        return levels
+
+    def _read_tome_upgrades_dict(
+        self,
+        dictionary_address: int,
+    ) -> dict[int, tuple[int, str, float | None, PlayerStatFormat]]:
+        if not dictionary_address:
+            return {}
+
+        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return {}
+
+        count = self.memory.read_i32(dictionary_address + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return {}
+        if count > self.MAX_WEAPON_DICT_ENTRIES:
+            raise MemoryReadError(f"Tome upgrades dictionary count is invalid: {count}")
+
+        upgrades: dict[int, tuple[int, str, float | None, PlayerStatFormat]] = {}
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
+            if hash_code < 0:
+                continue
+            tome_id = self.memory.read_i32(entry + self.WEAPON_DICT_ENTRY_KEY_OFFSET)
+            modifier_ptr = self.memory.read_ptr(entry + self.WEAPON_DICT_ENTRY_VALUE_OFFSET)
+            if not modifier_ptr:
+                continue
+            stat_id = self.memory.read_i32(modifier_ptr + self.STAT_MODIFIER_STAT_OFFSET)
+            value = self.memory.read_float(modifier_ptr + self.STAT_MODIFIER_VALUE_OFFSET)
+            label, value_format = self._resolve_stat_display(stat_id)
+            upgrades[tome_id] = (stat_id, label, value, value_format)
+        return upgrades
+
     def _read_upgrade_stat_ids(self, list_address: int) -> tuple[int, ...]:
         if not list_address:
             return ()
@@ -737,6 +1023,90 @@ class PlayerStatsClient:
                 seen.add(stat_id)
                 stat_ids.append(stat_id)
         return tuple(stat_ids)
+
+    def _read_banished_items_set(self, set_address: int) -> list[str]:
+        values = self._read_hashset_object_values(set_address)
+        banishes: list[str] = []
+        for value in values:
+            try:
+                item_id = self.memory.read_i32(value + self.ITEM_DATA_ENUM_OFFSET)
+            except MemoryReadError:
+                continue
+            raw_name = ITEM_ENUM_NAMES_BY_ID.get(item_id)
+            if raw_name is None:
+                banishes.append(f"Item {item_id}")
+                continue
+            display_name = self._format_item_name(f"Item{raw_name}") or raw_name
+            banishes.append(display_name)
+        return banishes
+
+    def _read_banished_upgradables_set(self, set_address: int) -> list[str]:
+        values = self._read_hashset_object_values(set_address)
+        banishes: list[str] = []
+        for value in values:
+            try:
+                klass = self.memory.read_ptr(value + self.OBJECT_KLASS_OFFSET)
+                name_ptr = self.memory.read_ptr(klass + self.KLASS_NAME_PTR_OFFSET) if klass else 0
+                class_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
+            except MemoryReadError:
+                class_name = None
+
+            if class_name == "TomeData":
+                try:
+                    tome_id = self.memory.read_i32(value + self.TOME_DATA_ENUM_OFFSET)
+                except MemoryReadError:
+                    continue
+                tome_name = TOME_NAMES_BY_ID.get(tome_id, f"Tome {tome_id}")
+                banishes.append(f"{tome_name} Tome")
+                continue
+
+            if class_name:
+                if class_name.endswith("Data"):
+                    class_name = class_name[:-4]
+                banishes.append(class_name)
+        return banishes
+
+    def _read_hashset_object_values(self, set_address: int) -> list[int]:
+        if not set_address:
+            return []
+
+        slots = self.memory.read_ptr(set_address + self.HASHSET_SLOTS_OFFSET)
+        if not slots:
+            return []
+
+        count = self.memory.read_i32(set_address + self.HASHSET_COUNT_OFFSET)
+        if count <= 0:
+            return []
+        if count > self.MAX_BANISHED_UNLOCKABLES:
+            raise MemoryReadError(f"HashSet count is invalid: {count}")
+
+        last_index = self.memory.read_i32(set_address + self.HASHSET_LAST_INDEX_OFFSET)
+        if last_index <= 0:
+            return []
+        if last_index > self.MAX_BANISHED_UNLOCKABLES:
+            raise MemoryReadError(f"HashSet lastIndex is invalid: {last_index}")
+
+        values: list[int] = []
+        for index in range(last_index):
+            slot = slots + self.HASHSET_SLOT_START_OFFSET + (index * self.HASHSET_SLOT_SIZE)
+            hash_code = self.memory.read_i32(slot + self.HASHSET_SLOT_HASH_CODE_OFFSET)
+            if hash_code < 0:
+                continue
+            value = self.memory.read_ptr(slot + self.HASHSET_SLOT_VALUE_OFFSET)
+            if value:
+                values.append(value)
+        return values
+
+    @staticmethod
+    def _resolve_stat_display(stat_id: int) -> tuple[str, PlayerStatFormat]:
+        for group in PLAYER_STAT_GROUPS:
+            for spec in group:
+                if spec.stat_id == stat_id:
+                    return spec.label, spec.value_format
+        weapon_spec = WEAPON_STAT_SPECS.get(stat_id)
+        if weapon_spec is not None:
+            return weapon_spec.label, PlayerStatFormat(weapon_spec.value_format.value)
+        return f"Stat {stat_id}", PlayerStatFormat.FLAT
 
 
 def iter_player_stat_groups(

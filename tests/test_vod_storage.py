@@ -5,7 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from player_stats import WeaponSnapshot, WeaponStatFormat, WeaponStatValue
+from player_stats import (
+    PlayerStatFormat,
+    TomeSnapshot,
+    WeaponSnapshot,
+    WeaponStatFormat,
+    WeaponStatValue,
+)
 from vod_storage import (
     LEGACY_VODS_DIR,
     RECORDINGS_DIR,
@@ -95,6 +101,18 @@ class VodStorageTests(unittest.TestCase):
                         },
                     ),
                 ),
+                (
+                    TomeSnapshot(
+                        tome_id=0,
+                        name="Damage",
+                        level=3,
+                        stat_id=12,
+                        stat_label="Damage",
+                        value=1.25,
+                        value_format=PlayerStatFormat.MULTIPLIER,
+                    ),
+                ),
+                ("Clover", "Golden Tome"),
                 chests_per_minute=1.23,
                 game_time_seconds=21.52338219,
                 mob_kills=37,
@@ -107,6 +125,8 @@ class VodStorageTests(unittest.TestCase):
                     "Armor": SimpleNamespace(value=0.2, display_value="20%"),
                 },
                 ("Wrench x2", "Dice x1"),
+                (),
+                (),
                 (),
                 chests_per_minute=2.34,
                 game_time_seconds=81.75,
@@ -125,12 +145,18 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].weapons[0].name, "Fire Staff")
             self.assertEqual(loaded.snapshots[0].weapons[0].upgraded_stats[12].display_value, "10")
             self.assertEqual(loaded.snapshots[0].weapons[0].upgraded_stats[11].display_value, "0.6x")
+            self.assertEqual(loaded.snapshots[0].tomes[0].name, "Damage")
+            self.assertEqual(loaded.snapshots[0].tomes[0].level, 3)
+            self.assertEqual(loaded.snapshots[0].tomes[0].display_value, "1.25x")
+            self.assertEqual(loaded.snapshots[0].banishes, ("Clover", "Golden Tome"))
             self.assertEqual(loaded.snapshots[0].chests_per_minute, 1.23)
             self.assertAlmostEqual(loaded.snapshots[0].game_time_seconds, 21.52338219)
             self.assertEqual(loaded.snapshots[0].mob_kills, 37)
             self.assertEqual(loaded.snapshots[0].player_level, 2)
             self.assertEqual(loaded.snapshots[1].items, ("Wrench x2", "Dice x1"))
             self.assertEqual(loaded.snapshots[1].weapons, ())
+            self.assertEqual(loaded.snapshots[1].tomes, ())
+            self.assertEqual(loaded.snapshots[1].banishes, ())
             self.assertEqual(loaded.snapshots[1].chests_per_minute, 2.34)
             self.assertAlmostEqual(loaded.snapshots[1].game_time_seconds, 81.75)
             self.assertEqual(loaded.snapshots[1].mob_kills, 12)
@@ -253,6 +279,8 @@ class VodStorageTests(unittest.TestCase):
             self.assertIsNone(loaded.snapshots[0].game_time_seconds)
             self.assertIsNone(loaded.snapshots[0].mob_kills)
             self.assertEqual(loaded.snapshots[0].weapons, ())
+            self.assertEqual(loaded.snapshots[0].tomes, ())
+            self.assertEqual(loaded.snapshots[0].banishes, ())
 
     def test_delete_vods_below_snapshot_count_removes_only_short_recordings(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -67,7 +67,13 @@ import updater
 from game_data import GameDataClient
 from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
-from player_stats import PLAYER_STAT_GROUPS, PlayerStatsClient, WeaponSnapshot, calculate_chests_per_minute
+from player_stats import (
+    PLAYER_STAT_GROUPS,
+    PlayerStatsClient,
+    TomeSnapshot,
+    WeaponSnapshot,
+    calculate_chests_per_minute,
+)
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 from runtime_stats import adapt_map_stats
 from vod_storage import VodRecorder, delete_vod, delete_vods_below_snapshot_count, list_vods, load_vod, rename_vod
@@ -1621,6 +1627,8 @@ class MegabonkApp:
         self.player_stats_items_expanded = False
         self.player_stats_items_current = ()
         self.player_stats_items_text_current = None
+        self.player_stats_banishes_label = None
+        self.player_stats_live_banishes = ()
         self.player_stats_in_game_time_label = None
         self.player_stats_chests_per_minute_label = None
         self.player_stats_mob_kills_label = None
@@ -1631,6 +1639,10 @@ class MegabonkApp:
         self.player_stats_weapons_layout = None
         self.player_stats_weapon_cards = []
         self.player_stats_weapon_signature = None
+        self.player_stats_tomes_status_label = None
+        self.player_stats_tomes_layout = None
+        self.player_stats_tome_cards = []
+        self.player_stats_tome_signature = None
         self.vods_list_frame = None
         self.vods_status_label = None
         self.vods_name_entry = None
@@ -1648,6 +1660,7 @@ class MegabonkApp:
         self.vods_items_expanded = False
         self.vods_items_current = ()
         self.vods_items_text_current = None
+        self.vods_banishes_label = None
         self.vods_in_game_time_label = None
         self.vods_chests_per_minute_label = None
         self.vods_mob_kills_label = None
@@ -1658,6 +1671,10 @@ class MegabonkApp:
         self.vods_weapons_layout = None
         self.vods_weapon_cards = []
         self.vods_weapon_signature = None
+        self.vods_tomes_status_label = None
+        self.vods_tomes_layout = None
+        self.vods_tome_cards = []
+        self.vods_tome_signature = None
         self.status_label = None
         self.toggle_btn = None
         self.logo_label = None
@@ -2147,7 +2164,14 @@ class MegabonkApp:
         self.player_stats_new_items_label.setTextFormat(Qt.RichText)
         self.player_stats_new_items_label.setWordWrap(True)
         live_new_items_layout.addWidget(self.player_stats_new_items_label)
-        live_summary_grid.addWidget(live_new_items_group, 0, 2, 1, 2)
+        live_summary_grid.addWidget(live_new_items_group, 0, 2)
+        live_banishes_group = QGroupBox("Banishes")
+        live_banishes_layout = QVBoxLayout(live_banishes_group)
+        self.player_stats_banishes_label = QLabel("No banishes yet")
+        self.player_stats_banishes_label.setTextFormat(Qt.RichText)
+        self.player_stats_banishes_label.setWordWrap(True)
+        live_banishes_layout.addWidget(self.player_stats_banishes_label)
+        live_summary_grid.addWidget(live_banishes_group, 0, 3)
         for column in range(4):
             live_summary_grid.setColumnStretch(column, 1)
         player_content_layout.addLayout(live_summary_grid)
@@ -2186,11 +2210,22 @@ class MegabonkApp:
         player_weapons_scroll_layout.setContentsMargins(0, 0, 0, 0)
         self.player_stats_weapons_layout = player_weapons_scroll_layout
         weapons_tab_layout.addWidget(player_weapons_scroll)
+        tomes_tab = QWidget()
+        tomes_tab_layout = QVBoxLayout(tomes_tab)
+        self.player_stats_tomes_status_label = QLabel("Waiting for tome data...")
+        self.player_stats_tomes_status_label.setWordWrap(True)
+        tomes_tab_layout.addWidget(self.player_stats_tomes_status_label)
+        player_tomes_scroll, _player_tomes_scroll_content, player_tomes_scroll_layout = _make_scroll_section()
+        player_tomes_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.player_stats_tomes_layout = player_tomes_scroll_layout
+        tomes_tab_layout.addWidget(player_tomes_scroll)
         self.player_stats_detail_tabs.addTab(player_stats_tab, "Stats")
         self.player_stats_detail_tabs.addTab(weapons_tab, "Weapons")
+        self.player_stats_detail_tabs.addTab(tomes_tab, "Tomes")
         player_content_layout.addWidget(self.player_stats_detail_tabs)
         player_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
         weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
+        tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
         self.tabview.addTab(self.tab_player_stats, "Live Stats")
 
         self.tab_vods = QWidget()
@@ -2303,7 +2338,14 @@ class MegabonkApp:
         self.vods_new_items_label.setTextFormat(Qt.RichText)
         self.vods_new_items_label.setWordWrap(True)
         vod_new_items_layout.addWidget(self.vods_new_items_label)
-        vod_summary_grid.addWidget(vod_new_items_group, 0, 2, 1, 2)
+        vod_summary_grid.addWidget(vod_new_items_group, 0, 2)
+        vod_banishes_group = QGroupBox("Banishes")
+        vod_banishes_layout = QVBoxLayout(vod_banishes_group)
+        self.vods_banishes_label = QLabel("No banishes yet")
+        self.vods_banishes_label.setTextFormat(Qt.RichText)
+        self.vods_banishes_label.setWordWrap(True)
+        vod_banishes_layout.addWidget(self.vods_banishes_label)
+        vod_summary_grid.addWidget(vod_banishes_group, 0, 3)
         for column in range(4):
             vod_summary_grid.setColumnStretch(column, 1)
         vods_detail_layout.addLayout(vod_summary_grid)
@@ -2341,10 +2383,21 @@ class MegabonkApp:
         vod_weapons_scroll_layout.setContentsMargins(0, 0, 0, 0)
         self.vods_weapons_layout = vod_weapons_scroll_layout
         vod_weapons_tab_layout.addWidget(vod_weapons_scroll)
+        vod_tomes_tab = QWidget()
+        vod_tomes_tab_layout = QVBoxLayout(vod_tomes_tab)
+        self.vods_tomes_status_label = QLabel("Select a recording")
+        self.vods_tomes_status_label.setWordWrap(True)
+        vod_tomes_tab_layout.addWidget(self.vods_tomes_status_label)
+        vod_tomes_scroll, _vod_tomes_scroll_content, vod_tomes_scroll_layout = _make_scroll_section()
+        vod_tomes_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.vods_tomes_layout = vod_tomes_scroll_layout
+        vod_tomes_tab_layout.addWidget(vod_tomes_scroll)
         self.vods_detail_tabs.addTab(vod_stats_tab, "Stats")
         self.vods_detail_tabs.addTab(vod_weapons_tab, "Weapons")
+        self.vods_detail_tabs.addTab(vod_tomes_tab, "Tomes")
         vod_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
+        vod_tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
         vods_detail_layout.addWidget(self.vods_detail_tabs, 1)
         vods_layout.addWidget(vods_detail, 2)
         self.tabview.addTab(self.tab_vods, "Recordings")
@@ -2850,12 +2903,20 @@ class MegabonkApp:
         _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
         _set_text(self.player_stats_level_label, "Level: --")
         _set_text(self.player_stats_new_items_label, "Live snapshot")
+        _set_text(self.player_stats_banishes_label, "No banishes yet")
+        self.player_stats_live_banishes = ()
         self._set_stage_summary_labels(self.player_stats_stage_summary_labels, None)
         self.player_stats_weapon_signature = None
         self.display_weapon_cards(
             (),
             scope="live",
             status_text="Waiting for weapon data...",
+        )
+        self.player_stats_tome_signature = None
+        self.display_tome_cards(
+            (),
+            scope="live",
+            status_text="Waiting for tome data...",
         )
 
     def _read_live_player_stats_data(self):
@@ -2864,6 +2925,10 @@ class MegabonkApp:
         items_available = True
         weapons: tuple[WeaponSnapshot, ...] = ()
         weapons_available = False
+        tomes: tuple[TomeSnapshot, ...] = ()
+        tomes_available = False
+        banishes: tuple[str, ...] = ()
+        banishes_available = False
         run_timer_seconds = None
         stage_timer_seconds = None
         mob_kills = None
@@ -2887,6 +2952,26 @@ class MegabonkApp:
             except Exception:
                 weapons = ()
                 weapons_available = False
+            try:
+                client = self._get_player_stats_client()
+                tomes = client.get_live_tomes(owner_stats)
+                tomes_available = True
+            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+                tomes = ()
+                tomes_available = False
+            except Exception:
+                tomes = ()
+                tomes_available = False
+            try:
+                client = self._get_player_stats_client()
+                banishes = client.get_live_banishes()
+                banishes_available = True
+            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+                banishes = ()
+                banishes_available = False
+            except Exception:
+                banishes = ()
+                banishes_available = False
         try:
             client = self._get_player_stats_client()
             run_timer_seconds = client.get_run_timer()
@@ -2933,6 +3018,10 @@ class MegabonkApp:
             items_available,
             weapons,
             weapons_available,
+            tomes,
+            tomes_available,
+            banishes,
+            banishes_available,
             run_timer_seconds,
             stage_timer_seconds,
             mob_kills,
@@ -2955,6 +3044,10 @@ class MegabonkApp:
                 items_available,
                 weapons,
                 weapons_available,
+                tomes,
+                tomes_available,
+                banishes,
+                banishes_available,
                 run_timer_seconds,
                 stage_timer_seconds,
                 mob_kills,
@@ -2973,6 +3066,11 @@ class MegabonkApp:
 
         chests_per_minute = self.calculate_player_chests_per_minute(stats)
         items_text = None if items_available else "Items unavailable"
+        if banishes_available:
+            banishes = self.merge_banish_appearance_order(self.player_stats_live_banishes, banishes)
+            self.player_stats_live_banishes = banishes
+        else:
+            banishes = self.player_stats_live_banishes
         is_live_tab_active = self._is_live_stats_tab_active()
 
         if self.player_stats_vod_recorder.should_capture():
@@ -2980,6 +3078,8 @@ class MegabonkApp:
                 stats,
                 items if items_available else (),
                 weapons if weapons_available else (),
+                tomes if tomes_available else (),
+                banishes if banishes_available else (),
                 chests_per_minute=chests_per_minute,
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
@@ -3002,7 +3102,10 @@ class MegabonkApp:
                     stats,
                     items,
                     weapons=weapons if weapons_available else (),
+                    tomes=tomes if tomes_available else (),
+                    banishes=banishes if banishes_available else (),
                     weapons_available=weapons_available,
+                    tomes_available=tomes_available,
                     status_text="Live player stats (recording)",
                     chests_per_minute=chests_per_minute,
                     items_text=items_text,
@@ -3018,7 +3121,10 @@ class MegabonkApp:
                 stats,
                 items,
                 weapons=weapons if weapons_available else (),
+                tomes=tomes if tomes_available else (),
+                banishes=banishes if banishes_available else (),
                 weapons_available=weapons_available,
+                tomes_available=tomes_available,
                 status_text=status_text,
                 chests_per_minute=chests_per_minute,
                 items_text=items_text,
@@ -3035,7 +3141,10 @@ class MegabonkApp:
         items=(),
         *,
         weapons=(),
+        tomes=(),
+        banishes=(),
         weapons_available: bool = True,
+        tomes_available: bool = True,
         status_text: str | None = None,
         chests_per_minute: float | None = None,
         items_text: str | None = None,
@@ -3074,11 +3183,17 @@ class MegabonkApp:
             _set_text(self.player_stats_new_items_label, new_items_text)
         else:
             _set_text(self.player_stats_new_items_label, "Live snapshot")
+        _set_text(self.player_stats_banishes_label, self.format_banishes_rich_text(banishes))
         self._set_stage_summary_labels(self.player_stats_stage_summary_labels, stage_summary_rows)
         self.display_weapon_cards(
             weapons if weapons_available else (),
             scope="live",
             status_text=None if weapons_available else "Weapons unavailable",
+        )
+        self.display_tome_cards(
+            tomes if tomes_available else (),
+            scope="live",
+            status_text=None if tomes_available else "Tomes unavailable",
         )
 
     def display_player_stats_snapshot(self, snapshot, *, items_text: str | None = None):
@@ -3088,6 +3203,8 @@ class MegabonkApp:
             snapshot.stats,
             snapshot.items,
             weapons=getattr(snapshot, "weapons", ()),
+            tomes=getattr(snapshot, "tomes", ()),
+            banishes=getattr(snapshot, "banishes", ()),
             status_text=(
                 f"Recorded snapshot {index}/{total} at {snapshot.time_label}"
                 f" | {self.format_in_game_time(snapshot.game_time_seconds)}"
@@ -3461,9 +3578,12 @@ class MegabonkApp:
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
             _set_text(self.vods_level_label, "Level: --")
             _set_text(self.vods_new_items_label, "No previous snapshot")
+            _set_text(self.vods_banishes_label, "No banishes yet")
             self._set_stage_summary_labels(self.vods_stage_summary_labels, None)
             self.vods_weapon_signature = None
             self.display_weapon_cards((), scope="vod", status_text="No weapon data in this recording")
+            self.vods_tome_signature = None
+            self.display_tome_cards((), scope="vod", status_text="No tome data in this recording")
 
     def display_loaded_vod_snapshot(self, index: int):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
@@ -3513,7 +3633,12 @@ class MegabonkApp:
             self.vods_new_items_label,
             self.format_snapshot_new_items(previous_snapshot, snapshot),
         )
+        _set_text(
+            self.vods_banishes_label,
+            self.format_banishes_rich_text(getattr(snapshot, "banishes", ())),
+        )
         self.display_weapon_cards(getattr(snapshot, "weapons", ()), scope="vod")
+        self.display_tome_cards(getattr(snapshot, "tomes", ()), scope="vod")
 
     def on_vods_slider_changed(self, value):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
@@ -3554,9 +3679,12 @@ class MegabonkApp:
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
         _set_text(self.vods_level_label, "Level: --")
         _set_text(self.vods_new_items_label, "No previous snapshot")
+        _set_text(self.vods_banishes_label, "No banishes yet")
         self._set_stage_summary_labels(self.vods_stage_summary_labels, None)
         self.vods_weapon_signature = None
         self.display_weapon_cards((), scope="vod", status_text="Select a recording")
+        self.vods_tome_signature = None
+        self.display_tome_cards((), scope="vod", status_text="Select a recording")
 
     def cleanup_recordings_by_snapshot_count(self):
         dialog = CleanupRecordingsDialog(self.window)
@@ -3820,6 +3948,91 @@ class MegabonkApp:
             for weapon in weapons
         )
 
+    def display_tome_cards(self, tomes, *, scope: str, status_text: str | None = None) -> None:
+        prefix = self._scope_prefix(scope)
+        layout_attr = f"{prefix}_tomes_layout"
+        status_attr = f"{prefix}_tomes_status_label"
+        cards_attr = f"{prefix}_tome_cards"
+        signature_attr = f"{prefix}_tome_signature"
+
+        layout = getattr(self, layout_attr, None)
+        status_label = getattr(self, status_attr, None)
+        if layout is None or status_label is None:
+            return
+
+        tomes = tuple(tomes or ())
+        signature = self._tome_signature(tomes)
+        if getattr(self, signature_attr, None) == signature and status_text is None:
+            return
+
+        setattr(self, signature_attr, signature)
+        _clear_layout(layout)
+        setattr(self, cards_attr, [])
+
+        if status_text is not None:
+            _set_text(status_label, status_text)
+        else:
+            _set_text(status_label, "" if tomes else "No tomes available")
+
+        if not tomes:
+            return
+
+        cards = []
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+        for index, tome in enumerate(tomes):
+            card = self._build_tome_card(tome)
+            grid.addWidget(card, index // 2, index % 2)
+            cards.append(card)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        layout.addLayout(grid)
+        layout.addStretch(1)
+        setattr(self, cards_attr, cards)
+
+    def _build_tome_card(self, tome: TomeSnapshot) -> QFrame:
+        card = QFrame()
+        card.setObjectName("StatCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        tome_name_label = QLabel(tome.name)
+        tome_name_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        tome_level_label = QLabel(f"Lv. {tome.level}")
+        tome_level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        tome_level_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        header_layout.addWidget(tome_name_label, 1)
+        header_layout.addWidget(tome_level_label)
+        layout.addLayout(header_layout)
+
+        rows = QFormLayout()
+        rows.setContentsMargins(0, 0, 0, 0)
+        rows.setVerticalSpacing(6)
+        value_label = QLabel(tome.display_value)
+        value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        rows.addRow(tome.stat_label, value_label)
+        layout.addLayout(rows)
+        return card
+
+    @staticmethod
+    def _tome_signature(tomes) -> tuple:
+        return tuple(
+            (
+                tome.tome_id,
+                tome.level,
+                tome.stat_id,
+                tome.stat_label,
+                tome.display_value,
+            )
+            for tome in tomes
+        )
+
     @staticmethod
     def format_duration(seconds: int) -> str:
         return MegabonkApp.format_elapsed_time(seconds)
@@ -3884,7 +4097,33 @@ class MegabonkApp:
     def format_new_items_rich_text(cls, items) -> str:
         if not items:
             return "No new items since previous snapshot"
-        return ", ".join(f"+ {cls._format_single_item_rich_text(item)}" for item in items)
+        return ", ".join(cls._format_single_item_rich_text(item) for item in items)
+
+    @classmethod
+    def format_banishes_rich_text(cls, banishes) -> str:
+        banishes = tuple(str(item) for item in (banishes or ()))
+        if not banishes:
+            return "No banishes yet"
+        return ", ".join(cls._format_single_banish_rich_text(item) for item in banishes)
+
+    @classmethod
+    def _format_single_banish_rich_text(cls, banish_text: str) -> str:
+        if banish_text.endswith(" Tome"):
+            tome_name = html.escape(banish_text)
+            return f'<span style="font-weight: 700;">{tome_name}</span>'
+        return cls._format_single_item_rich_text(banish_text)
+
+    @staticmethod
+    def merge_banish_appearance_order(previous_banishes, current_banishes) -> tuple[str, ...]:
+        current = tuple(str(item) for item in (current_banishes or ()))
+        if not current:
+            return ()
+        previous = tuple(str(item) for item in (previous_banishes or ()))
+        merged = [item for item in previous if item in current]
+        for item in current:
+            if item not in merged:
+                merged.append(item)
+        return tuple(merged)
 
     @classmethod
     def _item_counts(cls, items) -> dict[str, int]:
