@@ -27,7 +27,7 @@ This document serves as a comprehensive guide for the Megabonk Reroll project. I
 
 ### Core Files:
 - **`main.py`**: The application entry point. Initializes the GUI.
-- **`gui.py`**: Contains the `MegabonkApp` class. Manages the main window, log output, session statistics, and configuration dialogs.
+- **`gui.py` + `gui_*` modules**: `gui.py` is the compatibility facade; `gui_app.py` defines `MegabonkApp`, while `gui_layout.py`, `gui_run_control.py`, `gui_templates.py`, `gui_player_stats.py`, `gui_scanner.py`, `gui_dialogs.py`, `gui_shared.py`, and `gui_styles.py` split the PySide6 UI responsibilities.
 - **`game_data.py`**: High-level memory client (`GameDataClient`). Defines offsets for the interactables dictionary in the game memory and maps them to readable stats.
 - **`logic.py`**: Evaluation engine.
     - `find_matching_template`: Logic for "Templates" mode.
@@ -75,7 +75,7 @@ If the game updates, the `TYPE_INFO_OFFSET` in `game_data.py` is the most likely
 4.  Update `logic.py` to include the new stat in scoring or template matching.
 
 ### UI Modifications
-The project uses a grid layout. Most UI changes should happen in `gui.py`. Remember to update `update_status_ui` if adding new states to the background loop.
+The project uses a grid layout. Most UI changes should happen in the focused `gui_*` module for that feature, with `gui.py` kept as a compatibility facade. Remember to update `update_status_ui` if adding new states to the background loop.
 
 ---
 
