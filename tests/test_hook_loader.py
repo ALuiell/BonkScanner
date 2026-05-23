@@ -7,7 +7,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from hook_loader import HookLoadError, HookLoadResult, HookProcessNotReadyError, NativeHookLoader
+from hook_loader import HookDllAccessError, HookLoadError, HookLoadResult, HookProcessNotReadyError, NativeHookLoader
 
 
 _MISSING = object()
@@ -143,6 +143,12 @@ class NativeHookLoaderTests(unittest.TestCase):
             finally:
                 restore_sys_attr("frozen", old_frozen)
                 restore_sys_attr("_MEIPASS", old_meipass)
+
+    def test_file_digest_raises_hook_dll_access_error_for_missing_file(self) -> None:
+        missing_path = Path("C:/definitely-missing/BonkHook.dll")
+
+        with self.assertRaises(HookDllAccessError):
+            NativeHookLoader._file_digest(missing_path)
 
     def test_inject_once_skips_pid_that_was_already_injected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

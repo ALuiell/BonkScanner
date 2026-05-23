@@ -613,6 +613,34 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertFalse(app._native_hook_admin_warning_logged)
 
+    def test_enable_hook_run_control_falls_back_to_keyboard_and_shows_dialog_when_dll_is_blocked(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        dialogs: list[str] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.native_hook_loader = None
+        app.native_hook_thread = None
+        app.native_hook_generation = 0
+        app.run_control_provider = object()
+        app._native_hook_admin_warning_logged = False
+        app._native_hook_error_dialog_visible = False
+        app.native_hook_loop = lambda *_args: None
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: True
+        app.after_idle = lambda callback: callback()
+        app.show_native_hook_error_dialog = lambda exc: dialogs.append(str(exc))
+
+        error = gui.HookDllAccessError("blocked")
+
+        with patch.object(gui, "NativeHookLoader", side_effect=error):
+            gui.MegabonkApp.enable_hook_run_control(app)
+
+        self.assertIsInstance(app.run_control_provider, KeyboardRunControlProvider)
+        self.assertEqual(dialogs, ["blocked"])
+        self.assertIn(
+            ("[WAIT] Native helper is unavailable. Switching to keyboard restart.", "warning"),
+            logs,
+        )
+
     def test_hook_mode_bypasses_game_window_focus_wait(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.run_control_provider = HookRunControlProvider(object(), map_load_delay=0)

@@ -66,7 +66,13 @@ import config
 import logic
 import updater
 from game_data import GameDataClient
-from hook_loader import HookLoadError, HookProcessNotFoundError, HookProcessNotReadyError, NativeHookLoader
+from hook_loader import (
+    HookDllAccessError,
+    HookLoadError,
+    HookProcessNotFoundError,
+    HookProcessNotReadyError,
+    NativeHookLoader,
+)
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from player_stats import (
     PLAYER_STAT_GROUPS,
@@ -1858,6 +1864,7 @@ class MegabonkApp:
         self.native_hook_generation = 0
         self.run_control_provider = None
         self._native_hook_admin_warning_logged = False
+        self._native_hook_error_dialog_visible = False
         self.checkboxes = {}
         self.scores_checkboxes = {}
         self.animation_active = False
@@ -1987,11 +1994,15 @@ class MegabonkApp:
         self.warn_if_native_hook_needs_admin()
 
         dll_path = getattr(config, "NATIVE_HOOK_DLL_PATH", "") or None
-        self.native_hook_loader = NativeHookLoader(
-            config.PROCESS_NAME,
-            dll_path=dll_path,
-            base_path=config.application_path,
-        )
+        try:
+            self.native_hook_loader = NativeHookLoader(
+                config.PROCESS_NAME,
+                dll_path=dll_path,
+                base_path=config.application_path,
+            )
+        except HookLoadError as exc:
+            self.handle_native_hook_unavailable(exc)
+            return
         self.run_control_provider = HookRunControlProvider(
             self.native_hook_loader,
             map_load_delay=lambda: config.MIN_DELAY,
@@ -2005,6 +2016,48 @@ class MegabonkApp:
         )
         self.native_hook_thread.start()
         self.log("[*] Game restart helper enabled.")
+
+    def handle_native_hook_unavailable(self, exc: Exception) -> None:
+        self.native_hook_loader = None
+        self.native_hook_thread = None
+        self.enable_keyboard_run_control()
+        self.log("[WAIT] Native helper is unavailable. Switching to keyboard restart.", tag="warning")
+        self.log(f"[WAIT] Details: {exc}", tag="warning")
+        self.after_idle(lambda: self.show_native_hook_error_dialog(exc))
+
+    def show_native_hook_error_dialog(self, exc: Exception) -> None:
+        if self._native_hook_error_dialog_visible:
+            return
+
+        self._native_hook_error_dialog_visible = True
+        try:
+            message_box = QMessageBox(self.window)
+            message_box.setIcon(QMessageBox.Warning)
+            message_box.setWindowTitle("Native Helper Blocked")
+            message_box.setText("BonkScanner could not access BonkHook.dll.")
+            message_box.setInformativeText(
+                "This usually means your antivirus or another security tool "
+                "quarantined or blocked the native helper."
+            )
+            instructions = (
+                "What happened:\n"
+                "BonkScanner uses BonkHook.dll for native restart control. Windows security software "
+                "appears to have blocked or removed that file.\n\n"
+                "What to do:\n"
+                "1. Open your antivirus or Windows Security.\n"
+                "2. Check quarantine / protection history.\n"
+                "3. Restore BonkHook.dll or BonkScanner.exe if it was quarantined.\n"
+                "4. Allow the file on this device or add an exclusion for the app folder.\n"
+                "5. Restart BonkScanner after restoring the file.\n\n"
+                "BonkScanner has switched to keyboard restart mode for now."
+            )
+            if isinstance(exc, HookDllAccessError):
+                instructions += f"\n\nDetails:\n{exc}"
+            message_box.setDetailedText(instructions)
+            message_box.setStandardButtons(QMessageBox.Ok)
+            message_box.exec()
+        finally:
+            self._native_hook_error_dialog_visible = False
 
     def native_hook_loop(self, loader: NativeHookLoader, generation: int):
         if loader is None:
@@ -2033,6 +2086,8 @@ class MegabonkApp:
                 self.stop_event.wait(1.0)
             except HookLoadError as exc:
                 self.log(f"[-] Could not connect game restart helper. Details: {exc}", tag="error")
+                if isinstance(exc, HookDllAccessError):
+                    self.handle_native_hook_unavailable(exc)
                 return
             except Exception as exc:
                 self.log(f"[-] Unexpected restart helper error. Details: {exc}", tag="error")

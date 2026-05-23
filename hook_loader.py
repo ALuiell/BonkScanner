@@ -26,6 +26,10 @@ class HookProcessNotReadyError(HookLoadError):
     """Raised when the target process exists but the game runtime is not hook-safe yet."""
 
 
+class HookDllAccessError(HookLoadError):
+    """Raised when the native hook DLL cannot be accessed, often due to antivirus quarantine."""
+
+
 @dataclass(frozen=True)
 class HookLoadResult:
     pid: int
@@ -153,7 +157,12 @@ class NativeHookLoader:
     @classmethod
     def _resolve_persistent_bundled_dll(cls, bundled_dll: Path) -> Path:
         if not bundled_dll.exists():
-            return bundled_dll
+            raise HookDllAccessError(
+                cls._format_dll_access_error(
+                    bundled_dll,
+                    "The bundled native helper DLL is missing.",
+                )
+            )
 
         cache_root = cls._persistent_hook_cache_dir()
         cache_root.mkdir(parents=True, exist_ok=True)
@@ -194,7 +203,14 @@ class NativeHookLoader:
                     temp_target.unlink()
             except OSError:
                 pass
-            return target_path if target_path.exists() else None
+            if target_path.exists():
+                return target_path
+            raise HookDllAccessError(
+                cls._format_dll_access_error(
+                    source_path,
+                    "Could not copy the bundled native helper DLL.",
+                )
+            )
 
     @staticmethod
     def _same_file_contents(source_path: Path, target_path: Path) -> bool:
@@ -210,10 +226,20 @@ class NativeHookLoader:
     @staticmethod
     def _file_digest(path: Path) -> str:
         digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-                digest.update(chunk)
+        try:
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError as exc:
+            raise HookDllAccessError(NativeHookLoader._format_dll_access_error(path, str(exc))) from exc
         return digest.hexdigest()
+
+    @staticmethod
+    def _format_dll_access_error(path: Path, detail: str) -> str:
+        return (
+            f"Could not access native helper DLL '{path}'. {detail} "
+            "Antivirus software may have quarantined or blocked the file."
+        )
 
     def inject_once(self) -> HookLoadResult:
         with self._operation_lock:
