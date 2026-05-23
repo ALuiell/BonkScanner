@@ -13,7 +13,7 @@ time, FPS stability, CPU usage, RAM usage, and disk activity.
 ## Important observation from current code
 
 - `Live Stats` does not refresh every frame. It refreshes on a `10,000 ms`
-  timer in `gui.py`.
+  timer in `gui_player_stats.py`.
 - Recording does not continuously stream to disk. It captures on the configured
   snapshot interval and flushes every few snapshots.
 - Scanner load is the most likely continuous CPU contributor because its map
