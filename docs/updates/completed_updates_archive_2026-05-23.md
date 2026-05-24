@@ -2,8 +2,8 @@
 
 Date: 2026-05-23
 
-This file archives completed items that were previously tracked in
-`F:\Python\MegabonkReroll\docs\future_updates_2026-05-13.md`.
+This file archives completed items from the old future-updates notes, which are
+now split across the files in `F:\Python\MegabonkReroll\docs\updates\`.
 
 Status legend:
 
