@@ -1471,23 +1471,20 @@ class PlayerStatsMixin:
         broken = changes["broken"]
         lost = changes["lost"]
         total = sum(gain for _name, gain in gains)
-        rows = [
-            (
-                f'<span style="color:#98A7BA;">Items:</span> '
-                f'{cls.format_item_gain_rarity_totals(gains)} '
-                f'<span style="color:#98A7BA;">+{cls.format_count(total)}</span>'
-            ),
-        ]
+        items_summary = cls.format_item_gain_rarity_totals(gains)
+        if total > 0:
+            items_summary = f'{items_summary} <span style="color:#98A7BA;">+{cls.format_count(total)}</span>'
+        rows = [f'<span style="color:#98A7BA;">Items:</span> {items_summary}']
         time_delta = cls._snapshot_time_delta(previous_snapshot, snapshot)
         if time_delta is not None:
             rows.append(f'<span style="color:#98A7BA;">Time:</span> {cls.format_elapsed_time(time_delta)}')
 
         kill_delta = cls._snapshot_int_delta(previous_snapshot, snapshot, "mob_kills")
-        if kill_delta is not None:
+        if kill_delta is not None and kill_delta > 0:
             rows.append(f'<span style="color:#98A7BA;">Kills:</span> +{cls.format_count(kill_delta)}')
 
         level_delta = cls._snapshot_int_delta(previous_snapshot, snapshot, "player_level")
-        if level_delta is not None:
+        if level_delta is not None and level_delta > 0:
             rows.append(f'<span style="color:#98A7BA;">Levels:</span> +{cls.format_count(level_delta)}')
 
         return "<br>".join(rows)
@@ -1685,7 +1682,7 @@ class PlayerStatsMixin:
     @classmethod
     def format_item_loss_inline(cls, losses: tuple[tuple[str, int], ...]) -> str:
         if not losses:
-            return '<span style="color:#98A7BA;">none</span>'
+            return '<span style="color:#98A7BA;">--</span>'
         return " | ".join(
             f'<span style="color:#E5E7EB;">{html.escape(cls._normalize_item_name_for_display(name))} -{cls.format_count(count)}</span>'
             for name, count in losses
@@ -1710,7 +1707,7 @@ class PlayerStatsMixin:
                 f'<span style="color:{color}; font-weight:800;">&#9679;</span> '
                 f'<span style="color:#E5E7EB;">{cls.format_count(total)}</span>'
             )
-        return " ".join(parts) if parts else '<span style="color:#98A7BA;">none</span>'
+        return " ".join(parts) if parts else '<span style="color:#98A7BA;">--</span>'
 
     @classmethod
     def format_snapshot_compare_summary(
@@ -1730,10 +1727,10 @@ class PlayerStatsMixin:
         if base_time is not None and current_time is not None:
             pieces.append(f"{cls.format_elapsed_time(base_time)} -> {cls.format_elapsed_time(current_time)}")
         kill_delta = cls._snapshot_int_delta(base_snapshot, snapshot, "mob_kills")
-        if kill_delta is not None:
+        if kill_delta is not None and kill_delta > 0:
             pieces.append(f"+{cls.format_count(kill_delta)} kills")
         level_delta = cls._snapshot_int_delta(base_snapshot, snapshot, "player_level")
-        if level_delta is not None:
+        if level_delta is not None and level_delta > 0:
             pieces.append(f"+{cls.format_count(level_delta)} levels")
         changes = cls.summarize_item_segment_changes(segment_snapshots or (base_snapshot, snapshot))
         item_total = sum(gain for _name, gain in changes["gained"])

@@ -2040,6 +2040,25 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertNotIn("Broken:</span>", result)
         self.assertNotIn("Za Warudo -1", result)
 
+    def test_format_snapshot_item_gains_preview_hides_zero_item_total(self) -> None:
+        base = SimpleNamespace(
+            game_time_seconds=120.0,
+            mob_kills=100,
+            player_level=4,
+            items=("Wrench x1",),
+        )
+        current = SimpleNamespace(
+            game_time_seconds=150.0,
+            mob_kills=110,
+            player_level=4,
+            items=("Wrench x1",),
+        )
+
+        result = gui.MegabonkApp.format_snapshot_item_gains_preview(base, current)
+
+        self.assertIn("Items:</span> <span style=\"color:#98A7BA;\">--</span>", result)
+        self.assertNotIn("+0", result)
+
     def test_format_snapshot_item_changes_details_separates_gained_broken_and_lost(self) -> None:
         base = SimpleNamespace(items=("Wrench x1",))
         middle = SimpleNamespace(items=("Wrench x1", "Za Warudo x1", "Key x3"))

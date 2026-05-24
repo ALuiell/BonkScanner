@@ -33,6 +33,14 @@ from PySide6.QtWidgets import (
 import config
 from player_stats import PLAYER_STAT_GROUPS
 
+SUMMARY_LABEL_PADDING_STYLESHEET = "padding-left: 4px;"
+
+
+def _apply_summary_label_padding(*labels) -> None:
+    for label in labels:
+        label.setStyleSheet(SUMMARY_LABEL_PADDING_STYLESHEET)
+
+
 class GuiLayoutMixin:
 
     def setup_ui(self):
@@ -273,6 +281,12 @@ class GuiLayoutMixin:
         chest_rate_layout.addWidget(self.player_stats_mob_kills_label)
         self.player_stats_level_label = QLabel("Level: --")
         chest_rate_layout.addWidget(self.player_stats_level_label)
+        _apply_summary_label_padding(
+            self.player_stats_chests_per_minute_label,
+            self.player_stats_in_game_time_label,
+            self.player_stats_mob_kills_label,
+            self.player_stats_level_label,
+        )
         live_summary_grid.addWidget(chest_rate_group, 0, 0)
         live_stage_summary_group = QGroupBox("Stage Summary")
         live_stage_summary_layout = QGridLayout(live_stage_summary_group)
@@ -294,6 +308,7 @@ class GuiLayoutMixin:
             stage_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             for value_label in (time_label, kills_label, items_label):
                 value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            _apply_summary_label_padding(stage_label, time_label, kills_label, items_label)
             live_stage_summary_layout.addWidget(stage_label, index + 1, 0)
             live_stage_summary_layout.addWidget(time_label, index + 1, 1)
             live_stage_summary_layout.addWidget(kills_label, index + 1, 2)
@@ -316,6 +331,7 @@ class GuiLayoutMixin:
         self.player_stats_new_items_label = QLabel("Live snapshot")
         self.player_stats_new_items_label.setTextFormat(Qt.RichText)
         self.player_stats_new_items_label.setWordWrap(True)
+        _apply_summary_label_padding(self.player_stats_new_items_label)
         live_new_items_layout.addWidget(self.player_stats_new_items_label)
         live_summary_grid.addWidget(live_new_items_group, 0, 2)
         live_banishes_group = QGroupBox("Banishes")
@@ -323,6 +339,7 @@ class GuiLayoutMixin:
         self.player_stats_banishes_label = QLabel("No banishes yet")
         self.player_stats_banishes_label.setTextFormat(Qt.RichText)
         self.player_stats_banishes_label.setWordWrap(True)
+        _apply_summary_label_padding(self.player_stats_banishes_label)
         live_banishes_layout.addWidget(self.player_stats_banishes_label)
         live_summary_grid.addWidget(live_banishes_group, 0, 3)
         for column in range(4):
@@ -467,6 +484,12 @@ class GuiLayoutMixin:
         vod_chest_rate_layout.addWidget(self.vods_mob_kills_label)
         self.vods_level_label = QLabel("Level: --")
         vod_chest_rate_layout.addWidget(self.vods_level_label)
+        _apply_summary_label_padding(
+            self.vods_chests_per_minute_label,
+            self.vods_in_game_time_label,
+            self.vods_mob_kills_label,
+            self.vods_level_label,
+        )
         vod_summary_grid.addWidget(vod_chest_rate_group, 0, 0)
         vod_stage_summary_group = QGroupBox("Stage Summary")
         vod_stage_summary_layout = QGridLayout(vod_stage_summary_group)
@@ -488,6 +511,7 @@ class GuiLayoutMixin:
             stage_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             for value_label in (time_label, kills_label, items_label):
                 value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            _apply_summary_label_padding(stage_label, time_label, kills_label, items_label)
             vod_stage_summary_layout.addWidget(stage_label, index + 1, 0)
             vod_stage_summary_layout.addWidget(time_label, index + 1, 1)
             vod_stage_summary_layout.addWidget(kills_label, index + 1, 2)
@@ -510,6 +534,7 @@ class GuiLayoutMixin:
         self.vods_new_items_label = QLabel("No previous snapshot")
         self.vods_new_items_label.setTextFormat(Qt.RichText)
         self.vods_new_items_label.setWordWrap(True)
+        _apply_summary_label_padding(self.vods_new_items_label)
         vod_new_items_layout.addWidget(self.vods_new_items_label)
         self.vods_compare_details_btn = QPushButton("Show details")
         self.vods_compare_details_btn.setProperty("class", "SmallGhostButton")
@@ -522,6 +547,7 @@ class GuiLayoutMixin:
         self.vods_banishes_label = QLabel("No banishes yet")
         self.vods_banishes_label.setTextFormat(Qt.RichText)
         self.vods_banishes_label.setWordWrap(True)
+        _apply_summary_label_padding(self.vods_banishes_label)
         vod_banishes_layout.addWidget(self.vods_banishes_label)
         vod_summary_grid.addWidget(vod_banishes_group, 0, 3)
         for column in range(4):
@@ -534,6 +560,10 @@ class GuiLayoutMixin:
         self.vods_compare_details_items_label = QLabel("--")
         self.vods_compare_details_items_label.setTextFormat(Qt.RichText)
         self.vods_compare_details_items_label.setWordWrap(True)
+        _apply_summary_label_padding(
+            self.vods_compare_details_summary_label,
+            self.vods_compare_details_items_label,
+        )
         vod_compare_details_layout.addWidget(self.vods_compare_details_summary_label)
         vod_compare_scroll, _vod_compare_scroll_content, vod_compare_scroll_layout = _make_scroll_section()
         vod_compare_scroll.setMinimumHeight(120)
