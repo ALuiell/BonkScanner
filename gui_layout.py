@@ -1,0 +1,626 @@
+from __future__ import annotations
+
+import os
+
+from gui_shared import _apply_button_icon, _make_scroll_section, resource_path
+from gui_styles import (
+    ITEM_SORT_LABELS,
+    PLAYER_STATS_VALUE_WIDTH,
+    _session_stats_label_stylesheet,
+)
+
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QFrame,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QPushButton,
+    QSlider,
+    QSplitter,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+import config
+from player_stats import PLAYER_STAT_GROUPS
+
+class GuiLayoutMixin:
+
+    def setup_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        root_layout = QVBoxLayout(central)
+        root_layout.setContentsMargins(10, 10, 10, 10)
+        root_layout.setSpacing(10)
+
+        self._build_header(root_layout)
+
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        root_layout.addWidget(splitter, 1)
+
+        self._build_left_tabs(splitter)
+        right_layout = self._build_right_panel(splitter)
+        self._build_logs_tab()
+        self._build_session_stats_tab()
+        self._build_live_stats_tab()
+        self._build_recordings_tab()
+        self._build_footer_controls(right_layout)
+
+    def _build_header(self, root_layout):
+        header_wrap = QWidget()
+        header = QVBoxLayout(header_wrap)
+        header.setContentsMargins(0, 4, 0, 8)
+        header.setSpacing(6)
+        header.setAlignment(Qt.AlignHCenter)
+
+        title = QLabel("BonkScanner")
+        title.setObjectName("SectionHeader")
+        title.setAlignment(Qt.AlignHCenter)
+        header.addWidget(title, 0, Qt.AlignHCenter)
+
+        logo_label = QLabel()
+        self.logo_label = logo_label
+        logo_label.setAlignment(Qt.AlignHCenter)
+        logo_path = resource_path("media/bonkscanner_icon2.png")
+        if os.path.exists(logo_path):
+            pixmap = QPixmap(logo_path)
+            if not pixmap.isNull():
+                logo_label.setPixmap(
+                    pixmap.scaled(72, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
+            else:
+                logo_label.setText("BONK")
+        else:
+            logo_label.setText("BONK")
+        header.addWidget(logo_label, 0, Qt.AlignHCenter)
+        root_layout.addWidget(header_wrap)
+
+
+    def _build_left_tabs(self, splitter):
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        splitter.addWidget(left_panel)
+
+        self.left_tabview = QTabWidget()
+        self.left_tabview.currentChanged.connect(self.on_left_tab_changed)
+        left_layout.addWidget(self.left_tabview)
+
+        self.tab_templates = QWidget()
+        templates_layout = QVBoxLayout(self.tab_templates)
+        self.scrollable_templates, _templates_content, self.template_layout = _make_scroll_section()
+        templates_layout.addWidget(self.scrollable_templates, 1)
+        template_buttons = QHBoxLayout()
+        self.add_btn = QPushButton("+ Add")
+        self.add_btn.clicked.connect(self.add_template_dialog)
+        self.edit_btn = QPushButton("Edit")
+        self.edit_btn.clicked.connect(self.edit_template_dialog)
+        self.del_btn = QPushButton("Delete")
+        self.del_btn.setObjectName("DangerButton")
+        self.del_btn.clicked.connect(self.del_template_dialog)
+        template_buttons.addWidget(self.add_btn)
+        template_buttons.addWidget(self.edit_btn)
+        template_buttons.addWidget(self.del_btn)
+        template_buttons.addStretch(1)
+        templates_layout.addLayout(template_buttons)
+        self.left_tabview.addTab(self.tab_templates, "Templates")
+
+        self.tab_scores = QWidget()
+        scores_layout = QVBoxLayout(self.tab_scores)
+        scores_group = QGroupBox("Active Tiers")
+        self.scores_templates_layout = QVBoxLayout(scores_group)
+        scores_layout.addWidget(scores_group)
+        self.scores_desc_label = QTextEdit()
+        self.scores_desc_label.setReadOnly(True)
+        scores_layout.addWidget(self.scores_desc_label, 1)
+        scores_buttons = QHBoxLayout()
+        self.edit_scores_btn = QPushButton("Edit Settings")
+        _apply_button_icon(self.edit_scores_btn, "media/settings_icon.png", 18)
+        self.edit_scores_btn.clicked.connect(self.open_scores_settings_dialog)
+        scores_buttons.addWidget(self.edit_scores_btn)
+        scores_buttons.addStretch(1)
+        scores_layout.addLayout(scores_buttons)
+        self.left_tabview.addTab(self.tab_scores, "Scores")
+        self.left_tabview.setCurrentIndex(1 if config.EVALUATION_MODE == "scores" else 0)
+
+
+    def _build_right_panel(self, splitter):
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        splitter.addWidget(right_panel)
+        splitter.setSizes([360, 900])
+
+        self.tabview = QTabWidget()
+        self.tabview.currentChanged.connect(self.on_right_tab_changed)
+        right_layout.addWidget(self.tabview, 1)
+
+        return right_layout
+
+    def _build_logs_tab(self):
+        self.tab_logs = QWidget()
+        logs_layout = QVBoxLayout(self.tab_logs)
+        self.log_box = QTextEdit()
+        self.log_box.setReadOnly(True)
+        self.log_box.setFont(QFont("Consolas", 11))
+        logs_layout.addWidget(self.log_box)
+        self.tabview.addTab(self.tab_logs, "Logs")
+
+
+    def _build_session_stats_tab(self):
+        self.tab_stats = QWidget()
+        stats_layout = QVBoxLayout(self.tab_stats)
+        stats_scroll, _stats_content, stats_content_layout = _make_scroll_section()
+        stats_layout.addWidget(stats_scroll)
+        self.stats_time_label = QLabel("Session Time: 00:00:00")
+        self.stats_rerolls_label = QLabel("Session Rerolls: 0")
+        self.stats_rpm_label = QLabel("Rerolls per Minute (RPM): 0.0")
+        self.stats_best_label = QLabel("Best Map Found: None")
+        self.stats_worst_label = QLabel("Worst Map Found: None")
+
+        overview_group = QGroupBox("Session Overview")
+        overview_layout = QVBoxLayout(overview_group)
+        overview_layout.setContentsMargins(12, 12, 12, 12)
+        overview_layout.setSpacing(8)
+        for widget in (
+            self.stats_time_label,
+            self.stats_rerolls_label,
+            self.stats_rpm_label,
+        ):
+            widget.setWordWrap(True)
+            widget.setStyleSheet(_session_stats_label_stylesheet(accent=True))
+            overview_layout.addWidget(widget)
+        stats_content_layout.addWidget(overview_group)
+
+        maps_group = QGroupBox("Map Highlights")
+        maps_layout = QVBoxLayout(maps_group)
+        maps_layout.setContentsMargins(12, 12, 12, 12)
+        maps_layout.setSpacing(10)
+        for widget in (
+            self.stats_best_label,
+            self.stats_worst_label,
+        ):
+            widget.setWordWrap(True)
+            widget.setStyleSheet(_session_stats_label_stylesheet())
+            maps_layout.addWidget(widget)
+        stats_content_layout.addWidget(maps_group)
+
+        average_group = QGroupBox("Average Rerolls per Target")
+        average_layout = QVBoxLayout(average_group)
+        average_layout.setContentsMargins(12, 12, 12, 12)
+        average_layout.setSpacing(8)
+        self.stats_avg_frame = QWidget()
+        self.stats_avg_layout = QVBoxLayout(self.stats_avg_frame)
+        self.stats_avg_layout.setContentsMargins(0, 0, 0, 0)
+        self.stats_avg_layout.setSpacing(6)
+        average_layout.addWidget(self.stats_avg_frame)
+        stats_content_layout.addWidget(average_group)
+        stats_content_layout.addStretch(1)
+        self.tabview.addTab(self.tab_stats, "Session Stats")
+
+
+    def _build_live_stats_tab(self):
+        self.tab_player_stats = QWidget()
+        player_layout = QVBoxLayout(self.tab_player_stats)
+        player_scroll, _player_content, player_content_layout = _make_scroll_section()
+        player_layout.addWidget(player_scroll)
+        self.player_stats_status_label = QLabel("Waiting for game...")
+        player_content_layout.addWidget(self.player_stats_status_label)
+        player_controls = QHBoxLayout()
+        self.player_stats_record_btn = QPushButton(f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})")
+        self.player_stats_record_btn.clicked.connect(self.toggle_player_stats_recording)
+        self.player_stats_timeline_label = QLabel("Live stats")
+        player_controls.addWidget(self.player_stats_record_btn)
+        player_controls.addStretch(1)
+        player_controls.addWidget(self.player_stats_timeline_label)
+        player_content_layout.addLayout(player_controls)
+        self.player_stats_slider = QSlider(Qt.Horizontal)
+        self.player_stats_slider.setEnabled(False)
+        self.player_stats_slider.valueChanged.connect(self.on_player_stats_slider_changed)
+        player_content_layout.addWidget(self.player_stats_slider)
+        self.player_stats_slider_time_label = QLabel("Timeline: live stats")
+        player_content_layout.addWidget(self.player_stats_slider_time_label)
+        items_group = QGroupBox("Items")
+        self.player_stats_items_group = items_group
+        items_layout = QVBoxLayout(items_group)
+        self.player_stats_items_label = QLabel("--")
+        self.player_stats_items_label.setTextFormat(Qt.RichText)
+        self.player_stats_items_label.setWordWrap(True)
+        items_layout.addWidget(self.player_stats_items_label)
+        self.player_stats_items_toggle_btn = QPushButton("Show all")
+        self.player_stats_items_toggle_btn.clicked.connect(self.toggle_player_items_expanded)
+        self.player_stats_items_toggle_btn.setProperty("class", "SmallGhostButton")
+        self.player_stats_items_toggle_btn.setVisible(False)
+        items_actions = QHBoxLayout()
+        self.player_stats_items_rarity_label = QLabel("")
+        self.player_stats_items_rarity_label.setTextFormat(Qt.RichText)
+        self.player_stats_items_rarity_label.setStyleSheet("font-size: 14px;")
+        self.player_stats_items_rarity_label.setVisible(False)
+        self.player_stats_items_sort_combo = QComboBox()
+        for mode, label in ITEM_SORT_LABELS.items():
+            self.player_stats_items_sort_combo.addItem(label, mode)
+        self.player_stats_items_sort_combo.currentIndexChanged.connect(
+            lambda _index: self.on_items_sort_changed("live")
+        )
+        items_actions.addWidget(self.player_stats_items_toggle_btn, 0, Qt.AlignLeft)
+        items_actions.addWidget(self.player_stats_items_rarity_label, 0, Qt.AlignLeft)
+        items_actions.addStretch(1)
+        items_actions.addWidget(QLabel("Sort:"))
+        items_actions.addWidget(self.player_stats_items_sort_combo)
+        items_layout.addLayout(items_actions)
+        player_content_layout.addWidget(items_group)
+        live_summary_grid = QGridLayout()
+        live_summary_grid.setContentsMargins(0, 0, 0, 0)
+        live_summary_grid.setHorizontalSpacing(8)
+        live_summary_grid.setVerticalSpacing(8)
+        chest_rate_group = QGroupBox("Run Summary")
+        chest_rate_layout = QVBoxLayout(chest_rate_group)
+        self.player_stats_chests_per_minute_label = QLabel("Average chests/min: --")
+        chest_rate_layout.addWidget(self.player_stats_chests_per_minute_label)
+        self.player_stats_in_game_time_label = QLabel("In-Game Time: --")
+        chest_rate_layout.addWidget(self.player_stats_in_game_time_label)
+        self.player_stats_mob_kills_label = QLabel("Mob Kills: --")
+        chest_rate_layout.addWidget(self.player_stats_mob_kills_label)
+        self.player_stats_level_label = QLabel("Level: --")
+        chest_rate_layout.addWidget(self.player_stats_level_label)
+        live_summary_grid.addWidget(chest_rate_group, 0, 0)
+        live_stage_summary_group = QGroupBox("Stage Summary")
+        live_stage_summary_layout = QGridLayout(live_stage_summary_group)
+        live_stage_summary_layout.setContentsMargins(10, 10, 10, 10)
+        live_stage_summary_layout.setHorizontalSpacing(10)
+        live_stage_summary_layout.setVerticalSpacing(4)
+        for column, header in enumerate(("Stage", "Time", "Kills", "Items")):
+            label = QLabel(header)
+            label.setStyleSheet("font-weight: 700; color: #F3F4F6;")
+            label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            live_stage_summary_layout.addWidget(label, 0, column)
+        self.player_stats_stage_summary_labels = []
+        for index in range(4):
+            stage_label = QLabel(str(index + 1))
+            time_label = QLabel("--")
+            kills_label = QLabel("--")
+            items_label = QLabel("--")
+            items_label.setTextFormat(Qt.RichText)
+            stage_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            for value_label in (time_label, kills_label, items_label):
+                value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            live_stage_summary_layout.addWidget(stage_label, index + 1, 0)
+            live_stage_summary_layout.addWidget(time_label, index + 1, 1)
+            live_stage_summary_layout.addWidget(kills_label, index + 1, 2)
+            live_stage_summary_layout.addWidget(items_label, index + 1, 3)
+            self.player_stats_stage_summary_labels.append(
+                {
+                    "stage": stage_label,
+                    "time": time_label,
+                    "kills": kills_label,
+                    "items": items_label,
+                }
+            )
+        live_stage_summary_layout.setColumnStretch(0, 1)
+        live_stage_summary_layout.setColumnStretch(1, 2)
+        live_stage_summary_layout.setColumnStretch(2, 1)
+        live_stage_summary_layout.setColumnStretch(3, 1)
+        live_summary_grid.addWidget(live_stage_summary_group, 0, 1)
+        live_new_items_group = QGroupBox("New Items")
+        live_new_items_layout = QVBoxLayout(live_new_items_group)
+        self.player_stats_new_items_label = QLabel("Live snapshot")
+        self.player_stats_new_items_label.setTextFormat(Qt.RichText)
+        self.player_stats_new_items_label.setWordWrap(True)
+        live_new_items_layout.addWidget(self.player_stats_new_items_label)
+        live_summary_grid.addWidget(live_new_items_group, 0, 2)
+        live_banishes_group = QGroupBox("Banishes")
+        live_banishes_layout = QVBoxLayout(live_banishes_group)
+        self.player_stats_banishes_label = QLabel("No banishes yet")
+        self.player_stats_banishes_label.setTextFormat(Qt.RichText)
+        self.player_stats_banishes_label.setWordWrap(True)
+        live_banishes_layout.addWidget(self.player_stats_banishes_label)
+        live_summary_grid.addWidget(live_banishes_group, 0, 3)
+        for column in range(4):
+            live_summary_grid.setColumnStretch(column, 1)
+        player_content_layout.addLayout(live_summary_grid)
+        self.player_stats_detail_tabs = QTabWidget()
+        player_stats_tab = QWidget()
+        player_stats_tab_layout = QVBoxLayout(player_stats_tab)
+        player_stats_scroll, _player_stats_scroll_content, player_stats_scroll_layout = _make_scroll_section()
+        player_stats_tab_layout.addWidget(player_stats_scroll)
+        player_stats_grid = QGridLayout()
+        player_stats_grid.setContentsMargins(0, 0, 0, 0)
+        player_stats_grid.setHorizontalSpacing(8)
+        player_stats_grid.setVerticalSpacing(8)
+        for index, group in enumerate(PLAYER_STAT_GROUPS):
+            stat_group = QFrame()
+            stat_group.setObjectName("StatCard")
+            group_layout = QFormLayout(stat_group)
+            group_layout.setContentsMargins(10, 10, 10, 10)
+            group_layout.setVerticalSpacing(6)
+            for spec in group:
+                value_label = QLabel("--")
+                value_label.setMinimumWidth(PLAYER_STATS_VALUE_WIDTH)
+                value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.player_stats_rows[spec.label] = value_label
+                group_layout.addRow(spec.label, value_label)
+            player_stats_grid.addWidget(stat_group, index // 2, index % 2)
+        player_stats_grid.setColumnStretch(0, 1)
+        player_stats_grid.setColumnStretch(1, 1)
+        player_stats_scroll_layout.addLayout(player_stats_grid)
+        player_stats_scroll_layout.addStretch(1)
+        weapons_tab = QWidget()
+        weapons_tab_layout = QVBoxLayout(weapons_tab)
+        self.player_stats_weapons_status_label = QLabel("Waiting for weapon data...")
+        self.player_stats_weapons_status_label.setWordWrap(True)
+        weapons_tab_layout.addWidget(self.player_stats_weapons_status_label)
+        player_weapons_scroll, _player_weapons_scroll_content, player_weapons_scroll_layout = _make_scroll_section()
+        player_weapons_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.player_stats_weapons_layout = player_weapons_scroll_layout
+        weapons_tab_layout.addWidget(player_weapons_scroll)
+        tomes_tab = QWidget()
+        tomes_tab_layout = QVBoxLayout(tomes_tab)
+        self.player_stats_tomes_status_label = QLabel("Waiting for tome data...")
+        self.player_stats_tomes_status_label.setWordWrap(True)
+        tomes_tab_layout.addWidget(self.player_stats_tomes_status_label)
+        player_tomes_scroll, _player_tomes_scroll_content, player_tomes_scroll_layout = _make_scroll_section()
+        player_tomes_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.player_stats_tomes_layout = player_tomes_scroll_layout
+        tomes_tab_layout.addWidget(player_tomes_scroll)
+        self.player_stats_detail_tabs.addTab(player_stats_tab, "Stats")
+        self.player_stats_detail_tabs.addTab(weapons_tab, "Weapons")
+        self.player_stats_detail_tabs.addTab(tomes_tab, "Tomes")
+        player_content_layout.addWidget(self.player_stats_detail_tabs)
+        player_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
+        weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
+        tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
+        self.tabview.addTab(self.tab_player_stats, "Live Stats")
+
+
+    def _build_recordings_tab(self):
+        self.tab_vods = QWidget()
+        vods_layout = QHBoxLayout(self.tab_vods)
+        self.vods_list_frame = QListWidget()
+        self.vods_list_frame.currentItemChanged.connect(self._on_vod_selection_changed)
+        vods_layout.addWidget(self.vods_list_frame, 1)
+        vods_detail = QWidget()
+        vods_detail_layout = QVBoxLayout(vods_detail)
+        self.vods_status_label = QLabel("Select a recording")
+        vods_detail_layout.addWidget(self.vods_status_label)
+        name_row = QHBoxLayout()
+        self.vods_name_entry = QLineEdit()
+        self.vods_rename_btn = QPushButton("Rename")
+        self.vods_rename_btn.clicked.connect(self.rename_selected_vod)
+        self.vods_cleanup_btn = QPushButton("Clean Short")
+        self.vods_cleanup_btn.clicked.connect(self.cleanup_recordings_by_snapshot_count)
+        self.vods_delete_btn = QPushButton("Delete")
+        self.vods_delete_btn.setObjectName("DangerButton")
+        self.vods_delete_btn.clicked.connect(self.delete_selected_vod)
+        name_row.addWidget(self.vods_name_entry, 1)
+        name_row.addWidget(self.vods_rename_btn)
+        name_row.addWidget(self.vods_cleanup_btn)
+        name_row.addWidget(self.vods_delete_btn)
+        vods_detail_layout.addLayout(name_row)
+        self.vods_slider = QSlider(Qt.Horizontal)
+        self.vods_slider.setEnabled(False)
+        self.vods_slider.valueChanged.connect(self.on_vods_slider_changed)
+        vods_detail_layout.addWidget(self.vods_slider)
+        self.vods_slider_time_label = QLabel("Timeline: --")
+        vods_detail_layout.addWidget(self.vods_slider_time_label)
+        vod_items_group = QGroupBox("Items")
+        self.vods_items_group = vod_items_group
+        vod_items_layout = QVBoxLayout(vod_items_group)
+        self.vods_items_label = QLabel("--")
+        self.vods_items_label.setTextFormat(Qt.RichText)
+        self.vods_items_label.setWordWrap(True)
+        vod_items_layout.addWidget(self.vods_items_label)
+        self.vods_items_toggle_btn = QPushButton("Show all")
+        self.vods_items_toggle_btn.clicked.connect(self.toggle_vod_items_expanded)
+        self.vods_items_toggle_btn.setProperty("class", "SmallGhostButton")
+        self.vods_items_toggle_btn.setVisible(False)
+        vod_items_actions = QHBoxLayout()
+        self.vods_items_rarity_label = QLabel("")
+        self.vods_items_rarity_label.setTextFormat(Qt.RichText)
+        self.vods_items_rarity_label.setStyleSheet("font-size: 14px;")
+        self.vods_items_rarity_label.setVisible(False)
+        self.vods_items_sort_combo = QComboBox()
+        for mode, label in ITEM_SORT_LABELS.items():
+            self.vods_items_sort_combo.addItem(label, mode)
+        self.vods_items_sort_combo.currentIndexChanged.connect(
+            lambda _index: self.on_items_sort_changed("vod")
+        )
+        vod_items_actions.addWidget(self.vods_items_toggle_btn, 0, Qt.AlignLeft)
+        vod_items_actions.addWidget(self.vods_items_rarity_label, 0, Qt.AlignLeft)
+        vod_items_actions.addStretch(1)
+        vod_items_actions.addWidget(QLabel("Sort:"))
+        vod_items_actions.addWidget(self.vods_items_sort_combo)
+        vod_items_layout.addLayout(vod_items_actions)
+        vods_detail_layout.addWidget(vod_items_group)
+        vod_summary_grid = QGridLayout()
+        vod_summary_grid.setContentsMargins(0, 0, 0, 0)
+        vod_summary_grid.setHorizontalSpacing(8)
+        vod_summary_grid.setVerticalSpacing(8)
+        vod_chest_rate_group = QGroupBox("Run Summary")
+        vod_chest_rate_layout = QVBoxLayout(vod_chest_rate_group)
+        self.vods_chests_per_minute_label = QLabel("Average chests/min: --")
+        vod_chest_rate_layout.addWidget(self.vods_chests_per_minute_label)
+        self.vods_in_game_time_label = QLabel("In-Game Time: --")
+        vod_chest_rate_layout.addWidget(self.vods_in_game_time_label)
+        self.vods_mob_kills_label = QLabel("Mob Kills: --")
+        vod_chest_rate_layout.addWidget(self.vods_mob_kills_label)
+        self.vods_level_label = QLabel("Level: --")
+        vod_chest_rate_layout.addWidget(self.vods_level_label)
+        vod_summary_grid.addWidget(vod_chest_rate_group, 0, 0)
+        vod_stage_summary_group = QGroupBox("Stage Summary")
+        vod_stage_summary_layout = QGridLayout(vod_stage_summary_group)
+        vod_stage_summary_layout.setContentsMargins(10, 10, 10, 10)
+        vod_stage_summary_layout.setHorizontalSpacing(10)
+        vod_stage_summary_layout.setVerticalSpacing(4)
+        for column, header in enumerate(("Stage", "Time", "Kills", "Items")):
+            label = QLabel(header)
+            label.setStyleSheet("font-weight: 700; color: #F3F4F6;")
+            label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            vod_stage_summary_layout.addWidget(label, 0, column)
+        self.vods_stage_summary_labels = []
+        for index in range(4):
+            stage_label = QLabel(str(index + 1))
+            time_label = QLabel("--")
+            kills_label = QLabel("--")
+            items_label = QLabel("--")
+            items_label.setTextFormat(Qt.RichText)
+            stage_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            for value_label in (time_label, kills_label, items_label):
+                value_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            vod_stage_summary_layout.addWidget(stage_label, index + 1, 0)
+            vod_stage_summary_layout.addWidget(time_label, index + 1, 1)
+            vod_stage_summary_layout.addWidget(kills_label, index + 1, 2)
+            vod_stage_summary_layout.addWidget(items_label, index + 1, 3)
+            self.vods_stage_summary_labels.append(
+                {
+                    "stage": stage_label,
+                    "time": time_label,
+                    "kills": kills_label,
+                    "items": items_label,
+                }
+            )
+        vod_stage_summary_layout.setColumnStretch(0, 1)
+        vod_stage_summary_layout.setColumnStretch(1, 2)
+        vod_stage_summary_layout.setColumnStretch(2, 1)
+        vod_stage_summary_layout.setColumnStretch(3, 1)
+        vod_summary_grid.addWidget(vod_stage_summary_group, 0, 1)
+        vod_new_items_group = QGroupBox("New Items")
+        vod_new_items_layout = QVBoxLayout(vod_new_items_group)
+        self.vods_new_items_label = QLabel("No previous snapshot")
+        self.vods_new_items_label.setTextFormat(Qt.RichText)
+        self.vods_new_items_label.setWordWrap(True)
+        vod_new_items_layout.addWidget(self.vods_new_items_label)
+        vod_summary_grid.addWidget(vod_new_items_group, 0, 2)
+        vod_banishes_group = QGroupBox("Banishes")
+        vod_banishes_layout = QVBoxLayout(vod_banishes_group)
+        self.vods_banishes_label = QLabel("No banishes yet")
+        self.vods_banishes_label.setTextFormat(Qt.RichText)
+        self.vods_banishes_label.setWordWrap(True)
+        vod_banishes_layout.addWidget(self.vods_banishes_label)
+        vod_summary_grid.addWidget(vod_banishes_group, 0, 3)
+        for column in range(4):
+            vod_summary_grid.setColumnStretch(column, 1)
+        vods_detail_layout.addLayout(vod_summary_grid)
+        self.vods_detail_tabs = QTabWidget()
+        vod_stats_tab = QWidget()
+        vod_stats_tab_layout = QVBoxLayout(vod_stats_tab)
+        vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()
+        vod_stats_tab_layout.addWidget(vods_scroll)
+        vods_stats_grid = QGridLayout()
+        vods_stats_grid.setContentsMargins(0, 0, 0, 0)
+        vods_stats_grid.setHorizontalSpacing(8)
+        vods_stats_grid.setVerticalSpacing(8)
+        for index, group in enumerate(PLAYER_STAT_GROUPS):
+            stat_group = QFrame()
+            stat_group.setObjectName("StatCard")
+            group_layout = QFormLayout(stat_group)
+            group_layout.setContentsMargins(10, 10, 10, 10)
+            group_layout.setVerticalSpacing(6)
+            for spec in group:
+                value_label = QLabel("--")
+                value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.vods_rows[spec.label] = value_label
+                group_layout.addRow(spec.label, value_label)
+            vods_stats_grid.addWidget(stat_group, index // 2, index % 2)
+        vods_stats_grid.setColumnStretch(0, 1)
+        vods_stats_grid.setColumnStretch(1, 1)
+        vods_scroll_layout.addLayout(vods_stats_grid)
+        vods_scroll_layout.addStretch(1)
+        vod_weapons_tab = QWidget()
+        vod_weapons_tab_layout = QVBoxLayout(vod_weapons_tab)
+        self.vods_weapons_status_label = QLabel("Select a recording")
+        self.vods_weapons_status_label.setWordWrap(True)
+        vod_weapons_tab_layout.addWidget(self.vods_weapons_status_label)
+        vod_weapons_scroll, _vod_weapons_scroll_content, vod_weapons_scroll_layout = _make_scroll_section()
+        vod_weapons_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.vods_weapons_layout = vod_weapons_scroll_layout
+        vod_weapons_tab_layout.addWidget(vod_weapons_scroll)
+        vod_tomes_tab = QWidget()
+        vod_tomes_tab_layout = QVBoxLayout(vod_tomes_tab)
+        self.vods_tomes_status_label = QLabel("Select a recording")
+        self.vods_tomes_status_label.setWordWrap(True)
+        vod_tomes_tab_layout.addWidget(self.vods_tomes_status_label)
+        vod_tomes_scroll, _vod_tomes_scroll_content, vod_tomes_scroll_layout = _make_scroll_section()
+        vod_tomes_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.vods_tomes_layout = vod_tomes_scroll_layout
+        vod_tomes_tab_layout.addWidget(vod_tomes_scroll)
+        self.vods_detail_tabs.addTab(vod_stats_tab, "Stats")
+        self.vods_detail_tabs.addTab(vod_weapons_tab, "Weapons")
+        self.vods_detail_tabs.addTab(vod_tomes_tab, "Tomes")
+        vod_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
+        vod_weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
+        vod_tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
+        vods_detail_layout.addWidget(self.vods_detail_tabs, 1)
+        vods_layout.addWidget(vods_detail, 2)
+        self.tabview.addTab(self.tab_vods, "Recordings")
+
+
+    def _build_footer_controls(self, right_layout):
+        controls = QHBoxLayout()
+        self.settings_btn = QPushButton("")
+        self.settings_btn.setObjectName("SettingsButton")
+        _apply_button_icon(self.settings_btn, "media/settings_icon.png", 20)
+        self.settings_btn.setToolTip("Settings")
+        self.settings_btn.clicked.connect(self.open_settings_dialog)
+        self.help_btn = QPushButton("?")
+        self.help_btn.setObjectName("HelpButton")
+        self.help_btn.setToolTip("Help")
+        self.help_btn.clicked.connect(self.open_help_dialog)
+        self.status_label = QLabel("Status: IDLE")
+        self.status_label.setObjectName("StatusLabel")
+        self.toggle_btn = QPushButton(f"Start")
+        self.toggle_btn.setObjectName("ToggleButton")
+        self.toggle_btn.clicked.connect(self.toggle_main_loop)
+        controls.addWidget(self.settings_btn)
+        controls.addWidget(self.help_btn)
+        controls.addWidget(self.status_label, 1)
+        controls.addWidget(self.toggle_btn)
+        right_layout.addLayout(controls)
+
+    def on_left_tab_changed(self):
+        if self.left_tabview is None:
+            return
+        tab_name = self.left_tabview.tabText(self.left_tabview.currentIndex())
+        config.EVALUATION_MODE = "scores" if tab_name == "Scores" else "templates"
+        config.user_config["EVALUATION_MODE"] = config.EVALUATION_MODE
+        config.save_config(config.user_config)
+        self.refresh_scores_ui()
+        self._sync_runtime_filters(announce=True)
+        self.update_status_ui()
+
+    def on_right_tab_changed(self):
+        self._show_right_tab_transition_cover()
+        if self._is_recordings_tab_active():
+            self.refresh_vods_list()
+        self.after_idle(self._refresh_right_tab_after_switch)
+
+    def _refresh_right_tab_after_switch(self):
+        if self._is_recordings_tab_active():
+            self.refresh_vods_list()
+        if self._is_live_stats_tab_active():
+            self.refresh_live_player_stats_now()
+
+    def _show_right_tab_transition_cover(self):
+        return None
+
+    def _cancel_right_tab_transition(self):
+        return None
+
+    def _is_live_stats_tab_active(self) -> bool:
+        return self.tabview.tabText(self.tabview.currentIndex()) == "Live Stats"
+
+    def _is_recordings_tab_active(self) -> bool:
+        return self.tabview.tabText(self.tabview.currentIndex()) == "Recordings"
+
+    def _refresh_vods_list_if_visible(self):
+        if self._is_recordings_tab_active():
+            self.refresh_vods_list()

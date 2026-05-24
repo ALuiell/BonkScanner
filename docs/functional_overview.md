@@ -18,15 +18,20 @@ BonkScanner has three major responsibilities:
 2. Inspect the current run in real time through memory reads.
 3. Record and replay live run snapshots for later review.
 
-The main UI and orchestration live in `gui.py`. Memory-facing readers are split
-mostly into `game_data.py` for map/reroll data and `player_stats.py` for run
-inspection. Recordings are stored and loaded through `vod_storage.py`.
+The desktop UI now uses a split GUI layout. `gui.py` is a compatibility facade,
+`gui_app.py` defines `MegabonkApp`, and focused `gui_*` modules own layout,
+scanner flow, run control, dialogs, live stats, and recordings behavior.
+Memory-facing readers are split mostly into `game_data.py` for map/reroll data
+and `player_stats.py` for run inspection. Recordings are stored and loaded
+through `vod_storage.py`.
 
 ## Main Files
 
 - `main.py` starts the desktop app.
-- `gui.py` owns the PySide6 UI, scanner flow, live stats UI, recordings UI, and
-  most feature glue.
+- `gui.py` is the compatibility facade for imports/tests; `gui_app.py`,
+  `gui_layout.py`, `gui_scanner.py`, `gui_run_control.py`,
+  `gui_player_stats.py`, `gui_templates.py`, `gui_dialogs.py`,
+  `gui_shared.py`, and `gui_styles.py` split the PySide6 responsibilities.
 - `config.py` loads and saves app settings, templates, score rules, hotkeys,
   and update preferences.
 - `logic.py` evaluates map stats against templates and score tiers.
@@ -57,7 +62,8 @@ User-facing flow:
 
 Implementation shape:
 
-- UI state and loop control live in `gui.py`.
+- UI state is centralized in `MegabonkApp`; scanner loop control mainly lives
+  in `gui_scanner.py`, with run-control helpers in `gui_run_control.py`.
 - Map memory reads come from `GameDataClient` in `game_data.py`.
 - Runtime map stats are normalized through `runtime_stats.py`.
 - Template and score decisions come from `logic.py`.
@@ -108,7 +114,9 @@ Implementation shape:
 
 - Defaults and persisted values live in `config.py`.
 - Evaluation lives in `logic.py`.
-- UI controls and runtime refresh live in `gui.py`.
+- UI controls live across `gui_layout.py`, `gui_templates.py`, and
+  `gui_dialogs.py`; runtime refresh for this area is coordinated through
+  `MegabonkApp`.
 
 Risks:
 
@@ -164,7 +172,7 @@ Implementation shape:
 - `MegabonkApp.refresh_live_player_stats_now()` coordinates reads.
 - `MegabonkApp.display_player_stats()` updates the UI.
 - Passive item formatting, coloring, counting, and sorting are handled in
-  `gui.py`.
+  `gui_player_stats.py` and style constants from `gui_styles.py`.
 
 Passive item logic:
 
