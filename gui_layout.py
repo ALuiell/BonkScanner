@@ -34,6 +34,11 @@ import config
 from player_stats import PLAYER_STAT_GROUPS
 
 SUMMARY_LABEL_PADDING_STYLESHEET = "padding-left: 4px;"
+LIVE_STATS_CARD_COLUMNS = 3
+LIVE_STATS_VALUE_WIDTH = 64
+RECORDINGS_STATS_CARD_COLUMNS = 3
+RECORDINGS_LIST_MIN_WIDTH = 150
+RECORDINGS_LIST_MAX_WIDTH = 240
 
 
 def _apply_summary_label_padding(*labels) -> None:
@@ -358,17 +363,38 @@ class GuiLayoutMixin:
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
             group_layout = QFormLayout(stat_group)
-            group_layout.setContentsMargins(10, 10, 10, 10)
-            group_layout.setVerticalSpacing(6)
+            group_layout.setContentsMargins(8, 8, 8, 8)
+            group_layout.setHorizontalSpacing(6)
+            group_layout.setVerticalSpacing(4)
             for spec in group:
                 value_label = QLabel("--")
-                value_label.setMinimumWidth(PLAYER_STATS_VALUE_WIDTH)
+                value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.player_stats_rows[spec.label] = value_label
                 group_layout.addRow(spec.label, value_label)
-            player_stats_grid.addWidget(stat_group, index // 2, index % 2)
-        player_stats_grid.setColumnStretch(0, 1)
-        player_stats_grid.setColumnStretch(1, 1)
+            player_stats_grid.addWidget(
+                stat_group,
+                index // LIVE_STATS_CARD_COLUMNS,
+                index % LIVE_STATS_CARD_COLUMNS,
+            )
+        placeholder_index = len(PLAYER_STAT_GROUPS)
+        placeholder_group = QFrame()
+        placeholder_group.setObjectName("StatCard")
+        placeholder_layout = QVBoxLayout(placeholder_group)
+        placeholder_layout.setContentsMargins(8, 8, 8, 8)
+        placeholder_label = QLabel("Have an idea for this slot? Let me know 💡")
+        placeholder_label.setWordWrap(True)
+        placeholder_label.setAlignment(Qt.AlignCenter)
+        placeholder_layout.addStretch(1)
+        placeholder_layout.addWidget(placeholder_label)
+        placeholder_layout.addStretch(1)
+        player_stats_grid.addWidget(
+            placeholder_group,
+            placeholder_index // LIVE_STATS_CARD_COLUMNS,
+            placeholder_index % LIVE_STATS_CARD_COLUMNS,
+        )
+        for column in range(LIVE_STATS_CARD_COLUMNS):
+            player_stats_grid.setColumnStretch(column, 1)
         player_stats_scroll_layout.addLayout(player_stats_grid)
         player_stats_scroll_layout.addStretch(1)
         weapons_tab = QWidget()
@@ -403,8 +429,10 @@ class GuiLayoutMixin:
         self.tab_vods = QWidget()
         vods_layout = QHBoxLayout(self.tab_vods)
         self.vods_list_frame = QListWidget()
+        self.vods_list_frame.setMinimumWidth(RECORDINGS_LIST_MIN_WIDTH)
+        self.vods_list_frame.setMaximumWidth(RECORDINGS_LIST_MAX_WIDTH)
         self.vods_list_frame.currentItemChanged.connect(self._on_vod_selection_changed)
-        vods_layout.addWidget(self.vods_list_frame, 1)
+        vods_layout.addWidget(self.vods_list_frame, 0)
         vods_detail = QWidget()
         vods_detail_layout = QVBoxLayout(vods_detail)
         self.vods_status_label = QLabel("Select a recording")
@@ -587,16 +615,38 @@ class GuiLayoutMixin:
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
             group_layout = QFormLayout(stat_group)
-            group_layout.setContentsMargins(10, 10, 10, 10)
-            group_layout.setVerticalSpacing(6)
+            group_layout.setContentsMargins(8, 8, 8, 8)
+            group_layout.setHorizontalSpacing(6)
+            group_layout.setVerticalSpacing(4)
             for spec in group:
                 value_label = QLabel("--")
+                value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.vods_rows[spec.label] = value_label
                 group_layout.addRow(spec.label, value_label)
-            vods_stats_grid.addWidget(stat_group, index // 2, index % 2)
-        vods_stats_grid.setColumnStretch(0, 1)
-        vods_stats_grid.setColumnStretch(1, 1)
+            vods_stats_grid.addWidget(
+                stat_group,
+                index // RECORDINGS_STATS_CARD_COLUMNS,
+                index % RECORDINGS_STATS_CARD_COLUMNS,
+            )
+        placeholder_index = len(PLAYER_STAT_GROUPS)
+        placeholder_group = QFrame()
+        placeholder_group.setObjectName("StatCard")
+        placeholder_layout = QVBoxLayout(placeholder_group)
+        placeholder_layout.setContentsMargins(8, 8, 8, 8)
+        placeholder_label = QLabel("Have an idea for this slot? Let me know 💡")
+        placeholder_label.setWordWrap(True)
+        placeholder_label.setAlignment(Qt.AlignCenter)
+        placeholder_layout.addStretch(1)
+        placeholder_layout.addWidget(placeholder_label)
+        placeholder_layout.addStretch(1)
+        vods_stats_grid.addWidget(
+            placeholder_group,
+            placeholder_index // RECORDINGS_STATS_CARD_COLUMNS,
+            placeholder_index % RECORDINGS_STATS_CARD_COLUMNS,
+        )
+        for column in range(RECORDINGS_STATS_CARD_COLUMNS):
+            vods_stats_grid.setColumnStretch(column, 1)
         vods_scroll_layout.addLayout(vods_stats_grid)
         vods_scroll_layout.addStretch(1)
         vod_weapons_tab = QWidget()
@@ -624,7 +674,7 @@ class GuiLayoutMixin:
         vod_weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
         vods_detail_layout.addWidget(self.vods_detail_tabs, 1)
-        vods_layout.addWidget(vods_detail, 2)
+        vods_layout.addWidget(vods_detail, 1)
         self.tabview.addTab(self.tab_vods, "Recordings")
 
 
