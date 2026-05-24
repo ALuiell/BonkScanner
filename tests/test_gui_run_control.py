@@ -1846,6 +1846,40 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(calls[0]["kwargs"]["tomes"], snapshot.tomes)
         self.assertEqual(calls[0]["kwargs"]["banishes"], snapshot.banishes)
 
+    def test_display_player_stats_snapshot_uses_compact_segment_compare_text(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        calls: list[dict[str, object]] = []
+        previous = SimpleNamespace(
+            stats={},
+            items=("Wrench x1",),
+            game_time_seconds=60.0,
+            mob_kills=100,
+            player_level=3,
+            time_label="01:00",
+        )
+        current = SimpleNamespace(
+            stats={},
+            items=("Wrench x3", "Za Warudo x1"),
+            tomes=(),
+            banishes=(),
+            chests_per_minute=None,
+            game_time_seconds=90.0,
+            mob_kills=133,
+            player_level=3,
+            time_label="01:30",
+        )
+        app.player_stats_vod_snapshots = [previous, current]
+        app.display_player_stats = lambda stats, items=(), **kwargs: calls.append(
+            {"stats": stats, "items": tuple(items), "kwargs": kwargs}
+        )
+
+        gui.MegabonkApp.display_player_stats_snapshot(app, current)
+
+        self.assertIn("+3</span>", calls[0]["kwargs"]["new_items_text"])
+        self.assertIn("Time:</span> 00:30", calls[0]["kwargs"]["new_items_text"])
+        self.assertIn("Kills:</span> +33", calls[0]["kwargs"]["new_items_text"])
+        self.assertNotIn("Za Warudo +1", calls[0]["kwargs"]["new_items_text"])
+
     def test_display_loaded_vod_snapshot_shows_legacy_in_game_fallback(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.vods_status_label = FakeLabel()
@@ -1906,7 +1940,144 @@ class GuiRunControlTests(unittest.TestCase):
             ("Wrench x3", "Dice x1", "Holy Book x1"),
         )
 
-        self.assertEqual(result, ("Wrench x2", "Holy Book x1"))
+        self.assertEqual(result, ("Holy Book x1", "Wrench x2"))
+
+    def test_diff_item_gains_sorts_by_rarity_and_gain(self) -> None:
+        result = gui.MegabonkApp.diff_item_gains(
+            ("Wrench x1", "Key x1", "Beefy Ring x1"),
+            ("Wrench x3", "Key x7", "Beefy Ring x6", "Za Warudo x4", "Golden Shield x1"),
+        )
+
+        self.assertEqual(
+            result,
+            (
+                ("Za Warudo", 4),
+                ("Beefy Ring", 5),
+                ("Golden Shield", 1),
+                ("Key", 6),
+                ("Wrench", 2),
+            ),
+        )
+
+    def test_format_item_gains_by_rarity_uses_one_dot_per_rarity_row(self) -> None:
+        result = gui.MegabonkApp.format_item_gains_by_rarity(
+            (
+                ("Za Warudo", 4),
+                ("Wizards Hat", 3),
+                ("Beefy Ring", 5),
+                ("Key", 6),
+            )
+        )
+
+        self.assertIn("Za Warudo +4 | Wizards Hat +3", result)
+        self.assertIn("Beefy Ring +5", result)
+        self.assertIn("Key +6", result)
+        self.assertEqual(result.count("&#9679;"), 3)
+
+    def test_format_snapshot_item_gains_preview_uses_compact_totals(self) -> None:
+        base = SimpleNamespace(
+            game_time_seconds=120.0,
+            mob_kills=100,
+            player_level=4,
+            items=("Wrench x1",),
+        )
+        current = SimpleNamespace(
+            game_time_seconds=270.0,
+            mob_kills=420,
+            player_level=9,
+            items=("Wrench x3", "Za Warudo x4", "Beefy Ring x5"),
+        )
+
+        result = gui.MegabonkApp.format_snapshot_item_gains_preview(base, current)
+
+        self.assertIn("Items:", result)
+        self.assertIn("+11</span>", result)
+        self.assertIn("Time:</span> 02:30", result)
+        self.assertIn("Kills:</span> +320", result)
+        self.assertIn("Levels:</span> +5", result)
+        self.assertNotIn("Za Warudo +4", result)
+
+    def test_segment_changes_track_broken_za_warudo_and_lost_items(self) -> None:
+        snapshots = (
+            SimpleNamespace(items=("Wrench x1",)),
+            SimpleNamespace(items=("Wrench x1", "Za Warudo x1", "Key x3")),
+            SimpleNamespace(items=("Wrench x1", "Key x1")),
+        )
+
+        result = gui.MegabonkApp.summarize_item_segment_changes(snapshots)
+
+        self.assertEqual(result["gained"], (("Za Warudo", 1), ("Key", 3)))
+        self.assertEqual(result["broken"], (("Za Warudo", 1),))
+        self.assertEqual(result["lost"], (("Key", 2),))
+
+    def test_format_snapshot_item_gains_preview_counts_broken_items_as_gained(self) -> None:
+        base = SimpleNamespace(
+            game_time_seconds=120.0,
+            mob_kills=100,
+            player_level=4,
+            items=("Wrench x1",),
+        )
+        middle = SimpleNamespace(
+            game_time_seconds=180.0,
+            mob_kills=150,
+            player_level=4,
+            items=("Wrench x1", "Za Warudo x1"),
+        )
+        current = SimpleNamespace(
+            game_time_seconds=240.0,
+            mob_kills=250,
+            player_level=5,
+            items=("Wrench x1",),
+        )
+
+        result = gui.MegabonkApp.format_snapshot_item_gains_preview(
+            base,
+            current,
+            segment_snapshots=(base, middle, current),
+        )
+
+        self.assertIn("+1</span>", result)
+        self.assertNotIn("Broken:</span>", result)
+        self.assertNotIn("Za Warudo -1", result)
+
+    def test_format_snapshot_item_changes_details_separates_gained_broken_and_lost(self) -> None:
+        base = SimpleNamespace(items=("Wrench x1",))
+        middle = SimpleNamespace(items=("Wrench x1", "Za Warudo x1", "Key x3"))
+        current = SimpleNamespace(items=("Wrench x1", "Key x1"))
+
+        result = gui.MegabonkApp.format_snapshot_item_changes_details(
+            base,
+            current,
+            segment_snapshots=(base, middle, current),
+        )
+
+        self.assertIn("Gained", result)
+        self.assertIn("Za Warudo +1", result)
+        self.assertIn("Broken", result)
+        self.assertIn("Za Warudo -1 broken", result)
+        self.assertIn("Lost", result)
+        self.assertIn("Key -2", result)
+
+    def test_format_snapshot_compare_summary_includes_segment_deltas(self) -> None:
+        base = SimpleNamespace(
+            game_time_seconds=120.0,
+            mob_kills=100,
+            player_level=4,
+            items=("Wrench x1",),
+        )
+        current = SimpleNamespace(
+            game_time_seconds=270.0,
+            mob_kills=420,
+            player_level=9,
+            items=("Wrench x3", "Za Warudo x1"),
+        )
+
+        result = gui.MegabonkApp.format_snapshot_compare_summary(base, current, base_index=3, current_index=8)
+
+        self.assertEqual(
+            result,
+            "Snapshot 4 -> 9 | 02:00 -> 04:30 | +320 kills | +5 levels | +3 items",
+        )
 
     def test_format_snapshot_new_items_handles_first_snapshot_and_no_changes(self) -> None:
         snapshot = SimpleNamespace(items=("Wrench x1",))

@@ -102,3 +102,42 @@ Implementation note:
 - The goal is visual stability, not clipping useful information. If some areas
   need scrolling or wrapping inside a fixed-size card, that is preferable to the
   whole layout constantly resizing.
+
+## 3. Reconsider The Live Stats Segment Compare Card
+
+Status: `[Open]`
+
+Current thought:
+
+- The `Live Stats` tab currently uses a compact `Segment Compare` card that
+  mirrors the recordings viewer's snapshot-delta summary.
+- This is useful for consistency, but it may not be the most valuable card for
+  live gameplay because live review needs are different from post-run review.
+
+Goal:
+
+- Revisit whether the `Live Stats` summary row should keep `Segment Compare` or
+  replace it with a more live-focused analytics card.
+
+Theoretical replacement ideas:
+
+- Track active improvement / powerup value over time.
+- Estimate improvement duration impact by combining observed duration with
+  relevant stats such as `Powerup Multiplier`.
+- Show a compact live benefit summary instead of snapshot-to-snapshot item
+  gains.
+- Keep the card small and glanceable, similar to the current `Segment Compare`
+  footprint.
+
+Why this might help:
+
+- `Segment Compare` is more naturally useful in recordings, where the user is
+  deliberately inspecting chosen snapshots.
+- During live gameplay, a card focused on current powerup/improvement value may
+  be more actionable than showing the latest recorded snapshot delta.
+
+Implementation note:
+
+- Treat this as exploratory UI/product work.
+- Keep the recordings `Segment Compare` behavior separate, since that remains
+  useful for manual snapshot analysis.

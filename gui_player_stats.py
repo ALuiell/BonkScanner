@@ -431,9 +431,10 @@ class PlayerStatsMixin:
             game_time_seconds=snapshot.game_time_seconds,
             mob_kills=getattr(snapshot, "mob_kills", None),
             player_level=getattr(snapshot, "player_level", None),
-            new_items_text=self.format_snapshot_new_items(
+            new_items_text=self.format_snapshot_item_gains_preview(
                 self._previous_player_stats_snapshot(snapshot),
                 snapshot,
+                segment_snapshots=self._player_stats_snapshot_segment(snapshot),
             ),
             stage_summary_rows=self.build_stage_summary(
                 self.player_stats_vod_snapshots[:index]
@@ -448,6 +449,14 @@ class PlayerStatsMixin:
         if index <= 0:
             return None
         return self.player_stats_vod_snapshots[index - 1]
+
+    def _player_stats_snapshot_segment(self, snapshot) -> tuple[object, ...]:
+        try:
+            index = self.player_stats_vod_snapshots.index(snapshot)
+        except ValueError:
+            return (snapshot,)
+        start_index = max(0, index - 1)
+        return tuple(self.player_stats_vod_snapshots[start_index : index + 1])
 
     def toggle_player_stats_recording(self):
         if self.player_stats_vod_recorder.is_recording:
@@ -757,10 +766,13 @@ class PlayerStatsMixin:
         except Exception as exc:
             self.loaded_vod = None
             self.loaded_vod_snapshot_index = None
+            self.loaded_vod_compare_start_index = None
             _set_text(self.vods_status_label, f"Could not load recording: {exc}")
             return
 
         self.loaded_vod_snapshot_index = 0 if self.loaded_vod.snapshots else None
+        self.loaded_vod_compare_start_index = None
+        self.vods_compare_details_expanded = False
         _clear_text_input(self.vods_name_entry)
         _set_text_input(self.vods_name_entry, self.loaded_vod.metadata.name)
         self.refresh_loaded_vod_ui()
@@ -795,6 +807,8 @@ class PlayerStatsMixin:
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
             _set_text(self.vods_level_label, "Level: --")
             _set_text(self.vods_new_items_label, "No previous snapshot")
+            self._refresh_vod_compare_controls()
+            self._refresh_vod_compare_details(None, None, index=None)
             _set_text(self.vods_banishes_label, "No banishes yet")
             self._set_stage_summary_labels(self.vods_stage_summary_labels, None)
             self.vods_weapon_signature = None
@@ -845,11 +859,14 @@ class PlayerStatsMixin:
             self.vods_stage_summary_labels,
             self.build_stage_summary(self.loaded_vod.snapshots[: index + 1]),
         )
-        previous_snapshot = self.loaded_vod.snapshots[index - 1] if index > 0 else None
+        previous_snapshot = self._resolve_vod_compare_base_snapshot(index)
+        segment_snapshots = self._vod_compare_segment_snapshots(index)
         _set_text(
             self.vods_new_items_label,
-            self.format_snapshot_new_items(previous_snapshot, snapshot),
+            self.format_snapshot_item_gains_preview(previous_snapshot, snapshot, segment_snapshots=segment_snapshots),
         )
+        self._refresh_vod_compare_controls()
+        self._refresh_vod_compare_details(previous_snapshot, snapshot, index=index, segment_snapshots=segment_snapshots)
         _set_text(
             self.vods_banishes_label,
             self.format_banishes_rich_text(getattr(snapshot, "banishes", ())),
@@ -864,6 +881,97 @@ class PlayerStatsMixin:
         if self.loaded_vod_snapshot_index == index:
             return
         self.display_loaded_vod_snapshot(index)
+
+    def set_vod_compare_start(self):
+        if self.loaded_vod is None or not self.loaded_vod.snapshots:
+            return
+        index = self.loaded_vod_snapshot_index
+        if index is None:
+            index = 0
+        self.loaded_vod_compare_start_index = min(max(int(index), 0), len(self.loaded_vod.snapshots) - 1)
+        self.vods_compare_details_expanded = True
+        self.display_loaded_vod_snapshot(self.loaded_vod_snapshot_index or 0)
+
+    def clear_vod_compare_start(self):
+        self.loaded_vod_compare_start_index = None
+        self.vods_compare_details_expanded = False
+        if self.loaded_vod is not None and self.loaded_vod.snapshots:
+            self.display_loaded_vod_snapshot(self.loaded_vod_snapshot_index or 0)
+        else:
+            self._refresh_vod_compare_controls()
+            self._refresh_vod_compare_details(None, None, index=None)
+
+    def toggle_vod_compare_details(self):
+        self.vods_compare_details_expanded = not bool(getattr(self, "vods_compare_details_expanded", False))
+        if self.loaded_vod is not None and self.loaded_vod.snapshots:
+            self.display_loaded_vod_snapshot(self.loaded_vod_snapshot_index or 0)
+        else:
+            self._refresh_vod_compare_details(None, None, index=None)
+
+    def _resolve_vod_compare_base_snapshot(self, index: int):
+        if self.loaded_vod is None or not self.loaded_vod.snapshots:
+            return None
+        compare_index = getattr(self, "loaded_vod_compare_start_index", None)
+        if compare_index is not None:
+            compare_index = min(max(int(compare_index), 0), len(self.loaded_vod.snapshots) - 1)
+            return self.loaded_vod.snapshots[compare_index]
+        if index <= 0:
+            return None
+        return self.loaded_vod.snapshots[index - 1]
+
+    def _vod_compare_segment_snapshots(self, index: int) -> tuple[object, ...]:
+        if self.loaded_vod is None or not self.loaded_vod.snapshots:
+            return ()
+        compare_index = getattr(self, "loaded_vod_compare_start_index", None)
+        if compare_index is None:
+            start_index = max(0, index - 1)
+        else:
+            start_index = min(max(int(compare_index), 0), len(self.loaded_vod.snapshots) - 1)
+        end_index = min(max(int(index), 0), len(self.loaded_vod.snapshots) - 1)
+        if start_index > end_index:
+            start_index, end_index = end_index, start_index
+        return tuple(self.loaded_vod.snapshots[start_index : end_index + 1])
+
+    def _refresh_vod_compare_controls(self) -> None:
+        has_snapshots = bool(self.loaded_vod is not None and self.loaded_vod.snapshots)
+        compare_index = getattr(self, "loaded_vod_compare_start_index", None)
+        set_btn = getattr(self, "vods_compare_set_btn", None)
+        clear_btn = getattr(self, "vods_compare_clear_btn", None)
+        details_btn = getattr(self, "vods_compare_details_btn", None)
+        if set_btn is not None:
+            set_btn.setEnabled(has_snapshots)
+        if clear_btn is not None:
+            clear_btn.setEnabled(has_snapshots and compare_index is not None)
+        if details_btn is not None:
+            details_btn.setVisible(has_snapshots)
+            expanded = bool(getattr(self, "vods_compare_details_expanded", False))
+            details_btn.setText("Hide details" if expanded else "Show details")
+
+    def _refresh_vod_compare_details(self, base_snapshot, snapshot, *, index: int | None, segment_snapshots=()) -> None:
+        self._refresh_vod_compare_controls()
+        expanded = bool(getattr(self, "vods_compare_details_expanded", False))
+        group = getattr(self, "vods_compare_details_group", None)
+        if group is not None:
+            group.setVisible(expanded and base_snapshot is not None and snapshot is not None)
+        if base_snapshot is None or snapshot is None:
+            _set_text(getattr(self, "vods_compare_details_summary_label", None), "--")
+            _set_text(getattr(self, "vods_compare_details_items_label", None), "--")
+            return
+
+        compare_index = getattr(self, "loaded_vod_compare_start_index", None)
+        base_index = compare_index if compare_index is not None else (index - 1 if index is not None else None)
+        summary = self.format_snapshot_compare_summary(
+            base_snapshot,
+            snapshot,
+            base_index=base_index,
+            current_index=index,
+            segment_snapshots=segment_snapshots,
+        )
+        _set_text(getattr(self, "vods_compare_details_summary_label", None), summary)
+        _set_text(
+            getattr(self, "vods_compare_details_items_label", None),
+            self.format_snapshot_item_changes_details(base_snapshot, snapshot, segment_snapshots=segment_snapshots),
+        )
 
     def rename_selected_vod(self):
         if self.loaded_vod is None or self.vods_name_entry is None:
@@ -881,6 +989,8 @@ class PlayerStatsMixin:
     def _clear_loaded_vod_selection(self) -> None:
         self.loaded_vod = None
         self.loaded_vod_snapshot_index = None
+        self.loaded_vod_compare_start_index = None
+        self.vods_compare_details_expanded = False
         _clear_text_input(self.vods_name_entry)
         _set_text(self.vods_status_label, "Select a recording")
         self.vods_slider.setEnabled(False)
@@ -896,6 +1006,8 @@ class PlayerStatsMixin:
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
         _set_text(self.vods_level_label, "Level: --")
         _set_text(self.vods_new_items_label, "No previous snapshot")
+        self._refresh_vod_compare_controls()
+        self._refresh_vod_compare_details(None, None, index=None)
         _set_text(self.vods_banishes_label, "No banishes yet")
         self._set_stage_summary_labels(self.vods_stage_summary_labels, None)
         self.vods_weapon_signature = None
@@ -1351,15 +1463,304 @@ class PlayerStatsMixin:
         return cls.format_new_items_rich_text(new_items)
 
     @classmethod
+    def format_snapshot_item_gains_preview(cls, previous_snapshot, snapshot, *, segment_snapshots=()) -> str:
+        if previous_snapshot is None:
+            return "No previous snapshot"
+        changes = cls.summarize_item_segment_changes(segment_snapshots or (previous_snapshot, snapshot))
+        gains = changes["gained"]
+        broken = changes["broken"]
+        lost = changes["lost"]
+        total = sum(gain for _name, gain in gains)
+        rows = [
+            (
+                f'<span style="color:#98A7BA;">Items:</span> '
+                f'{cls.format_item_gain_rarity_totals(gains)} '
+                f'<span style="color:#98A7BA;">+{cls.format_count(total)}</span>'
+            ),
+        ]
+        time_delta = cls._snapshot_time_delta(previous_snapshot, snapshot)
+        if time_delta is not None:
+            rows.append(f'<span style="color:#98A7BA;">Time:</span> {cls.format_elapsed_time(time_delta)}')
+
+        kill_delta = cls._snapshot_int_delta(previous_snapshot, snapshot, "mob_kills")
+        if kill_delta is not None:
+            rows.append(f'<span style="color:#98A7BA;">Kills:</span> +{cls.format_count(kill_delta)}')
+
+        level_delta = cls._snapshot_int_delta(previous_snapshot, snapshot, "player_level")
+        if level_delta is not None:
+            rows.append(f'<span style="color:#98A7BA;">Levels:</span> +{cls.format_count(level_delta)}')
+
+        return "<br>".join(rows)
+
+    @classmethod
     def diff_new_items(cls, previous_items, current_items) -> tuple[str, ...]:
+        return tuple(f"{name} x{gain}" for name, gain in cls.diff_item_gains(previous_items, current_items))
+
+    @classmethod
+    def diff_item_gains(cls, previous_items, current_items) -> tuple[tuple[str, int], ...]:
+        changes = cls.summarize_item_count_changes(previous_items, current_items)
+        return changes["gained"]
+
+    @classmethod
+    def diff_item_losses(cls, previous_items, current_items) -> tuple[tuple[str, int], ...]:
+        changes = cls.summarize_item_count_changes(previous_items, current_items)
+        return changes["lost"]
+
+    @classmethod
+    def summarize_item_count_changes(cls, previous_items, current_items) -> dict[str, tuple[tuple[str, int], ...]]:
         previous_counts = cls._item_counts(previous_items)
         current_counts = cls._item_counts(current_items)
-        new_items: list[str] = []
-        for name, current_count in current_counts.items():
+        gained: dict[str, int] = {}
+        lost: dict[str, int] = {}
+        broken: dict[str, int] = {}
+        for name in set(previous_counts) | set(current_counts):
+            current_count = current_counts.get(name, 0)
             delta = current_count - previous_counts.get(name, 0)
             if delta > 0:
-                new_items.append(f"{name} x{delta}")
-        return tuple(new_items)
+                gained[name] = gained.get(name, 0) + delta
+            elif delta < 0:
+                target = broken if cls._is_breakable_consumed_item(name) else lost
+                target[name] = target.get(name, 0) + abs(delta)
+        return {
+            "gained": cls._sort_item_delta_pairs(gained.items()),
+            "lost": cls._sort_item_delta_pairs(lost.items()),
+            "broken": cls._sort_item_delta_pairs(broken.items()),
+        }
+
+    @classmethod
+    def summarize_item_segment_changes(cls, snapshots) -> dict[str, tuple[tuple[str, int], ...]]:
+        snapshots = tuple(snapshots or ())
+        gained: dict[str, int] = {}
+        lost: dict[str, int] = {}
+        broken: dict[str, int] = {}
+        if len(snapshots) < 2:
+            return {"gained": (), "lost": (), "broken": ()}
+
+        previous_items = getattr(snapshots[0], "items", ())
+        for snapshot in snapshots[1:]:
+            changes = cls.summarize_item_count_changes(previous_items, getattr(snapshot, "items", ()))
+            for bucket_name, target in (("gained", gained), ("lost", lost), ("broken", broken)):
+                for name, count in changes[bucket_name]:
+                    target[name] = target.get(name, 0) + count
+            previous_items = getattr(snapshot, "items", ())
+
+        return {
+            "gained": cls._sort_item_delta_pairs(gained.items()),
+            "lost": cls._sort_item_delta_pairs(lost.items()),
+            "broken": cls._sort_item_delta_pairs(broken.items()),
+        }
+
+    @classmethod
+    def _sort_item_delta_pairs(cls, items) -> tuple[tuple[str, int], ...]:
+        return tuple(
+            sorted(
+                ((str(name), int(count)) for name, count in items if int(count) > 0),
+                key=lambda item: (-cls._item_rarity_rank(item[0]), -item[1], item[0].casefold()),
+            )
+        )
+
+    @classmethod
+    def _is_breakable_consumed_item(cls, item_name: str) -> bool:
+        rarity_name = cls._normalize_item_name_for_rarity(item_name)
+        return rarity_name in {"Za Warudo", "Ze Warudo"}
+
+    @classmethod
+    def format_snapshot_item_changes_details(cls, previous_snapshot, snapshot, *, segment_snapshots=()) -> str:
+        changes = cls.summarize_item_segment_changes(segment_snapshots or (previous_snapshot, snapshot))
+        sections: list[str] = []
+        if changes["gained"]:
+            sections.append(
+                '<span style="color:#98A7BA; font-weight:700;">Gained</span><br>'
+                f'{cls.format_item_gains_by_rarity(changes["gained"])}'
+            )
+        if changes["broken"]:
+            sections.append(
+                '<span style="color:#98A7BA; font-weight:700;">Broken</span><br>'
+                f'{cls.format_item_losses_by_rarity(changes["broken"], suffix="broken")}'
+            )
+        if changes["lost"]:
+            sections.append(
+                '<span style="color:#98A7BA; font-weight:700;">Lost</span><br>'
+                f'{cls.format_item_losses_by_rarity(changes["lost"])}'
+            )
+        if not sections:
+            return '<span style="color:#98A7BA;">No item changes in this segment</span>'
+        return "<br>".join(sections)
+
+    @classmethod
+    def format_item_gains_by_rarity(
+        cls,
+        gains: tuple[tuple[str, int], ...],
+        *,
+        max_items: int | None = None,
+    ) -> str:
+        if not gains:
+            return '<span style="color:#98A7BA;">No item gains</span>'
+
+        grouped: dict[str, list[tuple[str, int]]] = {
+            "LEGENDARY": [],
+            "RARE": [],
+            "UNCOMMON": [],
+            "COMMON": [],
+            "UNKNOWN": [],
+        }
+        for name, gain in gains:
+            rarity_name = cls._normalize_item_name_for_rarity(name)
+            rarity = ITEM_RARITY_BY_NAME.get(rarity_name, "UNKNOWN")
+            if rarity not in grouped:
+                rarity = "UNKNOWN"
+            grouped[rarity].append((cls._normalize_item_name_for_display(name), int(gain)))
+
+        remaining = max_items
+        hidden_count = 0
+        rows: list[str] = []
+        for rarity in ("LEGENDARY", "RARE", "UNCOMMON", "COMMON", "UNKNOWN"):
+            items = grouped[rarity]
+            if not items:
+                continue
+            if remaining is not None:
+                visible_items = items[:remaining]
+                hidden_count += max(0, len(items) - len(visible_items))
+                remaining -= len(visible_items)
+                if not visible_items:
+                    continue
+            else:
+                visible_items = items
+            color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
+            item_text = " | ".join(
+                f"{html.escape(name)} +{cls.format_count(gain)}"
+                for name, gain in visible_items
+            )
+            rows.append(
+                f'<span style="color:{color}; font-weight:800;">&#9679;</span> '
+                f'<span style="color:#E5E7EB;">{item_text}</span>'
+            )
+            if remaining is not None and remaining <= 0:
+                break
+
+        if hidden_count > 0:
+            rows.append(f'<span style="color:#98A7BA;">+{hidden_count} more gains...</span>')
+        return "<br>".join(rows)
+
+    @classmethod
+    def format_item_losses_by_rarity(
+        cls,
+        losses: tuple[tuple[str, int], ...],
+        *,
+        suffix: str | None = None,
+    ) -> str:
+        if not losses:
+            return '<span style="color:#98A7BA;">No item losses</span>'
+
+        grouped: dict[str, list[tuple[str, int]]] = {
+            "LEGENDARY": [],
+            "RARE": [],
+            "UNCOMMON": [],
+            "COMMON": [],
+            "UNKNOWN": [],
+        }
+        for name, loss in losses:
+            rarity_name = cls._normalize_item_name_for_rarity(name)
+            rarity = ITEM_RARITY_BY_NAME.get(rarity_name, "UNKNOWN")
+            if rarity not in grouped:
+                rarity = "UNKNOWN"
+            grouped[rarity].append((cls._normalize_item_name_for_display(name), int(loss)))
+
+        rows: list[str] = []
+        for rarity in ("LEGENDARY", "RARE", "UNCOMMON", "COMMON", "UNKNOWN"):
+            items = grouped[rarity]
+            if not items:
+                continue
+            color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
+            item_text = " | ".join(
+                f"{html.escape(name)} -{cls.format_count(loss)}{f' {suffix}' if suffix else ''}"
+                for name, loss in items
+            )
+            rows.append(
+                f'<span style="color:{color}; font-weight:800;">&#9679;</span> '
+                f'<span style="color:#E5E7EB;">{item_text}</span>'
+            )
+        return "<br>".join(rows)
+
+    @classmethod
+    def format_item_loss_inline(cls, losses: tuple[tuple[str, int], ...]) -> str:
+        if not losses:
+            return '<span style="color:#98A7BA;">none</span>'
+        return " | ".join(
+            f'<span style="color:#E5E7EB;">{html.escape(cls._normalize_item_name_for_display(name))} -{cls.format_count(count)}</span>'
+            for name, count in losses
+        )
+
+    @classmethod
+    def format_item_gain_rarity_totals(cls, gains: tuple[tuple[str, int], ...]) -> str:
+        rarity_totals = cls._empty_item_rarity_totals()
+        for name, gain in gains:
+            rarity_name = cls._normalize_item_name_for_rarity(name)
+            rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
+            if rarity in rarity_totals:
+                rarity_totals[rarity] += int(gain)
+
+        parts: list[str] = []
+        for rarity in ("LEGENDARY", "RARE", "UNCOMMON", "COMMON"):
+            total = rarity_totals.get(rarity, 0)
+            if total <= 0:
+                continue
+            color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
+            parts.append(
+                f'<span style="color:{color}; font-weight:800;">&#9679;</span> '
+                f'<span style="color:#E5E7EB;">{cls.format_count(total)}</span>'
+            )
+        return " ".join(parts) if parts else '<span style="color:#98A7BA;">none</span>'
+
+    @classmethod
+    def format_snapshot_compare_summary(
+        cls,
+        base_snapshot,
+        snapshot,
+        *,
+        base_index: int | None,
+        current_index: int | None,
+        segment_snapshots=(),
+    ) -> str:
+        pieces: list[str] = []
+        if base_index is not None and current_index is not None:
+            pieces.append(f"Snapshot {int(base_index) + 1} -> {int(current_index) + 1}")
+        base_time = getattr(base_snapshot, "game_time_seconds", None)
+        current_time = getattr(snapshot, "game_time_seconds", None)
+        if base_time is not None and current_time is not None:
+            pieces.append(f"{cls.format_elapsed_time(base_time)} -> {cls.format_elapsed_time(current_time)}")
+        kill_delta = cls._snapshot_int_delta(base_snapshot, snapshot, "mob_kills")
+        if kill_delta is not None:
+            pieces.append(f"+{cls.format_count(kill_delta)} kills")
+        level_delta = cls._snapshot_int_delta(base_snapshot, snapshot, "player_level")
+        if level_delta is not None:
+            pieces.append(f"+{cls.format_count(level_delta)} levels")
+        changes = cls.summarize_item_segment_changes(segment_snapshots or (base_snapshot, snapshot))
+        item_total = sum(gain for _name, gain in changes["gained"])
+        pieces.append(f"+{cls.format_count(item_total)} items")
+        broken_total = sum(count for _name, count in changes["broken"])
+        if broken_total:
+            pieces.append(f"{cls.format_count(broken_total)} broken")
+        lost_total = sum(count for _name, count in changes["lost"])
+        if lost_total:
+            pieces.append(f"-{cls.format_count(lost_total)} lost")
+        return " | ".join(pieces)
+
+    @staticmethod
+    def _snapshot_int_delta(base_snapshot, snapshot, attr_name: str) -> int | None:
+        base_value = getattr(base_snapshot, attr_name, None)
+        current_value = getattr(snapshot, attr_name, None)
+        if base_value is None or current_value is None:
+            return None
+        return max(0, int(current_value) - int(base_value))
+
+    @staticmethod
+    def _snapshot_time_delta(base_snapshot, snapshot) -> float | None:
+        base_time = getattr(base_snapshot, "game_time_seconds", None)
+        current_time = getattr(snapshot, "game_time_seconds", None)
+        if base_time is None or current_time is None:
+            return None
+        return max(0.0, float(current_time) - float(base_time))
 
     @classmethod
     def format_new_items_rich_text(cls, items) -> str:

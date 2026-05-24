@@ -133,6 +133,12 @@ class MegabonkApp(
         self.vods_mob_kills_label = None
         self.vods_level_label = None
         self.vods_new_items_label = None
+        self.vods_compare_set_btn = None
+        self.vods_compare_clear_btn = None
+        self.vods_compare_details_btn = None
+        self.vods_compare_details_group = None
+        self.vods_compare_details_summary_label = None
+        self.vods_compare_details_items_label = None
         self.vods_stage_summary_labels = []
         self.vods_weapons_status_label = None
         self.vods_weapons_layout = None
@@ -164,6 +170,8 @@ class MegabonkApp(
         self.player_stats_recording_run_time_seconds = None
         self.loaded_vod = None
         self.loaded_vod_snapshot_index = None
+        self.loaded_vod_compare_start_index = None
+        self.vods_compare_details_expanded = False
         self.native_hook_loader = None
         self.native_hook_thread = None
         self.native_hook_generation = 0

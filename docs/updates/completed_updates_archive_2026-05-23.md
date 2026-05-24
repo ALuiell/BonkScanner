@@ -430,3 +430,52 @@ Caveats:
 - `banishedUpgradables` currently decodes tomes correctly, but should be
   re-checked if the game later banishes other upgradable types through the same
   structure.
+
+## 8. Manual Snapshot-To-Snapshot Compare In Recordings Viewer
+
+Status: `[Done]`
+
+Current branch notes:
+
+- The `Recordings` viewer now supports setting a selected snapshot as the
+  compare start and clearing/replacing that compare start.
+- The old `New Items` card was replaced with a compact `Segment Compare` card.
+- The compact card shows:
+  - item gains by rarity as colored dot totals
+  - `Items Total`
+  - broken `Za Warudo` count when the item was consumed after being acquired
+  - lost item count when non-breakable item stacks disappear
+  - segment time delta
+  - mob kill delta
+  - level delta
+- A collapsible `Compare Details` section shows the full item-gain list grouped
+  by rarity, with one colored dot per rarity row and item gains inline.
+- `Compare Details` separates `Gained`, `Broken`, and `Lost` item changes so
+  consumed `Za Warudo` stacks remain visible in run analysis instead of silently
+  disappearing from the comparison.
+- Without a pinned compare start, recordings still compare the selected snapshot
+  against the previous snapshot.
+- With a pinned compare start, recordings compare the selected snapshot against
+  that pinned baseline.
+- The `Live Stats` summary row now uses the same compact `Segment Compare`
+  card style for recorded snapshot deltas, without the recordings-only details
+  panel.
+
+Goal:
+
+- Let the user compare any two chosen snapshots from the same recording instead
+  of always comparing only current vs previous.
+
+Why this helps:
+
+- Makes it easy to inspect item gains across a specific segment of a run.
+- Makes level and kill deltas more useful than strict previous-snapshot
+  comparison.
+- Creates reusable snapshot-delta formatting that can later support the
+  dedicated `Compare Runs` tab.
+
+Implementation note:
+
+- This remains separate from time-synced `Compare Runs`.
+- The details panel is intentionally recordings-only; `Live Stats` keeps only a
+  compact summary card for now.
