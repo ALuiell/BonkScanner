@@ -165,7 +165,7 @@ def _template_checkbox_stylesheet(color_hex: str) -> str:
         border: 1px solid #2B3648;
         border-left: 4px solid {color_hex};
         border-radius: 8px;
-        padding: 10px 12px;
+        padding: 8px 8px;
         font-weight: 700;
     }}
     QCheckBox:hover {{

@@ -120,7 +120,7 @@ class TemplatesMixin:
         for template in config.TEMPLATES:
             color_tag = template.get("color", "LIGHTBLUE_EX").upper()
             color_hex = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
-            cb = QCheckBox(f"{template['name']} ({format_template_conditions(template)})")
+            cb = QCheckBox(self._format_template_checkbox_text(template))
             cb.setChecked(template["name"] in config.ACTIVE_TEMPLATES)
             cb.toggled.connect(self.save_checkbox_state)
             cb.setStyleSheet(_template_checkbox_stylesheet(color_hex))
@@ -190,6 +190,17 @@ class TemplatesMixin:
             f"Boss: {boss}, Magnet: {magnet}, "
             f"Score: {logic.calculate_score(stats, config.SCORES_SYSTEM):.1f}"
         )
+
+    @staticmethod
+    def _format_template_checkbox_text(template: dict) -> str:
+        conditions = format_template_conditions(template)
+        compact_conditions = (
+            conditions
+            .replace("S+M:", "S+M")
+            .replace("Micro:", "Mic")
+            .replace("Boss:", "Boss")
+        )
+        return f"{template['name']} ({compact_conditions})"
 
     @staticmethod
     def calculate_map_score(stats: dict) -> float:

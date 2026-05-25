@@ -1934,6 +1934,292 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(gui.MegabonkApp.format_player_level(None), "Level: --")
         self.assertEqual(gui.MegabonkApp.format_player_level(4), "Level: 4")
 
+    def test_nearest_snapshot_index_prefers_in_game_time(self) -> None:
+        snapshots = (
+            SimpleNamespace(game_time_seconds=10.0, elapsed_seconds=100),
+            SimpleNamespace(game_time_seconds=40.0, elapsed_seconds=200),
+            SimpleNamespace(game_time_seconds=90.0, elapsed_seconds=300),
+        )
+
+        self.assertEqual(gui.MegabonkApp._nearest_snapshot_index(snapshots, 43.0), 1)
+
+    def test_format_compare_runs_diff_shows_core_deltas(self) -> None:
+        snapshot_a = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=("Key x1", "Za Warudo x1"),
+            stats={"Damage": SimpleNamespace(value=1.25, display_value="1.25x")},
+        )
+        snapshot_b = SimpleNamespace(
+            game_time_seconds=126.0,
+            elapsed_seconds=130,
+            mob_kills=1500,
+            player_level=12,
+            items=("Key x3",),
+            stats={"Damage": SimpleNamespace(value=1.5, display_value="1.50x")},
+        )
+        vod_a = SimpleNamespace(metadata=SimpleNamespace(name="Run A"))
+        vod_b = SimpleNamespace(metadata=SimpleNamespace(name="Run B"))
+
+        result = gui.MegabonkApp.format_compare_runs_diff(vod_a, snapshot_a, vod_b, snapshot_b)
+
+        self.assertIn("Mode:</span> Run B compared to Run A", result)
+        self.assertIn("Time offset:</span> +00:06", result)
+        self.assertIn("Kill Difference:</span> +500", result)
+        self.assertIn("Level Difference:</span> +2", result)
+        self.assertIn("Item Difference:</span> +1", result)
+        self.assertIn("Damage:</span> 1.25x -> 1.50x (+0.25)", result)
+
+    def test_format_compare_runs_diff_uses_selected_stat_labels(self) -> None:
+        snapshot_a = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=(),
+            stats={
+                "Damage": SimpleNamespace(value=1.25, display_value="1.25x"),
+                "Luck": SimpleNamespace(value=0.5, display_value="50%"),
+            },
+        )
+        snapshot_b = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=(),
+            stats={
+                "Damage": SimpleNamespace(value=1.5, display_value="1.50x"),
+                "Luck": SimpleNamespace(value=0.75, display_value="75%"),
+            },
+        )
+        vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
+
+        result = gui.MegabonkApp.format_compare_runs_diff(
+            vod,
+            snapshot_a,
+            vod,
+            snapshot_b,
+            stat_labels=("Damage",),
+        )
+
+        self.assertIn("Damage:</span>", result)
+        self.assertNotIn("Luck:</span>", result)
+
+    def test_format_compare_runs_diff_formats_percent_stat_delta_from_display(self) -> None:
+        snapshot_a = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=(),
+            stats={"Difficulty": SimpleNamespace(value=1.0, display_value="100%")},
+        )
+        snapshot_b = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=(),
+            stats={"Difficulty": SimpleNamespace(value=2.0, display_value="200%")},
+        )
+        vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
+
+        result = gui.MegabonkApp.format_compare_runs_diff(
+            vod,
+            snapshot_a,
+            vod,
+            snapshot_b,
+            stat_labels=("Difficulty",),
+        )
+
+        self.assertIn("Difficulty:</span> 100% -> 200% (+100%)", result)
+
+    def test_format_compare_runs_diff_can_include_item_difference_section(self) -> None:
+        snapshot_a = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=("Key x4", "Giant Fork x1"),
+            stats={},
+        )
+        snapshot_b = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=("Key x1", "Lightning Orb x2", "Beefy Ring x1"),
+            stats={},
+        )
+        vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
+
+        result = gui.MegabonkApp.format_compare_runs_diff(
+            vod,
+            snapshot_a,
+            vod,
+            snapshot_b,
+            include_items=True,
+            stat_labels=(),
+        )
+
+        self.assertIn(">Items</span>", result)
+        self.assertIn("B has more:</span>", result)
+        self.assertIn("Lightning Orb</span> +2", result)
+        self.assertIn("Beefy Ring</span> +1", result)
+        self.assertIn("A has more:</span>", result)
+        self.assertIn("Giant Fork</span> -1", result)
+        self.assertIn("Key</span> -3", result)
+
+    def test_format_compare_runs_diff_can_expand_item_details_by_rarity(self) -> None:
+        snapshot_a = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=("Key x4", "Giant Fork x1"),
+            stats={},
+        )
+        snapshot_b = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=("Key x1", "Lightning Orb x2", "Beefy Ring x1"),
+            stats={},
+        )
+        vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
+
+        result = gui.MegabonkApp.format_compare_runs_diff(
+            vod,
+            snapshot_a,
+            vod,
+            snapshot_b,
+            include_items=True,
+            item_details_expanded=True,
+            stat_labels=(),
+        )
+
+        self.assertIn("<table", result)
+        self.assertIn(">Name</td>", result)
+        self.assertIn(">A</td>", result)
+        self.assertIn(">B</td>", result)
+        self.assertIn(">Diff</td>", result)
+        self.assertIn("Lightning Orb</span>", result)
+        self.assertIn("+2</span>", result)
+        self.assertIn("Key</span>", result)
+        self.assertIn("-3</span>", result)
+        self.assertGreaterEqual(result.count("&#9679;"), 3)
+
+    def test_format_compare_runs_diff_can_include_weapon_and_tome_sections(self) -> None:
+        weapon_stat_a = SimpleNamespace(label="Damage", display_value="10")
+        weapon_stat_b = SimpleNamespace(label="Damage", display_value="20")
+        weapon_a = SimpleNamespace(
+            name="Sword",
+            level=2,
+            upgrade_stat_ids=(12,),
+            upgraded_stats={12: weapon_stat_a},
+        )
+        weapon_b = SimpleNamespace(
+            name="Sword",
+            level=4,
+            upgrade_stat_ids=(12,),
+            upgraded_stats={12: weapon_stat_b},
+        )
+        tome_a = SimpleNamespace(name="Damage", level=1, stat_label="Damage", display_value="1.10x")
+        tome_b = SimpleNamespace(name="Damage", level=3, stat_label="Damage", display_value="1.30x")
+        snapshot_a = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=(),
+            stats={},
+            weapons=(weapon_a,),
+            tomes=(tome_a,),
+        )
+        snapshot_b = SimpleNamespace(
+            game_time_seconds=120.0,
+            elapsed_seconds=100,
+            mob_kills=1000,
+            player_level=10,
+            items=(),
+            stats={},
+            weapons=(weapon_b,),
+            tomes=(tome_b,),
+        )
+        vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
+
+        result = gui.MegabonkApp.format_compare_runs_diff(
+            vod,
+            snapshot_a,
+            vod,
+            snapshot_b,
+            include_weapons=True,
+            include_tomes=True,
+            stat_labels=(),
+        )
+
+        self.assertIn(">Weapons</span>", result)
+        self.assertIn(">Sword</span>", result)
+        self.assertIn(">Damage</td>", result)
+        self.assertIn(">A</td>", result)
+        self.assertIn(">B</td>", result)
+        self.assertIn(">Diff</td>", result)
+        self.assertIn(">10</td>", result)
+        self.assertIn(">20</td>", result)
+        self.assertIn(">+10</span>", result)
+        self.assertIn(">Tomes</span>", result)
+        self.assertIn("Lv. 1 -> 3", result)
+        self.assertIn(">+0.20x</span>", result)
+
+    def test_configured_compare_run_stat_labels_reads_valid_saved_config(self) -> None:
+        original_config = deepcopy(gui.config.user_config)
+        try:
+            gui.config.user_config.clear()
+            gui.config.user_config["COMPARE_RUN_STAT_LABELS"] = ["Luck", "Not Real", "Damage"]
+
+            result = gui.MegabonkApp.configured_compare_run_stat_labels()
+
+            self.assertEqual(result, ("Luck", "Damage"))
+        finally:
+            gui.config.user_config.clear()
+            gui.config.user_config.update(original_config)
+
+    def test_configured_compare_run_sections_reads_saved_config(self) -> None:
+        original_config = deepcopy(gui.config.user_config)
+        try:
+            gui.config.user_config.clear()
+            gui.config.user_config["COMPARE_RUN_SECTIONS"] = {
+                "items": True,
+                "weapons": False,
+                "tomes": True,
+                "unknown": True,
+            }
+
+            result = gui.MegabonkApp.configured_compare_run_sections()
+
+            self.assertEqual(result, {"items": True, "weapons": False, "tomes": True})
+        finally:
+            gui.config.user_config.clear()
+            gui.config.user_config.update(original_config)
+
+    def test_save_compare_run_stat_selection_persists_checked_labels(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.compare_runs_stat_checkboxes = {
+            "Damage": SimpleNamespace(isChecked=lambda: True),
+            "Luck": SimpleNamespace(isChecked=lambda: False),
+            "Difficulty": SimpleNamespace(isChecked=lambda: True),
+        }
+
+        with patch.object(gui.config, "save_config") as save_config:
+            gui.MegabonkApp._save_compare_run_stat_selection(app)
+
+        self.assertEqual(gui.config.user_config["COMPARE_RUN_STAT_LABELS"], ["Damage", "Difficulty"])
+        save_config.assert_called_once_with(gui.config.user_config)
+
     def test_diff_new_items_includes_new_stacks_and_new_names(self) -> None:
         result = gui.MegabonkApp.diff_new_items(
             ("Wrench x1", "Dice x1"),

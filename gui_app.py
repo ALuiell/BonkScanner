@@ -14,7 +14,7 @@ from gui_player_stats import PlayerStatsMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
 from gui_shared import UiInvoker, _AppWindow, resource_path
-from gui_styles import ITEM_SORT_DEFAULT, build_qt_app_stylesheet
+from gui_styles import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC, build_qt_app_stylesheet
 from gui_templates import TemplatesMixin
 from vod_storage import VodRecorder
 
@@ -68,6 +68,7 @@ class MegabonkApp(
         self.tab_stats = None
         self.tab_player_stats = None
         self.tab_vods = None
+        self.tab_compare_runs = None
         self.log_box = None
         self.stats_time_label = None
         self.stats_rerolls_label = None
@@ -148,6 +149,56 @@ class MegabonkApp(
         self.vods_tomes_layout = None
         self.vods_tome_cards = []
         self.vods_tome_signature = None
+        self.compare_run_a_list_frame = None
+        self.compare_run_b_list_frame = None
+        self.compare_runs_chooser_group = None
+        self.compare_runs_select_btn = None
+        self.compare_runs_swap_btn = None
+        self.compare_runs_stats_config_group = None
+        self.compare_runs_stats_config_btn = None
+        self.compare_runs_stat_checkboxes = {}
+        self.compare_runs_items_checkbox = None
+        self.compare_runs_weapons_checkbox = None
+        self.compare_runs_tomes_checkbox = None
+        self.compare_run_a_selected_label = None
+        self.compare_run_b_selected_label = None
+        self.compare_run_a_status_label = None
+        self.compare_run_b_status_label = None
+        self.compare_run_a_slider = None
+        self.compare_run_b_slider = None
+        self.compare_run_a_timeline_label = None
+        self.compare_run_b_timeline_label = None
+        self.compare_run_a_summary_label = None
+        self.compare_run_b_summary_label = None
+        self.compare_run_a_items_group = None
+        self.compare_run_b_items_group = None
+        self.compare_run_a_items_label = None
+        self.compare_run_b_items_label = None
+        self.compare_run_a_items_rarity_label = None
+        self.compare_run_b_items_rarity_label = None
+        self.compare_run_a_items_toggle_btn = None
+        self.compare_run_b_items_toggle_btn = None
+        self.compare_run_a_items_sort_combo = None
+        self.compare_run_b_items_sort_combo = None
+        self.compare_run_a_items_sort_mode = ITEM_SORT_RARITY_DESC
+        self.compare_run_b_items_sort_mode = ITEM_SORT_RARITY_DESC
+        self.compare_run_a_items_expanded = False
+        self.compare_run_b_items_expanded = False
+        self.compare_run_a_items_current = ()
+        self.compare_run_b_items_current = ()
+        self.compare_run_a_items_text_current = None
+        self.compare_run_b_items_text_current = None
+        self.compare_runs_diff_overview_group = None
+        self.compare_runs_diff_overview_label = None
+        self.compare_runs_diff_stats_group = None
+        self.compare_runs_diff_stats_label = None
+        self.compare_runs_diff_items_group = None
+        self.compare_runs_diff_items_label = None
+        self.compare_runs_diff_weapons_group = None
+        self.compare_runs_diff_weapons_label = None
+        self.compare_runs_diff_tomes_group = None
+        self.compare_runs_diff_tomes_label = None
+        self.compare_runs_item_details_btn = None
         self.status_label = None
         self.toggle_btn = None
         self.logo_label = None
@@ -172,6 +223,19 @@ class MegabonkApp(
         self.loaded_vod_snapshot_index = None
         self.loaded_vod_compare_start_index = None
         self.vods_compare_details_expanded = False
+        self.compare_run_a_vod = None
+        self.compare_run_b_vod = None
+        self.compare_run_a_snapshot_index = None
+        self.compare_run_b_snapshot_index = None
+        self.compare_runs_list_signature = None
+        self.compare_runs_chooser_expanded = False
+        self.compare_runs_stats_config_expanded = False
+        compare_sections = self.configured_compare_run_sections()
+        self.compare_runs_items_enabled = compare_sections["items"]
+        self.compare_runs_weapons_enabled = compare_sections["weapons"]
+        self.compare_runs_tomes_enabled = compare_sections["tomes"]
+        self.compare_runs_item_details_expanded = False
+        self.compare_runs_syncing = False
         self.native_hook_loader = None
         self.native_hook_thread = None
         self.native_hook_generation = 0
@@ -218,6 +282,8 @@ class MegabonkApp(
         scope_prefixes = {
             "live": "player_stats",
             "vod": "vods",
+            "compare_a": "compare_run_a",
+            "compare_b": "compare_run_b",
         }
         try:
             return scope_prefixes[scope]
