@@ -36,6 +36,7 @@ Right side:
 - `Session Stats` - session time, reroll count, RPM, best and worst maps, and averages per target.
 - `Live Stats` - current run stats, items, weapons, tomes, and recording controls.
 - `Recordings` - saved recordings viewer with timeline, rename, delete, and cleanup actions.
+- `Compare Runs` - side-by-side comparison of two saved runs with synced in-game time and a central difference panel.
 
 Reroll and Restart
 ------------------
@@ -53,13 +54,15 @@ The `Live Stats` tab shows:
 - `Mob Kills`;
 - `Level`;
 - `Stage Summary`;
-- `New Items`;
+- `Segment Compare`;
 - `Banishes`.
 
 Additional tabs inside `Live Stats`:
 - `Stats` - main character stats;
 - `Weapons` - current weapons, their levels, and upgraded weapon stats;
 - `Tomes` - current tomes, their levels, and active effects.
+
+The `Segment Compare` card can compare the current snapshot against an earlier point in the same run and summarize item, kill, level, and time changes.
 
 If some sections temporarily say that data is unavailable, that is not always an error. During loading, some memory pointers may not be ready yet.
 
@@ -72,6 +75,8 @@ Recording and Recordings
 Inside `Recordings`, you can:
 - scrub the timeline;
 - inspect stats, items, weapons, tomes, stage summary, and banishes by snapshot;
+- set a compare start and compare a later snapshot against it;
+- review compare details such as gained, broken, and lost items between two snapshots;
 - rename a recording;
 - delete a recording;
 - clean short recordings by snapshot count.
@@ -81,6 +86,13 @@ Recording behavior:
 - when the app detects a truly new run, recording can automatically continue into a new file;
 - if the current run seed disappears and stays unavailable, recording can stop automatically;
 - older files remain compatible even if they do not contain newer fields such as `weapons`, `tomes`, or `banishes`.
+
+Compare Runs
+------------
+- `Compare Runs` loads two saved recordings side by side as `Run A` and `Run B`.
+- Snapshots can be compared by matched `In-Game Time`, so both runs stay aligned to the closest moment.
+- The center `Difference` panel shows overview deltas and optional sections for stats, items, weapons, and tomes.
+- `Compare Settings` lets you choose which stats appear in the difference view and which compare sections stay visible.
 
 Hotkeys and Game Toggles
 ------------------------
