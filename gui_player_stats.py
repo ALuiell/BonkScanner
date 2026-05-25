@@ -990,6 +990,9 @@ class PlayerStatsMixin:
 
     def toggle_compare_runs_chooser(self):
         self.compare_runs_chooser_expanded = not bool(getattr(self, "compare_runs_chooser_expanded", False))
+        if self.compare_runs_chooser_expanded:
+            self.compare_runs_stats_config_expanded = False
+            self._refresh_compare_runs_stats_config()
         self._refresh_compare_runs_chooser()
         if self.compare_runs_chooser_expanded:
             self.refresh_compare_runs_list()
@@ -998,6 +1001,9 @@ class PlayerStatsMixin:
         self.compare_runs_stats_config_expanded = not bool(
             getattr(self, "compare_runs_stats_config_expanded", False)
         )
+        if self.compare_runs_stats_config_expanded:
+            self.compare_runs_chooser_expanded = False
+            self._refresh_compare_runs_chooser()
         self._refresh_compare_runs_stats_config()
 
     def on_compare_run_section_selection_changed(self):

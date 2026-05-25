@@ -377,6 +377,22 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     border-color: #3A4D66;
                     color: #E5E7EB;
                 }
+                QPushButton[class="CompareRunsGhostButton"] {
+                    background: #21364D;
+                    color: #F4F8FC;
+                    font-size: 13px;
+                    font-weight: 700;
+                    padding: 5px 12px;
+                    border: 1px solid #3F6487;
+                    border-radius: 7px;
+                    min-height: 26px;
+                    max-height: 26px;
+                }
+                QPushButton[class="CompareRunsGhostButton"]:hover {
+                    background: #2A4664;
+                    border-color: #5B86AF;
+                    color: #FFFFFF;
+                }
                 QPushButton[class="WideDialogButton"] {
                     min-height: 34px;
                     font-size: 14px;
