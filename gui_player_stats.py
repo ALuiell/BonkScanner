@@ -44,6 +44,8 @@ from gui_styles import (
     PLAYER_STATS_LABEL_FONT_SIZE,
     PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
     PLAYER_STATS_REFRESH_MS,
+    PLAYER_STATS_STAGE4_GHOST_TIMER_SECONDS,
+    PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS,
     PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS,
     PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS,
     PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS,
@@ -3201,10 +3203,13 @@ class PlayerStatsMixin:
             return False
         if current_run_time <= previous_run_time:
             return False
-        if current_stage_time < 10.0 and current_stage_time + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS < previous_stage_time:
+        if (
+            current_stage_time <= PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS
+            and current_stage_time + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS < previous_stage_time
+        ):
             return True
         return (
-            previous_stage_time < 60.0
+            current_stage_time >= PLAYER_STATS_STAGE4_GHOST_TIMER_SECONDS
             and current_stage_time - previous_stage_time >= PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS
         )
 

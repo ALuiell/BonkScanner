@@ -1320,6 +1320,108 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["time"], "22:00")
 
+    def test_build_stage_summary_detects_stage_four_after_wide_reset_gap(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=20.0,
+                stage_time_seconds=20.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=1_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=80.0,
+                stage_time_seconds=1.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                mob_kills=4_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=140.0,
+                stage_time_seconds=1.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                mob_kills=7_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=220.0,
+                stage_time_seconds=220.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                mob_kills=10_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=280.0,
+                stage_time_seconds=45.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                mob_kills=12_000,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[2]["kills"], "3,000")
+        self.assertEqual(rows[2]["time"], "01:20")
+        self.assertEqual(rows[3]["kills"], "0")
+        self.assertEqual(rows[3]["time"], "00:00")
+
+    def test_build_stage_summary_detects_stage_four_when_boss_lives_past_one_minute(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=20.0,
+                stage_time_seconds=20.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=300,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=80.0,
+                stage_time_seconds=1.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                mob_kills=900,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=140.0,
+                stage_time_seconds=1.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                mob_kills=1_500,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=450.0,
+                stage_time_seconds=100.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                mob_kills=2_500,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=472.0,
+                stage_time_seconds=590.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                mob_kills=2_564,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[2]["kills"], "1,000")
+        self.assertEqual(rows[2]["time"], "05:10")
+        self.assertEqual(rows[3]["kills"], "0")
+        self.assertEqual(rows[3]["time"], "00:00")
+
     def test_build_stage_summary_stage_one_time_starts_from_run_zero(self) -> None:
         snapshots = [
             SimpleNamespace(
