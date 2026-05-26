@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 import config
-from player_stats import PLAYER_STAT_GROUPS
+from player_stats import PLAYER_STAT_GROUPS, PlayerStatFormat
 
 SUMMARY_LABEL_PADDING_STYLESHEET = "padding-left: 4px;"
 LIVE_STATS_CARD_COLUMNS = 3
@@ -47,11 +47,64 @@ STAGE_SUMMARY_COLUMN_BASELINES = {
     "items": "\u25cf 99 \u25cf 99 \u25cf 99 \u25cf 99",
 }
 STAGE_SUMMARY_COLUMN_PADDING = 8
+SUMMARY_LABEL_BASELINE_PADDING = 8
+RUN_SUMMARY_LABEL_BASELINES = {
+    "chests_per_minute": "Average chests/min: 999.99",
+    "in_game_time": "In-Game Time: 99:59:59",
+    "mob_kills": "Mob Kills: 999,999",
+    "level": "Level: 999",
+}
+PLAYER_STAT_VALUE_BASELINES = {
+    PlayerStatFormat.FLAT: "999,999",
+    PlayerStatFormat.PERCENT: "999.9%",
+    PlayerStatFormat.MULTIPLIER: "999.9x",
+}
 
 
 def _apply_summary_label_padding(*labels) -> None:
     for label in labels:
         label.setStyleSheet(SUMMARY_LABEL_PADDING_STYLESHEET)
+
+
+def _reserve_label_baseline_width(label, baseline: str, padding: int = SUMMARY_LABEL_BASELINE_PADDING) -> None:
+    metrics = QFontMetrics(label.font())
+    width = max(metrics.horizontalAdvance(baseline), metrics.horizontalAdvance(label.text()))
+    label.setMinimumWidth(max(label.minimumWidth(), width + padding))
+
+
+def _retain_hidden_widget_size(widget) -> None:
+    policy = widget.sizePolicy()
+    policy.setRetainSizeWhenHidden(True)
+    widget.setSizePolicy(policy)
+
+
+def _apply_run_summary_baselines(
+    chests_per_minute_label,
+    in_game_time_label,
+    mob_kills_label,
+    level_label,
+) -> None:
+    _reserve_label_baseline_width(
+        chests_per_minute_label,
+        RUN_SUMMARY_LABEL_BASELINES["chests_per_minute"],
+    )
+    _reserve_label_baseline_width(
+        in_game_time_label,
+        RUN_SUMMARY_LABEL_BASELINES["in_game_time"],
+    )
+    _reserve_label_baseline_width(
+        mob_kills_label,
+        RUN_SUMMARY_LABEL_BASELINES["mob_kills"],
+    )
+    _reserve_label_baseline_width(
+        level_label,
+        RUN_SUMMARY_LABEL_BASELINES["level"],
+    )
+
+
+def _apply_player_stat_value_baseline(label, value_format) -> None:
+    baseline = PLAYER_STAT_VALUE_BASELINES.get(value_format, PLAYER_STAT_VALUE_BASELINES[PlayerStatFormat.FLAT])
+    _reserve_label_baseline_width(label, baseline)
 
 
 def _apply_stage_summary_column_baseline(layout, rows) -> None:
@@ -273,6 +326,7 @@ class GuiLayoutMixin:
         self.player_stats_items_toggle_btn = QPushButton("Show all")
         self.player_stats_items_toggle_btn.clicked.connect(self.toggle_player_items_expanded)
         self.player_stats_items_toggle_btn.setProperty("class", "SmallGhostButton")
+        _retain_hidden_widget_size(self.player_stats_items_toggle_btn)
         self.player_stats_items_toggle_btn.setVisible(False)
         items_actions = QHBoxLayout()
         self.player_stats_items_rarity_label = QLabel("")
@@ -307,6 +361,12 @@ class GuiLayoutMixin:
         self.player_stats_level_label = QLabel("Level: --")
         chest_rate_layout.addWidget(self.player_stats_level_label)
         _apply_summary_label_padding(
+            self.player_stats_chests_per_minute_label,
+            self.player_stats_in_game_time_label,
+            self.player_stats_mob_kills_label,
+            self.player_stats_level_label,
+        )
+        _apply_run_summary_baselines(
             self.player_stats_chests_per_minute_label,
             self.player_stats_in_game_time_label,
             self.player_stats_mob_kills_label,
@@ -393,6 +453,7 @@ class GuiLayoutMixin:
             for spec in group:
                 value_label = QLabel("--")
                 value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
+                _apply_player_stat_value_baseline(value_label, spec.value_format)
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.player_stats_rows[spec.label] = value_label
                 group_layout.addRow(spec.label, value_label)
@@ -514,6 +575,7 @@ class GuiLayoutMixin:
         self.vods_items_toggle_btn = QPushButton("Show all")
         self.vods_items_toggle_btn.clicked.connect(self.toggle_vod_items_expanded)
         self.vods_items_toggle_btn.setProperty("class", "SmallGhostButton")
+        _retain_hidden_widget_size(self.vods_items_toggle_btn)
         self.vods_items_toggle_btn.setVisible(False)
         vod_items_actions = QHBoxLayout()
         self.vods_items_rarity_label = QLabel("")
@@ -548,6 +610,12 @@ class GuiLayoutMixin:
         self.vods_level_label = QLabel("Level: --")
         vod_chest_rate_layout.addWidget(self.vods_level_label)
         _apply_summary_label_padding(
+            self.vods_chests_per_minute_label,
+            self.vods_in_game_time_label,
+            self.vods_mob_kills_label,
+            self.vods_level_label,
+        )
+        _apply_run_summary_baselines(
             self.vods_chests_per_minute_label,
             self.vods_in_game_time_label,
             self.vods_mob_kills_label,
@@ -660,6 +728,7 @@ class GuiLayoutMixin:
             for spec in group:
                 value_label = QLabel("--")
                 value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
+                _apply_player_stat_value_baseline(value_label, spec.value_format)
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self.vods_rows[spec.label] = value_label
                 group_layout.addRow(spec.label, value_label)
