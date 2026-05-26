@@ -71,6 +71,7 @@ COMPARE_RUN_STAT_CONFIG_KEY = "COMPARE_RUN_STAT_LABELS"
 COMPARE_RUN_SECTIONS_CONFIG_KEY = "COMPARE_RUN_SECTIONS"
 COMPARE_RUN_SECTION_DEFAULTS = {
     "items": False,
+    "stage_summary": False,
     "weapons": False,
     "tomes": False,
 }
@@ -990,14 +991,12 @@ class PlayerStatsMixin:
         self._set_compare_run_index(side, 0 if loaded_vod.snapshots else None)
         self.refresh_compare_runs_list()
         self.refresh_compare_runs_ui(changed_side=side)
+        self._auto_close_compare_runs_chooser_if_ready()
 
     def toggle_compare_runs_chooser(self):
-        self.compare_runs_chooser_expanded = not bool(getattr(self, "compare_runs_chooser_expanded", False))
-        if self.compare_runs_chooser_expanded:
-            self.compare_runs_stats_config_expanded = False
-            self._refresh_compare_runs_stats_config()
-        self._refresh_compare_runs_chooser()
-        if self.compare_runs_chooser_expanded:
+        next_expanded = not bool(getattr(self, "compare_runs_chooser_expanded", False))
+        self.set_compare_runs_chooser_expanded(next_expanded, guided=False)
+        if next_expanded:
             self.refresh_compare_runs_list()
 
     def toggle_compare_runs_stats_config(self):
@@ -1005,13 +1004,39 @@ class PlayerStatsMixin:
             getattr(self, "compare_runs_stats_config_expanded", False)
         )
         if self.compare_runs_stats_config_expanded:
-            self.compare_runs_chooser_expanded = False
-            self._refresh_compare_runs_chooser()
+            self.set_compare_runs_chooser_expanded(False, guided=False)
         self._refresh_compare_runs_stats_config()
+
+    def _auto_close_compare_runs_chooser_if_ready(self) -> None:
+        if not bool(getattr(self, "compare_runs_chooser_expanded", False)):
+            return
+        if not bool(getattr(self, "compare_runs_guided_selection_active", False)):
+            return
+        if self.compare_run_a_vod is None or self.compare_run_b_vod is None:
+            return
+        self.set_compare_runs_chooser_expanded(False, guided=False)
+
+    def ensure_compare_runs_chooser_for_empty_selection(self) -> None:
+        if not self._is_compare_runs_tab_active():
+            return
+        if self.compare_run_a_vod is not None or self.compare_run_b_vod is not None:
+            return
+        if bool(getattr(self, "compare_runs_chooser_expanded", False)):
+            return
+        self.set_compare_runs_chooser_expanded(True, guided=True)
+
+    def set_compare_runs_chooser_expanded(self, expanded: bool, *, guided: bool) -> None:
+        self.compare_runs_chooser_expanded = bool(expanded)
+        self.compare_runs_guided_selection_active = bool(expanded and guided)
+        if self.compare_runs_chooser_expanded:
+            self.compare_runs_stats_config_expanded = False
+            self._refresh_compare_runs_stats_config()
+        self._refresh_compare_runs_chooser()
 
     def on_compare_run_section_selection_changed(self):
         sections = self._compare_run_checked_sections()
         self.compare_runs_items_enabled = sections["items"]
+        self.compare_runs_stage_summary_enabled = sections["stage_summary"]
         self.compare_runs_weapons_enabled = sections["weapons"]
         self.compare_runs_tomes_enabled = sections["tomes"]
         if not self.compare_runs_items_enabled:
@@ -1177,9 +1202,16 @@ class PlayerStatsMixin:
                 snapshot_b,
                 details_expanded=bool(getattr(self, "compare_runs_item_details_expanded", False)),
             ),
+            stage_summary_text=self.format_compare_runs_stage_summary_diff(
+                vod_a,
+                self._compare_run_index("a"),
+                vod_b,
+                self._compare_run_index("b"),
+            ),
             weapons_text=self.format_compare_runs_weapons_diff(snapshot_a, snapshot_b),
             tomes_text=self.format_compare_runs_tomes_diff(snapshot_a, snapshot_b),
             show_items=bool(getattr(self, "compare_runs_items_enabled", False)),
+            show_stage_summary=bool(getattr(self, "compare_runs_stage_summary_enabled", False)),
             show_weapons=bool(getattr(self, "compare_runs_weapons_enabled", False)),
             show_tomes=bool(getattr(self, "compare_runs_tomes_enabled", False)),
         )
@@ -1209,20 +1241,24 @@ class PlayerStatsMixin:
         *,
         stats_text: str = "--",
         items_text: str = "--",
+        stage_summary_text: str = "--",
         weapons_text: str = "--",
         tomes_text: str = "--",
         show_items: bool = False,
+        show_stage_summary: bool = False,
         show_weapons: bool = False,
         show_tomes: bool = False,
     ) -> None:
         _set_text(getattr(self, "compare_runs_diff_overview_label", None), overview_text)
         _set_text(getattr(self, "compare_runs_diff_stats_label", None), stats_text)
         _set_text(getattr(self, "compare_runs_diff_items_label", None), items_text)
+        _set_text(getattr(self, "compare_runs_diff_stage_summary_label", None), stage_summary_text)
         _set_text(getattr(self, "compare_runs_diff_weapons_label", None), weapons_text)
         _set_text(getattr(self, "compare_runs_diff_tomes_label", None), tomes_text)
         self._set_visible(getattr(self, "compare_runs_diff_overview_group", None), True)
         self._set_visible(getattr(self, "compare_runs_diff_stats_group", None), bool(stats_text and stats_text != "--"))
         self._set_visible(getattr(self, "compare_runs_diff_items_group", None), show_items)
+        self._set_visible(getattr(self, "compare_runs_diff_stage_summary_group", None), show_stage_summary)
         self._set_visible(getattr(self, "compare_runs_diff_weapons_group", None), show_weapons)
         self._set_visible(getattr(self, "compare_runs_diff_tomes_group", None), show_tomes)
 
@@ -1309,6 +1345,9 @@ class PlayerStatsMixin:
     def _compare_run_checked_sections(self) -> dict[str, bool]:
         return {
             "items": bool(self._checkbox_checked(getattr(self, "compare_runs_items_checkbox", None))),
+            "stage_summary": bool(
+                self._checkbox_checked(getattr(self, "compare_runs_stage_summary_checkbox", None))
+            ),
             "weapons": bool(self._checkbox_checked(getattr(self, "compare_runs_weapons_checkbox", None))),
             "tomes": bool(self._checkbox_checked(getattr(self, "compare_runs_tomes_checkbox", None))),
         }
@@ -2023,6 +2062,23 @@ class PlayerStatsMixin:
         return "<br>".join(item_rows) if item_rows else "--"
 
     @classmethod
+    def format_compare_runs_stage_summary_diff(cls, vod_a, index_a, vod_b, index_b) -> str:
+        rows_a = cls._build_compare_run_stage_summary_rows(vod_a, index_a)
+        rows_b = cls._build_compare_run_stage_summary_rows(vod_b, index_b)
+        blocks: list[str] = []
+        for row_a, row_b in zip(rows_a, rows_b):
+            label = html.escape(str(row_a.get("label", row_b.get("label", "--"))))
+            blocks.append(
+                "<div style='margin-bottom:10px;'>"
+                f"<span style='color:#E5E7EB; font-weight:700;'>{label}</span><br>"
+                f"<span style='color:#98A7BA;'>Time:</span> {cls._format_compare_stage_summary_metric(row_a.get('time', '--'), row_b.get('time', '--'), metric='time')}<br>"
+                f"<span style='color:#98A7BA;'>Kills:</span> {cls._format_compare_stage_summary_metric(row_a.get('kills', '--'), row_b.get('kills', '--'), metric='count')}<br>"
+                f"<span style='color:#98A7BA;'>Items:</span> {cls._format_compare_stage_summary_items(row_a.get('items', '--'), row_b.get('items', '--'))}"
+                "</div>"
+            )
+        return "".join(blocks) if blocks else "--"
+
+    @classmethod
     def format_compare_runs_weapons_diff(cls, snapshot_a, snapshot_b) -> str:
         weapon_rows = cls._format_compare_run_weapon_deltas(snapshot_a, snapshot_b)
         return "<br>".join(weapon_rows) if weapon_rows else "--"
@@ -2054,6 +2110,62 @@ class PlayerStatsMixin:
     @classmethod
     def _snapshot_item_total(cls, snapshot) -> int:
         return sum(cls._item_counts(getattr(snapshot, "items", ())).values())
+
+    @classmethod
+    def _build_compare_run_stage_summary_rows(cls, vod, index) -> list[dict[str, str]]:
+        if vod is None or index is None:
+            return cls.build_stage_summary(())
+        snapshots = getattr(vod, "snapshots", ()) or ()
+        if not snapshots:
+            return cls.build_stage_summary(())
+        bounded_index = min(max(int(index), 0), len(snapshots) - 1)
+        return cls.build_stage_summary(snapshots[: bounded_index + 1])
+
+    @classmethod
+    def _format_compare_stage_summary_metric(cls, value_a: str, value_b: str, *, metric: str) -> str:
+        escaped_a = html.escape(str(value_a))
+        escaped_b = html.escape(str(value_b))
+        delta_text = ""
+        if metric == "time":
+            seconds_a = cls._parse_stage_summary_time(value_a)
+            seconds_b = cls._parse_stage_summary_time(value_b)
+            if seconds_a is not None and seconds_b is not None:
+                delta_text = f" ({cls._format_signed_seconds(seconds_b - seconds_a)})"
+        else:
+            count_a = cls._parse_stage_summary_count(value_a)
+            count_b = cls._parse_stage_summary_count(value_b)
+            if count_a is not None and count_b is not None:
+                delta_text = f" ({cls._format_signed_count(count_b - count_a)})"
+        return f"{escaped_a} <span style='color:#98A7BA;'>&rarr;</span> {escaped_b}{html.escape(delta_text)}"
+
+    @staticmethod
+    def _format_compare_stage_summary_items(value_a: str, value_b: str) -> str:
+        return (
+            f"{value_a} <span style='color:#98A7BA;'>&rarr;</span> {value_b}"
+            if value_a != "--" or value_b != "--"
+            else "--"
+        )
+
+    @staticmethod
+    def _parse_stage_summary_time(value: str | None) -> int | None:
+        if value in (None, "--"):
+            return None
+        parts = str(value).split(":")
+        if len(parts) not in (2, 3) or any(not part.isdigit() for part in parts):
+            return None
+        total = 0
+        for part in parts:
+            total = total * 60 + int(part)
+        return total
+
+    @staticmethod
+    def _parse_stage_summary_count(value: str | None) -> int | None:
+        if value in (None, "--"):
+            return None
+        try:
+            return int(str(value).replace(",", ""))
+        except ValueError:
+            return None
 
     @classmethod
     def _format_compare_run_item_deltas(cls, snapshot_a, snapshot_b, *, details_expanded: bool = False) -> list[str]:

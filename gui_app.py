@@ -158,6 +158,7 @@ class MegabonkApp(
         self.compare_runs_stats_config_btn = None
         self.compare_runs_stat_checkboxes = {}
         self.compare_runs_items_checkbox = None
+        self.compare_runs_stage_summary_checkbox = None
         self.compare_runs_weapons_checkbox = None
         self.compare_runs_tomes_checkbox = None
         self.compare_run_a_selected_label = None
@@ -194,6 +195,8 @@ class MegabonkApp(
         self.compare_runs_diff_stats_label = None
         self.compare_runs_diff_items_group = None
         self.compare_runs_diff_items_label = None
+        self.compare_runs_diff_stage_summary_group = None
+        self.compare_runs_diff_stage_summary_label = None
         self.compare_runs_diff_weapons_group = None
         self.compare_runs_diff_weapons_label = None
         self.compare_runs_diff_tomes_group = None
@@ -229,9 +232,11 @@ class MegabonkApp(
         self.compare_run_b_snapshot_index = None
         self.compare_runs_list_signature = None
         self.compare_runs_chooser_expanded = False
+        self.compare_runs_guided_selection_active = False
         self.compare_runs_stats_config_expanded = False
         compare_sections = self.configured_compare_run_sections()
         self.compare_runs_items_enabled = compare_sections["items"]
+        self.compare_runs_stage_summary_enabled = compare_sections["stage_summary"]
         self.compare_runs_weapons_enabled = compare_sections["weapons"]
         self.compare_runs_tomes_enabled = compare_sections["tomes"]
         self.compare_runs_item_details_expanded = False

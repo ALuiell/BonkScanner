@@ -684,10 +684,6 @@ class GuiLayoutMixin:
         compare_layout = QVBoxLayout(self.tab_compare_runs)
 
         selected_row = QHBoxLayout()
-        self.compare_run_a_selected_label = QLabel("Run A: --")
-        self.compare_run_a_selected_label.setWordWrap(True)
-        self.compare_run_b_selected_label = QLabel("Run B: --")
-        self.compare_run_b_selected_label.setWordWrap(True)
         self.compare_runs_select_btn = QPushButton("Select Runs")
         self.compare_runs_select_btn.setProperty("class", "CompareRunsGhostButton")
         self.compare_runs_select_btn.clicked.connect(self.toggle_compare_runs_chooser)
@@ -697,8 +693,7 @@ class GuiLayoutMixin:
         self.compare_runs_stats_config_btn = QPushButton("Compare Settings")
         self.compare_runs_stats_config_btn.setProperty("class", "CompareRunsGhostButton")
         self.compare_runs_stats_config_btn.clicked.connect(self.toggle_compare_runs_stats_config)
-        selected_row.addWidget(self.compare_run_a_selected_label, 1)
-        selected_row.addWidget(self.compare_run_b_selected_label, 1)
+        selected_row.addStretch(1)
         selected_row.addWidget(self.compare_runs_select_btn)
         selected_row.addWidget(self.compare_runs_swap_btn)
         selected_row.addWidget(self.compare_runs_stats_config_btn)
@@ -739,6 +734,11 @@ class GuiLayoutMixin:
         self.compare_runs_items_checkbox = QCheckBox("Items")
         self.compare_runs_items_checkbox.setChecked(configured_sections["items"])
         self.compare_runs_items_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
+        self.compare_runs_stage_summary_checkbox = QCheckBox("Stage Summary")
+        self.compare_runs_stage_summary_checkbox.setChecked(configured_sections["stage_summary"])
+        self.compare_runs_stage_summary_checkbox.stateChanged.connect(
+            lambda _state: self.on_compare_run_section_selection_changed()
+        )
         self.compare_runs_weapons_checkbox = QCheckBox("Weapons")
         self.compare_runs_weapons_checkbox.setChecked(configured_sections["weapons"])
         self.compare_runs_weapons_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
@@ -746,6 +746,7 @@ class GuiLayoutMixin:
         self.compare_runs_tomes_checkbox.setChecked(configured_sections["tomes"])
         self.compare_runs_tomes_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
         section_layout.addWidget(QLabel("Show in Difference:"))
+        section_layout.addWidget(self.compare_runs_stage_summary_checkbox)
         section_layout.addWidget(self.compare_runs_items_checkbox)
         section_layout.addWidget(self.compare_runs_weapons_checkbox)
         section_layout.addWidget(self.compare_runs_tomes_checkbox)
@@ -804,6 +805,10 @@ class GuiLayoutMixin:
         self.compare_runs_item_details_btn.clicked.connect(self.toggle_compare_runs_item_details)
         self.compare_runs_item_details_btn.setVisible(False)
         self.compare_runs_diff_items_group.layout().addWidget(self.compare_runs_item_details_btn, 0, Qt.AlignLeft)
+        self.compare_runs_diff_stage_summary_group, self.compare_runs_diff_stage_summary_label = self._build_compare_diff_card(
+            "Stage Summary",
+            "--",
+        )
         self.compare_runs_diff_weapons_group, self.compare_runs_diff_weapons_label = self._build_compare_diff_card(
             "Weapons",
             "--",
@@ -814,6 +819,7 @@ class GuiLayoutMixin:
         )
         diff_scroll_layout.addWidget(self.compare_runs_diff_overview_group)
         diff_scroll_layout.addWidget(self.compare_runs_diff_stats_group)
+        diff_scroll_layout.addWidget(self.compare_runs_diff_stage_summary_group)
         diff_scroll_layout.addWidget(self.compare_runs_diff_items_group)
         diff_scroll_layout.addWidget(self.compare_runs_diff_weapons_group)
         diff_scroll_layout.addWidget(self.compare_runs_diff_tomes_group)
@@ -938,6 +944,8 @@ class GuiLayoutMixin:
             self.refresh_vods_list()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
+            if hasattr(self, "ensure_compare_runs_chooser_for_empty_selection"):
+                self.ensure_compare_runs_chooser_for_empty_selection()
         self.after_idle(self._refresh_right_tab_after_switch)
 
     def _refresh_right_tab_after_switch(self):
@@ -945,6 +953,8 @@ class GuiLayoutMixin:
             self.refresh_vods_list()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
+            if hasattr(self, "ensure_compare_runs_chooser_for_empty_selection"):
+                self.ensure_compare_runs_chooser_for_empty_selection()
         if self._is_live_stats_tab_active():
             self.refresh_live_player_stats_now()
 

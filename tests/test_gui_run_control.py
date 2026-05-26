@@ -2414,6 +2414,7 @@ class GuiRunControlTests(unittest.TestCase):
             gui.config.user_config.clear()
             gui.config.user_config["COMPARE_RUN_SECTIONS"] = {
                 "items": True,
+                "stage_summary": True,
                 "weapons": False,
                 "tomes": True,
                 "unknown": True,
@@ -2421,10 +2422,57 @@ class GuiRunControlTests(unittest.TestCase):
 
             result = gui.MegabonkApp.configured_compare_run_sections()
 
-            self.assertEqual(result, {"items": True, "weapons": False, "tomes": True})
+            self.assertEqual(result, {"items": True, "stage_summary": True, "weapons": False, "tomes": True})
         finally:
             gui.config.user_config.clear()
             gui.config.user_config.update(original_config)
+
+    def test_format_compare_runs_stage_summary_diff_uses_selected_snapshot_progress(self) -> None:
+        snapshot_a_1 = SimpleNamespace(
+            game_time_seconds=30.0,
+            mob_kills=10,
+            items=("Key x1",),
+            stage_ptr=0,
+            map_seed=11,
+            stage_time_seconds=30.0,
+        )
+        snapshot_a_2 = SimpleNamespace(
+            game_time_seconds=60.0,
+            mob_kills=25,
+            items=("Key x2",),
+            stage_ptr=0,
+            map_seed=11,
+            stage_time_seconds=60.0,
+        )
+        snapshot_b_1 = SimpleNamespace(
+            game_time_seconds=35.0,
+            mob_kills=12,
+            items=("Key x1", "Wrench x1"),
+            stage_ptr=0,
+            map_seed=22,
+            stage_time_seconds=35.0,
+        )
+        snapshot_b_2 = SimpleNamespace(
+            game_time_seconds=75.0,
+            mob_kills=40,
+            items=("Key x3", "Wrench x1"),
+            stage_ptr=0,
+            map_seed=22,
+            stage_time_seconds=75.0,
+        )
+        vod_a = SimpleNamespace(snapshots=(snapshot_a_1, snapshot_a_2))
+        vod_b = SimpleNamespace(snapshots=(snapshot_b_1, snapshot_b_2))
+
+        result = gui.MegabonkApp.format_compare_runs_stage_summary_diff(vod_a, 1, vod_b, 1)
+
+        self.assertIn("Stage 1", result)
+        self.assertIn("01:00", result)
+        self.assertIn("01:15", result)
+        self.assertIn("(+00:15)", result)
+        self.assertIn("25", result)
+        self.assertIn("40", result)
+        self.assertIn("(+15)", result)
+        self.assertIn("&rarr;", result)
 
     def test_save_compare_run_stat_selection_persists_checked_labels(self) -> None:
         app = object.__new__(gui.MegabonkApp)
@@ -2439,6 +2487,77 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(gui.config.user_config["COMPARE_RUN_STAT_LABELS"], ["Damage", "Difficulty"])
         save_config.assert_called_once_with(gui.config.user_config)
+
+    def test_auto_close_compare_runs_chooser_if_ready_closes_after_both_runs_selected(self) -> None:
+        refreshed = []
+        app = SimpleNamespace(
+            compare_runs_chooser_expanded=True,
+            compare_runs_guided_selection_active=True,
+            compare_run_a_vod=object(),
+            compare_run_b_vod=object(),
+            set_compare_runs_chooser_expanded=lambda expanded, guided=False: refreshed.append((expanded, guided)),
+        )
+
+        gui.MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
+
+        self.assertEqual(refreshed, [(False, False)])
+
+    def test_auto_close_compare_runs_chooser_if_ready_keeps_open_when_selection_incomplete(self) -> None:
+        refreshed = []
+        app = SimpleNamespace(
+            compare_runs_chooser_expanded=True,
+            compare_runs_guided_selection_active=True,
+            compare_run_a_vod=object(),
+            compare_run_b_vod=None,
+            _refresh_compare_runs_chooser=lambda: refreshed.append(True),
+        )
+
+        gui.MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
+
+        self.assertTrue(app.compare_runs_chooser_expanded)
+        self.assertEqual(refreshed, [])
+
+    def test_auto_close_compare_runs_chooser_if_ready_keeps_manual_chooser_open(self) -> None:
+        refreshed = []
+        app = SimpleNamespace(
+            compare_runs_chooser_expanded=True,
+            compare_runs_guided_selection_active=False,
+            compare_run_a_vod=object(),
+            compare_run_b_vod=object(),
+            set_compare_runs_chooser_expanded=lambda expanded, guided=False: refreshed.append((expanded, guided)),
+        )
+
+        gui.MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
+
+        self.assertEqual(refreshed, [])
+
+    def test_ensure_compare_runs_chooser_for_empty_selection_opens_guided_mode(self) -> None:
+        calls = []
+        app = SimpleNamespace(
+            compare_run_a_vod=None,
+            compare_run_b_vod=None,
+            compare_runs_chooser_expanded=False,
+            _is_compare_runs_tab_active=lambda: True,
+            set_compare_runs_chooser_expanded=lambda expanded, guided=False: calls.append((expanded, guided)),
+        )
+
+        gui.MegabonkApp.ensure_compare_runs_chooser_for_empty_selection(app)
+
+        self.assertEqual(calls, [(True, True)])
+
+    def test_ensure_compare_runs_chooser_for_empty_selection_skips_when_runs_already_selected(self) -> None:
+        calls = []
+        app = SimpleNamespace(
+            compare_run_a_vod=object(),
+            compare_run_b_vod=object(),
+            compare_runs_chooser_expanded=False,
+            _is_compare_runs_tab_active=lambda: True,
+            set_compare_runs_chooser_expanded=lambda expanded, guided=False: calls.append((expanded, guided)),
+        )
+
+        gui.MegabonkApp.ensure_compare_runs_chooser_for_empty_selection(app)
+
+        self.assertEqual(calls, [])
 
     def test_diff_new_items_includes_new_stacks_and_new_names(self) -> None:
         result = gui.MegabonkApp.diff_new_items(
