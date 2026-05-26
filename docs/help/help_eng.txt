@@ -90,8 +90,10 @@ Recording behavior:
 Compare Runs
 ------------
 - `Compare Runs` loads two saved recordings side by side as `Run A` and `Run B`.
+- If no runs are selected yet, the recordings chooser opens automatically the first time you enter this tab.
+- During that guided first selection, the chooser closes automatically after both runs are selected.
 - Snapshots can be compared by matched `In-Game Time`, so both runs stay aligned to the closest moment.
-- The center `Difference` panel shows overview deltas and optional sections for stats, items, weapons, and tomes.
+- The center `Difference` panel shows overview deltas and optional sections for stats, stage summary, items, weapons, and tomes.
 - `Compare Settings` lets you choose which stats appear in the difference view and which compare sections stay visible.
 
 Hotkeys and Game Toggles
