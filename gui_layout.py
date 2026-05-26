@@ -10,7 +10,7 @@ from gui_styles import (
 )
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtGui import QFont, QFontMetrics, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QCheckBox,
@@ -40,11 +40,29 @@ LIVE_STATS_VALUE_WIDTH = 64
 RECORDINGS_STATS_CARD_COLUMNS = 3
 RECORDINGS_LIST_MIN_WIDTH = 150
 RECORDINGS_LIST_MAX_WIDTH = 240
+STAGE_SUMMARY_COLUMN_BASELINES = {
+    "stage": "Stage",
+    "time": "59:59",
+    "kills": "999,999",
+    "items": "\u25cf 99 \u25cf 99 \u25cf 99 \u25cf 99",
+}
+STAGE_SUMMARY_COLUMN_PADDING = 8
 
 
 def _apply_summary_label_padding(*labels) -> None:
     for label in labels:
         label.setStyleSheet(SUMMARY_LABEL_PADDING_STYLESHEET)
+
+
+def _apply_stage_summary_column_baseline(layout, rows) -> None:
+    for column, key in enumerate(("stage", "time", "kills", "items")):
+        baseline = STAGE_SUMMARY_COLUMN_BASELINES[key]
+        width = 0
+        for row in rows:
+            label = row[key]
+            metrics = QFontMetrics(label.font())
+            width = max(width, metrics.horizontalAdvance(baseline), metrics.horizontalAdvance(label.text()))
+        layout.setColumnMinimumWidth(column, width + STAGE_SUMMARY_COLUMN_PADDING)
 
 
 class GuiLayoutMixin:
@@ -328,6 +346,10 @@ class GuiLayoutMixin:
                     "items": items_label,
                 }
             )
+        _apply_stage_summary_column_baseline(
+            live_stage_summary_layout,
+            self.player_stats_stage_summary_labels,
+        )
         live_stage_summary_layout.setColumnStretch(0, 1)
         live_stage_summary_layout.setColumnStretch(1, 2)
         live_stage_summary_layout.setColumnStretch(2, 1)
@@ -565,6 +587,10 @@ class GuiLayoutMixin:
                     "items": items_label,
                 }
             )
+        _apply_stage_summary_column_baseline(
+            vod_stage_summary_layout,
+            self.vods_stage_summary_labels,
+        )
         vod_stage_summary_layout.setColumnStretch(0, 1)
         vod_stage_summary_layout.setColumnStretch(1, 2)
         vod_stage_summary_layout.setColumnStretch(2, 1)
