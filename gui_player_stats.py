@@ -44,6 +44,7 @@ from gui_styles import (
     PLAYER_STATS_LABEL_FONT_SIZE,
     PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
     PLAYER_STATS_REFRESH_MS,
+    PLAYER_STATS_STAGE4_GHOST_ENTRY_MAX_SECONDS,
     PLAYER_STATS_STAGE4_GHOST_TIMER_SECONDS,
     PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS,
     PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS,
@@ -3142,7 +3143,37 @@ class PlayerStatsMixin:
                 "items": items_text,
             }
 
+        cls._reconcile_stage_summary_kills(rows, snapshots)
         return rows
+
+    @classmethod
+    def _reconcile_stage_summary_kills(cls, rows: list[dict[str, str]], snapshots) -> None:
+        final_snapshot = snapshots[-1] if snapshots else None
+        final_total = getattr(final_snapshot, "mob_kills", None) if final_snapshot is not None else None
+        if final_total is None:
+            return
+        parsed_counts: list[int | None] = []
+        for row in rows:
+            kills_text = str(row.get("kills", "--"))
+            if kills_text == "--":
+                parsed_counts.append(None)
+                continue
+            try:
+                parsed_counts.append(int(kills_text.replace(",", "")))
+            except ValueError:
+                parsed_counts.append(None)
+        known_total = sum(count for count in parsed_counts if count is not None)
+        delta = int(final_total) - known_total
+        if delta == 0:
+            return
+        last_index = None
+        for index, count in enumerate(parsed_counts):
+            if count is not None:
+                last_index = index
+        if last_index is None:
+            return
+        updated_total = max(0, int(parsed_counts[last_index] or 0) + delta)
+        rows[last_index]["kills"] = cls.format_count(updated_total)
 
     @classmethod
     def _resolve_next_stage_index(cls, current_stage_index: int, previous_snapshot, snapshot) -> int:
@@ -3206,6 +3237,11 @@ class PlayerStatsMixin:
         if (
             current_stage_time <= PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS
             and current_stage_time + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS < previous_stage_time
+        ):
+            return True
+        if (
+            PLAYER_STATS_STAGE4_GHOST_TIMER_SECONDS <= current_stage_time <= PLAYER_STATS_STAGE4_GHOST_ENTRY_MAX_SECONDS
+            and previous_stage_time - current_stage_time >= PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS
         ):
             return True
         return (

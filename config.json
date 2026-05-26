@@ -116,5 +116,10 @@
     "GAME_CONTROL_PRESET_2": {},
     "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY": "f11",
     "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY": "f9",
-    "TOGGLE_PARTICLES_OPACITY_HOTKEY": "f7"
+    "TOGGLE_PARTICLES_OPACITY_HOTKEY": "f7",
+    "COMPARE_RUN_SECTIONS": {
+        "items": true,
+        "weapons": true,
+        "tomes": true
+    }
 }

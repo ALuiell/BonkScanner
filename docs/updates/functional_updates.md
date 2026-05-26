@@ -246,3 +246,323 @@ Possible improvements:
 - Add an option to pin one run as a reference and quickly cycle through many
   other runs against it.
 - Add export of comparison summaries for sharing and debugging.
+
+## 3. Add Run Damage Breakdown To Live Stats, Recordings, And Compare Runs
+
+Status: `[Open]`
+
+Current reverse result:
+
+- The game already tracks current-run damage split by source in
+  `RunStats.damageSources`.
+- This is a better source than trying to reconstruct damage from weapon stats,
+  enemy health deltas, or UI text.
+- The damage data appears to be the same conceptual data used by the in-game
+  game-over damage breakdown UI.
+
+Goal:
+
+- Add a first-class run field that shows how much damage each source has dealt
+  during the current run.
+- Use the same structure in:
+  - `Live Stats`
+  - saved `Recordings`
+  - `Compare Runs`
+- Preserve enough detail that future UI can show both compact totals and more
+  advanced compare views without requiring another reverse pass.
+
+Why this helps:
+
+- It makes build analysis much more useful than only showing inventory,
+  weapons, tomes, or total kills.
+- It becomes much easier to answer:
+  - which weapon is actually carrying the run
+  - whether an item proc is overperforming or underperforming
+  - when a source starts contributing meaningful damage
+  - how two runs differ in real output, not just build shape
+- It gives a natural post-hoc analysis feature for routing, balancing, and
+  debugging scanner correctness.
+
+## Confirmed Runtime Source
+
+Canonical runtime owner:
+
+- `Assets.Scripts.Saves___Serialization.Progression.Stats.RunStats`
+
+Relevant fields from dump:
+
+- `private static Dictionary<string, float> stats; // 0x0`
+- `public static Dictionary<string, DamageSource> damageSources; // 0x8`
+
+Relevant related types:
+
+- `Assets.Scripts.Saves___Serialization.Progression.Stats.DamageSource`
+- `Assets.Scripts.Actors.DamageContainer`
+- `WeaponData.damageSourceName`
+
+What the data means:
+
+- `RunStats.damageSources` is a current-run dictionary keyed by damage source
+  name string.
+- Each value is a `DamageSource` object that stores:
+  - `damageSource`
+  - `addedAtTime`
+  - `damage`
+- Combat hits use `DamageContainer.damageSource`, and the run stat system adds
+  damage into the matching `RunStats.damageSources` bucket.
+
+This strongly suggests the feature should be implemented as a direct runtime
+read of `RunStats.damageSources`, not as a derived estimate.
+
+## Important Dump References
+
+Primary reverse files:
+
+- `F:\Python\CA_mpc_bridge\Dump\dump.cs`
+- `F:\Python\CA_mpc_bridge\Dump\il2cpp.h`
+- `F:\Python\CA_mpc_bridge\Dump\script.json`
+
+Most useful symbols:
+
+- `RunStats.damageSources`
+- `RunStats.OnEnemyDamaged(Enemy enemy, DamageContainer dc)`
+- `DamageSource`
+- `DamageContainer.damageSource`
+- `WeaponData.damageSourceName`
+- `WeaponUtility.GetDamageContainer(..., string damageSourceName, ...)`
+- `GameOverDamageSourcesUi`
+- `DamageSourceEntry`
+- `LocalizationUtility.GetLocalizedDamageSource`
+
+Useful UI confirmation symbols:
+
+- `GameOverDamageSourcesUi.Start()`
+- `DamageSourceEntry.Set(DamageSource dmgSource)`
+- `DamageSourceEntry` fields:
+  - `t_sourceName`
+  - `t_lvl`
+  - `t_dmg`
+  - `t_dps`
+
+This is useful because it confirms:
+
+- the game already expects `DamageSource` as a user-facing summary object
+- the source names can be localized
+- the game-over screen is already a good behavioral reference for how this data
+  should look when sorted and displayed
+
+## Rooted Memory Shape
+
+Class root:
+
+```text
+GameAssembly.dll + <RunStats_TypeInfo_Offset>
+-> [read qword] RunStats class ptr
+-> +0xB8
+-> [read qword] static fields
+-> +0x8
+-> [read qword] Dictionary<string, DamageSource> damageSources
+```
+
+Static field layout from dump:
+
+```text
+RunStats static fields
++0x0 stats Dictionary<string, float>
++0x8 damageSources Dictionary<string, DamageSource>
++0x10 achievements
++0x18 A_StatChange
+```
+
+`DamageSource` object layout from dump:
+
+```text
+DamageSource
++0x10 string damageSource
++0x18 float addedAtTime
++0x1C float damage
+```
+
+`DamageContainer` object layout from dump:
+
+```text
+DamageContainer
++0x1C float damage
++0x40 string damageSource
+```
+
+Implementation note:
+
+- The last stable rooted object is the dictionary itself.
+- Like `RunStats.stats["kills"]`, this should be treated as a dictionary scan
+  problem, not a fixed final pointer.
+- The exact `Dictionary.Entry<string, DamageSource>` value layout should be
+  confirmed live before implementation is locked in.
+
+## Expected Read Strategy
+
+Recommended first implementation:
+
+1. Resolve `RunStats.damageSources` from the rooted static field path.
+2. Read dictionary `count` and `entries`.
+3. Iterate entries.
+4. For each valid entry:
+   - read key string
+   - read value object pointer
+   - dereference `DamageSource`
+   - read `damageSource`, `addedAtTime`, `damage`
+5. Normalize into a Python-side list sorted by descending damage.
+
+Recommended normalized runtime structure:
+
+```text
+DamageSourceSnapshot(
+  source_key,
+  source_name,
+  localized_name,
+  damage,
+  added_at_time,
+  level=None,
+  source_kind=None,
+)
+```
+
+Notes:
+
+- `source_key` should preserve the raw internal key exactly as read from memory.
+- `source_name` may duplicate the raw key at first.
+- `localized_name` can be added later if we implement source-name localization.
+- `level` is not directly stored in `DamageSource`; if later desired, it will
+  need a separate mapping step for weapons/items that expose current level.
+- `source_kind` is optional future metadata such as `weapon`, `item`,
+  `passive`, `proc`, or `unknown`.
+
+## Proposed Feature Scope
+
+Phase 1:
+
+- Read `RunStats.damageSources` live.
+- Show a compact sorted list in `Live Stats`.
+- Store optional `damage_sources` in recording snapshots.
+
+Phase 2:
+
+- Show the same snapshot data in `Recordings`.
+- Keep backward compatibility for old recordings without `damage_sources`.
+
+Phase 3:
+
+- Add `Compare Runs` damage comparison views:
+  - current total per source at selected synced time
+  - damage delta between `Run A` and `Run B`
+  - added/removed source highlighting
+
+Phase 4:
+
+- Improve source labeling:
+  - localized source names
+  - optional source kind tagging
+  - optional source level reconstruction for weapons/items
+
+## Suggested UI Shape
+
+For `Live Stats`:
+
+- Add a `Damage Sources` section or tab.
+- Show a sorted list by descending total damage.
+- Initial compact rows can include:
+  - source name
+  - total damage
+  - share of total damage
+
+For `Recordings`:
+
+- Show the same structure for the selected snapshot.
+- If compare-start snapshot is pinned, optionally show segment delta for damage
+  sources between two snapshots in the same run.
+
+For `Compare Runs`:
+
+- Side-by-side source tables for `Run A` and `Run B`
+- One central diff panel or inline delta columns
+- Useful fields:
+  - source present on both sides
+  - total damage difference
+  - percent share difference
+
+## Recording Schema Recommendation
+
+Add an optional snapshot field such as:
+
+```json
+"damage_sources": [
+  {
+    "source_key": "string",
+    "source_name": "string",
+    "localized_name": "string or null",
+    "damage": 12345.0,
+    "added_at_time": 12.34
+  }
+]
+```
+
+Compatibility rules:
+
+- old recordings without `damage_sources` must continue to load normally
+- missing field should display as unavailable rather than zero
+- snapshot compare code should tolerate different source sets between snapshots
+
+## Validation Checklist
+
+Live validation before implementation is considered safe:
+
+1. Confirm the rooted `RunStats.damageSources` pointer is stable across:
+   - fresh run start
+   - stage transition
+   - death / end-run flow
+2. Confirm dictionary entries update live as damage is dealt.
+3. Confirm at least one weapon source and one item/proc source appear in the
+   dictionary during a real run.
+4. Confirm the top sources and totals broadly match the in-game game-over
+   damage breakdown UI.
+5. Confirm values reset correctly on a true new run.
+6. Confirm stale previous-run data does not leak into a new recording after run
+   split.
+
+Nice-to-have validation:
+
+- confirm whether `addedAtTime` reflects first-seen run time for that source
+- confirm whether non-damaging equipped items stay absent
+- confirm how summons, chain effects, thorns, bleed, poison, or reflection
+  sources are named
+- confirm whether source names are stable internal identifiers across builds
+
+## Risks And Caveats
+
+- The rooted class path is good, but dictionary entry layout still needs live
+  confirmation for `Dictionary<string, DamageSource>`.
+- The source keys may be internal ids rather than polished user-facing names.
+- Some sources may be ambiguous without extra mapping:
+  - proc effects
+  - debuffs
+  - item-triggered secondary damage
+- `DamageSource` does not directly store source level, so `Lv.` style detail is
+  not free for this feature.
+- If source names are localized only through game methods, pure memory reads
+  may initially show raw keys until we add our own mapping layer or hook-based
+  helper.
+
+## Implementation Handoff Notes
+
+When this feature is picked up later, start here:
+
+1. Reconfirm `RunStats.damageSources` root on the current game build.
+2. Document the live `Dictionary.Entry<string, DamageSource>` layout in a
+   dedicated reverse report.
+3. Implement a Python normalizer in the same style as existing live
+   item/weapon/tome snapshot readers.
+4. Store the normalized list into recordings as an optional field.
+5. Add UI in `Live Stats` first, then `Recordings`, then `Compare Runs`.
+
+This is a high-value feature because it converts the scanner from a build-state
+viewer into an actual run-output analysis tool.
