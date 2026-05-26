@@ -93,7 +93,11 @@ class PlayerStatsMixin:
             return
 
         recording_state_action = self._sync_player_stats_recording_run_state()
-        should_refresh = self._is_live_stats_tab_active() or self.player_stats_vod_recorder.is_recording
+        should_refresh = (
+            self._is_live_stats_tab_active()
+            or self.player_stats_vod_recorder.is_recording
+            or bool(getattr(config, "AUTO_START_RECORDING", False))
+        )
         if should_refresh:
             status_text = (
                 "Live player stats"
@@ -295,10 +299,12 @@ class PlayerStatsMixin:
             ) = self._read_live_player_stats_data()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
+            self.player_stats_auto_start_detection_streak = 0
             self._reset_live_player_stats_ui(waiting_status_text)
             return False
         except Exception as exc:
             self.close_player_stats_client()
+            self.player_stats_auto_start_detection_streak = 0
             self._reset_live_player_stats_ui(f"{unavailable_status_prefix}: {exc}")
             return False
 
@@ -310,6 +316,13 @@ class PlayerStatsMixin:
         else:
             banishes = self.player_stats_live_banishes
         is_live_tab_active = self._is_live_stats_tab_active()
+        self._maybe_auto_start_player_stats_recording(
+            stats=stats,
+            run_timer_seconds=run_timer_seconds,
+            player_level=player_level,
+            map_seed=map_seed,
+            stage_ptr=stage_ptr,
+        )
 
         if self.player_stats_vod_recorder.should_capture():
             snapshot = self.player_stats_vod_recorder.capture(
@@ -575,6 +588,7 @@ class PlayerStatsMixin:
         self.player_stats_recording_stage_ptr = stage_ptr
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = run_time_seconds
+        self.player_stats_auto_start_detection_streak = 0
         return vod_path
 
     def _stop_player_stats_recording(
@@ -591,6 +605,7 @@ class PlayerStatsMixin:
         self.player_stats_recording_stage_ptr = 0
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = None
+        self.player_stats_auto_start_detection_streak = 0
         self.close_player_stats_game_data_client()
         if log_message:
             self.log(log_message, tag=log_tag)
@@ -627,8 +642,6 @@ class PlayerStatsMixin:
         if self.player_stats_recording_seed is None:
             self.player_stats_recording_seed = current_seed
             self.player_stats_recording_stage_ptr = current_stage_ptr
-            self.player_stats_recording_run_time_seconds = current_run_time_seconds
-            return None
         if (
             current_seed == self.player_stats_recording_seed
             and current_stage_ptr == self.player_stats_recording_stage_ptr
@@ -670,6 +683,64 @@ class PlayerStatsMixin:
         )
         self.refresh_player_stats_timeline_ui()
         return "split"
+
+    @staticmethod
+    def _looks_like_active_run_for_auto_recording(
+        *,
+        stats,
+        run_timer_seconds: float | None,
+        player_level: int | None,
+        map_seed: int | None,
+        stage_ptr: int,
+    ) -> bool:
+        if run_timer_seconds is None or float(run_timer_seconds) <= 0:
+            return False
+        if map_seed is not None:
+            return True
+        if int(stage_ptr or 0) > 0:
+            return True
+        if player_level is not None and int(player_level) > 0:
+            return True
+        return bool(stats)
+
+    def _maybe_auto_start_player_stats_recording(
+        self,
+        *,
+        stats,
+        run_timer_seconds: float | None,
+        player_level: int | None,
+        map_seed: int | None,
+        stage_ptr: int,
+    ) -> bool:
+        if self.player_stats_vod_recorder.is_recording:
+            self.player_stats_auto_start_detection_streak = 0
+            return False
+        if not bool(getattr(config, "AUTO_START_RECORDING", False)):
+            self.player_stats_auto_start_detection_streak = 0
+            return False
+        if not self._looks_like_active_run_for_auto_recording(
+            stats=stats,
+            run_timer_seconds=run_timer_seconds,
+            player_level=player_level,
+            map_seed=map_seed,
+            stage_ptr=stage_ptr,
+        ):
+            self.player_stats_auto_start_detection_streak = 0
+            return False
+
+        self.player_stats_auto_start_detection_streak = int(
+            getattr(self, "player_stats_auto_start_detection_streak", 0)
+        ) + 1
+        if self.player_stats_auto_start_detection_streak < 2:
+            return False
+
+        vod_path = self._start_player_stats_recording(
+            seed=map_seed,
+            stage_ptr=stage_ptr,
+            run_time_seconds=run_timer_seconds,
+        )
+        self.log(f"[*] Player stats recording auto-started: {vod_path.name}", tag="success")
+        return True
 
     def on_player_stats_slider_changed(self, value):
         snapshot_count = len(self.player_stats_vod_snapshots)

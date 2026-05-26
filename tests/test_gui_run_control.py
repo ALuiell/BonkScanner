@@ -322,6 +322,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_recording_stage_ptr = 0
         app.player_stats_recording_seed_missing_since = None
         app.player_stats_recording_run_time_seconds = None
+        app.player_stats_auto_start_detection_streak = 0
         app.player_stats_game_data_client = None
         app.player_stats_client = SimpleNamespace(
             get_run_timer=lambda: 21.5,
@@ -362,6 +363,7 @@ class GuiRunControlTests(unittest.TestCase):
             "HOTKEY": gui.config.HOTKEY,
             "RESET_HOTKEY": gui.config.RESET_HOTKEY,
             "PLAYER_STATS_RECORD_HOTKEY": gui.config.PLAYER_STATS_RECORD_HOTKEY,
+            "AUTO_START_RECORDING": gui.config.AUTO_START_RECORDING,
             "MAP_LOAD_DELAY": gui.config.MAP_LOAD_DELAY,
             "RESET_HOLD_DURATION": gui.config.RESET_HOLD_DURATION,
             "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY": gui.config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY,
@@ -392,6 +394,7 @@ class GuiRunControlTests(unittest.TestCase):
             toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
             toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
             toggle_particles_opacity_hotkey_entry=FakeEntry("f7"),
+            auto_start_recording_var=FakeVar(True),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
@@ -405,7 +408,9 @@ class GuiRunControlTests(unittest.TestCase):
                 gui.SettingsDialog.save(dialog)
 
         self.assertFalse(gui.config.NATIVE_HOOK_ENABLED)
+        self.assertTrue(gui.config.AUTO_START_RECORDING)
         self.assertFalse(gui.config.user_config["NATIVE_HOOK_ENABLED"])
+        self.assertTrue(gui.config.user_config["AUTO_START_RECORDING"])
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         self.assertTrue(update_game_reset_time.called)
@@ -458,6 +463,7 @@ class GuiRunControlTests(unittest.TestCase):
             toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
             toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
             toggle_particles_opacity_hotkey_entry=FakeEntry("f7"),
+            auto_start_recording_var=FakeVar(False),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
@@ -471,7 +477,9 @@ class GuiRunControlTests(unittest.TestCase):
                 gui.SettingsDialog.save(dialog)
 
         self.assertTrue(gui.config.NATIVE_HOOK_ENABLED)
+        self.assertFalse(gui.config.AUTO_START_RECORDING)
         self.assertTrue(gui.config.user_config["NATIVE_HOOK_ENABLED"])
+        self.assertFalse(gui.config.user_config["AUTO_START_RECORDING"])
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         self.assertTrue(update_game_reset_time.called)
@@ -1842,6 +1850,23 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(read_calls, [])
         self.assertEqual(len(app.after_calls), 1)
 
+    def test_update_player_stats_timer_refreshes_hidden_live_stats_when_auto_start_enabled(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.player_stats_vod_recorder.is_recording = False
+        app._is_live_stats_tab_active = lambda: False
+        app.after_calls = []
+        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        app._sync_player_stats_recording_run_state = lambda: None
+        refresh_calls: list[str] = []
+        app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
+
+        with patch.object(gui.config, "AUTO_START_RECORDING", True):
+            gui.MegabonkApp.update_player_stats_timer(app)
+
+        self.assertEqual(refresh_calls, ["refresh"])
+        self.assertEqual(len(app.after_calls), 1)
+
     def test_refresh_live_player_stats_now_keeps_stats_when_items_fail(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)
@@ -1969,6 +1994,57 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(display_calls[0]["kwargs"]["tomes"], (tome,))
         self.assertEqual(display_calls[0]["kwargs"]["banishes"], ("Clover", "Golden Tome"))
         self.assertEqual(display_calls[0]["kwargs"]["status_text"], "Live player stats (recording)")
+
+    def test_refresh_live_player_stats_now_auto_starts_recording_after_stable_run_detection(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False, should_capture=False)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app._is_live_stats_tab_active = lambda: False
+        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        app.read_passive_items_only = lambda owner_stats=None: ()
+        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            get_run_timer=lambda: 21.5,
+            get_stage_timer=lambda: 9.0,
+            get_killed_mobs=lambda: 37,
+            get_player_level=lambda owner_stats=None: 2,
+        )
+
+        with patch.object(gui.config, "AUTO_START_RECORDING", True):
+            first = gui.MegabonkApp.refresh_live_player_stats_now(app)
+            second = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertTrue(first)
+        self.assertTrue(second)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [{"name": None, "seed": 777}])
+        self.assertTrue(app.player_stats_vod_recorder.is_recording)
+        self.assertEqual(app.player_stats_recording_stage_ptr, 2)
+        self.assertEqual(app.player_stats_recording_run_time_seconds, 21.5)
+        self.assertIn(("[*] Player stats recording auto-started: recording-1.jsonl", "success"), app.log_messages)
+
+    def test_refresh_live_player_stats_now_does_not_auto_start_without_active_run_signal(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False, should_capture=False)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app._is_live_stats_tab_active = lambda: False
+        app.read_player_stats_only = lambda: ({}, 0x1234)
+        app.read_passive_items_only = lambda owner_stats=None: ()
+        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=None, current_stage_ptr=0)
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            get_run_timer=lambda: 0.0,
+            get_stage_timer=lambda: None,
+            get_killed_mobs=lambda: None,
+            get_player_level=lambda owner_stats=None: None,
+        )
+
+        with patch.object(gui.config, "AUTO_START_RECORDING", True):
+            result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertTrue(result)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
+        self.assertFalse(app.player_stats_vod_recorder.is_recording)
 
     def test_toggle_player_stats_recording_captures_snapshot_without_items(self) -> None:
         app = self.build_recording_app()

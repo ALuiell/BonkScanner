@@ -102,6 +102,7 @@ Hotkeys и игровые toggles
 - `Scan Hotkey`
 - `Reset Hotkey`
 - `Record Hotkey`
+- `Auto-start recording` - автоматически запускает запись player stats, когда приложение определяет уже идущий run.
 - `Toggle Chest Skip Hotkey`
 - `Toggle Auto Level-Up Hotkey`
 - `Toggle Particles Opacity Hotkey`

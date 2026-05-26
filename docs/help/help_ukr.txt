@@ -102,6 +102,7 @@ Hotkeys і ігрові toggles
 - `Scan Hotkey`
 - `Reset Hotkey`
 - `Record Hotkey`
+- `Auto-start recording` - автоматично запускає запис player stats, коли застосунок визначає, що run уже триває.
 - `Toggle Chest Skip Hotkey`
 - `Toggle Auto Level-Up Hotkey`
 - `Toggle Particles Opacity Hotkey`
