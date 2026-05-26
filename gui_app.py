@@ -110,6 +110,9 @@ class MegabonkApp(
         self.player_stats_tomes_layout = None
         self.player_stats_tome_cards = []
         self.player_stats_tome_signature = None
+        self.player_stats_damage_sources_status_label = None
+        self.player_stats_damage_sources_layout = None
+        self.player_stats_damage_source_signature = None
         self.vods_list_frame = None
         self.vods_status_label = None
         self.vods_name_entry = None
@@ -149,6 +152,9 @@ class MegabonkApp(
         self.vods_tomes_layout = None
         self.vods_tome_cards = []
         self.vods_tome_signature = None
+        self.vods_damage_sources_status_label = None
+        self.vods_damage_sources_layout = None
+        self.vods_damage_source_signature = None
         self.compare_run_a_list_frame = None
         self.compare_run_b_list_frame = None
         self.compare_runs_chooser_group = None

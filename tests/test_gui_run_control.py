@@ -176,6 +176,7 @@ class FakeRecordingRecorder:
         weapons=(),
         tomes=(),
         banishes=(),
+        damage_sources=(),
         *,
         chests_per_minute=None,
         game_time_seconds=None,
@@ -191,6 +192,7 @@ class FakeRecordingRecorder:
             weapons=tuple(weapons),
             tomes=tuple(tomes),
             banishes=tuple(banishes),
+            damage_sources=tuple(damage_sources),
             chests_per_minute=chests_per_minute,
             game_time_seconds=game_time_seconds,
             mob_kills=mob_kills,
@@ -207,6 +209,7 @@ class FakeRecordingRecorder:
                 "weapons": tuple(weapons),
                 "tomes": tuple(tomes),
                 "banishes": tuple(banishes),
+                "damage_sources": tuple(damage_sources),
                 "chests_per_minute": chests_per_minute,
                 "game_time_seconds": game_time_seconds,
                 "mob_kills": mob_kills,
@@ -344,12 +347,19 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_tome_signature = None
         app.player_stats_tomes_status_label = FakeLabel()
         app.player_stats_tomes_layout = None
+        app.player_stats_damage_sources_status_label = FakeLabel()
+        app.player_stats_damage_sources_layout = None
+        app.player_stats_damage_source_signature = None
         app.vods_banishes_label = FakeLabel()
+        app.vods_damage_sources_status_label = FakeLabel()
+        app.vods_damage_sources_layout = None
+        app.vods_damage_source_signature = None
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app.display_player_stats = lambda *args, **kwargs: None
         app.display_player_stats_snapshot = lambda *args, **kwargs: None
         app.display_tome_cards = lambda *args, **kwargs: None
+        app.display_damage_source_rows = lambda *args, **kwargs: None
         app.close_player_stats_client = lambda: None
         app.read_player_stats_only = lambda: ({}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ()
@@ -2215,6 +2225,54 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.vods_new_items_label.text(), "No previous snapshot")
         self.assertEqual(app.vods_banishes_label.text(), "No banishes yet")
         self.assertEqual(app.vods_items_label.text(), "Wrench x1")
+
+    def test_display_loaded_vod_snapshot_updates_damage_sources_tab(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.vods_status_label = FakeLabel()
+        app.vods_slider_time_label = FakeLabel()
+        app.vods_items_label = FakeLabel()
+        app.vods_in_game_time_label = FakeLabel()
+        app.vods_chests_per_minute_label = FakeLabel()
+        app.vods_mob_kills_label = FakeLabel()
+        app.vods_level_label = FakeLabel()
+        app.vods_new_items_label = FakeLabel()
+        app.vods_banishes_label = FakeLabel()
+        app.vods_stage_summary_labels = []
+        app.vods_rows = {}
+        app.display_weapon_cards = lambda *args, **kwargs: None
+        app.display_tome_cards = lambda *args, **kwargs: None
+        damage_calls: list[tuple[tuple[object, ...], str]] = []
+        app.display_damage_source_rows = lambda sources, *, scope, status_text=None: damage_calls.append((tuple(sources), scope))
+        app._update_items_section = lambda *args, **kwargs: None
+        app.resolve_snapshot_chests_per_minute = lambda snapshot: getattr(snapshot, "chests_per_minute", None)
+        app._set_stage_summary_labels = lambda *args, **kwargs: None
+        app._resolve_vod_compare_base_snapshot = lambda index: None
+        app._vod_compare_segment_snapshots = lambda index: ()
+        app._refresh_vod_compare_controls = lambda *args, **kwargs: None
+        app._refresh_vod_compare_details = lambda *args, **kwargs: None
+        app.loaded_vod_compare_start_index = None
+        app.vods_compare_details_expanded = False
+        snapshot = SimpleNamespace(
+            stats={},
+            items=(),
+            weapons=(),
+            tomes=(),
+            banishes=(),
+            damage_sources=(SimpleNamespace(source_key="Katana", source_name="Katana", damage=1234.0),),
+            chests_per_minute=1.23,
+            game_time_seconds=60.0,
+            mob_kills=10,
+            player_level=2,
+            time_label="01:00",
+        )
+        metadata = SimpleNamespace(name="Run")
+        app.loaded_vod = SimpleNamespace(metadata=metadata, snapshots=[snapshot])
+
+        gui.MegabonkApp.display_loaded_vod_snapshot(app, 0)
+
+        self.assertEqual(len(damage_calls), 1)
+        self.assertEqual(damage_calls[0][1], "vod")
+        self.assertEqual(damage_calls[0][0][0].source_name, "Katana")
 
     def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
         self.assertEqual(gui.MegabonkApp.format_in_game_time(None), "In-Game Time: --")

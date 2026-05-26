@@ -55,7 +55,14 @@ from gui_styles import (
     _fold_item_name_for_rarity,
 )
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
-from player_stats import PLAYER_STAT_GROUPS, PlayerStatsClient, TomeSnapshot, WeaponSnapshot, calculate_chests_per_minute
+from player_stats import (
+    PLAYER_STAT_GROUPS,
+    DamageSourceSnapshot,
+    PlayerStatsClient,
+    TomeSnapshot,
+    WeaponSnapshot,
+    calculate_chests_per_minute,
+)
 from vod_storage import delete_vod, delete_vods_below_snapshot_count, list_vods, load_vod, rename_vod
 
 COMPARE_RUN_STAT_LABELS = (
@@ -160,6 +167,12 @@ class PlayerStatsMixin:
             scope="live",
             status_text="Waiting for tome data...",
         )
+        self.player_stats_damage_source_signature = None
+        self.display_damage_source_rows(
+            (),
+            scope="live",
+            status_text="Waiting for damage source data...",
+        )
 
     def _read_live_player_stats_data(self):
         stats, owner_stats = self.read_player_stats_only()
@@ -171,6 +184,8 @@ class PlayerStatsMixin:
         tomes_available = False
         banishes: tuple[str, ...] = ()
         banishes_available = False
+        damage_sources: tuple[DamageSourceSnapshot, ...] = ()
+        damage_sources_available = False
         run_timer_seconds = None
         stage_timer_seconds = None
         mob_kills = None
@@ -214,6 +229,16 @@ class PlayerStatsMixin:
             except Exception:
                 banishes = ()
                 banishes_available = False
+            try:
+                client = self._get_player_stats_client()
+                damage_sources = client.get_live_damage_sources()
+                damage_sources_available = True
+            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+                damage_sources = ()
+                damage_sources_available = False
+            except Exception:
+                damage_sources = ()
+                damage_sources_available = False
         try:
             client = self._get_player_stats_client()
             run_timer_seconds = client.get_run_timer()
@@ -264,6 +289,8 @@ class PlayerStatsMixin:
             tomes_available,
             banishes,
             banishes_available,
+            damage_sources,
+            damage_sources_available,
             run_timer_seconds,
             stage_timer_seconds,
             mob_kills,
@@ -290,6 +317,8 @@ class PlayerStatsMixin:
                 tomes_available,
                 banishes,
                 banishes_available,
+                damage_sources,
+                damage_sources_available,
                 run_timer_seconds,
                 stage_timer_seconds,
                 mob_kills,
@@ -331,6 +360,7 @@ class PlayerStatsMixin:
                 weapons if weapons_available else (),
                 tomes if tomes_available else (),
                 banishes if banishes_available else (),
+                damage_sources if damage_sources_available else (),
                 chests_per_minute=chests_per_minute,
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
@@ -355,8 +385,10 @@ class PlayerStatsMixin:
                     weapons=weapons if weapons_available else (),
                     tomes=tomes if tomes_available else (),
                     banishes=banishes if banishes_available else (),
+                    damage_sources=damage_sources if damage_sources_available else (),
                     weapons_available=weapons_available,
                     tomes_available=tomes_available,
+                    damage_sources_available=damage_sources_available,
                     status_text="Live player stats (recording)",
                     chests_per_minute=chests_per_minute,
                     items_text=items_text,
@@ -374,8 +406,10 @@ class PlayerStatsMixin:
                 weapons=weapons if weapons_available else (),
                 tomes=tomes if tomes_available else (),
                 banishes=banishes if banishes_available else (),
+                damage_sources=damage_sources if damage_sources_available else (),
                 weapons_available=weapons_available,
                 tomes_available=tomes_available,
+                damage_sources_available=damage_sources_available,
                 status_text=status_text,
                 chests_per_minute=chests_per_minute,
                 items_text=items_text,
@@ -394,8 +428,10 @@ class PlayerStatsMixin:
         weapons=(),
         tomes=(),
         banishes=(),
+        damage_sources=(),
         weapons_available: bool = True,
         tomes_available: bool = True,
+        damage_sources_available: bool = True,
         status_text: str | None = None,
         chests_per_minute: float | None = None,
         items_text: str | None = None,
@@ -445,6 +481,11 @@ class PlayerStatsMixin:
             tomes if tomes_available else (),
             scope="live",
             status_text=None if tomes_available else "Tomes unavailable",
+        )
+        self.display_damage_source_rows(
+            damage_sources if damage_sources_available else (),
+            scope="live",
+            status_text=None if damage_sources_available else "Damage sources unavailable",
         )
 
     def display_player_stats_snapshot(self, snapshot, *, items_text: str | None = None):
@@ -907,6 +948,8 @@ class PlayerStatsMixin:
             self.display_weapon_cards((), scope="vod", status_text="No weapon data in this recording")
             self.vods_tome_signature = None
             self.display_tome_cards((), scope="vod", status_text="No tome data in this recording")
+            self.vods_damage_source_signature = None
+            self.display_damage_source_rows((), scope="vod", status_text="No damage source data in this recording")
 
     def display_loaded_vod_snapshot(self, index: int):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
@@ -965,6 +1008,7 @@ class PlayerStatsMixin:
         )
         self.display_weapon_cards(getattr(snapshot, "weapons", ()), scope="vod")
         self.display_tome_cards(getattr(snapshot, "tomes", ()), scope="vod")
+        self.display_damage_source_rows(getattr(snapshot, "damage_sources", ()), scope="vod")
 
     def on_vods_slider_changed(self, value):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
@@ -2000,6 +2044,72 @@ class PlayerStatsMixin:
             for tome in tomes
         )
 
+    def display_damage_source_rows(self, damage_sources, *, scope: str, status_text: str | None = None) -> None:
+        prefix = self._scope_prefix(scope)
+        layout_attr = f"{prefix}_damage_sources_layout"
+        status_attr = f"{prefix}_damage_sources_status_label"
+        signature_attr = f"{prefix}_damage_source_signature"
+
+        layout = getattr(self, layout_attr, None)
+        status_label = getattr(self, status_attr, None)
+        if layout is None or status_label is None:
+            return
+
+        damage_sources = tuple(damage_sources or ())
+        signature = self._damage_source_signature(damage_sources)
+        if getattr(self, signature_attr, None) == signature and status_text is None:
+            return
+
+        setattr(self, signature_attr, signature)
+        _clear_layout(layout)
+
+        if status_text is not None:
+            _set_text(status_label, status_text)
+        else:
+            _set_text(status_label, "" if damage_sources else "No damage source data yet")
+
+        if not damage_sources:
+            return
+
+        grid = QGridLayout()
+        grid.setContentsMargins(8, 8, 8, 8)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+        for index, source in enumerate(damage_sources):
+            cell = QFrame()
+            cell.setObjectName("StatCard")
+            cell.setMinimumHeight(54)
+            cell_layout = QHBoxLayout(cell)
+            cell_layout.setContentsMargins(12, 8, 12, 8)
+            cell_layout.setSpacing(10)
+
+            name_label = QLabel(source.source_name or source.source_key)
+            name_label.setWordWrap(True)
+            name_label.setStyleSheet("font-size: 16px; font-weight: 700;")
+            cell_layout.addWidget(name_label, 1)
+
+            dmg_label = QLabel(self.format_damage_source_value(source.damage))
+            dmg_label.setStyleSheet("font-size: 17px; font-weight: 700; color: #F3F4F6;")
+            dmg_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            cell_layout.addWidget(dmg_label)
+
+            grid.addWidget(cell, index // 4, index % 4)
+        for column in range(4):
+            grid.setColumnStretch(column, 1)
+        layout.addLayout(grid)
+        layout.addStretch(1)
+
+    @staticmethod
+    def _damage_source_signature(damage_sources) -> tuple:
+        return tuple(
+            (
+                source.source_key,
+                source.source_name,
+                round(float(source.damage), 3),
+            )
+            for source in damage_sources
+        )
+
     @staticmethod
     def format_duration(seconds: int) -> str:
         return PlayerStatsMixin.format_elapsed_time(seconds)
@@ -2027,6 +2137,39 @@ class PlayerStatsMixin:
     @staticmethod
     def format_count(value: int | float) -> str:
         return f"{max(0, int(value)):,}"
+
+    @staticmethod
+    def format_damage_source_value(value: int | float) -> str:
+        value = max(0.0, float(value))
+        suffixes = (
+            "",
+            "K",
+            "M",
+            "B",
+            "T",
+            "Q",
+            "QI",
+            "SX",
+            "SP",
+            "OC",
+            "NO",
+            "DC",
+        )
+        if value < 1000:
+            return f"{int(round(value)):,}"
+
+        suffix_index = 0
+        while value >= 1000.0 and suffix_index < len(suffixes) - 1:
+            value /= 1000.0
+            suffix_index += 1
+
+        if value >= 100:
+            formatted = f"{value:.0f}"
+        elif value >= 10:
+            formatted = f"{value:.1f}"
+        else:
+            formatted = f"{value:.2f}"
+        return f"{formatted}{suffixes[suffix_index]}"
 
     @staticmethod
     def format_player_level(value: int | None) -> str:

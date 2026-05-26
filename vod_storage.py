@@ -10,6 +10,7 @@ from typing import Any
 
 import config
 from player_stats import (
+    DamageSourceSnapshot,
     PlayerStatFormat,
     PlayerStatValue,
     TomeSnapshot,
@@ -41,6 +42,7 @@ class VodSnapshot:
     weapons: tuple[WeaponSnapshot, ...] = ()
     tomes: tuple[TomeSnapshot, ...] = ()
     banishes: tuple[str, ...] = ()
+    damage_sources: tuple[DamageSourceSnapshot, ...] = ()
     chests_per_minute: float | None = None
     game_time_seconds: float | None = None
     mob_kills: int | None = None
@@ -179,6 +181,7 @@ class VodRecorder:
         weapons: tuple[WeaponSnapshot, ...] = (),
         tomes: tuple[TomeSnapshot, ...] = (),
         banishes: tuple[str, ...] = (),
+        damage_sources: tuple[DamageSourceSnapshot, ...] = (),
         *,
         chests_per_minute: float | None = None,
         game_time_seconds: float | None = None,
@@ -203,6 +206,7 @@ class VodRecorder:
             weapons=tuple(weapons),
             tomes=tuple(tomes),
             banishes=tuple(banishes),
+            damage_sources=tuple(damage_sources),
             chests_per_minute=chests_per_minute,
             game_time_seconds=game_time_seconds,
             mob_kills=mob_kills,
@@ -458,6 +462,7 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         "weapons": [_weapon_to_record(weapon) for weapon in snapshot.weapons],
         "tomes": [_tome_to_record(tome) for tome in snapshot.tomes],
         "banishes": list(snapshot.banishes),
+        "damage_sources": [_damage_source_to_record(source) for source in snapshot.damage_sources],
         "chests_per_minute": snapshot.chests_per_minute,
     }
     if snapshot.game_time_seconds is not None:
@@ -492,6 +497,7 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
         weapons=tuple(_record_to_weapon(weapon) for weapon in record.get("weapons") or ()),
         tomes=tuple(_record_to_tome(tome) for tome in record.get("tomes") or ()),
         banishes=tuple(str(item) for item in record.get("banishes") or ()),
+        damage_sources=tuple(_record_to_damage_source(item) for item in record.get("damage_sources") or ()),
         chests_per_minute=_coerce_optional_float(record.get("chests_per_minute")),
         game_time_seconds=_coerce_optional_float(
             record.get("game_time_seconds", record.get("in_game_elapsed_seconds"))
@@ -538,6 +544,15 @@ def _tome_to_record(tome: TomeSnapshot) -> dict[str, Any]:
         "value": tome.value,
         "display": tome.display_value,
         "value_format": tome.value_format.value,
+    }
+
+
+def _damage_source_to_record(source: DamageSourceSnapshot) -> dict[str, Any]:
+    return {
+        "source_key": source.source_key,
+        "source_name": source.source_name,
+        "damage": source.damage,
+        "added_at_time": source.added_at_time,
     }
 
 
@@ -596,6 +611,17 @@ def _record_to_tome(record: Any) -> TomeSnapshot:
         stat_label=str(record.get("stat_label") or "Unknown"),
         value=_coerce_optional_float(record.get("value")),
         value_format=value_format,
+    )
+
+
+def _record_to_damage_source(record: Any) -> DamageSourceSnapshot:
+    if not isinstance(record, dict):
+        return DamageSourceSnapshot(source_key="Unknown", source_name="Unknown", damage=0.0, added_at_time=None)
+    return DamageSourceSnapshot(
+        source_key=str(record.get("source_key") or "Unknown"),
+        source_name=str(record.get("source_name") or record.get("source_key") or "Unknown"),
+        damage=max(0.0, float(record.get("damage") or 0.0)),
+        added_at_time=_coerce_optional_float(record.get("added_at_time")),
     )
 
 

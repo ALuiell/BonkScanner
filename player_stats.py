@@ -323,6 +323,14 @@ class WeaponSnapshot:
     full_stats: dict[int, WeaponStatValue]
 
 
+@dataclass(frozen=True)
+class DamageSourceSnapshot:
+    source_key: str
+    source_name: str
+    damage: float
+    added_at_time: float | None = None
+
+
 def calculate_chests_per_minute(
     elite_spawn_increase: float,
     powerup_drop_chance: float,
@@ -360,6 +368,7 @@ class PlayerStatsSnapshot:
     weapons: tuple[WeaponSnapshot, ...] = ()
     tomes: tuple[TomeSnapshot, ...] = ()
     banishes: tuple[str, ...] = ()
+    damage_sources: tuple[DamageSourceSnapshot, ...] = ()
     game_time_seconds: float | None = None
     mob_kills: int | None = None
     player_level: int | None = None
@@ -511,6 +520,11 @@ class PlayerStatsClient:
     RUN_STATS_DICT_OFFSET = 0x0
     RUN_STATS_ENTRY_VALUE_OFFSET = 0x10
     MAX_RUN_STATS_ENTRIES = 256
+    RUN_DAMAGE_SOURCES_DICT_OFFSET = 0x8
+    DAMAGE_SOURCE_NAME_OFFSET = 0x10
+    DAMAGE_SOURCE_ADDED_AT_TIME_OFFSET = 0x18
+    DAMAGE_SOURCE_DAMAGE_OFFSET = 0x1C
+    MAX_DAMAGE_SOURCE_ENTRIES = 256
     HASHSET_SLOTS_OFFSET = 0x18
     HASHSET_COUNT_OFFSET = 0x20
     HASHSET_LAST_INDEX_OFFSET = 0x24
@@ -813,6 +827,62 @@ class PlayerStatsClient:
             return max(0, int(self.memory.read_float(entry + self.RUN_STATS_ENTRY_VALUE_OFFSET)))
 
         raise MemoryReadError("RunStats.stats does not contain a 'kills' entry.")
+
+    def get_live_damage_sources(self) -> tuple[DamageSourceSnapshot, ...]:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.RUN_STATS_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("RunStats type info is not initialized.")
+
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError("RunStats static fields are not initialized.")
+
+        damage_sources_dict = self.memory.read_ptr(static_fields + self.RUN_DAMAGE_SOURCES_DICT_OFFSET)
+        if not damage_sources_dict:
+            return ()
+
+        entries = self.memory.read_ptr(damage_sources_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return ()
+
+        count = self.memory.read_i32(damage_sources_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return ()
+        if count > self.MAX_DAMAGE_SOURCE_ENTRIES:
+            raise MemoryReadError(f"RunStats.damageSources count is invalid: {count}")
+
+        sources: list[DamageSourceSnapshot] = []
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
+            if hash_code < 0:
+                continue
+            key_ptr = self.memory.read_ptr(entry + self.DICT_ENTRY_KEY_OFFSET)
+            value_ptr = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+            if not key_ptr or not value_ptr:
+                continue
+            key = self.memory.read_mono_string(key_ptr)
+            if not key:
+                continue
+            damage_source_name_ptr = self.memory.read_ptr(value_ptr + self.DAMAGE_SOURCE_NAME_OFFSET)
+            damage_source_name = self.memory.read_mono_string(damage_source_name_ptr) if damage_source_name_ptr else None
+            added_at_time = self.memory.read_float(value_ptr + self.DAMAGE_SOURCE_ADDED_AT_TIME_OFFSET)
+            damage = self.memory.read_float(value_ptr + self.DAMAGE_SOURCE_DAMAGE_OFFSET)
+            sources.append(
+                DamageSourceSnapshot(
+                    source_key=key,
+                    source_name=damage_source_name or key,
+                    damage=max(0.0, float(damage)),
+                    added_at_time=float(added_at_time),
+                )
+            )
+
+        sources.sort(key=lambda source: source.damage, reverse=True)
+        return tuple(sources)
 
     def get_player_level(self, owner_stats: int | None = None) -> int:
         owner_stats = owner_stats or self._resolve_owner_stats()

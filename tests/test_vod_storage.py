@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from player_stats import (
+    DamageSourceSnapshot,
     PlayerStatFormat,
     TomeSnapshot,
     WeaponSnapshot,
@@ -113,6 +114,20 @@ class VodStorageTests(unittest.TestCase):
                     ),
                 ),
                 ("Clover", "Golden Tome"),
+                (
+                    DamageSourceSnapshot(
+                        source_key="FireStaff",
+                        source_name="FireStaff",
+                        damage=10662.599609375,
+                        added_at_time=114.64570617675781,
+                    ),
+                    DamageSourceSnapshot(
+                        source_key="CursedDoll",
+                        source_name="CursedDoll",
+                        damage=3198.958984375,
+                        added_at_time=166.73388671875,
+                    ),
+                ),
                 chests_per_minute=1.23,
                 game_time_seconds=21.52338219,
                 mob_kills=37,
@@ -125,6 +140,7 @@ class VodStorageTests(unittest.TestCase):
                     "Armor": SimpleNamespace(value=0.2, display_value="20%"),
                 },
                 ("Wrench x2", "Dice x1"),
+                (),
                 (),
                 (),
                 (),
@@ -149,6 +165,9 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].tomes[0].level, 3)
             self.assertEqual(loaded.snapshots[0].tomes[0].display_value, "1.25x")
             self.assertEqual(loaded.snapshots[0].banishes, ("Clover", "Golden Tome"))
+            self.assertEqual(loaded.snapshots[0].damage_sources[0].source_key, "FireStaff")
+            self.assertEqual(loaded.snapshots[0].damage_sources[0].source_name, "FireStaff")
+            self.assertAlmostEqual(loaded.snapshots[0].damage_sources[0].damage, 10662.599609375)
             self.assertEqual(loaded.snapshots[0].chests_per_minute, 1.23)
             self.assertAlmostEqual(loaded.snapshots[0].game_time_seconds, 21.52338219)
             self.assertEqual(loaded.snapshots[0].mob_kills, 37)
@@ -157,6 +176,7 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[1].weapons, ())
             self.assertEqual(loaded.snapshots[1].tomes, ())
             self.assertEqual(loaded.snapshots[1].banishes, ())
+            self.assertEqual(loaded.snapshots[1].damage_sources, ())
             self.assertEqual(loaded.snapshots[1].chests_per_minute, 2.34)
             self.assertAlmostEqual(loaded.snapshots[1].game_time_seconds, 81.75)
             self.assertEqual(loaded.snapshots[1].mob_kills, 12)
