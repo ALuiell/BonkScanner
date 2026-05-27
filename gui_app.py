@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 import config
 import updater
 from gui_layout import GuiLayoutMixin
+from gui_overlay import OverlayMixin
 from gui_player_stats import PlayerStatsMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
@@ -23,6 +24,7 @@ class MegabonkApp(
     GuiLayoutMixin,
     RunControlMixin,
     TemplatesMixin,
+    OverlayMixin,
     PlayerStatsMixin,
     ScannerMixin,
 ):
@@ -211,6 +213,18 @@ class MegabonkApp(
         self.status_label = None
         self.toggle_btn = None
         self.logo_label = None
+        self.tab_overlay = None
+        self.overlay_state_store = None
+        self.overlay_server = None
+        self.live_run_tracker = None
+        self.overlay_enabled_checkbox = None
+        self.overlay_start_stop_btn = None
+        self.overlay_status_label = None
+        self.overlay_url_entry = None
+        self.overlay_port_entry = None
+        self.overlay_template_combo = None
+        self.overlay_widget_checkboxes = {}
+        self.overlay_tracked_items_label = None
 
         self.is_running = False
         self.is_ready_to_start = False
@@ -222,6 +236,7 @@ class MegabonkApp(
         self.player_stats_vod_recorder = VodRecorder(
             interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
         )
+        self.initialize_overlay_runtime()
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = None
@@ -270,6 +285,7 @@ class MegabonkApp(
         self.vods_list_signature = None
 
         self.setup_ui()
+        self.apply_overlay_autostart()
         self.refresh_templates()
         self.refresh_scores_templates_list()
         self.refresh_scores_ui()

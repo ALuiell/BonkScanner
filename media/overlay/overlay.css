@@ -1,0 +1,122 @@
+:root {
+  --accent: #f6c453;
+  --panel-bg: rgba(12, 18, 28, 0.35);
+  --panel-border: rgba(246, 196, 83, 0.38);
+  --text: #f8fafc;
+  --muted: #aeb8c7;
+  --shadow: rgba(0, 0, 0, 0.35);
+  --scale: 1;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: "Trebuchet MS", "Verdana", sans-serif;
+}
+
+body {
+  overflow: hidden;
+}
+
+.overlay-shell {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: calc(10px * var(--scale));
+  width: min(100vw, 800px);
+  padding: calc(12px * var(--scale));
+  transform-origin: top left;
+}
+
+.panel {
+  min-width: 0;
+  padding: calc(10px * var(--scale)) calc(12px * var(--scale));
+  border: 1px solid var(--panel-border);
+  border-radius: calc(14px * var(--scale));
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.015)),
+    var(--panel-bg);
+  box-shadow: 0 10px 30px var(--shadow);
+  backdrop-filter: blur(6px);
+}
+
+.panel.wide {
+  grid-column: 1 / -1;
+}
+
+.panel-title {
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-size: calc(12px * var(--scale));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.big-value {
+  font-size: calc(28px * var(--scale));
+  font-weight: 800;
+  line-height: 1;
+}
+
+.small-value {
+  color: var(--muted);
+  font-size: calc(14px * var(--scale));
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: calc(13px * var(--scale));
+}
+
+.summary-table th,
+.summary-table td {
+  padding: 3px 6px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.summary-table th {
+  color: var(--accent);
+  font-size: calc(11px * var(--scale));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.counter-row,
+.weapon-row,
+.item-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.counter-row:last-child,
+.weapon-row:last-child,
+.item-row:last-child {
+  border-bottom: 0;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.waiting {
+  grid-column: 1 / -1;
+}

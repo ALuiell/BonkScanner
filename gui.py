@@ -6,6 +6,7 @@ import types
 import gui_app as _gui_app
 import gui_dialogs as _gui_dialogs
 import gui_layout as _gui_layout
+import gui_overlay as _gui_overlay
 import gui_player_stats as _gui_player_stats
 import gui_run_control as _gui_run_control
 import gui_scanner as _gui_scanner
@@ -16,6 +17,7 @@ import gui_templates as _gui_templates
 from gui_app import MegabonkApp
 from gui_dialogs import *
 from gui_layout import GuiLayoutMixin
+from gui_overlay import OverlayMixin
 from gui_player_stats import PlayerStatsMixin, _set_items_text
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
@@ -71,6 +73,7 @@ _PATCH_COMPAT_MODULES = (
     _gui_app,
     _gui_dialogs,
     _gui_layout,
+    _gui_overlay,
     _gui_player_stats,
     _gui_run_control,
     _gui_scanner,
@@ -93,6 +96,7 @@ sys.modules[__name__].__class__ = _GuiFacadeModule
 __all__ = [
     "MegabonkApp",
     "GuiLayoutMixin",
+    "OverlayMixin",
     "RunControlMixin",
     "TemplatesMixin",
     "PlayerStatsMixin",

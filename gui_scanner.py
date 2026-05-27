@@ -411,6 +411,8 @@ class ScannerMixin:
         self.close_client()
         self.close_player_stats_client()
         self.close_player_stats_game_data_client()
+        if hasattr(self, "close_overlay_server"):
+            self.close_overlay_server()
         player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
         if player_stats_vod_recorder is not None:
             if player_stats_vod_recorder.is_recording:

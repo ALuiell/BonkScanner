@@ -138,6 +138,7 @@ class GuiLayoutMixin:
         self._build_logs_tab()
         self._build_session_stats_tab()
         self._build_live_stats_tab()
+        self._build_overlay_tab()
         self._build_recordings_tab()
         self._build_compare_runs_tab()
         self._build_footer_controls(right_layout)
@@ -1074,6 +1075,8 @@ class GuiLayoutMixin:
                 self.ensure_compare_runs_chooser_for_empty_selection()
         if self._is_live_stats_tab_active():
             self.refresh_live_player_stats_now()
+        if self._is_overlay_tab_active():
+            self.refresh_overlay_ui()
 
     def _show_right_tab_transition_cover(self):
         return None
@@ -1083,6 +1086,9 @@ class GuiLayoutMixin:
 
     def _is_live_stats_tab_active(self) -> bool:
         return self.tabview.tabText(self.tabview.currentIndex()) == "Live Stats"
+
+    def _is_overlay_tab_active(self) -> bool:
+        return self.tabview.tabText(self.tabview.currentIndex()) == "Overlay"
 
     def _is_recordings_tab_active(self) -> bool:
         return self.tabview.tabText(self.tabview.currentIndex()) == "Recordings"

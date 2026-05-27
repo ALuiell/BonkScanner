@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 import config
+import run_summary
 from game_data import GameDataClient
 from gui_dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from gui_shared import _clear_layout, _clear_text_input, _read_text, _set_text, _set_text_input
@@ -55,6 +56,7 @@ from gui_styles import (
     _fold_item_name_for_rarity,
 )
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from live_run_tracker import LiveRunSnapshot
 from player_stats import (
     PLAYER_STAT_GROUPS,
     DamageSourceSnapshot,
@@ -104,6 +106,7 @@ class PlayerStatsMixin:
             self._is_live_stats_tab_active()
             or self.player_stats_vod_recorder.is_recording
             or bool(getattr(config, "AUTO_START_RECORDING", False))
+            or self.overlay_should_refresh_live_stats()
         )
         if should_refresh:
             status_text = (
@@ -198,7 +201,11 @@ class PlayerStatsMixin:
             items_available = False
         except Exception:
             items_available = False
-        if self.player_stats_vod_recorder.is_recording or self._is_live_stats_tab_active():
+        if (
+            self.player_stats_vod_recorder.is_recording
+            or self._is_live_stats_tab_active()
+            or self.overlay_should_refresh_live_stats()
+        ):
             try:
                 client = self._get_player_stats_client()
                 weapons = client.get_live_weapons(owner_stats)
@@ -329,11 +336,13 @@ class PlayerStatsMixin:
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
             self.player_stats_auto_start_detection_streak = 0
+            self.mark_overlay_read_failed(no_game=True)
             self._reset_live_player_stats_ui(waiting_status_text)
             return False
         except Exception as exc:
             self.close_player_stats_client()
             self.player_stats_auto_start_detection_streak = 0
+            self.mark_overlay_read_failed(no_game=False)
             self._reset_live_player_stats_ui(f"{unavailable_status_prefix}: {exc}")
             return False
 
@@ -345,6 +354,29 @@ class PlayerStatsMixin:
         else:
             banishes = self.player_stats_live_banishes
         is_live_tab_active = self._is_live_stats_tab_active()
+        live_snapshot = LiveRunSnapshot(
+            captured_at=time.monotonic(),
+            stats=stats,
+            items=items if items_available else (),
+            items_available=items_available,
+            weapons=weapons if weapons_available else (),
+            weapons_available=weapons_available,
+            tomes=tomes if tomes_available else (),
+            tomes_available=tomes_available,
+            banishes=banishes if banishes_available else (),
+            damage_sources=damage_sources if damage_sources_available else (),
+            damage_sources_available=damage_sources_available,
+            chests_per_minute=chests_per_minute,
+            game_time_seconds=run_timer_seconds,
+            stage_time_seconds=stage_timer_seconds,
+            mob_kills=mob_kills,
+            player_level=player_level,
+            map_seed=map_seed,
+            stage_ptr=stage_ptr,
+        )
+        self.live_run_tracker.update(live_snapshot)
+        self.update_overlay_state_from_tracker()
+        live_stage_summary_rows = self.live_run_tracker.stage_summary_rows()
         self._maybe_auto_start_player_stats_recording(
             stats=stats,
             run_timer_seconds=run_timer_seconds,
@@ -416,7 +448,7 @@ class PlayerStatsMixin:
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
                 player_level=player_level,
-                stage_summary_rows=None,
+                stage_summary_rows=live_stage_summary_rows,
             )
         return True
 
@@ -3381,6 +3413,10 @@ class PlayerStatsMixin:
 
     @classmethod
     def build_stage_summary(cls, snapshots) -> list[dict[str, str]]:
+        return run_summary.build_stage_summary(snapshots)
+
+    @classmethod
+    def _legacy_build_stage_summary(cls, snapshots) -> list[dict[str, str]]:
         rows = [
             {
                 "label": f"Stage {index}",

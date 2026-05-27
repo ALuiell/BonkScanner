@@ -48,6 +48,37 @@ DEFAULT_SCORES_SYSTEM = {
     "active_tiers": ["Light", "Good", "Perfect", "Perfect+"]
 }
 
+DEFAULT_OVERLAY = {
+    "enabled": False,
+    "host": "127.0.0.1",
+    "port": 17845,
+    "template": "compact",
+    "poll_ms": 500,
+    "widgets": [
+        {"id": "run_timer", "enabled": True, "mode": "compact", "order": 10},
+        {"id": "level", "enabled": True, "mode": "compact", "order": 20},
+        {"id": "kills", "enabled": True, "mode": "compact", "order": 30},
+        {"id": "current_stage", "enabled": True, "mode": "compact", "order": 35},
+        {"id": "stage_summary", "enabled": True, "mode": "compact", "order": 40, "max_rows": 4},
+        {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50},
+        {"id": "weapons", "enabled": False, "mode": "compact", "order": 60, "max_rows": 6},
+        {"id": "items", "enabled": False, "mode": "compact", "order": 70, "max_rows": 12},
+    ],
+    "tracked_items": [
+        {
+            "id": "anvils_map_1",
+            "label": "Anvils Map 1",
+            "item_names": ["Anvil"],
+            "mode": "map_1_only",
+        }
+    ],
+    "style": {
+        "scale": 1.0,
+        "accent_color": "#F6C453",
+        "background_opacity": 0.35,
+    },
+}
+
 # ==========================================
 # GAME CONFIG PARSER
 # ==========================================
@@ -190,6 +221,42 @@ def coerce_nonnegative_int(value, default=0):
         return default
     return max(parsed, 0)
 
+
+def _merge_dict_defaults(value, defaults):
+    result = {}
+    source = value if isinstance(value, dict) else {}
+    for key, default_value in defaults.items():
+        if isinstance(default_value, dict):
+            result[key] = _merge_dict_defaults(source.get(key), default_value)
+        elif isinstance(default_value, list):
+            saved_value = source.get(key)
+            result[key] = saved_value if isinstance(saved_value, list) else list(default_value)
+        else:
+            result[key] = source.get(key, default_value)
+    for key, saved_value in source.items():
+        if key not in result:
+            result[key] = saved_value
+    return result
+
+
+def normalize_overlay_config(value):
+    overlay = _merge_dict_defaults(value, DEFAULT_OVERLAY)
+    overlay["enabled"] = bool(overlay.get("enabled", False))
+    overlay["host"] = "127.0.0.1"
+    overlay["template"] = str(overlay.get("template") or "compact")
+    overlay["poll_ms"] = max(250, min(coerce_nonnegative_int(overlay.get("poll_ms"), 500) or 500, 5000))
+    port = coerce_nonnegative_int(overlay.get("port"), DEFAULT_OVERLAY["port"])
+    if port < 1024 or port > 65535:
+        port = DEFAULT_OVERLAY["port"]
+    overlay["port"] = port
+    if not isinstance(overlay.get("widgets"), list):
+        overlay["widgets"] = list(DEFAULT_OVERLAY["widgets"])
+    if not isinstance(overlay.get("tracked_items"), list):
+        overlay["tracked_items"] = list(DEFAULT_OVERLAY["tracked_items"])
+    if not isinstance(overlay.get("style"), dict):
+        overlay["style"] = dict(DEFAULT_OVERLAY["style"])
+    return overlay
+
 # Migrate from MAP_LOAD_DELAY if MIN_DELAY is not found
 MIN_DELAY = user_config.get("MIN_DELAY", user_config.get("MAP_LOAD_DELAY", 0.3))
 MAP_LOAD_DELAY = MIN_DELAY
@@ -244,6 +311,7 @@ EVALUATION_MODE = user_config.get("EVALUATION_MODE", "templates")
 SCORES_SYSTEM = user_config.get("SCORES_SYSTEM", DEFAULT_SCORES_SYSTEM)
 if not SCORES_SYSTEM:
     SCORES_SYSTEM = DEFAULT_SCORES_SYSTEM
+OVERLAY = normalize_overlay_config(user_config.get("OVERLAY"))
 
 # Populate missing default keys for scores system from older config versions
 for key, value in DEFAULT_SCORES_SYSTEM.items():
@@ -296,6 +364,7 @@ user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
 user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION
 user_config["EVALUATION_MODE"] = EVALUATION_MODE
 user_config["SCORES_SYSTEM"] = SCORES_SYSTEM
+user_config["OVERLAY"] = OVERLAY
 user_config.pop("NATIVE_HOOK_DLL_PATH", None)
 
 

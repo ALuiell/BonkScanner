@@ -121,5 +121,81 @@
         "items": true,
         "weapons": true,
         "tomes": true
+    },
+    "AUTO_START_RECORDING": false,
+    "OVERLAY": {
+        "enabled": false,
+        "host": "127.0.0.1",
+        "port": 17845,
+        "template": "compact",
+        "poll_ms": 500,
+        "widgets": [
+            {
+                "id": "run_timer",
+                "enabled": true,
+                "mode": "compact",
+                "order": 10
+            },
+            {
+                "id": "level",
+                "enabled": true,
+                "mode": "compact",
+                "order": 20
+            },
+            {
+                "id": "kills",
+                "enabled": true,
+                "mode": "compact",
+                "order": 30
+            },
+            {
+                "id": "current_stage",
+                "enabled": true,
+                "mode": "compact",
+                "order": 35
+            },
+            {
+                "id": "stage_summary",
+                "enabled": true,
+                "mode": "compact",
+                "order": 40,
+                "max_rows": 4
+            },
+            {
+                "id": "tracked_items",
+                "enabled": true,
+                "mode": "compact",
+                "order": 50
+            },
+            {
+                "id": "weapons",
+                "enabled": false,
+                "mode": "compact",
+                "order": 60,
+                "max_rows": 6
+            },
+            {
+                "id": "items",
+                "enabled": false,
+                "mode": "compact",
+                "order": 70,
+                "max_rows": 12
+            }
+        ],
+        "tracked_items": [
+            {
+                "id": "anvils_map_1",
+                "label": "Anvils Map 1",
+                "item_names": [
+                    "Anvil"
+                ],
+                "mode": "map_1_only"
+            }
+        ],
+        "style": {
+            "scale": 1.0,
+            "accent_color": "#F6C453",
+            "background_opacity": 0.35
+        }
     }
 }
