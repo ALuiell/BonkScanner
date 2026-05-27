@@ -8,6 +8,9 @@ from gui_styles import COLOR_MAP, ITEM_RARITY_COLOR_MAP
 from live_run_tracker import LiveRunTracker
 
 
+DEFAULT_STATS_WIDGET_LABELS = ("Damage", "Attack Speed", "Luck", "XP Gain")
+
+
 @dataclass(frozen=True)
 class OverlayState:
     status: str
@@ -61,6 +64,7 @@ def build_overlay_state(tracker: LiveRunTracker, overlay_config: dict[str, Any] 
     data["poll_ms"] = _coerce_poll_ms(overlay_config.get("poll_ms"))
     data["style"] = dict(overlay_config.get("style") or {})
     data["items"] = _snapshot_items(snapshot, overlay_config)
+    data["stats"] = _snapshot_stats(snapshot, widgets)
     data["weapons"] = _snapshot_weapons(snapshot)
     data["items_available"] = bool(getattr(snapshot, "items_available", False))
     data["weapons_available"] = bool(getattr(snapshot, "weapons_available", False))
@@ -81,6 +85,7 @@ def _widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
             "mode": str(raw_widget.get("mode") or "compact"),
             "order": _coerce_int(raw_widget.get("order"), default=(index + 1) * 10),
             "max_rows": _coerce_int(raw_widget.get("max_rows"), default=4),
+            "selected_stats": _selected_stat_labels(raw_widget.get("selected_stats")),
         }
     return widgets
 
@@ -127,6 +132,29 @@ def _snapshot_items(snapshot: Any, overlay_config: dict[str, Any]) -> list[str]:
         if isinstance(raw_widget, dict) and raw_widget.get("id") == "items":
             max_items = _coerce_int(raw_widget.get("max_rows"), default=max_items)
     return [str(item) for item in tuple(getattr(snapshot, "items", ()) or ())[:max_items]]
+
+
+def _snapshot_stats(snapshot: Any, widgets: dict[str, Any]) -> list[dict[str, str]]:
+    if snapshot is None:
+        return []
+    stats = getattr(snapshot, "stats", {}) or {}
+    if not isinstance(stats, dict):
+        return []
+    widget = widgets.get("stats") or {}
+    selected_labels = _selected_stat_labels(widget.get("selected_stats"))
+    max_rows = _coerce_int(widget.get("max_rows"), default=8)
+    rows: list[dict[str, str]] = []
+    for label in selected_labels:
+        stat = stats.get(label)
+        rows.append(
+            {
+                "label": str(label),
+                "value": str(getattr(stat, "display_value", "--") if stat is not None else "--"),
+            }
+        )
+        if len(rows) >= max_rows:
+            break
+    return rows
 
 
 def _snapshot_weapons(snapshot: Any) -> list[dict[str, Any]]:
@@ -184,3 +212,11 @@ def _coerce_int(value: Any, *, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _selected_stat_labels(value: Any) -> tuple[str, ...]:
+    if isinstance(value, (list, tuple)):
+        labels = tuple(str(label).strip() for label in value if str(label).strip())
+        if labels:
+            return labels
+    return DEFAULT_STATS_WIDGET_LABELS

@@ -47,6 +47,19 @@ class OverlayServerTests(unittest.TestCase):
             finally:
                 server.stop()
 
+    def test_widget_overlay_route_serves_overlay_page(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asset_dir = Path(temp_dir)
+            (asset_dir / "index.html").write_text("<html>overlay</html>", encoding="utf-8")
+            server = LocalOverlayServer(port=free_port(), asset_dir=asset_dir)
+            server.start()
+            try:
+                with urlopen(f"http://127.0.0.1:{server.port}/overlay/stats", timeout=2) as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertEqual(response.read().decode("utf-8"), "<html>overlay</html>")
+            finally:
+                server.stop()
+
     def test_server_binds_to_loopback_host(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             asset_dir = Path(temp_dir)

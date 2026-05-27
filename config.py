@@ -49,7 +49,7 @@ DEFAULT_SCORES_SYSTEM = {
 }
 
 DEFAULT_OVERLAY = {
-    "schema_version": 2,
+    "schema_version": 3,
     "enabled": False,
     "host": "127.0.0.1",
     "port": 17845,
@@ -62,6 +62,7 @@ DEFAULT_OVERLAY = {
         {"id": "current_stage", "enabled": False, "mode": "compact", "order": 35},
         {"id": "stage_summary", "enabled": True, "mode": "compact", "order": 40, "max_rows": 4},
         {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50},
+        {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 8, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"]},
         {"id": "weapons", "enabled": True, "mode": "compact", "order": 60, "max_rows": 4},
         {"id": "items", "enabled": False, "mode": "compact", "order": 70, "max_rows": 12},
     ],
@@ -244,7 +245,6 @@ def normalize_overlay_config(value):
     overlay = _merge_dict_defaults(value, DEFAULT_OVERLAY)
     saved_schema_version = coerce_nonnegative_int((value or {}).get("schema_version"), 1) if isinstance(value, dict) else 0
     if saved_schema_version < DEFAULT_OVERLAY["schema_version"]:
-        overlay["widgets"] = [dict(widget) for widget in DEFAULT_OVERLAY["widgets"]]
         overlay["style"] = _merge_dict_defaults(overlay.get("style"), DEFAULT_OVERLAY["style"])
     overlay["schema_version"] = DEFAULT_OVERLAY["schema_version"]
     overlay["enabled"] = bool(overlay.get("enabled", False))
@@ -255,13 +255,48 @@ def normalize_overlay_config(value):
     if port < 1024 or port > 65535:
         port = DEFAULT_OVERLAY["port"]
     overlay["port"] = port
-    if not isinstance(overlay.get("widgets"), list):
-        overlay["widgets"] = list(DEFAULT_OVERLAY["widgets"])
+    overlay["widgets"] = _normalize_overlay_widgets(overlay.get("widgets"))
     if not isinstance(overlay.get("tracked_items"), list):
         overlay["tracked_items"] = list(DEFAULT_OVERLAY["tracked_items"])
     if not isinstance(overlay.get("style"), dict):
         overlay["style"] = dict(DEFAULT_OVERLAY["style"])
     return overlay
+
+
+def _normalize_overlay_widgets(value):
+    default_widgets = [dict(widget) for widget in DEFAULT_OVERLAY["widgets"]]
+    if not isinstance(value, list):
+        return default_widgets
+
+    saved_by_id = {}
+    extra_widgets = []
+    for raw_widget in value:
+        if not isinstance(raw_widget, dict):
+            continue
+        widget_id = str(raw_widget.get("id") or "").strip()
+        if not widget_id:
+            continue
+        widget = dict(raw_widget)
+        widget["id"] = widget_id
+        if widget_id in saved_by_id:
+            saved_by_id[widget_id].update(widget)
+        else:
+            saved_by_id[widget_id] = widget
+
+    normalized = []
+    default_ids = set()
+    for default_widget in default_widgets:
+        widget_id = str(default_widget.get("id") or "")
+        default_ids.add(widget_id)
+        merged = dict(default_widget)
+        merged.update(saved_by_id.get(widget_id, {}))
+        normalized.append(merged)
+
+    for widget_id, widget in saved_by_id.items():
+        if widget_id not in default_ids:
+            extra_widgets.append(widget)
+    normalized.extend(extra_widgets)
+    return normalized
 
 # Migrate from MAP_LOAD_DELAY if MIN_DELAY is not found
 MIN_DELAY = user_config.get("MIN_DELAY", user_config.get("MAP_LOAD_DELAY", 0.3))

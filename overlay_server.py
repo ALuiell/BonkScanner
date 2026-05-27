@@ -12,6 +12,19 @@ from urllib.parse import urlparse
 import config
 
 
+WIDGET_ROUTE_NAMES = {
+    "run_timer",
+    "level",
+    "kills",
+    "current_stage",
+    "stage_summary",
+    "tracked_items",
+    "stats",
+    "weapons",
+    "items",
+}
+
+
 class OverlayStateStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -55,6 +68,9 @@ class LocalOverlayServer:
     @property
     def url(self) -> str:
         return f"http://{self.host}:{self.port}/overlay"
+
+    def widget_url(self, widget_id: str) -> str:
+        return f"{self.url}/{widget_id}"
 
     def start(self) -> None:
         if self.is_running:
@@ -109,6 +125,11 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
         if parsed.path in {"/overlay", "/overlay/", "/overlay/compact"}:
             self._serve_file(self._asset_dir / "index.html", "text/html; charset=utf-8")
             return
+        if parsed.path.startswith("/overlay/"):
+            widget_id = parsed.path.removeprefix("/overlay/").strip("/")
+            if widget_id in WIDGET_ROUTE_NAMES:
+                self._serve_file(self._asset_dir / "index.html", "text/html; charset=utf-8")
+                return
         if parsed.path == "/api/overlay-state":
             self._serve_state()
             return

@@ -37,6 +37,11 @@ body {
   transform-origin: top left;
 }
 
+.overlay-shell.single-widget {
+  display: block;
+  max-width: min(100vw, 520px);
+}
+
 .panel {
   min-width: 0;
   padding: calc(6px * var(--scale)) calc(8px * var(--scale));
@@ -148,4 +153,52 @@ body {
 
 .waiting {
   grid-column: 1 / -1;
+}
+
+.chip-strip,
+.item-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(4px * var(--scale));
+}
+
+.counter-chip,
+.item-chip,
+.stat-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(7px * var(--scale));
+  min-width: 0;
+  padding: calc(3px * var(--scale)) calc(6px * var(--scale));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: calc(6px * var(--scale));
+  background: rgba(255, 255, 255, 0.055);
+  font-size: calc(11px * var(--scale));
+  line-height: 1.15;
+}
+
+.counter-chip strong,
+.stat-row strong {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.stats-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(calc(86px * var(--scale)), 1fr));
+  gap: calc(4px * var(--scale));
+}
+
+.stat-row {
+  width: 100%;
+}
+
+.stat-row span,
+.counter-chip span,
+.item-chip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

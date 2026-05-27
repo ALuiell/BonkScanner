@@ -25,7 +25,7 @@ from gui_styles import ITEM_RARITY_BY_NAME
 from live_run_tracker import LiveRunTracker, TrackedItemRule
 from overlay_server import LocalOverlayServer, OverlayStateStore
 from overlay_state import build_overlay_state
-from player_stats import ITEM_ENUM_NAMES_BY_ID, PlayerStatsClient
+from player_stats import ITEM_ENUM_NAMES_BY_ID, PLAYER_STAT_GROUPS, PlayerStatsClient
 
 
 OVERLAY_WIDGET_LABELS = {
@@ -35,6 +35,7 @@ OVERLAY_WIDGET_LABELS = {
     "current_stage": "Current stage",
     "stage_summary": "Stage summary",
     "tracked_items": "Tracked items",
+    "stats": "Stats",
     "weapons": "Weapons",
     "items": "Items",
 }
@@ -60,21 +61,36 @@ class OverlayMixin:
 
         status_group = QGroupBox("OBS Browser Source")
         status_layout = QVBoxLayout(status_group)
-        self.overlay_status_label = QLabel("OBS Overlay stopped")
+        self.overlay_status_label = QLabel("status: stopped")
         self.overlay_url_entry = QLineEdit()
         self.overlay_url_entry.setReadOnly(True)
         self.overlay_url_entry.setText(self._overlay_url_text())
+        self.overlay_widget_url_combo = QComboBox()
+        for widget_id, label in OVERLAY_WIDGET_LABELS.items():
+            self.overlay_widget_url_combo.addItem(label, widget_id)
+        self.overlay_widget_url_combo.currentIndexChanged.connect(lambda _index: self.refresh_overlay_ui())
+        self.overlay_widget_url_entry = QLineEdit()
+        self.overlay_widget_url_entry.setReadOnly(True)
+        self.overlay_server_toggle_btn = QPushButton("Start")
+        self.overlay_server_toggle_btn.clicked.connect(self.toggle_overlay_server)
 
         controls = QHBoxLayout()
-        self.overlay_enabled_checkbox = QCheckBox("OBS Overlay server")
+        controls.addWidget(QLabel("OBS Overlay server"))
+        controls.addWidget(self.overlay_status_label)
+        controls.addStretch(1)
+        controls.addWidget(self.overlay_server_toggle_btn)
+        self.overlay_enabled_checkbox = QCheckBox("Auto-start")
         self.overlay_enabled_checkbox.setChecked(bool(config.OVERLAY.get("enabled", False)))
         self.overlay_enabled_checkbox.stateChanged.connect(lambda _state: self.on_overlay_enabled_changed())
         controls.addWidget(self.overlay_enabled_checkbox)
-        controls.addWidget(self.overlay_status_label)
-        controls.addStretch(1)
         status_layout.addLayout(controls)
-        status_layout.addWidget(QLabel("Local OBS URL"))
-        status_layout.addWidget(self.overlay_url_entry)
+        url_grid = QGridLayout()
+        url_grid.addWidget(QLabel("Full overlay"), 0, 0)
+        url_grid.addWidget(self.overlay_url_entry, 0, 1)
+        url_grid.addWidget(QLabel("Widget URL"), 1, 0)
+        url_grid.addWidget(self.overlay_widget_url_combo, 1, 1)
+        url_grid.addWidget(self.overlay_widget_url_entry, 2, 1)
+        status_layout.addLayout(url_grid)
         layout.addWidget(status_group)
 
         settings_group = QGroupBox("Settings")
@@ -103,21 +119,55 @@ class OverlayMixin:
             widgets_layout.addWidget(checkbox, index // 4, index % 4)
         layout.addWidget(widgets_group)
 
+        stats_group = QGroupBox("Stats Widget")
+        stats_layout = QVBoxLayout(stats_group)
+        stats_header = QHBoxLayout()
+        self.overlay_stats_toggle_btn = QPushButton("Configure Stats")
+        self.overlay_stats_toggle_btn.setCheckable(True)
+        self.overlay_stats_toggle_btn.setChecked(False)
+        self.overlay_stats_toggle_btn.toggled.connect(self._set_overlay_stats_expanded)
+        stats_header.addWidget(QLabel("Selected stats appear in the Stats overlay widget."))
+        stats_header.addStretch(1)
+        stats_header.addWidget(self.overlay_stats_toggle_btn)
+        stats_layout.addLayout(stats_header)
+        self.overlay_stats_content = QWidget()
+        stats_config_layout = QGridLayout(self.overlay_stats_content)
+        self.overlay_stats_checkboxes = {}
+        selected_stats = set(self._overlay_selected_stat_labels())
+        all_stats = self._overlay_all_stat_labels()
+        for index, label in enumerate(all_stats):
+            checkbox = QCheckBox(label)
+            checkbox.setChecked(label in selected_stats)
+            checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+            self.overlay_stats_checkboxes[label] = checkbox
+            stats_config_layout.addWidget(checkbox, index // 4, index % 4)
+        self.overlay_stats_content.setVisible(False)
+        stats_layout.addWidget(self.overlay_stats_content)
+        layout.addWidget(stats_group)
+
         tracked_group = QGroupBox("Tracked Items")
         tracked_layout = QVBoxLayout(tracked_group)
-        self.overlay_tracked_items_label = QLabel(
-            "Track selected item gains in the overlay. Map 1 only counts gains observed during stage 1."
-        )
+        tracked_header = QHBoxLayout()
+        self.overlay_tracked_items_label = QLabel("Track selected item gains in the overlay.")
         self.overlay_tracked_items_label.setWordWrap(True)
-        tracked_layout.addWidget(self.overlay_tracked_items_label)
+        self.overlay_tracked_items_toggle_btn = QPushButton("Configure Items")
+        self.overlay_tracked_items_toggle_btn.setCheckable(True)
+        self.overlay_tracked_items_toggle_btn.setChecked(False)
+        self.overlay_tracked_items_toggle_btn.toggled.connect(self._set_overlay_tracked_items_expanded)
+        tracked_header.addWidget(self.overlay_tracked_items_label, 1)
+        tracked_header.addWidget(self.overlay_tracked_items_toggle_btn)
+        tracked_layout.addLayout(tracked_header)
+        self.overlay_tracked_items_content = QWidget()
+        tracked_content_layout = QVBoxLayout(self.overlay_tracked_items_content)
+        tracked_content_layout.setContentsMargins(0, 0, 0, 0)
         self.overlay_item_names = self._overlay_available_item_names()
         self.overlay_item_search_entry = QLineEdit()
         self.overlay_item_search_entry.setPlaceholderText("Search items...")
         self.overlay_item_search_entry.textChanged.connect(self.refresh_overlay_item_selector)
-        tracked_layout.addWidget(self.overlay_item_search_entry)
+        tracked_content_layout.addWidget(self.overlay_item_search_entry)
         self.overlay_item_selector = QListWidget()
-        self.overlay_item_selector.setMaximumHeight(150)
-        tracked_layout.addWidget(self.overlay_item_selector)
+        self.overlay_item_selector.setMaximumHeight(110)
+        tracked_content_layout.addWidget(self.overlay_item_selector)
         add_row = QHBoxLayout()
         self.overlay_map_one_only_checkbox = QCheckBox("Map 1 only")
         self.overlay_map_one_only_checkbox.setChecked(True)
@@ -126,17 +176,19 @@ class OverlayMixin:
         add_row.addWidget(self.overlay_map_one_only_checkbox)
         add_row.addWidget(self.overlay_add_tracked_item_btn)
         add_row.addStretch(1)
-        tracked_layout.addLayout(add_row)
-        tracked_layout.addWidget(QLabel("Currently tracked"))
+        tracked_content_layout.addLayout(add_row)
+        tracked_content_layout.addWidget(QLabel("Currently tracked"))
         self.overlay_tracked_rules_list = QListWidget()
-        self.overlay_tracked_rules_list.setMaximumHeight(130)
-        tracked_layout.addWidget(self.overlay_tracked_rules_list)
+        self.overlay_tracked_rules_list.setMaximumHeight(100)
+        tracked_content_layout.addWidget(self.overlay_tracked_rules_list)
         remove_row = QHBoxLayout()
         self.overlay_remove_tracked_item_btn = QPushButton("Remove Selected")
         self.overlay_remove_tracked_item_btn.clicked.connect(self.remove_overlay_tracked_item)
         remove_row.addWidget(self.overlay_remove_tracked_item_btn)
         remove_row.addStretch(1)
-        tracked_layout.addLayout(remove_row)
+        tracked_content_layout.addLayout(remove_row)
+        self.overlay_tracked_items_content.setVisible(False)
+        tracked_layout.addWidget(self.overlay_tracked_items_content)
         layout.addWidget(tracked_group)
 
         help_row = QHBoxLayout()
@@ -158,6 +210,22 @@ class OverlayMixin:
         config.user_config["OVERLAY"] = config.OVERLAY
         config.save_config(config.user_config)
         if config.OVERLAY["enabled"]:
+            self.start_overlay_server()
+        else:
+            self.stop_overlay_server()
+        self.refresh_overlay_ui()
+
+    def toggle_overlay_server(self) -> None:
+        server = getattr(self, "overlay_server", None)
+        should_start = not bool(server is not None and server.is_running)
+        if self.overlay_enabled_checkbox is not None:
+            self.overlay_enabled_checkbox.blockSignals(True)
+            self.overlay_enabled_checkbox.setChecked(should_start)
+            self.overlay_enabled_checkbox.blockSignals(False)
+        config.OVERLAY["enabled"] = should_start
+        config.user_config["OVERLAY"] = config.OVERLAY
+        config.save_config(config.user_config)
+        if should_start:
             self.start_overlay_server()
         else:
             self.stop_overlay_server()
@@ -207,6 +275,14 @@ class OverlayMixin:
             if widget_id in self.overlay_widget_checkboxes:
                 widget = dict(widget)
                 widget["enabled"] = bool(self.overlay_widget_checkboxes[widget_id].isChecked())
+            if widget_id == "stats" and getattr(self, "overlay_stats_checkboxes", None):
+                widget = dict(widget)
+                selected_stats = [
+                    label
+                    for label, checkbox in self.overlay_stats_checkboxes.items()
+                    if checkbox.isChecked()
+                ]
+                widget["selected_stats"] = selected_stats or list(self._overlay_default_stat_labels())
             widgets.append(widget)
         overlay["widgets"] = widgets
         if getattr(self, "overlay_tracked_rules_list", None) is not None:
@@ -228,14 +304,18 @@ class OverlayMixin:
         running = bool(server is not None and server.is_running)
         if self.overlay_url_entry is not None:
             _set_text_input(self.overlay_url_entry, self._overlay_url_text())
+        if getattr(self, "overlay_widget_url_entry", None) is not None:
+            _set_text_input(self.overlay_widget_url_entry, self._overlay_selected_widget_url_text())
         if self.overlay_status_label is not None:
             if running:
-                status = f"OBS Overlay running | {self.live_run_tracker.status()}"
+                status = "status: live"
             elif server is not None and server.last_error:
-                status = f"Port unavailable: {server.last_error}"
+                status = f"status: port error ({server.last_error})"
             else:
-                status = "OBS Overlay stopped"
+                status = "status: stopped"
             _set_text(self.overlay_status_label, status)
+        if getattr(self, "overlay_server_toggle_btn", None) is not None:
+            self.overlay_server_toggle_btn.setText("Stop" if running else "Start")
         if self.overlay_enabled_checkbox is not None and self.overlay_enabled_checkbox.isChecked() != bool(
             config.OVERLAY.get("enabled", False)
         ):
@@ -265,6 +345,7 @@ class OverlayMixin:
         if rules_list is None:
             return
         rules_list.clear()
+        tracked_count = 0
         for rule in config.OVERLAY.get("tracked_items") or ():
             if not isinstance(rule, dict):
                 continue
@@ -277,6 +358,10 @@ class OverlayMixin:
             item = QListWidgetItem(f"{label}  [{mode_label}]")
             item.setData(Qt.UserRole, dict(rule))
             rules_list.addItem(item)
+            tracked_count += 1
+        if self.overlay_tracked_items_label is not None:
+            detail = "Map 1 only counts gains observed during stage 1."
+            _set_text(self.overlay_tracked_items_label, f"Tracking {tracked_count} rule(s). {detail}")
 
     def add_overlay_tracked_item(self) -> None:
         item_name = self._selected_overlay_item_name()
@@ -374,6 +459,47 @@ class OverlayMixin:
 
     def _overlay_url_text(self) -> str:
         return f"http://127.0.0.1:{int(config.OVERLAY.get('port', 17845))}/overlay"
+
+    def _overlay_selected_widget_url_text(self) -> str:
+        widget_id = "stats"
+        if getattr(self, "overlay_widget_url_combo", None) is not None:
+            widget_id = str(self.overlay_widget_url_combo.currentData() or widget_id)
+        return f"{self._overlay_url_text()}/{widget_id}"
+
+    def _set_overlay_tracked_items_expanded(self, expanded: bool) -> None:
+        if getattr(self, "overlay_tracked_items_content", None) is not None:
+            self.overlay_tracked_items_content.setVisible(bool(expanded))
+        if getattr(self, "overlay_tracked_items_toggle_btn", None) is not None:
+            self.overlay_tracked_items_toggle_btn.setText("Hide Items" if expanded else "Configure Items")
+
+    def _set_overlay_stats_expanded(self, expanded: bool) -> None:
+        if getattr(self, "overlay_stats_content", None) is not None:
+            self.overlay_stats_content.setVisible(bool(expanded))
+        if getattr(self, "overlay_stats_toggle_btn", None) is not None:
+            self.overlay_stats_toggle_btn.setText("Hide Stats" if expanded else "Configure Stats")
+
+    @staticmethod
+    def _overlay_default_stat_labels() -> tuple[str, ...]:
+        return ("Damage", "Attack Speed", "Luck", "XP Gain")
+
+    @classmethod
+    def _overlay_all_stat_labels(cls) -> tuple[str, ...]:
+        return tuple(spec.label for group in PLAYER_STAT_GROUPS for spec in group)
+
+    @classmethod
+    def _overlay_selected_stat_labels(cls) -> tuple[str, ...]:
+        widget_config = {}
+        for widget in config.OVERLAY.get("widgets", []):
+            if isinstance(widget, dict) and widget.get("id") == "stats":
+                widget_config = widget
+                break
+        allowed = set(cls._overlay_all_stat_labels())
+        selected = tuple(
+            str(label)
+            for label in widget_config.get("selected_stats", ())
+            if str(label) in allowed
+        )
+        return selected or cls._overlay_default_stat_labels()
 
     @staticmethod
     def _tracked_item_rules_from_config(overlay_config: dict[str, Any]) -> tuple[TrackedItemRule, ...]:

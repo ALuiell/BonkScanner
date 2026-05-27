@@ -6,6 +6,11 @@ from live_run_tracker import LiveRunSnapshot, LiveRunTracker
 from overlay_state import build_overlay_state
 
 
+class _DisplayValue:
+    def __init__(self, display_value: str) -> None:
+        self.display_value = display_value
+
+
 class OverlayStateTests(unittest.TestCase):
     def test_overlay_state_has_json_friendly_missing_data(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 123.0)
@@ -73,6 +78,44 @@ class OverlayStateTests(unittest.TestCase):
 
         self.assertEqual(state["stage_summary"][0]["items"][0]["rarity"], "LEGENDARY")
         self.assertEqual(state["stage_summary"][0]["items"][0]["count"], 1)
+
+    def test_overlay_state_includes_selected_stats_widget_rows(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 123.0)
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=1.0,
+                stats={
+                    "Damage": _DisplayValue("2x"),
+                    "Luck": _DisplayValue("15%"),
+                    "XP Gain": _DisplayValue("1.2x"),
+                },
+                game_time_seconds=5.0,
+                map_seed=1,
+                stage_ptr=10,
+            )
+        )
+
+        state = build_overlay_state(
+            tracker,
+            {
+                "widgets": [
+                    {
+                        "id": "stats",
+                        "enabled": True,
+                        "selected_stats": ["Luck", "Damage"],
+                        "max_rows": 2,
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(
+            state["stats"],
+            [
+                {"label": "Luck", "value": "15%"},
+                {"label": "Damage", "value": "2x"},
+            ],
+        )
 
 
 if __name__ == "__main__":
