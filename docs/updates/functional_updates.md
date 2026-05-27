@@ -573,176 +573,53 @@ Status: `[Open]`
 
 Goal:
 
-- Improve the current local OBS overlay so it is more compact, clearer, easier
-  to configure, and better explained to users.
+- Improve the current local OBS overlay tab and browser-source output so it is
+  more compact, clearer, easier to configure, and more practical for stream
+  layouts.
 
-Main direction:
+Requirements:
 
-- Keep the overlay local and OBS/browser-source based.
-- Treat this as a UI/UX upgrade over the current implementation, not a new
-  Twitch integration pass.
-- Prioritize compactness, readability, transparency, and tracked-item
-  configurability.
+1. `Tracked Items` should become collapsible in the app UI.
+   - The section should default to a compact collapsed presentation or otherwise
+     behave in a clearly space-saving way.
+   - When the OBS Overlay tab is shown in a narrow window, the tracked-items
+     area must not collapse into an unusable squeezed layout.
+   - Prioritize a small-window-friendly layout similar to the requested mockup.
 
-### Required Changes
+2. Simplify the overlay server status row to remove duplicated wording.
+   - Replace the current pattern similar to `OBS Overlay server OBS Overlay running | live/stop`.
+   - Use a layout in this spirit:
+     - `OBS Overlay server | status: live/stop`
+     - `Start/Stop` button
+   - The final wording can vary slightly, but the row must be shorter, cleaner,
+     and free from duplicated status labels.
 
-1. Transparent overlay background
+3. Change overlay items from a vertical list to a horizontal row-based
+   presentation where appropriate.
+   - This applies to the visible overlay output for item widgets.
+   - The result should stay readable in stream usage and avoid unnecessary
+     height growth.
 
-- The overlay itself should be transparent.
-- Remove visible background blocks behind the whole overlay.
-- Small internal rows/elements can still use subtle styling if needed, but the
-  page must sit cleanly on top of gameplay in OBS.
-- The default look should not cover large parts of the screen.
+4. Add a new collapsible widget named `Stats`.
+   - The user must be able to choose which stats are included in this widget.
+   - The selected stats should appear inside the widget in a compact list.
+   - The presentation should be lightweight and readable for stream overlays,
+     using small thumbnail-style entries or similarly compact stat rows.
 
-2. `Stage Summary -> Items` should use original rarity circles
+5. Support direct widget-specific overlay URLs so each widget can be added to
+   OBS as a separate browser source.
+   - Today the full overlay is exposed through a single route like
+     `http://127.0.0.1:17845/overlay`.
+   - Add per-widget routes in the spirit of
+     `http://127.0.0.1:17845/overlay/<widget_name>`.
+   - Streamers should be able to place, scale, and position each widget
+     independently in OBS by using those dedicated URLs.
 
-- The `Items` column inside `Stage Summary` should not show shortened text like
-  `R2`.
-- Reuse the same rarity-circle presentation used in the desktop app.
-- The overlay should display colored rarity dots plus counts, matching the
-  original program style as closely as practical.
-- This applies specifically to stage-summary item gains.
+Implementation notes:
 
-3. Compact overlay layout and widget rethink
-
-- The whole overlay should be miniaturized and compact.
-- It should stay easy to read, but it should not take much space on screen.
-- Narrow metrics such as `Run Timer`, `Kills`, `Current Stage`, and `Level`
-  should use minimal width if they stay at all.
-- Reassess whether these widgets are even worth keeping in the default overlay:
-  - `Run Timer`
-  - `Kills`
-  - `Current Stage`
-  - `Level`
-- It is acceptable to remove them from the default enabled set, or even from
-  the first overlay version, if they do not add enough value.
-- The important widgets to keep available are:
-  - `Stage Summary`
-  - `Tracked Items`
-  - `Items`
-  - `Weapons`
-
-Recommended default content:
-
-- `Stage Summary`
-- `Tracked Items`
-- `Weapons`
-
-Optional/lower-priority content:
-
-- `Items`
-- `Run Timer`
-- `Kills`
-- `Current Stage`
-- `Level`
-
-4. Tracked items must be user-configurable, not limited to `Anvil`
-
-- The current tracked-item logic should not stay hardcoded to `Anvil`.
-- In the settings for this feature, the user must be able to choose any item to
-  track for first-map logic.
-- Add a configuration UI inside the overlay tab for tracked items.
-- The tracked-item setup should support:
-  - adding a tracked item
-  - removing a tracked item
-  - choosing `map 1 only` behavior
-  - selecting the item by name
-- The best UX is a searchable item selector:
-  - a search field
-  - a filtered item list or dropdown
-  - add-to-tracked action
-- The goal is that the user can track any item on the first map, not just
-  `Anvil`.
-
-5. Rename tab `Overlay` -> `OBS Overlay`
-
-- The tab title should be renamed from `Overlay` to `OBS Overlay`.
-- Use this name consistently in UI strings, help text, and related labels.
-
-6. Move `OBS Overlay` tab to the end
-
-- The tab should be the last tab.
-- Place it after `Compare Runs`.
-
-7. Remove duplicated start/enable controls
-
-- The current UI has both:
-  - `Enable overlay server`
-  - `Start/Stop`
-- These overlap in purpose and should be simplified.
-- Keep only one main control path.
-
-Recommended choice:
-
-- Keep a single enable toggle or a single start/stop button.
-- The simpler UX is:
-  - one checkbox or toggle that starts/stops the server immediately
-  - status text next to it
-- Avoid duplicated controls that do the same thing.
-
-8. Add help/manual coverage for `OBS Overlay`
-
-- Add a proper help section for the `OBS Overlay` tab in the app help/manual.
-- The explanation should be detailed enough for a normal streamer to understand
-  how to use it.
-
-Help text must explain:
-
-- what the overlay is
-- that it works locally on the same PC
-- how to add it to OBS as a browser source
-- what the URL means
-- what the port is
-- why the port matters
-- that the overlay server listens locally
-- whether recording is required or not
-- what tracked items do
-
-The help should not live only in code comments.
-It should be available in the actual user-facing help/manual.
-
-### Expected UI Behavior
-
-Inside `OBS Overlay` tab:
-
-- One clear on/off control for the overlay server
-- Read-only local URL field
-- Port setting
-- Widget selection
-- Tracked-item configuration with item search
-- Short inline help
-- Linkage to full app help/manual entry
-
-Inside OBS/browser overlay page:
-
-- Transparent page background
-- Very compact footprint
-- Better `Stage Summary` item visuals
-- No bulky full-width framed blocks unless they are truly needed
-
-### Recommended Implementation Notes
-
-- Keep the existing local overlay architecture.
-- Rework presentation and configuration first; do not re-architect the server
-  unless necessary.
-- Reuse item normalization and rarity helpers from the main app so the overlay
-  matches the desktop presentation.
-- For tracked items, the main missing piece is the configuration UI and config
-  persistence, not the overall live-tracker concept.
-
-### Acceptance Criteria
-
-- Overlay is transparent in OBS.
-- `Stage Summary -> Items` uses colored rarity-circle style instead of compact
-  text like `R2`.
-- Overlay footprint is noticeably smaller and better suited for a stream
-  corner.
-- `OBS Overlay` tab is the last tab after `Compare Runs`.
-- `Overlay` tab text is renamed everywhere relevant to `OBS Overlay`.
-- Duplicate `Enable overlay server` and `Start/Stop` behavior is simplified to
-  one primary control.
-- User can configure first-map tracked items by searching and choosing item
-  names, not just use `Anvil`.
-- Help/manual includes a detailed explanation of the `OBS Overlay` feature,
-  including what a port is and how the local URL works.
+- Preserve the current local overlay architecture unless there is a clear
+  technical reason to change it.
+- Reasonable improvements beyond the exact checklist are welcome if they improve
+  clarity, compactness, maintainability, or stream usability.
+- Keep the result lightweight and consistent with the existing app.
 
