@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 from typing import Any
 
 import run_summary
+from gui_styles import COLOR_MAP, ITEM_RARITY_COLOR_MAP
 from live_run_tracker import LiveRunTracker
 
 
@@ -20,7 +20,7 @@ class OverlayState:
     chests_per_minute: float | None
     widgets: dict[str, Any]
     tracked_items: list[dict[str, Any]]
-    stage_summary: list[dict[str, str]]
+    stage_summary: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,19 +85,38 @@ def _widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
     return widgets
 
 
-def _overlay_stage_summary_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    overlay_rows: list[dict[str, str]] = []
+def _overlay_stage_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    overlay_rows: list[dict[str, Any]] = []
     for row in rows:
         label = str(row.get("label") or "--").replace("Stage ", "")
+        item_rarities = row.get("item_rarities")
+        if not isinstance(item_rarities, dict):
+            item_rarities = run_summary.empty_item_rarity_totals()
         overlay_rows.append(
             {
                 "stage": label,
                 "time": str(row.get("time") or "--"),
                 "kills": str(row.get("kills") or "--"),
-                "items": _strip_html(str(row.get("items") or "--")) or "--",
+                "items": _overlay_item_rarity_counts(item_rarities),
             }
         )
     return overlay_rows
+
+
+def _overlay_item_rarity_counts(item_rarities: dict[str, Any]) -> list[dict[str, Any]]:
+    counts: list[dict[str, Any]] = []
+    for rarity in ("LEGENDARY", "RARE", "UNCOMMON", "COMMON"):
+        count = _coerce_int(item_rarities.get(rarity), default=0)
+        if count <= 0:
+            continue
+        counts.append(
+            {
+                "rarity": rarity,
+                "count": count,
+                "color": ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"]),
+            }
+        )
+    return counts
 
 
 def _snapshot_items(snapshot: Any, overlay_config: dict[str, Any]) -> list[str]:
@@ -140,10 +159,6 @@ def _format_timer(seconds: float | None) -> str:
     if seconds is None:
         return "--"
     return run_summary.format_elapsed_time(seconds)
-
-
-def _strip_html(value: str) -> str:
-    return re.sub(r"<[^>]+>", "", value).replace("&#9679;", "R").strip()
 
 
 def _coerce_poll_ms(value: Any) -> int:

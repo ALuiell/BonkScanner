@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from live_run_tracker import LiveRunSnapshot, LiveRunTracker
+from live_run_tracker import LiveRunSnapshot, LiveRunTracker, TrackedItemRule
 
 
 def snapshot(
@@ -98,6 +98,24 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(tracker.status(), "live")
         now[0] = 1007.0
         self.assertEqual(tracker.status(), "stale")
+
+    def test_tracker_counts_configured_non_anvil_map_one_item(self) -> None:
+        tracker = LiveRunTracker(
+            clock=lambda: 1000.0,
+            tracked_item_rules=(
+                TrackedItemRule(
+                    id="wrench_map_1",
+                    label="Wrench Map 1",
+                    item_names=("Wrench",),
+                    mode="map_1_only",
+                ),
+            ),
+        )
+        tracker.update(snapshot(time_seconds=2.0, items=("Wrench x1",)))
+        tracker.update(snapshot(time_seconds=180.0, items=("Wrench x2",), stage_ptr=2000, stage_time_seconds=1.0))
+
+        row = {row["id"]: row for row in tracker.tracked_item_rows()}["wrench_map_1"]
+        self.assertEqual(row["count"], 1)
 
 
 if __name__ == "__main__":

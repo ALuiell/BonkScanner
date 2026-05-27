@@ -125,6 +125,7 @@
     },
     "AUTO_START_RECORDING": false,
     "OVERLAY": {
+        "schema_version": 2,
         "enabled": true,
         "host": "127.0.0.1",
         "port": 17845,
@@ -133,25 +134,25 @@
         "widgets": [
             {
                 "id": "run_timer",
-                "enabled": true,
+                "enabled": false,
                 "mode": "compact",
                 "order": 10
             },
             {
                 "id": "level",
-                "enabled": true,
+                "enabled": false,
                 "mode": "compact",
                 "order": 20
             },
             {
                 "id": "kills",
-                "enabled": true,
+                "enabled": false,
                 "mode": "compact",
                 "order": 30
             },
             {
                 "id": "current_stage",
-                "enabled": true,
+                "enabled": false,
                 "mode": "compact",
                 "order": 35
             },
@@ -173,11 +174,11 @@
                 "enabled": true,
                 "mode": "compact",
                 "order": 60,
-                "max_rows": 6
+                "max_rows": 4
             },
             {
                 "id": "items",
-                "enabled": true,
+                "enabled": false,
                 "mode": "compact",
                 "order": 70,
                 "max_rows": 12

@@ -218,13 +218,19 @@ class MegabonkApp(
         self.overlay_server = None
         self.live_run_tracker = None
         self.overlay_enabled_checkbox = None
-        self.overlay_start_stop_btn = None
         self.overlay_status_label = None
         self.overlay_url_entry = None
         self.overlay_port_entry = None
         self.overlay_template_combo = None
         self.overlay_widget_checkboxes = {}
         self.overlay_tracked_items_label = None
+        self.overlay_item_names = ()
+        self.overlay_item_search_entry = None
+        self.overlay_item_selector = None
+        self.overlay_map_one_only_checkbox = None
+        self.overlay_add_tracked_item_btn = None
+        self.overlay_tracked_rules_list = None
+        self.overlay_remove_tracked_item_btn = None
 
         self.is_running = False
         self.is_ready_to_start = False

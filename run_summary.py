@@ -229,6 +229,7 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
             "kills": kills_text,
             "time": duration_text,
             "items": items_text,
+            "item_rarities": dict(stage_item_gains[stage_index]),
         }
 
     reconcile_stage_summary_kills(rows, snapshots)

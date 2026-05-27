@@ -138,9 +138,9 @@ class GuiLayoutMixin:
         self._build_logs_tab()
         self._build_session_stats_tab()
         self._build_live_stats_tab()
-        self._build_overlay_tab()
         self._build_recordings_tab()
         self._build_compare_runs_tab()
+        self._build_overlay_tab()
         self._build_footer_controls(right_layout)
 
     def _build_header(self, root_layout):
@@ -1088,7 +1088,7 @@ class GuiLayoutMixin:
         return self.tabview.tabText(self.tabview.currentIndex()) == "Live Stats"
 
     def _is_overlay_tab_active(self) -> bool:
-        return self.tabview.tabText(self.tabview.currentIndex()) == "Overlay"
+        return self.tabview.tabText(self.tabview.currentIndex()) == "OBS Overlay"
 
     def _is_recordings_tab_active(self) -> bool:
         return self.tabview.tabText(self.tabview.currentIndex()) == "Recordings"

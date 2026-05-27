@@ -15,6 +15,7 @@ What The Program Includes
 - `Session stats`
 - `Live Stats` recording and run inspection
 - `Recordings` playback
+- `OBS Overlay` browser-source output
 - stage summaries for live runs and recordings
 - standard keyboard restart mode
 - `Native hook` restart mode
@@ -126,6 +127,23 @@ added by mods or external tools.
 
 You can start recording from the `Live Stats` tab or by using the record hotkey.
 The snapshot interval is configurable in `Settings`.
+
+
+OBS Overlay
+-----------
+The `OBS Overlay` tab runs a local browser-source overlay for stream layouts.
+It stays on the same PC and listens on `127.0.0.1`, so it is meant for OBS or a
+normal browser on your own machine.
+
+Turn on `OBS Overlay server`, then add the `Local OBS URL` to OBS as a Browser
+Source. The URL includes a port, for example `17845`. A port is the local number
+OBS uses to connect to BonkScanner's overlay server. If the port is already used
+by another program, change it in the tab and update the OBS URL.
+
+Recording is not required for the overlay. It uses live stats reads. You can
+choose visible widgets and configure tracked items by searching for an item,
+choosing whether it should count on `Map 1 only`, and adding it to the list.
+The overlay itself is transparent and designed to sit compactly over gameplay.
 
 
 Standard Mode And Native Hook

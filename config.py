@@ -49,19 +49,20 @@ DEFAULT_SCORES_SYSTEM = {
 }
 
 DEFAULT_OVERLAY = {
+    "schema_version": 2,
     "enabled": False,
     "host": "127.0.0.1",
     "port": 17845,
     "template": "compact",
     "poll_ms": 500,
     "widgets": [
-        {"id": "run_timer", "enabled": True, "mode": "compact", "order": 10},
-        {"id": "level", "enabled": True, "mode": "compact", "order": 20},
-        {"id": "kills", "enabled": True, "mode": "compact", "order": 30},
-        {"id": "current_stage", "enabled": True, "mode": "compact", "order": 35},
+        {"id": "run_timer", "enabled": False, "mode": "compact", "order": 10},
+        {"id": "level", "enabled": False, "mode": "compact", "order": 20},
+        {"id": "kills", "enabled": False, "mode": "compact", "order": 30},
+        {"id": "current_stage", "enabled": False, "mode": "compact", "order": 35},
         {"id": "stage_summary", "enabled": True, "mode": "compact", "order": 40, "max_rows": 4},
         {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50},
-        {"id": "weapons", "enabled": False, "mode": "compact", "order": 60, "max_rows": 6},
+        {"id": "weapons", "enabled": True, "mode": "compact", "order": 60, "max_rows": 4},
         {"id": "items", "enabled": False, "mode": "compact", "order": 70, "max_rows": 12},
     ],
     "tracked_items": [
@@ -75,7 +76,7 @@ DEFAULT_OVERLAY = {
     "style": {
         "scale": 1.0,
         "accent_color": "#F6C453",
-        "background_opacity": 0.35,
+        "background_opacity": 0.22,
     },
 }
 
@@ -241,6 +242,11 @@ def _merge_dict_defaults(value, defaults):
 
 def normalize_overlay_config(value):
     overlay = _merge_dict_defaults(value, DEFAULT_OVERLAY)
+    saved_schema_version = coerce_nonnegative_int((value or {}).get("schema_version"), 1) if isinstance(value, dict) else 0
+    if saved_schema_version < DEFAULT_OVERLAY["schema_version"]:
+        overlay["widgets"] = [dict(widget) for widget in DEFAULT_OVERLAY["widgets"]]
+        overlay["style"] = _merge_dict_defaults(overlay.get("style"), DEFAULT_OVERLAY["style"])
+    overlay["schema_version"] = DEFAULT_OVERLAY["schema_version"]
     overlay["enabled"] = bool(overlay.get("enabled", False))
     overlay["host"] = "127.0.0.1"
     overlay["template"] = str(overlay.get("template") or "compact")
