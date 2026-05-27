@@ -1760,7 +1760,9 @@ class PlayerStatsMixin:
             _set_items_text(label, items_text=items_text)
             self._set_items_rarity_summary_label(rarity_label, ())
             if button is not None:
-                button.setVisible(False)
+                button.setVisible(True)
+                button.setEnabled(False)
+                button.setText("Show more")
             if sort_combo is not None:
                 sort_combo.setEnabled(False)
             return
@@ -1788,8 +1790,9 @@ class PlayerStatsMixin:
             _set_text(label, text)
 
         if button is not None:
-            button.setVisible(has_more)
-            button.setText("Show less" if expanded and has_more else "Show all")
+            button.setVisible(True)
+            button.setEnabled(has_more)
+            button.setText("Show less" if expanded and has_more else "Show more")
 
     @classmethod
     def _item_total_count(cls, items) -> int:
