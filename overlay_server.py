@@ -13,15 +13,12 @@ import config
 
 
 WIDGET_ROUTE_NAMES = {
-    "run_timer",
-    "level",
-    "kills",
-    "current_stage",
     "stage_summary",
     "tracked_items",
     "stats",
     "weapons",
     "items",
+    "banishes",
 }
 
 

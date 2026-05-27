@@ -33,18 +33,38 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function applyStyle(state) {
-  const style = state.style || {};
-  const accent = style.accent_color || "#f6c453";
-  const opacity = Number(style.background_opacity ?? 0.35);
-  const scale = Number(style.scale ?? 1);
-  document.documentElement.style.setProperty("--accent", accent);
-  document.documentElement.style.setProperty("--panel-bg", `rgba(8, 12, 18, ${Math.max(0, Math.min(opacity, 0.45))})`);
-  document.documentElement.style.setProperty("--scale", Math.max(0.6, Math.min(scale, 2)));
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(number, max));
 }
 
-function panel(title, body, classes = "") {
-  return `<section class="panel ${classes}">
+function applyStyle(state, requestedWidget) {
+  const style = state.style || {};
+  const accent = style.accent_color || "#f6c453";
+  const opacity = clampNumber(style.background_opacity, 0, 1, 0.0);
+  const stageOpacity = clampNumber(style.stage_background_opacity, 0, 1, 0.15);
+  const configuredScale = Math.max(0.6, Math.min(Number(style.scale ?? 1), 4));
+  const singleWidget = Boolean(requestedWidget);
+  const baseWidth = requestedWidget === "stage_summary" ? 410 : 260;
+  const baseHeight = requestedWidget === "stage_summary" ? 210 : 160;
+  const autoScale = singleWidget
+    ? Math.max(1, Math.min(window.innerWidth / baseWidth, window.innerHeight / baseHeight, 4))
+    : 1;
+  const scale = singleWidget ? Math.max(configuredScale, autoScale) : Math.min(configuredScale, 2);
+  document.documentElement.style.setProperty("--accent", accent);
+  document.documentElement.style.setProperty("--panel-bg-opacity", Math.max(0, Math.min(opacity, 0.45)));
+  document.documentElement.style.setProperty("--stage-bg-opacity", Math.max(0, Math.min(stageOpacity, 0.45)));
+  document.documentElement.style.setProperty("--scale", scale);
+}
+
+function panel(title, body, classes = "", widget = null) {
+  const backgroundOpacity = clampNumber(widget?.background_opacity, 0, 1, classes.includes("stage-summary-widget") ? 0.15 : 0.0);
+  const borderOpacity = widget?.show_border ? 0.15 : 0;
+  const style = `--widget-bg-opacity:${backgroundOpacity};--widget-border-opacity:${borderOpacity};`;
+  return `<section class="panel ${classes}" style="${style}">
     <div class="panel-title">${escapeHtml(title)}</div>
     ${body}
   </section>`;
@@ -52,24 +72,18 @@ function panel(title, body, classes = "") {
 
 function renderWidget(widget, state) {
   switch (widget.id) {
-    case "run_timer":
-      return panel("Run Timer", `<div class="metric-value">${escapeHtml(state.run_timer_label || "--")}</div>`, "metric");
-    case "level":
-      return panel("Level", `<div class="metric-value">${formatNumber(state.player_level)}</div>`, "metric");
-    case "kills":
-      return panel("Kills", `<div class="metric-value">${formatNumber(state.mob_kills)}</div>`, "metric");
-    case "current_stage":
-      return panel("Stage", `<div class="metric-value">${escapeHtml(state.current_stage || "--")}</div>`, "metric");
     case "tracked_items":
-      return panel("Tracked Items", renderTrackedItems(state), "wide item-widget");
+      return panel("Tracked Items", renderTrackedItems(state), "wide item-widget", widget);
     case "stats":
-      return panel("Stats", renderStats(state, widget), "wide stats-widget");
+      return panel("Stats", renderStats(state, widget), "wide stats-widget", widget);
     case "stage_summary":
-      return panel("Stage Summary", renderStageSummary(state), "wide");
+      return panel("Stage Summary", renderStageSummary(state), "wide stage-summary-widget", widget);
     case "weapons":
-      return panel("Weapons", renderWeapons(state, widget), "wide");
+      return panel("Weapons", renderWeapons(state, widget), "wide", widget);
     case "items":
-      return panel("Items", renderItems(state, widget), "wide");
+      return panel("Items", renderItems(state, widget), "wide items-widget", widget);
+    case "banishes":
+      return panel("Banishes", renderBanishes(state, widget), "wide banishes-widget", widget);
     default:
       return "";
   }
@@ -82,7 +96,8 @@ function renderTrackedItems(state) {
   }
   return `<div class="chip-strip">${rows.map((row) => {
     const unknown = row.unknown_starting_inventory ? `<span class="muted"> +${formatNumber(row.unknown_starting_inventory)}?</span>` : "";
-    return `<div class="counter-chip"><span>${escapeHtml(row.label)}</span><strong>${formatNumber(row.count)}${unknown}</strong></div>`;
+    const label = String(row.label || "").replace(/\s+map\s*1$/i, "");
+    return `<div class="counter-chip"><span>${escapeHtml(label)}</span><strong>${formatNumber(row.count)}${unknown}</strong></div>`;
   }).join("")}</div>`;
 }
 
@@ -96,27 +111,45 @@ function renderStats(state, widget) {
 }
 
 function renderStageSummary(state) {
-  const rows = state.stage_summary || [];
-  if (!rows.length) {
+  const rows = Array.isArray(state.stage_summary) ? state.stage_summary : [];
+  const stageRows = Array.from({ length: 4 }, (_unused, index) => {
+    return rows[index] || { stage: String(index + 1), time: "--", kills: "--", items: [] };
+  });
+  if (!stageRows.length) {
     return `<div class="muted">--</div>`;
   }
-  return `<table class="summary-table">
-    <thead><tr><th>Stage</th><th>Time</th><th>Kills</th><th>Items</th></tr></thead>
-    <tbody>
-      ${rows.map((row) => `<tr><td>${escapeHtml(row.stage)}</td><td>${escapeHtml(row.time)}</td><td>${escapeHtml(row.kills)}</td><td>${renderRarityCounts(row.items)}</td></tr>`).join("")}
-    </tbody>
-  </table>`;
+  const headers = ["Stage", "Time", "Kills", "Items"]
+    .map((label) => `<div class="stage-header">${escapeHtml(label)}</div>`)
+    .join("");
+  const body = stageRows.map((row, index) => {
+    const items = Array.isArray(row.items) ? row.items : [];
+    const inactive = !items.length && row.time === "--" && row.kills === "--";
+    return `<div class="stage-row ${inactive ? "inactive" : ""}">
+      <div class="stage-cell">${escapeHtml(row.stage || String(index + 1))}</div>
+      <div class="stage-cell">${escapeHtml(row.time || "--")}</div>
+      <div class="stage-cell">${escapeHtml(row.kills || "--")}</div>
+      <div class="stage-cell stage-items">${renderStageItems(items)}</div>
+    </div>`;
+  }).join("");
+  return `<div class="stage-table">${headers}${body}</div>`;
 }
 
-function renderRarityCounts(items) {
+function renderStageItems(items) {
   const rows = Array.isArray(items) ? items : [];
-  if (!rows.length) {
-    return `<span class="muted">--</span>`;
-  }
-  return `<span class="rarity-counts">${rows.map((item) => {
-    const color = escapeHtml(item.color || "#e5e7eb");
-    const label = escapeHtml(item.rarity || "rarity");
-    return `<span class="rarity-count" title="${label}"><span class="rarity-dot" style="background:${color}"></span>${formatNumber(item.count)}</span>`;
+  const rowsByRarity = new Map(rows.map((item) => [String(item.rarity || "").toUpperCase(), item]));
+  const raritySlots = [
+    ["LEGENDARY", "var(--hud-orange)"],
+    ["RARE", "var(--hud-purple)"],
+    ["UNCOMMON", "var(--hud-green)"],
+    ["COMMON", "var(--hud-cyan)"],
+  ];
+  return `<span class="stage-item-counts">${raritySlots.map(([rarity, fallbackColor]) => {
+    const item = rowsByRarity.get(rarity);
+    const count = Number(item?.count || 0);
+    const color = escapeHtml(item?.color || fallbackColor);
+    const label = escapeHtml(rarity);
+    const value = count > 0 ? formatNumber(count) : "--";
+    return `<span class="stage-item-count ${count > 0 ? "active" : "empty"}" title="${label}" style="color:${color}">${value}</span>`;
   }).join("")}</span>`;
 }
 
@@ -134,20 +167,35 @@ function renderWeapons(state, widget) {
 
 function renderItems(state, widget) {
   const maxRows = Number(widget.max_rows || 12);
-  const rows = (state.items || []).slice(0, maxRows);
-  if (!rows.length) {
+  const allRows = state.items || [];
+  const rows = allRows.slice(0, maxRows);
+  const remaining = Math.max(0, allRows.length - rows.length);
+  if (!allRows.length) {
     return `<div class="muted">${state.items_available ? "No items yet" : "Items unavailable"}</div>`;
   }
-  return `<div class="item-strip">${rows.map((item) => `<span class="item-chip">${escapeHtml(item)}</span>`).join("")}</div>`;
+  const more = remaining > 0 ? `<span class="item-chip more-chip">+${formatNumber(remaining)} more</span>` : "";
+  return `<div class="item-strip">${rows.map((item) => `<span class="item-chip">${escapeHtml(item)}</span>`).join("")}${more}</div>`;
+}
+
+function renderBanishes(state, widget) {
+  const maxRows = Number(widget.max_rows || 12);
+  const allRows = state.banishes || [];
+  const rows = allRows.slice(0, maxRows);
+  const remaining = Math.max(0, allRows.length - rows.length);
+  if (!allRows.length) {
+    return `<div class="muted">No banishes yet</div>`;
+  }
+  const more = remaining > 0 ? `<span class="item-chip more-chip">+${formatNumber(remaining)} more</span>` : "";
+  return `<div class="item-strip banish-strip">${rows.map((item) => `<span class="item-chip banish-chip">${escapeHtml(item)}</span>`).join("")}${more}</div>`;
 }
 
 function render(state) {
-  applyStyle(state);
   pollMs = Number(state.poll_ms || pollMs);
+  const requested = requestedWidgetId();
+  applyStyle(state, requested);
   const widgets = enabledWidgets(state);
   const status = state.status || "waiting";
   const statusPanel = status === "live" ? "" : panel("Status", `<div class="small-value">${escapeHtml(status.replace("_", " "))}</div>`, "wide status-panel");
-  const requested = requestedWidgetId();
   const missingWidgetPanel = requested && !widgets.length ? panel("Status", `<div class="small-value">widget unavailable</div>`, "wide status-panel") : "";
   root.classList.toggle("single-widget", Boolean(requested));
   root.innerHTML = statusPanel + missingWidgetPanel + widgets.map((widget) => renderWidget(widget, state)).join("");

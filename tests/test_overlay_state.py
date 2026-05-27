@@ -19,13 +19,13 @@ class OverlayStateTests(unittest.TestCase):
             {
                 "template": "compact",
                 "poll_ms": 500,
-                "widgets": [{"id": "run_timer", "enabled": True, "order": 10}],
+                "widgets": [{"id": "stage_summary", "enabled": True, "order": 10}],
             },
         )
 
         self.assertEqual(state["status"], "waiting")
         self.assertEqual(state["run_timer_label"], "--")
-        self.assertEqual(state["widgets"]["run_timer"]["enabled"], True)
+        self.assertEqual(state["widgets"]["stage_summary"]["enabled"], True)
         self.assertEqual(state["stage_summary"][0]["stage"], "1")
 
     def test_overlay_state_includes_tracker_counters_and_live_fields(self) -> None:
@@ -116,6 +116,34 @@ class OverlayStateTests(unittest.TestCase):
                 {"label": "Damage", "value": "2x"},
             ],
         )
+
+    def test_overlay_state_includes_banish_widget_rows(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 123.0)
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=1.0,
+                stats={},
+                banishes=("Clover", "Golden Tome", "Wrench"),
+                game_time_seconds=5.0,
+                map_seed=1,
+                stage_ptr=10,
+            )
+        )
+
+        state = build_overlay_state(
+            tracker,
+            {
+                "widgets": [
+                    {
+                        "id": "banishes",
+                        "enabled": True,
+                        "max_rows": 2,
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(state["banishes"], ["Clover", "Golden Tome"])
 
 
 if __name__ == "__main__":

@@ -66,6 +66,7 @@ def build_overlay_state(tracker: LiveRunTracker, overlay_config: dict[str, Any] 
     data["items"] = _snapshot_items(snapshot, overlay_config)
     data["stats"] = _snapshot_stats(snapshot, widgets)
     data["weapons"] = _snapshot_weapons(snapshot)
+    data["banishes"] = _snapshot_banishes(snapshot, widgets)
     data["items_available"] = bool(getattr(snapshot, "items_available", False))
     data["weapons_available"] = bool(getattr(snapshot, "weapons_available", False))
     return data
@@ -86,6 +87,8 @@ def _widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
             "order": _coerce_int(raw_widget.get("order"), default=(index + 1) * 10),
             "max_rows": _coerce_int(raw_widget.get("max_rows"), default=4),
             "selected_stats": _selected_stat_labels(raw_widget.get("selected_stats")),
+            "background_opacity": _coerce_bounded_float(raw_widget.get("background_opacity"), default=0.0),
+            "show_border": bool(raw_widget.get("show_border", False)),
         }
     return widgets
 
@@ -183,6 +186,14 @@ def _snapshot_weapons(snapshot: Any) -> list[dict[str, Any]]:
     return weapons
 
 
+def _snapshot_banishes(snapshot: Any, widgets: dict[str, Any]) -> list[str]:
+    if snapshot is None:
+        return []
+    widget = widgets.get("banishes") or {}
+    max_rows = _coerce_int(widget.get("max_rows"), default=12)
+    return [str(item) for item in tuple(getattr(snapshot, "banishes", ()) or ())[:max_rows]]
+
+
 def _format_timer(seconds: float | None) -> str:
     if seconds is None:
         return "--"
@@ -205,6 +216,13 @@ def _coerce_optional_float(value: Any) -> float | None:
         return float(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_bounded_float(value: Any, *, default: float = 0.0) -> float:
+    try:
+        return max(0.0, min(float(value), 1.0))
+    except (TypeError, ValueError):
+        return default
 
 
 def _coerce_int(value: Any, *, default: int = 0) -> int:

@@ -49,22 +49,19 @@ DEFAULT_SCORES_SYSTEM = {
 }
 
 DEFAULT_OVERLAY = {
-    "schema_version": 3,
+    "schema_version": 4,
     "enabled": False,
     "host": "127.0.0.1",
     "port": 17845,
     "template": "compact",
     "poll_ms": 500,
     "widgets": [
-        {"id": "run_timer", "enabled": False, "mode": "compact", "order": 10},
-        {"id": "level", "enabled": False, "mode": "compact", "order": 20},
-        {"id": "kills", "enabled": False, "mode": "compact", "order": 30},
-        {"id": "current_stage", "enabled": False, "mode": "compact", "order": 35},
-        {"id": "stage_summary", "enabled": True, "mode": "compact", "order": 40, "max_rows": 4},
-        {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50},
-        {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 8, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"]},
-        {"id": "weapons", "enabled": True, "mode": "compact", "order": 60, "max_rows": 4},
-        {"id": "items", "enabled": False, "mode": "compact", "order": 70, "max_rows": 12},
+        {"id": "stage_summary", "enabled": True, "mode": "compact", "order": 40, "max_rows": 4, "background_opacity": 0.15, "show_border": True},
+        {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50, "background_opacity": 0.0, "show_border": False},
+        {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 8, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False},
+        {"id": "weapons", "enabled": True, "mode": "compact", "order": 60, "max_rows": 4, "background_opacity": 0.0, "show_border": False},
+        {"id": "items", "enabled": False, "mode": "compact", "order": 70, "max_rows": 12, "background_opacity": 0.0, "show_border": False},
+        {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 12, "background_opacity": 0.0, "show_border": False},
     ],
     "tracked_items": [
         {
@@ -78,6 +75,7 @@ DEFAULT_OVERLAY = {
         "scale": 1.0,
         "accent_color": "#F6C453",
         "background_opacity": 0.22,
+        "stage_background_opacity": 0.15,
     },
 }
 
