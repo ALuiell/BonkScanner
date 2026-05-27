@@ -622,4 +622,3 @@ Implementation notes:
 - Reasonable improvements beyond the exact checklist are welcome if they improve
   clarity, compactness, maintainability, or stream usability.
 - Keep the result lightweight and consistent with the existing app.
-
