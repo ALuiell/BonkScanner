@@ -1942,6 +1942,7 @@ class PlayerStatsMixin:
             layout.addLayout(rows)
         else:
             layout.addWidget(QLabel("No upgraded stats decoded"))
+        layout.addStretch(1)
         return card
 
     @staticmethod
