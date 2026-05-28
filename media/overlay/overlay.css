@@ -89,28 +89,28 @@ body {
 .panel-title {
   margin-bottom: 3px;
   color: var(--hud-white);
-  font-size: calc(12px * var(--scale));
+  font-size: calc(14.5px * var(--scale));
   font-weight: 900;
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
 
 .metric-value {
-  font-size: calc(18px * var(--scale));
+  font-size: calc(21px * var(--scale));
   font-weight: 900;
   line-height: 1.08;
 }
 
 .small-value {
   color: var(--hud-white);
-  font-size: calc(14px * var(--scale));
+  font-size: calc(16.5px * var(--scale));
   font-weight: 800;
 }
 
 .widget-note {
   margin-bottom: calc(4px * var(--scale));
   color: var(--muted);
-  font-size: calc(10px * var(--scale));
+  font-size: calc(11.5px * var(--scale));
   font-weight: 800;
   text-transform: uppercase;
 }
@@ -141,8 +141,8 @@ body {
 }
 
 .stage-summary-widget {
-  width: calc(390px * var(--scale));
-  padding: calc(10px * var(--scale)) calc(14px * var(--scale));
+  width: calc(410px * var(--scale));
+  padding: calc(12px * var(--scale)) calc(16px * var(--scale));
   border: calc(1px * var(--scale)) solid rgba(255, 210, 63, 0);
   border-radius: 0;
   background: rgba(0, 0, 0, 0.4);
@@ -161,7 +161,7 @@ body {
 .stage-summary-widget .panel-title {
   margin-bottom: calc(6px * var(--scale));
   color: var(--hud-yellow);
-  font-size: calc(13px * var(--scale));
+  font-size: calc(15.5px * var(--scale));
   font-weight: 900;
   text-shadow:
     -1.5px -1.5px 0 #000,
@@ -174,12 +174,12 @@ body {
 .stage-table {
   display: grid;
   grid-template-columns:
-    calc(42px * var(--scale))
-    calc(72px * var(--scale))
-    calc(82px * var(--scale))
-    minmax(calc(128px * var(--scale)), 1fr);
-  column-gap: calc(14px * var(--scale));
-  row-gap: calc(6px * var(--scale));
+    calc(48px * var(--scale))
+    calc(78px * var(--scale))
+    calc(88px * var(--scale))
+    minmax(calc(142px * var(--scale)), 1fr);
+  column-gap: calc(15px * var(--scale));
+  row-gap: calc(7px * var(--scale));
   align-items: center;
   width: 100%;
 }
@@ -194,7 +194,7 @@ body {
 
 .stage-header {
   color: var(--hud-yellow);
-  font-size: calc(11px * var(--scale));
+  font-size: calc(13px * var(--scale));
   font-weight: 900;
   line-height: 1;
   text-transform: uppercase;
@@ -203,7 +203,7 @@ body {
 .stage-cell {
   min-width: 0;
   color: var(--hud-white);
-  font-size: calc(14px * var(--scale));
+  font-size: calc(16.5px * var(--scale));
   font-weight: 800;
   line-height: 1.05;
   white-space: nowrap;
@@ -215,20 +215,20 @@ body {
 
 .stage-item-counts {
   display: grid;
-  grid-template-columns: repeat(4, minmax(calc(24px * var(--scale)), max-content));
+  grid-template-columns: repeat(4, minmax(calc(28px * var(--scale)), max-content));
   align-items: center;
   column-gap: calc(8px * var(--scale));
 }
 
 .stage-item-count {
   display: inline-block;
-  padding: calc(2px * var(--scale)) calc(7px * var(--scale));
-  border-radius: calc(12px * var(--scale));
+  padding: calc(3px * var(--scale)) calc(8px * var(--scale));
+  border-radius: calc(14px * var(--scale));
   font-family: var(--font-hud);
   font-weight: 700;
-  font-size: calc(12px * var(--scale));
+  font-size: calc(13.5px * var(--scale));
   text-align: center;
-  min-width: calc(28px * var(--scale));
+  min-width: calc(32px * var(--scale));
   background: rgba(25, 25, 25, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.01);
@@ -436,6 +436,106 @@ body {
 
 .item-widget .panel-title {
   color: var(--hud-yellow);
+}
+
+/* Smart CSS Fallback in case overlay.js template is cached */
+.item-widget .chip-strip {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--scale));
+  width: 100%;
+}
+
+.item-widget .counter-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 100%;
+  padding: calc(4px * var(--scale)) calc(10px * var(--scale));
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 2.5px solid var(--accent);
+  border-radius: calc(6px * var(--scale));
+  background: rgba(20, 25, 22, 0.45);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: all var(--transition-fast);
+}
+
+.item-widget .counter-chip:hover {
+  background: rgba(20, 25, 22, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
+  border-left-color: var(--accent);
+  transform: translateX(calc(1px * var(--scale)));
+}
+
+.item-widget .counter-chip strong {
+  color: var(--hud-cyan);
+  font-family: var(--font-hud);
+  font-size: calc(16.5px * var(--scale));
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 4px rgba(22, 231, 255, 0.4);
+}
+
+.banishes-widget .panel-title {
+  color: var(--hud-red);
+}
+
+.banishes-widget .panel-title::before {
+  background: var(--hud-red);
+  box-shadow: 0 0 8px var(--hud-red);
+}
+
+.tracked-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--scale));
+  width: 100%;
+}
+
+.tracked-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: calc(4px * var(--scale)) calc(10px * var(--scale));
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 2.5px solid var(--accent);
+  border-radius: calc(6px * var(--scale));
+  background: rgba(20, 25, 22, 0.45);
+  box-shadow: 
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 2px 8px rgba(0, 0, 0, 0.3);
+  color: var(--hud-white);
+  font-family: var(--font-body);
+  font-size: calc(14.5px * var(--scale));
+  font-weight: 800;
+  line-height: 1.2;
+  transition: all var(--transition-fast);
+}
+
+.tracked-item-row:hover {
+  background: rgba(20, 25, 22, 0.65);
+  border-color: rgba(255, 255, 255, 0.1);
+  border-left-color: var(--accent);
+  transform: translateX(calc(1px * var(--scale)));
+}
+
+.tracked-item-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracked-item-row strong {
+  color: var(--hud-cyan);
+  font-family: var(--font-hud);
+  font-size: calc(16.5px * var(--scale));
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 4px rgba(22, 231, 255, 0.4);
 }
 
 .stat-row span,
