@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
 from pathlib import Path
+import sys
 import threading
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -20,6 +21,11 @@ WIDGET_ROUTE_NAMES = {
     "items",
     "banishes",
 }
+
+
+def _default_overlay_asset_dir() -> Path:
+    bundle_root = Path(getattr(sys, "_MEIPASS", config.application_path))
+    return bundle_root / "media" / "overlay"
 
 
 class OverlayStateStore:
@@ -53,7 +59,7 @@ class LocalOverlayServer:
         self.host = "127.0.0.1" if host != "127.0.0.1" else host
         self.port = int(port)
         self.state_store = state_store or OverlayStateStore()
-        self.asset_dir = asset_dir or Path(config.application_path) / "media" / "overlay"
+        self.asset_dir = asset_dir or _default_overlay_asset_dir()
         self._server: _OverlayHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self.last_error: str | None = None

@@ -529,6 +529,7 @@ class PlayerStatsMixin:
             weapons=getattr(snapshot, "weapons", ()),
             tomes=getattr(snapshot, "tomes", ()),
             banishes=getattr(snapshot, "banishes", ()),
+            damage_sources=getattr(snapshot, "damage_sources", ()),
             status_text=(
                 f"Recorded snapshot {index}/{total} at {snapshot.time_label}"
                 f" | {self.format_in_game_time(snapshot.game_time_seconds)}"
