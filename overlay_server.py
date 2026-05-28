@@ -166,7 +166,15 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except ConnectionAbortedError:
+            pass
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 10053:
+                pass
+            else:
+                raise
 
     def _serve_file(self, path: Path, content_type: str | None = None) -> None:
         if not path.exists() or not path.is_file():
@@ -180,7 +188,15 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except ConnectionAbortedError:
+            pass
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 10053:
+                pass
+            else:
+                raise
 
     def _send_text(self, status: int, text: str) -> None:
         body = text.encode("utf-8")
@@ -189,4 +205,12 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except ConnectionAbortedError:
+            pass
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 10053:
+                pass
+            else:
+                raise

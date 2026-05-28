@@ -34,8 +34,6 @@ OVERLAY_WIDGET_LABELS = {
     "stage_summary": "Stage summary",
     "tracked_items": "Tracked items",
     "stats": "Stats",
-    "weapons": "Weapons",
-    "items": "Items",
     "banishes": "Banishes",
 }
 

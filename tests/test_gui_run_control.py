@@ -366,6 +366,12 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: True
         app.log_messages = []
         app.log = lambda message, tag=None: app.log_messages.append((message, tag))
+        app.live_run_tracker = SimpleNamespace(
+            update=lambda *args, **kwargs: None,
+            mark_read_failed=lambda *args, **kwargs: None,
+            stage_summary_rows=lambda: [],
+        )
+        app.overlay_state_store = None
         return app
 
     def setUp(self) -> None:
@@ -1850,6 +1856,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_shutting_down = False
         app.player_stats_vod_recorder.is_recording = False
         app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
         read_calls: list[str] = []
@@ -1909,7 +1916,12 @@ class GuiRunControlTests(unittest.TestCase):
             raise gui.MemoryReadError("items missing")
 
         app.read_passive_items_only = fail_items
-
+        app.live_run_tracker = SimpleNamespace(
+            update=lambda *args, **kwargs: None,
+            mark_read_failed=lambda *args, **kwargs: None,
+            stage_summary_rows=lambda: [],
+        )
+        app.overlay_state_store = None
         result = gui.MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
@@ -2110,7 +2122,12 @@ class GuiRunControlTests(unittest.TestCase):
             raise gui.MemoryReadError("items missing")
 
         app.read_passive_items_only = fail_items
-
+        app.live_run_tracker = SimpleNamespace(
+            update=lambda *args, **kwargs: None,
+            mark_read_failed=lambda *args, **kwargs: None,
+            stage_summary_rows=lambda: [],
+        )
+        app.overlay_state_store = None
         gui.MegabonkApp._stop_player_stats_recording(app)
 
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)

@@ -48,12 +48,11 @@ function applyStyle(state, requestedWidget) {
   const stageOpacity = clampNumber(style.stage_background_opacity, 0, 1, 0.15);
   const configuredScale = Math.max(0.6, Math.min(Number(style.scale ?? 1), 4));
   const singleWidget = Boolean(requestedWidget);
-  const baseWidth = requestedWidget === "stage_summary" ? 410 : 260;
-  const baseHeight = requestedWidget === "stage_summary" ? 210 : 160;
-  const autoScale = singleWidget
-    ? Math.max(1, Math.min(window.innerWidth / baseWidth, window.innerHeight / baseHeight, 4))
-    : 1;
-  const scale = singleWidget ? Math.max(configuredScale, autoScale) : Math.min(configuredScale, 2);
+
+  // We remove autoScale so widgets can truly reflow and add columns when the OBS width increases.
+  // The user can still control the overall text size via the "Scale" setting in the app.
+  const scale = configuredScale;
+
   document.documentElement.style.setProperty("--accent", accent);
   document.documentElement.style.setProperty("--panel-bg-opacity", Math.max(0, Math.min(opacity, 0.45)));
   document.documentElement.style.setProperty("--stage-bg-opacity", Math.max(0, Math.min(stageOpacity, 0.45)));
@@ -75,6 +74,10 @@ function renderWidget(widget, state) {
     case "tracked_items":
       return panel("Tracked Items", renderTrackedItems(state), "wide item-widget", widget);
     case "stats":
+      // For stats widget, if it's the only requested widget, we don't wrap it in a panel to remove the borders/background
+      if (requestedWidgetId() === "stats") {
+         return `<div class="stats-widget-container">${renderStats(state, widget)}</div>`;
+      }
       return panel("Stats", renderStats(state, widget), "wide stats-widget", widget);
     case "stage_summary":
       return panel("Stage Summary", renderStageSummary(state), "wide stage-summary-widget", widget);
@@ -102,7 +105,7 @@ function renderTrackedItems(state) {
 }
 
 function renderStats(state, widget) {
-  const maxRows = Number(widget.max_rows || 8);
+  const maxRows = Number(widget.max_rows || 40);
   const rows = (state.stats || []).slice(0, maxRows);
   if (!rows.length) {
     return `<div class="muted">--</div>`;
@@ -137,36 +140,35 @@ function renderStageSummary(state) {
 function renderStageItems(items) {
   const rows = Array.isArray(items) ? items : [];
   const rowsByRarity = new Map(rows.map((item) => [String(item.rarity || "").toUpperCase(), item]));
-  const raritySlots = [
-    ["LEGENDARY", "var(--hud-orange)"],
-    ["RARE", "var(--hud-purple)"],
-    ["UNCOMMON", "var(--hud-green)"],
-    ["COMMON", "var(--hud-cyan)"],
-  ];
-  return `<span class="stage-item-counts">${raritySlots.map(([rarity, fallbackColor]) => {
+  const raritySlots = ["LEGENDARY", "RARE", "UNCOMMON", "COMMON"];
+  return `<span class="stage-item-counts">${raritySlots.map((rarity) => {
     const item = rowsByRarity.get(rarity);
     const count = Number(item?.count || 0);
-    const color = escapeHtml(item?.color || fallbackColor);
     const label = escapeHtml(rarity);
     const value = count > 0 ? formatNumber(count) : "--";
-    return `<span class="stage-item-count ${count > 0 ? "active" : "empty"}" title="${label}" style="color:${color}">${value}</span>`;
+    const rarityClass = rarity.toLowerCase();
+    return `<span class="stage-item-count ${rarityClass} ${count > 0 ? "active" : "empty"}" title="${label}">${value}</span>`;
   }).join("")}</span>`;
 }
 
 function renderWeapons(state, widget) {
-  const maxRows = Number(widget.max_rows || 4);
+  const maxRows = Number(widget.max_rows || 12);
   const rows = (state.weapons || []).slice(0, maxRows);
   if (!rows.length) {
     return `<div class="muted">${state.weapons_available ? "No weapons yet" : "Weapons unavailable"}</div>`;
   }
-  return rows.map((weapon) => {
+  const weaponsHtml = rows.map((weapon) => {
     const stats = (weapon.stats || []).map((stat) => `${escapeHtml(stat.label)} ${escapeHtml(stat.value)}`).join(" · ");
-    return `<div class="weapon-row"><span>${escapeHtml(weapon.name)} <span class="muted">Lv. ${formatNumber(weapon.level)}</span></span><span>${stats || "--"}</span></div>`;
+    return `<div class="weapon-card">
+      <div class="weapon-header"><span>${escapeHtml(weapon.name)}</span><span class="muted">Lv. ${formatNumber(weapon.level)}</span></div>
+      <div class="weapon-stats">${stats || "--"}</div>
+    </div>`;
   }).join("");
+  return `<div class="weapons-grid">${weaponsHtml}</div>`;
 }
 
 function renderItems(state, widget) {
-  const maxRows = Number(widget.max_rows || 12);
+  const maxRows = Number(widget.max_rows || 40);
   const allRows = state.items || [];
   const rows = allRows.slice(0, maxRows);
   const remaining = Math.max(0, allRows.length - rows.length);
@@ -178,7 +180,7 @@ function renderItems(state, widget) {
 }
 
 function renderBanishes(state, widget) {
-  const maxRows = Number(widget.max_rows || 12);
+  const maxRows = Number(widget.max_rows || 40);
   const allRows = state.banishes || [];
   const rows = allRows.slice(0, maxRows);
   const remaining = Math.max(0, allRows.length - rows.length);

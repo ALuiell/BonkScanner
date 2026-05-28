@@ -120,12 +120,12 @@
     "COMPARE_RUN_SECTIONS": {
         "items": false,
         "stage_summary": false,
-        "weapons": false,
-        "tomes": false
+        "weapons": true,
+        "tomes": true
     },
     "AUTO_START_RECORDING": false,
     "OVERLAY": {
-        "schema_version": 2,
+        "schema_version": 4,
         "enabled": true,
         "host": "127.0.0.1",
         "port": 17845,
@@ -133,71 +133,127 @@
         "poll_ms": 500,
         "widgets": [
             {
-                "id": "run_timer",
-                "enabled": false,
-                "mode": "compact",
-                "order": 10
-            },
-            {
-                "id": "level",
-                "enabled": false,
-                "mode": "compact",
-                "order": 20
-            },
-            {
-                "id": "kills",
-                "enabled": false,
-                "mode": "compact",
-                "order": 30
-            },
-            {
-                "id": "current_stage",
-                "enabled": false,
-                "mode": "compact",
-                "order": 35
-            },
-            {
                 "id": "stage_summary",
                 "enabled": true,
                 "mode": "compact",
                 "order": 40,
-                "max_rows": 4
+                "max_rows": 4,
+                "background_opacity": 0.0,
+                "show_border": true
             },
             {
                 "id": "tracked_items",
                 "enabled": true,
                 "mode": "compact",
-                "order": 50
+                "order": 50,
+                "background_opacity": 0.0,
+                "show_border": true
             },
             {
-                "id": "weapons",
+                "id": "stats",
                 "enabled": true,
                 "mode": "compact",
-                "order": 60,
-                "max_rows": 4
+                "order": 55,
+                "max_rows": 40,
+                "selected_stats": [
+                    "Max HP",
+                    "HP Regen",
+                    "Overheal",
+                    "Shield",
+                    "Evasion",
+                    "Lifesteal",
+                    "Thorns",
+                    "Damage",
+                    "Crit Chance",
+                    "Crit Damage",
+                    "Attack Speed",
+                    "Projectile Count",
+                    "Projectile Bounces",
+                    "Size",
+                    "Projectile Speed",
+                    "Duration",
+                    "Damage to Elites",
+                    "Knockback",
+                    "Movement Speed",
+                    "Extra Jumps",
+                    "Jump Height",
+                    "Luck",
+                    "Difficulty",
+                    "Pickup Range",
+                    "XP Gain",
+                    "Gold Gain",
+                    "Elite Spawn Increase",
+                    "Powerup Multiplier",
+                    "Powerup Drop Chance"
+                ],
+                "background_opacity": 0.0,
+                "show_border": true
             },
             {
-                "id": "items",
+                "id": "banishes",
+                "enabled": true,
+                "mode": "compact",
+                "order": 80,
+                "max_rows": 40,
+                "background_opacity": 0.0,
+                "show_border": true
+            },
+            {
+                "id": "run_timer",
                 "enabled": false,
                 "mode": "compact",
-                "order": 70,
-                "max_rows": 12
+                "order": 10,
+                "background_opacity": 0.0,
+                "show_border": false
+            },
+            {
+                "id": "level",
+                "enabled": false,
+                "mode": "compact",
+                "order": 20,
+                "background_opacity": 0.0,
+                "show_border": false
+            },
+            {
+                "id": "kills",
+                "enabled": false,
+                "mode": "compact",
+                "order": 30,
+                "background_opacity": 0.0,
+                "show_border": false
+            },
+            {
+                "id": "current_stage",
+                "enabled": false,
+                "mode": "compact",
+                "order": 35,
+                "background_opacity": 0.0,
+                "show_border": false
             }
         ],
         "tracked_items": [
             {
-                "id": "anvils_map_1",
-                "label": "Anvils Map 1",
+                "id": "anvil_map_1_only",
                 "item_names": [
                     "Anvil"
                 ],
+                "label": "Anvil Map 1",
+                "mode": "map_1_only"
+            },
+            {
+                "id": "soulharvester_map_1_only",
+                "item_names": [
+                    "Soul Harvester"
+                ],
+                "label": "Soul Harvester Map 1",
                 "mode": "map_1_only"
             }
         ],
         "style": {
             "scale": 1.0,
             "accent_color": "#F6C453",
-            "background_opacity": 0.35
+            "background_opacity": 0.35,
+            "stage_background_opacity": 0.15
         }
     }
 }

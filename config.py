@@ -58,10 +58,8 @@ DEFAULT_OVERLAY = {
     "widgets": [
         {"id": "stage_summary", "enabled": True, "mode": "compact", "order": 40, "max_rows": 4, "background_opacity": 0.15, "show_border": True},
         {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50, "background_opacity": 0.0, "show_border": False},
-        {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 8, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False},
-        {"id": "weapons", "enabled": True, "mode": "compact", "order": 60, "max_rows": 4, "background_opacity": 0.0, "show_border": False},
-        {"id": "items", "enabled": False, "mode": "compact", "order": 70, "max_rows": 12, "background_opacity": 0.0, "show_border": False},
-        {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 12, "background_opacity": 0.0, "show_border": False},
+        {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False},
+        {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False},
     ],
     "tracked_items": [
         {
@@ -244,6 +242,24 @@ def normalize_overlay_config(value):
     saved_schema_version = coerce_nonnegative_int((value or {}).get("schema_version"), 1) if isinstance(value, dict) else 0
     if saved_schema_version < DEFAULT_OVERLAY["schema_version"]:
         overlay["style"] = _merge_dict_defaults(overlay.get("style"), DEFAULT_OVERLAY["style"])
+    
+    # We forcefully reset max_rows to 40 for stats and banishes in case they were saved as 8/12 in the past
+    # so that the grid can expand properly without backend limitation.
+    if isinstance(overlay.get("widgets"), list):
+        for widget in overlay["widgets"]:
+            if not isinstance(widget, dict):
+                continue
+            if widget.get("id") in {"stats", "banishes"}:
+                if coerce_nonnegative_int(widget.get("max_rows"), 0) < 40:
+                    widget["max_rows"] = 40
+
+    # Remove deleted widgets from the normalized list
+    kept_widgets = []
+    for widget in overlay.get("widgets", []):
+        if isinstance(widget, dict) and widget.get("id") not in {"items", "weapons"}:
+            kept_widgets.append(widget)
+    overlay["widgets"] = kept_widgets
+
     overlay["schema_version"] = DEFAULT_OVERLAY["schema_version"]
     overlay["enabled"] = bool(overlay.get("enabled", False))
     overlay["host"] = "127.0.0.1"
@@ -253,7 +269,6 @@ def normalize_overlay_config(value):
     if port < 1024 or port > 65535:
         port = DEFAULT_OVERLAY["port"]
     overlay["port"] = port
-    overlay["widgets"] = _normalize_overlay_widgets(overlay.get("widgets"))
     if not isinstance(overlay.get("tracked_items"), list):
         overlay["tracked_items"] = list(DEFAULT_OVERLAY["tracked_items"])
     if not isinstance(overlay.get("style"), dict):

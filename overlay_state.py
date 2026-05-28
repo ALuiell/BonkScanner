@@ -63,12 +63,8 @@ def build_overlay_state(tracker: LiveRunTracker, overlay_config: dict[str, Any] 
     data["template"] = str(overlay_config.get("template") or "compact")
     data["poll_ms"] = _coerce_poll_ms(overlay_config.get("poll_ms"))
     data["style"] = dict(overlay_config.get("style") or {})
-    data["items"] = _snapshot_items(snapshot, overlay_config)
     data["stats"] = _snapshot_stats(snapshot, widgets)
-    data["weapons"] = _snapshot_weapons(snapshot)
     data["banishes"] = _snapshot_banishes(snapshot, widgets)
-    data["items_available"] = bool(getattr(snapshot, "items_available", False))
-    data["weapons_available"] = bool(getattr(snapshot, "weapons_available", False))
     return data
 
 
@@ -85,7 +81,7 @@ def _widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
             "enabled": bool(raw_widget.get("enabled", True)),
             "mode": str(raw_widget.get("mode") or "compact"),
             "order": _coerce_int(raw_widget.get("order"), default=(index + 1) * 10),
-            "max_rows": _coerce_int(raw_widget.get("max_rows"), default=4),
+            "max_rows": _coerce_int(raw_widget.get("max_rows"), default=40),
             "selected_stats": _selected_stat_labels(raw_widget.get("selected_stats")),
             "background_opacity": _coerce_bounded_float(raw_widget.get("background_opacity"), default=0.0),
             "show_border": bool(raw_widget.get("show_border", False)),
@@ -127,16 +123,6 @@ def _overlay_item_rarity_counts(item_rarities: dict[str, Any]) -> list[dict[str,
     return counts
 
 
-def _snapshot_items(snapshot: Any, overlay_config: dict[str, Any]) -> list[str]:
-    if snapshot is None:
-        return []
-    max_items = 12
-    for raw_widget in overlay_config.get("widgets") or ():
-        if isinstance(raw_widget, dict) and raw_widget.get("id") == "items":
-            max_items = _coerce_int(raw_widget.get("max_rows"), default=max_items)
-    return [str(item) for item in tuple(getattr(snapshot, "items", ()) or ())[:max_items]]
-
-
 def _snapshot_stats(snapshot: Any, widgets: dict[str, Any]) -> list[dict[str, str]]:
     if snapshot is None:
         return []
@@ -145,7 +131,7 @@ def _snapshot_stats(snapshot: Any, widgets: dict[str, Any]) -> list[dict[str, st
         return []
     widget = widgets.get("stats") or {}
     selected_labels = _selected_stat_labels(widget.get("selected_stats"))
-    max_rows = _coerce_int(widget.get("max_rows"), default=8)
+    max_rows = _coerce_int(widget.get("max_rows"), default=40)
     rows: list[dict[str, str]] = []
     for label in selected_labels:
         stat = stats.get(label)
@@ -160,37 +146,11 @@ def _snapshot_stats(snapshot: Any, widgets: dict[str, Any]) -> list[dict[str, st
     return rows
 
 
-def _snapshot_weapons(snapshot: Any) -> list[dict[str, Any]]:
-    if snapshot is None:
-        return []
-    weapons = []
-    for weapon in tuple(getattr(snapshot, "weapons", ()) or ()):
-        upgraded_stats = []
-        for stat_id in getattr(weapon, "upgrade_stat_ids", ()) or ():
-            stat = getattr(weapon, "upgraded_stats", {}).get(stat_id)
-            if stat is None:
-                continue
-            upgraded_stats.append(
-                {
-                    "label": str(getattr(stat, "label", "")),
-                    "value": str(getattr(stat, "display_value", "--")),
-                }
-            )
-        weapons.append(
-            {
-                "name": str(getattr(weapon, "name", "Unknown Weapon")),
-                "level": _coerce_int(getattr(weapon, "level", 0)),
-                "stats": upgraded_stats[:3],
-            }
-        )
-    return weapons
-
-
 def _snapshot_banishes(snapshot: Any, widgets: dict[str, Any]) -> list[str]:
     if snapshot is None:
         return []
     widget = widgets.get("banishes") or {}
-    max_rows = _coerce_int(widget.get("max_rows"), default=12)
+    max_rows = _coerce_int(widget.get("max_rows"), default=40)
     return [str(item) for item in tuple(getattr(snapshot, "banishes", ()) or ())[:max_rows]]
 
 
