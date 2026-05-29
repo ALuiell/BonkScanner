@@ -97,6 +97,16 @@ class ScannerMixin:
 
     def toggle_main_loop(self):
         if self.scanner_thread is None or not self.scanner_thread.is_alive():
+            if not config.user_config.get("SKIP_REROLL_WARNING", False):
+                from gui_dialogs import RerollWarningDialog
+                dialog = RerollWarningDialog(self.window)
+                dialog.exec()
+                if not dialog.result:
+                    return
+                if dialog.dont_show_again:
+                    config.user_config["SKIP_REROLL_WARNING"] = True
+                    config.save_config(config.user_config)
+
             self.log(f"\n[*] Starting auto-reroll monitor in {config.EVALUATION_MODE.upper()} mode...")
 
             if config.EVALUATION_MODE == "templates":

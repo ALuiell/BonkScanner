@@ -798,9 +798,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.is_running = True
         app.is_ready_to_start = True
 
-        with patch.object(gui.config, "EVALUATION_MODE", "templates"):
-            with patch.object(gui.threading, "Thread", FakeThread):
-                gui.MegabonkApp.toggle_main_loop(app)
+        with patch.dict(gui.config.user_config, {"SKIP_REROLL_WARNING": True}):
+            with patch.object(gui.config, "EVALUATION_MODE", "templates"):
+                with patch.object(gui.threading, "Thread", FakeThread):
+                    gui.MegabonkApp.toggle_main_loop(app)
 
         self.assertFalse(app.scan_event.is_set())
         self.assertFalse(app.stop_event.is_set())

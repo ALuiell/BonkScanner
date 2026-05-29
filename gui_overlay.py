@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 import config
 from gui_shared import _make_scroll_section, _set_text, _set_text_input
-from gui_styles import ITEM_RARITY_BY_NAME
+from gui_styles import ITEM_RARITY_BY_NAME, PLAYER_STATS_REFRESH_MS
 from live_run_tracker import LiveRunTracker, TrackedItemRule
 from overlay_server import LocalOverlayServer, OverlayStateStore
 from overlay_state import build_overlay_state
@@ -41,8 +41,10 @@ OVERLAY_WIDGET_LABELS = {
 class OverlayMixin:
     def initialize_overlay_runtime(self) -> None:
         self.overlay_state_store = OverlayStateStore()
+        stale_seconds = max(25.0, (float(PLAYER_STATS_REFRESH_MS) / 1000.0) * 2.5)
         self.live_run_tracker = LiveRunTracker(
             tracked_item_rules=self._tracked_item_rules_from_config(config.OVERLAY),
+            stale_after_seconds=stale_seconds,
         )
         self.overlay_server = LocalOverlayServer(
             host=config.OVERLAY.get("host", "127.0.0.1"),
@@ -61,6 +63,18 @@ class OverlayMixin:
 
         status_group = QGroupBox("OBS Browser Source")
         status_layout = QVBoxLayout(status_group)
+
+        intro_label = QLabel(
+            "<span style='font-size:10.5pt; font-weight:bold; color:#ffd23f;'>💡 Visual Layout Editor Mode is active!</span><br>"
+            "<span style='font-size:9.5pt; color:#ffffff;'>"
+            "Open your overlay URL in any browser with <b>?edit=true</b> to drag & drop widgets and change HUD resolution! "
+            "Set Width & Height in OBS Browser Source properties to match your custom canvas resolution (default: 1920x1080)."
+            "</span>"
+        )
+        intro_label.setTextFormat(Qt.RichText)
+        intro_label.setWordWrap(True)
+        status_layout.addWidget(intro_label)
+
         self.overlay_status_label = QLabel()
         self.overlay_status_label.setTextFormat(Qt.RichText)
         self.overlay_url_entry = QLineEdit()
@@ -69,6 +83,7 @@ class OverlayMixin:
         self.overlay_widget_url_combo = QComboBox()
         for widget_id, label in OVERLAY_WIDGET_LABELS.items():
             self.overlay_widget_url_combo.addItem(label, widget_id)
+        self.overlay_widget_url_combo.addItem("Layout Editor Mode", "editor")
         self.overlay_widget_url_combo.currentIndexChanged.connect(lambda _index: self.refresh_overlay_ui())
         self.overlay_widget_url_entry = QLineEdit()
         self.overlay_widget_url_entry.setReadOnly(True)
@@ -119,15 +134,14 @@ class OverlayMixin:
         widgets_layout.addLayout(widgets_grid)
         layout.addWidget(widgets_group)
 
-        tracked_group = QGroupBox("Tracked Items")
-        tracked_layout = QVBoxLayout(tracked_group)
-        self.overlay_tracked_items_label = QLabel("Track selected item gains in the overlay.")
-        self.overlay_tracked_items_label.setWordWrap(True)
-        tracked_layout.addWidget(self.overlay_tracked_items_label)
-        layout.addWidget(tracked_group)
+        self.overlay_tracked_items_label = None
 
         help_row = QHBoxLayout()
-        help_label = QLabel("Add the local URL as an OBS Browser Source. Recording is not required.")
+        help_label = QLabel(
+            "Add the local URL as an OBS Browser Source. Recording is not required.<br>"
+            "<b>Tip: Open the overlay URL in your browser with '?edit=true' to visually position widgets and customize canvas resolution!</b>"
+        )
+        help_label.setTextFormat(Qt.RichText)
         help_label.setWordWrap(True)
         help_btn = QPushButton("Open Help")
         help_btn.clicked.connect(self.open_help_dialog)
@@ -156,10 +170,33 @@ class OverlayMixin:
 
         settings_toggles: list[QPushButton] = []
 
+        stage_summary_card, stage_summary_content, stage_summary_toggle = self._build_overlay_settings_card("Stage Summary", expanded=False)
+        settings_toggles.append(stage_summary_toggle)
+        stage_summary_layout = QVBoxLayout(stage_summary_content)
+        stage_summary_layout.addWidget(QLabel("Configure the Stage Summary overlay widget."))
+        stage_summary_widget_cfg = self._overlay_widget_config_by_id().get("stage_summary", {})
+        self.overlay_stage_summary_bg_checkbox = QCheckBox("Show background")
+        self.overlay_stage_summary_bg_checkbox.setChecked(float(stage_summary_widget_cfg.get("background_opacity", 0)) > 0)
+        self.overlay_stage_summary_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        stage_summary_layout.addWidget(self.overlay_stage_summary_bg_checkbox)
+        settings_content_layout.addWidget(stage_summary_card)
+
         stats_card, stats_content, stats_toggle = self._build_overlay_settings_card("Stats", expanded=False)
         settings_toggles.append(stats_toggle)
         stats_layout = QVBoxLayout(stats_content)
         stats_layout.addWidget(QLabel("Selected stats appear in the Stats overlay widget."))
+        stats_widget_cfg = self._overlay_widget_config_by_id().get("stats", {})
+        self.overlay_stats_bg_checkbox = QCheckBox("Show background")
+        self.overlay_stats_bg_checkbox.setChecked(float(stats_widget_cfg.get("background_opacity", 0)) > 0)
+        self.overlay_stats_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        stats_layout.addWidget(self.overlay_stats_bg_checkbox)
+
+        self.overlay_stats_header_checkbox = QCheckBox("Show header")
+        self.overlay_stats_header_checkbox.setChecked(bool(stats_widget_cfg.get("show_header", True)))
+        self.overlay_stats_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        stats_layout.addWidget(self.overlay_stats_header_checkbox)
+
+        stats_layout.addSpacing(12)
         stats_config_layout = QGridLayout()
         self.overlay_stats_checkboxes = {}
         selected_stats = set(self._overlay_selected_stat_labels())
@@ -170,6 +207,15 @@ class OverlayMixin:
             self.overlay_stats_checkboxes[label] = checkbox
             stats_config_layout.addWidget(checkbox, index // 4, index % 4)
         stats_layout.addLayout(stats_config_layout)
+        stats_layout.addSpacing(12)
+
+        reset_btn_layout = QHBoxLayout()
+        self.overlay_stats_reset_btn = QPushButton("Reset to Default Stats")
+        self.overlay_stats_reset_btn.clicked.connect(self._reset_overlay_stats_to_default)
+        reset_btn_layout.addWidget(self.overlay_stats_reset_btn)
+        reset_btn_layout.addStretch(1)
+        stats_layout.addLayout(reset_btn_layout)
+
         settings_content_layout.addWidget(stats_card)
 
         items_card, items_content, items_toggle = self._build_overlay_settings_card("Items", expanded=False)
@@ -204,6 +250,23 @@ class OverlayMixin:
         remove_row.addStretch(1)
         items_layout.addLayout(remove_row)
         settings_content_layout.addWidget(items_card)
+
+        banishes_card, banishes_content, banishes_toggle = self._build_overlay_settings_card("Banishes", expanded=False)
+        settings_toggles.append(banishes_toggle)
+        banishes_layout = QVBoxLayout(banishes_content)
+        banishes_layout.addWidget(QLabel("Configure the Banishes overlay widget."))
+        banishes_widget_cfg = self._overlay_widget_config_by_id().get("banishes", {})
+        self.overlay_banishes_bg_checkbox = QCheckBox("Show background")
+        self.overlay_banishes_bg_checkbox.setChecked(float(banishes_widget_cfg.get("background_opacity", 0)) > 0)
+        self.overlay_banishes_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        banishes_layout.addWidget(self.overlay_banishes_bg_checkbox)
+
+        self.overlay_banishes_header_checkbox = QCheckBox("Show header")
+        self.overlay_banishes_header_checkbox.setChecked(bool(banishes_widget_cfg.get("show_header", True)))
+        self.overlay_banishes_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        banishes_layout.addWidget(self.overlay_banishes_header_checkbox)
+        settings_content_layout.addWidget(banishes_card)
+
         self._bind_exclusive_overlay_settings_cards(settings_toggles)
 
         settings_content_layout.addStretch(1)
@@ -268,8 +331,24 @@ class OverlayMixin:
                 continue
             toggle.setChecked(False)
 
+    def _reset_overlay_stats_to_default(self) -> None:
+        if not getattr(self, "overlay_stats_checkboxes", None):
+            return
+        default_stats = set(self._overlay_default_stat_labels())
+        for label, checkbox in self.overlay_stats_checkboxes.items():
+            checkbox.blockSignals(True)
+            checkbox.setChecked(label in default_stats)
+            checkbox.blockSignals(False)
+        self.save_overlay_settings_from_ui()
+
     def _clear_overlay_widget_settings_dialog_refs(self) -> None:
         self.overlay_stats_checkboxes = None
+        self.overlay_stats_bg_checkbox = None
+        self.overlay_stats_header_checkbox = None
+        self.overlay_stats_reset_btn = None
+        self.overlay_stage_summary_bg_checkbox = None
+        self.overlay_banishes_bg_checkbox = None
+        self.overlay_banishes_header_checkbox = None
         self.overlay_item_search_entry = None
         self.overlay_item_selector = None
         self.overlay_map_one_only_checkbox = None
@@ -310,49 +389,63 @@ class OverlayMixin:
         self.refresh_overlay_ui()
 
     def save_overlay_settings_from_ui(self, *, persist: bool = True) -> None:
-        overlay = config.normalize_overlay_config(config.OVERLAY)
-        port_text = self.overlay_port_entry.text().strip() if self.overlay_port_entry is not None else ""
-        try:
-            port = int(port_text)
-        except ValueError:
-            port = int(overlay.get("port", 17845))
-        overlay["port"] = port
-        overlay = config.normalize_overlay_config(overlay)
-        if self.overlay_port_entry is not None:
-            _set_text_input(self.overlay_port_entry, str(overlay["port"]))
+        with config.config_lock:
+            overlay = config.normalize_overlay_config(config.OVERLAY)
+            port_text = self.overlay_port_entry.text().strip() if self.overlay_port_entry is not None else ""
+            try:
+                port = int(port_text)
+            except ValueError:
+                port = int(overlay.get("port", 17845))
+            overlay["port"] = port
+            overlay = config.normalize_overlay_config(overlay)
+            if self.overlay_port_entry is not None:
+                _set_text_input(self.overlay_port_entry, str(overlay["port"]))
 
-        widget_config = self._overlay_widget_config_by_id()
-        widgets = []
-        for widget in overlay.get("widgets", []):
-            if not isinstance(widget, dict):
-                continue
-            widget_id = str(widget.get("id") or "")
-            if widget_id in self.overlay_widget_checkboxes:
-                widget = dict(widget)
-                widget["enabled"] = bool(self.overlay_widget_checkboxes[widget_id].isChecked())
-            if widget_id == "stats" and getattr(self, "overlay_stats_checkboxes", None):
-                widget = dict(widget)
-                selected_stats = [
-                    label
-                    for label, checkbox in self.overlay_stats_checkboxes.items()
-                    if checkbox.isChecked()
-                ]
-                widget["selected_stats"] = selected_stats or list(self._overlay_default_stat_labels())
-            widgets.append(widget)
-        overlay["widgets"] = widgets
-        if getattr(self, "overlay_tracked_rules_list", None) is not None:
-            overlay["tracked_items"] = self._tracked_item_config_from_ui()
-        config.OVERLAY = overlay
-        config.user_config["OVERLAY"] = config.OVERLAY
-        self.live_run_tracker.set_tracked_item_rules(self._tracked_item_rules_from_config(config.OVERLAY))
-        self.update_overlay_state_from_tracker()
-        if persist:
-            config.save_config(config.user_config)
-        if self.overlay_server.is_running and self.overlay_server.port != int(config.OVERLAY["port"]):
-            self.overlay_server.stop()
-            if bool(config.OVERLAY.get("enabled", False)):
-                self.start_overlay_server()
-        self.refresh_overlay_ui()
+            widget_config = self._overlay_widget_config_by_id()
+            widgets = []
+            for widget in overlay.get("widgets", []):
+                if not isinstance(widget, dict):
+                    continue
+                widget_id = str(widget.get("id") or "")
+                if widget_id in self.overlay_widget_checkboxes:
+                    widget = dict(widget)
+                    widget["enabled"] = bool(self.overlay_widget_checkboxes[widget_id].isChecked())
+                if widget_id == "stats" and getattr(self, "overlay_stats_checkboxes", None):
+                    widget = dict(widget)
+                    selected_stats = [
+                        label
+                        for label, checkbox in self.overlay_stats_checkboxes.items()
+                        if checkbox.isChecked()
+                    ]
+                    widget["selected_stats"] = selected_stats or list(self._overlay_default_stat_labels())
+                    if getattr(self, "overlay_stats_bg_checkbox", None) is not None:
+                        widget["background_opacity"] = 0.4 if self.overlay_stats_bg_checkbox.isChecked() else 0.0
+                    if getattr(self, "overlay_stats_header_checkbox", None) is not None:
+                        widget["show_header"] = bool(self.overlay_stats_header_checkbox.isChecked())
+                if widget_id == "stage_summary" and getattr(self, "overlay_stage_summary_bg_checkbox", None) is not None:
+                    widget = dict(widget)
+                    widget["background_opacity"] = 0.4 if self.overlay_stage_summary_bg_checkbox.isChecked() else 0.0
+                if widget_id == "banishes":
+                    widget = dict(widget)
+                    if getattr(self, "overlay_banishes_bg_checkbox", None) is not None:
+                        widget["background_opacity"] = 0.4 if self.overlay_banishes_bg_checkbox.isChecked() else 0.0
+                    if getattr(self, "overlay_banishes_header_checkbox", None) is not None:
+                        widget["show_header"] = bool(self.overlay_banishes_header_checkbox.isChecked())
+                widgets.append(widget)
+            overlay["widgets"] = widgets
+            if getattr(self, "overlay_tracked_rules_list", None) is not None:
+                overlay["tracked_items"] = self._tracked_item_config_from_ui()
+            config.OVERLAY = overlay
+            config.user_config["OVERLAY"] = config.OVERLAY
+            self.live_run_tracker.set_tracked_item_rules(self._tracked_item_rules_from_config(config.OVERLAY))
+            self.update_overlay_state_from_tracker()
+            if persist:
+                config.save_config(config.user_config)
+            if self.overlay_server.is_running and self.overlay_server.port != int(config.OVERLAY["port"]):
+                self.overlay_server.stop()
+                if bool(config.OVERLAY.get("enabled", False)):
+                    self.start_overlay_server()
+            self.refresh_overlay_ui()
 
     def refresh_overlay_ui(self) -> None:
         server = getattr(self, "overlay_server", None)
@@ -435,7 +528,6 @@ class OverlayMixin:
             existing_rules.append(rule)
         config.OVERLAY["tracked_items"] = existing_rules
         config.user_config["OVERLAY"] = config.OVERLAY
-        config.save_config(config.user_config)
         self.refresh_overlay_tracked_items_ui()
         self.save_overlay_settings_from_ui()
 
@@ -446,7 +538,6 @@ class OverlayMixin:
         rules_list.takeItem(rules_list.currentRow())
         config.OVERLAY["tracked_items"] = self._tracked_item_config_from_ui()
         config.user_config["OVERLAY"] = config.OVERLAY
-        config.save_config(config.user_config)
         self.save_overlay_settings_from_ui()
 
     def _selected_overlay_item_name(self) -> str:
@@ -513,6 +604,8 @@ class OverlayMixin:
         widget_id = "stats"
         if getattr(self, "overlay_widget_url_combo", None) is not None:
             widget_id = str(self.overlay_widget_url_combo.currentData() or widget_id)
+        if widget_id == "editor":
+            return f"{self._overlay_url_text()}?edit=true"
         return f"{self._overlay_url_text()}/{widget_id}"
 
     @staticmethod

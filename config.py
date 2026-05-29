@@ -2,8 +2,10 @@ import os
 import sys
 import json
 import colorama
+import threading
 
 colorama.init(autoreset=True)
+config_lock = threading.RLock()
 
 # ==========================================
 # CONSTANTS & SETTINGS
@@ -55,11 +57,13 @@ DEFAULT_OVERLAY = {
     "port": 17845,
     "template": "compact",
     "poll_ms": 500,
+    "canvas_width": 1920,
+    "canvas_height": 1080,
     "widgets": [
-        {"id": "stage_summary", "enabled": True, "mode": "compact", "order": 40, "max_rows": 4, "background_opacity": 0.15, "show_border": True},
+        {"id": "stage_summary", "enabled": True, "mode": "compact", "order": 40, "max_rows": 4, "background_opacity": 0.4, "show_border": True},
         {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50, "background_opacity": 0.0, "show_border": False},
-        {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False},
-        {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False},
+        {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False, "show_header": True},
+        {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False, "show_header": True},
     ],
     "tracked_items": [
         {
@@ -200,15 +204,17 @@ def update_game_reset_time(game_val: float):
 config_path = os.path.join(application_path, "config.json")
 
 def load_config():
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    with config_lock:
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
 def save_config(cfg_dict):
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(cfg_dict, f, indent=4)
+    with config_lock:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(cfg_dict, f, indent=4)
 
 user_config = load_config()
 
@@ -243,20 +249,23 @@ def normalize_overlay_config(value):
     if saved_schema_version < DEFAULT_OVERLAY["schema_version"]:
         overlay["style"] = _merge_dict_defaults(overlay.get("style"), DEFAULT_OVERLAY["style"])
     
+    overlay["widgets"] = _normalize_overlay_widgets(overlay.get("widgets"))
+
     # We forcefully reset max_rows to 40 for stats and banishes in case they were saved as 8/12 in the past
     # so that the grid can expand properly without backend limitation.
-    if isinstance(overlay.get("widgets"), list):
-        for widget in overlay["widgets"]:
-            if not isinstance(widget, dict):
-                continue
-            if widget.get("id") in {"stats", "banishes"}:
-                if coerce_nonnegative_int(widget.get("max_rows"), 0) < 40:
-                    widget["max_rows"] = 40
+    for widget in overlay["widgets"]:
+        if widget.get("id") in {"stats", "banishes"}:
+            if coerce_nonnegative_int(widget.get("max_rows"), 0) < 40:
+                widget["max_rows"] = 40
 
     # Remove deleted widgets from the normalized list
     kept_widgets = []
-    for widget in overlay.get("widgets", []):
-        if isinstance(widget, dict) and widget.get("id") not in {"items", "weapons"}:
+    for widget in overlay["widgets"]:
+        if widget.get("id") not in {"items", "weapons"}:
+            # Migrate stage_summary background_opacity: CSS previously hardcoded 0.4,
+            # so configs saved with the old default 0.15 never actually displayed at 0.15.
+            if widget.get("id") == "stage_summary" and widget.get("background_opacity") == 0.15:
+                widget["background_opacity"] = 0.4
             kept_widgets.append(widget)
     overlay["widgets"] = kept_widgets
 
@@ -265,6 +274,8 @@ def normalize_overlay_config(value):
     overlay["host"] = "127.0.0.1"
     overlay["template"] = str(overlay.get("template") or "compact")
     overlay["poll_ms"] = max(250, min(coerce_nonnegative_int(overlay.get("poll_ms"), 500) or 500, 5000))
+    overlay["canvas_width"] = coerce_nonnegative_int(overlay.get("canvas_width"), 1920) or 1920
+    overlay["canvas_height"] = coerce_nonnegative_int(overlay.get("canvas_height"), 1080) or 1080
     port = coerce_nonnegative_int(overlay.get("port"), DEFAULT_OVERLAY["port"])
     if port < 1024 or port > 65535:
         port = DEFAULT_OVERLAY["port"]

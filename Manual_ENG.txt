@@ -140,6 +140,14 @@ Source. The URL includes a port, for example `17845`. A port is the local number
 OBS uses to connect to BonkScanner's overlay server. If the port is already used
 by another program, change it in the tab and update the OBS URL.
 
+Visual Layout Editor:
+You can open the overlay link in any browser with `?edit=true` (for example,
+`http://127.0.0.1:17845/overlay?edit=true`). This opens the visual editor where
+you can drag widgets around and configure your custom canvas size (HUD resolution).
+All changes are saved instantly and automatically! When absolute positioning
+is active, the overlay resizes to your chosen resolution (default: 1920x1080).
+Make sure to set the identical Width and Height settings in OBS Browser Source.
+
 Recording is not required for the overlay. It uses live stats reads. You can
 choose visible widgets and configure tracked items by searching for an item,
 choosing whether it should count on `Map 1 only`, and adding it to the list.

@@ -564,6 +564,85 @@ class NativeHookWarningDialog(QDialog):
         self.reject()
 
 
+class RerollWarningDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.result = False
+        self.dont_show_again = False
+        self.setWindowTitle("Auto-Reroll Confirmation")
+        self.setModal(True)
+        self.resize(540, 310)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 20, 18, 18)
+        layout.setSpacing(16)
+
+        card = QFrame()
+        card.setObjectName("WarningCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 16, 18, 14)
+        card_layout.setSpacing(8)
+
+        title = QLabel("Confirm Auto-Reroll Start")
+        title.setObjectName("WarningTitle")
+        card_layout.addWidget(title)
+
+        summary = QLabel(
+            "This button is only required for the Auto-Reroll map mode. Pressing OK will launch the automatic loop to monitor your runs and execute restarts until a matching target map is found.<br><br>"
+            "For more details, please open the Help (?)."
+        )
+        summary.setWordWrap(True)
+        summary.setStyleSheet("background: transparent; font-size: 15px;")
+        card_layout.addWidget(summary)
+        layout.addWidget(card)
+
+        switch_note = QLabel(
+            "Note: All other background features (Live Stats, VOD recordings, and the OBS Overlay) "
+            "work fully automatically and do NOT require starting this loop."
+        )
+        switch_note.setWordWrap(True)
+        switch_note.setStyleSheet("font-size: 14px; color: #9CA3AF;")
+        layout.addWidget(switch_note)
+        layout.addStretch(1)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(12)
+
+        self.checkbox = QCheckBox("Don't show this again")
+        self.checkbox.setStyleSheet("color: #F3F4F6; font-size: 14px;")
+        bottom_row.addWidget(self.checkbox)
+
+        bottom_row.addStretch(1)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("DangerButton")
+        cancel_btn.setProperty("class", "WideDialogButton")
+        cancel_btn.setMinimumHeight(32)
+        cancel_btn.setMinimumWidth(100)
+        cancel_btn.clicked.connect(self.cancel)
+
+        confirm_btn = QPushButton("OK")
+        confirm_btn.setObjectName("SuccessButton")
+        confirm_btn.setProperty("class", "WideDialogButton")
+        confirm_btn.setMinimumHeight(32)
+        confirm_btn.setMinimumWidth(100)
+        confirm_btn.clicked.connect(self.confirm)
+
+        bottom_row.addWidget(cancel_btn)
+        bottom_row.addWidget(confirm_btn)
+        layout.addLayout(bottom_row)
+
+    def confirm(self):
+        self.result = True
+        self.dont_show_again = self.checkbox.isChecked()
+        self.accept()
+
+    def cancel(self):
+        self.result = False
+        self.dont_show_again = False
+        self.reject()
+
+
 class HelpDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)

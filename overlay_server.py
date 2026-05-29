@@ -17,8 +17,6 @@ WIDGET_ROUTE_NAMES = {
     "stage_summary",
     "tracked_items",
     "stats",
-    "weapons",
-    "items",
     "banishes",
 }
 
@@ -152,12 +150,104 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
             return
         self._send_text(404, "Not found")
 
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/save-widget-positions":
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+                widget_id = data.get("id")
+                
+                # Update config with lock to prevent race conditions
+                with config.config_lock:
+                    overlay = dict(config.OVERLAY)
+                    widgets = []
+                    for widget in overlay.get("widgets", []):
+                        if isinstance(widget, dict):
+                            w = dict(widget)
+                            if w.get("id") == widget_id:
+                                if "x" in data and "y" in data:
+                                    x_val = data["x"]
+                                    y_val = data["y"]
+                                    if x_val is None or y_val is None:
+                                        w.pop("x", None)
+                                        w.pop("y", None)
+                                    else:
+                                        w["x"] = int(x_val)
+                                        w["y"] = int(y_val)
+                                if "width" in data and "height" in data:
+                                    w_val = data["width"]
+                                    h_val = data["height"]
+                                    if w_val is None or h_val is None:
+                                        w.pop("width", None)
+                                        w.pop("height", None)
+                                    else:
+                                        w["width"] = int(w_val)
+                                        w["height"] = int(h_val)
+                                if "scale" in data:
+                                    scale_val = data["scale"]
+                                    if scale_val is None:
+                                        w.pop("scale", None)
+                                    else:
+                                        w["scale"] = max(0.4, min(float(scale_val), 4.0))
+                            widgets.append(w)
+                    overlay["widgets"] = widgets
+                    config.OVERLAY = overlay
+                    config.user_config["OVERLAY"] = config.OVERLAY
+                    config.save_config(config.user_config)
+                
+                # Response
+                body = json.dumps({"status": "success"}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                self._send_text(400, f"Error: {e}")
+            return
+        elif parsed.path == "/api/save-canvas-resolution":
+            content_length = int(self.headers.get('Content-Length', 0))
+            post_data = self.rfile.read(content_length)
+            try:
+                data = json.loads(post_data.decode('utf-8'))
+                width = int(data.get("width", 1920))
+                height = int(data.get("height", 1080))
+                
+                # Update config with lock to prevent race conditions
+                with config.config_lock:
+                    overlay = dict(config.OVERLAY)
+                    overlay["canvas_width"] = max(400, min(width, 7680))
+                    overlay["canvas_height"] = max(300, min(height, 4320))
+                    config.OVERLAY = overlay
+                    config.user_config["OVERLAY"] = config.OVERLAY
+                    config.save_config(config.user_config)
+                
+                # Response
+                body = json.dumps({"status": "success"}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except Exception as e:
+                self._send_text(400, f"Error: {e}")
+            return
+        self._send_text(404, "Not found")
+
     def log_message(self, _format: str, *args) -> None:
         return
 
     def _serve_state(self) -> None:
         try:
             state = self._state_provider()
+            if isinstance(state, dict):
+                overlay_config = config.OVERLAY or {}
+                from overlay_state import _widget_config_by_id
+                state["widgets"] = _widget_config_by_id(overlay_config)
+                state["canvas_width"] = int(overlay_config.get("canvas_width", 1920))
+                state["canvas_height"] = int(overlay_config.get("canvas_height", 1080))
         except Exception as exc:
             state = {"status": "error", "error": str(exc)}
         body = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")

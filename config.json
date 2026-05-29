@@ -131,6 +131,8 @@
         "port": 17845,
         "template": "compact",
         "poll_ms": 500,
+        "canvas_width": 1920,
+        "canvas_height": 1080,
         "widgets": [
             {
                 "id": "stage_summary",
@@ -138,43 +140,66 @@
                 "mode": "compact",
                 "order": 40,
                 "max_rows": 4,
-                "background_opacity": 0.0,
-                "show_border": true
+                "background_opacity": 0.4,
+                "show_border": true,
+                "x": 0,
+                "y": 431,
+                "scale": 1.05,
+                "width": 483,
+                "height": 244
             },
             {
                 "id": "tracked_items",
-                "enabled": true,
+                "enabled": false,
                 "mode": "compact",
                 "order": 50,
                 "background_opacity": 0.0,
-                "show_border": true
+                "show_border": true,
+                "x": 15,
+                "y": 659,
+                "width": 193,
+                "height": 150
             },
             {
                 "id": "stats",
-                "enabled": true,
+                "enabled": false,
                 "mode": "compact",
                 "order": 55,
                 "max_rows": 40,
                 "selected_stats": [
+                    "Lifesteal",
                     "Damage",
+                    "Attack Speed",
+                    "Projectile Count",
+                    "Size",
                     "Luck",
                     "Difficulty",
                     "XP Gain",
-                    "Elite Spawn Increase",
-                    "Powerup Multiplier",
                     "Powerup Drop Chance"
                 ],
-                "background_opacity": 0.0,
-                "show_border": true
+                "background_opacity": 0.4,
+                "show_border": false,
+                "show_header": false,
+                "x": 1539,
+                "y": 394,
+                "scale": 1.2,
+                "width": 329,
+                "height": 276
             },
             {
                 "id": "banishes",
-                "enabled": true,
+                "enabled": false,
                 "mode": "compact",
                 "order": 80,
                 "max_rows": 40,
-                "background_opacity": 0.0,
-                "show_border": true
+                "background_opacity": 0.4,
+                "show_border": true,
+                "show_header": true,
+                "x": 256,
+                "y": 699,
+                "scale": 0.8,
+                "width": 304,
+                "height": 161
             },
             {
                 "id": "run_timer",
@@ -233,5 +258,6 @@
             "background_opacity": 0.35,
             "stage_background_opacity": 0.15
         }
-    }
+    },
+    "SKIP_REROLL_WARNING": false
 }

@@ -62,6 +62,8 @@ def build_overlay_state(tracker: LiveRunTracker, overlay_config: dict[str, Any] 
     data = state.to_dict()
     data["template"] = str(overlay_config.get("template") or "compact")
     data["poll_ms"] = _coerce_poll_ms(overlay_config.get("poll_ms"))
+    data["canvas_width"] = _coerce_int(overlay_config.get("canvas_width"), default=1920) or 1920
+    data["canvas_height"] = _coerce_int(overlay_config.get("canvas_height"), default=1080) or 1080
     data["style"] = dict(overlay_config.get("style") or {})
     data["stats"] = _snapshot_stats(snapshot, widgets)
     data["banishes"] = _snapshot_banishes(snapshot, widgets)
@@ -84,7 +86,12 @@ def _widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
             "max_rows": _coerce_int(raw_widget.get("max_rows"), default=40),
             "selected_stats": _selected_stat_labels(raw_widget.get("selected_stats")),
             "background_opacity": _coerce_bounded_float(raw_widget.get("background_opacity"), default=0.0),
-            "show_border": bool(raw_widget.get("show_border", False)),
+            "show_header": bool(raw_widget.get("show_header", True)),
+            "x": _coerce_optional_int(raw_widget.get("x")),
+            "y": _coerce_optional_int(raw_widget.get("y")),
+            "width": _coerce_optional_int(raw_widget.get("width")),
+            "height": _coerce_optional_int(raw_widget.get("height")),
+            "scale": max(0.4, min(_coerce_optional_float(raw_widget.get("scale")) or 1.0, 4.0)),
         }
     return widgets
 

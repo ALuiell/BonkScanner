@@ -103,11 +103,18 @@ OBS Overlay
 - It runs only on the same PC. The server binds to `127.0.0.1`, which means local computer only, not the public internet.
 - Turn on `OBS Overlay server`, then copy the `Local OBS URL` into an OBS Browser Source.
 - The URL looks like `http://127.0.0.1:17845/overlay`: `127.0.0.1` is your own PC, `17845` is the port, and `/overlay` is the overlay page.
+- **Visual Layout Editor**: Open the URL in any browser with `?edit=true` (e.g. `http://127.0.0.1:17845/overlay?edit=true`) to visually drag and drop widgets, resize the canvas resolution to match your stream HUD, and save layout changes instantly and automatically!
+- **Fixed Canvas Size**: When absolute positioning is active, the overlay uses a customizable canvas size (default: 1920x1080). Make sure to set the identical Width and Height values in your OBS Browser Source settings.
 - A port is the local number the browser source uses to reach the overlay server. If another app already uses that port, choose a different one and update the OBS Browser Source URL.
 - Recording is not required. The overlay uses live stats reads and can work while `.jsonl` recording is off.
-- Widget selection controls what appears on stream. The default focuses on `Stage Summary`, `Tracked Items`, and `Weapons`.
+- Widget selection controls what appears on stream. The default focuses on `Stage Summary`, `Tracked Items`, `Stats`, and `Banishes`.
 - Tracked items count selected item gains, such as first-map item luck. Search for an item, choose whether it should count `Map 1 only`, then add it to the tracked list.
 - The overlay page is transparent, so OBS should show only the compact text/widgets over the game instead of a large solid background.
+- **Widget Scaling**: In Layout Editor mode, hover over any widget to reveal a scale toolbar. Use `+` / `-` buttons or type a custom percentage (e.g. `125`) directly to zoom individual widgets.
+- **Widget Resizing**: Drag the bottom-right corner of any widget in Layout Editor to stretch its width and height. Stats and Banishes automatically reflow into multiple columns when widened.
+- **Game Preview Background**: Layout Editor shows an actual game screenshot as background so you can align widgets precisely with the in-game HUD.
+- **Widget-Specific URLs**: Each widget can be added as a separate OBS Browser Source using its own URL (e.g. `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, `/overlay/stage_summary`).
+- **Important: OBS Cache**: After updating BonkScanner or changing layout, right-click your Browser Source in OBS → Properties → click `Refresh cache of current page` → OK. Without this, OBS may show the old layout.
 
 Hotkeys and Game Toggles
 ------------------------

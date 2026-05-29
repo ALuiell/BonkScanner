@@ -408,6 +408,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     padding: 0;
                     background: #2B3A4F;
                     border: 1px solid #41556F;
+                    border-radius: 8px;
                 }
                 QPushButton#SettingsButton:hover, QPushButton#HelpButton:hover {
                     background: #3A4D66;

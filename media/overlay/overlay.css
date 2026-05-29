@@ -1,12 +1,7 @@
 :root {
   --accent: #f6c453;
-  --panel-bg: rgba(8, 12, 18, 0.14);
-  --panel-border: rgba(246, 196, 83, 0.42);
-  --text: #f8fafc;
   --muted: #b8c2d2;
-  --shadow: rgba(0, 0, 0, 0.22);
   --scale: 1;
-  --stage-bg-opacity: 0.15;
   --hud-white: #ffffff;
   --hud-yellow: #ffd23f;
   --hud-cyan: #16e7ff;
@@ -15,6 +10,12 @@
   --hud-red: #ff4d4d;
   --hud-purple: #a86bff;
   --panel-bg-opacity: 0;
+  --hud-shadow:
+    -1.5px -1.5px 0 #000,
+    1.5px -1.5px 0 #000,
+    -1.5px 1.5px 0 #000,
+    1.5px 1.5px 0 #000,
+    0 3px 4px rgba(0, 0, 0, 0.9);
 }
 
 * {
@@ -64,16 +65,11 @@ body {
   max-width: calc(100vw - (12px * var(--scale)));
   min-width: 0;
   padding: calc(6px * var(--scale)) calc(10px * var(--scale));
-  border: 1px solid rgba(255, 255, 255, var(--widget-border-opacity, 0));
+  border: none;
   border-radius: calc(7px * var(--scale));
   background: rgba(0, 0, 0, var(--widget-bg-opacity, var(--panel-bg-opacity)));
   box-shadow: none;
-  text-shadow:
-    -1.5px -1.5px 0 #000,
-    1.5px -1.5px 0 #000,
-    -1.5px 1.5px 0 #000,
-    1.5px 1.5px 0 #000,
-    0 3px 4px rgba(0, 0, 0, 0.9);
+  text-shadow: var(--hud-shadow);
 }
 
 .panel.wide {
@@ -81,10 +77,7 @@ body {
   width: 100%;
 }
 
-.panel.metric {
-  width: max-content;
-  min-width: calc(84px * var(--scale));
-}
+
 
 .panel-title {
   margin-bottom: 3px;
@@ -115,47 +108,31 @@ body {
   text-transform: uppercase;
 }
 
+.stats-widget {
+  border-radius: 0;
+}
+
 .stats-widget .panel-title {
   margin-bottom: calc(7px * var(--scale));
   color: var(--hud-yellow);
 }
 
-.stats-widget-container {
-  width: 100%;
-  text-shadow:
-    -1.5px -1.5px 0 #000,
-    1.5px -1.5px 0 #000,
-    -1.5px 1.5px 0 #000,
-    1.5px 1.5px 0 #000,
-    0 3px 4px rgba(0, 0, 0, 0.9);
-}
-
 .overlay-shell.single-widget .stats-widget {
-  width: 100%;
+  width: calc(100vw - (16px * var(--scale)));
 }
 
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+.overlay-shell.single-widget .banishes-widget {
+  width: calc(100vw - (16px * var(--scale)));
 }
+
+
 
 .stage-summary-widget {
   width: calc(410px * var(--scale));
   padding: calc(12px * var(--scale)) calc(16px * var(--scale));
   border: calc(1px * var(--scale)) solid rgba(255, 210, 63, 0);
   border-radius: 0;
-  background: rgba(0, 0, 0, 0.4);
   box-shadow: none;
-  color: var(--hud-white);
-  font-family: "Verdana", "Trebuchet MS", sans-serif;
-  font-weight: 800;
-  text-shadow:
-    -1.5px -1.5px 0 #000,
-    1.5px -1.5px 0 #000,
-    -1.5px 1.5px 0 #000,
-    1.5px 1.5px 0 #000,
-    0 3px 4px rgba(0, 0, 0, 0.9);
 }
 
 .stage-summary-widget .panel-title {
@@ -163,12 +140,6 @@ body {
   color: var(--hud-yellow);
   font-size: calc(15.5px * var(--scale));
   font-weight: 900;
-  text-shadow:
-    -1.5px -1.5px 0 #000,
-    1.5px -1.5px 0 #000,
-    -1.5px 1.5px 0 #000,
-    1.5px 1.5px 0 #000,
-    0 3px 4px rgba(0, 0, 0, 0.9);
 }
 
 .stage-table {
@@ -224,7 +195,6 @@ body {
   display: inline-block;
   padding: calc(3px * var(--scale)) calc(8px * var(--scale));
   border-radius: calc(14px * var(--scale));
-  font-family: var(--font-hud);
   font-weight: 700;
   font-size: calc(13.5px * var(--scale));
   text-align: center;
@@ -232,13 +202,8 @@ body {
   background: rgba(25, 25, 25, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.01);
-  text-shadow:
-    -1.5px -1.5px 0 #000,
-    1.5px -1.5px 0 #000,
-    -1.5px 1.5px 0 #000,
-    1.5px 1.5px 0 #000,
-    0 3px 4px rgba(0, 0, 0, 0.9);
-  transition: all var(--transition-normal);
+  text-shadow: var(--hud-shadow);
+  transition: all 0.2s ease;
 }
 
 .stage-item-count.empty {
@@ -288,8 +253,7 @@ body {
   grid-column: 1 / -1;
 }
 
-.chip-strip,
-.item-strip {
+.chip-strip {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -315,12 +279,7 @@ body {
   font-size: calc(13px * var(--scale));
   font-weight: 800;
   line-height: 1.18;
-  text-shadow:
-    -1.5px -1.5px 0 #000,
-    1.5px -1.5px 0 #000,
-    -1.5px 1.5px 0 #000,
-    1.5px 1.5px 0 #000,
-    0 3px 4px rgba(0, 0, 0, 0.9);
+  text-shadow: var(--hud-shadow);
 }
 
 .counter-chip strong,
@@ -348,16 +307,11 @@ body {
   font-size: calc(13px * var(--scale));
   font-weight: 800;
   line-height: 1.18;
-  text-shadow:
-    -1.5px -1.5px 0 #000,
-    1.5px -1.5px 0 #000,
-    -1.5px 1.5px 0 #000,
-    1.5px 1.5px 0 #000,
-    0 3px 4px rgba(0, 0, 0, 0.9);
+  text-shadow: var(--hud-shadow);
 }
 
 .stat-row span {
-  flex: 0 0 calc(170px * var(--scale));
+  flex: 0 0 var(--stat-label-width, calc(170px * var(--scale)));
   min-width: 0;
   color: var(--hud-white);
   overflow: hidden;
@@ -389,14 +343,14 @@ body {
   opacity: 0.85;
 }
 
-.banish-strip {
+.banish-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(calc(105px * var(--scale)), 1fr));
-  gap: calc(6px * var(--scale));
+  grid-template-columns: repeat(auto-fit, minmax(calc(140px * var(--scale)), 1fr));
+  gap: calc(4px * var(--scale)) calc(10px * var(--scale));
   width: 100%;
 }
 
-.banish-strip .item-chip {
+.banish-list .item-chip {
   background: rgba(168, 107, 255, 0.07); /* subtle purple tint */
   border: 1px solid rgba(168, 107, 255, 0.18); /* purple border */
   border-left: 2.5px solid var(--hud-purple); /* purple accent bar */
@@ -407,31 +361,22 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  transition: all var(--transition-fast);
+  transition: all 0.15s ease;
 }
 
-.banish-strip .item-chip:hover {
+.banish-list .item-chip:hover {
   background: rgba(168, 107, 255, 0.15);
   border-color: rgba(168, 107, 255, 0.3);
   transform: translateY(calc(-0.5px * var(--scale)));
 }
 
 /* ==========================================
-   TRACKED ITEMS WIDGET (BORDERLESS / TRANSPARENT)
+   TRACKED ITEMS WIDGET
    ========================================== */
 .panel.item-widget {
-  background: transparent;
   border: none;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
   padding-left: 0;
   padding-right: 0;
-}
-
-.panel.item-widget:hover {
-  transform: none;
-  box-shadow: none;
 }
 
 .item-widget .panel-title {
@@ -460,7 +405,7 @@ body {
   box-shadow: 
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     0 2px 8px rgba(0, 0, 0, 0.3);
-  transition: all var(--transition-fast);
+  transition: all 0.15s ease;
 }
 
 .item-widget .counter-chip:hover {
@@ -472,7 +417,7 @@ body {
 
 .item-widget .counter-chip strong {
   color: var(--hud-cyan);
-  font-family: var(--font-hud);
+  font-family: inherit;
   font-size: calc(16.5px * var(--scale));
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -481,11 +426,6 @@ body {
 
 .banishes-widget .panel-title {
   color: var(--hud-red);
-}
-
-.banishes-widget .panel-title::before {
-  background: var(--hud-red);
-  box-shadow: 0 0 8px var(--hud-red);
 }
 
 .tracked-items-list {
@@ -509,11 +449,11 @@ body {
     inset 0 1px 0 rgba(255, 255, 255, 0.03),
     0 2px 8px rgba(0, 0, 0, 0.3);
   color: var(--hud-white);
-  font-family: var(--font-body);
+  font-family: inherit;
   font-size: calc(14.5px * var(--scale));
   font-weight: 800;
   line-height: 1.2;
-  transition: all var(--transition-fast);
+  transition: all 0.15s ease;
 }
 
 .tracked-item-row:hover {
@@ -531,7 +471,7 @@ body {
 
 .tracked-item-row strong {
   color: var(--hud-cyan);
-  font-family: var(--font-hud);
+  font-family: inherit;
   font-size: calc(16.5px * var(--scale));
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -544,4 +484,267 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ==========================================
+   LAYOUT EDITOR & ABSOLUTE LAYOUT STYLES
+   ========================================== */
+.overlay-shell.absolute-layout {
+  display: block;
+  position: relative;
+  width: var(--canvas-width, 1920px);
+  height: var(--canvas-height, 1080px);
+  max-width: none;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+body.edit-mode-active {
+  overflow: auto !important;
+  background: #0f1118;
+}
+
+body:has(#edit-mode-banner) .overlay-shell.absolute-layout {
+  outline: 2px dashed rgba(255, 255, 255, 0.25);
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.85);
+  background-image: url("/assets/game_preview.jpg");
+  background-size: 100% 100%;
+  background-position: center;
+  background-repeat: no-repeat;
+  margin: 80px auto 20px auto;
+}
+
+.overlay-shell.absolute-layout .widget-wrapper {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+}
+
+.overlay-shell.absolute-layout .widget-wrapper .panel {
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+}
+
+.overlay-shell.absolute-layout .widget-wrapper.draggable {
+  cursor: move;
+  user-select: none;
+  border: 2px dashed rgba(246, 196, 83, 0.4);
+  border-radius: calc(8px * var(--scale));
+  padding: calc(6px * var(--scale));
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+  resize: both;
+  overflow: hidden;
+}
+
+.overlay-shell.absolute-layout .widget-wrapper.draggable:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(246, 196, 83, 0.45);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.overlay-shell.absolute-layout .widget-wrapper.dragging {
+  opacity: 0.9;
+  z-index: 999;
+  border-color: var(--accent);
+  box-shadow: 0 0 20px rgba(246, 196, 83, 0.6);
+}
+
+.edit-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  background: rgba(15, 17, 23, 0.95);
+  border-bottom: 2px solid var(--accent);
+  color: #ffffff;
+  padding: 12px 24px;
+  font-family: "Outfit", "Verdana", sans-serif;
+  text-align: center;
+  z-index: 9999;
+  box-shadow: 0 4px 25px rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(10px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.edit-banner-title {
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-shadow: 0 0 8px rgba(246, 196, 83, 0.4);
+}
+
+.edit-banner-text {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.edit-resolution-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 6px 14px;
+  border-radius: 20px;
+}
+
+.edit-resolution-controls label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-right: 4px;
+}
+
+.edit-resolution-controls input {
+  width: 70px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: #fff;
+  padding: 2px 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.edit-resolution-controls input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.edit-resolution-controls span {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.edit-resolution-controls button {
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 12px;
+  padding: 3px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.edit-resolution-controls button:hover {
+  filter: brightness(1.15);
+  transform: translateY(-0.5px);
+}
+
+.edit-resolution-controls button:active {
+  transform: translateY(0.5px);
+}
+
+/* ==========================================
+   WIDGET TOOLBAR & SCALING STYLES
+   ========================================== */
+.widget-wrapper.draggable {
+  padding-top: calc(26px * var(--scale)) !important;
+}
+
+.widget-toolbar {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  left: 2px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 4px;
+  padding: 1px 6px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: auto;
+  z-index: 100;
+}
+
+.widget-wrapper.draggable:hover .widget-toolbar {
+  opacity: 1;
+}
+
+.widget-scale-btn {
+  width: 16px;
+  height: 16px;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: filter 0.15s;
+  padding: 0;
+}
+
+.widget-scale-btn:hover {
+  filter: brightness(1.15);
+}
+
+.widget-scale-input {
+  width: 36px;
+  height: 16px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  color: #ffffff;
+  font-family: "Outfit", sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+  padding: 0;
+  transition: border-color 0.15s;
+}
+
+.widget-scale-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, 0.85);
+}
+
+/* ==========================================
+   CUSTOM SIZING PROPAGATION & CLIPPING
+   ========================================== */
+.widget-wrapper.custom-size-active {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+.widget-wrapper.custom-size-active .panel {
+  width: 100% !important;
+  height: 100% !important;
+  flex: 1 1 auto !important;
+}
+
+/* Guarantee that custom-sized single widget view panels in OBS correctly inherit the dimensions of their parent wrappers */
+.overlay-shell.single-widget .widget-wrapper.custom-size-active .panel {
+  width: 100% !important;
+  height: 100% !important;
 }
