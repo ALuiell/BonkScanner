@@ -49,7 +49,7 @@ AUTH_HTML = """
 
 class OAuthRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path.startswith("/auth/twitch/callback"):
+        if self.path == "/auth/twitch/callback":
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
@@ -60,6 +60,11 @@ class OAuthRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/auth/twitch/token":
+            if self.headers.get("Content-Type") != "application/json":
+                self.send_response(400)
+                self.end_headers()
+                return
+
             content_length = int(self.headers.get("Content-Length", 0))
             if content_length > 4096:
                 self.send_response(400)

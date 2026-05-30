@@ -259,7 +259,7 @@ class TwitchBotWorker(QThread):
         for item_str in items_list:
             name, suffix = split_item_stack_suffix(item_str)
             norm_name = normalize_item_name_for_rarity(name)
-            rarity = ITEM_RARITY_BY_NAME.get(norm_name, "COMMON")
+            rarity = ITEM_RARITY_BY_NAME.get(norm_name, "UNKNOWN")
             
             item_entry = {"name": name, "suffix": suffix, "full_str": item_str}
             if rarity == "LEGENDARY":
