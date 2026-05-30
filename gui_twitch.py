@@ -1,6 +1,7 @@
 import config
 from twitch_auth import TwitchAuthThread
 from twitch_bot import TwitchBotWorker
+from twitch_credentials import delete_twitch_oauth_token, get_twitch_oauth_token, set_twitch_oauth_token
 from gui_styles import _button_state_stylesheet
 
 class TwitchBotMixin:
@@ -11,9 +12,7 @@ class TwitchBotMixin:
         self.twitch_connect_btn.clicked.connect(self.start_twitch_auth)
         self.twitch_bot_toggle_btn.clicked.connect(self.toggle_twitch_bot)
 
-        from PySide6.QtCore import QSettings
-        settings = QSettings("ALuiell", "BonkScanner")
-        token = settings.value("twitch_oauth_token", "")
+        token = get_twitch_oauth_token()
 
         self.twitch_disconnect_btn.clicked.connect(self.disconnect_twitch)
 
@@ -24,6 +23,7 @@ class TwitchBotMixin:
             self.twitch_disconnect_btn.setVisible(True)
 
         self.twitch_tier_combo.currentTextChanged.connect(self.save_twitch_settings)
+        self.twitch_global_cooldown_spin.valueChanged.connect(self.save_twitch_settings)
         self.twitch_cooldown_spin.valueChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_stats_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_bans_cb.stateChanged.connect(self.save_twitch_settings)
@@ -36,6 +36,7 @@ class TwitchBotMixin:
 
     def save_twitch_settings(self, *_):
         config.TWITCH_BOT["access_tier"] = self.twitch_tier_combo.currentText()
+        config.TWITCH_BOT["global_cooldown_seconds"] = self.twitch_global_cooldown_spin.value()
         config.TWITCH_BOT["cooldown_seconds"] = self.twitch_cooldown_spin.value()
         config.TWITCH_BOT["stage_announcements"] = self.twitch_stage_announcements_cb.isChecked()
         config.TWITCH_BOT["commands"]["stats"] = self.twitch_cmd_stats_cb.isChecked()
@@ -56,9 +57,13 @@ class TwitchBotMixin:
         self.twitch_auth_thread.start()
 
     def on_twitch_auth_success(self, username, token):
-        from PySide6.QtCore import QSettings
-        settings = QSettings("ALuiell", "BonkScanner")
-        settings.setValue("twitch_oauth_token", token)
+        try:
+            set_twitch_oauth_token(token)
+        except Exception as exc:
+            self.twitch_connect_btn.setEnabled(True)
+            self.twitch_auth_status_label.setText("<span style='color:#f08b72;'>Authorization failed.</span>")
+            self.log(f"Twitch credential storage error: {exc}", tag="error")
+            return
 
         self.twitch_connect_btn.setEnabled(True)
         self.twitch_connect_btn.setVisible(False)
@@ -69,19 +74,17 @@ class TwitchBotMixin:
         self.log(f"Twitch bot authenticated as {username}", tag="success")
 
     def disconnect_twitch(self):
-        from PySide6.QtCore import QSettings
         import urllib.request
         import urllib.parse
         from twitch_auth import CLIENT_ID
 
-        settings = QSettings("ALuiell", "BonkScanner")
-        token = settings.value("twitch_oauth_token", "")
+        token = get_twitch_oauth_token()
         
         self.stop_twitch_bot()
         config.TWITCH_BOT["username"] = ""
         config.save_config(config.user_config)
         
-        settings.remove("twitch_oauth_token")
+        delete_twitch_oauth_token()
         
         if token:
             try:
@@ -107,7 +110,7 @@ class TwitchBotMixin:
             self.start_twitch_bot()
 
     def start_twitch_bot(self):
-        if not config.TWITCH_BOT.get("oauth_token"):
+        if not get_twitch_oauth_token():
             self.log("Cannot start Twitch Bot: Not connected.", tag="error")
             return
 

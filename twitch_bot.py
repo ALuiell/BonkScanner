@@ -4,6 +4,7 @@ import time
 import re
 from PySide6.QtCore import QThread, Signal
 import config
+from twitch_credentials import get_twitch_oauth_token
 
 
 class TwitchBotWorker(QThread):
@@ -21,13 +22,10 @@ class TwitchBotWorker(QThread):
         self.last_global_command_time: float = 0.0
 
     def run(self):
-        from PySide6.QtCore import QSettings
         self.running = True
         bot_cfg = config.TWITCH_BOT
         username = bot_cfg.get("username", "").lower()
-        
-        settings = QSettings("ALuiell", "BonkScanner")
-        token = settings.value("twitch_oauth_token", "")
+        token = get_twitch_oauth_token()
         
         if not username or not token:
             self.status_updated.emit("Error: Missing credentials")
@@ -141,13 +139,14 @@ class TwitchBotWorker(QThread):
             return
 
         now = time.time()
-        cooldown = config.TWITCH_BOT.get("cooldown_seconds", 5)
+        global_cooldown = config.TWITCH_BOT.get("global_cooldown_seconds", 5)
+        command_cooldown = config.TWITCH_BOT.get("cooldown_seconds", 5)
         
         cmd = message.split()[0].lower()
         time_since_global = now - self.last_global_command_time
         time_since_cmd = now - self.last_command_times.get(cmd, 0.0)
 
-        if time_since_global < 2.0 or time_since_cmd < cooldown:
+        if time_since_global < global_cooldown or time_since_cmd < command_cooldown:
             return
 
         handled = False

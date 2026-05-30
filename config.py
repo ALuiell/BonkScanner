@@ -85,6 +85,7 @@ DEFAULT_TWITCH_BOT = {
     "enabled": False,
     "username": "",
     "access_tier": "Everyone",
+    "global_cooldown_seconds": 5,
     "cooldown_seconds": 5,
     "stage_announcements": True,
     "commands": {
@@ -321,12 +322,13 @@ def normalize_twitch_bot_config(value):
         tier = "Everyone"
     bot_cfg["access_tier"] = tier
     
+    bot_cfg["global_cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("global_cooldown_seconds"), 5))
     bot_cfg["cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("cooldown_seconds"), 5))
     bot_cfg["stage_announcements"] = bool(bot_cfg.get("stage_announcements", True))
     
     if not isinstance(bot_cfg.get("commands"), dict):
         bot_cfg["commands"] = dict(DEFAULT_TWITCH_BOT["commands"])
-    for cmd in ["stats", "banishes", "items", "scanner"]:
+    for cmd in DEFAULT_TWITCH_BOT["commands"]:
         bot_cfg["commands"][cmd] = bool(bot_cfg["commands"].get(cmd, True))
         
     return bot_cfg

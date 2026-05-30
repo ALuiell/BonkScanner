@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 mock_pyside = MagicMock()
 mock_pyside.QtCore.QThread = MagicMock
 mock_pyside.QtCore.Signal = MagicMock
-mock_pyside.QtCore.QSettings = MagicMock
 sys.modules['PySide6'] = mock_pyside
 sys.modules['PySide6.QtCore'] = mock_pyside.QtCore
 
@@ -51,10 +50,12 @@ class TestTwitchBotWorker(unittest.TestCase):
     def test_cooldown_per_command(self):
         from config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
+        old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
         old_cooldown = TWITCH_BOT.get("cooldown_seconds")
         old_commands = TWITCH_BOT.get("commands", {})
         
         TWITCH_BOT["access_tier"] = "Everyone"
+        TWITCH_BOT["global_cooldown_seconds"] = 2
         TWITCH_BOT["cooldown_seconds"] = 5
         TWITCH_BOT["commands"] = {"stats": True, "bans": True}
         
@@ -72,7 +73,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_line(line, "channel")
             self.bot._handle_stats.assert_not_called()
             
-            # Sending a DIFFERENT command after 1 second -> blocked by 2.0s global cooldown
+            # Sending a DIFFERENT command after 1 second -> blocked by configured global cooldown
             with patch('time.time', return_value=101.0):
                 self.bot._handle_bans = MagicMock()
                 line_bans = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!bans"
@@ -85,6 +86,7 @@ class TestTwitchBotWorker(unittest.TestCase):
                 self.bot._handle_bans.assert_called_once()
             
         TWITCH_BOT["access_tier"] = old_tier
+        TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
         TWITCH_BOT["cooldown_seconds"] = old_cooldown
         TWITCH_BOT["commands"] = old_commands
 
