@@ -264,7 +264,7 @@
         "enabled": false,
         "username": "aluielll",
         "access_tier": "Everyone",
-        "global_cooldown_seconds": 5,
+        "global_cooldown_seconds": 4,
         "cooldown_seconds": 7,
         "stage_announcements": true,
         "commands": {

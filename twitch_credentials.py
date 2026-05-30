@@ -52,7 +52,7 @@ def _set_windows_credential(token: str) -> bool:
                 "Type": win32cred.CRED_TYPE_GENERIC,
                 "TargetName": CREDENTIAL_TARGET,
                 "UserName": CREDENTIAL_USERNAME,
-                "CredentialBlob": token.encode("utf-8"),
+                "CredentialBlob": token,
                 "Persist": win32cred.CRED_PERSIST_LOCAL_MACHINE,
             },
             0,
