@@ -168,5 +168,12 @@ class TwitchAuthThread(QThread):
         if self.timeout_timer:
             self.timeout_timer.cancel()
         if self.server:
-            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            srv = self.server
             self.server = None
+            def task():
+                try:
+                    srv.shutdown()
+                    srv.server_close()
+                except Exception:
+                    pass
+            threading.Thread(target=task, daemon=True).start()

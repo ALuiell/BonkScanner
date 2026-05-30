@@ -427,6 +427,7 @@ class ScannerMixin:
             self.stop_twitch_bot()
         if getattr(self, "twitch_auth_thread", None) is not None:
             self.twitch_auth_thread._shutdown_server()
+            self.twitch_auth_thread.wait(2000)
         player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
         if player_stats_vod_recorder is not None:
             if player_stats_vod_recorder.is_recording:

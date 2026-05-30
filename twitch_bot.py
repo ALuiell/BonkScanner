@@ -49,8 +49,7 @@ class TwitchBotWorker(QThread):
             self.log_message.emit("Bot joined chat.")
 
             buffer = ""
-            self._last_run_id = self.run_tracker.run_id
-            self._last_stage_index = self.run_tracker.current_stage_index
+            self._last_run_id, self._last_stage_index = self.run_tracker.run_identity()
 
             while self.running:
                 self._check_stage_transitions(username)
@@ -377,8 +376,7 @@ class TwitchBotWorker(QThread):
         if not config.TWITCH_BOT.get("stage_announcements", True):
             return
 
-        run_id = self.run_tracker.run_id
-        stage_index = self.run_tracker.current_stage_index
+        run_id, stage_index = self.run_tracker.run_identity()
 
         if run_id != self._last_run_id:
             self._last_run_id = run_id

@@ -197,6 +197,10 @@ class LiveRunTracker:
         return rows
 
     @with_lock
+    def run_identity(self) -> tuple[str | None, int]:
+        return self.run_id, self.current_stage_index
+
+    @with_lock
     def latest_snapshot(self) -> LiveRunSnapshot | None:
         return self.snapshots[-1] if self.snapshots else None
 

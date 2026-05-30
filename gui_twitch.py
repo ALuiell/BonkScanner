@@ -86,6 +86,7 @@ class TwitchBotMixin:
     def stop_twitch_bot(self):
         if self.twitch_bot_worker:
             self.twitch_bot_worker.stop()
+            self.twitch_bot_worker.wait(2000)
 
     def _update_twitch_bot_status_ui(self, status: str) -> None:
         status_lower = status.lower()
