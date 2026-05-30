@@ -84,7 +84,6 @@ DEFAULT_OVERLAY = {
 DEFAULT_TWITCH_BOT = {
     "enabled": False,
     "username": "",
-    "oauth_token": "",
     "access_tier": "Everyone",
     "cooldown_seconds": 5,
     "stage_announcements": True,
@@ -232,17 +231,11 @@ def load_config():
 
 def save_config(cfg_dict):
     with config_lock:
-        twitch_bot_cfg = cfg_dict.get("TWITCH_BOT")
-        token_to_restore = None
-        if twitch_bot_cfg and "oauth_token" in twitch_bot_cfg:
-            token_to_restore = twitch_bot_cfg.pop("oauth_token")
-        
         try:
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(cfg_dict, f, indent=4)
-        finally:
-            if twitch_bot_cfg is not None and token_to_restore is not None:
-                twitch_bot_cfg["oauth_token"] = token_to_restore
+        except Exception:
+            pass
 
 user_config = load_config()
 
@@ -319,7 +312,9 @@ def normalize_twitch_bot_config(value):
     bot_cfg = _merge_dict_defaults(value, DEFAULT_TWITCH_BOT)
     bot_cfg["enabled"] = bool(bot_cfg.get("enabled", False))
     bot_cfg["username"] = str(bot_cfg.get("username") or "")
-    bot_cfg["oauth_token"] = str(bot_cfg.get("oauth_token") or "")
+    
+    # Actively cleanse oauth_token from older configs
+    bot_cfg.pop("oauth_token", None)
     
     tier = str(bot_cfg.get("access_tier") or "Everyone")
     if tier not in {"Everyone", "Subs & Mods", "Mods & VIPs"}:

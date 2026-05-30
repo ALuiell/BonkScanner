@@ -1,5 +1,14 @@
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
+
+mock_pyside = MagicMock()
+mock_pyside.QtCore.QThread = MagicMock
+mock_pyside.QtCore.Signal = MagicMock
+mock_pyside.QtCore.QSettings = MagicMock
+sys.modules['PySide6'] = mock_pyside
+sys.modules['PySide6.QtCore'] = mock_pyside.QtCore
+
 from twitch_bot import TwitchBotWorker
 
 class TestTwitchBotWorker(unittest.TestCase):
@@ -56,15 +65,24 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_line(line, "channel")
             self.bot._handle_stats.assert_called_once()
             self.assertEqual(self.bot.last_command_times["!stats"], 100.0)
+            self.assertEqual(self.bot.last_global_command_time, 100.0)
             
+            # Spamming the exact same command instantly -> blocked by global and per-command cooldown
             self.bot._handle_stats.reset_mock()
             self.bot._handle_line(line, "channel")
             self.bot._handle_stats.assert_not_called()
             
-            self.bot._handle_bans = MagicMock()
-            line_bans = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!bans"
-            self.bot._handle_line(line_bans, "channel")
-            self.bot._handle_bans.assert_called_once()
+            # Sending a DIFFERENT command after 1 second -> blocked by 2.0s global cooldown
+            with patch('time.time', return_value=101.0):
+                self.bot._handle_bans = MagicMock()
+                line_bans = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!bans"
+                self.bot._handle_line(line_bans, "channel")
+                self.bot._handle_bans.assert_not_called()
+
+            # Sending a DIFFERENT command after 3 seconds -> passes global, passes its own cooldown
+            with patch('time.time', return_value=103.0):
+                self.bot._handle_line(line_bans, "channel")
+                self.bot._handle_bans.assert_called_once()
             
         TWITCH_BOT["access_tier"] = old_tier
         TWITCH_BOT["cooldown_seconds"] = old_cooldown
