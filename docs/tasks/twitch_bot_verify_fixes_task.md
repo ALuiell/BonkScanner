@@ -1,0 +1,3 @@
+Please review the previous audit report in docs/tasks/twitch_bot_overlay_audit_analysis.md, specifically the "High-Severity Blockers" section.
+Your primary task is to inspect our recent updates on the `overlay-live-tracker` branch to verify if these critical issues (data races in LiveRunTracker, application shutdown hangs, and OAuth security vulnerabilities) have been successfully resolved.
+Once your analysis is complete, compile your findings into a verification report and save it directly in docs/tasks/twitch_bot_fixes_verification.md. Please include a checklist of the resolved high-severity issues and note any remaining Medium/Low severity issues that still need attention.
