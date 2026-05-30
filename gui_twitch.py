@@ -76,7 +76,7 @@ class TwitchBotMixin:
     def disconnect_twitch(self):
         import urllib.request
         import urllib.parse
-        from twitch_auth import TWITCH_CLIENT_ID
+        from twitch_auth import CLIENT_ID
 
         token = get_twitch_oauth_token()
         
@@ -88,7 +88,7 @@ class TwitchBotMixin:
         
         if token:
             try:
-                data = urllib.parse.urlencode({"client_id": TWITCH_CLIENT_ID, "token": token}).encode("utf-8")
+                data = urllib.parse.urlencode({"client_id": CLIENT_ID, "token": token}).encode("utf-8")
                 req = urllib.request.Request("https://id.twitch.tv/oauth2/revoke", data=data)
                 urllib.request.urlopen(req, timeout=5)
             except Exception:

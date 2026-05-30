@@ -1113,27 +1113,20 @@ class GuiLayoutMixin:
         
         auth_group = QGroupBox("Authentication")
         auth_layout = QVBoxLayout(auth_group)
-        
         self.twitch_auth_status_label = QLabel("<span style='color:#f08b72;'>Not connected</span>")
         self.twitch_auth_status_label.setTextFormat(Qt.RichText)
-        self.twitch_auth_status_label.setAlignment(Qt.AlignCenter)
         auth_layout.addWidget(self.twitch_auth_status_label)
         
         self.twitch_auth_buttons_layout = QHBoxLayout()
-        self.twitch_auth_buttons_layout.addStretch()
-        
         self.twitch_connect_btn = QPushButton("Connect to Twitch")
         self.twitch_connect_btn.setObjectName("TwitchConnectButton")
-        self.twitch_connect_btn.setFixedWidth(200)
         self.twitch_auth_buttons_layout.addWidget(self.twitch_connect_btn)
         
         self.twitch_disconnect_btn = QPushButton("Disconnect")
         self.twitch_disconnect_btn.setObjectName("DangerButton")
-        self.twitch_disconnect_btn.setFixedWidth(200)
         self.twitch_disconnect_btn.setVisible(False)
         self.twitch_auth_buttons_layout.addWidget(self.twitch_disconnect_btn)
         
-        self.twitch_auth_buttons_layout.addStretch()
         auth_layout.addLayout(self.twitch_auth_buttons_layout)
         twitch_layout.addWidget(auth_group)
         
