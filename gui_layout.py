@@ -1140,7 +1140,7 @@ class GuiLayoutMixin:
         
         self.twitch_global_cooldown_spin = QSpinBox()
         self.twitch_global_cooldown_spin.setRange(0, 600)
-        self.twitch_global_cooldown_spin.setValue(config.TWITCH_BOT.get("global_cooldown_seconds", 5))
+        self.twitch_global_cooldown_spin.setValue(config.TWITCH_BOT.get("global_cooldown_seconds", 1))
         self.twitch_global_cooldown_spin.setSuffix(" sec")
         settings_layout.addRow("Global Cooldown:", self.twitch_global_cooldown_spin)
 

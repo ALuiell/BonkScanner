@@ -130,15 +130,12 @@ class TwitchBotWorker(QThread):
             self._send(line.replace("PING", "PONG", 1))
             return
 
-        self.log_message.emit(f"DEBUG RAW: {line}")
-
         match = re.match(r"^(?:@([^ ]+) )?:([^!]+)![^ ]+ PRIVMSG #([^ ]+) :(.+)$", line)
         if not match:
             return
 
         tags_str, sender, msg_channel, message = match.groups()
         message = message.strip()
-        self.log_message.emit(f"DEBUG: Received '{message}' from {sender}")
         
         if not message.startswith("!"):
             return
@@ -147,7 +144,7 @@ class TwitchBotWorker(QThread):
             return
 
         now = time.time()
-        global_cooldown = config.TWITCH_BOT.get("global_cooldown_seconds", 5)
+        global_cooldown = config.TWITCH_BOT.get("global_cooldown_seconds", 1)
         command_cooldown = config.TWITCH_BOT.get("cooldown_seconds", 5)
         
         cmd = message.split()[0].lower()
