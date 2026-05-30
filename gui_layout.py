@@ -1115,17 +1115,26 @@ class GuiLayoutMixin:
         auth_layout = QVBoxLayout(auth_group)
         self.twitch_auth_status_label = QLabel("<span style='color:#f08b72;'>Not connected</span>")
         self.twitch_auth_status_label.setTextFormat(Qt.RichText)
+        auth_layout.addWidget(self.twitch_auth_status_label)
+        
+        self.twitch_auth_buttons_layout = QHBoxLayout()
         self.twitch_connect_btn = QPushButton("Connect to Twitch")
         self.twitch_connect_btn.setObjectName("TwitchConnectButton")
-        auth_layout.addWidget(self.twitch_auth_status_label)
-        auth_layout.addWidget(self.twitch_connect_btn)
+        self.twitch_auth_buttons_layout.addWidget(self.twitch_connect_btn)
+        
+        self.twitch_disconnect_btn = QPushButton("Disconnect")
+        self.twitch_disconnect_btn.setObjectName("DangerButton")
+        self.twitch_disconnect_btn.setVisible(False)
+        self.twitch_auth_buttons_layout.addWidget(self.twitch_disconnect_btn)
+        
+        auth_layout.addLayout(self.twitch_auth_buttons_layout)
         twitch_layout.addWidget(auth_group)
         
         settings_group = QGroupBox("Bot Settings")
         settings_layout = QFormLayout(settings_group)
         
         self.twitch_tier_combo = QComboBox()
-        self.twitch_tier_combo.addItems(["Everyone", "Subs & Mods", "Mods Only"])
+        self.twitch_tier_combo.addItems(["Everyone", "Mods & VIPs", "Subs & Mods"])
         self.twitch_tier_combo.setCurrentText(config.TWITCH_BOT.get("access_tier", "Everyone"))
         settings_layout.addRow("Access Tier:", self.twitch_tier_combo)
         

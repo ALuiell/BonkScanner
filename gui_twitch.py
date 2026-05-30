@@ -11,9 +11,19 @@ class TwitchBotMixin:
         self.twitch_connect_btn.clicked.connect(self.start_twitch_auth)
         self.twitch_bot_toggle_btn.clicked.connect(self.toggle_twitch_bot)
 
+        from PySide6.QtCore import QSettings
+        settings = QSettings("ALuiell", "BonkScanner")
+        token = settings.value("twitch_oauth_token", "")
+        if token:
+            config.TWITCH_BOT["oauth_token"] = token
+
+        self.twitch_disconnect_btn.clicked.connect(self.disconnect_twitch)
+
         # Restore UI state if already configured
         if config.TWITCH_BOT.get("username") and config.TWITCH_BOT.get("oauth_token"):
             self.twitch_auth_status_label.setText(f"Connected as <span style='color:#4fd67a;'>{config.TWITCH_BOT['username']}</span>")
+            self.twitch_connect_btn.setVisible(False)
+            self.twitch_disconnect_btn.setVisible(True)
 
         self.twitch_tier_combo.currentTextChanged.connect(self.save_twitch_settings)
         self.twitch_cooldown_spin.valueChanged.connect(self.save_twitch_settings)
@@ -48,12 +58,32 @@ class TwitchBotMixin:
         self.twitch_auth_thread.start()
 
     def on_twitch_auth_success(self, username, token):
+        from PySide6.QtCore import QSettings
+        settings = QSettings("ALuiell", "BonkScanner")
+        settings.setValue("twitch_oauth_token", token)
+
         self.twitch_connect_btn.setEnabled(True)
+        self.twitch_connect_btn.setVisible(False)
+        self.twitch_disconnect_btn.setVisible(True)
         self.twitch_auth_status_label.setText(f"Connected as <span style='color:#4fd67a;'>{username}</span>")
         config.TWITCH_BOT["username"] = username
         config.TWITCH_BOT["oauth_token"] = token
         config.save_config(config.user_config)
         self.log(f"Twitch bot authenticated as {username}", tag="success")
+
+    def disconnect_twitch(self):
+        from PySide6.QtCore import QSettings
+        self.stop_twitch_bot()
+        config.TWITCH_BOT["username"] = ""
+        config.TWITCH_BOT["oauth_token"] = ""
+        config.save_config(config.user_config)
+        
+        settings = QSettings("ALuiell", "BonkScanner")
+        settings.remove("twitch_oauth_token")
+        
+        self.twitch_auth_status_label.setText("<span style='color:#f08b72;'>Not connected</span>")
+        self.twitch_connect_btn.setVisible(True)
+        self.twitch_disconnect_btn.setVisible(False)
 
     def on_twitch_auth_error(self, err):
         self.twitch_connect_btn.setEnabled(True)

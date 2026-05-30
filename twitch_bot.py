@@ -18,6 +18,7 @@ class TwitchBotWorker(QThread):
         self.last_command_time = 0
         self._last_run_id = None
         self._last_stage_index = 1
+        self.last_command_times: dict[str, float] = {}
 
     def run(self):
         self.running = True
@@ -30,59 +31,66 @@ class TwitchBotWorker(QThread):
             self.running = False
             return
 
-        self.status_updated.emit("Connecting to Twitch...")
-        
-        try:
-            raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            raw_sock.settimeout(10.0)
-            context = ssl.create_default_context()
-            self.sock = context.wrap_socket(raw_sock, server_hostname="irc.chat.twitch.tv")
-            self.sock.connect(("irc.chat.twitch.tv", 6697))
-            self.sock.settimeout(None)
+        import time
+        while self.running:
+            self.status_updated.emit("Connecting to Twitch...")
+            
+            try:
+                raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                raw_sock.settimeout(10.0)
+                context = ssl.create_default_context()
+                self.sock = context.wrap_socket(raw_sock, server_hostname="irc.chat.twitch.tv")
+                self.sock.connect(("irc.chat.twitch.tv", 6697))
+                self.sock.settimeout(None)
 
-            self._send(f"PASS oauth:{token}")
-            self._send(f"NICK {username}")
-            self._send(f"JOIN #{username}")
-            self._send("CAP REQ :twitch.tv/tags twitch.tv/commands")
+                self._send(f"PASS oauth:{token}")
+                self._send(f"NICK {username}")
+                self._send(f"JOIN #{username}")
+                self._send("CAP REQ :twitch.tv/tags twitch.tv/commands")
 
-            self.status_updated.emit(f"Connected to #{username}")
-            self.log_message.emit("Bot joined chat.")
+                self.status_updated.emit(f"Connected to #{username}")
+                self.log_message.emit("Bot joined chat.")
 
-            buffer = ""
-            self._last_run_id, self._last_stage_index = self.run_tracker.run_identity()
+                buffer = ""
+                self._last_run_id, self._last_stage_index = self.run_tracker.run_identity()
 
-            while self.running:
-                self._check_stage_transitions(username)
+                while self.running:
+                    self._check_stage_transitions(username)
 
-                self.sock.settimeout(0.5)
-                try:
-                    data = self.sock.recv(4096)
-                except socket.timeout:
-                    continue
-                except Exception as e:
-                    self.log_message.emit(f"Socket error: {e}")
-                    break
+                    self.sock.settimeout(0.5)
+                    try:
+                        data = self.sock.recv(4096)
+                    except socket.timeout:
+                        continue
+                    except Exception as e:
+                        self.log_message.emit(f"Socket error: {e}")
+                        break
 
-                if not data:
-                    break
-                
-                buffer += data.decode("utf-8", errors="replace")
-                lines = buffer.split("\r\n")
-                buffer = lines.pop()
+                    if not data:
+                        break
+                    
+                    buffer += data.decode("utf-8", errors="replace")
+                    lines = buffer.split("\r\n")
+                    buffer = lines.pop()
 
-                for line in lines:
-                    self._handle_line(line, username)
+                    for line in lines:
+                        self._handle_line(line, username)
 
-        except Exception as e:
-            self.log_message.emit(f"Bot exception: {e}")
-            self.status_updated.emit(f"Error: {e}")
-        finally:
-            self.running = False
+            except Exception as e:
+                self.log_message.emit(f"Bot exception: {e}")
+                self.status_updated.emit(f"Error: {e}")
+            
             if self.sock:
                 try:
                     self.sock.close()
                 except:
                     pass
+            self.sock = None
+            
+            if self.running:
+                self.log_message.emit("Reconnecting in 2 seconds...")
+                self.status_updated.emit("Reconnecting...")
+                time.sleep(2)
 
     def stop(self):
         self.running = False
@@ -101,6 +109,13 @@ class TwitchBotWorker(QThread):
                 pass
 
     def _send_chat(self, channel: str, msg: str):
+        full_prefix = f"PRIVMSG #{channel} :"
+        suffix = "\r\n"
+        max_msg_bytes = 512 - len(full_prefix.encode("utf-8")) - len(suffix.encode("utf-8"))
+        encoded_msg = msg.encode("utf-8")
+        if len(encoded_msg) > max_msg_bytes:
+            msg = encoded_msg[:max_msg_bytes].decode("utf-8", errors="ignore")
+            
         self._send(f"PRIVMSG #{channel} :{msg}")
         self.log_message.emit(f"Bot: {msg}")
 
@@ -124,11 +139,12 @@ class TwitchBotWorker(QThread):
 
         now = time.time()
         cooldown = config.TWITCH_BOT.get("cooldown_seconds", 5)
-        if now - self.last_command_time < cooldown:
+        
+        cmd = message.split()[0].lower()
+        if now - self.last_command_times.get(cmd, 0.0) < cooldown:
             return
 
         handled = False
-        cmd = message.split()[0].lower()
         commands_cfg = config.TWITCH_BOT.get("commands", {})
 
         if cmd in ("!stats", "!bonkstats") and commands_cfg.get("stats", True):
@@ -154,7 +170,7 @@ class TwitchBotWorker(QThread):
             handled = True
 
         if handled:
-            self.last_command_time = now
+            self.last_command_times[cmd] = now
 
     def _check_access(self, tags_str: str) -> bool:
         tier = config.TWITCH_BOT.get("access_tier", "Everyone")
@@ -175,10 +191,10 @@ class TwitchBotWorker(QThread):
         if is_broadcaster:
             return True
 
-        if tier == "Mods Only":
-            return is_mod
+        if tier == "Mods & VIPs":
+            return is_mod or is_vip
         elif tier == "Subs & Mods":
-            return is_mod or is_sub or is_vip
+            return is_mod or is_sub
 
         return False
 
