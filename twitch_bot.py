@@ -87,6 +87,12 @@ class TwitchBotWorker(QThread):
 
     def stop(self):
         self.running = False
+        if self.sock:
+            try:
+                self.sock.shutdown(socket.SHUT_RDWR)
+                self.sock.close()
+            except Exception:
+                pass
 
     def _send(self, msg: str):
         if self.sock:

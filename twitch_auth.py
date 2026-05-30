@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 import requests
 import webbrowser
+import secrets
 from PySide6.QtCore import QObject, QThread, Signal
 
 # Replace with the actual Twitch Application Client ID from the Developer Console.
@@ -25,13 +26,15 @@ AUTH_HTML = """
         const hash = window.location.hash.substring(1);
         const params = new URLSearchParams(hash);
         const accessToken = params.get('access_token');
+        const state = params.get('state');
         
         if (accessToken) {
             fetch('/auth/twitch/token', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({access_token: accessToken})
-            }).then(() => {
+                body: JSON.stringify({access_token: accessToken, state: state})
+            }).then(response => {
+                if (!response.ok) throw new Error('Bad response');
                 document.body.innerHTML = '<h2>Authorization Successful!</h2><p>You can close this window and return to BonkScanner.</p>';
             }).catch(err => {
                 document.body.innerHTML = '<h2>Error communicating with local app.</h2>';
@@ -58,15 +61,35 @@ class OAuthRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == "/auth/twitch/token":
             content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > 4096:
+                self.send_response(400)
+                self.end_headers()
+                return
+
             post_data = self.rfile.read(content_length)
-            data = json.loads(post_data.decode("utf-8"))
+            try:
+                data = json.loads(post_data.decode("utf-8"))
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                return
+
             access_token = data.get("access_token")
+            state = data.get("state")
+            
+            if not self.server.auth_thread or state != getattr(self.server.auth_thread, "state", None):
+                self.send_response(400)
+                self.end_headers()
+                return
             
             self.send_response(200)
             self.end_headers()
             
             if self.server.auth_thread:
                 self.server.auth_thread.handle_token(access_token)
+        else:
+            self.send_response(404)
+            self.end_headers()
 
     def log_message(self, format, *args):
         pass  # Suppress logging
@@ -79,11 +102,17 @@ class TwitchAuthThread(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.server = None
+        self.state = secrets.token_urlsafe(16)
+        self.timeout_timer = None
 
     def run(self):
         try:
             self.server = HTTPServer(("localhost", OAUTH_PORT), OAuthRequestHandler)
             self.server.auth_thread = self
+            
+            self.timeout_timer = threading.Timer(120.0, self._handle_timeout)
+            self.timeout_timer.daemon = True
+            self.timeout_timer.start()
             
             # Open browser
             auth_url = (
@@ -92,6 +121,7 @@ class TwitchAuthThread(QThread):
                 f"&client_id={TWITCH_CLIENT_ID}"
                 f"&redirect_uri={urllib.parse.quote(REDIRECT_URI)}"
                 "&scope=chat:read+chat:edit"
+                f"&state={self.state}"
             )
             webbrowser.open(auth_url)
             
@@ -100,7 +130,14 @@ class TwitchAuthThread(QThread):
         except Exception as e:
             self.auth_error.emit(str(e))
 
+    def _handle_timeout(self):
+        self.auth_error.emit("Authorization timed out after 2 minutes.")
+        self._shutdown_server()
+
     def handle_token(self, access_token):
+        if self.timeout_timer:
+            self.timeout_timer.cancel()
+            
         if not access_token:
             self.auth_error.emit("Received empty token.")
             self._shutdown_server()
@@ -128,5 +165,8 @@ class TwitchAuthThread(QThread):
         self._shutdown_server()
 
     def _shutdown_server(self):
+        if self.timeout_timer:
+            self.timeout_timer.cancel()
         if self.server:
             threading.Thread(target=self.server.shutdown, daemon=True).start()
+            self.server = None

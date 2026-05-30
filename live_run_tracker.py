@@ -6,8 +6,19 @@ import time
 from typing import Any, Callable, Iterable
 from uuid import uuid4
 
+import threading
+from functools import wraps
+
 import run_summary
 from gui_styles import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
+
+
+def with_lock(method):
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with getattr(self, "_lock"):
+            return method(self, *args, **kwargs)
+    return wrapper
 
 
 @dataclass(frozen=True)
@@ -93,7 +104,9 @@ class LiveRunTracker:
         self._tracked_events: list[TrackedItemEvent] = []
         self._tracked_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
         self._unknown_starting_inventory: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
+        self._lock = threading.RLock()
 
+    @with_lock
     def update(self, snapshot: LiveRunSnapshot) -> None:
         now = self.clock()
         self._last_update_at = now
@@ -129,12 +142,14 @@ class LiveRunTracker:
         self.snapshots.append(snapshot)
         self._process_item_deltas(snapshot)
 
+    @with_lock
     def mark_read_failed(self, *, no_game: bool = False) -> None:
         now = self.clock()
         self._last_failed_at = now
         if no_game:
             self._last_no_game_at = now
 
+    @with_lock
     def set_tracked_item_rules(self, rules: Iterable[TrackedItemRule]) -> None:
         self.tracked_item_rules = tuple(rules)
         snapshots = list(self.snapshots)
@@ -162,9 +177,11 @@ class LiveRunTracker:
             previous_snapshot = snapshot
         self.current_stage_index = previous_stage_index
 
+    @with_lock
     def stage_summary_rows(self) -> list[dict[str, str]]:
         return run_summary.build_stage_summary(tuple(self.snapshots))
 
+    @with_lock
     def tracked_item_rows(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for rule in self.tracked_item_rules:
@@ -179,9 +196,11 @@ class LiveRunTracker:
             )
         return rows
 
+    @with_lock
     def latest_snapshot(self) -> LiveRunSnapshot | None:
         return self.snapshots[-1] if self.snapshots else None
 
+    @with_lock
     def status(self) -> str:
         now = self.clock()
         if not self.snapshots:
