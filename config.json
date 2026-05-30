@@ -126,7 +126,7 @@
     "AUTO_START_RECORDING": false,
     "OVERLAY": {
         "schema_version": 4,
-        "enabled": true,
+        "enabled": false,
         "host": "127.0.0.1",
         "port": 17845,
         "template": "compact",
@@ -150,7 +150,7 @@
             },
             {
                 "id": "tracked_items",
-                "enabled": false,
+                "enabled": true,
                 "mode": "compact",
                 "order": 50,
                 "background_opacity": 0.0,
@@ -162,7 +162,7 @@
             },
             {
                 "id": "stats",
-                "enabled": false,
+                "enabled": true,
                 "mode": "compact",
                 "order": 55,
                 "max_rows": 40,
@@ -188,7 +188,7 @@
             },
             {
                 "id": "banishes",
-                "enabled": false,
+                "enabled": true,
                 "mode": "compact",
                 "order": 80,
                 "max_rows": 40,
@@ -259,5 +259,23 @@
             "stage_background_opacity": 0.15
         }
     },
-    "SKIP_REROLL_WARNING": false
+    "SKIP_REROLL_WARNING": false,
+    "TWITCH_BOT": {
+        "enabled": false,
+        "username": "aluielll",
+        "oauth_token": "vl5ug0b91mdjwf5x3l9tema05i8i0g",
+        "access_tier": "Everyone",
+        "cooldown_seconds": 7,
+        "stage_announcements": true,
+        "commands": {
+            "stats": true,
+            "bans": true,
+            "items": true,
+            "weapons": true,
+            "tomes": true,
+            "stages": true,
+            "scanner": true,
+            "banishes": true
+        }
+    }
 }

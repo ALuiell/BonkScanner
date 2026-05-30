@@ -17,6 +17,7 @@ from gui_scanner import ScannerMixin
 from gui_shared import UiInvoker, _AppWindow, resource_path
 from gui_styles import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC, build_qt_app_stylesheet
 from gui_templates import TemplatesMixin
+from gui_twitch import TwitchBotMixin
 from vod_storage import VodRecorder
 
 
@@ -27,6 +28,7 @@ class MegabonkApp(
     OverlayMixin,
     PlayerStatsMixin,
     ScannerMixin,
+    TwitchBotMixin,
 ):
     _qt_app: QApplication | None = None
 
@@ -298,6 +300,7 @@ class MegabonkApp(
         self.vods_list_signature = None
 
         self.setup_ui()
+        self.setup_twitch_bot_ui()
         self.apply_overlay_autostart()
         self.refresh_templates()
         self.refresh_scores_templates_list()

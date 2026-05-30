@@ -46,6 +46,8 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QSpinBox,
+    QDoubleSpinBox,
 )
 
 import config
@@ -836,14 +838,28 @@ class SettingsDialog(QDialog):
         form_layout.addRow("Toggle Auto Level-Up Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)
         form_layout.addRow("Toggle Particles Opacity Hotkey:", self.toggle_particles_opacity_hotkey_entry)
 
-        self.min_delay_entry = QLineEdit(str(config.MIN_DELAY))
+        self.min_delay_entry = QDoubleSpinBox()
+        self.min_delay_entry.setRange(0.0, 60.0)
+        self.min_delay_entry.setSingleStep(0.1)
+        self.min_delay_entry.setDecimals(2)
+        self.min_delay_entry.setValue(float(config.MIN_DELAY))
+        self.min_delay_entry.setSuffix(" s")
         self.map_load_delay_entry = self.min_delay_entry
         form_layout.addRow("Min Reroll Delay (s):", self.min_delay_entry)
 
-        self.reset_hold_duration_entry = QLineEdit(str(config.RESET_HOLD_DURATION))
+        self.reset_hold_duration_entry = QDoubleSpinBox()
+        self.reset_hold_duration_entry.setRange(0.01, 10.0)
+        self.reset_hold_duration_entry.setSingleStep(0.05)
+        self.reset_hold_duration_entry.setDecimals(2)
+        self.reset_hold_duration_entry.setValue(float(config.RESET_HOLD_DURATION))
+        self.reset_hold_duration_entry.setSuffix(" s")
         form_layout.addRow("Reset Hold Duration (s):", self.reset_hold_duration_entry)
 
-        self.record_interval_entry = QLineEdit(str(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30)))
+        self.record_interval_entry = QSpinBox()
+        self.record_interval_entry.setRange(1, 3600)
+        self.record_interval_entry.setSingleStep(5)
+        self.record_interval_entry.setValue(int(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30)))
+        self.record_interval_entry.setSuffix(" s")
         form_layout.addRow("Snapshot Interval (s):", self.record_interval_entry)
 
         self.auto_start_recording_var = QCheckBox("Auto-start recording")
@@ -974,9 +990,17 @@ class SettingsDialog(QDialog):
         config.AUTO_START_RECORDING = auto_start_recording
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
 
+        def _read_numeric(entry) -> float:
+            if entry is None:
+                return 0.0
+            if hasattr(entry, "value"):
+                val = entry.value
+                return float(val() if callable(val) else val)
+            return float(_read_text(entry))
+
         delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
         try:
-            new_delay = float(_read_text(delay_entry))
+            new_delay = _read_numeric(delay_entry)
             config.user_config["MIN_DELAY"] = new_delay
             config.MIN_DELAY = new_delay
             config.MAP_LOAD_DELAY = new_delay
@@ -984,7 +1008,7 @@ class SettingsDialog(QDialog):
             pass
 
         try:
-            new_duration = float(_read_text(self.reset_hold_duration_entry))
+            new_duration = _read_numeric(self.reset_hold_duration_entry)
             if new_duration < 0.01:
                 new_duration = 0.01
             config.user_config["RESET_HOLD_DURATION"] = new_duration
@@ -997,7 +1021,7 @@ class SettingsDialog(QDialog):
             pass
 
         try:
-            new_interval = max(1, int(float(_read_text(self.record_interval_entry))))
+            new_interval = max(1, int(_read_numeric(self.record_interval_entry)))
             config.user_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = new_interval
             config.PLAYER_STATS_RECORD_INTERVAL_SECONDS = new_interval
             if hasattr(self.master, "player_stats_vod_recorder") and self.master.player_stats_vod_recorder is not None:

@@ -230,9 +230,17 @@ class LiveRunTracker:
 
     @staticmethod
     def _is_active_snapshot(snapshot: LiveRunSnapshot) -> bool:
-        if snapshot.game_time_seconds is None:
-            return False
-        return bool(int(snapshot.stage_ptr or 0) or int(snapshot.map_seed or 0))
+        if snapshot.game_time_seconds is not None and snapshot.game_time_seconds > 0:
+            return True
+        if bool(int(snapshot.stage_ptr or 0) or int(snapshot.map_seed or 0)):
+            return True
+        if snapshot.mob_kills is not None and snapshot.mob_kills > 0:
+            return True
+        if snapshot.player_level is not None and snapshot.player_level > 1:
+            return True
+        if snapshot.items or snapshot.weapons or snapshot.tomes:
+            return True
+        return False
 
     def _process_item_deltas(self, snapshot: LiveRunSnapshot) -> None:
         if not snapshot.items_available:

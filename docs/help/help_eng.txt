@@ -38,6 +38,7 @@ Right side:
 - `Recordings` - saved recordings viewer with timeline, rename, delete, and cleanup actions.
 - `Compare Runs` - side-by-side comparison of two saved runs with synced in-game time and a central difference panel.
 - `OBS Overlay` - local browser-source overlay for stream layouts.
+- `Twitch Bot` - built-in Twitch bot for chat integration.
 
 Reroll and Restart
 ------------------
@@ -115,6 +116,33 @@ OBS Overlay
 - **Game Preview Background**: Layout Editor shows an actual game screenshot as background so you can align widgets precisely with the in-game HUD.
 - **Widget-Specific URLs**: Each widget can be added as a separate OBS Browser Source using its own URL (e.g. `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, `/overlay/stage_summary`).
 - **Important: OBS Cache**: After updating BonkScanner or changing layout, right-click your Browser Source in OBS → Properties → click `Refresh cache of current page` → OK. Without this, OBS may show the old layout.
+
+
+Twitch Bot
+----------
+The `Twitch Bot` tab runs a built-in Twitch IRC chat bot for your channel.
+This allows chat viewers to inquire about your current progress in real time!
+
+How to configure:
+1. Go to the `Twitch Bot` tab.
+2. Click `Connect to Twitch`. A browser window will open for secure authorization via the official Twitch OAuth service.
+3. Allow access, after which the status in the app will change to `Connected as [ChannelName]`.
+4. Configure bot parameters (command access tier, cooldown delay, enabled commands, and auto-announcements).
+5. Click `Start Bot`.
+
+Available chat commands:
+- `!stats` / `!bonkstats` — displays character's current stats (damage, experience, luck, size, etc.).
+- `!bans` / `!banishes` — list of banished items.
+- `!items` — list of collected items (automatically sorted by rarity; if there are too many items, the bot compresses the list to fit Twitch's limits).
+- `!weapons` — your weapons and only their active/upgraded stats.
+- `!tomes` — your tomes with their stat values (Chaos Tome shows level only).
+- `!stages` — detailed stage summary of kills and elapsed time for stages 1-4.
+- `!scanner` — quick help listing all commands.
+
+Announce Stage Transitions:
+If enabled, the bot automatically sends a summary to Twitch chat when transitioning between stages, e.g.:
+🚩 Stage 1 completed! Kills: 1,042 | Time: 05:00. Moving to Stage 2! 🚩
+
 
 Hotkeys and Game Toggles
 ------------------------

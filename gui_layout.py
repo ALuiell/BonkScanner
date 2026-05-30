@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QSpinBox,
 )
 
 import config
@@ -141,6 +142,7 @@ class GuiLayoutMixin:
         self._build_recordings_tab()
         self._build_compare_runs_tab()
         self._build_overlay_tab()
+        self._build_twitch_bot_tab()
         self._build_footer_controls(right_layout)
 
     def _build_header(self, root_layout):
@@ -967,6 +969,7 @@ class GuiLayoutMixin:
         group = QGroupBox(title)
         layout = QVBoxLayout(group)
         status_label = QLabel("Select a recording")
+        status_label.setTextFormat(Qt.RichText)
         status_label.setWordWrap(True)
         slider = QSlider(Qt.Horizontal)
         slider.setEnabled(False)
@@ -1035,7 +1038,8 @@ class GuiLayoutMixin:
         _apply_button_icon(self.help_btn, "media/help_icon.svg", 20)
         self.help_btn.setToolTip("Help")
         self.help_btn.clicked.connect(self.open_help_dialog)
-        self.status_label = QLabel("Status: IDLE")
+        self.status_label = QLabel("Status: <span style='color:#9CA3AF;'>IDLE</span>")
+        self.status_label.setTextFormat(Qt.RichText)
         self.status_label.setObjectName("StatusLabel")
         self.toggle_btn = QPushButton(f"Start")
         self.toggle_btn.setObjectName("ToggleButton")
@@ -1102,3 +1106,90 @@ class GuiLayoutMixin:
             self.refresh_vods_list()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
+
+    def _build_twitch_bot_tab(self):
+        self.tab_twitch = QWidget()
+        twitch_layout = QVBoxLayout(self.tab_twitch)
+        
+        auth_group = QGroupBox("Authentication")
+        auth_layout = QVBoxLayout(auth_group)
+        self.twitch_auth_status_label = QLabel("<span style='color:#f08b72;'>Not connected</span>")
+        self.twitch_auth_status_label.setTextFormat(Qt.RichText)
+        self.twitch_connect_btn = QPushButton("Connect to Twitch")
+        self.twitch_connect_btn.setObjectName("TwitchConnectButton")
+        auth_layout.addWidget(self.twitch_auth_status_label)
+        auth_layout.addWidget(self.twitch_connect_btn)
+        twitch_layout.addWidget(auth_group)
+        
+        settings_group = QGroupBox("Bot Settings")
+        settings_layout = QFormLayout(settings_group)
+        
+        self.twitch_tier_combo = QComboBox()
+        self.twitch_tier_combo.addItems(["Everyone", "Subs & Mods", "Mods Only"])
+        self.twitch_tier_combo.setCurrentText(config.TWITCH_BOT.get("access_tier", "Everyone"))
+        settings_layout.addRow("Access Tier:", self.twitch_tier_combo)
+        
+        self.twitch_cooldown_spin = QSpinBox()
+        self.twitch_cooldown_spin.setRange(0, 600)
+        self.twitch_cooldown_spin.setValue(config.TWITCH_BOT.get("cooldown_seconds", 5))
+        self.twitch_cooldown_spin.setSuffix(" sec")
+        settings_layout.addRow("Command Cooldown:", self.twitch_cooldown_spin)
+        
+        divider_top = QFrame()
+        divider_top.setFrameShape(QFrame.HLine)
+        divider_top.setFrameShadow(QFrame.Sunken)
+        divider_top.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 8px 0px;")
+        settings_layout.addRow(divider_top)
+        
+        self.twitch_cmd_stats_cb = QCheckBox("Enable !stats")
+        self.twitch_cmd_stats_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("stats", True))
+        self.twitch_cmd_bans_cb = QCheckBox("Enable !bans")
+        self.twitch_cmd_bans_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("bans", True))
+        self.twitch_cmd_items_cb = QCheckBox("Enable !items")
+        self.twitch_cmd_items_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("items", True))
+        self.twitch_cmd_weapons_cb = QCheckBox("Enable !weapons")
+        self.twitch_cmd_weapons_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("weapons", True))
+        self.twitch_cmd_tomes_cb = QCheckBox("Enable !tomes")
+        self.twitch_cmd_tomes_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("tomes", True))
+        self.twitch_cmd_stages_cb = QCheckBox("Enable !stages")
+        self.twitch_cmd_stages_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("stages", True))
+        self.twitch_cmd_scanner_cb = QCheckBox("Enable !scanner")
+        self.twitch_cmd_scanner_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("scanner", True))
+        self.twitch_stage_announcements_cb = QCheckBox("Announce Stage Transitions")
+        self.twitch_stage_announcements_cb.setChecked(config.TWITCH_BOT.get("stage_announcements", True))
+        
+        commands_grid = QGridLayout()
+        commands_grid.setSpacing(6)
+        commands_grid.addWidget(self.twitch_cmd_stats_cb, 0, 0)
+        commands_grid.addWidget(self.twitch_cmd_bans_cb, 0, 1)
+        commands_grid.addWidget(self.twitch_cmd_items_cb, 1, 0)
+        commands_grid.addWidget(self.twitch_cmd_weapons_cb, 1, 1)
+        commands_grid.addWidget(self.twitch_cmd_tomes_cb, 2, 0)
+        commands_grid.addWidget(self.twitch_cmd_stages_cb, 2, 1)
+        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 3, 0)
+
+        settings_layout.addRow("Commands:", commands_grid)
+        
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setFrameShadow(QFrame.Sunken)
+        divider.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 8px 0px;")
+        settings_layout.addRow(divider)
+        
+        settings_layout.addRow("Announcements:", self.twitch_stage_announcements_cb)
+        
+        twitch_layout.addWidget(settings_group)
+        
+        control_group = QGroupBox("Control")
+        control_layout = QHBoxLayout(control_group)
+        self.twitch_bot_toggle_btn = QPushButton("Start Bot")
+        self.twitch_bot_toggle_btn.setObjectName("SuccessButton")
+        self.twitch_bot_status_label = QLabel("Status: <span style='color:#f08b72;'>Stopped</span>")
+        self.twitch_bot_status_label.setTextFormat(Qt.RichText)
+        control_layout.addWidget(self.twitch_bot_toggle_btn)
+        control_layout.addWidget(self.twitch_bot_status_label)
+        control_layout.addStretch(1)
+        twitch_layout.addWidget(control_group)
+        
+        twitch_layout.addStretch(1)
+        self.tabview.addTab(self.tab_twitch, "Twitch Bot")

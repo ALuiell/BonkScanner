@@ -107,6 +107,7 @@ class PlayerStatsMixin:
             or self.player_stats_vod_recorder.is_recording
             or bool(getattr(config, "AUTO_START_RECORDING", False))
             or self.overlay_should_refresh_live_stats()
+            or self._is_twitch_bot_active()
         )
         if should_refresh:
             status_text = (
@@ -205,6 +206,7 @@ class PlayerStatsMixin:
             self.player_stats_vod_recorder.is_recording
             or self._is_live_stats_tab_active()
             or self.overlay_should_refresh_live_stats()
+            or self._is_twitch_bot_active()
         ):
             try:
                 client = self._get_player_stats_client()
@@ -410,27 +412,7 @@ class PlayerStatsMixin:
             return True
 
         if is_live_tab_active:
-            if self.player_stats_vod_recorder.is_recording:
-                self.display_player_stats(
-                    stats,
-                    items,
-                    weapons=weapons if weapons_available else (),
-                    tomes=tomes if tomes_available else (),
-                    banishes=banishes if banishes_available else (),
-                    damage_sources=damage_sources if damage_sources_available else (),
-                    weapons_available=weapons_available,
-                    tomes_available=tomes_available,
-                    damage_sources_available=damage_sources_available,
-                    status_text="Live player stats (recording)",
-                    chests_per_minute=chests_per_minute,
-                    items_text=items_text,
-                    game_time_seconds=run_timer_seconds,
-                    mob_kills=mob_kills,
-                    player_level=player_level,
-                    stage_summary_rows=self.build_stage_summary(self.player_stats_vod_snapshots),
-                )
-                return True
-
+            status_text_val = "Live player stats (recording)" if self.player_stats_vod_recorder.is_recording else status_text
             self.player_stats_selected_snapshot_index = None
             self.display_player_stats(
                 stats,
@@ -442,7 +424,7 @@ class PlayerStatsMixin:
                 weapons_available=weapons_available,
                 tomes_available=tomes_available,
                 damage_sources_available=damage_sources_available,
-                status_text=status_text,
+                status_text=status_text_val,
                 chests_per_minute=chests_per_minute,
                 items_text=items_text,
                 game_time_seconds=run_timer_seconds,
@@ -1368,7 +1350,8 @@ class PlayerStatsMixin:
     def _set_compare_run_error(self, side: str, text: str) -> None:
         self._set_compare_run_vod(side, None)
         self._set_compare_run_index(side, None)
-        _set_text(self._compare_run_widget(side, "status_label"), text)
+        error_html = f'<span style="color:#f08b72;">{text}</span>'
+        _set_text(self._compare_run_widget(side, "status_label"), error_html)
         self._refresh_compare_runs_diff()
         self._refresh_compare_runs_selected_labels()
 

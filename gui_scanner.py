@@ -53,16 +53,16 @@ class ScannerMixin:
 
         if self.scanner_thread and self.scanner_thread.is_alive():
             if self.is_running:
-                status = "RUNNING"
+                status_html = 'Status: <span style="color:#4fd67a;">RUNNING</span>'
             elif self.is_ready_to_start:
-                status = "ARMED"
+                status_html = 'Status: <span style="color:#4fd67a;">ARMED</span>'
             else:
-                status = "WAITING FOR GAME"
-            self.status_label.setText(f"Status: {status}")
+                status_html = 'Status: <span style="color:#ffd23f;">WAITING FOR GAME</span>'
+            self.status_label.setText(status_html)
             self.toggle_btn.setText("Stop")
             self.toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
         else:
-            self.status_label.setText("Status: IDLE")
+            self.status_label.setText('Status: <span style="color:#9CA3AF;">IDLE</span>')
             self.toggle_btn.setText("Start")
             self.toggle_btn.setStyleSheet("")
 

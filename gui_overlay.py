@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 
 import config
 from gui_shared import _make_scroll_section, _set_text, _set_text_input
-from gui_styles import ITEM_RARITY_BY_NAME, PLAYER_STATS_REFRESH_MS
+from gui_styles import ITEM_RARITY_BY_NAME, PLAYER_STATS_REFRESH_MS, _button_state_stylesheet
 from live_run_tracker import LiveRunTracker, TrackedItemRule
 from overlay_server import LocalOverlayServer, OverlayStateStore
 from overlay_state import build_overlay_state
@@ -88,6 +88,7 @@ class OverlayMixin:
         self.overlay_widget_url_entry = QLineEdit()
         self.overlay_widget_url_entry.setReadOnly(True)
         self.overlay_server_toggle_btn = QPushButton("Start")
+        self.overlay_server_toggle_btn.setObjectName("SuccessButton")
         self.overlay_server_toggle_btn.clicked.connect(self.toggle_overlay_server)
 
         controls = QHBoxLayout()
@@ -464,6 +465,10 @@ class OverlayMixin:
             _set_text(self.overlay_status_label, status)
         if getattr(self, "overlay_server_toggle_btn", None) is not None:
             self.overlay_server_toggle_btn.setText("Stop" if running else "Start")
+            if running:
+                self.overlay_server_toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
+            else:
+                self.overlay_server_toggle_btn.setStyleSheet("")
 
     def refresh_overlay_item_selector(self) -> None:
         selector = getattr(self, "overlay_item_selector", None)

@@ -81,6 +81,25 @@ DEFAULT_OVERLAY = {
     },
 }
 
+DEFAULT_TWITCH_BOT = {
+    "enabled": False,
+    "username": "",
+    "oauth_token": "",
+    "access_tier": "Everyone",
+    "cooldown_seconds": 5,
+    "stage_announcements": True,
+    "commands": {
+        "stats": True,
+        "bans": True,
+        "items": True,
+        "weapons": True,
+        "tomes": True,
+        "stages": True,
+        "scanner": True
+    }
+}
+
+
 # ==========================================
 # GAME CONFIG PARSER
 # ==========================================
@@ -287,6 +306,29 @@ def normalize_overlay_config(value):
     return overlay
 
 
+def normalize_twitch_bot_config(value):
+    bot_cfg = _merge_dict_defaults(value, DEFAULT_TWITCH_BOT)
+    bot_cfg["enabled"] = bool(bot_cfg.get("enabled", False))
+    bot_cfg["username"] = str(bot_cfg.get("username") or "")
+    bot_cfg["oauth_token"] = str(bot_cfg.get("oauth_token") or "")
+    
+    tier = str(bot_cfg.get("access_tier") or "Everyone")
+    if tier not in {"Everyone", "Subs & Mods", "Mods Only"}:
+        tier = "Everyone"
+    bot_cfg["access_tier"] = tier
+    
+    bot_cfg["cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("cooldown_seconds"), 5))
+    bot_cfg["stage_announcements"] = bool(bot_cfg.get("stage_announcements", True))
+    
+    if not isinstance(bot_cfg.get("commands"), dict):
+        bot_cfg["commands"] = dict(DEFAULT_TWITCH_BOT["commands"])
+    for cmd in ["stats", "banishes", "items", "scanner"]:
+        bot_cfg["commands"][cmd] = bool(bot_cfg["commands"].get(cmd, True))
+        
+    return bot_cfg
+
+
+
 def _normalize_overlay_widgets(value):
     default_widgets = [dict(widget) for widget in DEFAULT_OVERLAY["widgets"]]
     if not isinstance(value, list):
@@ -377,6 +419,7 @@ SCORES_SYSTEM = user_config.get("SCORES_SYSTEM", DEFAULT_SCORES_SYSTEM)
 if not SCORES_SYSTEM:
     SCORES_SYSTEM = DEFAULT_SCORES_SYSTEM
 OVERLAY = normalize_overlay_config(user_config.get("OVERLAY"))
+TWITCH_BOT = normalize_twitch_bot_config(user_config.get("TWITCH_BOT"))
 
 # Populate missing default keys for scores system from older config versions
 for key, value in DEFAULT_SCORES_SYSTEM.items():
@@ -430,6 +473,7 @@ user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION
 user_config["EVALUATION_MODE"] = EVALUATION_MODE
 user_config["SCORES_SYSTEM"] = SCORES_SYSTEM
 user_config["OVERLAY"] = OVERLAY
+user_config["TWITCH_BOT"] = TWITCH_BOT
 user_config.pop("NATIVE_HOOK_DLL_PATH", None)
 
 

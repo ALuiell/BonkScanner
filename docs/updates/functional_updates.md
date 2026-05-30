@@ -129,14 +129,13 @@ Status: `[Open]`
 
 ### Concept & User Flow
 - The streamer enables the integrated Twitch Chat Bot in BonkScanner UI.
-- The streamer enters their Twitch channel name (e.g. `streamer_name`).
-- The bot connects securely, joins the channel's chat, and listens to user commands (e.g., `!stats`, `!banishes`, `!items`), posting real-time responses sourced directly from the local gameplay memory state.
+- The streamer clicks "Connect to Twitch" to authenticate via their own Twitch account in the browser (OAuth Implicit Grant).
+- The bot connects securely, joins the streamer's channel chat, and listens to user commands (e.g., `!stats`, `!banishes`, `!items`), posting real-time responses sourced directly from the local gameplay memory state, acting *as the streamer*.
 
 ### Architecture & Connection
 - **Local Embedded Bot:** Runs inside a dedicated background thread (`QThread` or `asyncio`) in BonkScanner. This allows instant access to local run tracker variables (`live_run_tracker`) with zero network latency.
-- **Dedicated Bot Account:** The bot runs under a single central account created by the developer (e.g., `MegabonkBot`). The streamer does NOT need to provide their personal Twitch account token.
-- **Secure Token Delivery:** At startup, the app makes a secure GET request to the developer's server API (`/api/bot-credentials`) to retrieve the bot's username and public `oauth:...` chat-scoped token.
-- **Twitch IRC Connection:** The bot establishes a TCP socket connection to `irc.chat.twitch.tv:6667`, authenticates as the bot account, and executes `JOIN #streamer_name`.
+- **Streamer Account Auth:** The app spins up a temporary local HTTP server to receive the OAuth redirect, captures the token, and uses it to connect. No central bot account or API is required, maximizing security and bypassing centralized rate limits.
+- **Twitch IRC Connection:** The bot establishes a TCP socket connection to `irc.chat.twitch.tv:6667`, authenticates with the obtained OAuth token, and executes `JOIN #streamer_username`. Requests `CAP REQ :twitch.tv/tags` to support access tier moderation based on badges.
 
 ### Commands Spec & Outputs
 - `!stats` / `!bonkstats` -> Sourced from live stats memory. Example: `"Live Stats: Damage: 125, Speed: 1.4, Luck: 2.2, XP Gain: +30% | Moais: 3, Shady: 2"`

@@ -16,6 +16,7 @@ What The Program Includes
 - `Live Stats` recording and run inspection
 - `Recordings` playback
 - `OBS Overlay` browser-source output
+- `Twitch Bot` Twitch chat integration
 - stage summaries for live runs and recordings
 - standard keyboard restart mode
 - `Native hook` restart mode
@@ -154,6 +155,32 @@ choosing whether it should count on `Map 1 only`, and adding it to the list.
 The overlay itself is transparent and designed to sit compactly over gameplay.
 
 
+Twitch Bot
+----------
+The `Twitch Bot` tab runs a built-in Twitch IRC chat bot for your channel.
+This allows chat viewers to query your active gameplay stats in real-time!
+
+How to configure:
+1. Go to the `Twitch Bot` tab.
+2. Click `Connect to Twitch`. This opens a browser window for secure, official Twitch OAuth authorization.
+3. Click authorize. Once completed, the status updates to `Connected as [YourUsername]`.
+4. Configure the bot's settings (command access tier, cooldown delay, active commands, and automated announcements).
+5. Click `Start Bot`.
+
+Available Chat Commands:
+- `!stats` / `!bonkstats` — prints active player stats (DMG, XP, Luck, Size, etc.).
+- `!bans` / `!banishes` — prints banished items list.
+- `!items` — lists passive items ordered by rarity (highest first). If the item list is too long, the bot dynamically collapses lower-rarity categories to fit Twitch's 500-char limit.
+- `!weapons` — lists active weapons and their upgraded stats.
+- `!tomes` — lists tomes and their specific stat values (Chaos tome only shows level).
+- `!stages` — lists stage metrics (kills and elapsed time) for stages 1-4.
+- `!scanner` — lists available commands.
+
+Automated Stage Announcements:
+When `Announce Stage Transitions` is checked, the bot automatically posts a transition summary in the Twitch chat on completing a stage:
+🚩 Stage 1 completed! Kills: 1,042 | Time: 05:00. Moving to Stage 2! 🚩
+
+
 Standard Mode And Native Hook
 -----------------------------
 Standard mode is the normal keyboard-based reroll mode.
@@ -232,5 +259,6 @@ Short Summary
 - `Session stats` = current-session overview
 - `Live Stats` = real-time player stats and recording
 - `Stage Summary` = per-stage time, kills, and item gains
+- `Twitch Bot` = built-in bot for live stats output and auto-announcements in chat
 - `Native hook` = alternate restart mode that can work better in the background
 - `config.json` = the file where the program stores your settings
