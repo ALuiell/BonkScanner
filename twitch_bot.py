@@ -75,7 +75,12 @@ class TwitchBotWorker(QThread):
                     buffer = lines.pop()
 
                     for line in lines:
-                        self._handle_line(line, username)
+                        try:
+                            self._handle_line(line, username)
+                        except Exception as e:
+                            import traceback
+                            self.log_message.emit(f"Command error: {e}")
+                            traceback.print_exc()
 
             except Exception as e:
                 self.log_message.emit(f"Bot exception: {e}")
@@ -105,7 +110,7 @@ class TwitchBotWorker(QThread):
     def _send(self, msg: str):
         if self.sock:
             try:
-                self.sock.send(f"{msg}\r\n".encode("utf-8"))
+                self.sock.sendall(f"{msg}\r\n".encode("utf-8"))
             except:
                 pass
 
@@ -125,12 +130,15 @@ class TwitchBotWorker(QThread):
             self._send(line.replace("PING", "PONG", 1))
             return
 
+        self.log_message.emit(f"DEBUG RAW: {line}")
+
         match = re.match(r"^(?:@([^ ]+) )?:([^!]+)![^ ]+ PRIVMSG #([^ ]+) :(.+)$", line)
         if not match:
             return
 
         tags_str, sender, msg_channel, message = match.groups()
         message = message.strip()
+        self.log_message.emit(f"DEBUG: Received '{message}' from {sender}")
         
         if not message.startswith("!"):
             return
@@ -206,8 +214,8 @@ class TwitchBotWorker(QThread):
 
     def _stat_val(self, stats: dict, key: str) -> str:
         """Helper to safely extract a display value from stats dict."""
-        if key in stats:
-            return stats[key].display_value
+        if key in stats and stats[key] is not None:
+            return getattr(stats[key], "display_value", "--")
         return "--"
 
     def _handle_stats(self, channel: str):

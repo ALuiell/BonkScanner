@@ -126,7 +126,7 @@
     "AUTO_START_RECORDING": false,
     "OVERLAY": {
         "schema_version": 4,
-        "enabled": false,
+        "enabled": true,
         "host": "127.0.0.1",
         "port": 17845,
         "template": "compact",
@@ -155,8 +155,8 @@
                 "order": 50,
                 "background_opacity": 0.0,
                 "show_border": true,
-                "x": 15,
-                "y": 659,
+                "x": 0,
+                "y": 657,
                 "width": 193,
                 "height": 150
             },
@@ -180,7 +180,7 @@
                 "background_opacity": 0.4,
                 "show_border": false,
                 "show_header": false,
-                "x": 1539,
+                "x": 1581,
                 "y": 394,
                 "scale": 1.2,
                 "width": 329,
@@ -195,11 +195,11 @@
                 "background_opacity": 0.4,
                 "show_border": true,
                 "show_header": true,
-                "x": 256,
-                "y": 699,
+                "x": 194,
+                "y": 661,
                 "scale": 0.8,
-                "width": 304,
-                "height": 161
+                "width": 292,
+                "height": 160
             },
             {
                 "id": "run_timer",

@@ -35,7 +35,11 @@ def _get_windows_credential() -> str:
         cred = win32cred.CredRead(CREDENTIAL_TARGET, win32cred.CRED_TYPE_GENERIC)
         blob = cred.get("CredentialBlob", b"")
         if isinstance(blob, bytes):
-            return blob.decode("utf-8")
+            # If stored as string, it's UTF-16LE, which has null bytes between ASCII chars.
+            # If stored as bytes, it's UTF-8. 
+            # Easiest safe way for ASCII tokens is to decode utf-8 and strip null bytes.
+            token_str = blob.decode("utf-8", errors="ignore")
+            return token_str.replace("\x00", "")
         return str(blob or "")
     except Exception:
         return ""
@@ -52,7 +56,7 @@ def _set_windows_credential(token: str) -> bool:
                 "Type": win32cred.CRED_TYPE_GENERIC,
                 "TargetName": CREDENTIAL_TARGET,
                 "UserName": CREDENTIAL_USERNAME,
-                "CredentialBlob": token.encode("utf-8"),
+                "CredentialBlob": token,
                 "Persist": win32cred.CRED_PERSIST_LOCAL_MACHINE,
             },
             0,
