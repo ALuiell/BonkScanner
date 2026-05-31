@@ -100,6 +100,9 @@ DEFAULT_TWITCH_BOT = {
 }
 
 
+PATREON_SUPPORT_URL = "https://www.patreon.com/cw/ALuiel"
+KOFI_SUPPORT_URL = "https://ko-fi.com/s/34dc062a82"
+
 # ==========================================
 # GAME CONFIG PARSER
 # ==========================================

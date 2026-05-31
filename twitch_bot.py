@@ -110,7 +110,7 @@ class TwitchBotWorker(QThread):
     def _send(self, msg: str):
         if self.sock:
             try:
-                self.sock.sendall(f"{msg}\r\n".encode("utf-8"))
+                self.sock.send(f"{msg}\r\n".encode("utf-8"))
             except:
                 pass
 
@@ -176,7 +176,7 @@ class TwitchBotWorker(QThread):
             self._handle_stages(channel)
             handled = True
         elif cmd == "!scanner" and commands_cfg.get("scanner", True):
-            self._send_chat(channel, "This channel is using BonkScanner for live gameplay stats tracking! Download it here: https://www.patreon.com/posts/bonkscanner-158115804 | Try !stats, !bans, !items, !weapons, !tomes, !stages.")
+            self._send_chat(channel, f"This channel is using BonkScanner for live gameplay stats tracking! Download it here: {config.PATREON_SUPPORT_URL} | Try !stats, !bans, !items, !weapons, !tomes, !stages.")
             handled = True
 
         if handled:

@@ -66,6 +66,17 @@ class TrackedItemEvent:
     captured_at: float
 
 
+@dataclass(frozen=True)
+class LiveRunTrackerState:
+    status: str
+    updated_at: float
+    run_id: str | None
+    current_stage_index: int
+    latest_snapshot: LiveRunSnapshot | None
+    tracked_items: list[dict[str, Any]]
+    stage_summary: list[dict[str, Any]]
+
+
 DEFAULT_TRACKED_ITEM_RULES: tuple[TrackedItemRule, ...] = (
     TrackedItemRule(
         id="anvils_map_1",
@@ -187,12 +198,32 @@ class LiveRunTracker:
         The result is cached to avoid double calculation in the same update tick,
         and returned as a deep copy to prevent mutation bugs by callers.
         """
+        return self._stage_summary_rows_unlocked()
+
+    @with_lock
+    def tracked_item_rows(self) -> list[dict[str, Any]]:
+        return self._tracked_item_rows_unlocked()
+
+    @with_lock
+    def state_snapshot(self) -> LiveRunTrackerState:
+        """Return a coherent tracker view for consumers that need multiple fields."""
+        now = self.clock()
+        return LiveRunTrackerState(
+            status=self._status_unlocked(now),
+            updated_at=now,
+            run_id=self.run_id,
+            current_stage_index=self.current_stage_index,
+            latest_snapshot=self.snapshots[-1] if self.snapshots else None,
+            tracked_items=self._tracked_item_rows_unlocked(),
+            stage_summary=self._stage_summary_rows_unlocked(),
+        )
+
+    def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:
         if self._cached_stage_summary is None:
             self._cached_stage_summary = run_summary.build_stage_summary(tuple(self.snapshots))
         return copy.deepcopy(self._cached_stage_summary)
 
-    @with_lock
-    def tracked_item_rows(self) -> list[dict[str, Any]]:
+    def _tracked_item_rows_unlocked(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for rule in self.tracked_item_rules:
             rows.append(
@@ -217,6 +248,9 @@ class LiveRunTracker:
     @with_lock
     def status(self) -> str:
         now = self.clock()
+        return self._status_unlocked(now)
+
+    def _status_unlocked(self, now: float) -> str:
         if not self.snapshots:
             return "no_game" if self._last_no_game_at is not None else "waiting"
         if self._last_no_game_at is not None:

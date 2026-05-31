@@ -43,21 +43,21 @@ class OverlayState:
 
 def build_overlay_state(tracker: LiveRunTracker, overlay_config: dict[str, Any] | None = None) -> dict[str, Any]:
     overlay_config = overlay_config or {}
-    snapshot = tracker.latest_snapshot()
-    status = tracker.status()
+    tracker_state = tracker.state_snapshot()
+    snapshot = tracker_state.latest_snapshot
     widgets = _widget_config_by_id(overlay_config)
     state = OverlayState(
-        status=status,
-        updated_at=tracker.clock(),
-        run_id=tracker.run_id,
-        current_stage=tracker.current_stage_index,
+        status=tracker_state.status,
+        updated_at=tracker_state.updated_at,
+        run_id=tracker_state.run_id,
+        current_stage=tracker_state.current_stage_index,
         run_timer_label=_format_timer(getattr(snapshot, "game_time_seconds", None)),
         mob_kills=_coerce_optional_int(getattr(snapshot, "mob_kills", None)),
         player_level=_coerce_optional_int(getattr(snapshot, "player_level", None)),
         chests_per_minute=_coerce_optional_float(getattr(snapshot, "chests_per_minute", None)),
         widgets=widgets,
-        tracked_items=tracker.tracked_item_rows(),
-        stage_summary=_overlay_stage_summary_rows(tracker.stage_summary_rows()),
+        tracked_items=tracker_state.tracked_items,
+        stage_summary=_overlay_stage_summary_rows(tracker_state.stage_summary),
     )
     data = state.to_dict()
     data["template"] = str(overlay_config.get("template") or "compact")

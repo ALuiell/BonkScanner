@@ -53,8 +53,8 @@ from PySide6.QtWidgets import (
 import config
 import updater
 
-PATREON_SUPPORT_URL = "https://www.patreon.com/posts/bonkscanner-158115804?source=storefront"
-KOFI_SUPPORT_URL = "https://ko-fi.com/s/34dc062a82"
+PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
+KOFI_SUPPORT_URL = config.KOFI_SUPPORT_URL
 PATREON_ICON_PATH = "media/patreon_logo.svg"
 KOFI_ICON_PATH = "media/kofi_logo.svg"
 
