@@ -6,6 +6,7 @@ import time
 from typing import Any, Callable, Iterable
 from uuid import uuid4
 
+import copy
 import threading
 from functools import wraps
 
@@ -104,10 +105,12 @@ class LiveRunTracker:
         self._tracked_events: list[TrackedItemEvent] = []
         self._tracked_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
         self._unknown_starting_inventory: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
+        self._cached_stage_summary: list[dict[str, Any]] | None = None
         self._lock = threading.RLock()
 
     @with_lock
     def update(self, snapshot: LiveRunSnapshot) -> None:
+        self._cached_stage_summary = None
         now = self.clock()
         self._last_update_at = now
         self._last_failed_at = None
@@ -178,8 +181,15 @@ class LiveRunTracker:
         self.current_stage_index = previous_stage_index
 
     @with_lock
-    def stage_summary_rows(self) -> list[dict[str, str]]:
-        return run_summary.build_stage_summary(tuple(self.snapshots))
+    def stage_summary_rows(self) -> list[dict[str, Any]]:
+        """
+        Returns a summary of stages in the current run.
+        The result is cached to avoid double calculation in the same update tick,
+        and returned as a deep copy to prevent mutation bugs by callers.
+        """
+        if self._cached_stage_summary is None:
+            self._cached_stage_summary = run_summary.build_stage_summary(tuple(self.snapshots))
+        return copy.deepcopy(self._cached_stage_summary)
 
     @with_lock
     def tracked_item_rows(self) -> list[dict[str, Any]]:
@@ -220,6 +230,7 @@ class LiveRunTracker:
         self.snapshots.clear()
         self.current_stage_index = 1
         self._reset_tracking_only()
+        self._cached_stage_summary = None
 
     def _reset_tracking_only(self) -> None:
         self._previous_item_counts = None
