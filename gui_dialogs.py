@@ -1127,9 +1127,6 @@ class TwitchCommandSettingsDialog(QDialog):
             ("items", "!items / !tracked:", "Items ({count}): {items}", "Tags: {count}, {items} (automatically collapsed if too long)"),
             ("weapons", "!weapons:", "Weapons: {weapons}", "Tags: {weapons}"),
             ("tomes", "!tomes:", "Tomes: {tomes}", "Tags: {tomes}"),
-            ("stages", "!stages:", "{stages}", "Tags: {stages}"),
-            ("stage_announcement", "Stage Transition (detailed):", "🚩 Stage {stage} completed! ...", "Tags: {stage}, {kills}, {time}, {next_stage}"),
-            ("stage_announcement_simple", "Stage Transition (simple):", "🚩 Moving to Stage {next_stage}! 🚩", "Tags: {next_stage}"),
         ]
 
         for key, label_text, default_val, help_text in templates_config:
@@ -1144,6 +1141,37 @@ class TwitchCommandSettingsDialog(QDialog):
             entry_layout.addWidget(help_lbl)
 
             others_form.addRow(label_text, entry_layout)
+
+        # Horizontal separator divider between commands and announcements
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setFrameShadow(QFrame.Sunken)
+        divider.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 12px 0px;")
+        others_form.addRow(divider)
+
+        # Announcements templates
+        announcements_label = QLabel("<b>Automatic Announcements</b>")
+        announcements_label.setStyleSheet("color: #F3F4F6; margin-bottom: 4px;")
+        others_form.addRow(announcements_label)
+
+        # stage_announcement field
+        stage_ann_val = config.TWITCH_BOT.get("templates", {}).get(
+            "stage_announcement",
+            "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩"
+        )
+        stage_ann_entry = QLineEdit(stage_ann_val)
+        self.templates_entries["stage_announcement"] = stage_ann_entry
+
+        stage_ann_layout = QVBoxLayout()
+        stage_ann_layout.addWidget(stage_ann_entry)
+        stage_ann_help = QLabel(
+            "<span style='color: #9CA3AF; font-size: 11px;'>"
+            "Tags: {stage}, {kills}, {time}, {next_stage}"
+            "</span>"
+        )
+        stage_ann_help.setWordWrap(True)
+        stage_ann_layout.addWidget(stage_ann_help)
+        others_form.addRow("Stage Transition:", stage_ann_layout)
 
         scroll_layout.addWidget(others_group)
         scroll_layout.addSpacing(15)
@@ -1221,9 +1249,7 @@ class TwitchCommandSettingsDialog(QDialog):
             "items": "Items ({count}): {items}",
             "weapons": "Weapons: {weapons}",
             "tomes": "Tomes: {tomes}",
-            "stages": "{stages}",
-            "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
-            "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
+            "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩"
         }
         for key, entry in self.templates_entries.items():
             entry.setText(defaults.get(key, ""))
