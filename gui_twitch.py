@@ -11,6 +11,7 @@ class TwitchBotMixin:
 
         self.twitch_connect_btn.clicked.connect(self.start_twitch_auth)
         self.twitch_bot_toggle_btn.clicked.connect(self.toggle_twitch_bot)
+        self.twitch_command_settings_btn.clicked.connect(self.open_twitch_command_settings_dialog)
 
         token = get_twitch_oauth_token()
 
@@ -161,3 +162,8 @@ class TwitchBotMixin:
     def _is_twitch_bot_active(self) -> bool:
         worker = getattr(self, "twitch_bot_worker", None)
         return worker is not None and worker.isRunning()
+
+    def open_twitch_command_settings_dialog(self):
+        from gui_dialogs import TwitchCommandSettingsDialog
+        dialog = TwitchCommandSettingsDialog(self.window)
+        dialog.exec()

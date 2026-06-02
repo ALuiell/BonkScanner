@@ -81,6 +81,14 @@ DEFAULT_OVERLAY = {
     },
 }
 
+ALL_STAT_LABELS = [
+    "Max HP", "HP Regen", "Overheal", "Shield", "Armor", "Evasion", "Lifesteal", "Thorns",
+    "Damage", "Crit Chance", "Crit Damage", "Attack Speed", "Projectile Count", "Projectile Bounces",
+    "Size", "Projectile Speed", "Duration", "Damage to Elites", "Knockback", "Movement Speed",
+    "Extra Jumps", "Jump Height", "Luck", "Difficulty",
+    "Pickup Range", "XP Gain", "Gold Gain", "Elite Spawn Increase", "Powerup Multiplier", "Powerup Drop Chance"
+]
+
 DEFAULT_TWITCH_BOT = {
     "enabled": False,
     "username": "",
@@ -96,8 +104,25 @@ DEFAULT_TWITCH_BOT = {
         "tomes": True,
         "stages": True,
         "scanner": True
+    },
+    "selected_stats": [
+        "Damage", "XP Gain", "Luck", "Difficulty",
+        "Powerup Drop Chance", "Elite Spawn Increase",
+        "Powerup Multiplier", "Size"
+    ],
+    "templates": {
+        "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
+        "bans": "Bans ({count}): {items}",
+        "items": "Items ({count}): {items}",
+        "weapons": "Weapons: {weapons}",
+        "tomes": "Tomes: {tomes}",
+        "stages": "{stages}",
+        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages.",
+        "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
+        "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
     }
 }
+
 
 
 PATREON_SUPPORT_URL = "https://www.patreon.com/cw/ALuiel"
@@ -334,6 +359,25 @@ def normalize_twitch_bot_config(value):
     for cmd in DEFAULT_TWITCH_BOT["commands"]:
         bot_cfg["commands"][cmd] = bool(bot_cfg["commands"].get(cmd, True))
         
+    # Normalize selected_stats
+    if not isinstance(bot_cfg.get("selected_stats"), list):
+        bot_cfg["selected_stats"] = list(DEFAULT_TWITCH_BOT["selected_stats"])
+    else:
+        allowed_stats = set(ALL_STAT_LABELS)
+        bot_cfg["selected_stats"] = [
+            str(stat) for stat in bot_cfg["selected_stats"] if str(stat) in allowed_stats
+        ]
+        if not bot_cfg["selected_stats"]:
+            bot_cfg["selected_stats"] = list(DEFAULT_TWITCH_BOT["selected_stats"])
+
+    # Normalize templates
+    if not isinstance(bot_cfg.get("templates"), dict):
+        bot_cfg["templates"] = dict(DEFAULT_TWITCH_BOT["templates"])
+    else:
+        bot_cfg["templates"] = _merge_dict_defaults(bot_cfg["templates"], DEFAULT_TWITCH_BOT["templates"])
+        for k in DEFAULT_TWITCH_BOT["templates"]:
+            bot_cfg["templates"][k] = str(bot_cfg["templates"].get(k, DEFAULT_TWITCH_BOT["templates"][k]))
+
     return bot_cfg
 
 

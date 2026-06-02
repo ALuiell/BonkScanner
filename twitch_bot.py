@@ -2,9 +2,17 @@ import socket
 import ssl
 import time
 import re
+import string
 from PySide6.QtCore import QThread, Signal
 import config
 from twitch_credentials import get_twitch_oauth_token
+
+
+class SafeFormatter(string.Formatter):
+    def get_value(self, key, args, kwargs):
+        if isinstance(key, str):
+            return kwargs.get(key, "--")
+        return super().get_value(key, args, kwargs)
 
 
 class TwitchBotWorker(QThread):
@@ -26,7 +34,7 @@ class TwitchBotWorker(QThread):
         bot_cfg = config.TWITCH_BOT
         username = bot_cfg.get("username", "").lower()
         token = get_twitch_oauth_token()
-        
+
         if not username or not token:
             self.status_updated.emit("Error: Missing credentials")
             self.running = False
@@ -35,7 +43,7 @@ class TwitchBotWorker(QThread):
         import time
         while self.running:
             self.status_updated.emit("Connecting to Twitch...")
-            
+
             try:
                 raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 raw_sock.settimeout(10.0)
@@ -69,7 +77,7 @@ class TwitchBotWorker(QThread):
 
                     if not data:
                         break
-                    
+
                     buffer += data.decode("utf-8", errors="replace")
                     lines = buffer.split("\r\n")
                     buffer = lines.pop()
@@ -85,14 +93,14 @@ class TwitchBotWorker(QThread):
             except Exception as e:
                 self.log_message.emit(f"Bot exception: {e}")
                 self.status_updated.emit(f"Error: {e}")
-            
+
             if self.sock:
                 try:
                     self.sock.close()
                 except:
                     pass
             self.sock = None
-            
+
             if self.running:
                 self.log_message.emit("Reconnecting in 2 seconds...")
                 self.status_updated.emit("Reconnecting...")
@@ -121,7 +129,7 @@ class TwitchBotWorker(QThread):
         encoded_msg = msg.encode("utf-8")
         if len(encoded_msg) > max_msg_bytes:
             msg = encoded_msg[:max_msg_bytes].decode("utf-8", errors="ignore")
-            
+
         self._send(f"PRIVMSG #{channel} :{msg}")
         self.log_message.emit(f"Bot: {msg}")
 
@@ -136,7 +144,7 @@ class TwitchBotWorker(QThread):
 
         tags_str, sender, msg_channel, message = match.groups()
         message = message.strip()
-        
+
         if not message.startswith("!"):
             return
 
@@ -146,7 +154,7 @@ class TwitchBotWorker(QThread):
         now = time.time()
         global_cooldown = config.TWITCH_BOT.get("global_cooldown_seconds", 1)
         command_cooldown = config.TWITCH_BOT.get("cooldown_seconds", 5)
-        
+
         cmd = message.split()[0].lower()
         time_since_global = now - self.last_global_command_time
         time_since_cmd = now - self.last_command_times.get(cmd, 0.0)
@@ -176,7 +184,7 @@ class TwitchBotWorker(QThread):
             self._handle_stages(channel)
             handled = True
         elif cmd == "!scanner" and commands_cfg.get("scanner", True):
-            self._send_chat(channel, f"This channel is using BonkScanner for live gameplay stats tracking! Download it here: {config.PATREON_SUPPORT_URL} | Try !stats, !bans, !items, !weapons, !tomes, !stages.")
+            self._handle_scanner(channel)
             handled = True
 
         if handled:
@@ -193,7 +201,7 @@ class TwitchBotWorker(QThread):
 
         tags = dict(part.split("=", 1) if "=" in part else (part, "") for part in tags_str.split(";"))
         badges = tags.get("badges", "")
-        
+
         is_broadcaster = "broadcaster/" in badges
         is_mod = "moderator/" in badges
         is_vip = "vip/" in badges
@@ -215,6 +223,19 @@ class TwitchBotWorker(QThread):
             return getattr(stats[key], "display_value", "--")
         return "--"
 
+    def _format_template(self, template_key: str, default_template: str, **kwargs) -> str:
+        templates = config.TWITCH_BOT.get("templates", {})
+        tpl = templates.get(template_key, default_template)
+        if not tpl:
+            tpl = default_template
+        try:
+            return SafeFormatter().format(tpl, **kwargs)
+        except Exception as e:
+            try:
+                return SafeFormatter().format(default_template, **kwargs)
+            except Exception:
+                return f"Formatting error in '{template_key}' template: {e}"
+
     def _handle_stats(self, channel: str):
         snap = self.run_tracker.latest_snapshot()
         if not snap:
@@ -222,27 +243,77 @@ class TwitchBotWorker(QThread):
             return
 
         s = snap.stats
-        parts = [
-            f"DMG: {self._stat_val(s, 'Damage')}",
-            f"XP: {self._stat_val(s, 'XP Gain')}",
-            f"Luck: {self._stat_val(s, 'Luck')}",
-            f"Diff: {self._stat_val(s, 'Difficulty')}",
-            f"PDC: {self._stat_val(s, 'Powerup Drop Chance')}",
-            f"ESI: {self._stat_val(s, 'Elite Spawn Increase')}",
-            f"PM: {self._stat_val(s, 'Powerup Multiplier')}",
-            f"Size: {self._stat_val(s, 'Size')}",
-        ]
-        self._send_chat(channel, "Live Stats: " + " | ".join(parts))
+        stats_data = {}
+        for name in s:
+            stats_data[name] = self._stat_val(s, name)
+
+        stat_abbrevs = {
+            "Max HP": "HP",
+            "HP Regen": "Regen",
+            "Overheal": "Overheal",
+            "Shield": "Shield",
+            "Armor": "Armor",
+            "Evasion": "Evasion",
+            "Lifesteal": "Lifesteal",
+            "Thorns": "Thorns",
+            "Damage": "DMG",
+            "Crit Chance": "Crit",
+            "Crit Damage": "CritDMG",
+            "Attack Speed": "AS",
+            "Projectile Count": "Proj",
+            "Projectile Bounces": "Bounces",
+            "Size": "Size",
+            "Projectile Speed": "ProjSpeed",
+            "Duration": "Dur",
+            "Damage to Elites": "EliteDMG",
+            "Knockback": "KB",
+            "Movement Speed": "MS",
+            "Extra Jumps": "Jumps",
+            "Jump Height": "JumpHeight",
+            "Luck": "Luck",
+            "Difficulty": "Diff",
+            "Pickup Range": "Pickup",
+            "XP Gain": "XP",
+            "Gold Gain": "Gold",
+            "Elite Spawn Increase": "ESI",
+            "Powerup Multiplier": "PM",
+            "Powerup Drop Chance": "PDC",
+        }
+
+        # Populate short abbreviations in stats_data
+        for name, abbrev in stat_abbrevs.items():
+            stats_data[abbrev] = stats_data.get(name, "--")
+
+        selected = config.TWITCH_BOT.get("selected_stats", [])
+        if not selected:
+            selected = ["Damage", "XP Gain", "Luck", "Difficulty", "Powerup Drop Chance", "Elite Spawn Increase", "Powerup Multiplier", "Size"]
+
+        parts = [f"{stat_abbrevs.get(name, name)}: {stats_data.get(name, '--')}" for name in selected]
+        stats_data["stats"] = " | ".join(parts)
+
+        msg = self._format_template(
+            "stats",
+            "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
+            **stats_data
+        )
+        if len(msg) > 450:
+            msg = msg[:447] + "..."
+        self._send_chat(channel, msg)
 
     def _handle_bans(self, channel: str):
         snap = self.run_tracker.latest_snapshot()
         if not snap or not snap.banishes:
             self._send_chat(channel, "No banished items.")
             return
-            
+
         banish_list = ", ".join(snap.banishes)
         count = len(snap.banishes)
-        text = f"Bans ({count}): {banish_list}"
+        text = self._format_template(
+            "bans",
+            "Bans ({count}): {items}",
+            count=count,
+            items=banish_list
+        )
         if len(text) > 450:
             text = text[:447] + "..."
         self._send_chat(channel, text)
@@ -271,7 +342,7 @@ class TwitchBotWorker(QThread):
             name, suffix = split_item_stack_suffix(item_str)
             norm_name = normalize_item_name_for_rarity(name)
             rarity = ITEM_RARITY_BY_NAME.get(norm_name, "UNKNOWN")
-            
+
             item_entry = {"name": name, "suffix": suffix, "full_str": item_str}
             if rarity == "LEGENDARY":
                 legendary_items.append(item_entry)
@@ -293,10 +364,17 @@ class TwitchBotWorker(QThread):
         all_ordered = legendary_items + rare_items + uncommon_items + common_items + unknown_items
         full_list = [x["full_str"] for x in all_ordered]
         total_unique = len(items_list)
-        prefix = f"Items ({total_unique}): "
+
+        def get_formatted_text(items_str: str) -> str:
+            return self._format_template(
+                "items",
+                "Items ({count}): {items}",
+                count=total_unique,
+                items=items_str
+            )
 
         # Try fully expanded
-        full_text = prefix + ", ".join(full_list)
+        full_text = get_formatted_text(", ".join(full_list))
         if len(full_text) <= 450:
             self._send_chat(channel, full_text)
             return
@@ -306,7 +384,7 @@ class TwitchBotWorker(QThread):
         if collapsed_count > 0:
             collapse_str = f"+{collapsed_count} Common"
             parts = [x["full_str"] for x in legendary_items + rare_items + uncommon_items] + [collapse_str]
-            text = prefix + ", ".join(parts)
+            text = get_formatted_text(", ".join(parts))
             if len(text) <= 450:
                 self._send_chat(channel, text)
                 return
@@ -318,7 +396,7 @@ class TwitchBotWorker(QThread):
             parts.append(f"+{uncommon_count} Uncommon")
         if collapsed_count > 0:
             parts.append(f"+{collapsed_count} Common")
-        text = prefix + ", ".join(parts)
+        text = get_formatted_text(", ".join(parts))
         if len(text) <= 450:
             self._send_chat(channel, text)
             return
@@ -332,7 +410,7 @@ class TwitchBotWorker(QThread):
             parts.append(f"+{uncommon_count} Uncommon")
         if collapsed_count > 0:
             parts.append(f"+{collapsed_count} Common")
-        text = prefix + ", ".join(parts)
+        text = get_formatted_text(", ".join(parts))
         if len(text) > 450:
             text = text[:447] + "..."
         self._send_chat(channel, text)
@@ -352,10 +430,14 @@ class TwitchBotWorker(QThread):
                 parts.append(f"{w.name} Lv{w.level} [{', '.join(stat_parts)}]")
             else:
                 parts.append(f"{w.name} Lv{w.level}")
-        text = " | ".join(parts)
+        text = self._format_template(
+            "weapons",
+            "Weapons: {weapons}",
+            weapons=" | ".join(parts)
+        )
         if len(text) > 450:
             text = text[:447] + "..."
-        self._send_chat(channel, f"Weapons: {text}")
+        self._send_chat(channel, text)
 
     def _handle_tomes(self, channel: str):
         snap = self.run_tracker.latest_snapshot()
@@ -371,10 +453,14 @@ class TwitchBotWorker(QThread):
                 parts.append(f"{t.name} Lv{t.level} ({t.display_value})")
             else:
                 parts.append(f"{t.name} Lv{t.level}")
-        text = ", ".join(parts)
+        text = self._format_template(
+            "tomes",
+            "Tomes: {tomes}",
+            tomes=", ".join(parts)
+        )
         if len(text) > 450:
             text = text[:447] + "..."
-        self._send_chat(channel, f"Tomes: {text}")
+        self._send_chat(channel, text)
 
     def _handle_stages(self, channel: str):
         rows = self.run_tracker.stage_summary_rows()
@@ -394,7 +480,21 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, "No stage data recorded yet.")
             return
 
-        text = " | ".join(parts)
+        text = self._format_template(
+            "stages",
+            "{stages}",
+            stages=" | ".join(parts)
+        )
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, text)
+
+    def _handle_scanner(self, channel: str):
+        text = self._format_template(
+            "scanner",
+            "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages.",
+            patreon_url=config.PATREON_SUPPORT_URL
+        )
         if len(text) > 450:
             text = text[:447] + "..."
         self._send_chat(channel, text)
@@ -424,12 +524,19 @@ class TwitchBotWorker(QThread):
             if prev_row:
                 kills = prev_row.get("kills", "--")
                 time_val = prev_row.get("time", "--")
-                self._send_chat(
-                    channel,
-                    f"🚩 Stage {prev_stage} completed! Kills: {kills} | Time: {time_val}. Moving to Stage {stage_index}! 🚩"
+                msg = self._format_template(
+                    "stage_announcement",
+                    "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
+                    stage=prev_stage,
+                    kills=kills,
+                    time=time_val,
+                    next_stage=stage_index
                 )
+                self._send_chat(channel, msg)
             else:
-                self._send_chat(
-                    channel,
-                    f"🚩 Moving to Stage {stage_index}! 🚩"
+                msg = self._format_template(
+                    "stage_announcement_simple",
+                    "🚩 Moving to Stage {next_stage}! 🚩",
+                    next_stage=stage_index
                 )
+                self._send_chat(channel, msg)

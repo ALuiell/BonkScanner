@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
+    QScrollArea,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -49,6 +50,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QDoubleSpinBox,
 )
+from player_stats import PLAYER_STAT_GROUPS
 
 import config
 import updater
@@ -1046,3 +1048,200 @@ class SettingsDialog(QDialog):
             self.accept()
         elif hasattr(self, "destroy"):
             self.destroy()
+
+
+class TwitchCommandSettingsDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("Twitch Command Settings")
+        self.resize(550, 650)
+        self.setModal(True)
+
+        self.stat_checkboxes: dict[str, QCheckBox] = {}
+        self.templates_entries: dict[str, QLineEdit] = {}
+        self._init_guard = True
+
+        outer_layout = QVBoxLayout(self)
+        scroll, scroll_content, scroll_layout = _make_scroll_section()
+        outer_layout.addWidget(scroll, 1)
+
+        # 1. Stats Customization
+        stats_group = QGroupBox("!stats Command")
+        stats_layout = QVBoxLayout(stats_group)
+        stats_layout.addWidget(QLabel("Select which stats appear in the {stats} placeholder:"))
+
+        # Horizontal Scroll Area for all 30 stats checkboxes
+        stats_scroll = QScrollArea()
+        stats_scroll.setWidgetResizable(True)
+        stats_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        stats_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        stats_scroll.setFixedHeight(120)
+
+        stats_scroll_content = QWidget()
+        scroll_grid = QGridLayout(stats_scroll_content)
+        scroll_grid.setContentsMargins(5, 5, 5, 5)
+        scroll_grid.setSpacing(10)
+
+        all_stats = [spec.label for group in PLAYER_STAT_GROUPS for spec in group]
+        selected_stats = set(config.TWITCH_BOT.get("selected_stats", config.DEFAULT_TWITCH_BOT["selected_stats"]))
+
+        num_rows = 3
+        for index, label in enumerate(all_stats):
+            checkbox = QCheckBox(label)
+            checkbox.setChecked(label in selected_stats)
+            checkbox.stateChanged.connect(self.on_stat_toggled)
+            self.stat_checkboxes[label] = checkbox
+
+            row = index % num_rows
+            col = index // num_rows
+            scroll_grid.addWidget(checkbox, row, col)
+
+        stats_scroll.setWidget(stats_scroll_content)
+        stats_layout.addWidget(stats_scroll)
+        stats_layout.addSpacing(10)
+
+        stats_form = QFormLayout()
+        stats_tpl_val = config.TWITCH_BOT.get("templates", {}).get("stats", "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
+        self.stats_tpl_entry = QLineEdit(stats_tpl_val)
+        stats_form.addRow("Response template:", self.stats_tpl_entry)
+        stats_layout.addLayout(stats_form)
+
+        stats_help = QLabel(
+            "<span style='color: #9CA3AF; font-size: 11px;'>"
+            "Available tags: <b>{stats}</b> (auto-generated list of checked stats above), "
+            "<b>{Damage}</b>, <b>{XP Gain}</b>, <b>{Luck}</b>, <b>{Difficulty}</b>, <b>{Size}</b>, etc."
+            "</span>"
+        )
+        stats_help.setWordWrap(True)
+        stats_layout.addWidget(stats_help)
+
+        scroll_layout.addWidget(stats_group)
+        scroll_layout.addSpacing(10)
+
+        # 2. Other Commands
+        others_group = QGroupBox("Other Command Templates")
+        others_form = QFormLayout(others_group)
+
+        templates_config = [
+            ("bans", "!bans / !banishes:", "Bans ({count}): {items}", "Tags: {count}, {items}"),
+            ("items", "!items / !tracked:", "Items ({count}): {items}", "Tags: {count}, {items} (automatically collapsed if too long)"),
+            ("weapons", "!weapons:", "Weapons: {weapons}", "Tags: {weapons}"),
+            ("tomes", "!tomes:", "Tomes: {tomes}", "Tags: {tomes}"),
+            ("stages", "!stages:", "{stages}", "Tags: {stages}"),
+            ("stage_announcement", "Stage Transition (detailed):", "🚩 Stage {stage} completed! ...", "Tags: {stage}, {kills}, {time}, {next_stage}"),
+            ("stage_announcement_simple", "Stage Transition (simple):", "🚩 Moving to Stage {next_stage}! 🚩", "Tags: {next_stage}"),
+        ]
+
+        for key, label_text, default_val, help_text in templates_config:
+            current_val = config.TWITCH_BOT.get("templates", {}).get(key, default_val)
+            entry = QLineEdit(current_val)
+            self.templates_entries[key] = entry
+
+            entry_layout = QVBoxLayout()
+            entry_layout.addWidget(entry)
+            help_lbl = QLabel(f"<span style='color: #9CA3AF; font-size: 11px;'>{help_text}</span>")
+            help_lbl.setWordWrap(True)
+            entry_layout.addWidget(help_lbl)
+
+            others_form.addRow(label_text, entry_layout)
+
+        scroll_layout.addWidget(others_group)
+        scroll_layout.addSpacing(15)
+
+        # 3. Action Buttons
+        button_row = QHBoxLayout()
+        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.setObjectName("DangerButton")
+        reset_btn.clicked.connect(self.reset_to_defaults)
+
+        save_btn = QPushButton("Save Settings")
+        save_btn.setObjectName("SuccessButton")
+        save_btn.clicked.connect(self.save)
+
+        button_row.addWidget(reset_btn)
+        button_row.addStretch(1)
+        button_row.addWidget(save_btn)
+
+        scroll_layout.addLayout(button_row)
+        scroll_layout.addStretch(1)
+
+        self._init_guard = False
+
+    def on_stat_toggled(self):
+        if getattr(self, "_init_guard", False):
+            return
+        stat_abbrevs = {
+            "Max HP": "HP",
+            "HP Regen": "Regen",
+            "Overheal": "Overheal",
+            "Shield": "Shield",
+            "Armor": "Armor",
+            "Evasion": "Evasion",
+            "Lifesteal": "Lifesteal",
+            "Thorns": "Thorns",
+            "Damage": "DMG",
+            "Crit Chance": "Crit",
+            "Crit Damage": "CritDMG",
+            "Attack Speed": "AS",
+            "Projectile Count": "Proj",
+            "Projectile Bounces": "Bounces",
+            "Size": "Size",
+            "Projectile Speed": "ProjSpeed",
+            "Duration": "Dur",
+            "Damage to Elites": "EliteDMG",
+            "Knockback": "KB",
+            "Movement Speed": "MS",
+            "Extra Jumps": "Jumps",
+            "Jump Height": "JumpHeight",
+            "Luck": "Luck",
+            "Difficulty": "Diff",
+            "Pickup Range": "Pickup",
+            "XP Gain": "XP",
+            "Gold Gain": "Gold",
+            "Elite Spawn Increase": "ESI",
+            "Powerup Multiplier": "PM",
+            "Powerup Drop Chance": "PDC",
+        }
+        selected = [label for label, cb in self.stat_checkboxes.items() if cb.isChecked()]
+        parts = [f"{stat_abbrevs.get(name, name)}: {{{name}}}" for name in selected]
+        new_tpl = "Live Stats: " + " | ".join(parts)
+        self.stats_tpl_entry.setText(new_tpl)
+
+    def reset_to_defaults(self):
+        self._init_guard = True
+        default_selected = set(config.DEFAULT_TWITCH_BOT["selected_stats"])
+        for label, cb in self.stat_checkboxes.items():
+            cb.setChecked(label in default_selected)
+
+        self.stats_tpl_entry.setText("Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
+
+        defaults = {
+            "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
+            "bans": "Bans ({count}): {items}",
+            "items": "Items ({count}): {items}",
+            "weapons": "Weapons: {weapons}",
+            "tomes": "Tomes: {tomes}",
+            "stages": "{stages}",
+            "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
+            "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
+        }
+        for key, entry in self.templates_entries.items():
+            entry.setText(defaults.get(key, ""))
+        self._init_guard = False
+
+    def save(self):
+        selected_stats = [label for label, cb in self.stat_checkboxes.items() if cb.isChecked()]
+        if not selected_stats:
+            QMessageBox.warning(self, "Invalid Settings", "At least one stat must be selected.")
+            return
+
+        config.TWITCH_BOT["selected_stats"] = selected_stats
+        config.TWITCH_BOT["templates"] = config.TWITCH_BOT.get("templates", {})
+        config.TWITCH_BOT["templates"]["stats"] = self.stats_tpl_entry.text().strip()
+
+        for key, entry in self.templates_entries.items():
+            config.TWITCH_BOT["templates"][key] = entry.text().strip()
+
+        config.user_config["TWITCH_BOT"] = config.TWITCH_BOT
+        config.save_config(config.user_config)
+        self.accept()

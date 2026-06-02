@@ -264,7 +264,7 @@
         "enabled": false,
         "username": "aluielll",
         "access_tier": "Everyone",
-        "global_cooldown_seconds": 1,
+        "global_cooldown_seconds": 0,
         "cooldown_seconds": 5,
         "stage_announcements": true,
         "commands": {
@@ -276,6 +276,27 @@
             "stages": true,
             "scanner": true,
             "banishes": true
+        },
+        "selected_stats": [
+            "Damage",
+            "Size",
+            "Luck",
+            "Difficulty",
+            "XP Gain",
+            "Elite Spawn Increase",
+            "Powerup Multiplier",
+            "Powerup Drop Chance"
+        ],
+        "templates": {
+            "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
+            "bans": "Bans ({count}): {items}",
+            "items": "Items ({count}): {items}",
+            "weapons": "Weapons: {weapons}",
+            "tomes": "Tomes: {tomes}",
+            "stages": "{stages}",
+            "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages.",
+            "stage_announcement": "\ud83d\udea9 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! \ud83d\udea9",
+            "stage_announcement_simple": "\ud83d\udea9 Moving to Stage {next_stage}! \ud83d\udea9"
         }
     }
 }

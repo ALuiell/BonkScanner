@@ -1109,35 +1109,40 @@ class GuiLayoutMixin:
 
     def _build_twitch_bot_tab(self):
         self.tab_twitch = QWidget()
-        twitch_layout = QVBoxLayout(self.tab_twitch)
-        
+        tab_layout = QVBoxLayout(self.tab_twitch)
+        tab_layout.setContentsMargins(0, 0, 0, 0)
+
+        twitch_scroll, _twitch_content, twitch_layout = _make_scroll_section()
+        twitch_layout.setSpacing(10)
+        tab_layout.addWidget(twitch_scroll)
+
         auth_group = QGroupBox("Authentication")
         auth_layout = QVBoxLayout(auth_group)
         self.twitch_auth_status_label = QLabel("<span style='color:#f08b72;'>Not connected</span>")
         self.twitch_auth_status_label.setTextFormat(Qt.RichText)
         auth_layout.addWidget(self.twitch_auth_status_label)
-        
+
         self.twitch_auth_buttons_layout = QHBoxLayout()
         self.twitch_connect_btn = QPushButton("Connect to Twitch")
         self.twitch_connect_btn.setObjectName("TwitchConnectButton")
         self.twitch_auth_buttons_layout.addWidget(self.twitch_connect_btn)
-        
+
         self.twitch_disconnect_btn = QPushButton("Disconnect")
         self.twitch_disconnect_btn.setObjectName("DangerButton")
         self.twitch_disconnect_btn.setVisible(False)
         self.twitch_auth_buttons_layout.addWidget(self.twitch_disconnect_btn)
-        
+
         auth_layout.addLayout(self.twitch_auth_buttons_layout)
         twitch_layout.addWidget(auth_group)
-        
+
         settings_group = QGroupBox("Bot Settings")
         settings_layout = QFormLayout(settings_group)
-        
+
         self.twitch_tier_combo = QComboBox()
         self.twitch_tier_combo.addItems(["Everyone", "Mods & VIPs", "Subs & Mods"])
         self.twitch_tier_combo.setCurrentText(config.TWITCH_BOT.get("access_tier", "Everyone"))
         settings_layout.addRow("Access Tier:", self.twitch_tier_combo)
-        
+
         self.twitch_global_cooldown_spin = QSpinBox()
         self.twitch_global_cooldown_spin.setRange(0, 600)
         self.twitch_global_cooldown_spin.setValue(config.TWITCH_BOT.get("global_cooldown_seconds", 1))
@@ -1149,13 +1154,13 @@ class GuiLayoutMixin:
         self.twitch_cooldown_spin.setValue(config.TWITCH_BOT.get("cooldown_seconds", 5))
         self.twitch_cooldown_spin.setSuffix(" sec")
         settings_layout.addRow("Command Cooldown:", self.twitch_cooldown_spin)
-        
+
         divider_top = QFrame()
         divider_top.setFrameShape(QFrame.HLine)
         divider_top.setFrameShadow(QFrame.Sunken)
         divider_top.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 8px 0px;")
         settings_layout.addRow(divider_top)
-        
+
         self.twitch_cmd_stats_cb = QCheckBox("!stats")
         self.twitch_cmd_stats_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("stats", True))
         self.twitch_cmd_bans_cb = QCheckBox("!bans")
@@ -1172,7 +1177,15 @@ class GuiLayoutMixin:
         self.twitch_cmd_scanner_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("scanner", True))
         self.twitch_stage_announcements_cb = QCheckBox("Announce Stage Transitions")
         self.twitch_stage_announcements_cb.setChecked(config.TWITCH_BOT.get("stage_announcements", True))
-        
+
+        commands_header_layout = QHBoxLayout()
+        commands_header_lbl = QLabel("Configure Commands:")
+        self.twitch_command_settings_btn = QPushButton("Command Settings")
+        commands_header_layout.addWidget(commands_header_lbl)
+        commands_header_layout.addStretch(1)
+        commands_header_layout.addWidget(self.twitch_command_settings_btn)
+        settings_layout.addRow(commands_header_layout)
+
         commands_grid = QGridLayout()
         commands_grid.setSpacing(6)
         commands_grid.addWidget(self.twitch_cmd_stats_cb, 0, 0)
@@ -1181,20 +1194,20 @@ class GuiLayoutMixin:
         commands_grid.addWidget(self.twitch_cmd_weapons_cb, 1, 1)
         commands_grid.addWidget(self.twitch_cmd_tomes_cb, 2, 0)
         commands_grid.addWidget(self.twitch_cmd_stages_cb, 2, 1)
-        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 3, 0)
+        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 3, 0, 1, 2)
 
-        settings_layout.addRow("Commands:", commands_grid)
-        
+        settings_layout.addRow("", commands_grid)
+
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
         divider.setFrameShadow(QFrame.Sunken)
         divider.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 8px 0px;")
         settings_layout.addRow(divider)
-        
+
         settings_layout.addRow("Announcements:", self.twitch_stage_announcements_cb)
-        
+
         twitch_layout.addWidget(settings_group)
-        
+
         control_group = QGroupBox("Control")
         control_layout = QHBoxLayout(control_group)
         self.twitch_bot_toggle_btn = QPushButton("Start Bot")
@@ -1205,6 +1218,6 @@ class GuiLayoutMixin:
         control_layout.addWidget(self.twitch_bot_status_label)
         control_layout.addStretch(1)
         twitch_layout.addWidget(control_group)
-        
+
         twitch_layout.addStretch(1)
         self.tabview.addTab(self.tab_twitch, "Twitch Bot")
