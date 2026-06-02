@@ -2,8 +2,10 @@ import os
 import sys
 import json
 import colorama
+import threading
 
 colorama.init(autoreset=True)
+config_lock = threading.RLock()
 
 # ==========================================
 # CONSTANTS & SETTINGS
@@ -47,6 +49,59 @@ DEFAULT_SCORES_SYSTEM = {
     },
     "active_tiers": ["Light", "Good", "Perfect", "Perfect+"]
 }
+
+DEFAULT_OVERLAY = {
+    "schema_version": 4,
+    "enabled": False,
+    "host": "127.0.0.1",
+    "port": 17845,
+    "template": "compact",
+    "poll_ms": 500,
+    "canvas_width": 1920,
+    "canvas_height": 1080,
+    "widgets": [
+        {"id": "stage_summary", "enabled": True, "mode": "compact", "order": 40, "max_rows": 4, "background_opacity": 0.4, "show_border": True},
+        {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50, "background_opacity": 0.0, "show_border": False},
+        {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False, "show_header": True},
+        {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False, "show_header": True},
+    ],
+    "tracked_items": [
+        {
+            "id": "anvils_map_1",
+            "label": "Anvils Map 1",
+            "item_names": ["Anvil"],
+            "mode": "map_1_only",
+        }
+    ],
+    "style": {
+        "scale": 1.0,
+        "accent_color": "#F6C453",
+        "background_opacity": 0.22,
+        "stage_background_opacity": 0.15,
+    },
+}
+
+DEFAULT_TWITCH_BOT = {
+    "enabled": False,
+    "username": "",
+    "access_tier": "Everyone",
+    "global_cooldown_seconds": 5,
+    "cooldown_seconds": 5,
+    "stage_announcements": True,
+    "commands": {
+        "stats": True,
+        "bans": True,
+        "items": True,
+        "weapons": True,
+        "tomes": True,
+        "stages": True,
+        "scanner": True
+    }
+}
+
+
+PATREON_SUPPORT_URL = "https://www.patreon.com/cw/ALuiel"
+KOFI_SUPPORT_URL = "https://ko-fi.com/s/34dc062a82"
 
 # ==========================================
 # GAME CONFIG PARSER
@@ -171,15 +226,20 @@ def update_game_reset_time(game_val: float):
 config_path = os.path.join(application_path, "config.json")
 
 def load_config():
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    with config_lock:
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
 def save_config(cfg_dict):
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(cfg_dict, f, indent=4)
+    with config_lock:
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(cfg_dict, f, indent=4)
+        except Exception:
+            pass
 
 user_config = load_config()
 
@@ -189,6 +249,129 @@ def coerce_nonnegative_int(value, default=0):
     except (TypeError, ValueError):
         return default
     return max(parsed, 0)
+
+
+def _merge_dict_defaults(value, defaults):
+    result = {}
+    source = value if isinstance(value, dict) else {}
+    for key, default_value in defaults.items():
+        if isinstance(default_value, dict):
+            result[key] = _merge_dict_defaults(source.get(key), default_value)
+        elif isinstance(default_value, list):
+            saved_value = source.get(key)
+            result[key] = saved_value if isinstance(saved_value, list) else list(default_value)
+        else:
+            result[key] = source.get(key, default_value)
+    for key, saved_value in source.items():
+        if key not in result:
+            result[key] = saved_value
+    return result
+
+
+def normalize_overlay_config(value):
+    overlay = _merge_dict_defaults(value, DEFAULT_OVERLAY)
+    saved_schema_version = coerce_nonnegative_int((value or {}).get("schema_version"), 1) if isinstance(value, dict) else 0
+    if saved_schema_version < DEFAULT_OVERLAY["schema_version"]:
+        overlay["style"] = _merge_dict_defaults(overlay.get("style"), DEFAULT_OVERLAY["style"])
+    
+    overlay["widgets"] = _normalize_overlay_widgets(overlay.get("widgets"))
+
+    # We forcefully reset max_rows to 40 for stats and banishes in case they were saved as 8/12 in the past
+    # so that the grid can expand properly without backend limitation.
+    for widget in overlay["widgets"]:
+        if widget.get("id") in {"stats", "banishes"}:
+            if coerce_nonnegative_int(widget.get("max_rows"), 0) < 40:
+                widget["max_rows"] = 40
+
+    # Remove deleted widgets from the normalized list
+    kept_widgets = []
+    for widget in overlay["widgets"]:
+        if widget.get("id") not in {"items", "weapons"}:
+            # Migrate stage_summary background_opacity: CSS previously hardcoded 0.4,
+            # so configs saved with the old default 0.15 never actually displayed at 0.15.
+            if widget.get("id") == "stage_summary" and widget.get("background_opacity") == 0.15:
+                widget["background_opacity"] = 0.4
+            kept_widgets.append(widget)
+    overlay["widgets"] = kept_widgets
+
+    overlay["schema_version"] = DEFAULT_OVERLAY["schema_version"]
+    overlay["enabled"] = bool(overlay.get("enabled", False))
+    overlay["host"] = "127.0.0.1"
+    overlay["template"] = str(overlay.get("template") or "compact")
+    overlay["poll_ms"] = max(250, min(coerce_nonnegative_int(overlay.get("poll_ms"), 500) or 500, 5000))
+    overlay["canvas_width"] = coerce_nonnegative_int(overlay.get("canvas_width"), 1920) or 1920
+    overlay["canvas_height"] = coerce_nonnegative_int(overlay.get("canvas_height"), 1080) or 1080
+    port = coerce_nonnegative_int(overlay.get("port"), DEFAULT_OVERLAY["port"])
+    if port < 1024 or port > 65535:
+        port = DEFAULT_OVERLAY["port"]
+    overlay["port"] = port
+    if not isinstance(overlay.get("tracked_items"), list):
+        overlay["tracked_items"] = list(DEFAULT_OVERLAY["tracked_items"])
+    if not isinstance(overlay.get("style"), dict):
+        overlay["style"] = dict(DEFAULT_OVERLAY["style"])
+    return overlay
+
+
+def normalize_twitch_bot_config(value):
+    bot_cfg = _merge_dict_defaults(value, DEFAULT_TWITCH_BOT)
+    bot_cfg["enabled"] = bool(bot_cfg.get("enabled", False))
+    bot_cfg["username"] = str(bot_cfg.get("username") or "")
+    
+    # Actively cleanse oauth_token from older configs
+    bot_cfg.pop("oauth_token", None)
+    
+    tier = str(bot_cfg.get("access_tier") or "Everyone")
+    if tier not in {"Everyone", "Subs & Mods", "Mods & VIPs"}:
+        tier = "Everyone"
+    bot_cfg["access_tier"] = tier
+    
+    bot_cfg["global_cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("global_cooldown_seconds"), 5))
+    bot_cfg["cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("cooldown_seconds"), 5))
+    bot_cfg["stage_announcements"] = bool(bot_cfg.get("stage_announcements", True))
+    
+    if not isinstance(bot_cfg.get("commands"), dict):
+        bot_cfg["commands"] = dict(DEFAULT_TWITCH_BOT["commands"])
+    for cmd in DEFAULT_TWITCH_BOT["commands"]:
+        bot_cfg["commands"][cmd] = bool(bot_cfg["commands"].get(cmd, True))
+        
+    return bot_cfg
+
+
+
+def _normalize_overlay_widgets(value):
+    default_widgets = [dict(widget) for widget in DEFAULT_OVERLAY["widgets"]]
+    if not isinstance(value, list):
+        return default_widgets
+
+    saved_by_id = {}
+    extra_widgets = []
+    for raw_widget in value:
+        if not isinstance(raw_widget, dict):
+            continue
+        widget_id = str(raw_widget.get("id") or "").strip()
+        if not widget_id:
+            continue
+        widget = dict(raw_widget)
+        widget["id"] = widget_id
+        if widget_id in saved_by_id:
+            saved_by_id[widget_id].update(widget)
+        else:
+            saved_by_id[widget_id] = widget
+
+    normalized = []
+    default_ids = set()
+    for default_widget in default_widgets:
+        widget_id = str(default_widget.get("id") or "")
+        default_ids.add(widget_id)
+        merged = dict(default_widget)
+        merged.update(saved_by_id.get(widget_id, {}))
+        normalized.append(merged)
+
+    for widget_id, widget in saved_by_id.items():
+        if widget_id not in default_ids:
+            extra_widgets.append(widget)
+    normalized.extend(extra_widgets)
+    return normalized
 
 # Migrate from MAP_LOAD_DELAY if MIN_DELAY is not found
 MIN_DELAY = user_config.get("MIN_DELAY", user_config.get("MAP_LOAD_DELAY", 0.3))
@@ -244,6 +427,8 @@ EVALUATION_MODE = user_config.get("EVALUATION_MODE", "templates")
 SCORES_SYSTEM = user_config.get("SCORES_SYSTEM", DEFAULT_SCORES_SYSTEM)
 if not SCORES_SYSTEM:
     SCORES_SYSTEM = DEFAULT_SCORES_SYSTEM
+OVERLAY = normalize_overlay_config(user_config.get("OVERLAY"))
+TWITCH_BOT = normalize_twitch_bot_config(user_config.get("TWITCH_BOT"))
 
 # Populate missing default keys for scores system from older config versions
 for key, value in DEFAULT_SCORES_SYSTEM.items():
@@ -296,6 +481,8 @@ user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
 user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION
 user_config["EVALUATION_MODE"] = EVALUATION_MODE
 user_config["SCORES_SYSTEM"] = SCORES_SYSTEM
+user_config["OVERLAY"] = OVERLAY
+user_config["TWITCH_BOT"] = TWITCH_BOT
 user_config.pop("NATIVE_HOOK_DLL_PATH", None)
 
 

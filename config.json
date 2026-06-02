@@ -109,7 +109,7 @@
     "NATIVE_HOOK_ENABLED": true,
     "TOTAL_REROLLS": 187,
     "PLAYER_STATS_RECORD_HOTKEY": "f8",
-    "PLAYER_STATS_RECORD_INTERVAL_SECONDS": 2,
+    "PLAYER_STATS_RECORD_INTERVAL_SECONDS": 10,
     "GAME_CONTROL_PRESET_1_HOTKEY": "f9",
     "GAME_CONTROL_PRESET_2_HOTKEY": "f10",
     "GAME_CONTROL_PRESET_1": {},
@@ -118,8 +118,164 @@
     "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY": "f9",
     "TOGGLE_PARTICLES_OPACITY_HOTKEY": "f7",
     "COMPARE_RUN_SECTIONS": {
-        "items": true,
+        "items": false,
+        "stage_summary": false,
         "weapons": true,
         "tomes": true
+    },
+    "AUTO_START_RECORDING": false,
+    "OVERLAY": {
+        "schema_version": 4,
+        "enabled": false,
+        "host": "127.0.0.1",
+        "port": 17845,
+        "template": "compact",
+        "poll_ms": 500,
+        "canvas_width": 1920,
+        "canvas_height": 1080,
+        "widgets": [
+            {
+                "id": "stage_summary",
+                "enabled": true,
+                "mode": "compact",
+                "order": 40,
+                "max_rows": 4,
+                "background_opacity": 0.4,
+                "show_border": true,
+                "x": 0,
+                "y": 431,
+                "scale": 1.05,
+                "width": 483,
+                "height": 244
+            },
+            {
+                "id": "tracked_items",
+                "enabled": true,
+                "mode": "compact",
+                "order": 50,
+                "background_opacity": 0.0,
+                "show_border": true,
+                "x": 0,
+                "y": 657,
+                "width": 193,
+                "height": 150
+            },
+            {
+                "id": "stats",
+                "enabled": true,
+                "mode": "compact",
+                "order": 55,
+                "max_rows": 40,
+                "selected_stats": [
+                    "Lifesteal",
+                    "Damage",
+                    "Attack Speed",
+                    "Projectile Count",
+                    "Size",
+                    "Luck",
+                    "Difficulty",
+                    "XP Gain",
+                    "Powerup Drop Chance"
+                ],
+                "background_opacity": 0.4,
+                "show_border": false,
+                "show_header": false,
+                "x": 1597,
+                "y": 396,
+                "scale": 1.15,
+                "width": 329,
+                "height": 276
+            },
+            {
+                "id": "banishes",
+                "enabled": true,
+                "mode": "compact",
+                "order": 80,
+                "max_rows": 40,
+                "background_opacity": 0.4,
+                "show_border": true,
+                "show_header": true,
+                "x": 194,
+                "y": 661,
+                "scale": 0.8,
+                "width": 292,
+                "height": 160
+            },
+            {
+                "id": "run_timer",
+                "enabled": false,
+                "mode": "compact",
+                "order": 10,
+                "background_opacity": 0.0,
+                "show_border": false
+            },
+            {
+                "id": "level",
+                "enabled": false,
+                "mode": "compact",
+                "order": 20,
+                "background_opacity": 0.0,
+                "show_border": false
+            },
+            {
+                "id": "kills",
+                "enabled": false,
+                "mode": "compact",
+                "order": 30,
+                "background_opacity": 0.0,
+                "show_border": false
+            },
+            {
+                "id": "current_stage",
+                "enabled": false,
+                "mode": "compact",
+                "order": 35,
+                "background_opacity": 0.0,
+                "show_border": false
+            }
+        ],
+        "tracked_items": [
+            {
+                "id": "anvil_map_1_only",
+                "item_names": [
+                    "Anvil"
+                ],
+                "label": "Anvil Map 1",
+                "mode": "map_1_only"
+            },
+            {
+                "id": "soulharvester_map_1_only",
+                "item_names": [
+                    "Soul Harvester"
+                ],
+                "label": "Soul Harvester Map 1",
+                "mode": "map_1_only"
+            }
+        ],
+        "style": {
+            "scale": 1.0,
+            "accent_color": "#F6C453",
+            "background_opacity": 0.35,
+            "stage_background_opacity": 0.15
+        }
+    },
+    "SKIP_REROLL_WARNING": false,
+    "TWITCH_BOT": {
+        "enabled": false,
+        "username": "aluielll",
+        "access_tier": "Everyone",
+        "global_cooldown_seconds": 1,
+        "cooldown_seconds": 5,
+        "stage_announcements": true,
+        "commands": {
+            "stats": true,
+            "bans": true,
+            "items": true,
+            "weapons": true,
+            "tomes": true,
+            "stages": true,
+            "scanner": true,
+            "banishes": true
+        }
     }
 }

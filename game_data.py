@@ -18,6 +18,9 @@ class MemoryReader(Protocol):
     def read_i32(self, address: int) -> int:
         ...
 
+    def read_float(self, address: int) -> float:
+        ...
+
     def read_u8(self, address: int) -> int:
         ...
 
@@ -57,16 +60,79 @@ class MapGenerationState:
         return bool(self.current_map_ptr and self.current_stage_ptr)
 
 
+class RuntimeGameMode(Enum):
+    UNKNOWN = "unknown"
+    IN_GAME = "in_game"
+    PAUSED_IN_GAME = "paused_in_game"
+    GAME_OVER = "game_over"
+    MAIN_MENU = "main_menu"
+
+
+@dataclass(frozen=True)
+class RuntimeGameState:
+    mode: RuntimeGameMode = RuntimeGameMode.UNKNOWN
+    game_manager_ptr: int = 0
+    is_playing: bool = False
+    is_game_over: bool = False
+    is_paused: bool = False
+    is_loading: bool = False
+    run_timer_seconds: float | None = None
+    stage_timer_seconds: float | None = None
+    current_map_ptr: int = 0
+    current_stage_ptr: int = 0
+    run_config_ptr: int = 0
+    player_movement_ptr: int = 0
+    music_controller_ptr: int = 0
+    music_current_track_ptr: int = 0
+    music_menu_track_ptr: int = 0
+
+    @property
+    def is_active_run(self) -> bool:
+        return self.mode in {
+            RuntimeGameMode.IN_GAME,
+            RuntimeGameMode.PAUSED_IN_GAME,
+        }
+
+    @property
+    def is_paused_run(self) -> bool:
+        return self.mode is RuntimeGameMode.PAUSED_IN_GAME
+
+    @property
+    def is_main_menu(self) -> bool:
+        return self.mode is RuntimeGameMode.MAIN_MENU
+
+    @property
+    def is_game_over_run(self) -> bool:
+        return self.mode is RuntimeGameMode.GAME_OVER
+
+
 class GameDataClient:
     TYPE_INFO_OFFSET = 0x2FB5E68
+    GAME_MANAGER_TYPE_INFO_OFFSET = 0x2F9C1C0
+    LOADING_SCREEN_TYPE_INFO_OFFSET = 0x2F55E20
     MAP_CONTROLLER_TYPE_INFO_OFFSET = 0x2F58E08
     MAP_GENERATION_CONTROLLER_TYPE_INFO_OFFSET = 0x2F59000
+    MUSIC_CONTROLLER_TYPE_INFO_OFFSET = 0x2F617C8
+    MY_TIME_TYPE_INFO_OFFSET = 0x2F62398
+    PLAYER_MOVEMENT_TYPE_INFO_OFFSET = 0x2F6D670
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
+    GAME_MANAGER_INSTANCE_OFFSET = 0x0
+    GAME_MANAGER_IS_GAME_OVER_OFFSET = 0x74
+    GAME_MANAGER_IS_PLAYING_OFFSET = 0x84
     MAP_CONTROLLER_CURRENT_MAP_OFFSET = 0x10
     MAP_CONTROLLER_CURRENT_STAGE_OFFSET = 0x18
     MAP_CONTROLLER_RESETING_OFFSET = 0x21
+    MAP_CONTROLLER_RUN_CONFIG_OFFSET = 0x30
     MAP_GENERATION_IS_GENERATING_OFFSET = 0x10
     MAP_GENERATION_MAP_SEED_OFFSET = 0x2C
+    LOADING_SCREEN_IS_LOADING_OFFSET = 0x10
+    MY_TIME_PAUSED_OFFSET = 0x0
+    MY_TIME_STAGE_TIMER_OFFSET = 0x1C
+    MY_TIME_RUN_TIMER_OFFSET = 0x20
+    PLAYER_MOVEMENT_INSTANCE_OFFSET = 0x18
+    MUSIC_CONTROLLER_INSTANCE_OFFSET = 0x0
+    MUSIC_CONTROLLER_MENU_TRACK_OFFSET = 0x40
+    MUSIC_CONTROLLER_CURRENT_TRACK_OFFSET = 0x48
     DICT_ENTRIES_OFFSET = 0x18
     DICT_COUNT_OFFSET = 0x20
     ENTRY_BASE_OFFSET = 0x20
@@ -153,6 +219,117 @@ class GameDataClient:
             current_map_ptr=current_map_ptr,
             current_stage_ptr=current_stage_ptr,
             is_resetting=is_resetting,
+        )
+
+    def get_runtime_game_state(self) -> RuntimeGameState:
+        game_manager_static_fields = self._read_static_fields(
+            self.GAME_MANAGER_TYPE_INFO_OFFSET,
+        )
+        map_controller_static_fields = self._read_static_fields(
+            self.MAP_CONTROLLER_TYPE_INFO_OFFSET,
+        )
+        my_time_static_fields = self._read_static_fields(
+            self.MY_TIME_TYPE_INFO_OFFSET,
+        )
+        loading_screen_static_fields = self._read_static_fields(
+            self.LOADING_SCREEN_TYPE_INFO_OFFSET,
+        )
+        player_movement_static_fields = self._read_static_fields(
+            self.PLAYER_MOVEMENT_TYPE_INFO_OFFSET,
+        )
+        music_controller_static_fields = self._read_static_fields(
+            self.MUSIC_CONTROLLER_TYPE_INFO_OFFSET,
+        )
+
+        game_manager_ptr = self._read_ptr_optional(
+            game_manager_static_fields,
+            self.GAME_MANAGER_INSTANCE_OFFSET,
+        )
+        is_playing = self._read_bool(
+            game_manager_ptr,
+            self.GAME_MANAGER_IS_PLAYING_OFFSET,
+        )
+        is_game_over = self._read_bool(
+            game_manager_ptr,
+            self.GAME_MANAGER_IS_GAME_OVER_OFFSET,
+        )
+        is_paused = self._read_bool(
+            my_time_static_fields,
+            self.MY_TIME_PAUSED_OFFSET,
+        )
+        is_loading = self._read_bool(
+            loading_screen_static_fields,
+            self.LOADING_SCREEN_IS_LOADING_OFFSET,
+        )
+        run_timer_seconds = self._read_float_optional(
+            my_time_static_fields,
+            self.MY_TIME_RUN_TIMER_OFFSET,
+        )
+        stage_timer_seconds = self._read_float_optional(
+            my_time_static_fields,
+            self.MY_TIME_STAGE_TIMER_OFFSET,
+        )
+        current_map_ptr = self._read_ptr_optional(
+            map_controller_static_fields,
+            self.MAP_CONTROLLER_CURRENT_MAP_OFFSET,
+        )
+        current_stage_ptr = self._read_ptr_optional(
+            map_controller_static_fields,
+            self.MAP_CONTROLLER_CURRENT_STAGE_OFFSET,
+        )
+        run_config_ptr = self._read_ptr_optional(
+            map_controller_static_fields,
+            self.MAP_CONTROLLER_RUN_CONFIG_OFFSET,
+        )
+        player_movement_ptr = self._read_ptr_optional(
+            player_movement_static_fields,
+            self.PLAYER_MOVEMENT_INSTANCE_OFFSET,
+        )
+        music_controller_ptr = self._read_ptr_optional(
+            music_controller_static_fields,
+            self.MUSIC_CONTROLLER_INSTANCE_OFFSET,
+        )
+        music_menu_track_ptr = self._read_ptr_optional(
+            music_controller_ptr,
+            self.MUSIC_CONTROLLER_MENU_TRACK_OFFSET,
+        )
+        music_current_track_ptr = self._read_ptr_optional(
+            music_controller_ptr,
+            self.MUSIC_CONTROLLER_CURRENT_TRACK_OFFSET,
+        )
+
+        mode = RuntimeGameMode.UNKNOWN
+        looks_like_manual_menu = (
+            not player_movement_ptr
+            and bool(music_controller_ptr)
+            and bool(music_current_track_ptr)
+            and music_current_track_ptr == music_menu_track_ptr
+        )
+        if game_manager_ptr and is_playing and is_game_over:
+            mode = RuntimeGameMode.GAME_OVER
+        elif looks_like_manual_menu:
+            mode = RuntimeGameMode.MAIN_MENU
+        elif game_manager_ptr and is_playing and not is_game_over:
+            mode = RuntimeGameMode.PAUSED_IN_GAME if is_paused else RuntimeGameMode.IN_GAME
+        elif not game_manager_ptr and not is_loading:
+            mode = RuntimeGameMode.MAIN_MENU
+
+        return RuntimeGameState(
+            mode=mode,
+            game_manager_ptr=game_manager_ptr,
+            is_playing=is_playing,
+            is_game_over=is_game_over,
+            is_paused=is_paused,
+            is_loading=is_loading,
+            run_timer_seconds=run_timer_seconds,
+            stage_timer_seconds=stage_timer_seconds,
+            current_map_ptr=current_map_ptr,
+            current_stage_ptr=current_stage_ptr,
+            run_config_ptr=run_config_ptr,
+            player_movement_ptr=player_movement_ptr,
+            music_controller_ptr=music_controller_ptr,
+            music_current_track_ptr=music_current_track_ptr,
+            music_menu_track_ptr=music_menu_track_ptr,
         )
 
     def wait_for_map_ready(
@@ -345,6 +522,14 @@ class GameDataClient:
             return None
         try:
             return self.memory.read_i32(base_address + offset)
+        except MemoryReadError:
+            return None
+
+    def _read_float_optional(self, base_address: int, offset: int) -> float | None:
+        if not base_address:
+            return None
+        try:
+            return self.memory.read_float(base_address + offset)
         except MemoryReadError:
             return None
 

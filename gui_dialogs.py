@@ -46,13 +46,15 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QSpinBox,
+    QDoubleSpinBox,
 )
 
 import config
 import updater
 
-PATREON_SUPPORT_URL = "https://www.patreon.com/posts/bonkscanner-158115804?source=storefront"
-KOFI_SUPPORT_URL = "https://ko-fi.com/s/34dc062a82"
+PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
+KOFI_SUPPORT_URL = config.KOFI_SUPPORT_URL
 PATREON_ICON_PATH = "media/patreon_logo.svg"
 KOFI_ICON_PATH = "media/kofi_logo.svg"
 
@@ -564,6 +566,85 @@ class NativeHookWarningDialog(QDialog):
         self.reject()
 
 
+class RerollWarningDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.result = False
+        self.dont_show_again = False
+        self.setWindowTitle("Auto-Reroll Confirmation")
+        self.setModal(True)
+        self.resize(540, 310)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 20, 18, 18)
+        layout.setSpacing(16)
+
+        card = QFrame()
+        card.setObjectName("WarningCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 16, 18, 14)
+        card_layout.setSpacing(8)
+
+        title = QLabel("Confirm Auto-Reroll Start")
+        title.setObjectName("WarningTitle")
+        card_layout.addWidget(title)
+
+        summary = QLabel(
+            "This button is only required for the Auto-Reroll map mode. Pressing OK will launch the automatic loop to monitor your runs and execute restarts until a matching target map is found.<br><br>"
+            "For more details, please open the Help (?)."
+        )
+        summary.setWordWrap(True)
+        summary.setStyleSheet("background: transparent; font-size: 15px;")
+        card_layout.addWidget(summary)
+        layout.addWidget(card)
+
+        switch_note = QLabel(
+            "Note: All other background features (Live Stats, VOD recordings, and the OBS Overlay) "
+            "work fully automatically and do NOT require starting this loop."
+        )
+        switch_note.setWordWrap(True)
+        switch_note.setStyleSheet("font-size: 14px; color: #9CA3AF;")
+        layout.addWidget(switch_note)
+        layout.addStretch(1)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(12)
+
+        self.checkbox = QCheckBox("Don't show this again")
+        self.checkbox.setStyleSheet("color: #F3F4F6; font-size: 14px;")
+        bottom_row.addWidget(self.checkbox)
+
+        bottom_row.addStretch(1)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("DangerButton")
+        cancel_btn.setProperty("class", "WideDialogButton")
+        cancel_btn.setMinimumHeight(32)
+        cancel_btn.setMinimumWidth(100)
+        cancel_btn.clicked.connect(self.cancel)
+
+        confirm_btn = QPushButton("OK")
+        confirm_btn.setObjectName("SuccessButton")
+        confirm_btn.setProperty("class", "WideDialogButton")
+        confirm_btn.setMinimumHeight(32)
+        confirm_btn.setMinimumWidth(100)
+        confirm_btn.clicked.connect(self.confirm)
+
+        bottom_row.addWidget(cancel_btn)
+        bottom_row.addWidget(confirm_btn)
+        layout.addLayout(bottom_row)
+
+    def confirm(self):
+        self.result = True
+        self.dont_show_again = self.checkbox.isChecked()
+        self.accept()
+
+    def cancel(self):
+        self.result = False
+        self.dont_show_again = False
+        self.reject()
+
+
 class HelpDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -757,14 +838,28 @@ class SettingsDialog(QDialog):
         form_layout.addRow("Toggle Auto Level-Up Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)
         form_layout.addRow("Toggle Particles Opacity Hotkey:", self.toggle_particles_opacity_hotkey_entry)
 
-        self.min_delay_entry = QLineEdit(str(config.MIN_DELAY))
+        self.min_delay_entry = QDoubleSpinBox()
+        self.min_delay_entry.setRange(0.0, 60.0)
+        self.min_delay_entry.setSingleStep(0.1)
+        self.min_delay_entry.setDecimals(2)
+        self.min_delay_entry.setValue(float(config.MIN_DELAY))
+        self.min_delay_entry.setSuffix(" s")
         self.map_load_delay_entry = self.min_delay_entry
         form_layout.addRow("Min Reroll Delay (s):", self.min_delay_entry)
 
-        self.reset_hold_duration_entry = QLineEdit(str(config.RESET_HOLD_DURATION))
+        self.reset_hold_duration_entry = QDoubleSpinBox()
+        self.reset_hold_duration_entry.setRange(0.01, 10.0)
+        self.reset_hold_duration_entry.setSingleStep(0.05)
+        self.reset_hold_duration_entry.setDecimals(2)
+        self.reset_hold_duration_entry.setValue(float(config.RESET_HOLD_DURATION))
+        self.reset_hold_duration_entry.setSuffix(" s")
         form_layout.addRow("Reset Hold Duration (s):", self.reset_hold_duration_entry)
 
-        self.record_interval_entry = QLineEdit(str(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30)))
+        self.record_interval_entry = QSpinBox()
+        self.record_interval_entry.setRange(1, 3600)
+        self.record_interval_entry.setSingleStep(5)
+        self.record_interval_entry.setValue(int(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30)))
+        self.record_interval_entry.setSuffix(" s")
         form_layout.addRow("Snapshot Interval (s):", self.record_interval_entry)
 
         self.auto_start_recording_var = QCheckBox("Auto-start recording")
@@ -894,10 +989,20 @@ class SettingsDialog(QDialog):
         config.TOGGLE_PARTICLES_OPACITY_HOTKEY = new_toggle_particles_opacity_hotkey
         config.AUTO_START_RECORDING = auto_start_recording
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
+        if auto_start_recording and hasattr(self.master, "player_stats_auto_recording_suppressed"):
+            self.master.player_stats_auto_recording_suppressed = False
+
+        def _read_numeric(entry) -> float:
+            if entry is None:
+                return 0.0
+            if hasattr(entry, "value"):
+                val = entry.value
+                return float(val() if callable(val) else val)
+            return float(_read_text(entry))
 
         delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
         try:
-            new_delay = float(_read_text(delay_entry))
+            new_delay = _read_numeric(delay_entry)
             config.user_config["MIN_DELAY"] = new_delay
             config.MIN_DELAY = new_delay
             config.MAP_LOAD_DELAY = new_delay
@@ -905,7 +1010,7 @@ class SettingsDialog(QDialog):
             pass
 
         try:
-            new_duration = float(_read_text(self.reset_hold_duration_entry))
+            new_duration = _read_numeric(self.reset_hold_duration_entry)
             if new_duration < 0.01:
                 new_duration = 0.01
             config.user_config["RESET_HOLD_DURATION"] = new_duration
@@ -918,7 +1023,7 @@ class SettingsDialog(QDialog):
             pass
 
         try:
-            new_interval = max(1, int(float(_read_text(self.record_interval_entry))))
+            new_interval = max(1, int(_read_numeric(self.record_interval_entry)))
             config.user_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = new_interval
             config.PLAYER_STATS_RECORD_INTERVAL_SECONDS = new_interval
             if hasattr(self.master, "player_stats_vod_recorder") and self.master.player_stats_vod_recorder is not None:

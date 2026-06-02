@@ -277,14 +277,14 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     border: 1px solid #5E3417;
                     border-radius: 12px;
                 }
-                QLineEdit, QTextEdit, QPlainTextEdit, QListWidget {
+                QLineEdit, QTextEdit, QPlainTextEdit, QListWidget, QSpinBox, QDoubleSpinBox {
                     background: #0B1220;
                     border: 1px solid #2B3648;
                     border-radius: 6px;
                     padding: 6px;
                     selection-background-color: #1F6AA5;
                 }
-                QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QListWidget:focus {
+                QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QListWidget:focus, QSpinBox:focus, QDoubleSpinBox:focus {
                     border-color: #3B82F6;
                 }
                 QPushButton {
@@ -297,6 +297,11 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                 }
                 QPushButton:hover {
                     background: #2A80C0;
+                }
+                QPushButton:disabled {
+                    background: #141A23;
+                    color: #5F6A7A;
+                    border: 1px solid #222E3E;
                 }
                 QPushButton#DangerButton {
                     background: #B91C1C;
@@ -359,6 +364,17 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     background: #1D262D;
                     border: 1px solid #2F5F77;
                 }
+                QPushButton#TwitchConnectButton {
+                    background: #9146FF;
+                    color: white;
+                    font-weight: 700;
+                    border: none;
+                    border-radius: 8px;
+                    padding: 8px 12px;
+                }
+                QPushButton#TwitchConnectButton:hover {
+                    background: #772CE8;
+                }
                 QPushButton[class="SupportPlatformButton"] {
                     min-height: 26px;
                     max-height: 26px;
@@ -408,6 +424,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     padding: 0;
                     background: #2B3A4F;
                     border: 1px solid #41556F;
+                    border-radius: 8px;
                 }
                 QPushButton#SettingsButton:hover, QPushButton#HelpButton:hover {
                     background: #3A4D66;

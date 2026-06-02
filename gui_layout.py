@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QVBoxLayout,
     QWidget,
+    QSpinBox,
 )
 
 import config
@@ -140,6 +141,8 @@ class GuiLayoutMixin:
         self._build_live_stats_tab()
         self._build_recordings_tab()
         self._build_compare_runs_tab()
+        self._build_overlay_tab()
+        self._build_twitch_bot_tab()
         self._build_footer_controls(right_layout)
 
     def _build_header(self, root_layout):
@@ -323,11 +326,11 @@ class GuiLayoutMixin:
         self.player_stats_items_label.setTextFormat(Qt.RichText)
         self.player_stats_items_label.setWordWrap(True)
         items_layout.addWidget(self.player_stats_items_label)
-        self.player_stats_items_toggle_btn = QPushButton("Show all")
+        self.player_stats_items_toggle_btn = QPushButton("Show more")
         self.player_stats_items_toggle_btn.clicked.connect(self.toggle_player_items_expanded)
         self.player_stats_items_toggle_btn.setProperty("class", "SmallGhostButton")
         _retain_hidden_widget_size(self.player_stats_items_toggle_btn)
-        self.player_stats_items_toggle_btn.setVisible(False)
+        self.player_stats_items_toggle_btn.setEnabled(False)
         items_actions = QHBoxLayout()
         self.player_stats_items_rarity_label = QLabel("")
         self.player_stats_items_rarity_label.setTextFormat(Qt.RichText)
@@ -572,11 +575,11 @@ class GuiLayoutMixin:
         self.vods_items_label.setTextFormat(Qt.RichText)
         self.vods_items_label.setWordWrap(True)
         vod_items_layout.addWidget(self.vods_items_label)
-        self.vods_items_toggle_btn = QPushButton("Show all")
+        self.vods_items_toggle_btn = QPushButton("Show more")
         self.vods_items_toggle_btn.clicked.connect(self.toggle_vod_items_expanded)
         self.vods_items_toggle_btn.setProperty("class", "SmallGhostButton")
         _retain_hidden_widget_size(self.vods_items_toggle_btn)
-        self.vods_items_toggle_btn.setVisible(False)
+        self.vods_items_toggle_btn.setEnabled(False)
         vod_items_actions = QHBoxLayout()
         self.vods_items_rarity_label = QLabel("")
         self.vods_items_rarity_label.setTextFormat(Qt.RichText)
@@ -966,6 +969,7 @@ class GuiLayoutMixin:
         group = QGroupBox(title)
         layout = QVBoxLayout(group)
         status_label = QLabel("Select a recording")
+        status_label.setTextFormat(Qt.RichText)
         status_label.setWordWrap(True)
         slider = QSlider(Qt.Horizontal)
         slider.setEnabled(False)
@@ -1029,11 +1033,13 @@ class GuiLayoutMixin:
         _apply_button_icon(self.settings_btn, "media/settings_icon.png", 20)
         self.settings_btn.setToolTip("Settings")
         self.settings_btn.clicked.connect(self.open_settings_dialog)
-        self.help_btn = QPushButton("?")
+        self.help_btn = QPushButton("")
         self.help_btn.setObjectName("HelpButton")
+        _apply_button_icon(self.help_btn, "media/help_icon.svg", 20)
         self.help_btn.setToolTip("Help")
         self.help_btn.clicked.connect(self.open_help_dialog)
-        self.status_label = QLabel("Status: IDLE")
+        self.status_label = QLabel("Status: <span style='color:#9CA3AF;'>IDLE</span>")
+        self.status_label.setTextFormat(Qt.RichText)
         self.status_label.setObjectName("StatusLabel")
         self.toggle_btn = QPushButton(f"Start")
         self.toggle_btn.setObjectName("ToggleButton")
@@ -1074,6 +1080,8 @@ class GuiLayoutMixin:
                 self.ensure_compare_runs_chooser_for_empty_selection()
         if self._is_live_stats_tab_active():
             self.refresh_live_player_stats_now()
+        if self._is_overlay_tab_active():
+            self.refresh_overlay_ui()
 
     def _show_right_tab_transition_cover(self):
         return None
@@ -1083,6 +1091,9 @@ class GuiLayoutMixin:
 
     def _is_live_stats_tab_active(self) -> bool:
         return self.tabview.tabText(self.tabview.currentIndex()) == "Live Stats"
+
+    def _is_overlay_tab_active(self) -> bool:
+        return self.tabview.tabText(self.tabview.currentIndex()) == "OBS Overlay"
 
     def _is_recordings_tab_active(self) -> bool:
         return self.tabview.tabText(self.tabview.currentIndex()) == "Recordings"
@@ -1095,3 +1106,105 @@ class GuiLayoutMixin:
             self.refresh_vods_list()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
+
+    def _build_twitch_bot_tab(self):
+        self.tab_twitch = QWidget()
+        twitch_layout = QVBoxLayout(self.tab_twitch)
+        
+        auth_group = QGroupBox("Authentication")
+        auth_layout = QVBoxLayout(auth_group)
+        self.twitch_auth_status_label = QLabel("<span style='color:#f08b72;'>Not connected</span>")
+        self.twitch_auth_status_label.setTextFormat(Qt.RichText)
+        auth_layout.addWidget(self.twitch_auth_status_label)
+        
+        self.twitch_auth_buttons_layout = QHBoxLayout()
+        self.twitch_connect_btn = QPushButton("Connect to Twitch")
+        self.twitch_connect_btn.setObjectName("TwitchConnectButton")
+        self.twitch_auth_buttons_layout.addWidget(self.twitch_connect_btn)
+        
+        self.twitch_disconnect_btn = QPushButton("Disconnect")
+        self.twitch_disconnect_btn.setObjectName("DangerButton")
+        self.twitch_disconnect_btn.setVisible(False)
+        self.twitch_auth_buttons_layout.addWidget(self.twitch_disconnect_btn)
+        
+        auth_layout.addLayout(self.twitch_auth_buttons_layout)
+        twitch_layout.addWidget(auth_group)
+        
+        settings_group = QGroupBox("Bot Settings")
+        settings_layout = QFormLayout(settings_group)
+        
+        self.twitch_tier_combo = QComboBox()
+        self.twitch_tier_combo.addItems(["Everyone", "Mods & VIPs", "Subs & Mods"])
+        self.twitch_tier_combo.setCurrentText(config.TWITCH_BOT.get("access_tier", "Everyone"))
+        settings_layout.addRow("Access Tier:", self.twitch_tier_combo)
+        
+        self.twitch_global_cooldown_spin = QSpinBox()
+        self.twitch_global_cooldown_spin.setRange(0, 600)
+        self.twitch_global_cooldown_spin.setValue(config.TWITCH_BOT.get("global_cooldown_seconds", 1))
+        self.twitch_global_cooldown_spin.setSuffix(" sec")
+        settings_layout.addRow("Global Cooldown:", self.twitch_global_cooldown_spin)
+
+        self.twitch_cooldown_spin = QSpinBox()
+        self.twitch_cooldown_spin.setRange(0, 600)
+        self.twitch_cooldown_spin.setValue(config.TWITCH_BOT.get("cooldown_seconds", 5))
+        self.twitch_cooldown_spin.setSuffix(" sec")
+        settings_layout.addRow("Command Cooldown:", self.twitch_cooldown_spin)
+        
+        divider_top = QFrame()
+        divider_top.setFrameShape(QFrame.HLine)
+        divider_top.setFrameShadow(QFrame.Sunken)
+        divider_top.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 8px 0px;")
+        settings_layout.addRow(divider_top)
+        
+        self.twitch_cmd_stats_cb = QCheckBox("!stats")
+        self.twitch_cmd_stats_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("stats", True))
+        self.twitch_cmd_bans_cb = QCheckBox("!bans")
+        self.twitch_cmd_bans_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("bans", True))
+        self.twitch_cmd_items_cb = QCheckBox("!items")
+        self.twitch_cmd_items_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("items", True))
+        self.twitch_cmd_weapons_cb = QCheckBox("!weapons")
+        self.twitch_cmd_weapons_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("weapons", True))
+        self.twitch_cmd_tomes_cb = QCheckBox("!tomes")
+        self.twitch_cmd_tomes_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("tomes", True))
+        self.twitch_cmd_stages_cb = QCheckBox("!stages")
+        self.twitch_cmd_stages_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("stages", True))
+        self.twitch_cmd_scanner_cb = QCheckBox("!scanner")
+        self.twitch_cmd_scanner_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("scanner", True))
+        self.twitch_stage_announcements_cb = QCheckBox("Announce Stage Transitions")
+        self.twitch_stage_announcements_cb.setChecked(config.TWITCH_BOT.get("stage_announcements", True))
+        
+        commands_grid = QGridLayout()
+        commands_grid.setSpacing(6)
+        commands_grid.addWidget(self.twitch_cmd_stats_cb, 0, 0)
+        commands_grid.addWidget(self.twitch_cmd_bans_cb, 0, 1)
+        commands_grid.addWidget(self.twitch_cmd_items_cb, 1, 0)
+        commands_grid.addWidget(self.twitch_cmd_weapons_cb, 1, 1)
+        commands_grid.addWidget(self.twitch_cmd_tomes_cb, 2, 0)
+        commands_grid.addWidget(self.twitch_cmd_stages_cb, 2, 1)
+        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 3, 0)
+
+        settings_layout.addRow("Commands:", commands_grid)
+        
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setFrameShadow(QFrame.Sunken)
+        divider.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 8px 0px;")
+        settings_layout.addRow(divider)
+        
+        settings_layout.addRow("Announcements:", self.twitch_stage_announcements_cb)
+        
+        twitch_layout.addWidget(settings_group)
+        
+        control_group = QGroupBox("Control")
+        control_layout = QHBoxLayout(control_group)
+        self.twitch_bot_toggle_btn = QPushButton("Start Bot")
+        self.twitch_bot_toggle_btn.setObjectName("SuccessButton")
+        self.twitch_bot_status_label = QLabel("Status: <span style='color:#f08b72;'>Stopped</span>")
+        self.twitch_bot_status_label.setTextFormat(Qt.RichText)
+        control_layout.addWidget(self.twitch_bot_toggle_btn)
+        control_layout.addWidget(self.twitch_bot_status_label)
+        control_layout.addStretch(1)
+        twitch_layout.addWidget(control_group)
+        
+        twitch_layout.addStretch(1)
+        self.tabview.addTab(self.tab_twitch, "Twitch Bot")

@@ -15,6 +15,8 @@ What The Program Includes
 - `Session stats`
 - `Live Stats` recording and run inspection
 - `Recordings` playback
+- `OBS Overlay` browser-source output
+- `Twitch Bot` Twitch chat integration
 - stage summaries for live runs and recordings
 - standard keyboard restart mode
 - `Native hook` restart mode
@@ -128,6 +130,57 @@ You can start recording from the `Live Stats` tab or by using the record hotkey.
 The snapshot interval is configurable in `Settings`.
 
 
+OBS Overlay
+-----------
+The `OBS Overlay` tab runs a local browser-source overlay for stream layouts.
+It stays on the same PC and listens on `127.0.0.1`, so it is meant for OBS or a
+normal browser on your own machine.
+
+Turn on `OBS Overlay server`, then add the `Local OBS URL` to OBS as a Browser
+Source. The URL includes a port, for example `17845`. A port is the local number
+OBS uses to connect to BonkScanner's overlay server. If the port is already used
+by another program, change it in the tab and update the OBS URL.
+
+Visual Layout Editor:
+You can open the overlay link in any browser with `?edit=true` (for example,
+`http://127.0.0.1:17845/overlay?edit=true`). This opens the visual editor where
+you can drag widgets around and configure your custom canvas size (HUD resolution).
+All changes are saved instantly and automatically! When absolute positioning
+is active, the overlay resizes to your chosen resolution (default: 1920x1080).
+Make sure to set the identical Width and Height settings in OBS Browser Source.
+
+Recording is not required for the overlay. It uses live stats reads. You can
+choose visible widgets and configure tracked items by searching for an item,
+choosing whether it should count on `Map 1 only`, and adding it to the list.
+The overlay itself is transparent and designed to sit compactly over gameplay.
+
+
+Twitch Bot
+----------
+The `Twitch Bot` tab runs a built-in Twitch IRC chat bot for your channel.
+This allows chat viewers to query your active gameplay stats in real-time!
+
+How to configure:
+1. Go to the `Twitch Bot` tab.
+2. Click `Connect to Twitch`. This opens a browser window for secure, official Twitch OAuth authorization.
+3. Click authorize. Once completed, the status updates to `Connected as [YourUsername]`.
+4. Configure the bot's settings (command access tier, cooldown delay, active commands, and automated announcements).
+5. Click `Start Bot`.
+
+Available Chat Commands:
+- `!stats` / `!bonkstats` — prints active player stats (DMG, XP, Luck, Size, etc.).
+- `!bans` / `!banishes` — prints banished items list.
+- `!items` — lists passive items ordered by rarity (highest first). If the item list is too long, the bot dynamically collapses lower-rarity categories to fit Twitch's 500-char limit.
+- `!weapons` — lists active weapons and their upgraded stats.
+- `!tomes` — lists tomes and their specific stat values (Chaos tome only shows level).
+- `!stages` — lists stage metrics (kills and elapsed time) for stages 1-4.
+- `!scanner` — lists available commands.
+
+Automated Stage Announcements:
+When `Announce Stage Transitions` is checked, the bot automatically posts a transition summary in the Twitch chat on completing a stage:
+🚩 Stage 1 completed! Kills: 1,042 | Time: 05:00. Moving to Stage 2! 🚩
+
+
 Standard Mode And Native Hook
 -----------------------------
 Standard mode is the normal keyboard-based reroll mode.
@@ -206,5 +259,6 @@ Short Summary
 - `Session stats` = current-session overview
 - `Live Stats` = real-time player stats and recording
 - `Stage Summary` = per-stage time, kills, and item gains
+- `Twitch Bot` = built-in bot for live stats output and auto-announcements in chat
 - `Native hook` = alternate restart mode that can work better in the background
 - `config.json` = the file where the program stores your settings

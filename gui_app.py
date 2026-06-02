@@ -10,12 +10,14 @@ from PySide6.QtWidgets import QApplication
 import config
 import updater
 from gui_layout import GuiLayoutMixin
+from gui_overlay import OverlayMixin
 from gui_player_stats import PlayerStatsMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
 from gui_shared import UiInvoker, _AppWindow, resource_path
 from gui_styles import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC, build_qt_app_stylesheet
 from gui_templates import TemplatesMixin
+from gui_twitch import TwitchBotMixin
 from vod_storage import VodRecorder
 
 
@@ -23,8 +25,10 @@ class MegabonkApp(
     GuiLayoutMixin,
     RunControlMixin,
     TemplatesMixin,
+    OverlayMixin,
     PlayerStatsMixin,
     ScannerMixin,
+    TwitchBotMixin,
 ):
     _qt_app: QApplication | None = None
 
@@ -211,6 +215,31 @@ class MegabonkApp(
         self.status_label = None
         self.toggle_btn = None
         self.logo_label = None
+        self.tab_overlay = None
+        self.overlay_state_store = None
+        self.overlay_server = None
+        self.live_run_tracker = None
+        self.overlay_enabled_checkbox = None
+        self.overlay_status_label = None
+        self.overlay_server_toggle_btn = None
+        self.overlay_url_entry = None
+        self.overlay_widget_url_combo = None
+        self.overlay_widget_url_entry = None
+        self.overlay_port_entry = None
+        self.overlay_template_combo = None
+        self.overlay_widget_checkboxes = {}
+        self.overlay_stats_checkboxes = {}
+        self.overlay_stats_content = None
+        self.overlay_tracked_items_label = None
+        self.overlay_tracked_items_content = None
+        self.overlay_tracked_items_toggle_btn = None
+        self.overlay_item_names = ()
+        self.overlay_item_search_entry = None
+        self.overlay_item_selector = None
+        self.overlay_map_one_only_checkbox = None
+        self.overlay_add_tracked_item_btn = None
+        self.overlay_tracked_rules_list = None
+        self.overlay_remove_tracked_item_btn = None
 
         self.is_running = False
         self.is_ready_to_start = False
@@ -222,12 +251,16 @@ class MegabonkApp(
         self.player_stats_vod_recorder = VodRecorder(
             interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
         )
+        self.initialize_overlay_runtime()
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = None
         self.player_stats_recording_stage_ptr = 0
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = None
+        self.player_stats_recording_armed = False
+        self.player_stats_recording_waiting_mode = None
+        self.player_stats_auto_recording_suppressed = False
         self.player_stats_auto_start_detection_streak = 0
         self.loaded_vod = None
         self.loaded_vod_snapshot_index = None
@@ -270,6 +303,8 @@ class MegabonkApp(
         self.vods_list_signature = None
 
         self.setup_ui()
+        self.setup_twitch_bot_ui()
+        self.apply_overlay_autostart()
         self.refresh_templates()
         self.refresh_scores_templates_list()
         self.refresh_scores_ui()

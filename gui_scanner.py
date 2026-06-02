@@ -53,16 +53,16 @@ class ScannerMixin:
 
         if self.scanner_thread and self.scanner_thread.is_alive():
             if self.is_running:
-                status = "RUNNING"
+                status_html = 'Status: <span style="color:#4fd67a;">RUNNING</span>'
             elif self.is_ready_to_start:
-                status = "ARMED"
+                status_html = 'Status: <span style="color:#4fd67a;">ARMED</span>'
             else:
-                status = "WAITING FOR GAME"
-            self.status_label.setText(f"Status: {status}")
+                status_html = 'Status: <span style="color:#ffd23f;">WAITING FOR GAME</span>'
+            self.status_label.setText(status_html)
             self.toggle_btn.setText("Stop")
             self.toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
         else:
-            self.status_label.setText("Status: IDLE")
+            self.status_label.setText('Status: <span style="color:#9CA3AF;">IDLE</span>')
             self.toggle_btn.setText("Start")
             self.toggle_btn.setStyleSheet("")
 
@@ -97,6 +97,16 @@ class ScannerMixin:
 
     def toggle_main_loop(self):
         if self.scanner_thread is None or not self.scanner_thread.is_alive():
+            if not config.user_config.get("SKIP_REROLL_WARNING", False):
+                from gui_dialogs import RerollWarningDialog
+                dialog = RerollWarningDialog(self.window)
+                dialog.exec()
+                if not dialog.result:
+                    return
+                if dialog.dont_show_again:
+                    config.user_config["SKIP_REROLL_WARNING"] = True
+                    config.save_config(config.user_config)
+
             self.log(f"\n[*] Starting auto-reroll monitor in {config.EVALUATION_MODE.upper()} mode...")
 
             if config.EVALUATION_MODE == "templates":
@@ -411,6 +421,13 @@ class ScannerMixin:
         self.close_client()
         self.close_player_stats_client()
         self.close_player_stats_game_data_client()
+        if hasattr(self, "close_overlay_server"):
+            self.close_overlay_server()
+        if hasattr(self, "stop_twitch_bot"):
+            self.stop_twitch_bot()
+        if getattr(self, "twitch_auth_thread", None) is not None:
+            self.twitch_auth_thread._shutdown_server()
+            self.twitch_auth_thread.wait(2000)
         player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
         if player_stats_vod_recorder is not None:
             if player_stats_vod_recorder.is_recording:

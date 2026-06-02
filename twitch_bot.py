@@ -1,0 +1,435 @@
+import socket
+import ssl
+import time
+import re
+from PySide6.QtCore import QThread, Signal
+import config
+from twitch_credentials import get_twitch_oauth_token
+
+
+class TwitchBotWorker(QThread):
+    status_updated = Signal(str)
+    log_message = Signal(str)
+
+    def __init__(self, run_tracker, parent=None):
+        super().__init__(parent)
+        self.run_tracker = run_tracker
+        self.running = False
+        self.sock = None
+        self.last_command_time = 0
+        self._last_run_id = None
+        self.last_command_times: dict[str, float] = {}
+        self.last_global_command_time: float = 0.0
+
+    def run(self):
+        self.running = True
+        bot_cfg = config.TWITCH_BOT
+        username = bot_cfg.get("username", "").lower()
+        token = get_twitch_oauth_token()
+        
+        if not username or not token:
+            self.status_updated.emit("Error: Missing credentials")
+            self.running = False
+            return
+
+        import time
+        while self.running:
+            self.status_updated.emit("Connecting to Twitch...")
+            
+            try:
+                raw_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                raw_sock.settimeout(10.0)
+                context = ssl.create_default_context()
+                self.sock = context.wrap_socket(raw_sock, server_hostname="irc.chat.twitch.tv")
+                self.sock.connect(("irc.chat.twitch.tv", 6697))
+                self.sock.settimeout(None)
+
+                self._send(f"PASS oauth:{token}")
+                self._send(f"NICK {username}")
+                self._send(f"JOIN #{username}")
+                self._send("CAP REQ :twitch.tv/tags twitch.tv/commands")
+
+                self.status_updated.emit(f"Connected to #{username}")
+                self.log_message.emit("Bot joined chat.")
+
+                buffer = ""
+                self._last_run_id, self._last_stage_index = self.run_tracker.run_identity()
+
+                while self.running:
+                    self._check_stage_transitions(username)
+
+                    self.sock.settimeout(0.5)
+                    try:
+                        data = self.sock.recv(4096)
+                    except socket.timeout:
+                        continue
+                    except Exception as e:
+                        self.log_message.emit(f"Socket error: {e}")
+                        break
+
+                    if not data:
+                        break
+                    
+                    buffer += data.decode("utf-8", errors="replace")
+                    lines = buffer.split("\r\n")
+                    buffer = lines.pop()
+
+                    for line in lines:
+                        try:
+                            self._handle_line(line, username)
+                        except Exception as e:
+                            import traceback
+                            self.log_message.emit(f"Command error: {e}")
+                            traceback.print_exc()
+
+            except Exception as e:
+                self.log_message.emit(f"Bot exception: {e}")
+                self.status_updated.emit(f"Error: {e}")
+            
+            if self.sock:
+                try:
+                    self.sock.close()
+                except:
+                    pass
+            self.sock = None
+            
+            if self.running:
+                self.log_message.emit("Reconnecting in 2 seconds...")
+                self.status_updated.emit("Reconnecting...")
+                time.sleep(2)
+
+    def stop(self):
+        self.running = False
+        if self.sock:
+            try:
+                self.sock.shutdown(socket.SHUT_RDWR)
+                self.sock.close()
+            except Exception:
+                pass
+
+    def _send(self, msg: str):
+        if self.sock:
+            try:
+                self.sock.send(f"{msg}\r\n".encode("utf-8"))
+            except:
+                pass
+
+    def _send_chat(self, channel: str, msg: str):
+        full_prefix = f"PRIVMSG #{channel} :"
+        suffix = "\r\n"
+        max_msg_bytes = 512 - len(full_prefix.encode("utf-8")) - len(suffix.encode("utf-8"))
+        encoded_msg = msg.encode("utf-8")
+        if len(encoded_msg) > max_msg_bytes:
+            msg = encoded_msg[:max_msg_bytes].decode("utf-8", errors="ignore")
+            
+        self._send(f"PRIVMSG #{channel} :{msg}")
+        self.log_message.emit(f"Bot: {msg}")
+
+    def _handle_line(self, line: str, channel: str):
+        if line.startswith("PING"):
+            self._send(line.replace("PING", "PONG", 1))
+            return
+
+        match = re.match(r"^(?:@([^ ]+) )?:([^!]+)![^ ]+ PRIVMSG #([^ ]+) :(.+)$", line)
+        if not match:
+            return
+
+        tags_str, sender, msg_channel, message = match.groups()
+        message = message.strip()
+        
+        if not message.startswith("!"):
+            return
+
+        if not self._check_access(tags_str):
+            return
+
+        now = time.time()
+        global_cooldown = config.TWITCH_BOT.get("global_cooldown_seconds", 1)
+        command_cooldown = config.TWITCH_BOT.get("cooldown_seconds", 5)
+        
+        cmd = message.split()[0].lower()
+        time_since_global = now - self.last_global_command_time
+        time_since_cmd = now - self.last_command_times.get(cmd, 0.0)
+
+        if time_since_global < global_cooldown or time_since_cmd < command_cooldown:
+            return
+
+        handled = False
+        commands_cfg = config.TWITCH_BOT.get("commands", {})
+
+        if cmd in ("!stats", "!bonkstats") and commands_cfg.get("stats", True):
+            self._handle_stats(channel)
+            handled = True
+        elif cmd in ("!bans", "!banishes") and commands_cfg.get("bans", True):
+            self._handle_bans(channel)
+            handled = True
+        elif cmd in ("!items", "!tracked") and commands_cfg.get("items", True):
+            self._handle_items(channel)
+            handled = True
+        elif cmd == "!weapons" and commands_cfg.get("weapons", True):
+            self._handle_weapons(channel)
+            handled = True
+        elif cmd == "!tomes" and commands_cfg.get("tomes", True):
+            self._handle_tomes(channel)
+            handled = True
+        elif cmd == "!stages" and commands_cfg.get("stages", True):
+            self._handle_stages(channel)
+            handled = True
+        elif cmd == "!scanner" and commands_cfg.get("scanner", True):
+            self._send_chat(channel, f"This channel is using BonkScanner for live gameplay stats tracking! Download it here: {config.PATREON_SUPPORT_URL} | Try !stats, !bans, !items, !weapons, !tomes, !stages.")
+            handled = True
+
+        if handled:
+            self.last_global_command_time = now
+            self.last_command_times[cmd] = now
+
+    def _check_access(self, tags_str: str) -> bool:
+        tier = config.TWITCH_BOT.get("access_tier", "Everyone")
+        if tier == "Everyone":
+            return True
+
+        if not tags_str:
+            return False
+
+        tags = dict(part.split("=", 1) if "=" in part else (part, "") for part in tags_str.split(";"))
+        badges = tags.get("badges", "")
+        
+        is_broadcaster = "broadcaster/" in badges
+        is_mod = "moderator/" in badges
+        is_vip = "vip/" in badges
+        is_sub = "subscriber/" in badges or "founder/" in badges
+
+        if is_broadcaster:
+            return True
+
+        if tier == "Mods & VIPs":
+            return is_mod or is_vip
+        elif tier == "Subs & Mods":
+            return is_mod or is_sub
+
+        return False
+
+    def _stat_val(self, stats: dict, key: str) -> str:
+        """Helper to safely extract a display value from stats dict."""
+        if key in stats and stats[key] is not None:
+            return getattr(stats[key], "display_value", "--")
+        return "--"
+
+    def _handle_stats(self, channel: str):
+        snap = self.run_tracker.latest_snapshot()
+        if not snap:
+            self._send_chat(channel, "No active run detected.")
+            return
+
+        s = snap.stats
+        parts = [
+            f"DMG: {self._stat_val(s, 'Damage')}",
+            f"XP: {self._stat_val(s, 'XP Gain')}",
+            f"Luck: {self._stat_val(s, 'Luck')}",
+            f"Diff: {self._stat_val(s, 'Difficulty')}",
+            f"PDC: {self._stat_val(s, 'Powerup Drop Chance')}",
+            f"ESI: {self._stat_val(s, 'Elite Spawn Increase')}",
+            f"PM: {self._stat_val(s, 'Powerup Multiplier')}",
+            f"Size: {self._stat_val(s, 'Size')}",
+        ]
+        self._send_chat(channel, "Live Stats: " + " | ".join(parts))
+
+    def _handle_bans(self, channel: str):
+        snap = self.run_tracker.latest_snapshot()
+        if not snap or not snap.banishes:
+            self._send_chat(channel, "No banished items.")
+            return
+            
+        banish_list = ", ".join(snap.banishes)
+        count = len(snap.banishes)
+        text = f"Bans ({count}): {banish_list}"
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, text)
+
+    def _handle_items(self, channel: str):
+        snap = self.run_tracker.latest_snapshot()
+        if not snap or not snap.items:
+            self._send_chat(channel, "No items found in current run.")
+            return
+
+        items_list = [item for item in snap.items if item]
+        if not items_list:
+            self._send_chat(channel, "No items found in current run.")
+            return
+
+        from run_summary import split_item_stack_suffix, normalize_item_name_for_rarity
+        from gui_styles import ITEM_RARITY_BY_NAME
+
+        legendary_items = []
+        rare_items = []
+        uncommon_items = []
+        common_items = []
+        unknown_items = []
+
+        for item_str in items_list:
+            name, suffix = split_item_stack_suffix(item_str)
+            norm_name = normalize_item_name_for_rarity(name)
+            rarity = ITEM_RARITY_BY_NAME.get(norm_name, "UNKNOWN")
+            
+            item_entry = {"name": name, "suffix": suffix, "full_str": item_str}
+            if rarity == "LEGENDARY":
+                legendary_items.append(item_entry)
+            elif rarity == "RARE":
+                rare_items.append(item_entry)
+            elif rarity == "UNCOMMON":
+                uncommon_items.append(item_entry)
+            elif rarity == "COMMON":
+                common_items.append(item_entry)
+            else:
+                unknown_items.append(item_entry)
+
+        legendary_items.sort(key=lambda x: x["name"].lower())
+        rare_items.sort(key=lambda x: x["name"].lower())
+        uncommon_items.sort(key=lambda x: x["name"].lower())
+        common_items.sort(key=lambda x: x["name"].lower())
+        unknown_items.sort(key=lambda x: x["name"].lower())
+
+        all_ordered = legendary_items + rare_items + uncommon_items + common_items + unknown_items
+        full_list = [x["full_str"] for x in all_ordered]
+        total_unique = len(items_list)
+        prefix = f"Items ({total_unique}): "
+
+        # Try fully expanded
+        full_text = prefix + ", ".join(full_list)
+        if len(full_text) <= 450:
+            self._send_chat(channel, full_text)
+            return
+
+        # Collapse commons & unknowns
+        collapsed_count = len(common_items) + len(unknown_items)
+        if collapsed_count > 0:
+            collapse_str = f"+{collapsed_count} Common"
+            parts = [x["full_str"] for x in legendary_items + rare_items + uncommon_items] + [collapse_str]
+            text = prefix + ", ".join(parts)
+            if len(text) <= 450:
+                self._send_chat(channel, text)
+                return
+
+        # Collapse uncommons too
+        parts = [x["full_str"] for x in legendary_items + rare_items]
+        uncommon_count = len(uncommon_items)
+        if uncommon_count > 0:
+            parts.append(f"+{uncommon_count} Uncommon")
+        if collapsed_count > 0:
+            parts.append(f"+{collapsed_count} Common")
+        text = prefix + ", ".join(parts)
+        if len(text) <= 450:
+            self._send_chat(channel, text)
+            return
+
+        # Collapse rares too
+        parts = [x["full_str"] for x in legendary_items]
+        rare_count = len(rare_items)
+        if rare_count > 0:
+            parts.append(f"+{rare_count} Rare")
+        if uncommon_count > 0:
+            parts.append(f"+{uncommon_count} Uncommon")
+        if collapsed_count > 0:
+            parts.append(f"+{collapsed_count} Common")
+        text = prefix + ", ".join(parts)
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, text)
+
+    def _handle_weapons(self, channel: str):
+        snap = self.run_tracker.latest_snapshot()
+        if not snap or not snap.weapons:
+            self._send_chat(channel, "No weapons found.")
+            return
+
+        parts = []
+        for w in snap.weapons:
+            stat_parts = []
+            for stat_val in w.upgraded_stats.values():
+                stat_parts.append(f"{stat_val.label}: {stat_val.display_value}")
+            if stat_parts:
+                parts.append(f"{w.name} Lv{w.level} [{', '.join(stat_parts)}]")
+            else:
+                parts.append(f"{w.name} Lv{w.level}")
+        text = " | ".join(parts)
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, f"Weapons: {text}")
+
+    def _handle_tomes(self, channel: str):
+        snap = self.run_tracker.latest_snapshot()
+        if not snap or not snap.tomes:
+            self._send_chat(channel, "No tomes found.")
+            return
+
+        parts = []
+        for t in snap.tomes:
+            if t.name == "Chaos":
+                parts.append(f"{t.name} Lv{t.level}")
+            elif t.value is not None:
+                parts.append(f"{t.name} Lv{t.level} ({t.display_value})")
+            else:
+                parts.append(f"{t.name} Lv{t.level}")
+        text = ", ".join(parts)
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, f"Tomes: {text}")
+
+    def _handle_stages(self, channel: str):
+        rows = self.run_tracker.stage_summary_rows()
+        if not rows:
+            self._send_chat(channel, "No stage data available.")
+            return
+
+        parts = []
+        for row in rows:
+            kills = row.get("kills", "--")
+            time_val = row.get("time", "--")
+            if kills == "--" and time_val == "--":
+                continue
+            parts.append(f"{row['label']}: kills {kills}, time {time_val}")
+
+        if not parts:
+            self._send_chat(channel, "No stage data recorded yet.")
+            return
+
+        text = " | ".join(parts)
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, text)
+
+    def _check_stage_transitions(self, channel: str):
+        if not config.TWITCH_BOT.get("stage_announcements", True):
+            return
+
+        run_id, stage_index = self.run_tracker.run_identity()
+
+        if run_id != self._last_run_id:
+            self._last_run_id = run_id
+            self._last_stage_index = stage_index
+            return
+
+        if stage_index > self._last_stage_index:
+            prev_stage = self._last_stage_index
+            self._last_stage_index = stage_index
+
+            rows = self.run_tracker.stage_summary_rows()
+            prev_row = None
+            for row in rows:
+                if row.get("label") == f"Stage {prev_stage}":
+                    prev_row = row
+                    break
+
+            if prev_row:
+                kills = prev_row.get("kills", "--")
+                time_val = prev_row.get("time", "--")
+                self._send_chat(
+                    channel,
+                    f"🚩 Stage {prev_stage} completed! Kills: {kills} | Time: {time_val}. Moving to Stage {stage_index}! 🚩"
+                )
+            else:
+                self._send_chat(
+                    channel,
+                    f"🚩 Moving to Stage {stage_index}! 🚩"
+                )
