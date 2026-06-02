@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import gui
+from game_data import RuntimeGameMode, RuntimeGameState
 from run_control import HookRunControlProvider, KeyboardRunControlProvider
 
 
@@ -325,6 +326,9 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_recording_stage_ptr = 0
         app.player_stats_recording_seed_missing_since = None
         app.player_stats_recording_run_time_seconds = None
+        app.player_stats_recording_armed = False
+        app.player_stats_recording_waiting_mode = None
+        app.player_stats_auto_recording_suppressed = False
         app.player_stats_auto_start_detection_streak = 0
         app.player_stats_game_data_client = None
         app.player_stats_client = SimpleNamespace(
@@ -363,6 +367,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.close_player_stats_client = lambda: None
         app.read_player_stats_only = lambda: ({}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ()
+        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+            mode=RuntimeGameMode.IN_GAME,
+            is_playing=True,
+        )
         app._is_live_stats_tab_active = lambda: True
         app.log_messages = []
         app.log = lambda message, tag=None: app.log_messages.append((message, tag))
@@ -402,6 +410,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_settings_save_updates_native_hook_enabled_and_applies_run_control_mode(self) -> None:
         master = FakeSettingsMaster()
+        master.player_stats_auto_recording_suppressed = True
         destroyed: list[bool] = []
         dialog = types.SimpleNamespace(
             hotkey_entry=FakeEntry("f7"),
@@ -425,6 +434,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertFalse(gui.config.NATIVE_HOOK_ENABLED)
         self.assertTrue(gui.config.AUTO_START_RECORDING)
+        self.assertFalse(master.player_stats_auto_recording_suppressed)
         self.assertFalse(gui.config.user_config["NATIVE_HOOK_ENABLED"])
         self.assertTrue(gui.config.user_config["AUTO_START_RECORDING"])
         self.assertIn("apply_run_control_mode", master.events)
@@ -1192,6 +1202,115 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
         self.assertIsNone(app.player_stats_recording_seed)
         self.assertIn("auto-stopped", app.log_messages[0][0])
+
+    def test_recording_run_state_keeps_file_open_while_paused(self) -> None:
+        app = self.build_recording_app()
+        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+            mode=RuntimeGameMode.PAUSED_IN_GAME,
+            is_playing=True,
+            is_paused=True,
+        )
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertEqual(action, "paused")
+        self.assertTrue(app.player_stats_vod_recorder.is_recording)
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
+        self.assertEqual(app.player_stats_recording_waiting_mode, RuntimeGameMode.PAUSED_IN_GAME.value)
+
+    def test_recording_run_state_waits_after_game_over_without_disarming(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_recording_armed = True
+        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+            mode=RuntimeGameMode.GAME_OVER,
+            is_playing=True,
+            is_game_over=True,
+        )
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertEqual(action, "waiting")
+        self.assertFalse(app.player_stats_vod_recorder.is_recording)
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
+        self.assertTrue(app.player_stats_recording_armed)
+        self.assertEqual(app.player_stats_recording_waiting_mode, RuntimeGameMode.GAME_OVER.value)
+
+    def test_recording_run_state_waits_after_manual_menu_without_disarming(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_recording_armed = True
+        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+            mode=RuntimeGameMode.MAIN_MENU,
+        )
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertEqual(action, "waiting")
+        self.assertFalse(app.player_stats_vod_recorder.is_recording)
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
+        self.assertTrue(app.player_stats_recording_armed)
+        self.assertEqual(app.player_stats_recording_waiting_mode, RuntimeGameMode.MAIN_MENU.value)
+
+    def test_recording_run_state_starts_new_file_from_waiting_when_game_resumes(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder.is_recording = False
+        app.player_stats_recording_armed = True
+        app.player_stats_recording_waiting_mode = RuntimeGameMode.MAIN_MENU.value
+        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+            mode=RuntimeGameMode.IN_GAME,
+            is_playing=True,
+        )
+        app.read_player_stats_recording_state = lambda: SimpleNamespace(
+            map_seed=333,
+            current_stage_ptr=0x3000,
+        )
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertEqual(action, "started")
+        self.assertTrue(app.player_stats_vod_recorder.is_recording)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [{"name": None, "seed": 333}])
+        self.assertEqual(app.player_stats_recording_stage_ptr, 0x3000)
+        self.assertIsNone(app.player_stats_recording_waiting_mode)
+
+    def test_toggle_recording_stops_auto_recording_waiting_mode_for_session(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder.is_recording = False
+        app.player_stats_recording_armed = False
+        app.player_stats_recording_waiting_mode = RuntimeGameMode.MAIN_MENU.value
+        app.refresh_live_player_stats_now = lambda *args, **kwargs: None
+
+        with patch.object(gui.config, "AUTO_START_RECORDING", True):
+            self.assertTrue(gui.MegabonkApp._is_player_stats_recording_armed(app))
+
+            gui.MegabonkApp.toggle_player_stats_recording(app)
+
+            self.assertFalse(gui.MegabonkApp._is_player_stats_recording_armed(app))
+
+        self.assertTrue(app.player_stats_auto_recording_suppressed)
+        self.assertFalse(app.player_stats_recording_armed)
+        self.assertFalse(app.player_stats_vod_recorder.is_recording)
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
+        self.assertIn(("[*] Player stats recording stopped.", None), app.log_messages)
+
+    def test_auto_start_recording_respects_session_suppression(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder.is_recording = False
+        app.player_stats_auto_recording_suppressed = True
+
+        with patch.object(gui.config, "AUTO_START_RECORDING", True):
+            started = gui.MegabonkApp._maybe_auto_start_player_stats_recording(
+                app,
+                stats={"Damage": SimpleNamespace(display_value="123", value=1.23)},
+                run_timer_seconds=21.5,
+                player_level=2,
+                map_seed=777,
+                stage_ptr=2,
+            )
+
+        self.assertFalse(started)
+        self.assertEqual(app.player_stats_auto_start_detection_streak, 0)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
 
     def test_build_stage_summary_tracks_stage_transitions_and_item_stack_gains(self) -> None:
         snapshots = [
@@ -1979,6 +2098,68 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(snapshot_calls, [])
         self.assertEqual(timeline_calls, ["timeline"])
 
+    def test_refresh_live_player_stats_now_does_not_capture_while_paused(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app._is_live_stats_tab_active = lambda: False
+        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+            mode=RuntimeGameMode.PAUSED_IN_GAME,
+            is_playing=True,
+            is_paused=True,
+        )
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            get_live_weapons=lambda owner_stats=None: (),
+            get_live_tomes=lambda owner_stats=None: (),
+            get_live_banishes=lambda: (),
+            get_run_timer=lambda: 21.5,
+            get_stage_timer=lambda: 9.0,
+            get_killed_mobs=lambda: 37,
+            get_player_level=lambda owner_stats=None: 2,
+        )
+        app.read_player_stats_only = lambda: (
+            {"Damage": SimpleNamespace(display_value="123", value=1.23)},
+            0x1234,
+        )
+        app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+
+        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertTrue(result)
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls, [])
+        self.assertEqual(app.player_stats_vod_snapshots, [])
+
+    def test_refresh_live_player_stats_now_does_not_capture_when_runtime_state_is_unknown(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app._is_live_stats_tab_active = lambda: False
+        app.read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
+            gui.MemoryReadError("runtime state unavailable")
+        )
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            get_live_weapons=lambda owner_stats=None: (),
+            get_live_tomes=lambda owner_stats=None: (),
+            get_live_banishes=lambda: (),
+            get_run_timer=lambda: 21.5,
+            get_stage_timer=lambda: 9.0,
+            get_killed_mobs=lambda: 37,
+            get_player_level=lambda owner_stats=None: 2,
+        )
+        app.read_player_stats_only = lambda: (
+            {"Damage": SimpleNamespace(display_value="123", value=1.23)},
+            0x1234,
+        )
+        app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+
+        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertTrue(result)
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls, [])
+        self.assertEqual(app.player_stats_vod_snapshots, [])
+
     def test_refresh_live_player_stats_now_updates_live_view_while_recording(self) -> None:
         app = self.build_recording_app()
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=False)
@@ -2066,6 +2247,36 @@ class GuiRunControlTests(unittest.TestCase):
             result = gui.MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
+        self.assertFalse(app.player_stats_vod_recorder.is_recording)
+
+    def test_refresh_live_player_stats_now_does_not_auto_start_when_runtime_state_is_unknown(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False, should_capture=False)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app._is_live_stats_tab_active = lambda: False
+        app.read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
+            gui.MemoryReadError("runtime state unavailable")
+        )
+        app.read_player_stats_only = lambda: (
+            {"Damage": SimpleNamespace(display_value="123", value=1.23)},
+            0x1234,
+        )
+        app.read_passive_items_only = lambda owner_stats=None: ()
+        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            get_run_timer=lambda: 21.5,
+            get_stage_timer=lambda: 9.0,
+            get_killed_mobs=lambda: 37,
+            get_player_level=lambda owner_stats=None: 2,
+        )
+
+        with patch.object(gui.config, "AUTO_START_RECORDING", True):
+            result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertTrue(result)
+        self.assertEqual(app.player_stats_auto_start_detection_streak, 0)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
 

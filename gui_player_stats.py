@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 import config
 import run_summary
-from game_data import GameDataClient
+from game_data import GameDataClient, RuntimeGameMode, RuntimeGameState
 from gui_dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from gui_shared import _clear_layout, _clear_text_input, _read_text, _set_text, _set_text_input
 from gui_styles import (
@@ -97,6 +97,15 @@ def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
 
 class PlayerStatsMixin:
 
+    def _is_player_stats_recording_armed(self) -> bool:
+        auto_recording_enabled = bool(getattr(config, "AUTO_START_RECORDING", False))
+        auto_recording_suppressed = bool(
+            getattr(self, "player_stats_auto_recording_suppressed", False)
+        )
+        return bool(getattr(self, "player_stats_recording_armed", False)) or bool(
+            auto_recording_enabled and not auto_recording_suppressed
+        )
+
     def update_player_stats_timer(self):
         if self._is_shutting_down:
             return
@@ -105,6 +114,7 @@ class PlayerStatsMixin:
         should_refresh = (
             self._is_live_stats_tab_active()
             or self.player_stats_vod_recorder.is_recording
+            or self._is_player_stats_recording_armed()
             or bool(getattr(config, "AUTO_START_RECORDING", False))
             or self.overlay_should_refresh_live_stats()
             or self._is_twitch_bot_active()
@@ -141,6 +151,11 @@ class PlayerStatsMixin:
         if self.player_stats_game_data_client is None:
             self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
         return self.player_stats_game_data_client.get_map_generation_state()
+
+    def read_player_stats_runtime_game_state(self):
+        if self.player_stats_game_data_client is None:
+            self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
+        return self.player_stats_game_data_client.get_runtime_game_state()
 
     def read_player_stats_recording_seed(self) -> int | None:
         return self.read_player_stats_recording_state().map_seed
@@ -338,6 +353,11 @@ class PlayerStatsMixin:
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
             self.player_stats_auto_start_detection_streak = 0
+            self.player_stats_recording_armed = False
+            self.player_stats_recording_waiting_mode = None
+            self.player_stats_auto_recording_suppressed = False
+            if self.player_stats_vod_recorder.is_recording:
+                self._stop_player_stats_recording(refresh_live_stats=False)
             self.mark_overlay_read_failed(no_game=True)
             self._reset_live_player_stats_ui(waiting_status_text)
             return False
@@ -379,15 +399,23 @@ class PlayerStatsMixin:
         self.live_run_tracker.update(live_snapshot)
         self.update_overlay_state_from_tracker()
         live_stage_summary_rows = self.live_run_tracker.stage_summary_rows()
-        self._maybe_auto_start_player_stats_recording(
-            stats=stats,
-            run_timer_seconds=run_timer_seconds,
-            player_level=player_level,
-            map_seed=map_seed,
-            stage_ptr=stage_ptr,
-        )
+        runtime_state = self._runtime_game_state_or_unknown()
+        if runtime_state.mode is RuntimeGameMode.IN_GAME:
+            self._maybe_auto_start_player_stats_recording(
+                stats=stats,
+                run_timer_seconds=run_timer_seconds,
+                player_level=player_level,
+                map_seed=map_seed,
+                stage_ptr=stage_ptr,
+            )
+        else:
+            self.player_stats_auto_start_detection_streak = 0
 
-        if self.player_stats_vod_recorder.should_capture():
+        can_capture_recording = (
+            self.player_stats_vod_recorder.is_recording
+            and runtime_state.mode is RuntimeGameMode.IN_GAME
+        )
+        if can_capture_recording and self.player_stats_vod_recorder.should_capture():
             snapshot = self.player_stats_vod_recorder.capture(
                 stats,
                 items if items_available else (),
@@ -412,7 +440,15 @@ class PlayerStatsMixin:
             return True
 
         if is_live_tab_active:
-            status_text_val = "Live player stats (recording)" if self.player_stats_vod_recorder.is_recording else status_text
+            if self.player_stats_vod_recorder.is_recording:
+                if runtime_state is not None and runtime_state.mode is RuntimeGameMode.PAUSED_IN_GAME:
+                    status_text_val = "Live player stats (recording paused)"
+                else:
+                    status_text_val = "Live player stats (recording)"
+            elif self._is_player_stats_recording_armed():
+                status_text_val = "Live player stats (recording armed)"
+            else:
+                status_text_val = status_text
             self.player_stats_selected_snapshot_index = None
             self.display_player_stats(
                 stats,
@@ -549,19 +585,33 @@ class PlayerStatsMixin:
         return tuple(self.player_stats_vod_snapshots[start_index : index + 1])
 
     def toggle_player_stats_recording(self):
-        if self.player_stats_vod_recorder.is_recording:
+        if self.player_stats_vod_recorder.is_recording or self._is_player_stats_recording_armed():
+            self.player_stats_recording_armed = False
+            self.player_stats_recording_waiting_mode = None
+            if bool(getattr(config, "AUTO_START_RECORDING", False)):
+                self.player_stats_auto_recording_suppressed = True
             self._stop_player_stats_recording(log_message="[*] Player stats recording stopped.")
         else:
+            self.player_stats_recording_armed = True
+            self.player_stats_auto_recording_suppressed = False
             state = self._read_player_stats_recording_state_safe()
             seed = state.map_seed if state is not None else None
             stage_ptr = state.current_stage_ptr if state is not None else 0
             run_time_seconds = self._read_player_stats_recording_run_timer_safe()
-            vod_path = self._start_player_stats_recording(
-                seed=seed,
-                stage_ptr=stage_ptr,
-                run_time_seconds=run_time_seconds,
-            )
-            self.log(f"[*] Player stats recording started: {vod_path.name}", tag="success")
+            runtime_state = self._runtime_game_state_or_unknown()
+            if runtime_state.mode is RuntimeGameMode.IN_GAME:
+                vod_path = self._start_player_stats_recording(
+                    seed=seed,
+                    stage_ptr=stage_ptr,
+                    run_time_seconds=run_time_seconds,
+                )
+                self.log(f"[*] Player stats recording started: {vod_path.name}", tag="success")
+            else:
+                self.player_stats_recording_waiting_mode = runtime_state.mode.value
+                self.log(
+                    "[*] Player stats recording armed; waiting for an active run.",
+                    tag="success",
+                )
             self.refresh_live_player_stats_now(
                 waiting_status_text="Recording stats; waiting for game/player stats...",
                 unavailable_status_prefix="Recording stats; player stats unavailable",
@@ -589,6 +639,22 @@ class PlayerStatsMixin:
         except Exception:
             self.close_player_stats_game_data_client()
             return None
+
+    def _read_player_stats_runtime_game_state_safe(self):
+        try:
+            return self.read_player_stats_runtime_game_state()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            self.close_player_stats_game_data_client()
+            return None
+        except Exception:
+            self.close_player_stats_game_data_client()
+            return None
+
+    def _runtime_game_state_or_unknown(self):
+        state = self._read_player_stats_runtime_game_state_safe()
+        if state is None:
+            return RuntimeGameState(mode=RuntimeGameMode.UNKNOWN)
+        return state
 
     def _read_player_stats_recording_run_timer_safe(self) -> float | None:
         try:
@@ -644,6 +710,8 @@ class PlayerStatsMixin:
         self.player_stats_recording_stage_ptr = stage_ptr
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = run_time_seconds
+        self.player_stats_recording_waiting_mode = None
+        self.player_stats_auto_recording_suppressed = False
         self.player_stats_auto_start_detection_streak = 0
         return vod_path
 
@@ -661,6 +729,7 @@ class PlayerStatsMixin:
         self.player_stats_recording_stage_ptr = 0
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = None
+        self.player_stats_recording_waiting_mode = None
         self.player_stats_auto_start_detection_streak = 0
         self.close_player_stats_game_data_client()
         if log_message:
@@ -670,7 +739,50 @@ class PlayerStatsMixin:
         self._refresh_vods_list_if_visible()
 
     def _sync_player_stats_recording_run_state(self) -> str | None:
+        runtime_state = self._runtime_game_state_or_unknown()
+        if runtime_state.mode is RuntimeGameMode.IN_GAME:
+            self.player_stats_recording_waiting_mode = None
+            if self._is_player_stats_recording_armed() and not self.player_stats_vod_recorder.is_recording:
+                current_state = self._read_player_stats_recording_state_safe()
+                current_seed = current_state.map_seed if current_state is not None else None
+                current_stage_ptr = (
+                    current_state.current_stage_ptr if current_state is not None else 0
+                )
+                current_run_time_seconds = self._read_player_stats_recording_run_timer_safe()
+                vod_path = self._start_player_stats_recording(
+                    seed=current_seed,
+                    stage_ptr=current_stage_ptr,
+                    run_time_seconds=current_run_time_seconds,
+                )
+                self.log(
+                    f"[*] Player stats recording started from waiting mode: {vod_path.name}",
+                    tag="success",
+                )
+                self.refresh_player_stats_timeline_ui()
+                return "started"
+
         if not self.player_stats_vod_recorder.is_recording:
+            return None
+
+        if runtime_state.mode is RuntimeGameMode.PAUSED_IN_GAME:
+            self.player_stats_recording_waiting_mode = runtime_state.mode.value
+            return "paused"
+        if runtime_state.mode in {RuntimeGameMode.GAME_OVER, RuntimeGameMode.MAIN_MENU}:
+            mode_text = "game over" if runtime_state.mode is RuntimeGameMode.GAME_OVER else "main menu"
+            should_remain_armed = self._is_player_stats_recording_armed()
+            self.player_stats_recording_waiting_mode = runtime_state.mode.value
+            self._stop_player_stats_recording(
+                log_message=f"[*] Player stats recording waiting: {mode_text}.",
+                log_tag="warning",
+                refresh_live_stats=False,
+            )
+            if not should_remain_armed:
+                self.player_stats_recording_armed = False
+            self.player_stats_recording_waiting_mode = runtime_state.mode.value
+            self.refresh_player_stats_timeline_ui()
+            return "waiting"
+        if runtime_state.mode is RuntimeGameMode.UNKNOWN:
+            self.player_stats_recording_waiting_mode = runtime_state.mode.value
             return None
 
         now = time.monotonic()
@@ -686,6 +798,7 @@ class PlayerStatsMixin:
                 return None
             if now - self.player_stats_recording_seed_missing_since < PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS:
                 return None
+            self.player_stats_recording_armed = False
             self._stop_player_stats_recording(
                 log_message="[*] Player stats recording auto-stopped: run seed disappeared.",
                 log_tag="warning",
@@ -771,6 +884,9 @@ class PlayerStatsMixin:
         if self.player_stats_vod_recorder.is_recording:
             self.player_stats_auto_start_detection_streak = 0
             return False
+        if bool(getattr(self, "player_stats_auto_recording_suppressed", False)):
+            self.player_stats_auto_start_detection_streak = 0
+            return False
         if not bool(getattr(config, "AUTO_START_RECORDING", False)):
             self.player_stats_auto_start_detection_streak = 0
             return False
@@ -811,8 +927,10 @@ class PlayerStatsMixin:
 
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True):
         snapshot_count = len(self.player_stats_vod_snapshots)
+        recording_armed = self._is_player_stats_recording_armed()
+        waiting_mode = getattr(self, "player_stats_recording_waiting_mode", None)
 
-        if self.player_stats_vod_recorder.is_recording:
+        if self.player_stats_vod_recorder.is_recording or recording_armed:
             self.player_stats_record_btn.setText("Stop Recording")
             self.player_stats_record_btn.setStyleSheet(
                 _button_state_stylesheet(
@@ -846,8 +964,12 @@ class PlayerStatsMixin:
                 selected = self.player_stats_selected_snapshot_index
                 mode = self.player_stats_vod_snapshots[selected].time_label if selected is not None else "--"
                 self.player_stats_timeline_label.setText(f"{prefix}{snapshot_count} snapshots | {mode}")
+            elif waiting_mode == RuntimeGameMode.PAUSED_IN_GAME.value:
+                self.player_stats_timeline_label.setText(f"{prefix}Paused in game")
             else:
                 self.player_stats_timeline_label.setText(f"{prefix}No snapshots")
+        elif recording_armed:
+            self.player_stats_timeline_label.setText("Recording armed | waiting for run")
         else:
             self.player_stats_timeline_label.setText("Live stats")
 
@@ -861,6 +983,8 @@ class PlayerStatsMixin:
             self.player_stats_slider_time_label.setText(
                 f"Timeline: recording {self.player_stats_vod_recorder.elapsed_label()} | waiting for first snapshot"
             )
+        elif recording_armed:
+            self.player_stats_slider_time_label.setText("Timeline: recording armed | waiting for run")
         else:
             self.player_stats_slider_time_label.setText("Timeline: live stats")
 

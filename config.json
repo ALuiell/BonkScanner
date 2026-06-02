@@ -126,7 +126,7 @@
     "AUTO_START_RECORDING": false,
     "OVERLAY": {
         "schema_version": 4,
-        "enabled": true,
+        "enabled": false,
         "host": "127.0.0.1",
         "port": 17845,
         "template": "compact",
@@ -180,9 +180,9 @@
                 "background_opacity": 0.4,
                 "show_border": false,
                 "show_header": false,
-                "x": 1581,
-                "y": 394,
-                "scale": 1.2,
+                "x": 1597,
+                "y": 396,
+                "scale": 1.15,
                 "width": 329,
                 "height": 276
             },
@@ -264,8 +264,8 @@
         "enabled": false,
         "username": "aluielll",
         "access_tier": "Everyone",
-        "global_cooldown_seconds": 5,
-        "cooldown_seconds": 7,
+        "global_cooldown_seconds": 1,
+        "cooldown_seconds": 5,
         "stage_announcements": true,
         "commands": {
             "stats": true,

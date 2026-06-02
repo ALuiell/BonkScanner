@@ -3,7 +3,14 @@ from __future__ import annotations
 import time
 import unittest
 
-from game_data import GameDataClient, MapGenerationState, MapStat, StatValue
+from game_data import (
+    GameDataClient,
+    MapGenerationState,
+    MapStat,
+    RuntimeGameMode,
+    RuntimeGameState,
+    StatValue,
+)
 from memory import MemoryReadError
 
 
@@ -16,18 +23,22 @@ class FakeMemory:
         integers: dict[int, int] | None = None,
         bytes_: dict[int, int] | None = None,
         strings: dict[int, str | None] | None = None,
+        floats: dict[int, float] | None = None,
         broken_i32: set[int] | None = None,
         broken_ptr: set[int] | None = None,
         broken_u8: set[int] | None = None,
+        broken_float: set[int] | None = None,
     ) -> None:
         self.module_base = module_base
         self.pointers = pointers or {}
         self.integers = integers or {}
         self.bytes = bytes_ or {}
         self.strings = strings or {}
+        self.floats = floats or {}
         self.broken_i32 = broken_i32 or set()
         self.broken_ptr = broken_ptr or set()
         self.broken_u8 = broken_u8 or set()
+        self.broken_float = broken_float or set()
 
     def module_offset(self, _module_name: str, offset: int) -> int:
         return self.module_base + offset
@@ -44,6 +55,13 @@ class FakeMemory:
             raise MemoryReadError(f"missing i32 at 0x{address:X}")
         return self.integers[address]
 
+    def read_float(self, address: int) -> float:
+        if address in self.broken_float:
+            raise MemoryReadError(f"broken float at 0x{address:X}")
+        if address not in self.floats:
+            raise MemoryReadError(f"missing float at 0x{address:X}")
+        return self.floats[address]
+
     def read_u8(self, address: int) -> int:
         if address in self.broken_u8:
             raise MemoryReadError(f"broken u8 at 0x{address:X}")
@@ -58,6 +76,88 @@ class FakeMemory:
 
 def full_stats(current: int = 0, max_value: int = 1) -> dict[MapStat, StatValue]:
     return {stat: StatValue(current=current, max=max_value) for stat in MapStat}
+
+
+def build_runtime_state_memory(
+    *,
+    game_manager_instance: int = 0,
+    is_playing: bool = False,
+    is_game_over: bool = False,
+    is_paused: bool = False,
+    is_loading: bool = False,
+    run_timer: float = 0.0,
+    stage_timer: float = 0.0,
+    current_map: int = 0,
+    current_stage: int = 0,
+    run_config: int = 0,
+    player_movement_instance: int = 0,
+    music_controller_instance: int = 0,
+    music_menu_track: int = 0,
+    music_current_track: int = 0,
+) -> FakeMemory:
+    base = 0x10000000
+    game_manager_type_info = base + GameDataClient.GAME_MANAGER_TYPE_INFO_OFFSET
+    map_controller_type_info = base + GameDataClient.MAP_CONTROLLER_TYPE_INFO_OFFSET
+    my_time_type_info = base + GameDataClient.MY_TIME_TYPE_INFO_OFFSET
+    loading_screen_type_info = base + GameDataClient.LOADING_SCREEN_TYPE_INFO_OFFSET
+    player_movement_type_info = base + GameDataClient.PLAYER_MOVEMENT_TYPE_INFO_OFFSET
+    music_controller_type_info = base + GameDataClient.MUSIC_CONTROLLER_TYPE_INFO_OFFSET
+    game_manager_class = 0x20000000
+    map_controller_class = 0x20000100
+    my_time_class = 0x20000200
+    loading_screen_class = 0x20000300
+    player_movement_class = 0x20000400
+    music_controller_class = 0x20000500
+    game_manager_static = 0x30000000
+    map_controller_static = 0x30000100
+    my_time_static = 0x30000200
+    loading_screen_static = 0x30000300
+    player_movement_static = 0x30000400
+    music_controller_static = 0x30000500
+
+    pointers = {
+        game_manager_type_info: game_manager_class,
+        map_controller_type_info: map_controller_class,
+        my_time_type_info: my_time_class,
+        loading_screen_type_info: loading_screen_class,
+        player_movement_type_info: player_movement_class,
+        music_controller_type_info: music_controller_class,
+        game_manager_class + GameDataClient.CLASS_STATIC_FIELDS_OFFSET: game_manager_static,
+        map_controller_class + GameDataClient.CLASS_STATIC_FIELDS_OFFSET: map_controller_static,
+        my_time_class + GameDataClient.CLASS_STATIC_FIELDS_OFFSET: my_time_static,
+        loading_screen_class + GameDataClient.CLASS_STATIC_FIELDS_OFFSET: loading_screen_static,
+        player_movement_class + GameDataClient.CLASS_STATIC_FIELDS_OFFSET: player_movement_static,
+        music_controller_class + GameDataClient.CLASS_STATIC_FIELDS_OFFSET: music_controller_static,
+        game_manager_static + GameDataClient.GAME_MANAGER_INSTANCE_OFFSET: game_manager_instance,
+        map_controller_static + GameDataClient.MAP_CONTROLLER_CURRENT_MAP_OFFSET: current_map,
+        map_controller_static + GameDataClient.MAP_CONTROLLER_CURRENT_STAGE_OFFSET: current_stage,
+        map_controller_static + GameDataClient.MAP_CONTROLLER_RUN_CONFIG_OFFSET: run_config,
+        player_movement_static + GameDataClient.PLAYER_MOVEMENT_INSTANCE_OFFSET: player_movement_instance,
+        music_controller_static + GameDataClient.MUSIC_CONTROLLER_INSTANCE_OFFSET: music_controller_instance,
+    }
+    if music_controller_instance:
+        pointers.update(
+            {
+                music_controller_instance + GameDataClient.MUSIC_CONTROLLER_MENU_TRACK_OFFSET: music_menu_track,
+                music_controller_instance + GameDataClient.MUSIC_CONTROLLER_CURRENT_TRACK_OFFSET: music_current_track,
+            }
+        )
+    bytes_ = {
+        my_time_static + GameDataClient.MY_TIME_PAUSED_OFFSET: int(is_paused),
+        loading_screen_static + GameDataClient.LOADING_SCREEN_IS_LOADING_OFFSET: int(is_loading),
+    }
+    if game_manager_instance:
+        bytes_.update(
+            {
+                game_manager_instance + GameDataClient.GAME_MANAGER_IS_PLAYING_OFFSET: int(is_playing),
+                game_manager_instance + GameDataClient.GAME_MANAGER_IS_GAME_OVER_OFFSET: int(is_game_over),
+            }
+        )
+    floats = {
+        my_time_static + GameDataClient.MY_TIME_RUN_TIMER_OFFSET: run_timer,
+        my_time_static + GameDataClient.MY_TIME_STAGE_TIMER_OFFSET: stage_timer,
+    }
+    return FakeMemory(module_base=base, pointers=pointers, bytes_=bytes_, floats=floats)
 
 
 class SequencedGameDataClient(GameDataClient):
@@ -254,6 +354,111 @@ class GameDataClientTests(unittest.TestCase):
         client = GameDataClient(memory=FakeMemory())
 
         self.assertEqual(client.get_map_generation_state(), MapGenerationState())
+
+    def test_get_runtime_game_state_detects_main_menu(self) -> None:
+        memory = build_runtime_state_memory()
+        client = GameDataClient(memory=memory)
+
+        self.assertEqual(
+            client.get_runtime_game_state(),
+            RuntimeGameState(
+                mode=RuntimeGameMode.MAIN_MENU,
+                run_timer_seconds=0.0,
+                stage_timer_seconds=0.0,
+            ),
+        )
+
+    def test_get_runtime_game_state_detects_active_run(self) -> None:
+        memory = build_runtime_state_memory(
+            game_manager_instance=0x40000000,
+            is_playing=True,
+            is_game_over=False,
+            is_paused=False,
+            run_timer=82.5,
+            stage_timer=82.5,
+            current_map=0x50000000,
+            current_stage=0x50000100,
+            run_config=0x50000200,
+        )
+        client = GameDataClient(memory=memory)
+
+        state = client.get_runtime_game_state()
+
+        self.assertEqual(state.mode, RuntimeGameMode.IN_GAME)
+        self.assertTrue(state.is_active_run)
+        self.assertFalse(state.is_paused_run)
+        self.assertFalse(state.is_main_menu)
+        self.assertEqual(state.game_manager_ptr, 0x40000000)
+        self.assertTrue(state.is_playing)
+        self.assertFalse(state.is_game_over)
+        self.assertFalse(state.is_paused)
+        self.assertEqual(state.run_timer_seconds, 82.5)
+        self.assertEqual(state.stage_timer_seconds, 82.5)
+        self.assertEqual(state.current_map_ptr, 0x50000000)
+        self.assertEqual(state.current_stage_ptr, 0x50000100)
+        self.assertEqual(state.run_config_ptr, 0x50000200)
+
+    def test_get_runtime_game_state_detects_paused_run(self) -> None:
+        memory = build_runtime_state_memory(
+            game_manager_instance=0x40000000,
+            is_playing=True,
+            is_game_over=False,
+            is_paused=True,
+            run_timer=14.5,
+            stage_timer=14.5,
+            current_map=0x50000000,
+            current_stage=0x50000100,
+            run_config=0x50000200,
+        )
+        client = GameDataClient(memory=memory)
+
+        state = client.get_runtime_game_state()
+
+        self.assertEqual(state.mode, RuntimeGameMode.PAUSED_IN_GAME)
+        self.assertTrue(state.is_active_run)
+        self.assertTrue(state.is_paused_run)
+        self.assertFalse(state.is_main_menu)
+        self.assertTrue(state.is_paused)
+
+    def test_get_runtime_game_state_leaves_game_over_unknown(self) -> None:
+        memory = build_runtime_state_memory(
+            game_manager_instance=0x40000000,
+            is_playing=True,
+            is_game_over=True,
+            is_paused=False,
+        )
+        client = GameDataClient(memory=memory)
+
+        state = client.get_runtime_game_state()
+
+        self.assertEqual(state.mode, RuntimeGameMode.GAME_OVER)
+        self.assertTrue(state.is_game_over_run)
+
+    def test_get_runtime_game_state_detects_manual_menu_after_game_manager_survives(self) -> None:
+        memory = build_runtime_state_memory(
+            game_manager_instance=0x40000000,
+            is_playing=True,
+            is_game_over=False,
+            is_paused=False,
+            run_timer=120.0,
+            stage_timer=40.0,
+            current_map=0x50000000,
+            current_stage=0x50000100,
+            run_config=0x50000200,
+            player_movement_instance=0,
+            music_controller_instance=0x60000000,
+            music_menu_track=0x70000000,
+            music_current_track=0x70000000,
+        )
+        client = GameDataClient(memory=memory)
+
+        state = client.get_runtime_game_state()
+
+        self.assertEqual(state.mode, RuntimeGameMode.MAIN_MENU)
+        self.assertTrue(state.is_main_menu)
+        self.assertEqual(state.music_controller_ptr, 0x60000000)
+        self.assertEqual(state.music_current_track_ptr, 0x70000000)
+        self.assertEqual(state.music_menu_track_ptr, 0x70000000)
 
     def test_wait_for_map_ready_waits_for_generation_and_stable_stats(self) -> None:
         ready_state = MapGenerationState(

@@ -4,7 +4,54 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
-## Part 1: Completed / Done Items (Archived 2026-05-23)
+## Part 1: Completed / Done Items (Archived 2026-06-02)
+
+### 0. Find A Reliable Runtime Signal For True Menu / Non-Gameplay State
+
+Status: `[Done]`
+
+- Implemented in [game_data.py](file:///f:/Python/MegabonkReroll/game_data.py) and [gui_player_stats.py](file:///f:/Python/MegabonkReroll/gui_player_stats.py).
+- Resolves the issue where stats recording auto-stop could silently fail and keep recording stale snapshots from a dead run context.
+
+Goal:
+
+- Find a stable memory or runtime-logic signal that reliably indicates whether the player is currently in main menu / non-gameplay state, and use it to safely control the recording lifecycle.
+
+Implemented scope:
+
+- Reading `RuntimeGameMode` state directly from game memory (`GameManager`, `MyTime`, `LoadingScreen`, `PlayerMovement`, `MusicController`).
+- Auto-stop recording on game over / main menu return, while keeping the recording armed to auto-start the next run.
+- Prevent snapshot capturing while paused in game, while keeping the recording file open.
+
+---
+
+## Part 2: Completed / Done Items (Archived 2026-05-23)
+
+### 0. Twitch IRC Chat Bot Integration
+
+Status: `[Done]`
+
+- The integrated Twitch Chat Bot is implemented in BonkScanner UI.
+- Twitch account connection, IRC join flow, and chat command handling are already in place.
+
+Goal:
+
+- Let the streamer authenticate with their own Twitch account and run a local embedded chat bot that responds with live BonkScanner gameplay data in channel chat.
+
+Implemented scope:
+
+- UI support for enabling and configuring the Twitch bot
+- Twitch auth/connect flow for the streamer's account
+- IRC connection and channel join
+- Chat commands such as `!stats`, `!banishes`, `!items`, and `!scanner`
+- Basic cooldown/moderation-oriented behavior for chat command usage
+
+Why this helps:
+
+- Stream chat can query live run state directly from the local scanner.
+- The feature works without any central shared bot service.
+
+---
 
 ### 1. Hotkey for Particles Opacity
 

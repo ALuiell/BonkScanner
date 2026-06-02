@@ -258,6 +258,9 @@ class MegabonkApp(
         self.player_stats_recording_stage_ptr = 0
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = None
+        self.player_stats_recording_armed = False
+        self.player_stats_recording_waiting_mode = None
+        self.player_stats_auto_recording_suppressed = False
         self.player_stats_auto_start_detection_streak = 0
         self.loaded_vod = None
         self.loaded_vod_snapshot_index = None

@@ -989,6 +989,8 @@ class SettingsDialog(QDialog):
         config.TOGGLE_PARTICLES_OPACITY_HOTKEY = new_toggle_particles_opacity_hotkey
         config.AUTO_START_RECORDING = auto_start_recording
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
+        if auto_start_recording and hasattr(self.master, "player_stats_auto_recording_suppressed"):
+            self.master.player_stats_auto_recording_suppressed = False
 
         def _read_numeric(entry) -> float:
             if entry is None:
