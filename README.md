@@ -1,4 +1,4 @@
-# Megabonk Reroll (BonkScanner)
+# BonkScanner
 
 **BonkScanner** is a Windows desktop tool for Megabonk reroll automation, live run inspection, saved-run review, OBS overlays, and Twitch chat integration.
 It observes the running game locally, evaluates each reset in real time, and can keep rerolling until a selected template or score tier is found.
