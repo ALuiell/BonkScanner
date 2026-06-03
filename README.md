@@ -1,30 +1,61 @@
 # Megabonk Reroll (BonkScanner)
 
-**BonkScanner** is a Windows desktop tool for Megabonk reroll automation and live run inspection.
-It reads map data directly from the game process, evaluates each reset in real time, and can keep rerolling until a selected template or score tier is found.
+**BonkScanner** is a Windows desktop tool for Megabonk reroll automation, live run inspection, saved-run review, OBS overlays, and Twitch chat integration.
+It observes the running game locally, evaluates each reset in real time, and can keep rerolling until a selected template or score tier is found.
 
 ## Quick Start on Windows
 1. Install **Python 3.12 x64**.
 2. Open the project folder.
-3. Run `start.bat`.
-4. Launch the app with `.\.venv\Scripts\python.exe main.py`.
+3. Run `start.bat` once to create `.venv` and install dependencies.
+4. Run `run.bat` to launch the app.
+
+You can also launch manually after setup:
+
+```bat
+.\.venv\Scripts\python.exe main.py
+```
 
 `start.bat` is the normal setup entry point. It will:
 - create `.venv` if it does not exist;
+- upgrade pip inside the virtual environment;
 - install runtime dependencies from `requirements.txt`;
 - stop after the environment is ready.
+
+## Safety Notes
+BonkScanner is a local desktop tool. It does not modify Megabonk files on disk,
+install game mods, or send gameplay data anywhere by default.
+
+Some parts of the project use technical names, so here is what they mean:
+
+- `Memory reads`: BonkScanner reads live values from the running Megabonk process
+  to detect map state, player stats, items, weapons, tomes, banishes, damage
+  sources, and run time. This is used for display, recording, scoring, overlays,
+  and Twitch commands.
+- `Standard restart`: the default restart mode sends the configured reset hotkey,
+  similar to pressing it yourself.
+- `BonkHook`: an optional native helper used for the alternate restart path and
+  map-ready signal. Its goal is to request a run restart and detect when a new
+  map snapshot is ready. You can use BonkScanner without enabling native hook
+  restart.
+- `OBS Overlay`: runs only on `127.0.0.1`, which means it is available from the
+  same PC for OBS/browser sources, not from the public internet.
+- `Twitch Bot`: only connects after you authorize it manually. Disconnecting
+  removes the stored token and attempts to revoke it with Twitch.
 
 ## What The App Does
 - rerolls maps automatically until the current map matches selected filters;
 - supports two evaluation modes: `Templates` and `Scores`;
+- applies active template and score-tier changes while the scan loop is running;
 - shows session reroll stats and persistent total reroll tracking;
-- reads live player stats, passive items, weapon upgrades, and run time directly from memory;
-- records live stat snapshots into saved recordings with timeline playback;
+- reads live player stats, passive items, weapons, tomes, banishes, damage sources, level, kills, and run time from the running game;
+- records live stat snapshots into saved `.jsonl` recordings with timeline playback;
 - tracks stage summaries for live runs and recordings, including time, kills, and item gains per stage;
-- auto-splits recordings when a new run is detected without splitting normal stage transitions;
+- compares saved runs side by side with synced in-game time and configurable diff sections;
+- serves a local OBS browser overlay with draggable/resizable widgets and widget-specific URLs;
+- runs an optional Twitch chat bot with live stat commands and stage announcements;
 - can use standard keyboard reset or the optional native hook restart path;
 - can toggle several in-game settings through dedicated hotkeys;
-- stores app settings, templates, score rules, and update preferences in `config.json`.
+- stores app settings, templates, score rules, overlay settings, Twitch bot settings, and update preferences in `config.json`.
 
 ## Main UI Areas
 
@@ -33,14 +64,17 @@ It reads map data directly from the game process, evaluates each reset in real t
 - `Scores`: weighted score evaluation with selectable target tiers and a dedicated scores settings dialog.
 
 ### Right Side
-- `Logs`: scanner activity, warnings, and result messages.
-- `Session Stats`: current session counters and average rerolls per target.
-- `Live Stats`: live player stats, items, chest rate, in-game time, and weapon upgrade details.
-- `Recordings`: saved live-stats recordings with rename, delete, cleanup, and timeline review tools.
+- `Logs`: scanner activity, warnings, wait states, and result messages.
+- `Session Stats`: session time, reroll count, RPM, best and worst maps, and averages per target.
+- `Live Stats`: current run stats, items, weapons, tomes, banishes, damage sources, stage summary, segment compare, and recording controls.
+- `Recordings`: saved recording viewer with timeline, rename, delete, cleanup, and in-run compare tools.
+- `Compare Runs`: side-by-side comparison of two saved recordings with synced in-game time and a central difference panel.
+- `OBS Overlay`: local browser-source overlay controls for streaming layouts.
+- `Twitch Bot`: built-in Twitch IRC bot controls and command settings.
 
 ## How Scanning Works
-1. BonkScanner attaches to the configured game process with `pymem`.
-2. It reads map-ready state and interactable counters from memory.
+1. BonkScanner connects to the running game locally.
+2. It reads the map-ready state, interactable counters, seeds, and other runtime values needed for scanning.
 3. Runtime values are evaluated by the active `Templates` or `Scores` mode.
 4. If the map does not match, the app restarts the run.
 5. Before accepting a snapshot, the scanner waits for a stable ready-state so transient map-load reads are less likely.
@@ -70,46 +104,127 @@ Current score configuration supports:
 - auto-calculated or manual score thresholds;
 - active target tiers: `Light`, `Good`, `Perfect`, `Perfect+`.
 
+The active left-side tab decides which evaluation mode is currently used.
+
 ## Live Stats And Recordings
 
 ### Live Stats
 The `Live Stats` tab shows:
 - grouped player stat cards;
-- passive items list with rarity highlighting and total item count;
+- passive items with rarity highlighting, sorting, and total item count;
 - average chests per minute;
 - in-game timer;
 - mob kill count with thousands separators;
+- player level;
 - `Stage Summary` with per-stage time, kills, and gained item counts;
-- `New Items` gained since the previous snapshot when reviewing a recording timeline;
-- weapon list with current level and upgraded stats.
+- `Segment Compare` against an earlier snapshot in the same run;
+- `Banishes`;
+- current weapons with level and upgraded stats;
+- current tomes with level and active effects;
+- damage sources when available.
 
 Passive item reads use the normal passive inventory path first and fall back to
 the main `PlayerInventory.ItemInventory` path when needed. This helps with runs
 where items were added by mods or external tools.
 
+If some live sections temporarily show unavailable data, that is not always an
+error. During loading screens, some game memory pointers may not be ready yet.
+
 ### Recording
 The built-in recorder can:
 - start and stop from the UI or a hotkey;
+- auto-start when a live run is detected, if enabled;
 - save snapshots at a configurable interval;
 - include run seed metadata when available;
-- automatically stop if the run seed disappears;
-- automatically split into a new file when a new run is detected;
+- automatically stop if the run seed disappears and stays unavailable;
+- automatically continue into a new file when a truly new run is detected;
 - keep one recording together across normal stage transitions even if the map seed changes.
 
 ### Saved Recordings
 Recordings are stored in `stats_recordings\` as `.jsonl` files and can be:
 - reviewed with a timeline slider;
+- inspected for stats, items, weapons, tomes, stage summary, damage sources, and banishes;
+- compared against an earlier snapshot from the same recording;
 - renamed in-app, including the actual file name on disk;
 - deleted individually;
 - batch-cleaned by minimum snapshot count.
 
 Legacy recordings from `vods\` are still read when present.
 
+## Compare Runs
+`Compare Runs` loads two saved recordings side by side as `Run A` and `Run B`.
+
+It supports:
+- guided first selection when no runs are selected yet;
+- swapping selected runs;
+- synced snapshot comparison by nearest in-game time;
+- configurable stat selection;
+- optional diff sections for stats, stage summary, items, weapons, and tomes;
+- item detail comparison for gained, broken, and lost items.
+
+## OBS Overlay
+`OBS Overlay` runs a local browser-source overlay server for stream layouts.
+
+Default overlay URL:
+
+```text
+http://127.0.0.1:17845/overlay
+```
+
+The server binds to `127.0.0.1`, so it is intended for the same PC only.
+Recording is not required; the overlay uses live stats reads.
+
+Overlay features:
+- transparent browser page for OBS;
+- selectable widgets for `Stage Summary`, `Tracked Items`, `Stats`, and `Banishes`;
+- tracked item rules, including map-1-only tracking;
+- widget-specific URLs such as `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, and `/overlay/stage_summary`;
+- visual layout editor at `/overlay?edit=true`;
+- draggable widget positions;
+- per-widget scaling;
+- widget resizing;
+- configurable canvas width and height for matching OBS source dimensions;
+- game preview background in edit mode only.
+
+If OBS keeps showing an old layout after an update, refresh the browser source
+cache from the OBS source properties.
+
+## Twitch Bot
+The `Twitch Bot` tab runs a built-in Twitch IRC chat bot for the configured channel.
+
+Basic setup:
+1. Open the `Twitch Bot` tab.
+2. Click `Connect to Twitch`.
+3. Authorize through the browser.
+4. Configure access tier, cooldowns, enabled commands, and stage announcements.
+5. Click `Start Bot`.
+
+Available chat commands:
+- `!stats` / `!bonkstats`: current selected live stats.
+- `!bans` / `!banishes`: banished items.
+- `!items` / `!tracked`: collected items, sorted by rarity and compressed when needed.
+- `!weapons`: current weapons and upgraded stats.
+- `!tomes`: current tomes and values.
+- `!stages`: stage summary.
+- `!scanner`: short BonkScanner help message.
+
+Command settings support:
+- access tiers: `Everyone`, `Mods & VIPs`, `Subs & Mods`;
+- global and per-command cooldowns;
+- per-command enable toggles;
+- selected stats for `!stats`;
+- customizable response templates;
+- automatic stage transition announcements.
+
+OAuth tokens are stored through the app's credential helper when available.
+Disconnecting removes the stored token and attempts to revoke it with Twitch.
+
 ## Settings
 The main `Settings` dialog currently includes:
 - `Scan Hotkey`
 - `Reset Hotkey`
 - `Record Hotkey`
+- `Auto-start recording`
 - `Toggle Chest Skip Hotkey`
 - `Toggle Auto Level-Up Hotkey`
 - `Toggle Particles Opacity Hotkey`
@@ -120,19 +235,21 @@ The main `Settings` dialog currently includes:
 - `Check for Updates`
 
 Notes:
-- `Reset Hold Duration` is used for standard keyboard reset mode.
+- `Reset Hold Duration` is used for standard keyboard reset mode;
 - the app also syncs the game's `quick_reset_time` value when that setting is changed;
 - toggle hotkeys update supported values inside the game's own config when available;
-- native hook mode shows an extra confirmation when enabled and may work better while alt-tabbed on some systems.
+- native hook mode shows an extra confirmation when enabled and may work better while alt-tabbed on some systems;
+- global hotkeys and keyboard-driven restart may require Administrator privileges on Windows.
 
 ## Auto-Update Behavior
 - source runs (`python main.py`) do not auto-update themselves;
 - packaged builds can check for updates from the settings dialog;
-- skipped update versions are remembered in `config.json`.
+- skipped update versions are remembered in `config.json`;
+- the updater checks the latest GitHub release for `ALuiell/BonkScanner` and downloads the packaged `.exe` asset when a newer version is available.
 
 ## Portable Native Build
 
-`BonkHook` is built through a project-local toolchain and does not require a globally installed .NET SDK or Visual Studio Build Tools.
+`BonkHook` is the optional native restart helper. It is built through a project-local toolchain and does not require a globally installed .NET SDK or Visual Studio Build Tools in the normal path.
 
 Use these entry points on Windows x64:
 
@@ -147,28 +264,21 @@ What happens on the first run:
 - it downloads portable MSVC + Windows SDK into `.tools\msvc`;
 - it keeps NuGet packages/cache and dotnet CLI state inside `.tools\nuget` and `.tools\dotnet-home`;
 - `tools\build_native_hook.bat` publishes `native\BonkHook` with those local tools and forces NativeAOT to use the prepared linker environment;
-- `build_exe.bat` reuses the published `BonkHook.dll` when packaging the app.
+- `build_exe.bat` installs PyInstaller into `.venv` if needed;
+- `build_exe.bat` publishes the hook, then packages `BonkScanner.exe` into `dist\`;
+- the packaged exe includes required media, help files, overlay assets, and the published `BonkHook.dll`;
+- PyInstaller is invoked with `--noupx` to avoid UPX compression.
 
 Requirements and constraints:
 - Windows 10/11 x64;
+- Python 3.12 x64 for the Python app environment;
 - internet access on the first bootstrap;
 - Windows PowerShell available for the helper scripts;
 - downloaded `.tools\` contents are local artifacts and are not committed;
 - `.tools\` will be larger because it also stores NuGet packages and dotnet CLI caches.
 
-## Project Structure
-- `main.py` - desktop app entry point.
-- `gui.py` - main PySide6 UI, scanner flow, live stats UI, and recordings UI.
-- `config.py` - app config, game config integration, templates, and score settings.
-- `logic.py` - template and score evaluation logic.
-- `game_data.py` - map-ready state, counters, and seed-related runtime reads.
-- `memory.py` - low-level `pymem` wrappers and memory helpers.
-- `player_stats.py` - live player stats, passive items, weapons, and chest-rate calculations.
-- `vod_storage.py` - saved recordings format, metadata cache, load, rename, and cleanup helpers.
-- `run_control.py` - keyboard and hook-based restart providers.
-- `hook_loader.py` - native hook bootstrap, injection, restart, and cleanup logic.
-- `updater.py` - packaged-build update checks and update application flow.
-- `native\BonkHook` - NativeAOT hook project.
+Fallback: if portable MSVC bootstrap fails, install Visual Studio Build Tools
+with the Desktop development with C++ workload, then rerun the build scripts.
 
 ## Dependencies
 Runtime dependencies are listed in `requirements.txt`:
@@ -179,9 +289,7 @@ Runtime dependencies are listed in `requirements.txt`:
 - `requests~=2.33.1`
 - `pywin32>=306`
 
-Notes:
-- global hotkeys and keyboard-driven restart may require Administrator privileges on Windows;
-- native hook mode may also benefit from elevated launch depending on the system and game process state.
+`build_exe.bat` also installs `pyinstaller` into `.venv` when it is missing.
 
 ## Manual Developer Setup
 If you want to run manually instead of using `start.bat`:
@@ -189,24 +297,62 @@ If you want to run manually instead of using `start.bat`:
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python main.py
 ```
 
-To build the native hook locally, prefer:
+To build only the native hook locally, prefer:
 
 ```bat
 tools\build_native_hook.bat
 ```
 
+To build the packaged executable:
+
+```bat
+build_exe.bat
+```
+
+## Project Structure
+- `main.py` - desktop app entry point.
+- `gui_app.py` - PySide6 application class and top-level app wiring.
+- `gui_layout.py` - main UI layout, tabs, and shared UI sections.
+- `gui_scanner.py` - scanner loop, hotkeys, lifecycle, and shutdown flow.
+- `gui_run_control.py` - run restart mode UI and provider coordination.
+- `gui_player_stats.py` - live stats, recordings, compare runs, and snapshot UI.
+- `gui_overlay.py` - OBS overlay controls and overlay state refresh.
+- `gui_twitch.py` - Twitch authentication and bot UI orchestration.
+- `gui_dialogs.py` - settings, help, score, template, and Twitch command dialogs.
+- `gui_styles.py` - Qt stylesheet and item rarity styling.
+- `config.py` - app config, game config integration, templates, scores, overlay, Twitch, and compare settings.
+- `logic.py` - template and score evaluation logic.
+- `game_data.py` - map-ready state, counters, seed-related runtime reads, and scan data.
+- `memory.py` - low-level `pymem` wrappers and memory helpers.
+- `player_stats.py` - live player stats, passive items, weapons, tomes, banishes, damage sources, and chest-rate calculations.
+- `live_run_tracker.py` - thread-safe live run snapshot tracking for overlay and Twitch.
+- `overlay_state.py` - overlay state serialization.
+- `overlay_server.py` - local HTTP server for OBS/browser overlay pages.
+- `twitch_auth.py` - local Twitch OAuth flow.
+- `twitch_bot.py` - Twitch IRC bot worker and command handlers.
+- `twitch_credentials.py` - Twitch token storage helpers.
+- `vod_storage.py` - saved recording format, metadata cache, load, rename, and cleanup helpers.
+- `run_summary.py` - recording and compare summary helpers.
+- `run_control.py` - keyboard and hook-based restart providers.
+- `hook_loader.py` - native hook loading, restart requests, and cleanup logic.
+- `updater.py` - packaged-build update checks and update application flow.
+- `media\overlay` - browser overlay HTML, CSS, JS, and preview asset.
+- `docs\help` - in-app help text in English, Ukrainian, and Russian.
+- `native\BonkHook` - NativeAOT hook project.
+
 ## Basic Usage
 1. Start Megabonk and wait until the target scene is loaded.
 2. Run `start.bat` if the environment is not ready yet.
-3. Launch BonkScanner.
+3. Launch BonkScanner with `run.bat`.
 4. Choose `Templates` or `Scores`.
-5. Configure your filters, score tiers, and optional recording settings.
+5. Configure your filters, score tiers, and optional recording/overlay/Twitch settings.
 6. Press `Start`.
 7. Press the scan hotkey in-game to arm or pause the scanning loop.
 8. When a matching map is found, the app stops and logs the result.
 
-BonkScanner is meant to reduce repetition, speed up rerolling, and make target hunting less frustrating.
+BonkScanner is meant to reduce repetition, speed up rerolling, and make target hunting less frustrating while also giving streamers and run reviewers better live data.
