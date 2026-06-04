@@ -3,6 +3,7 @@ import ssl
 import time
 import re
 import string
+from math import isfinite
 from PySide6.QtCore import QThread, Signal
 import config
 from twitch_credentials import get_twitch_oauth_token
@@ -189,6 +190,9 @@ class TwitchBotWorker(QThread):
             handled = True
         elif cmd == "!stages" and commands_cfg.get("stages", True):
             self._handle_stages(channel)
+            handled = True
+        elif cmd == "!powerups" and commands_cfg.get("powerups", True):
+            self._handle_powerups(channel)
             handled = True
         elif cmd == "!scanner" and commands_cfg.get("scanner", True):
             self._handle_scanner(channel)
@@ -496,10 +500,45 @@ class TwitchBotWorker(QThread):
             text = text[:447] + "..."
         self._send_chat(channel, text)
 
+    @staticmethod
+    def _format_seconds(value: float) -> str:
+        if abs(value - round(value)) < 0.005:
+            return str(int(round(value)))
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    def _handle_powerups(self, channel: str):
+        snap = self.run_tracker.latest_snapshot()
+        if not snap:
+            self._send_chat(channel, "No active run detected.")
+            return
+
+        stat = snap.stats.get("Powerup Multiplier") if getattr(snap, "stats", None) else None
+        try:
+            powerup_multiplier = float(getattr(stat, "value", None))
+        except (TypeError, ValueError):
+            powerup_multiplier = float("nan")
+
+        if not isfinite(powerup_multiplier):
+            self._send_chat(channel, "Powerup Multiplier is not available.")
+            return
+
+        standard_duration = 15.0 * powerup_multiplier
+        clock_duration = 12.0 * powerup_multiplier
+        text = self._format_template(
+            "powerups",
+            "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
+            standard_duration=self._format_seconds(standard_duration),
+            clock_duration=self._format_seconds(clock_duration),
+            pm=getattr(stat, "display_value", f"{self._format_seconds(powerup_multiplier)}x")
+        )
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, text)
+
     def _handle_scanner(self, channel: str):
         text = self._format_template(
             "scanner",
-            "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages.",
+            "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages, !powerups.",
             patreon_url=config.PATREON_SUPPORT_URL
         )
         if len(text) > 450:

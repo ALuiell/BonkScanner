@@ -1,5 +1,6 @@
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 mock_pyside = MagicMock()
@@ -106,6 +107,46 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.assertEqual(res, "Default Stats: 100")
 
         TWITCH_BOT["templates"] = old_templates
+
+    def test_handle_powerups_uses_powerup_multiplier(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.latest_snapshot.return_value = SimpleNamespace(
+            stats={
+                "Powerup Multiplier": SimpleNamespace(value=1.5, display_value="1.5x")
+            }
+        )
+
+        self.bot._handle_powerups("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "Powerups: Rage/Shield/Coin/Speed 22.5s | Clock 18s (PM 1.5x)"
+        )
+
+    def test_powerups_command_routes_through_chat_handler(self):
+        from config import TWITCH_BOT
+        old_tier = TWITCH_BOT.get("access_tier")
+        old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
+        old_cooldown = TWITCH_BOT.get("cooldown_seconds")
+        old_commands = TWITCH_BOT.get("commands", {})
+
+        TWITCH_BOT["access_tier"] = "Everyone"
+        TWITCH_BOT["global_cooldown_seconds"] = 0
+        TWITCH_BOT["cooldown_seconds"] = 0
+        TWITCH_BOT["commands"] = {"powerups": True}
+
+        self.bot._handle_powerups = MagicMock()
+        line = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!powerups"
+        with patch('time.time', return_value=100.0):
+            self.bot._handle_line(line, "channel")
+
+        self.bot._handle_powerups.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!powerups"], 100.0)
+
+        TWITCH_BOT["access_tier"] = old_tier
+        TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
+        TWITCH_BOT["cooldown_seconds"] = old_cooldown
+        TWITCH_BOT["commands"] = old_commands
 
     def test_target_channel_defaults_to_authorized_username(self):
         cfg = {"username": "BotAccount", "target_channel": ""}

@@ -104,6 +104,7 @@ DEFAULT_TWITCH_BOT = {
         "weapons": True,
         "tomes": True,
         "stages": True,
+        "powerups": True,
         "scanner": True
     },
     "selected_stats": [
@@ -118,7 +119,8 @@ DEFAULT_TWITCH_BOT = {
         "weapons": "Weapons: {weapons}",
         "tomes": "Tomes: {tomes}",
         "stages": "{stages}",
-        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages.",
+        "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
+        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages, !powerups.",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
         "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
     }

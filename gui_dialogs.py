@@ -1127,6 +1127,7 @@ class TwitchCommandSettingsDialog(QDialog):
             ("items", "!items / !tracked:", "Items ({count}): {items}", "Tags: {count}, {items} (automatically collapsed if too long)"),
             ("weapons", "!weapons:", "Weapons: {weapons}", "Tags: {weapons}"),
             ("tomes", "!tomes:", "Tomes: {tomes}", "Tags: {tomes}"),
+            ("powerups", "!powerups:", "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})", "Tags: {standard_duration}, {clock_duration}, {pm}"),
         ]
 
         for key, label_text, default_val, help_text in templates_config:
@@ -1249,6 +1250,7 @@ class TwitchCommandSettingsDialog(QDialog):
             "items": "Items ({count}): {items}",
             "weapons": "Weapons: {weapons}",
             "tomes": "Tomes: {tomes}",
+            "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
             "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩"
         }
         for key, entry in self.templates_entries.items():
