@@ -325,6 +325,7 @@ def looks_like_stage_four_transition(previous_snapshot, snapshot) -> bool:
         return False
     if (
         current_stage_time <= PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS
+        and previous_stage_time > PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS
         and current_stage_time + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS < previous_stage_time
     ):
         return True
