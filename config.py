@@ -92,6 +92,7 @@ ALL_STAT_LABELS = [
 DEFAULT_TWITCH_BOT = {
     "enabled": False,
     "username": "",
+    "target_channel": "",
     "access_tier": "Everyone",
     "global_cooldown_seconds": 5,
     "cooldown_seconds": 5,
@@ -341,6 +342,8 @@ def normalize_twitch_bot_config(value):
     bot_cfg = _merge_dict_defaults(value, DEFAULT_TWITCH_BOT)
     bot_cfg["enabled"] = bool(bot_cfg.get("enabled", False))
     bot_cfg["username"] = str(bot_cfg.get("username") or "")
+    target_channel = str(bot_cfg.get("target_channel") or "").strip().lstrip("#")
+    bot_cfg["target_channel"] = target_channel.lower()
     
     # Actively cleanse oauth_token from older configs
     bot_cfg.pop("oauth_token", None)

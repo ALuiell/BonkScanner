@@ -216,6 +216,7 @@ class MegabonkApp(
         self.toggle_btn = None
         self.logo_label = None
         self.tab_overlay = None
+        self.twitch_target_channel_entry = None
         self.overlay_state_store = None
         self.overlay_server = None
         self.live_run_tracker = None

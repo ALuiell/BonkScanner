@@ -127,8 +127,10 @@ How to configure:
 1. Go to the `Twitch Bot` tab.
 2. Click `Connect to Twitch`. A browser window will open for secure authorization via the official Twitch OAuth service.
 3. Allow access, after which the status in the app will change to `Connected as [ChannelName]`.
-4. Configure bot parameters (command access tier, cooldown delay, enabled commands, and auto-announcements).
+4. Configure bot parameters (target channel, command access tier, cooldown delay, enabled commands, and auto-announcements).
 5. Click `Start Bot`.
+
+By default, `Target Channel` uses the authorized Twitch account. If you authorize a separate bot account, set `Target Channel` to the streamer channel where the bot should join and respond.
 
 Available chat commands:
 - `!stats` / `!bonkstats` — displays character's current stats (damage, experience, luck, size, etc.).

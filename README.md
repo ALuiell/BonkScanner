@@ -196,8 +196,12 @@ Basic setup:
 1. Open the `Twitch Bot` tab.
 2. Click `Connect to Twitch`.
 3. Authorize through the browser.
-4. Configure access tier, cooldowns, enabled commands, and stage announcements.
+4. Configure target channel, access tier, cooldowns, enabled commands, and stage announcements.
 5. Click `Start Bot`.
+
+By default, `Target Channel` uses the authorized Twitch account. If you authorize
+a separate bot account, set `Target Channel` to the streamer channel where the
+bot should join and respond.
 
 Available chat commands:
 - `!stats` / `!bonkstats`: current selected live stats.

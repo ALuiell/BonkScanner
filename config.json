@@ -106,7 +106,7 @@
         "manual_thresholds": false,
         "base_target_score": 30.0
     },
-    "NATIVE_HOOK_ENABLED": true,
+    "NATIVE_HOOK_ENABLED": false,
     "TOTAL_REROLLS": 187,
     "PLAYER_STATS_RECORD_HOTKEY": "f8",
     "PLAYER_STATS_RECORD_INTERVAL_SECONDS": 10,
@@ -126,7 +126,7 @@
     "AUTO_START_RECORDING": false,
     "OVERLAY": {
         "schema_version": 4,
-        "enabled": false,
+        "enabled": true,
         "host": "127.0.0.1",
         "port": 17845,
         "template": "compact",
@@ -236,19 +236,35 @@
         ],
         "tracked_items": [
             {
-                "id": "anvil_map_1_only",
+                "id": "moldycheese_map_1_only",
                 "item_names": [
-                    "Anvil"
+                    "Moldy Cheese"
                 ],
-                "label": "Anvil Map 1",
+                "label": "Moldy Cheese Map 1",
                 "mode": "map_1_only"
             },
             {
-                "id": "soulharvester_map_1_only",
+                "id": "timebracelet_map_1_only",
                 "item_names": [
-                    "Soul Harvester"
+                    "Time Bracelet"
                 ],
-                "label": "Soul Harvester Map 1",
+                "label": "Time Bracelet Map 1",
+                "mode": "map_1_only"
+            },
+            {
+                "id": "oats_map_1_only",
+                "item_names": [
+                    "Oats"
+                ],
+                "label": "Oats Map 1",
+                "mode": "map_1_only"
+            },
+            {
+                "id": "wrench_map_1_only",
+                "item_names": [
+                    "Wrench"
+                ],
+                "label": "Wrench Map 1",
                 "mode": "map_1_only"
             }
         ],
@@ -262,10 +278,11 @@
     "SKIP_REROLL_WARNING": false,
     "TWITCH_BOT": {
         "enabled": false,
-        "username": "aluielll",
+        "username": "akarams12",
+        "target_channel": "aluielll",
         "access_tier": "Everyone",
         "global_cooldown_seconds": 0,
-        "cooldown_seconds": 5,
+        "cooldown_seconds": 1,
         "stage_announcements": true,
         "commands": {
             "stats": true,

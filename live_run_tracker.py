@@ -115,7 +115,6 @@ class LiveRunTracker:
         self._previous_item_counts: dict[str, int] | None = None
         self._tracked_events: list[TrackedItemEvent] = []
         self._tracked_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
-        self._unknown_starting_inventory: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
         self._cached_stage_summary: list[dict[str, Any]] | None = None
         self._lock = threading.RLock()
 
@@ -165,31 +164,28 @@ class LiveRunTracker:
 
     @with_lock
     def set_tracked_item_rules(self, rules: Iterable[TrackedItemRule]) -> None:
-        self.tracked_item_rules = tuple(rules)
-        snapshots = list(self.snapshots)
-        self._reset_tracking_only()
-        if not snapshots:
+        new_rules = tuple(rules)
+        if new_rules == self.tracked_item_rules:
             return
-        previous_stage_index = self.current_stage_index
-        self.current_stage_index = 1
-        self._previous_item_counts = None
-        previous_snapshot = None
-        for snapshot in snapshots:
-            if previous_snapshot is not None and self._is_active_snapshot(snapshot):
-                self.current_stage_index = min(
-                    max(
-                        run_summary.resolve_next_stage_index(
-                            self.current_stage_index,
-                            previous_snapshot,
-                            snapshot,
-                        ),
-                        self.current_stage_index,
-                    ),
-                    4,
-                )
-            self._process_item_deltas(snapshot)
-            previous_snapshot = snapshot
-        self.current_stage_index = previous_stage_index
+        old_rules_by_id = {rule.id: rule for rule in self.tracked_item_rules}
+        old_counts = dict(self._tracked_counts)
+        preserved_rule_ids = {
+            rule.id
+            for rule in new_rules
+            if old_rules_by_id.get(rule.id) == rule
+        }
+        old_events = list(self._tracked_events)
+        self.tracked_item_rules = new_rules
+        self._tracked_counts = {
+            rule.id: old_counts.get(rule.id, 0) if rule.id in preserved_rule_ids else 0
+            for rule in self.tracked_item_rules
+        }
+        self._tracked_events = [
+            event for event in old_events if event.rule_id in preserved_rule_ids
+        ]
+        self._reset_current_run_item_baseline()
+        if self.snapshots and self.snapshots[-1].items_available:
+            self._previous_item_counts = run_summary.item_counts(self.snapshots[-1].items)
 
     @with_lock
     def stage_summary_rows(self) -> list[dict[str, Any]]:
@@ -231,7 +227,6 @@ class LiveRunTracker:
                     "id": rule.id,
                     "label": rule.label,
                     "count": int(self._tracked_counts.get(rule.id, 0)),
-                    "unknown_starting_inventory": int(self._unknown_starting_inventory.get(rule.id, 0)),
                     "mode": rule.mode,
                 }
             )
@@ -263,14 +258,16 @@ class LiveRunTracker:
         self.run_id = uuid4().hex
         self.snapshots.clear()
         self.current_stage_index = 1
-        self._reset_tracking_only()
+        self._reset_current_run_item_baseline()
         self._cached_stage_summary = None
 
     def _reset_tracking_only(self) -> None:
-        self._previous_item_counts = None
+        self._reset_current_run_item_baseline()
         self._tracked_events = []
         self._tracked_counts = {rule.id: 0 for rule in self.tracked_item_rules}
-        self._unknown_starting_inventory = {rule.id: 0 for rule in self.tracked_item_rules}
+
+    def _reset_current_run_item_baseline(self) -> None:
+        self._previous_item_counts = None
 
     def _should_reset_for_snapshot(self, snapshot: LiveRunSnapshot) -> bool:
         previous = self.snapshots[-1] if self.snapshots else None
@@ -356,8 +353,6 @@ class LiveRunTracker:
                     snapshot=snapshot,
                     stage_index=1,
                 )
-            else:
-                self._mark_unknown_starting_inventory(item_name, count)
 
     def _process_item_gain(
         self,
@@ -389,13 +384,6 @@ class LiveRunTracker:
                 captured_at=snapshot.captured_at,
             )
             self._tracked_events.append(event)
-
-    def _mark_unknown_starting_inventory(self, item_name: str, count: int) -> None:
-        for rule in self.tracked_item_rules:
-            if self._rule_matches_item(rule, item_name):
-                self._unknown_starting_inventory[rule.id] = (
-                    self._unknown_starting_inventory.get(rule.id, 0) + count
-                )
 
     def _eligible_count_for_rule(
         self,

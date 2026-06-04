@@ -107,5 +107,13 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         TWITCH_BOT["templates"] = old_templates
 
+    def test_target_channel_defaults_to_authorized_username(self):
+        cfg = {"username": "BotAccount", "target_channel": ""}
+        self.assertEqual(TwitchBotWorker._target_channel(cfg), "botaccount")
+
+    def test_target_channel_can_differ_from_authorized_username(self):
+        cfg = {"username": "BotAccount", "target_channel": "#StreamerChannel"}
+        self.assertEqual(TwitchBotWorker._target_channel(cfg), "streamerchannel")
+
 if __name__ == '__main__':
     unittest.main()

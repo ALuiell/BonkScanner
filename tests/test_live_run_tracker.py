@@ -62,7 +62,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         row = {row["id"]: row for row in tracker.tracked_item_rows()}["anvils_map_1"]
         self.assertEqual(row["count"], 0)
-        self.assertEqual(row["unknown_starting_inventory"], 2)
+        self.assertNotIn("unknown_starting_inventory", row)
 
     def test_tracker_accepts_early_first_snapshot_for_map_one_counter(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
@@ -70,7 +70,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         row = {row["id"]: row for row in tracker.tracked_item_rows()}["anvils_map_1"]
         self.assertEqual(row["count"], 2)
-        self.assertEqual(row["unknown_starting_inventory"], 0)
+        self.assertNotIn("unknown_starting_inventory", row)
 
     def test_tracker_does_not_reset_on_seed_change_when_run_time_continues(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
@@ -81,15 +81,62 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(tracker.run_id, run_id)
         self.assertEqual(len(tracker.snapshots), 2)
 
-    def test_tracker_resets_when_run_time_resets(self) -> None:
+    def test_tracker_keeps_tracked_counts_when_run_time_resets(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
-        tracker.update(snapshot(time_seconds=80.0, items=("Anvil x1",)))
+        tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1",)))
         run_id = tracker.run_id
         tracker.update(snapshot(time_seconds=2.0, items=(), map_seed=200))
 
         self.assertNotEqual(tracker.run_id, run_id)
         self.assertEqual(len(tracker.snapshots), 1)
-        self.assertEqual({row["id"]: row for row in tracker.tracked_item_rows()}["anvils_total"]["count"], 0)
+        self.assertEqual({row["id"]: row for row in tracker.tracked_item_rows()}["anvils_total"]["count"], 1)
+
+    def test_tracker_counts_new_run_items_into_session_total(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1",), map_seed=100))
+        tracker.update(snapshot(time_seconds=2.0, items=("Anvil x2",), map_seed=200))
+
+        rows = {row["id"]: row for row in tracker.tracked_item_rows()}
+        self.assertEqual(rows["anvils_map_1"]["count"], 3)
+        self.assertEqual(rows["anvils_total"]["count"], 3)
+
+    def test_tracker_keeps_counts_when_same_rules_are_reapplied(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1",)))
+        tracker.set_tracked_item_rules(tracker.tracked_item_rules)
+
+        rows = {row["id"]: row for row in tracker.tracked_item_rows()}
+        self.assertEqual(rows["anvils_map_1"]["count"], 1)
+        self.assertEqual(rows["anvils_total"]["count"], 1)
+
+    def test_tracker_keeps_remaining_rule_counts_when_one_rule_is_removed(self) -> None:
+        anvil_rule = TrackedItemRule(
+            id="anvil_map_1",
+            label="Anvil Map 1",
+            item_names=("Anvil",),
+            mode="map_1_only",
+        )
+        soul_rule = TrackedItemRule(
+            id="soul_harvester_map_1",
+            label="Soul Harvester Map 1",
+            item_names=("Soul Harvester",),
+            mode="map_1_only",
+        )
+        tracker = LiveRunTracker(
+            clock=lambda: 1000.0,
+            tracked_item_rules=(anvil_rule, soul_rule),
+        )
+        tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1", "Soul Harvester x2")))
+
+        tracker.set_tracked_item_rules((soul_rule,))
+
+        rows = {row["id"]: row for row in tracker.tracked_item_rows()}
+        self.assertNotIn("anvil_map_1", rows)
+        self.assertEqual(rows["soul_harvester_map_1"]["count"], 2)
+
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x1", "Soul Harvester x3")))
+        rows = {row["id"]: row for row in tracker.tracked_item_rows()}
+        self.assertEqual(rows["soul_harvester_map_1"]["count"], 3)
 
     def test_tracker_marks_state_stale_after_missing_updates(self) -> None:
         now = [1000.0]

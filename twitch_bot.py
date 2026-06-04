@@ -32,10 +32,11 @@ class TwitchBotWorker(QThread):
     def run(self):
         self.running = True
         bot_cfg = config.TWITCH_BOT
-        username = bot_cfg.get("username", "").lower()
+        username = str(bot_cfg.get("username") or "").strip().lstrip("#").lower()
+        target_channel = self._target_channel(bot_cfg)
         token = get_twitch_oauth_token()
 
-        if not username or not token:
+        if not username or not target_channel or not token:
             self.status_updated.emit("Error: Missing credentials")
             self.running = False
             return
@@ -54,17 +55,17 @@ class TwitchBotWorker(QThread):
 
                 self._send(f"PASS oauth:{token}")
                 self._send(f"NICK {username}")
-                self._send(f"JOIN #{username}")
+                self._send(f"JOIN #{target_channel}")
                 self._send("CAP REQ :twitch.tv/tags twitch.tv/commands")
 
-                self.status_updated.emit(f"Connected to #{username}")
+                self.status_updated.emit(f"Connected to #{target_channel}")
                 self.log_message.emit("Bot joined chat.")
 
                 buffer = ""
                 self._last_run_id, self._last_stage_index = self.run_tracker.run_identity()
 
                 while self.running:
-                    self._check_stage_transitions(username)
+                    self._check_stage_transitions(target_channel)
 
                     self.sock.settimeout(0.5)
                     try:
@@ -84,7 +85,7 @@ class TwitchBotWorker(QThread):
 
                     for line in lines:
                         try:
-                            self._handle_line(line, username)
+                            self._handle_line(line, target_channel)
                         except Exception as e:
                             import traceback
                             self.log_message.emit(f"Command error: {e}")
@@ -105,6 +106,12 @@ class TwitchBotWorker(QThread):
                 self.log_message.emit("Reconnecting in 2 seconds...")
                 self.status_updated.emit("Reconnecting...")
                 time.sleep(2)
+
+    @staticmethod
+    def _target_channel(bot_cfg: dict) -> str:
+        username = str(bot_cfg.get("username") or "").strip().lstrip("#").lower()
+        target_channel = str(bot_cfg.get("target_channel") or "").strip().lstrip("#").lower()
+        return target_channel or username
 
     def stop(self):
         self.running = False

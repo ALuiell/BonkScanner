@@ -24,6 +24,7 @@ class TwitchBotMixin:
             self.twitch_disconnect_btn.setVisible(True)
 
         self.twitch_tier_combo.currentTextChanged.connect(self.save_twitch_settings)
+        self.twitch_target_channel_entry.editingFinished.connect(self.save_twitch_settings)
         self.twitch_global_cooldown_spin.valueChanged.connect(self.save_twitch_settings)
         self.twitch_cooldown_spin.valueChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_stats_cb.stateChanged.connect(self.save_twitch_settings)
@@ -37,6 +38,8 @@ class TwitchBotMixin:
 
     def save_twitch_settings(self, *_):
         config.TWITCH_BOT["access_tier"] = self.twitch_tier_combo.currentText()
+        target_channel = self.twitch_target_channel_entry.text().strip().lstrip("#").lower()
+        config.TWITCH_BOT["target_channel"] = target_channel
         config.TWITCH_BOT["global_cooldown_seconds"] = self.twitch_global_cooldown_spin.value()
         config.TWITCH_BOT["cooldown_seconds"] = self.twitch_cooldown_spin.value()
         config.TWITCH_BOT["stage_announcements"] = self.twitch_stage_announcements_cb.isChecked()
@@ -71,6 +74,8 @@ class TwitchBotMixin:
         self.twitch_disconnect_btn.setVisible(True)
         self.twitch_auth_status_label.setText(f"Connected as <span style='color:#4fd67a;'>{username}</span>")
         config.TWITCH_BOT["username"] = username
+        if getattr(self, "twitch_target_channel_entry", None) is not None:
+            self.twitch_target_channel_entry.setPlaceholderText(username)
         config.save_config(config.user_config)
         self.log(f"Twitch bot authenticated as {username}", tag="success")
 

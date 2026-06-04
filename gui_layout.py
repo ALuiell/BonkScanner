@@ -1143,6 +1143,11 @@ class GuiLayoutMixin:
         self.twitch_tier_combo.setCurrentText(config.TWITCH_BOT.get("access_tier", "Everyone"))
         settings_layout.addRow("Access Tier:", self.twitch_tier_combo)
 
+        self.twitch_target_channel_entry = QLineEdit()
+        self.twitch_target_channel_entry.setPlaceholderText(config.TWITCH_BOT.get("username") or "Authorized account")
+        self.twitch_target_channel_entry.setText(config.TWITCH_BOT.get("target_channel", ""))
+        settings_layout.addRow("Target Channel:", self.twitch_target_channel_entry)
+
         self.twitch_global_cooldown_spin = QSpinBox()
         self.twitch_global_cooldown_spin.setRange(0, 600)
         self.twitch_global_cooldown_spin.setValue(config.TWITCH_BOT.get("global_cooldown_seconds", 1))

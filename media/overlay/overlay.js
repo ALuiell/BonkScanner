@@ -93,9 +93,8 @@ function renderTrackedItems(state) {
     return `<div class="muted">--</div>`;
   }
   return `<div class="chip-strip">${rows.map((row) => {
-    const unknown = row.unknown_starting_inventory ? `<span class="muted"> +${formatNumber(row.unknown_starting_inventory)}?</span>` : "";
     const label = String(row.label || "").replace(/\s+map\s*1$/i, "");
-    return `<div class="counter-chip"><span>${escapeHtml(label)}</span><strong>${formatNumber(row.count)}${unknown}</strong></div>`;
+    return `<div class="counter-chip"><span>${escapeHtml(label)}</span><strong>${formatNumber(row.count)}</strong></div>`;
   }).join("")}</div>`;
 }
 
