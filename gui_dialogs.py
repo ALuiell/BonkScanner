@@ -1054,7 +1054,8 @@ class TwitchCommandSettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Twitch Command Settings")
-        self.resize(550, 650)
+        self.resize(700, 760)
+        self.setMinimumSize(640, 680)
         self.setModal(True)
 
         self.stat_checkboxes: dict[str, QCheckBox] = {}
@@ -1175,10 +1176,11 @@ class TwitchCommandSettingsDialog(QDialog):
         others_form.addRow("Stage Transition:", stage_ann_layout)
 
         scroll_layout.addWidget(others_group)
-        scroll_layout.addSpacing(15)
+        scroll_layout.addStretch(1)
 
-        # 3. Action Buttons
+        # 3. Sticky action buttons
         button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 10, 0, 0)
         reset_btn = QPushButton("Reset to Defaults")
         reset_btn.setObjectName("DangerButton")
         reset_btn.clicked.connect(self.reset_to_defaults)
@@ -1191,8 +1193,7 @@ class TwitchCommandSettingsDialog(QDialog):
         button_row.addStretch(1)
         button_row.addWidget(save_btn)
 
-        scroll_layout.addLayout(button_row)
-        scroll_layout.addStretch(1)
+        outer_layout.addLayout(button_row)
 
         self._init_guard = False
 
