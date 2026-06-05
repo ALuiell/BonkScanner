@@ -116,19 +116,19 @@ CHAOS_TOME_BASE_VALUES: dict[int, float] = {
     39: 0.15, 40: 0.10, 41: 0.05, 46: 1,
 }
 
+def round3(val: float) -> float:
+    return float(round(val, 3))
+
 def _compute_chaos_fingerprints() -> dict[int, list[float]]:
-    # Rarity multipliers for Chaos rolls: Common=1.0, Uncommon=1.2, Rare=1.4, Epic=1.6, Legendary=2.0
-    rarity_mults = [1.0, 1.2, 1.4, 1.6, 2.0]
     fingerprints = {}
+    rarities = (2.0, 1.6, 1.4, 1.2, 1.0)
     for stat_id, base in CHAOS_TOME_BASE_VALUES.items():
-        vals = []
-        for r in rarity_mults:
-            # Follow game formula: round3(round3(base * rarity) * 1.4 * rarity)
-            step1 = round(base * r, 3)
-            step2 = round(step1 * 1.4 * r, 3)
-            vals.append(step2)
-        # Sort descending so higher rarities have priority when resolving ambiguity
-        fingerprints[stat_id] = sorted(list(set(vals)), reverse=True)
+        stat_fps = set()
+        for r1 in rarities:
+            for r2 in rarities:
+                val = round3(round3(base * r1) * 1.4 * r2)
+                stat_fps.add(val)
+        fingerprints[stat_id] = sorted(list(stat_fps), reverse=True)
     return fingerprints
 
 CHAOS_FINGERPRINTS: dict[int, list[float]] = _compute_chaos_fingerprints()
