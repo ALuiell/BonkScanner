@@ -133,6 +133,18 @@ def _compute_chaos_fingerprints() -> dict[int, list[float]]:
 
 CHAOS_FINGERPRINTS: dict[int, list[float]] = _compute_chaos_fingerprints()
 CHAOS_TOME_STAT_IDS: frozenset[int] = frozenset(CHAOS_FINGERPRINTS.keys())
+CHAOS_TOME_GAME_STAT_ORDER: dict[int, int] = {
+    stat_id: index
+    for index, stat_id in enumerate(
+        (
+            0, 1, 2, 4, 5, 17, 3,
+            12, 18, 19, 15, 16,
+            9, 11, 10, 23, 24, 25,
+            46, 30, 38,
+            29, 32, 31, 39, 40, 41,
+        )
+    )
+}
 
 STAT_LABEL_ABBREVIATIONS: dict[str, str] = {
     "Max HP": "HP",
@@ -166,6 +178,11 @@ STAT_LABEL_ABBREVIATIONS: dict[str, str] = {
     "Powerup Multiplier": "PM",
     "Powerup Drop Chance": "PDC",
 }
+
+
+def chaos_tome_stat_sort_key(total: Any) -> tuple[int, str]:
+    stat_id = int(getattr(total, "stat_id", -1))
+    return (CHAOS_TOME_GAME_STAT_ORDER.get(stat_id, 999), str(getattr(total, "label", "")).lower())
 
 
 class LiveRunTracker:
@@ -317,7 +334,7 @@ class LiveRunTracker:
     def chaos_tome_summary_parts(self) -> list[str]:
         totals = sorted(
             self._chaos_totals.values(),
-            key=lambda total: (-abs(float(total.value or 0.0)), total.label.lower()),
+            key=chaos_tome_stat_sort_key,
         )
         parts: list[str] = []
         for total in totals:
@@ -342,7 +359,7 @@ class LiveRunTracker:
             )
             for total in sorted(
                 self._chaos_totals.values(),
-                key=lambda total: (-abs(float(total.value or 0.0)), total.label.lower()),
+                key=chaos_tome_stat_sort_key,
             )
         )
         return ChaosTomeSnapshot(

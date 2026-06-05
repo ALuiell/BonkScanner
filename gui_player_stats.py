@@ -56,7 +56,7 @@ from gui_styles import (
     _fold_item_name_for_rarity,
 )
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
-from live_run_tracker import LiveRunSnapshot, STAT_LABEL_ABBREVIATIONS
+from live_run_tracker import CHAOS_TOME_GAME_STAT_ORDER, LiveRunSnapshot
 from player_stats import (
     PLAYER_STAT_GROUPS,
     DamageSourceSnapshot,
@@ -2294,7 +2294,7 @@ class PlayerStatsMixin:
         if chaos_tome is None:
             return
 
-        stats = tuple(getattr(chaos_tome, "stats", ()) or ())
+        stats = self._chaos_stats_in_game_order(chaos_tome)
         summary_card = self._build_chaos_summary_card(chaos_tome)
         layout.addWidget(summary_card)
 
@@ -2327,12 +2327,12 @@ class PlayerStatsMixin:
                     getattr(stat, "display_delta", "--"),
                     int(getattr(stat, "rolls", 0)),
                 )
-                for stat in getattr(chaos_tome, "stats", ()) or ()
+                for stat in PlayerStatsMixin._chaos_stats_in_game_order(chaos_tome)
             ),
         )
 
     def _build_chaos_summary_card(self, chaos_tome) -> QFrame:
-        stats = tuple(getattr(chaos_tome, "stats", ()) or ())
+        stats = self._chaos_stats_in_game_order(chaos_tome)
         card = QFrame()
         card.setObjectName("StatCard")
         layout = QVBoxLayout(card)
@@ -2390,9 +2390,21 @@ class PlayerStatsMixin:
         return card
 
     @staticmethod
+    def _chaos_stats_in_game_order(chaos_tome) -> tuple:
+        return tuple(
+            sorted(
+                tuple(getattr(chaos_tome, "stats", ()) or ()),
+                key=lambda stat: (
+                    CHAOS_TOME_GAME_STAT_ORDER.get(int(getattr(stat, "stat_id", -1)), 999),
+                    str(getattr(stat, "label", "")).casefold(),
+                ),
+            )
+        )
+
+    @staticmethod
     def _chaos_stat_label(stat) -> str:
         label = str(getattr(stat, "label", ""))
-        return STAT_LABEL_ABBREVIATIONS.get(label, label or f"Stat {getattr(stat, 'stat_id', '?')}")
+        return label or f"Stat {getattr(stat, 'stat_id', '?')}"
 
     def display_damage_source_rows(self, damage_sources, *, scope: str, status_text: str | None = None) -> None:
         prefix = self._scope_prefix(scope)
@@ -2955,14 +2967,17 @@ class PlayerStatsMixin:
         rows: list[tuple[str, str, str, str]] = []
         for stat_id in sorted(
             set(stats_a) | set(stats_b),
-            key=lambda value: cls._chaos_compare_stat_label(stats_a.get(value), stats_b.get(value)).casefold(),
+            key=lambda value: (
+                CHAOS_TOME_GAME_STAT_ORDER.get(int(value), 999),
+                cls._chaos_compare_stat_label(stats_a.get(value), stats_b.get(value)).casefold(),
+            ),
         ):
             stat_a = stats_a.get(stat_id)
             stat_b = stats_b.get(stat_id)
             label = cls._chaos_compare_stat_label(stat_a, stat_b)
             rows.append(
                 cls._format_compare_metric_row(
-                    STAT_LABEL_ABBREVIATIONS.get(label, label),
+                    label,
                     cls._chaos_compare_metric_value(stat_a),
                     cls._chaos_compare_metric_value(stat_b),
                 )

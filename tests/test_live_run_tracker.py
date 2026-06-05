@@ -291,7 +291,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.chaos_tome_summary_parts(),
-            ["Gold +20.6%", "PDC +17.9%", "MS +11.2%"],
+            ["MS +11.2%", "Gold +20.6%", "PDC +17.9%"],
         )
 
     def test_chaos_tracker_exposes_structured_snapshot(self) -> None:
