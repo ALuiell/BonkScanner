@@ -103,6 +103,7 @@ DEFAULT_TWITCH_BOT = {
         "items": True,
         "weapons": True,
         "tomes": True,
+        "chaos": True,
         "stages": True,
         "powerups": True,
         "scanner": True
@@ -118,9 +119,10 @@ DEFAULT_TWITCH_BOT = {
         "items": "Items ({count}): {items}",
         "weapons": "Weapons: {weapons}",
         "tomes": "Tomes: {tomes}",
+        "chaos": "Chaos Tome Lv{level}: {chaos}",
         "stages": "{stages}",
         "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
-        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages, !powerups.",
+        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups.",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
         "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
     }
@@ -447,6 +449,10 @@ PLAYER_STATS_RECORD_INTERVAL_SECONDS = coerce_nonnegative_int(
     user_config.get("PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
     30,
 ) or 30
+CHAOS_TOME_TRACKER_INTERVAL_MS = max(
+    100,
+    coerce_nonnegative_int(user_config.get("CHAOS_TOME_TRACKER_INTERVAL_MS", 250), 250) or 250,
+)
 AUTO_START_RECORDING = bool(user_config.get("AUTO_START_RECORDING", False))
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
@@ -516,6 +522,7 @@ user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
 user_config["HOTKEY"] = HOTKEY
 user_config["PLAYER_STATS_RECORD_HOTKEY"] = PLAYER_STATS_RECORD_HOTKEY
 user_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = PLAYER_STATS_RECORD_INTERVAL_SECONDS
+user_config["CHAOS_TOME_TRACKER_INTERVAL_MS"] = CHAOS_TOME_TRACKER_INTERVAL_MS
 user_config["AUTO_START_RECORDING"] = AUTO_START_RECORDING
 user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY

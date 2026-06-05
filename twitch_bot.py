@@ -188,6 +188,9 @@ class TwitchBotWorker(QThread):
         elif cmd == "!tomes" and commands_cfg.get("tomes", True):
             self._handle_tomes(channel)
             handled = True
+        elif cmd in ("!chaos", "!chaostome") and commands_cfg.get("chaos", True):
+            self._handle_chaos(channel)
+            handled = True
         elif cmd == "!stages" and commands_cfg.get("stages", True):
             self._handle_stages(channel)
             handled = True
@@ -473,6 +476,28 @@ class TwitchBotWorker(QThread):
             text = text[:447] + "..."
         self._send_chat(channel, text)
 
+    def _handle_chaos(self, channel: str):
+        chaos_level = self.run_tracker.chaos_tome_level()
+        if chaos_level is None:
+            self._send_chat(channel, "No Chaos Tome detected yet.")
+            return
+
+        parts = self.run_tracker.chaos_tome_summary_parts()
+        if not parts:
+            self._send_chat(channel, f"Chaos Tome Lv{chaos_level}: no rolls tracked yet.")
+            return
+
+        chaos_text = " | ".join(parts)
+        text = self._format_template(
+            "chaos",
+            "Chaos Tome Lv{level}: {chaos}",
+            level=chaos_level,
+            chaos=chaos_text,
+        )
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, text)
+
     def _handle_stages(self, channel: str):
         rows = self.run_tracker.stage_summary_rows()
         if not rows:
@@ -538,7 +563,7 @@ class TwitchBotWorker(QThread):
     def _handle_scanner(self, channel: str):
         text = self._format_template(
             "scanner",
-            "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages, !powerups.",
+            "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups.",
             patreon_url=config.PATREON_SUPPORT_URL
         )
         if len(text) > 450:

@@ -1128,6 +1128,7 @@ class TwitchCommandSettingsDialog(QDialog):
             ("items", "!items / !tracked:", "Items ({count}): {items}", "Tags: {count}, {items} (automatically collapsed if too long)"),
             ("weapons", "!weapons:", "Weapons: {weapons}", "Tags: {weapons}"),
             ("tomes", "!tomes:", "Tomes: {tomes}", "Tags: {tomes}"),
+            ("chaos", "!chaos / !chaostome:", "Chaos Tome Lv{level}: {chaos}", "Tags: {level}, {chaos}"),
             ("powerups", "!powerups:", "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})", "Tags: {standard_duration}, {clock_duration}, {pm}"),
         ]
 
@@ -1251,6 +1252,7 @@ class TwitchCommandSettingsDialog(QDialog):
             "items": "Items ({count}): {items}",
             "weapons": "Weapons: {weapons}",
             "tomes": "Tomes: {tomes}",
+            "chaos": "Chaos Tome Lv{level}: {chaos}",
             "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
             "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩"
         }

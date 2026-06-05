@@ -67,6 +67,21 @@ class TrackedItemEvent:
 
 
 @dataclass(frozen=True)
+class ChaosTomeStatTotal:
+    stat_id: int
+    label: str
+    value: float
+    value_format: Any
+    rolls: int
+
+    @property
+    def display_delta(self) -> str:
+        from player_stats import format_player_stat_delta
+
+        return format_player_stat_delta(self.value, self.value_format)
+
+
+@dataclass(frozen=True)
 class LiveRunTrackerState:
     status: str
     updated_at: float
@@ -92,6 +107,66 @@ DEFAULT_TRACKED_ITEM_RULES: tuple[TrackedItemRule, ...] = (
     ),
 )
 
+CHAOS_TOME_BASE_VALUES: dict[int, float] = {
+    0: 15, 1: 20, 2: 5, 3: 5, 4: 0.05, 5: 0.05,
+    9: 0.08, 10: 0.08, 11: 0.10, 12: 0.12,
+    15: 0.06, 16: 1, 17: 0.06, 18: 0.05, 19: 0.10,
+    23: 0.10, 24: 0.10, 25: 0.08, 29: 0.20,
+    30: 0.05, 31: 0.075, 32: 0.075, 38: 0.08,
+    39: 0.15, 40: 0.10, 41: 0.05, 46: 1,
+}
+
+def _compute_chaos_fingerprints() -> dict[int, list[float]]:
+    # Rarity multipliers for Chaos rolls: Common=1.0, Uncommon=1.2, Rare=1.4, Epic=1.6, Legendary=2.0
+    rarity_mults = [1.0, 1.2, 1.4, 1.6, 2.0]
+    fingerprints = {}
+    for stat_id, base in CHAOS_TOME_BASE_VALUES.items():
+        vals = []
+        for r in rarity_mults:
+            # Follow game formula: round3(round3(base * rarity) * 1.4 * rarity)
+            step1 = round(base * r, 3)
+            step2 = round(step1 * 1.4 * r, 3)
+            vals.append(step2)
+        # Sort descending so higher rarities have priority when resolving ambiguity
+        fingerprints[stat_id] = sorted(list(set(vals)), reverse=True)
+    return fingerprints
+
+CHAOS_FINGERPRINTS: dict[int, list[float]] = _compute_chaos_fingerprints()
+CHAOS_TOME_STAT_IDS: frozenset[int] = frozenset(CHAOS_FINGERPRINTS.keys())
+
+STAT_LABEL_ABBREVIATIONS: dict[str, str] = {
+    "Max HP": "HP",
+    "HP Regen": "Regen",
+    "Overheal": "Overheal",
+    "Shield": "Shield",
+    "Armor": "Armor",
+    "Evasion": "Evasion",
+    "Lifesteal": "Lifesteal",
+    "Thorns": "Thorns",
+    "Damage": "DMG",
+    "Crit Chance": "Crit",
+    "Crit Damage": "CritDMG",
+    "Attack Speed": "AS",
+    "Projectile Count": "Proj",
+    "Projectile Bounces": "Bounces",
+    "Size": "Size",
+    "Projectile Speed": "ProjSpeed",
+    "Duration": "Dur",
+    "Damage to Elites": "EliteDMG",
+    "Knockback": "KB",
+    "Movement Speed": "MS",
+    "Extra Jumps": "Jumps",
+    "Jump Height": "JumpHeight",
+    "Luck": "Luck",
+    "Difficulty": "Diff",
+    "Pickup Range": "Pickup",
+    "XP Gain": "XP",
+    "Gold Gain": "Gold",
+    "Elite Spawn Increase": "ESI",
+    "Powerup Multiplier": "PM",
+    "Powerup Drop Chance": "PDC",
+}
+
 
 class LiveRunTracker:
     def __init__(
@@ -115,6 +190,11 @@ class LiveRunTracker:
         self._previous_item_counts: dict[str, int] | None = None
         self._tracked_events: list[TrackedItemEvent] = []
         self._tracked_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
+        self._chaos_tome_level: int | None = None
+        self._chaos_modifier_baselines: dict[int, tuple[float, ...]] = {}
+        self._chaos_totals: dict[int, ChaosTomeStatTotal] = {}
+        self._chaos_ambiguous_rolls = 0
+        self._chaos_available_rolls = 0
         self._cached_stage_summary: list[dict[str, Any]] | None = None
         self._lock = threading.RLock()
 
@@ -201,6 +281,59 @@ class LiveRunTracker:
         return self._tracked_item_rows_unlocked()
 
     @with_lock
+    def update_chaos_tome(
+        self,
+        *,
+        chaos_level: int | None,
+        permanent_modifiers: dict[int, tuple[Any, ...]],
+    ) -> None:
+        if chaos_level is None:
+            self._chaos_tome_level = None
+            self._chaos_modifier_baselines = {}
+            self._chaos_available_rolls = 0
+            return
+
+        current_level = max(0, int(chaos_level))
+        current_baselines = {
+            int(stat_id): tuple(float(getattr(m, "value", 0.0)) for m in (modifiers or ()))
+            for stat_id, modifiers in (permanent_modifiers or {}).items()
+        }
+
+        if self._chaos_tome_level is None or current_level < self._chaos_tome_level:
+            if self._chaos_tome_level is not None and current_level < self._chaos_tome_level:
+                self._chaos_totals = {}
+            self._chaos_tome_level = current_level
+            self._chaos_modifier_baselines = current_baselines
+            self._chaos_available_rolls = 0
+            return
+
+        if current_level > self._chaos_tome_level:
+            self._chaos_available_rolls += (current_level - self._chaos_tome_level)
+            self._chaos_tome_level = current_level
+
+        self._record_chaos_modifier_deltas(permanent_modifiers)
+
+    @with_lock
+    def chaos_tome_summary_parts(self) -> list[str]:
+        totals = sorted(
+            self._chaos_totals.values(),
+            key=lambda total: (-abs(float(total.value or 0.0)), total.label.lower()),
+        )
+        parts: list[str] = []
+        for total in totals:
+            label = STAT_LABEL_ABBREVIATIONS.get(total.label, total.label)
+            parts.append(f"{label} {total.display_delta}")
+        return parts
+
+    @with_lock
+    def chaos_tome_level(self) -> int | None:
+        return self._chaos_tome_level
+
+    @with_lock
+    def chaos_tome_ambiguous_rolls(self) -> int:
+        return self._chaos_ambiguous_rolls
+
+    @with_lock
     def state_snapshot(self) -> LiveRunTrackerState:
         """Return a coherent tracker view for consumers that need multiple fields."""
         now = self.clock()
@@ -259,6 +392,7 @@ class LiveRunTracker:
         self.snapshots.clear()
         self.current_stage_index = 1
         self._reset_current_run_item_baseline()
+        self._reset_chaos_tracking()
         self._cached_stage_summary = None
 
     def _reset_tracking_only(self) -> None:
@@ -268,6 +402,94 @@ class LiveRunTracker:
 
     def _reset_current_run_item_baseline(self) -> None:
         self._previous_item_counts = None
+
+    def _reset_chaos_tracking(self) -> None:
+        self._chaos_tome_level = None
+        self._chaos_modifier_baselines = {}
+        self._chaos_totals = {}
+        self._chaos_ambiguous_rolls = 0
+        self._chaos_available_rolls = 0
+
+    def _record_chaos_modifier_deltas(
+        self,
+        permanent_modifiers: dict[int, tuple[Any, ...]],
+    ) -> None:
+        for stat_id, modifiers in (permanent_modifiers or {}).items():
+            stat_id = int(stat_id)
+            values = tuple(modifiers or ())
+            old_values = self._chaos_modifier_baselines.get(stat_id, ())
+            new_values = tuple(float(getattr(m, "value", 0.0)) for m in values)
+            
+            new_baseline = list(old_values)
+            
+            # Check existing indices for stacked modifiers
+            for i in range(min(len(old_values), len(new_values))):
+                delta = new_values[i] - old_values[i]
+                if abs(delta) > 0.001:
+                    matched_rolls = self._looks_like_chaos_value(stat_id, delta)
+                    if matched_rolls > 0:
+                        rolls_to_process = min(self._chaos_available_rolls, matched_rolls)
+                        if rolls_to_process > 0:
+                            self._add_chaos_total_by_value(stat_id, values[i], delta * (rolls_to_process / matched_rolls))
+                            self._chaos_available_rolls -= rolls_to_process
+                            new_baseline[i] = new_values[i]
+                    else:
+                        new_baseline[i] = new_values[i]
+            
+            # Check new indices for spawned modifiers
+            if len(new_values) > len(old_values):
+                for i in range(len(old_values), len(new_values)):
+                    val = new_values[i]
+                    matched_rolls = self._looks_like_chaos_value(stat_id, val)
+                    if matched_rolls > 0:
+                        rolls_to_process = min(self._chaos_available_rolls, matched_rolls)
+                        if rolls_to_process > 0:
+                            self._add_chaos_total_by_value(stat_id, values[i], val * (rolls_to_process / matched_rolls))
+                            self._chaos_available_rolls -= rolls_to_process
+                            new_baseline.append(val)
+                        else:
+                            break
+                    else:
+                        new_baseline.append(val)
+            
+            self._chaos_modifier_baselines[stat_id] = tuple(new_baseline)
+
+    @staticmethod
+    def _looks_like_chaos_value(stat_id: int, value: float) -> int:
+        numeric = abs(value)
+        if numeric <= 0:
+            return 0
+
+        fingerprints = CHAOS_FINGERPRINTS.get(stat_id)
+        if not fingerprints:
+            return 0
+
+        # Check if it matches exactly N rolls of any fingerprint
+        for fp in fingerprints:
+            n = round(numeric / fp)
+            if n > 0 and abs(numeric - fp * n) <= 0.002 * n:
+                return n
+
+        return 0
+
+    def _add_chaos_total_by_value(self, stat_id: int, modifier: Any, delta: float) -> None:
+        existing = self._chaos_totals.get(stat_id)
+        if existing is None:
+            self._chaos_totals[stat_id] = ChaosTomeStatTotal(
+                stat_id=stat_id,
+                label=str(getattr(modifier, "label", f"Stat {stat_id}")),
+                value=delta,
+                value_format=getattr(modifier, "value_format", None),
+                rolls=1,
+            )
+            return
+        self._chaos_totals[stat_id] = ChaosTomeStatTotal(
+            stat_id=existing.stat_id,
+            label=existing.label,
+            value=existing.value + delta,
+            value_format=existing.value_format,
+            rolls=existing.rolls + 1,
+        )
 
     def _should_reset_for_snapshot(self, snapshot: LiveRunSnapshot) -> bool:
         previous = self.snapshots[-1] if self.snapshots else None

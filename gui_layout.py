@@ -1176,6 +1176,8 @@ class GuiLayoutMixin:
         self.twitch_cmd_weapons_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("weapons", True))
         self.twitch_cmd_tomes_cb = QCheckBox("!tomes")
         self.twitch_cmd_tomes_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("tomes", True))
+        self.twitch_cmd_chaos_cb = QCheckBox("!chaos")
+        self.twitch_cmd_chaos_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("chaos", True))
         self.twitch_cmd_stages_cb = QCheckBox("!stages")
         self.twitch_cmd_stages_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("stages", True))
         self.twitch_cmd_powerups_cb = QCheckBox("!powerups")
@@ -1200,9 +1202,10 @@ class GuiLayoutMixin:
         commands_grid.addWidget(self.twitch_cmd_items_cb, 1, 0)
         commands_grid.addWidget(self.twitch_cmd_weapons_cb, 1, 1)
         commands_grid.addWidget(self.twitch_cmd_tomes_cb, 2, 0)
-        commands_grid.addWidget(self.twitch_cmd_stages_cb, 2, 1)
-        commands_grid.addWidget(self.twitch_cmd_powerups_cb, 3, 0)
-        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 3, 1)
+        commands_grid.addWidget(self.twitch_cmd_chaos_cb, 2, 1)
+        commands_grid.addWidget(self.twitch_cmd_stages_cb, 3, 0)
+        commands_grid.addWidget(self.twitch_cmd_powerups_cb, 3, 1)
+        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 4, 0)
 
         settings_layout.addRow("", commands_grid)
 

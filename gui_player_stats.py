@@ -129,6 +129,48 @@ class PlayerStatsMixin:
 
         self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
 
+    def update_chaos_tome_tracker_timer(self):
+        if self._is_shutting_down:
+            return
+
+        should_refresh = (
+            self._is_live_stats_tab_active()
+            or self.player_stats_vod_recorder.is_recording
+            or self._is_player_stats_recording_armed()
+            or bool(getattr(config, "AUTO_START_RECORDING", False))
+            or self.overlay_should_refresh_live_stats()
+            or self._is_twitch_bot_active()
+        )
+        if should_refresh:
+            self.refresh_chaos_tome_tracker_now()
+
+        self.after(
+            int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 250)),
+            self.update_chaos_tome_tracker_timer,
+        )
+
+    def refresh_chaos_tome_tracker_now(self) -> bool:
+        try:
+            client = self._get_player_stats_client()
+            owner_stats = client.resolve_owner_stats()
+            chaos_level = client.get_chaos_tome_level(owner_stats)
+            if chaos_level is None:
+                self.live_run_tracker.update_chaos_tome(
+                    chaos_level=None,
+                    permanent_modifiers={},
+                )
+                return True
+            permanent_modifiers = client.get_permanent_stat_modifiers(owner_stats)
+            self.live_run_tracker.update_chaos_tome(
+                chaos_level=chaos_level,
+                permanent_modifiers=permanent_modifiers,
+            )
+            return True
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            return False
+        except Exception:
+            return False
+
     def _get_player_stats_client(self) -> PlayerStatsClient:
         if self.player_stats_client is None:
             self.player_stats_client = PlayerStatsClient(config.PROCESS_NAME)

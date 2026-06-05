@@ -57,6 +57,18 @@ class TomeSnapshot:
 
 
 @dataclass(frozen=True)
+class PlayerStatModifierSnapshot:
+    stat_id: int
+    label: str
+    value: float | None
+    value_format: PlayerStatFormat
+
+    @property
+    def display_delta(self) -> str:
+        return format_player_stat_delta(self.value, self.value_format)
+
+
+@dataclass(frozen=True)
 class PlayerStatSpec:
     label: str
     stat_id: int | None
@@ -471,6 +483,8 @@ class PlayerStatsClient:
     PLAYER_INVENTORY_OFFSET = 0x28
     WEAPON_INVENTORY_OFFSET = 0x28
     TOME_INVENTORY_OFFSET = 0x48
+    STAT_INVENTORY_OFFSET = 0x50
+    STAT_INVENTORY_PERMANENT_CHANGES_OFFSET = 0x10
     WEAPONS_DICT_OFFSET = 0x18
     TOME_LEVELS_DICT_OFFSET = 0x18
     TOME_UPGRADES_DICT_OFFSET = 0x28
@@ -516,6 +530,7 @@ class PlayerStatsClient:
     STAT_DICT_ENTRY_KEY_OFFSET = 0x8
     STAT_DICT_ENTRY_VALUE_OFFSET = 0x0C
     STAT_MODIFIER_STAT_OFFSET = 0x10
+    STAT_MODIFIER_TYPE_OFFSET = 0x14
     STAT_MODIFIER_VALUE_OFFSET = 0x18
     RUN_STATS_DICT_OFFSET = 0x0
     RUN_STATS_ENTRY_VALUE_OFFSET = 0x10
@@ -525,6 +540,8 @@ class PlayerStatsClient:
     DAMAGE_SOURCE_ADDED_AT_TIME_OFFSET = 0x18
     DAMAGE_SOURCE_DAMAGE_OFFSET = 0x1C
     MAX_DAMAGE_SOURCE_ENTRIES = 256
+    MAX_PERMANENT_STAT_ENTRIES = 256
+    MAX_PERMANENT_STAT_MODIFIERS = 2048
     HASHSET_SLOTS_OFFSET = 0x18
     HASHSET_COUNT_OFFSET = 0x20
     HASHSET_LAST_INDEX_OFFSET = 0x24
@@ -537,6 +554,7 @@ class PlayerStatsClient:
     RUN_UNLOCKABLES_BANISHED_ITEMS_OFFSET = 0x0
     RUN_UNLOCKABLES_BANISHED_UPGRADABLES_OFFSET = 0x8
     MAX_BANISHED_UNLOCKABLES = 128
+    CHAOS_TOME_ID = 24
 
     def __init__(
         self,
@@ -690,17 +708,7 @@ class PlayerStatsClient:
 
     def get_live_tomes(self, owner_stats: int | None = None) -> tuple[TomeSnapshot, ...]:
         owner_stats = owner_stats or self._resolve_owner_stats()
-        try:
-            player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
-        except MemoryReadError:
-            return ()
-        if not player_inventory:
-            return ()
-
-        try:
-            tome_inventory = self.memory.read_ptr(player_inventory + self.TOME_INVENTORY_OFFSET)
-        except MemoryReadError:
-            return ()
+        tome_inventory = self._resolve_tome_inventory(owner_stats)
         if not tome_inventory:
             return ()
 
@@ -733,6 +741,52 @@ class PlayerStatsClient:
                 )
             )
         return tuple(snapshots)
+
+    def _resolve_tome_inventory(self, owner_stats: int) -> int:
+        try:
+            player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
+        except MemoryReadError:
+            return 0
+        if not player_inventory:
+            return 0
+
+        try:
+            tome_inventory = self.memory.read_ptr(player_inventory + self.TOME_INVENTORY_OFFSET)
+        except MemoryReadError:
+            return 0
+        return tome_inventory
+
+    def _read_live_tome_levels(self, owner_stats: int | None = None) -> dict[int, int]:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        tome_inventory = self._resolve_tome_inventory(owner_stats)
+        if not tome_inventory:
+            return {}
+        return self._read_tome_levels_dict(
+            self.memory.read_ptr(tome_inventory + self.TOME_LEVELS_DICT_OFFSET)
+        )
+
+    def get_chaos_tome_level(self, owner_stats: int | None = None) -> int | None:
+        levels = self._read_live_tome_levels(owner_stats)
+        level = levels.get(self.CHAOS_TOME_ID)
+        if level is None:
+            return None
+        return max(int(level), 0)
+
+    def get_permanent_stat_modifiers(
+        self,
+        owner_stats: int | None = None,
+    ) -> dict[int, tuple[PlayerStatModifierSnapshot, ...]]:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
+        if not player_inventory:
+            return {}
+        stat_inventory = self.memory.read_ptr(player_inventory + self.STAT_INVENTORY_OFFSET)
+        if not stat_inventory:
+            return {}
+        dictionary_address = self.memory.read_ptr(
+            stat_inventory + self.STAT_INVENTORY_PERMANENT_CHANGES_OFFSET
+        )
+        return self._read_permanent_stat_modifiers_dict(dictionary_address)
 
     def get_live_banishes(self) -> tuple[str, ...]:
         type_info_address = self.memory.module_offset(
@@ -1068,6 +1122,77 @@ class PlayerStatsClient:
             upgrades[tome_id] = (stat_id, label, value, value_format)
         return upgrades
 
+    def _read_permanent_stat_modifiers_dict(
+        self,
+        dictionary_address: int,
+    ) -> dict[int, tuple[PlayerStatModifierSnapshot, ...]]:
+        if not dictionary_address:
+            return {}
+
+        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return {}
+
+        count = self.memory.read_i32(dictionary_address + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return {}
+        if count > self.MAX_PERMANENT_STAT_ENTRIES:
+            raise MemoryReadError(f"Permanent stat dictionary count is invalid: {count}")
+
+        modifiers_by_stat: dict[int, tuple[PlayerStatModifierSnapshot, ...]] = {}
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
+            if hash_code < 0:
+                continue
+            stat_id = self.memory.read_i32(entry + self.WEAPON_DICT_ENTRY_KEY_OFFSET)
+            list_address = self.memory.read_ptr(entry + self.WEAPON_DICT_ENTRY_VALUE_OFFSET)
+            modifiers = self._read_stat_modifier_list(list_address, expected_stat_id=stat_id)
+            if modifiers:
+                modifiers_by_stat[stat_id] = modifiers
+        return modifiers_by_stat
+
+    def _read_stat_modifier_list(
+        self,
+        list_address: int,
+        *,
+        expected_stat_id: int | None = None,
+    ) -> tuple[PlayerStatModifierSnapshot, ...]:
+        if not list_address:
+            return ()
+
+        items_array = self.memory.read_ptr(list_address + self.LIST_ITEMS_OFFSET)
+        if not items_array:
+            return ()
+
+        size = self.memory.read_i32(list_address + self.LIST_SIZE_OFFSET)
+        if size <= 0:
+            return ()
+        if size > self.MAX_PERMANENT_STAT_MODIFIERS:
+            raise MemoryReadError(f"Permanent stat modifier list size is invalid: {size}")
+
+        modifiers: list[PlayerStatModifierSnapshot] = []
+        for index in range(size):
+            modifier_ptr = self.memory.read_ptr(
+                items_array + self.ARRAY_DATA_OFFSET + (index * self.OBJECT_POINTER_SIZE)
+            )
+            if not modifier_ptr:
+                continue
+            stat_id = self.memory.read_i32(modifier_ptr + self.STAT_MODIFIER_STAT_OFFSET)
+            if expected_stat_id is not None and stat_id != expected_stat_id:
+                continue
+            value = self.memory.read_float(modifier_ptr + self.STAT_MODIFIER_VALUE_OFFSET)
+            label, value_format = self._resolve_stat_display(stat_id)
+            modifiers.append(
+                PlayerStatModifierSnapshot(
+                    stat_id=stat_id,
+                    label=label,
+                    value=value,
+                    value_format=value_format,
+                )
+            )
+        return tuple(modifiers)
+
     def _read_upgrade_stat_ids(self, list_address: int) -> tuple[int, ...]:
         if not list_address:
             return ()
@@ -1199,6 +1324,17 @@ def format_player_stat_value(value: float | None, value_format: PlayerStatFormat
         return f"{_format_number(value)}x"
 
     return _format_number(value)
+
+
+def format_player_stat_delta(value: float | None, value_format: PlayerStatFormat) -> str:
+    if value is None or not isfinite(value):
+        return "--"
+
+    sign = "+" if value >= 0 else "-"
+    absolute = abs(value)
+    if value_format in {PlayerStatFormat.PERCENT, PlayerStatFormat.MULTIPLIER}:
+        return f"{sign}{_format_number(absolute * 100)}%"
+    return f"{sign}{_format_number(absolute)}"
 
 
 def format_weapon_stat_value(value: float | None, value_format: WeaponStatFormat) -> str:

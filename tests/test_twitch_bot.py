@@ -123,6 +123,18 @@ class TestTwitchBotWorker(unittest.TestCase):
             "Powerups: Rage/Shield/Coin/Speed 22.5s | Clock 18s (PM 1.5x)"
         )
 
+    def test_handle_chaos_uses_tracker_totals(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.chaos_tome_level.return_value = 5
+        self.run_tracker.chaos_tome_summary_parts.return_value = ["DMG +16.8%", "Luck +14%"]
+
+        self.bot._handle_chaos("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "Chaos Tome Lv5: DMG +16.8% | Luck +14%",
+        )
+
     def test_powerups_command_routes_through_chat_handler(self):
         from config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")

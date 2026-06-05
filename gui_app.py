@@ -312,6 +312,7 @@ class MegabonkApp(
         self.setup_hotkeys()
         self.update_timer()
         self.update_player_stats_timer()
+        self.update_chaos_tome_tracker_timer()
         self.check_admin_rights()
         self.log(f"[*] Welcome to BonkScanner v{updater.CURRENT_VERSION}!", tag="success")
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")
