@@ -506,6 +506,44 @@ class PlayerStatsTimelineTests(unittest.TestCase):
 
         self.assertEqual(tomes, ())
 
+    def test_get_passive_items_falls_back_when_primary_dictionary_read_fails(self) -> None:
+        memory = build_player_stats_memory()
+        owner_stats = 0x20000300
+        inventory_container = 0x21000000
+        player_inventory = 0x22000000
+        item_inventory = 0x22000100
+        passive_item_dict = 0x22000200
+        entries = 0x22000300
+        item_value = 0x22000400
+        class_meta = 0x22000500
+        name_ptr = 0x22000600
+
+        memory.pointers.update(
+            {
+                owner_stats + PlayerStatsClient.INVENTORY_CONTAINER_OFFSET: inventory_container,
+                owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
+                player_inventory + PlayerStatsClient.ITEM_INVENTORY_OFFSET: item_inventory,
+                item_inventory + PlayerStatsClient.ITEM_INVENTORY_ITEMS_DICT_OFFSET: passive_item_dict,
+                passive_item_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: entries,
+                entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET: item_value,
+                item_value + PlayerStatsClient.ITEM_CLASS_META_OFFSET: class_meta,
+                class_meta + PlayerStatsClient.CLASS_META_NAME_PTR_OFFSET: name_ptr,
+            }
+        )
+        memory.ints.update(
+            {
+                passive_item_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                item_value + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET: 2,
+            }
+        )
+        memory.ascii_strings[name_ptr] = "ItemGoldenEgg"
+
+        client = PlayerStatsClient(memory=memory)
+
+        items = client.get_passive_items(owner_stats)
+
+        self.assertEqual(items, ("Golden Egg x2",))
+
     def test_get_live_banishes_reads_items_and_tomes(self) -> None:
         memory = build_player_stats_memory()
         base = memory.module_base

@@ -2351,6 +2351,43 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["items"], ())
 
+    def test_refresh_live_player_stats_now_preserves_last_known_items_when_read_fails(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app.player_stats_last_known_items = ("Wrench x2", "Clover x1")
+        app._is_live_stats_tab_active = lambda: False
+        app.read_player_stats_only = lambda: (
+            {"Damage": SimpleNamespace(display_value="123", value=1.23)},
+            0x1234,
+        )
+
+        def fail_items(owner_stats=None):
+            raise gui.MemoryReadError("items missing")
+
+        app.read_passive_items_only = fail_items
+        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            get_run_timer=lambda: 21.5,
+            get_stage_timer=lambda: 9.0,
+            get_killed_mobs=lambda: 37,
+            get_player_level=lambda owner_stats=None: 2,
+            get_live_weapons=lambda owner_stats=None: (),
+            get_live_tomes=lambda owner_stats=None: (),
+            get_live_banishes=lambda: (),
+            get_live_damage_sources=lambda: (),
+        )
+
+        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertTrue(result)
+        self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
+        self.assertEqual(
+            app.player_stats_vod_recorder.capture_calls[0]["items"],
+            ("Wrench x2", "Clover x1"),
+        )
+
     def test_stop_player_stats_recording_refreshes_live_stats_without_items(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True)

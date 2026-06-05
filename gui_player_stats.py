@@ -208,6 +208,7 @@ class PlayerStatsMixin:
         for label in self.player_stats_rows.values():
             _set_text(label, "--")
         self.player_stats_items_expanded = False
+        self.player_stats_last_known_items = ()
         self._update_items_section("live", items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
@@ -419,6 +420,11 @@ class PlayerStatsMixin:
 
         chests_per_minute = self.calculate_player_chests_per_minute(stats)
         items_text = None if items_available else "Items unavailable"
+        if items_available:
+            effective_items = items
+            self.player_stats_last_known_items = items
+        else:
+            effective_items = getattr(self, "player_stats_last_known_items", ())
         if banishes_available:
             banishes = self.merge_banish_appearance_order(self.player_stats_live_banishes, banishes)
             self.player_stats_live_banishes = banishes
@@ -428,7 +434,7 @@ class PlayerStatsMixin:
         live_snapshot = LiveRunSnapshot(
             captured_at=time.monotonic(),
             stats=stats,
-            items=items if items_available else (),
+            items=effective_items,
             items_available=items_available,
             weapons=weapons if weapons_available else (),
             weapons_available=weapons_available,
@@ -469,7 +475,7 @@ class PlayerStatsMixin:
         if can_capture_recording and self.player_stats_vod_recorder.should_capture():
             snapshot = self.player_stats_vod_recorder.capture(
                 stats,
-                items if items_available else (),
+                effective_items,
                 weapons if weapons_available else (),
                 tomes if tomes_available else (),
                 banishes if banishes_available else (),
@@ -504,7 +510,7 @@ class PlayerStatsMixin:
             self.player_stats_selected_snapshot_index = None
             self.display_player_stats(
                 stats,
-                items,
+                effective_items,
                 weapons=weapons if weapons_available else (),
                 tomes=tomes if tomes_available else (),
                 chaos_tome=chaos_tome_snapshot,
