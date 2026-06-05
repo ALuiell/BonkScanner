@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 
 from player_stats import (
+    ChaosTomeSnapshot,
+    ChaosTomeStatSnapshot,
     DamageSourceSnapshot,
     PlayerStatFormat,
     TomeSnapshot,
@@ -128,6 +130,25 @@ class VodStorageTests(unittest.TestCase):
                         added_at_time=166.73388671875,
                     ),
                 ),
+                chaos_tome=ChaosTomeSnapshot(
+                    level=7,
+                    stats=(
+                        ChaosTomeStatSnapshot(
+                            stat_id=12,
+                            label="Damage",
+                            value=0.168,
+                            value_format=PlayerStatFormat.MULTIPLIER,
+                            rolls=1,
+                        ),
+                        ChaosTomeStatSnapshot(
+                            stat_id=30,
+                            label="Luck",
+                            value=0.07,
+                            value_format=PlayerStatFormat.PERCENT,
+                            rolls=1,
+                        ),
+                    ),
+                ),
                 chests_per_minute=1.23,
                 game_time_seconds=21.52338219,
                 mob_kills=37,
@@ -164,6 +185,12 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].tomes[0].name, "Damage")
             self.assertEqual(loaded.snapshots[0].tomes[0].level, 3)
             self.assertEqual(loaded.snapshots[0].tomes[0].display_value, "1.25x")
+            self.assertIsNotNone(loaded.snapshots[0].chaos_tome)
+            self.assertEqual(loaded.snapshots[0].chaos_tome.level, 7)
+            self.assertEqual(
+                [(stat.stat_id, stat.label, stat.display_delta) for stat in loaded.snapshots[0].chaos_tome.stats],
+                [(12, "Damage", "+16.8%"), (30, "Luck", "+7%")],
+            )
             self.assertEqual(loaded.snapshots[0].banishes, ("Clover", "Golden Tome"))
             self.assertEqual(loaded.snapshots[0].damage_sources[0].source_key, "FireStaff")
             self.assertEqual(loaded.snapshots[0].damage_sources[0].source_name, "FireStaff")

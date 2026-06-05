@@ -114,6 +114,9 @@ class MegabonkApp(
         self.player_stats_tomes_layout = None
         self.player_stats_tome_cards = []
         self.player_stats_tome_signature = None
+        self.player_stats_chaos_status_label = None
+        self.player_stats_chaos_layout = None
+        self.player_stats_chaos_signature = None
         self.player_stats_damage_sources_status_label = None
         self.player_stats_damage_sources_layout = None
         self.player_stats_damage_source_signature = None
@@ -156,6 +159,9 @@ class MegabonkApp(
         self.vods_tomes_layout = None
         self.vods_tome_cards = []
         self.vods_tome_signature = None
+        self.vods_chaos_status_label = None
+        self.vods_chaos_layout = None
+        self.vods_chaos_signature = None
         self.vods_damage_sources_status_label = None
         self.vods_damage_sources_layout = None
         self.vods_damage_source_signature = None
@@ -171,6 +177,7 @@ class MegabonkApp(
         self.compare_runs_stage_summary_checkbox = None
         self.compare_runs_weapons_checkbox = None
         self.compare_runs_tomes_checkbox = None
+        self.compare_runs_chaos_checkbox = None
         self.compare_run_a_selected_label = None
         self.compare_run_b_selected_label = None
         self.compare_run_a_status_label = None
@@ -211,6 +218,8 @@ class MegabonkApp(
         self.compare_runs_diff_weapons_label = None
         self.compare_runs_diff_tomes_group = None
         self.compare_runs_diff_tomes_label = None
+        self.compare_runs_diff_chaos_group = None
+        self.compare_runs_diff_chaos_label = None
         self.compare_runs_item_details_btn = None
         self.status_label = None
         self.toggle_btn = None
@@ -280,6 +289,7 @@ class MegabonkApp(
         self.compare_runs_stage_summary_enabled = compare_sections["stage_summary"]
         self.compare_runs_weapons_enabled = compare_sections["weapons"]
         self.compare_runs_tomes_enabled = compare_sections["tomes"]
+        self.compare_runs_chaos_enabled = compare_sections["chaos"]
         self.compare_runs_item_details_expanded = False
         self.compare_runs_syncing = False
         self.native_hook_loader = None

@@ -56,7 +56,7 @@ from gui_styles import (
     _fold_item_name_for_rarity,
 )
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
-from live_run_tracker import LiveRunSnapshot
+from live_run_tracker import LiveRunSnapshot, STAT_LABEL_ABBREVIATIONS
 from player_stats import (
     PLAYER_STAT_GROUPS,
     DamageSourceSnapshot,
@@ -83,6 +83,7 @@ COMPARE_RUN_SECTION_DEFAULTS = {
     "stage_summary": False,
     "weapons": False,
     "tomes": False,
+    "chaos": False,
 }
 
 
@@ -227,6 +228,12 @@ class PlayerStatsMixin:
             (),
             scope="live",
             status_text="Waiting for tome data...",
+        )
+        self.player_stats_chaos_signature = None
+        self.display_chaos_tome_card(
+            None,
+            scope="live",
+            status_text="Waiting for Chaos Tome data...",
         )
         self.player_stats_damage_source_signature = None
         self.display_damage_source_rows(
@@ -439,6 +446,8 @@ class PlayerStatsMixin:
             stage_ptr=stage_ptr,
         )
         self.live_run_tracker.update(live_snapshot)
+        chaos_snapshot_reader = getattr(self.live_run_tracker, "chaos_tome_snapshot", None)
+        chaos_tome_snapshot = chaos_snapshot_reader() if callable(chaos_snapshot_reader) else None
         self.update_overlay_state_from_tracker()
         live_stage_summary_rows = self.live_run_tracker.stage_summary_rows()
         runtime_state = self._runtime_game_state_or_unknown()
@@ -465,6 +474,7 @@ class PlayerStatsMixin:
                 tomes if tomes_available else (),
                 banishes if banishes_available else (),
                 damage_sources if damage_sources_available else (),
+                chaos_tome=chaos_tome_snapshot,
                 chests_per_minute=chests_per_minute,
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
@@ -497,6 +507,7 @@ class PlayerStatsMixin:
                 items,
                 weapons=weapons if weapons_available else (),
                 tomes=tomes if tomes_available else (),
+                chaos_tome=chaos_tome_snapshot,
                 banishes=banishes if banishes_available else (),
                 damage_sources=damage_sources if damage_sources_available else (),
                 weapons_available=weapons_available,
@@ -519,6 +530,7 @@ class PlayerStatsMixin:
         *,
         weapons=(),
         tomes=(),
+        chaos_tome=None,
         banishes=(),
         damage_sources=(),
         weapons_available: bool = True,
@@ -574,6 +586,11 @@ class PlayerStatsMixin:
             scope="live",
             status_text=None if tomes_available else "Tomes unavailable",
         )
+        self.display_chaos_tome_card(
+            chaos_tome,
+            scope="live",
+            status_text=None if chaos_tome is not None else "No Chaos Tome data yet",
+        )
         self.display_damage_source_rows(
             damage_sources if damage_sources_available else (),
             scope="live",
@@ -588,6 +605,7 @@ class PlayerStatsMixin:
             snapshot.items,
             weapons=getattr(snapshot, "weapons", ()),
             tomes=getattr(snapshot, "tomes", ()),
+            chaos_tome=getattr(snapshot, "chaos_tome", None),
             banishes=getattr(snapshot, "banishes", ()),
             damage_sources=getattr(snapshot, "damage_sources", ()),
             status_text=(
@@ -1129,6 +1147,8 @@ class PlayerStatsMixin:
             self.display_weapon_cards((), scope="vod", status_text="No weapon data in this recording")
             self.vods_tome_signature = None
             self.display_tome_cards((), scope="vod", status_text="No tome data in this recording")
+            self.vods_chaos_signature = None
+            self.display_chaos_tome_card(None, scope="vod", status_text="No Chaos Tome data in this recording")
             self.vods_damage_source_signature = None
             self.display_damage_source_rows((), scope="vod", status_text="No damage source data in this recording")
 
@@ -1189,6 +1209,11 @@ class PlayerStatsMixin:
         )
         self.display_weapon_cards(getattr(snapshot, "weapons", ()), scope="vod")
         self.display_tome_cards(getattr(snapshot, "tomes", ()), scope="vod")
+        self.display_chaos_tome_card(
+            getattr(snapshot, "chaos_tome", None),
+            scope="vod",
+            status_text=None if getattr(snapshot, "chaos_tome", None) is not None else "No Chaos Tome data in this snapshot",
+        )
         self.display_damage_source_rows(getattr(snapshot, "damage_sources", ()), scope="vod")
 
     def on_vods_slider_changed(self, value):
@@ -1335,6 +1360,7 @@ class PlayerStatsMixin:
         self.compare_runs_stage_summary_enabled = sections["stage_summary"]
         self.compare_runs_weapons_enabled = sections["weapons"]
         self.compare_runs_tomes_enabled = sections["tomes"]
+        self.compare_runs_chaos_enabled = sections["chaos"]
         if not self.compare_runs_items_enabled:
             self.compare_runs_item_details_expanded = False
         self._save_compare_run_sections()
@@ -1506,10 +1532,12 @@ class PlayerStatsMixin:
             ),
             weapons_text=self.format_compare_runs_weapons_diff(snapshot_a, snapshot_b),
             tomes_text=self.format_compare_runs_tomes_diff(snapshot_a, snapshot_b),
+            chaos_text=self.format_compare_runs_chaos_diff(snapshot_a, snapshot_b),
             show_items=bool(getattr(self, "compare_runs_items_enabled", False)),
             show_stage_summary=bool(getattr(self, "compare_runs_stage_summary_enabled", False)),
             show_weapons=bool(getattr(self, "compare_runs_weapons_enabled", False)),
             show_tomes=bool(getattr(self, "compare_runs_tomes_enabled", False)),
+            show_chaos=bool(getattr(self, "compare_runs_chaos_enabled", False)),
         )
         self._refresh_compare_runs_item_details_button(bool(getattr(self, "compare_runs_items_enabled", False)))
 
@@ -1541,10 +1569,12 @@ class PlayerStatsMixin:
         stage_summary_text: str = "--",
         weapons_text: str = "--",
         tomes_text: str = "--",
+        chaos_text: str = "--",
         show_items: bool = False,
         show_stage_summary: bool = False,
         show_weapons: bool = False,
         show_tomes: bool = False,
+        show_chaos: bool = False,
     ) -> None:
         _set_text(getattr(self, "compare_runs_diff_overview_label", None), overview_text)
         _set_text(getattr(self, "compare_runs_diff_stats_label", None), stats_text)
@@ -1552,12 +1582,14 @@ class PlayerStatsMixin:
         _set_text(getattr(self, "compare_runs_diff_stage_summary_label", None), stage_summary_text)
         _set_text(getattr(self, "compare_runs_diff_weapons_label", None), weapons_text)
         _set_text(getattr(self, "compare_runs_diff_tomes_label", None), tomes_text)
+        _set_text(getattr(self, "compare_runs_diff_chaos_label", None), chaos_text)
         self._set_visible(getattr(self, "compare_runs_diff_overview_group", None), True)
         self._set_visible(getattr(self, "compare_runs_diff_stats_group", None), bool(stats_text and stats_text != "--"))
         self._set_visible(getattr(self, "compare_runs_diff_items_group", None), show_items)
         self._set_visible(getattr(self, "compare_runs_diff_stage_summary_group", None), show_stage_summary)
         self._set_visible(getattr(self, "compare_runs_diff_weapons_group", None), show_weapons)
         self._set_visible(getattr(self, "compare_runs_diff_tomes_group", None), show_tomes)
+        self._set_visible(getattr(self, "compare_runs_diff_chaos_group", None), show_chaos)
 
     @staticmethod
     def _set_visible(widget, visible: bool) -> None:
@@ -1647,6 +1679,7 @@ class PlayerStatsMixin:
             ),
             "weapons": bool(self._checkbox_checked(getattr(self, "compare_runs_weapons_checkbox", None))),
             "tomes": bool(self._checkbox_checked(getattr(self, "compare_runs_tomes_checkbox", None))),
+            "chaos": bool(self._checkbox_checked(getattr(self, "compare_runs_chaos_checkbox", None))),
         }
 
     @staticmethod
@@ -1827,6 +1860,8 @@ class PlayerStatsMixin:
         self.display_weapon_cards((), scope="vod", status_text="Select a recording")
         self.vods_tome_signature = None
         self.display_tome_cards((), scope="vod", status_text="Select a recording")
+        self.vods_chaos_signature = None
+        self.display_chaos_tome_card(None, scope="vod", status_text="Select a recording")
 
     def cleanup_recordings_by_snapshot_count(self):
         dialog = CleanupRecordingsDialog(self.window)
@@ -2145,7 +2180,13 @@ class PlayerStatsMixin:
             for weapon in weapons
         )
 
-    def display_tome_cards(self, tomes, *, scope: str, status_text: str | None = None) -> None:
+    def display_tome_cards(
+        self,
+        tomes,
+        *,
+        scope: str,
+        status_text: str | None = None,
+    ) -> None:
         prefix = self._scope_prefix(scope)
         layout_attr = f"{prefix}_tomes_layout"
         status_attr = f"{prefix}_tomes_status_label"
@@ -2229,6 +2270,129 @@ class PlayerStatsMixin:
             )
             for tome in tomes
         )
+
+    def display_chaos_tome_card(self, chaos_tome, *, scope: str, status_text: str | None = None) -> None:
+        prefix = self._scope_prefix(scope)
+        layout = getattr(self, f"{prefix}_chaos_layout", None)
+        status_label = getattr(self, f"{prefix}_chaos_status_label", None)
+        signature_attr = f"{prefix}_chaos_signature"
+        if layout is None or status_label is None:
+            return
+
+        signature = self._chaos_tome_signature(chaos_tome)
+        if getattr(self, signature_attr, None) == signature and status_text is None:
+            return
+
+        setattr(self, signature_attr, signature)
+        _clear_layout(layout)
+
+        if status_text is not None:
+            _set_text(status_label, status_text)
+        else:
+            _set_text(status_label, "" if chaos_tome is not None else "No Chaos Tome data")
+
+        if chaos_tome is None:
+            return
+
+        stats = tuple(getattr(chaos_tome, "stats", ()) or ())
+        summary_card = self._build_chaos_summary_card(chaos_tome)
+        layout.addWidget(summary_card)
+
+        if not stats:
+            layout.addStretch(1)
+            return
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+        for index, stat in enumerate(stats):
+            grid.addWidget(self._build_chaos_stat_card(stat), index // 3, index % 3)
+        for column in range(3):
+            grid.setColumnStretch(column, 1)
+        layout.addLayout(grid)
+        layout.addStretch(1)
+
+    @staticmethod
+    def _chaos_tome_signature(chaos_tome) -> tuple:
+        if chaos_tome is None:
+            return ()
+        return (
+            int(getattr(chaos_tome, "level", 0)),
+            int(getattr(chaos_tome, "ambiguous_rolls", 0)),
+            tuple(
+                (
+                    int(getattr(stat, "stat_id", -1)),
+                    str(getattr(stat, "label", "")),
+                    getattr(stat, "display_delta", "--"),
+                    int(getattr(stat, "rolls", 0)),
+                )
+                for stat in getattr(chaos_tome, "stats", ()) or ()
+            ),
+        )
+
+    def _build_chaos_summary_card(self, chaos_tome) -> QFrame:
+        stats = tuple(getattr(chaos_tome, "stats", ()) or ())
+        card = QFrame()
+        card.setObjectName("StatCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(8)
+        title_label = QLabel("Chaos Tome")
+        title_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        level_label = QLabel(f"Lv. {int(getattr(chaos_tome, 'level', 0))}")
+        level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        level_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        header_layout.addWidget(title_label, 1)
+        header_layout.addWidget(level_label)
+        layout.addLayout(header_layout)
+
+        rolls = sum(int(getattr(stat, "rolls", 0) or 0) for stat in stats)
+        summary = QLabel(f"Tracked rolls: {rolls} | Stats: {len(stats)}")
+        summary.setStyleSheet("color: #98A7BA;")
+        layout.addWidget(summary)
+
+        if stats:
+            top_text = " | ".join(
+                f"{self._chaos_stat_label(stat)} {getattr(stat, 'display_delta', '--')}"
+                for stat in stats[:3]
+            )
+        else:
+            top_text = "Tracking rolls..."
+        top_label = QLabel(top_text)
+        top_label.setWordWrap(True)
+        top_label.setStyleSheet("font-weight: 700;")
+        layout.addWidget(top_label)
+        return card
+
+    def _build_chaos_stat_card(self, stat) -> QFrame:
+        card = QFrame()
+        card.setObjectName("StatCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
+
+        name_label = QLabel(self._chaos_stat_label(stat))
+        name_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        value_label = QLabel(getattr(stat, "display_delta", "--"))
+        value_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        row.addWidget(name_label, 1)
+        row.addWidget(value_label)
+        layout.addLayout(row)
+        return card
+
+    @staticmethod
+    def _chaos_stat_label(stat) -> str:
+        label = str(getattr(stat, "label", ""))
+        return STAT_LABEL_ABBREVIATIONS.get(label, label or f"Stat {getattr(stat, 'stat_id', '?')}")
 
     def display_damage_source_rows(self, damage_sources, *, scope: str, status_text: str | None = None) -> None:
         prefix = self._scope_prefix(scope)
@@ -2404,6 +2568,7 @@ class PlayerStatsMixin:
         item_details_expanded: bool = False,
         include_weapons: bool = False,
         include_tomes: bool = False,
+        include_chaos: bool = False,
     ) -> str:
         rows = [cls.format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b)]
         stat_text = cls.format_compare_runs_stats_diff(snapshot_a, snapshot_b, stat_labels=stat_labels)
@@ -2419,6 +2584,9 @@ class PlayerStatsMixin:
         if include_tomes:
             rows.append('<br><span style="color:#E5E7EB; font-weight:700;">Tomes</span>')
             rows.append(cls.format_compare_runs_tomes_diff(snapshot_a, snapshot_b))
+        if include_chaos:
+            rows.append('<br><span style="color:#E5E7EB; font-weight:700;">Chaos</span>')
+            rows.append(cls.format_compare_runs_chaos_diff(snapshot_a, snapshot_b))
         return "<br>".join(rows)
 
     @classmethod
@@ -2487,6 +2655,39 @@ class PlayerStatsMixin:
     def format_compare_runs_tomes_diff(cls, snapshot_a, snapshot_b) -> str:
         tome_rows = cls._format_compare_run_tome_deltas(snapshot_a, snapshot_b)
         return "<br>".join(tome_rows) if tome_rows else "--"
+
+    @classmethod
+    def format_compare_runs_chaos_diff(cls, snapshot_a, snapshot_b) -> str:
+        chaos_a = getattr(snapshot_a, "chaos_tome", None)
+        chaos_b = getattr(snapshot_b, "chaos_tome", None)
+        if chaos_a is None and chaos_b is None:
+            return '<span style="color:#98A7BA;">No Chaos Tome data</span>'
+
+        overview_rows = [
+            cls._format_compare_metric_row(
+                "Level",
+                cls._metric_value(getattr(chaos_a, "level", None), getattr(chaos_a, "level", None)),
+                cls._metric_value(getattr(chaos_b, "level", None), getattr(chaos_b, "level", None)),
+            ),
+            (
+                "Tracked Rolls",
+                cls._format_chaos_roll_count(chaos_a),
+                cls._format_chaos_roll_count(chaos_b),
+                cls._format_signed_count(cls._chaos_roll_count(chaos_b) - cls._chaos_roll_count(chaos_a)),
+            ),
+            (
+                "Stats",
+                str(cls._chaos_stat_count(chaos_a)),
+                str(cls._chaos_stat_count(chaos_b)),
+                cls._format_signed_count(cls._chaos_stat_count(chaos_b) - cls._chaos_stat_count(chaos_a)),
+            ),
+        ]
+        blocks = [cls._format_compare_metric_table(("Metric", "A", "B", "Diff"), overview_rows)]
+
+        stat_rows = cls._format_compare_run_chaos_stat_rows(chaos_a, chaos_b)
+        if stat_rows:
+            blocks.append(cls._format_compare_metric_table(("Stat", "A", "B", "Diff"), stat_rows))
+        return "<br>".join(blocks)
 
     @classmethod
     def _format_compare_run_stat_deltas(cls, snapshot_a, snapshot_b, *, stat_labels: tuple[str, ...] | None = None) -> list[str]:
@@ -2746,6 +2947,74 @@ class PlayerStatsMixin:
             if card:
                 rows.append(card)
         return rows or ['<span style="color:#98A7BA;">No tome data</span>']
+
+    @classmethod
+    def _format_compare_run_chaos_stat_rows(cls, chaos_a, chaos_b) -> list[tuple[str, str, str, str]]:
+        stats_a = cls._index_chaos_stats(chaos_a)
+        stats_b = cls._index_chaos_stats(chaos_b)
+        rows: list[tuple[str, str, str, str]] = []
+        for stat_id in sorted(
+            set(stats_a) | set(stats_b),
+            key=lambda value: cls._chaos_compare_stat_label(stats_a.get(value), stats_b.get(value)).casefold(),
+        ):
+            stat_a = stats_a.get(stat_id)
+            stat_b = stats_b.get(stat_id)
+            label = cls._chaos_compare_stat_label(stat_a, stat_b)
+            rows.append(
+                cls._format_compare_metric_row(
+                    STAT_LABEL_ABBREVIATIONS.get(label, label),
+                    cls._chaos_compare_metric_value(stat_a),
+                    cls._chaos_compare_metric_value(stat_b),
+                )
+            )
+        return rows
+
+    @classmethod
+    def _chaos_compare_metric_value(cls, stat):
+        if stat is None:
+            return None
+        return cls._metric_value(
+            getattr(stat, "value", None),
+            getattr(stat, "display_delta", None),
+        )
+
+    @staticmethod
+    def _index_chaos_stats(chaos_tome) -> dict[int, object]:
+        if chaos_tome is None:
+            return {}
+        stats: dict[int, object] = {}
+        for stat in getattr(chaos_tome, "stats", ()) or ():
+            try:
+                stat_id = int(getattr(stat, "stat_id"))
+            except (TypeError, ValueError):
+                continue
+            stats[stat_id] = stat
+        return stats
+
+    @staticmethod
+    def _chaos_compare_stat_label(stat_a, stat_b) -> str:
+        stat = stat_a if stat_a is not None else stat_b
+        if stat is None:
+            return "Unknown"
+        return str(getattr(stat, "label", f"Stat {getattr(stat, 'stat_id', '?')}"))
+
+    @staticmethod
+    def _chaos_roll_count(chaos_tome) -> int:
+        if chaos_tome is None:
+            return 0
+        return sum(int(getattr(stat, "rolls", 0) or 0) for stat in getattr(chaos_tome, "stats", ()) or ())
+
+    @classmethod
+    def _format_chaos_roll_count(cls, chaos_tome) -> str:
+        if chaos_tome is None:
+            return "--"
+        return cls.format_count(cls._chaos_roll_count(chaos_tome))
+
+    @staticmethod
+    def _chaos_stat_count(chaos_tome) -> int:
+        if chaos_tome is None:
+            return 0
+        return len(tuple(getattr(chaos_tome, "stats", ()) or ()))
 
     @staticmethod
     def _index_named_snapshots(snapshots) -> dict[str, object]:

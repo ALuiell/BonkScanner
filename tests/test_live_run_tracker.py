@@ -294,6 +294,40 @@ class LiveRunTrackerTests(unittest.TestCase):
             ["Gold +20.6%", "PDC +17.9%", "MS +11.2%"],
         )
 
+    def test_chaos_tracker_exposes_structured_snapshot(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={})
+        tracker.update_chaos_tome(
+            chaos_level=3,
+            permanent_modifiers={
+                12: (
+                    SimpleNamespace(
+                        stat_id=12,
+                        label="Damage",
+                        value=0.168,
+                        value_format=PlayerStatFormat.MULTIPLIER,
+                    ),
+                ),
+                30: (
+                    SimpleNamespace(
+                        stat_id=30,
+                        label="Luck",
+                        value=0.07,
+                        value_format=PlayerStatFormat.PERCENT,
+                    ),
+                ),
+            },
+        )
+
+        snapshot = tracker.chaos_tome_snapshot()
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(snapshot.level, 3)
+        self.assertEqual(
+            [(stat.stat_id, stat.label, stat.display_delta) for stat in snapshot.stats],
+            [(12, "Damage", "+16.8%"), (30, "Luck", "+7%")],
+        )
+
     def test_chaos_tracker_handles_stacked_modifiers(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={})

@@ -503,6 +503,15 @@ class GuiLayoutMixin:
         player_tomes_scroll_layout.setContentsMargins(0, 0, 0, 0)
         self.player_stats_tomes_layout = player_tomes_scroll_layout
         tomes_tab_layout.addWidget(player_tomes_scroll)
+        chaos_tab = QWidget()
+        chaos_tab_layout = QVBoxLayout(chaos_tab)
+        self.player_stats_chaos_status_label = QLabel("Waiting for Chaos Tome data...")
+        self.player_stats_chaos_status_label.setWordWrap(True)
+        chaos_tab_layout.addWidget(self.player_stats_chaos_status_label)
+        player_chaos_scroll, _player_chaos_scroll_content, player_chaos_scroll_layout = _make_scroll_section()
+        player_chaos_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.player_stats_chaos_layout = player_chaos_scroll_layout
+        chaos_tab_layout.addWidget(player_chaos_scroll)
         damage_sources_tab = QWidget()
         damage_sources_tab_layout = QVBoxLayout(damage_sources_tab)
         self.player_stats_damage_sources_status_label = QLabel("Waiting for damage source data...")
@@ -515,11 +524,13 @@ class GuiLayoutMixin:
         self.player_stats_detail_tabs.addTab(player_stats_tab, "Stats")
         self.player_stats_detail_tabs.addTab(weapons_tab, "Weapons")
         self.player_stats_detail_tabs.addTab(tomes_tab, "Tomes")
+        self.player_stats_detail_tabs.addTab(chaos_tab, "Chaos")
         self.player_stats_detail_tabs.addTab(damage_sources_tab, "Damage Sources")
         player_content_layout.addWidget(self.player_stats_detail_tabs)
         player_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
         weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
         tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
+        chaos_tab_layout.setContentsMargins(0, 0, 0, 0)
         damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
         self.tabview.addTab(self.tab_player_stats, "Live Stats")
 
@@ -778,6 +789,15 @@ class GuiLayoutMixin:
         vod_tomes_scroll_layout.setContentsMargins(0, 0, 0, 0)
         self.vods_tomes_layout = vod_tomes_scroll_layout
         vod_tomes_tab_layout.addWidget(vod_tomes_scroll)
+        vod_chaos_tab = QWidget()
+        vod_chaos_tab_layout = QVBoxLayout(vod_chaos_tab)
+        self.vods_chaos_status_label = QLabel("Select a recording")
+        self.vods_chaos_status_label.setWordWrap(True)
+        vod_chaos_tab_layout.addWidget(self.vods_chaos_status_label)
+        vod_chaos_scroll, _vod_chaos_scroll_content, vod_chaos_scroll_layout = _make_scroll_section()
+        vod_chaos_scroll_layout.setContentsMargins(0, 0, 0, 0)
+        self.vods_chaos_layout = vod_chaos_scroll_layout
+        vod_chaos_tab_layout.addWidget(vod_chaos_scroll)
         vod_damage_sources_tab = QWidget()
         vod_damage_sources_tab_layout = QVBoxLayout(vod_damage_sources_tab)
         self.vods_damage_sources_status_label = QLabel("Select a recording")
@@ -790,10 +810,12 @@ class GuiLayoutMixin:
         self.vods_detail_tabs.addTab(vod_stats_tab, "Stats")
         self.vods_detail_tabs.addTab(vod_weapons_tab, "Weapons")
         self.vods_detail_tabs.addTab(vod_tomes_tab, "Tomes")
+        self.vods_detail_tabs.addTab(vod_chaos_tab, "Chaos")
         self.vods_detail_tabs.addTab(vod_damage_sources_tab, "Damage Sources")
         vod_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
+        vod_chaos_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
         vods_detail_layout.addWidget(self.vods_detail_tabs, 1)
         vods_layout.addWidget(vods_detail, 1)
@@ -865,11 +887,15 @@ class GuiLayoutMixin:
         self.compare_runs_tomes_checkbox = QCheckBox("Tomes")
         self.compare_runs_tomes_checkbox.setChecked(configured_sections["tomes"])
         self.compare_runs_tomes_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
+        self.compare_runs_chaos_checkbox = QCheckBox("Chaos")
+        self.compare_runs_chaos_checkbox.setChecked(configured_sections["chaos"])
+        self.compare_runs_chaos_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
         section_layout.addWidget(QLabel("Show in Difference:"))
         section_layout.addWidget(self.compare_runs_stage_summary_checkbox)
         section_layout.addWidget(self.compare_runs_items_checkbox)
         section_layout.addWidget(self.compare_runs_weapons_checkbox)
         section_layout.addWidget(self.compare_runs_tomes_checkbox)
+        section_layout.addWidget(self.compare_runs_chaos_checkbox)
         section_layout.addStretch(1)
         settings_layout.addLayout(section_layout)
 
@@ -937,12 +963,17 @@ class GuiLayoutMixin:
             "Tomes",
             "--",
         )
+        self.compare_runs_diff_chaos_group, self.compare_runs_diff_chaos_label = self._build_compare_diff_card(
+            "Chaos",
+            "--",
+        )
         diff_scroll_layout.addWidget(self.compare_runs_diff_overview_group)
         diff_scroll_layout.addWidget(self.compare_runs_diff_stats_group)
         diff_scroll_layout.addWidget(self.compare_runs_diff_stage_summary_group)
         diff_scroll_layout.addWidget(self.compare_runs_diff_items_group)
         diff_scroll_layout.addWidget(self.compare_runs_diff_weapons_group)
         diff_scroll_layout.addWidget(self.compare_runs_diff_tomes_group)
+        diff_scroll_layout.addWidget(self.compare_runs_diff_chaos_group)
         diff_scroll_layout.addStretch(1)
         diff_layout.addWidget(diff_scroll, 1)
         run_b_group, self.compare_run_b_status_label, self.compare_run_b_slider, self.compare_run_b_timeline_label, self.compare_run_b_summary_label = self._build_compare_run_panel(

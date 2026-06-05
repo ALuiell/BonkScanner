@@ -10,6 +10,8 @@ from typing import Any
 
 import config
 from player_stats import (
+    ChaosTomeSnapshot,
+    ChaosTomeStatSnapshot,
     DamageSourceSnapshot,
     PlayerStatFormat,
     PlayerStatValue,
@@ -20,7 +22,7 @@ from player_stats import (
 )
 
 
-VOD_FORMAT_VERSION = 3
+VOD_FORMAT_VERSION = 4
 RECORDINGS_DIR = Path(config.application_path) / "stats_recordings"
 LEGACY_VODS_DIR = Path(config.application_path) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -41,6 +43,7 @@ class VodSnapshot:
     items: tuple[str, ...] = ()
     weapons: tuple[WeaponSnapshot, ...] = ()
     tomes: tuple[TomeSnapshot, ...] = ()
+    chaos_tome: ChaosTomeSnapshot | None = None
     banishes: tuple[str, ...] = ()
     damage_sources: tuple[DamageSourceSnapshot, ...] = ()
     chests_per_minute: float | None = None
@@ -183,6 +186,7 @@ class VodRecorder:
         banishes: tuple[str, ...] = (),
         damage_sources: tuple[DamageSourceSnapshot, ...] = (),
         *,
+        chaos_tome: ChaosTomeSnapshot | None = None,
         chests_per_minute: float | None = None,
         game_time_seconds: float | None = None,
         mob_kills: int | None = None,
@@ -205,6 +209,7 @@ class VodRecorder:
             items=tuple(items),
             weapons=tuple(weapons),
             tomes=tuple(tomes),
+            chaos_tome=chaos_tome,
             banishes=tuple(banishes),
             damage_sources=tuple(damage_sources),
             chests_per_minute=chests_per_minute,
@@ -461,6 +466,7 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         "items": list(snapshot.items),
         "weapons": [_weapon_to_record(weapon) for weapon in snapshot.weapons],
         "tomes": [_tome_to_record(tome) for tome in snapshot.tomes],
+        "chaos_tome": _chaos_tome_to_record(snapshot.chaos_tome),
         "banishes": list(snapshot.banishes),
         "damage_sources": [_damage_source_to_record(source) for source in snapshot.damage_sources],
         "chests_per_minute": snapshot.chests_per_minute,
@@ -496,6 +502,7 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
         items=tuple(str(item) for item in record.get("items") or ()),
         weapons=tuple(_record_to_weapon(weapon) for weapon in record.get("weapons") or ()),
         tomes=tuple(_record_to_tome(tome) for tome in record.get("tomes") or ()),
+        chaos_tome=_record_to_chaos_tome(record.get("chaos_tome")),
         banishes=tuple(str(item) for item in record.get("banishes") or ()),
         damage_sources=tuple(_record_to_damage_source(item) for item in record.get("damage_sources") or ()),
         chests_per_minute=_coerce_optional_float(record.get("chests_per_minute")),
@@ -544,6 +551,26 @@ def _tome_to_record(tome: TomeSnapshot) -> dict[str, Any]:
         "value": tome.value,
         "display": tome.display_value,
         "value_format": tome.value_format.value,
+    }
+
+
+def _chaos_tome_to_record(chaos_tome: ChaosTomeSnapshot | None) -> dict[str, Any] | None:
+    if chaos_tome is None:
+        return None
+    return {
+        "level": chaos_tome.level,
+        "ambiguous_rolls": chaos_tome.ambiguous_rolls,
+        "stats": [
+            {
+                "stat_id": stat.stat_id,
+                "label": stat.label,
+                "value": stat.value,
+                "display": stat.display_delta,
+                "value_format": stat.value_format.value,
+                "rolls": stat.rolls,
+            }
+            for stat in chaos_tome.stats
+        ],
     }
 
 
@@ -611,6 +638,34 @@ def _record_to_tome(record: Any) -> TomeSnapshot:
         stat_label=str(record.get("stat_label") or "Unknown"),
         value=_coerce_optional_float(record.get("value")),
         value_format=value_format,
+    )
+
+
+def _record_to_chaos_tome(record: Any) -> ChaosTomeSnapshot | None:
+    if not isinstance(record, dict):
+        return None
+    stats = []
+    for raw_stat in record.get("stats") or ():
+        if not isinstance(raw_stat, dict):
+            continue
+        value_format_name = str(raw_stat.get("value_format") or PlayerStatFormat.FLAT.value)
+        try:
+            value_format = PlayerStatFormat(value_format_name)
+        except ValueError:
+            value_format = PlayerStatFormat.FLAT
+        stats.append(
+            ChaosTomeStatSnapshot(
+                stat_id=_coerce_int(raw_stat.get("stat_id"), default=-1),
+                label=str(raw_stat.get("label") or f"Stat {raw_stat.get('stat_id', '?')}"),
+                value=_coerce_optional_float(raw_stat.get("value")),
+                value_format=value_format,
+                rolls=max(_coerce_int(raw_stat.get("rolls"), default=0), 0),
+            )
+        )
+    return ChaosTomeSnapshot(
+        level=max(_coerce_int(record.get("level"), default=0), 0),
+        stats=tuple(stats),
+        ambiguous_rolls=max(_coerce_int(record.get("ambiguous_rolls"), default=0), 0),
     )
 
 

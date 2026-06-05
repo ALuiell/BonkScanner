@@ -179,6 +179,7 @@ class FakeRecordingRecorder:
         banishes=(),
         damage_sources=(),
         *,
+        chaos_tome=None,
         chests_per_minute=None,
         game_time_seconds=None,
         mob_kills=None,
@@ -192,6 +193,7 @@ class FakeRecordingRecorder:
             items=tuple(items),
             weapons=tuple(weapons),
             tomes=tuple(tomes),
+            chaos_tome=chaos_tome,
             banishes=tuple(banishes),
             damage_sources=tuple(damage_sources),
             chests_per_minute=chests_per_minute,
@@ -209,6 +211,7 @@ class FakeRecordingRecorder:
                 "items": tuple(items),
                 "weapons": tuple(weapons),
                 "tomes": tuple(tomes),
+                "chaos_tome": chaos_tome,
                 "banishes": tuple(banishes),
                 "damage_sources": tuple(damage_sources),
                 "chests_per_minute": chests_per_minute,
@@ -2835,7 +2838,16 @@ class GuiRunControlTests(unittest.TestCase):
 
             result = gui.MegabonkApp.configured_compare_run_sections()
 
-            self.assertEqual(result, {"items": True, "stage_summary": True, "weapons": False, "tomes": True})
+            self.assertEqual(
+                result,
+                {
+                    "items": True,
+                    "stage_summary": True,
+                    "weapons": False,
+                    "tomes": True,
+                    "chaos": False,
+                },
+            )
         finally:
             gui.config.user_config.clear()
             gui.config.user_config.update(original_config)

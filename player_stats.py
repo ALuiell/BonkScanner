@@ -69,6 +69,30 @@ class PlayerStatModifierSnapshot:
 
 
 @dataclass(frozen=True)
+class ChaosTomeStatSnapshot:
+    stat_id: int
+    label: str
+    value: float | None
+    value_format: PlayerStatFormat
+    rolls: int = 0
+
+    @property
+    def display_delta(self) -> str:
+        return format_player_stat_delta(self.value, self.value_format)
+
+
+@dataclass(frozen=True)
+class ChaosTomeSnapshot:
+    level: int
+    stats: tuple[ChaosTomeStatSnapshot, ...] = ()
+    ambiguous_rolls: int = 0
+
+    @property
+    def tracked_stat_count(self) -> int:
+        return len(self.stats)
+
+
+@dataclass(frozen=True)
 class PlayerStatSpec:
     label: str
     stat_id: int | None

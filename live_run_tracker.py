@@ -326,6 +326,32 @@ class LiveRunTracker:
         return parts
 
     @with_lock
+    def chaos_tome_snapshot(self):
+        if self._chaos_tome_level is None:
+            return None
+
+        from player_stats import ChaosTomeSnapshot, ChaosTomeStatSnapshot, PlayerStatFormat
+
+        stats = tuple(
+            ChaosTomeStatSnapshot(
+                stat_id=total.stat_id,
+                label=total.label,
+                value=total.value,
+                value_format=total.value_format or PlayerStatFormat.FLAT,
+                rolls=total.rolls,
+            )
+            for total in sorted(
+                self._chaos_totals.values(),
+                key=lambda total: (-abs(float(total.value or 0.0)), total.label.lower()),
+            )
+        )
+        return ChaosTomeSnapshot(
+            level=self._chaos_tome_level,
+            stats=stats,
+            ambiguous_rolls=self._chaos_ambiguous_rolls,
+        )
+
+    @with_lock
     def chaos_tome_level(self) -> int | None:
         return self._chaos_tome_level
 
