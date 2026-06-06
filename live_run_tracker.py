@@ -687,4 +687,5 @@ class LiveRunTracker:
 
 def _fold_item_match_name(value: str) -> str:
     display_name = run_summary.normalize_item_name_for_display(str(value))
-    return display_name.lower().replace("'", "").replace("’", "").replace("`", "")
+    canonical_name = run_summary.normalize_item_name_for_rarity(display_name)
+    return "".join(char.lower() for char in canonical_name if char.isalnum())

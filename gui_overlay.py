@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 import config
+import run_summary
 from gui_shared import _make_scroll_section, _set_text, _set_text_input
 from gui_styles import ITEM_RARITY_BY_NAME, PLAYER_STATS_REFRESH_MS, _button_state_stylesheet
 from live_run_tracker import LiveRunTracker, TrackedItemRule
@@ -35,6 +36,19 @@ OVERLAY_WIDGET_LABELS = {
     "tracked_items": "Tracked items",
     "stats": "Stats",
     "banishes": "Banishes",
+}
+
+TRACKED_ITEM_PREFERRED_DISPLAY_BY_CANONICAL = {
+    "Bobs Lantern": "Bob Lantern",
+    "Borgar": "Borgor",
+    "Feathers": "Flappy Feathers",
+    "Glove Blood": "Gloves Blood",
+    "Glove Curse": "Gloves Cursed",
+    "Glove Lightning": "Gloves Lightning",
+    "Glove Poison": "Gloves Poison",
+    "Glove Power": "Gloves Power",
+    "Pot": "Pot Steel",
+    "Sucky Magnet": "Sucky Hoof",
 }
 
 
@@ -479,9 +493,11 @@ class OverlayMixin:
             query = self.overlay_item_search_entry.text().strip().lower()
         selector.clear()
         for item_name in getattr(self, "overlay_item_names", ()):
-            if query and query not in item_name.lower():
+            display_name = self._tracked_item_display_name(item_name)
+            haystacks = {item_name.lower(), display_name.lower()}
+            if query and not any(query in haystack for haystack in haystacks):
                 continue
-            item = QListWidgetItem(item_name)
+            item = QListWidgetItem(display_name)
             item.setData(Qt.UserRole, item_name)
             selector.addItem(item)
         if selector.count() > 0:
@@ -500,7 +516,7 @@ class OverlayMixin:
                 continue
             mode = str(rule.get("mode") or "all_run")
             mode_label = "Map 1" if mode == "map_1_only" else "All run"
-            label = str(rule.get("label") or ", ".join(item_names))
+            label = self._tracked_rule_display_label(dict(rule), item_names, mode)
             if rules_list is not None:
                 item = QListWidgetItem(f"{label}  [{mode_label}]")
                 item.setData(Qt.UserRole, dict(rule))
@@ -516,7 +532,8 @@ class OverlayMixin:
             return
         map_one_only = bool(self.overlay_map_one_only_checkbox.isChecked())
         mode = "map_1_only" if map_one_only else "all_run"
-        label = f"{item_name} Map 1" if map_one_only else item_name
+        display_name = self._tracked_item_display_name(item_name)
+        label = f"{display_name} Map 1" if map_one_only else display_name
         rule = {
             "id": self._overlay_rule_id(item_name, mode),
             "label": label,
@@ -552,7 +569,8 @@ class OverlayMixin:
         if getattr(self, "overlay_item_search_entry", None) is not None:
             query = self.overlay_item_search_entry.text().strip()
             for item_name in getattr(self, "overlay_item_names", ()):
-                if item_name.lower() == query.lower():
+                display_name = self._tracked_item_display_name(item_name)
+                if item_name.lower() == query.lower() or display_name.lower() == query.lower():
                     return item_name
         return ""
 
@@ -666,6 +684,29 @@ class OverlayMixin:
             if display_name:
                 names.add(display_name)
         return tuple(sorted(names, key=str.lower))
+
+    @staticmethod
+    def _tracked_item_display_name(item_name: str) -> str:
+        canonical_name = run_summary.normalize_item_name_for_rarity(
+            run_summary.normalize_item_name_for_display(str(item_name))
+        )
+        return TRACKED_ITEM_PREFERRED_DISPLAY_BY_CANONICAL.get(canonical_name, canonical_name)
+
+    @classmethod
+    def _tracked_rule_display_label(
+        cls,
+        rule: dict[str, Any],
+        item_names: list[str],
+        mode: str,
+    ) -> str:
+        raw_label = str(rule.get("label") or ", ".join(item_names))
+        if len(item_names) != 1:
+            return raw_label
+        canonical_name = str(item_names[0])
+        preferred_name = cls._tracked_item_display_name(canonical_name)
+        default_label = f"{canonical_name} Map 1" if mode == "map_1_only" else canonical_name
+        preferred_label = f"{preferred_name} Map 1" if mode == "map_1_only" else preferred_name
+        return preferred_label if raw_label == default_label else raw_label
 
     @staticmethod
     def _overlay_rule_id(item_name: str, mode: str) -> str:

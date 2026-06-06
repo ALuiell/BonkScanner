@@ -3264,6 +3264,39 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Sucky Hoof"), "Sucky Magnet")
         self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Wrench"), "Wrench")
 
+    def test_tracked_item_display_name_prefers_live_inventory_aliases(self) -> None:
+        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Power"), "Gloves Power")
+        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Blood"), "Gloves Blood")
+        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Lightning"), "Gloves Lightning")
+        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Pot"), "Pot Steel")
+        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Wrench"), "Wrench")
+
+    def test_tracked_rule_display_label_prefers_live_alias_for_default_labels(self) -> None:
+        self.assertEqual(
+            gui.OverlayMixin._tracked_rule_display_label(
+                {"label": "Glove Power Map 1"},
+                ["Glove Power"],
+                "map_1_only",
+            ),
+            "Gloves Power Map 1",
+        )
+        self.assertEqual(
+            gui.OverlayMixin._tracked_rule_display_label(
+                {"label": "Glove Blood"},
+                ["Glove Blood"],
+                "all_run",
+            ),
+            "Gloves Blood",
+        )
+        self.assertEqual(
+            gui.OverlayMixin._tracked_rule_display_label(
+                {"label": "Custom Gloves Label"},
+                ["Glove Power"],
+                "all_run",
+            ),
+            "Custom Gloves Label",
+        )
+
     def test_normalize_item_name_for_display_replaces_no_implementation(self) -> None:
         self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("No Implementation"), "Golden Ring")
         self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("Sucky Hoof"), "Sucky Hoof")

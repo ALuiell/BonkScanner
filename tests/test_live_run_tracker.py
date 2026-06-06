@@ -166,6 +166,54 @@ class LiveRunTrackerTests(unittest.TestCase):
         row = {row["id"]: row for row in tracker.tracked_item_rows()}["wrench_map_1"]
         self.assertEqual(row["count"], 1)
 
+    def test_tracker_matches_gloves_power_inventory_alias(self) -> None:
+        tracker = LiveRunTracker(
+            clock=lambda: 1000.0,
+            tracked_item_rules=(
+                TrackedItemRule(
+                    id="glove_power_map_1",
+                    label="Glove Power Map 1",
+                    item_names=("Glove Power",),
+                    mode="map_1_only",
+                ),
+            ),
+        )
+        tracker.update(snapshot(time_seconds=20.0, items=()))
+        tracker.update(snapshot(time_seconds=40.0, items=("Gloves Power x1",)))
+
+        row = {row["id"]: row for row in tracker.tracked_item_rows()}["glove_power_map_1"]
+        self.assertEqual(row["count"], 1)
+
+    def test_tracker_matches_known_item_aliases(self) -> None:
+        alias_pairs = (
+            ("Glove Blood", "Gloves Blood"),
+            ("Glove Curse", "Gloves Cursed"),
+            ("Golden Ring", "No Implementation"),
+            ("Sucky Magnet", "Sucky Hoof"),
+            ("Pot", "Pot Steel"),
+            ("Bobs Lantern", "Bob Lantern"),
+            ("Feathers", "Flappy Feathers"),
+        )
+
+        for canonical_name, live_name in alias_pairs:
+            with self.subTest(canonical_name=canonical_name, live_name=live_name):
+                tracker = LiveRunTracker(
+                    clock=lambda: 1000.0,
+                    tracked_item_rules=(
+                        TrackedItemRule(
+                            id="tracked_item",
+                            label=canonical_name,
+                            item_names=(canonical_name,),
+                            mode="all_run",
+                        ),
+                    ),
+                )
+                tracker.update(snapshot(time_seconds=20.0, items=()))
+                tracker.update(snapshot(time_seconds=40.0, items=(f"{live_name} x1",)))
+
+                row = {row["id"]: row for row in tracker.tracked_item_rows()}["tracked_item"]
+                self.assertEqual(row["count"], 1)
+
     def test_chaos_tracker_sums_large_new_modifiers_on_level_gain(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_chaos_tome(
