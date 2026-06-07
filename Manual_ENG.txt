@@ -98,6 +98,11 @@ They help you quickly see:
 - how quickly target maps are found;
 - how the current session is going overall.
 
+The `Tracked Items` card in `Session Stats` can count configured item gains
+during a live run. By default it tracks `Anvils Map 1`. Use the small settings
+button on that card to search for an item, choose `Map 1 only` if needed, and
+add or remove tracked rules.
+
 
 Live Stats And Recordings
 -------------------------
@@ -154,6 +159,30 @@ choose visible widgets and configure tracked items by searching for an item,
 choosing whether it should count on `Map 1 only`, and adding it to the list.
 The overlay itself is transparent and designed to sit compactly over gameplay.
 
+Widget scaling:
+In the layout editor, hover a widget to show its toolbar. Use the `+` / `-`
+buttons or enter a percent value manually, for example `125`, to scale each
+widget separately.
+
+Widget resizing:
+Drag the bottom-right corner of a widget in the layout editor to change its
+width and height. `Stats` and `Banishes` automatically rebuild into multiple
+columns when widened.
+
+Game background:
+The layout editor can show a real game screenshot as the background, which
+helps align widgets against the in-game UI.
+
+Separate widget URLs:
+Each widget can be added to OBS as its own Browser Source through a dedicated
+URL, for example `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`,
+or `/overlay/stage_summary`.
+
+Important OBS cache note:
+After updating BonkScanner or changing the layout, right-click the OBS Browser
+Source, open Properties, click `Refresh cache of current page`, then OK. Without
+this, OBS can keep showing an old layout.
+
 
 Twitch Bot
 ----------
@@ -173,8 +202,15 @@ Available Chat Commands:
 - `!items` — lists passive items ordered by rarity (highest first). If the item list is too long, the bot dynamically collapses lower-rarity categories to fit Twitch's 500-char limit.
 - `!weapons` — lists active weapons and their upgraded stats.
 - `!tomes` — lists tomes and their specific stat values (Chaos tome only shows level).
+- `!chaos` / `!chaostome` — prints tracked Chaos Tome level and stat roll totals.
 - `!stages` — lists stage metrics (kills and elapsed time) for stages 1-4.
+- `!powerups` — prints active powerup duration info.
 - `!scanner` — lists available commands.
+
+Aliases:
+- `!bonkstats` = `!stats`
+- `!banishes` = `!bans`
+- `!tracked` = `!items`
 
 Automated Stage Announcements:
 When `Announce Stage Transitions` is checked, the bot automatically posts a transition summary in the Twitch chat on completing a stage:
@@ -257,6 +293,7 @@ Short Summary
 - `Templates` = strict search
 - `Scores` = flexible evaluation
 - `Session stats` = current-session overview
+- `Tracked Items` = configurable item counters inside `Session Stats`
 - `Live Stats` = real-time player stats and recording
 - `Stage Summary` = per-stage time, kills, and item gains
 - `Twitch Bot` = built-in bot for live stats output and auto-announcements in chat

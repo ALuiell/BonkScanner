@@ -57,7 +57,7 @@ class OverlayMixin:
         self.overlay_state_store = OverlayStateStore()
         stale_seconds = max(25.0, (float(PLAYER_STATS_REFRESH_MS) / 1000.0) * 2.5)
         self.live_run_tracker = LiveRunTracker(
-            tracked_item_rules=self._tracked_item_rules_from_config(config.OVERLAY),
+            tracked_item_rules=self._combined_tracked_item_rules(),
             stale_after_seconds=stale_seconds,
         )
         self.overlay_server = LocalOverlayServer(
@@ -173,7 +173,8 @@ class OverlayMixin:
         dialog = QDialog(self.tab_overlay)
         dialog.setUpdatesEnabled(False)
         dialog.setWindowTitle("Widget Settings")
-        dialog.resize(720, 620)
+        dialog.resize(700, 760)
+        dialog.setMinimumSize(640, 680)
         dialog_layout = QVBoxLayout(dialog)
 
         settings_scroll = QScrollArea()
@@ -452,7 +453,7 @@ class OverlayMixin:
                 overlay["tracked_items"] = self._tracked_item_config_from_ui()
             config.OVERLAY = overlay
             config.user_config["OVERLAY"] = config.OVERLAY
-            self.live_run_tracker.set_tracked_item_rules(self._tracked_item_rules_from_config(config.OVERLAY))
+            self.live_run_tracker.set_tracked_item_rules(self._combined_tracked_item_rules())
             self.update_overlay_state_from_tracker()
             if persist:
                 config.save_config(config.user_config)
@@ -561,6 +562,194 @@ class OverlayMixin:
         config.OVERLAY["tracked_items"] = self._tracked_item_config_from_ui()
         config.user_config["OVERLAY"] = config.OVERLAY
         self.save_overlay_settings_from_ui()
+
+    def open_session_tracked_item_settings_dialog(self) -> None:
+        dialog = QDialog(self.tab_stats)
+        dialog.setUpdatesEnabled(False)
+        dialog.setWindowTitle("Session Tracked Items")
+        dialog.resize(700, 560)
+        dialog.setMinimumSize(620, 480)
+        dialog_layout = QVBoxLayout(dialog)
+
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(8, 8, 8, 8)
+        content_layout.setSpacing(10)
+        content_layout.addWidget(QLabel("Track item gains in Session Stats. Map 1 only counts gains observed during stage 1."))
+
+        self.session_map_one_only_checkbox = QCheckBox("Map 1 only")
+        self.session_map_one_only_checkbox.setChecked(True)
+        content_layout.addWidget(self.session_map_one_only_checkbox)
+
+        self.session_item_names = self._overlay_available_item_names()
+        self.session_item_search_entry = QLineEdit()
+        self.session_item_search_entry.setPlaceholderText("Search items...")
+        self.session_item_search_entry.textChanged.connect(self.refresh_session_item_selector)
+        content_layout.addWidget(self.session_item_search_entry)
+
+        self.session_item_selector = QListWidget()
+        self.session_item_selector.setMinimumHeight(180)
+        content_layout.addWidget(self.session_item_selector)
+
+        add_row = QHBoxLayout()
+        self.session_add_tracked_item_btn = QPushButton("Add Tracked Item")
+        self.session_add_tracked_item_btn.clicked.connect(self.add_session_tracked_item)
+        add_row.addWidget(self.session_add_tracked_item_btn)
+        add_row.addStretch(1)
+        content_layout.addLayout(add_row)
+
+        content_layout.addWidget(QLabel("Currently tracked"))
+        self.session_tracked_rules_list = QListWidget()
+        self.session_tracked_rules_list.setMinimumHeight(140)
+        content_layout.addWidget(self.session_tracked_rules_list)
+
+        remove_row = QHBoxLayout()
+        self.session_remove_tracked_item_btn = QPushButton("Remove Selected")
+        self.session_remove_tracked_item_btn.clicked.connect(self.remove_session_tracked_item)
+        remove_row.addWidget(self.session_remove_tracked_item_btn)
+        remove_row.addStretch(1)
+        content_layout.addLayout(remove_row)
+
+        dialog_layout.addWidget(content)
+
+        close_row = QHBoxLayout()
+        close_row.addStretch(1)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        close_row.addWidget(close_btn)
+        dialog_layout.addLayout(close_row)
+
+        self.refresh_session_item_selector()
+        self.refresh_session_tracked_items_ui()
+        dialog.setUpdatesEnabled(True)
+        try:
+            dialog.exec()
+        finally:
+            self._clear_session_tracked_item_dialog_refs()
+            self.refresh_session_tracked_item_stats_ui()
+
+    def refresh_session_item_selector(self) -> None:
+        selector = getattr(self, "session_item_selector", None)
+        if selector is None:
+            return
+        query = ""
+        if getattr(self, "session_item_search_entry", None) is not None:
+            query = self.session_item_search_entry.text().strip().lower()
+        selector.clear()
+        for item_name in getattr(self, "session_item_names", ()):
+            display_name = self._tracked_item_display_name(item_name)
+            haystacks = {item_name.lower(), display_name.lower()}
+            if query and not any(query in haystack for haystack in haystacks):
+                continue
+            item = QListWidgetItem(display_name)
+            item.setData(Qt.UserRole, item_name)
+            selector.addItem(item)
+        if selector.count() > 0:
+            selector.setCurrentRow(0)
+
+    def refresh_session_tracked_items_ui(self) -> None:
+        rules_list = getattr(self, "session_tracked_rules_list", None)
+        if rules_list is None:
+            return
+        rules_list.clear()
+        for rule in config.SESSION_TRACKED_ITEMS.get("tracked_items") or ():
+            if not isinstance(rule, dict):
+                continue
+            item_names = [str(name) for name in rule.get("item_names") or () if str(name).strip()]
+            if not item_names:
+                continue
+            mode = str(rule.get("mode") or "all_run")
+            mode_label = "Map 1" if mode == "map_1_only" else "All run"
+            label = self._tracked_rule_display_label(dict(rule), item_names, mode)
+            item = QListWidgetItem(f"{label}  [{mode_label}]")
+            item.setData(Qt.UserRole, dict(rule))
+            rules_list.addItem(item)
+
+    def refresh_session_tracked_item_stats_ui(self) -> None:
+        label = getattr(self, "stats_tracked_items_label", None)
+        if label is None or self.live_run_tracker is None:
+            return
+        rules = self._session_tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
+        rows = self.live_run_tracker.tracked_item_rows_for_rules(rules)
+        if not rows:
+            _set_text(label, "No tracked items configured")
+            return
+        _set_text(label, " | ".join(f"{row['label']}: {row['count']}" for row in rows))
+
+    def add_session_tracked_item(self) -> None:
+        item_name = self._selected_session_item_name()
+        if not item_name:
+            return
+        map_one_only = bool(self.session_map_one_only_checkbox.isChecked())
+        mode = "map_1_only" if map_one_only else "all_run"
+        display_name = self._tracked_item_display_name(item_name)
+        label = f"{display_name} Map 1" if map_one_only else display_name
+        rule = {
+            "id": self._session_rule_id(item_name, mode),
+            "label": label,
+            "item_names": [item_name],
+            "mode": mode,
+        }
+        existing_rules = [
+            dict(raw_rule)
+            for raw_rule in config.SESSION_TRACKED_ITEMS.get("tracked_items") or ()
+            if isinstance(raw_rule, dict)
+        ]
+        existing_ids = {str(raw_rule.get("id") or "") for raw_rule in existing_rules}
+        if rule["id"] not in existing_ids:
+            existing_rules.append(rule)
+        config.SESSION_TRACKED_ITEMS["tracked_items"] = existing_rules
+        self.save_session_tracked_items_from_ui()
+
+    def remove_session_tracked_item(self) -> None:
+        rules_list = getattr(self, "session_tracked_rules_list", None)
+        if rules_list is None or rules_list.currentRow() < 0:
+            return
+        rules_list.takeItem(rules_list.currentRow())
+        config.SESSION_TRACKED_ITEMS["tracked_items"] = self._session_tracked_item_config_from_ui()
+        self.save_session_tracked_items_from_ui()
+
+    def save_session_tracked_items_from_ui(self) -> None:
+        if getattr(self, "session_tracked_rules_list", None) is not None:
+            config.SESSION_TRACKED_ITEMS["tracked_items"] = self._session_tracked_item_config_from_ui()
+        config.SESSION_TRACKED_ITEMS = config.normalize_session_tracked_items_config(config.SESSION_TRACKED_ITEMS)
+        config.user_config["SESSION_TRACKED_ITEMS"] = config.SESSION_TRACKED_ITEMS
+        config.save_config(config.user_config)
+        self.live_run_tracker.set_tracked_item_rules(self._combined_tracked_item_rules())
+        self.refresh_session_tracked_items_ui()
+        self.refresh_session_tracked_item_stats_ui()
+
+    def _selected_session_item_name(self) -> str:
+        selector = getattr(self, "session_item_selector", None)
+        if selector is not None and selector.currentItem() is not None:
+            return str(selector.currentItem().data(Qt.UserRole) or selector.currentItem().text()).strip()
+        if getattr(self, "session_item_search_entry", None) is not None:
+            query = self.session_item_search_entry.text().strip()
+            for item_name in getattr(self, "session_item_names", ()):
+                display_name = self._tracked_item_display_name(item_name)
+                if item_name.lower() == query.lower() or display_name.lower() == query.lower():
+                    return item_name
+        return ""
+
+    def _session_tracked_item_config_from_ui(self) -> list[dict[str, Any]]:
+        rules: list[dict[str, Any]] = []
+        rules_list = getattr(self, "session_tracked_rules_list", None)
+        if rules_list is None:
+            return rules
+        for index in range(rules_list.count()):
+            item = rules_list.item(index)
+            rule = item.data(Qt.UserRole)
+            if isinstance(rule, dict):
+                rules.append(dict(rule))
+        return rules
+
+    def _clear_session_tracked_item_dialog_refs(self) -> None:
+        self.session_item_search_entry = None
+        self.session_item_selector = None
+        self.session_map_one_only_checkbox = None
+        self.session_add_tracked_item_btn = None
+        self.session_tracked_rules_list = None
+        self.session_remove_tracked_item_btn = None
 
     def _selected_overlay_item_name(self) -> str:
         selector = getattr(self, "overlay_item_selector", None)
@@ -677,6 +866,18 @@ class OverlayMixin:
         return tuple(rules)
 
     @staticmethod
+    def _session_tracked_item_rules_from_config(session_config: dict[str, Any]) -> tuple[TrackedItemRule, ...]:
+        return OverlayMixin._tracked_item_rules_from_config(session_config)
+
+    def _combined_tracked_item_rules(self) -> tuple[TrackedItemRule, ...]:
+        combined: dict[str, TrackedItemRule] = {}
+        for rule in self._tracked_item_rules_from_config(config.OVERLAY):
+            combined[rule.id] = rule
+        for rule in self._session_tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS):
+            combined[rule.id] = rule
+        return tuple(combined.values())
+
+    @staticmethod
     def _overlay_available_item_names() -> tuple[str, ...]:
         names = set(ITEM_RARITY_BY_NAME)
         for raw_name in ITEM_ENUM_NAMES_BY_ID.values():
@@ -712,6 +913,11 @@ class OverlayMixin:
     def _overlay_rule_id(item_name: str, mode: str) -> str:
         folded = "".join(char.lower() for char in item_name if char.isalnum())
         return f"{folded or 'item'}_{mode}"
+
+    @staticmethod
+    def _session_rule_id(item_name: str, mode: str) -> str:
+        folded = "".join(char.lower() for char in item_name if char.isalnum())
+        return f"session_{folded or 'item'}_{mode}"
 
 
 def _coerce_optional_int(value: Any) -> int | None:

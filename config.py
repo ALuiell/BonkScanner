@@ -81,6 +81,17 @@ DEFAULT_OVERLAY = {
     },
 }
 
+DEFAULT_SESSION_TRACKED_ITEMS = {
+    "tracked_items": [
+        {
+            "id": "session_anvils_map_1",
+            "label": "Anvils Map 1",
+            "item_names": ["Anvil"],
+            "mode": "map_1_only",
+        }
+    ],
+}
+
 ALL_STAT_LABELS = [
     "Max HP", "HP Regen", "Overheal", "Shield", "Armor", "Evasion", "Lifesteal", "Thorns",
     "Damage", "Crit Chance", "Crit Damage", "Attack Speed", "Projectile Count", "Projectile Bounces",
@@ -122,10 +133,15 @@ DEFAULT_TWITCH_BOT = {
         "chaos": "Chaos Tome Lv{level}: {chaos}",
         "stages": "{stages}",
         "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
-        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups.",
+        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
         "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
     }
+}
+
+LEGACY_TWITCH_SCANNER_TEMPLATES = {
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages, !powerups.",
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups.",
 }
 
 
@@ -342,6 +358,30 @@ def normalize_overlay_config(value):
     return overlay
 
 
+def normalize_session_tracked_items_config(value):
+    session_cfg = _merge_dict_defaults(value, DEFAULT_SESSION_TRACKED_ITEMS)
+    if not isinstance(session_cfg.get("tracked_items"), list):
+        session_cfg["tracked_items"] = list(DEFAULT_SESSION_TRACKED_ITEMS["tracked_items"])
+    normalized_rules = []
+    for raw_rule in session_cfg.get("tracked_items") or ():
+        if not isinstance(raw_rule, dict):
+            continue
+        item_names = [str(name) for name in raw_rule.get("item_names") or () if str(name).strip()]
+        if not item_names:
+            continue
+        mode = str(raw_rule.get("mode") or "all_run")
+        normalized_rules.append(
+            {
+                "id": str(raw_rule.get("id") or "_".join(item_names).lower()),
+                "label": str(raw_rule.get("label") or ", ".join(item_names)),
+                "item_names": item_names,
+                "mode": mode,
+            }
+        )
+    session_cfg["tracked_items"] = normalized_rules
+    return session_cfg
+
+
 def normalize_twitch_bot_config(value):
     bot_cfg = _merge_dict_defaults(value, DEFAULT_TWITCH_BOT)
     bot_cfg["enabled"] = bool(bot_cfg.get("enabled", False))
@@ -384,6 +424,8 @@ def normalize_twitch_bot_config(value):
         bot_cfg["templates"] = _merge_dict_defaults(bot_cfg["templates"], DEFAULT_TWITCH_BOT["templates"])
         for k in DEFAULT_TWITCH_BOT["templates"]:
             bot_cfg["templates"][k] = str(bot_cfg["templates"].get(k, DEFAULT_TWITCH_BOT["templates"][k]))
+    if bot_cfg["templates"].get("scanner") in LEGACY_TWITCH_SCANNER_TEMPLATES:
+        bot_cfg["templates"]["scanner"] = DEFAULT_TWITCH_BOT["templates"]["scanner"]
 
     return bot_cfg
 
@@ -483,6 +525,7 @@ SCORES_SYSTEM = user_config.get("SCORES_SYSTEM", DEFAULT_SCORES_SYSTEM)
 if not SCORES_SYSTEM:
     SCORES_SYSTEM = DEFAULT_SCORES_SYSTEM
 OVERLAY = normalize_overlay_config(user_config.get("OVERLAY"))
+SESSION_TRACKED_ITEMS = normalize_session_tracked_items_config(user_config.get("SESSION_TRACKED_ITEMS"))
 TWITCH_BOT = normalize_twitch_bot_config(user_config.get("TWITCH_BOT"))
 
 # Populate missing default keys for scores system from older config versions
@@ -538,6 +581,7 @@ user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION
 user_config["EVALUATION_MODE"] = EVALUATION_MODE
 user_config["SCORES_SYSTEM"] = SCORES_SYSTEM
 user_config["OVERLAY"] = OVERLAY
+user_config["SESSION_TRACKED_ITEMS"] = SESSION_TRACKED_ITEMS
 user_config["TWITCH_BOT"] = TWITCH_BOT
 user_config.pop("NATIVE_HOOK_DLL_PATH", None)
 

@@ -79,6 +79,8 @@ class MegabonkApp(
         self.stats_rpm_label = None
         self.stats_best_label = None
         self.stats_worst_label = None
+        self.stats_tracked_items_label = None
+        self.stats_tracked_items_settings_btn = None
         self.stats_avg_frame = None
         self.stats_avg_layout = None
         self.stats_avg_labels = {}
@@ -251,6 +253,13 @@ class MegabonkApp(
         self.overlay_add_tracked_item_btn = None
         self.overlay_tracked_rules_list = None
         self.overlay_remove_tracked_item_btn = None
+        self.session_item_names = ()
+        self.session_item_search_entry = None
+        self.session_item_selector = None
+        self.session_map_one_only_checkbox = None
+        self.session_add_tracked_item_btn = None
+        self.session_tracked_rules_list = None
+        self.session_remove_tracked_item_btn = None
 
         self.is_running = False
         self.is_ready_to_start = False

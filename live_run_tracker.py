@@ -298,6 +298,10 @@ class LiveRunTracker:
         return self._tracked_item_rows_unlocked()
 
     @with_lock
+    def tracked_item_rows_for_rules(self, rules: Iterable[TrackedItemRule]) -> list[dict[str, Any]]:
+        return self._tracked_item_rows_for_rules_unlocked(tuple(rules))
+
+    @with_lock
     def update_chaos_tome(
         self,
         *,
@@ -396,8 +400,11 @@ class LiveRunTracker:
         return copy.deepcopy(self._cached_stage_summary)
 
     def _tracked_item_rows_unlocked(self) -> list[dict[str, Any]]:
+        return self._tracked_item_rows_for_rules_unlocked(self.tracked_item_rules)
+
+    def _tracked_item_rows_for_rules_unlocked(self, rules: Iterable[TrackedItemRule]) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for rule in self.tracked_item_rules:
+        for rule in rules:
             rows.append(
                 {
                     "id": rule.id,

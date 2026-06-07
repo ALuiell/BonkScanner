@@ -56,7 +56,7 @@ def build_overlay_state(tracker: LiveRunTracker, overlay_config: dict[str, Any] 
         player_level=_coerce_optional_int(getattr(snapshot, "player_level", None)),
         chests_per_minute=_coerce_optional_float(getattr(snapshot, "chests_per_minute", None)),
         widgets=widgets,
-        tracked_items=tracker_state.tracked_items,
+        tracked_items=_overlay_tracked_item_rows(tracker_state.tracked_items, overlay_config),
         stage_summary=_overlay_stage_summary_rows(tracker_state.stage_summary),
     )
     data = state.to_dict()
@@ -112,6 +112,19 @@ def _overlay_stage_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, An
             }
         )
     return overlay_rows
+
+
+def _overlay_tracked_item_rows(rows: list[dict[str, Any]], overlay_config: dict[str, Any]) -> list[dict[str, Any]]:
+    if "tracked_items" not in overlay_config:
+        return rows
+    configured_ids = {
+        str(rule.get("id") or "")
+        for rule in overlay_config.get("tracked_items") or ()
+        if isinstance(rule, dict)
+    }
+    if not configured_ids:
+        return []
+    return [row for row in rows if str(row.get("id") or "") in configured_ids]
 
 
 def _overlay_item_rarity_counts(item_rarities: dict[str, Any]) -> list[dict[str, Any]]:

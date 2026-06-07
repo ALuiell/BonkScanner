@@ -163,6 +163,8 @@ class ScannerMixin:
 
     def refresh_stats_ui(self):
         _set_text(self.stats_rerolls_label, f"Session Rerolls: {self.session_rerolls}")
+        if hasattr(self, "refresh_session_tracked_item_stats_ui"):
+            self.refresh_session_tracked_item_stats_ui()
 
         if self.best_map_stats:
             _set_text(self.stats_best_label, f"Best Map Found: {self.format_stats(self.best_map_stats)}")

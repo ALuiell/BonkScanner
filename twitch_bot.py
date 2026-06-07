@@ -563,7 +563,7 @@ class TwitchBotWorker(QThread):
     def _handle_scanner(self, channel: str):
         text = self._format_template(
             "scanner",
-            "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups.",
+            "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
             patreon_url=config.PATREON_SUPPORT_URL
         )
         if len(text) > 450:
