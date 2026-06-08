@@ -500,7 +500,15 @@ class CleanupRecordingsDialog(QDialog):
 
 
 class NativeHookWarningDialog(QDialog):
-    def __init__(self, parent):
+    def __init__(
+        self,
+        parent,
+        *,
+        title_text: str = "Enable Native Hook Restart?",
+        summary_text: str | None = None,
+        switch_text: str | None = None,
+        repeat_text: str = "This dialog will appear whenever the native hook option is turned on.",
+    ):
         super().__init__(parent)
         self.result = False
         self.setWindowTitle("Native Hook Warning")
@@ -516,13 +524,16 @@ class NativeHookWarningDialog(QDialog):
         card_layout.setContentsMargins(18, 16, 18, 14)
         card_layout.setSpacing(8)
 
-        title = QLabel("Enable Native Hook Restart?")
+        title = QLabel(title_text)
         title.setObjectName("WarningTitle")
         card_layout.addWidget(title)
 
         summary = QLabel(
-            "This enables a lower-level memory restart path. Using this mode\n"
-            "may not be considered entirely fair and could have consequences."
+            summary_text
+            or (
+                "This enables a lower-level memory restart path. Using this mode\n"
+                "may not be considered entirely fair and could have consequences."
+            )
         )
         summary.setWordWrap(True)
         summary.setStyleSheet("background: transparent; font-size: 15px;")
@@ -530,14 +541,17 @@ class NativeHookWarningDialog(QDialog):
         layout.addWidget(card)
 
         switch_note = QLabel(
-            "You can safely switch back to standard keyboard restart at any time\n"
-            "from Settings."
+            switch_text
+            or (
+                "You can safely switch back to standard keyboard restart at any time\n"
+                "from Settings."
+            )
         )
         switch_note.setWordWrap(True)
         switch_note.setStyleSheet("font-size: 15px;")
         layout.addWidget(switch_note)
 
-        repeat_note = QLabel("This dialog will appear whenever the native hook option is turned on.")
+        repeat_note = QLabel(repeat_text)
         repeat_note.setWordWrap(True)
         repeat_note.setStyleSheet("font-size: 15px;")
         layout.addWidget(repeat_note)
@@ -804,8 +818,9 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.master = master or parent
         self._native_hook_toggle_guard = False
+        self._native_hook_hotkeys_toggle_guard = False
         self.setWindowTitle("Settings")
-        self.resize(440, 380)
+        self.resize(440, 420)
         self.setModal(True)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 14, 12, 14)
@@ -873,6 +888,13 @@ class SettingsDialog(QDialog):
         self.native_hook_enabled_var.toggled.connect(self.on_native_hook_toggle)
         layout.addWidget(self.native_hook_enabled_var)
 
+        self.native_hook_hotkeys_enabled_var = QCheckBox("Use hook for game toggles")
+        self.native_hook_hotkeys_enabled_var.setChecked(
+            bool(getattr(config, "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED", False))
+        )
+        self.native_hook_hotkeys_enabled_var.toggled.connect(self.on_native_hook_hotkeys_toggle)
+        layout.addWidget(self.native_hook_hotkeys_enabled_var)
+
         button_row = QVBoxLayout()
         button_row.setSpacing(10)
         self.update_btn = QPushButton("Check for Updates")
@@ -933,6 +955,13 @@ class SettingsDialog(QDialog):
         finally:
             self._native_hook_toggle_guard = False
 
+    def _set_native_hook_hotkeys_checkbox_value(self, enabled: bool):
+        self._native_hook_hotkeys_toggle_guard = True
+        try:
+            _set_bool(self.native_hook_hotkeys_enabled_var, enabled)
+        finally:
+            self._native_hook_hotkeys_toggle_guard = False
+
     def _sync_support_button_sizes(self):
         buttons = [self.patreon_btn, self.kofi_btn]
         target_width = max(button.sizeHint().width() for button in buttons)
@@ -945,6 +974,23 @@ class SettingsDialog(QDialog):
         dialog.exec()
         return bool(dialog.result)
 
+    def prompt_native_hook_hotkeys_enable_confirmation(self) -> bool:
+        dialog = NativeHookWarningDialog(
+            self,
+            title_text="Enable Hook-Based Game-Setting Hotkeys?",
+            summary_text=(
+                "This enables lower-level hotkeys for supported game settings.\n"
+                "Using this mode may not be considered entirely fair and could have consequences."
+            ),
+            switch_text=(
+                "You can safely switch these hotkeys off at any time from Settings.\n"
+                "Standard memory reads and keyboard restart will keep working."
+            ),
+            repeat_text="This dialog will appear whenever hook-based game-setting hotkeys are turned on.",
+        )
+        dialog.exec()
+        return bool(dialog.result)
+
     def on_native_hook_toggle(self):
         if getattr(self, "_native_hook_toggle_guard", False):
             return
@@ -952,6 +998,14 @@ class SettingsDialog(QDialog):
             return
         if not SettingsDialog.prompt_native_hook_enable_confirmation(self):
             SettingsDialog._set_native_hook_checkbox_value(self, False)
+
+    def on_native_hook_hotkeys_toggle(self):
+        if getattr(self, "_native_hook_hotkeys_toggle_guard", False):
+            return
+        if not _read_bool(self.native_hook_hotkeys_enabled_var):
+            return
+        if not SettingsDialog.prompt_native_hook_hotkeys_enable_confirmation(self):
+            SettingsDialog._set_native_hook_hotkeys_checkbox_value(self, False)
 
     def check_update(self):
         threading.Thread(target=updater.check_and_update, args=(self.master, True), daemon=True).start()
@@ -973,6 +1027,7 @@ class SettingsDialog(QDialog):
         new_toggle_particles_opacity_hotkey = _read_text(self.toggle_particles_opacity_hotkey_entry).strip()
         auto_start_recording = _read_bool(self.auto_start_recording_var)
         native_hook_enabled = _read_bool(self.native_hook_enabled_var)
+        native_hook_hotkeys_enabled = _read_bool(self.native_hook_hotkeys_enabled_var)
 
         config.user_config["HOTKEY"] = new_hotkey
         config.user_config["RESET_HOTKEY"] = new_reset_hotkey
@@ -982,6 +1037,7 @@ class SettingsDialog(QDialog):
         config.user_config["TOGGLE_PARTICLES_OPACITY_HOTKEY"] = new_toggle_particles_opacity_hotkey
         config.user_config["AUTO_START_RECORDING"] = auto_start_recording
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
+        config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"] = native_hook_hotkeys_enabled
 
         config.HOTKEY = new_hotkey
         config.RESET_HOTKEY = new_reset_hotkey
@@ -991,6 +1047,7 @@ class SettingsDialog(QDialog):
         config.TOGGLE_PARTICLES_OPACITY_HOTKEY = new_toggle_particles_opacity_hotkey
         config.AUTO_START_RECORDING = auto_start_recording
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
+        config.NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED = native_hook_hotkeys_enabled
         if auto_start_recording and hasattr(self.master, "player_stats_auto_recording_suppressed"):
             self.master.player_stats_auto_recording_suppressed = False
 

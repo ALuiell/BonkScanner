@@ -204,6 +204,13 @@ class RunControlMixin:
         self._native_hook_admin_warning_logged = True
 
     def toggle_game_setting(self, setting_key: str, label: str) -> bool:
+        if not getattr(config, "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED", False):
+            self.log(
+                f"[WAIT] {label} hotkey is disabled because hook-based game-setting hotkeys are off in Settings.",
+                tag="warning",
+            )
+            return False
+
         loader = getattr(self, "native_hook_loader", None)
         if loader is None:
             dll_path = getattr(config, "NATIVE_HOOK_DLL_PATH", "") or None

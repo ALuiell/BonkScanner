@@ -32,6 +32,15 @@ You can also launch manually after setup:
 .\.venv\Scripts\python.exe main.py
 ```
 
+Source runs do not build `BonkHook.dll` automatically. If you want to use
+`Use native hook restart` or `Use hook for game toggles` while running from
+source, build the hook once:
+
+```bat
+tools\bootstrap_tools.bat
+tools\build_native_hook.bat
+```
+
 `start.bat` is the normal setup entry point. It will:
 - create `.venv` if it does not exist;
 - upgrade pip inside the virtual environment;
@@ -54,6 +63,16 @@ Some parts of the project use technical names, so here is what they mean:
   map-ready signal. Its goal is to request a run restart and detect when a new
   map snapshot is ready. You can use BonkScanner without enabling native hook
   restart.
+  When enabled, native hook restart loads `BonkHook.dll` into the running game
+  process so the app can request restarts and receive map-ready signals.
+  This can make restarts a little faster and lets the restart path keep working
+  while the game is not focused, such as when you are alt-tabbed.
+  The hook is limited to specific supported actions: restart requests,
+  map-ready signaling, and supported game-setting toggles without opening the
+  in-game settings menu. **It does not touch anything else beyond those listed
+  actions.**
+  If both `Use native hook restart` and `Use hook for game toggles`
+  are disabled, BonkScanner does not load `BonkHook.dll`.
 - `OBS Overlay`: runs only on `127.0.0.1`, which means it is available from the
   same PC for OBS/browser sources, not from the public internet.
 - `Twitch Bot`: only connects after you authorize it manually. Disconnecting
@@ -82,10 +101,10 @@ Some parts of the project use technical names, so here is what they mean:
 
 ### Right Side
 - `Logs`: scanner activity, warnings, wait states, and result messages.
-- `Session Stats`: session time, reroll count, RPM, best and worst maps, and averages per target.
-- `Live Stats`: current run stats, items, weapons, tomes, banishes, damage sources, stage summary, segment compare, and recording controls.
-- `Recordings`: saved recording viewer with timeline, rename, delete, cleanup, and in-run compare tools.
-- `Compare Runs`: side-by-side comparison of two saved recordings with synced in-game time and a central difference panel.
+- `Session Stats`: session time, reroll count, RPM, best and worst maps, tracked item counters, and averages per target.
+- `Live Stats`: current run stats, items, weapons, tomes, Chaos Tome data, banishes, damage sources, stage summary, segment compare, and recording controls.
+- `Recordings`: saved recording viewer with timeline, Chaos Tome data, rename, delete, cleanup, and in-run compare tools.
+- `Compare Runs`: side-by-side comparison of two saved recordings with synced in-game time, Chaos Tome diffs, and a central difference panel.
 - `OBS Overlay`: local browser-source overlay controls for streaming layouts.
 - `Twitch Bot`: built-in Twitch IRC bot controls and command settings.
 
@@ -125,6 +144,17 @@ The active left-side tab decides which evaluation mode is currently used.
 
 ## Live Stats And Recordings
 
+### Session Stats
+The `Session Stats` tab shows:
+- session time, reroll count, and rerolls per minute;
+- best and worst map found during the current session;
+- average rerolls per target;
+- configurable `Tracked Items` counters for live item gains.
+
+By default, `Tracked Items` tracks `Anvils Map 1`. Use the small settings button
+on that card to search for an item, choose `Map 1 only` when needed, and add or
+remove tracked rules. `Map 1 only` counts gains observed during stage 1 only.
+
 ### Live Stats
 The `Live Stats` tab shows:
 - grouped player stat cards;
@@ -138,7 +168,11 @@ The `Live Stats` tab shows:
 - `Banishes`;
 - current weapons with level and upgraded stats;
 - current tomes with level and active effects;
+- Chaos Tome tracking when available;
 - damage sources when available.
+
+`Live Stats` does not require recording. Recording only saves snapshots for later
+playback and comparison.
 
 Passive item reads use the normal passive inventory path first and fall back to
 the main `PlayerInventory.ItemInventory` path when needed. This helps with runs
@@ -157,10 +191,15 @@ The built-in recorder can:
 - automatically continue into a new file when a truly new run is detected;
 - keep one recording together across normal stage transitions even if the map seed changes.
 
+`Snapshot Interval (s)` in `Settings` controls how often `Live Stats` recording
+saves a snapshot. Shorter intervals make the recording timeline, segment compare,
+and saved-run review more precise, but create more snapshots. Longer intervals
+keep recordings lighter, but changes between snapshots are captured less exactly.
+
 ### Saved Recordings
 Recordings are stored in `stats_recordings\` as `.jsonl` files and can be:
 - reviewed with a timeline slider;
-- inspected for stats, items, weapons, tomes, stage summary, damage sources, and banishes;
+- inspected for stats, items, weapons, tomes, Chaos Tome data, stage summary, damage sources, and banishes;
 - compared against an earlier snapshot from the same recording;
 - renamed in-app, including the actual file name on disk;
 - deleted individually;
@@ -170,13 +209,14 @@ Legacy recordings from `vods\` are still read when present.
 
 ## Compare Runs
 `Compare Runs` loads two saved recordings side by side as `Run A` and `Run B`.
+This is useful for checking how two runs diverged at the same in-game time.
 
 It supports:
 - guided first selection when no runs are selected yet;
 - swapping selected runs;
 - synced snapshot comparison by nearest in-game time;
 - configurable stat selection;
-- optional diff sections for stats, stage summary, items, weapons, and tomes;
+- optional diff sections for stats, stage summary, items, weapons, tomes, and Chaos Tome data;
 - item detail comparison for gained, broken, and lost items.
 
 ## OBS Overlay
@@ -226,7 +266,9 @@ Available chat commands:
 - `!items` / `!tracked`: collected items, sorted by rarity and compressed when needed.
 - `!weapons`: current weapons and upgraded stats.
 - `!tomes`: current tomes and values.
+- `!chaos` / `!chaostome`: tracked Chaos Tome level and stat roll totals.
 - `!stages`: stage summary.
+- `!powerups`: active powerup duration info.
 - `!scanner`: short BonkScanner help message.
 
 Command settings support:
@@ -253,13 +295,17 @@ The main `Settings` dialog currently includes:
 - `Reset Hold Duration (s)`
 - `Snapshot Interval (s)`
 - `Use native hook restart`
+- `Use hook for game toggles`
 - `Check for Updates`
 
 Notes:
 - `Reset Hold Duration` is used for standard keyboard reset mode;
 - the app also syncs the game's `quick_reset_time` value when that setting is changed;
-- toggle hotkeys update supported values inside the game's own config when available;
-- native hook mode shows an extra confirmation when enabled and may work better while alt-tabbed on some systems;
+- `Use hook for game toggles` controls whether `Toggle Chest Skip`,
+  `Toggle Auto Level-Up`, and `Toggle Particles Opacity` may use the hook path
+  to update supported values inside the game's own config;
+- native hook mode shows an extra confirmation when enabled and may work better while alt-tabbed on some systems because restarts do not depend on the game window being focused;
+- hook-based game-setting hotkeys also show a confirmation when enabled;
 - global hotkeys and keyboard-driven restart may require Administrator privileges on Windows.
 
 ## Auto-Update Behavior

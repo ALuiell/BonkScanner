@@ -397,6 +397,7 @@ class GuiRunControlTests(unittest.TestCase):
             "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY": gui.config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
             "TOGGLE_PARTICLES_OPACITY_HOTKEY": gui.config.TOGGLE_PARTICLES_OPACITY_HOTKEY,
             "NATIVE_HOOK_ENABLED": gui.config.NATIVE_HOOK_ENABLED,
+            "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED": gui.config.NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED,
             "TOTAL_REROLLS": gui.config.TOTAL_REROLLS,
             "ACTIVE_TEMPLATES": deepcopy(gui.config.ACTIVE_TEMPLATES),
             "EVALUATION_MODE": gui.config.EVALUATION_MODE,
@@ -427,6 +428,7 @@ class GuiRunControlTests(unittest.TestCase):
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
             native_hook_enabled_var=FakeVar(False),
+            native_hook_hotkeys_enabled_var=FakeVar(False),
             master=master,
             destroy=lambda: destroyed.append(True),
         )
@@ -439,6 +441,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(gui.config.AUTO_START_RECORDING)
         self.assertFalse(master.player_stats_auto_recording_suppressed)
         self.assertFalse(gui.config.user_config["NATIVE_HOOK_ENABLED"])
+        self.assertFalse(gui.config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"])
         self.assertTrue(gui.config.user_config["AUTO_START_RECORDING"])
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
@@ -482,6 +485,43 @@ class GuiRunControlTests(unittest.TestCase):
         prompt.assert_not_called()
         self.assertFalse(dialog.native_hook_enabled_var.get())
 
+    def test_native_hook_hotkeys_toggle_prompts_for_confirmation_on_enable(self) -> None:
+        dialog = types.SimpleNamespace(
+            native_hook_hotkeys_enabled_var=FakeVar(True),
+            _native_hook_hotkeys_toggle_guard=False,
+        )
+
+        with patch.object(gui.SettingsDialog, "prompt_native_hook_hotkeys_enable_confirmation", return_value=True) as prompt:
+            gui.SettingsDialog.on_native_hook_hotkeys_toggle(dialog)
+
+        prompt.assert_called_once_with(dialog)
+        self.assertTrue(dialog.native_hook_hotkeys_enabled_var.get())
+
+    def test_native_hook_hotkeys_toggle_reverts_checkbox_when_confirmation_is_cancelled(self) -> None:
+        dialog = types.SimpleNamespace(
+            native_hook_hotkeys_enabled_var=FakeVar(True),
+            _native_hook_hotkeys_toggle_guard=False,
+        )
+
+        with patch.object(gui.SettingsDialog, "prompt_native_hook_hotkeys_enable_confirmation", return_value=False) as prompt:
+            gui.SettingsDialog.on_native_hook_hotkeys_toggle(dialog)
+
+        prompt.assert_called_once_with(dialog)
+        self.assertFalse(dialog.native_hook_hotkeys_enabled_var.get())
+        self.assertFalse(dialog._native_hook_hotkeys_toggle_guard)
+
+    def test_native_hook_hotkeys_toggle_does_not_prompt_when_disabling(self) -> None:
+        dialog = types.SimpleNamespace(
+            native_hook_hotkeys_enabled_var=FakeVar(False),
+            _native_hook_hotkeys_toggle_guard=False,
+        )
+
+        with patch.object(gui.SettingsDialog, "prompt_native_hook_hotkeys_enable_confirmation") as prompt:
+            gui.SettingsDialog.on_native_hook_hotkeys_toggle(dialog)
+
+        prompt.assert_not_called()
+        self.assertFalse(dialog.native_hook_hotkeys_enabled_var.get())
+
     def test_settings_save_persists_confirmed_native_hook_enable(self) -> None:
         master = FakeSettingsMaster()
         destroyed: list[bool] = []
@@ -497,6 +537,7 @@ class GuiRunControlTests(unittest.TestCase):
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
             native_hook_enabled_var=FakeVar(True),
+            native_hook_hotkeys_enabled_var=FakeVar(True),
             master=master,
             destroy=lambda: destroyed.append(True),
         )
@@ -508,6 +549,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(gui.config.NATIVE_HOOK_ENABLED)
         self.assertFalse(gui.config.AUTO_START_RECORDING)
         self.assertTrue(gui.config.user_config["NATIVE_HOOK_ENABLED"])
+        self.assertTrue(gui.config.NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED)
+        self.assertTrue(gui.config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"])
         self.assertFalse(gui.config.user_config["AUTO_START_RECORDING"])
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
@@ -861,8 +904,9 @@ class GuiRunControlTests(unittest.TestCase):
         app.native_hook_loader = types.SimpleNamespace(toggle_skip_chest_animation=lambda: True)
         app.log = lambda message, tag=None: logs.append((message, tag))
 
-        with patch.object(app.native_hook_loader, "toggle_skip_chest_animation", return_value=True) as toggle_setting:
-            changed = gui.MegabonkApp.toggle_game_setting(app, "skip_chest_animation", "Skip Chest Animation")
+        with patch.object(gui.config, "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED", True):
+            with patch.object(app.native_hook_loader, "toggle_skip_chest_animation", return_value=True) as toggle_setting:
+                changed = gui.MegabonkApp.toggle_game_setting(app, "skip_chest_animation", "Skip Chest Animation")
 
         self.assertTrue(changed)
         toggle_setting.assert_called_once_with()
@@ -874,12 +918,33 @@ class GuiRunControlTests(unittest.TestCase):
         app.native_hook_loader = types.SimpleNamespace(toggle_particles_opacity=lambda: True)
         app.log = lambda message, tag=None: logs.append((message, tag))
 
-        with patch.object(app.native_hook_loader, "toggle_particles_opacity", return_value=False) as toggle_setting:
-            changed = gui.MegabonkApp.toggle_game_setting(app, "particle_opacity", "Particles Opacity")
+        with patch.object(gui.config, "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED", True):
+            with patch.object(app.native_hook_loader, "toggle_particles_opacity", return_value=False) as toggle_setting:
+                changed = gui.MegabonkApp.toggle_game_setting(app, "particle_opacity", "Particles Opacity")
 
         self.assertTrue(changed)
         toggle_setting.assert_called_once_with()
         self.assertIn(("[+] Particles Opacity: OFF", "success"), logs)
+
+    def test_toggle_game_setting_does_not_load_hook_when_hook_hotkeys_are_disabled(self) -> None:
+        logs: list[tuple[str, str | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.native_hook_loader = types.SimpleNamespace(toggle_skip_chest_animation=lambda: True)
+        app.log = lambda message, tag=None: logs.append((message, tag))
+
+        with patch.object(gui.config, "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED", False):
+            with patch.object(app.native_hook_loader, "toggle_skip_chest_animation") as toggle_setting:
+                changed = gui.MegabonkApp.toggle_game_setting(app, "skip_chest_animation", "Skip Chest Animation")
+
+        self.assertFalse(changed)
+        toggle_setting.assert_not_called()
+        self.assertIn(
+            (
+                "[WAIT] Skip Chest Animation hotkey is disabled because hook-based game-setting hotkeys are off in Settings.",
+                "warning",
+            ),
+            logs,
+        )
 
     def test_setup_hotkeys_registers_game_setting_hotkeys(self) -> None:
         fake_keyboard = FakeKeyboardModule()
