@@ -1,6 +1,6 @@
 # Reverse Handoff Template
 
-Use this template for new reverse reports in `docs/reverse/reports/`.
+Use this template for new reverse reports in `docs/recovery/reports/`.
 
 Recommended filename:
 

@@ -32,7 +32,7 @@ Avoid implementation based on:
 - values that look plausible but were not verified across a fresh session
 
 If a reverse note and code disagree, the latest verified reverse report in
-`docs/reverse/reports/` should be treated as the primary source of truth until
+`docs/recovery/reports/` should be treated as the primary source of truth until
 the code is updated.
 
 ## Project Surfaces That Can Break
@@ -253,20 +253,20 @@ When preparing a reverse report for implementation, include:
 - rejected paths and why they were rejected
 - implementation recommendation section
 
-Use `docs/reverse/HANDOFF_TEMPLATE.md` for new reports.
+Use `docs/recovery/HANDOFF_TEMPLATE.md` for new reports.
 
 ## How To Hand Off An Update Efficiently
 
 Best workflow:
 
-1. create a new report in `docs/reverse/reports/`
+1. create a new report in `docs/recovery/reports/`
 2. use the handoff template
 3. clearly mark what is confirmed vs suspected
 4. tell me which code path should be updated
 
 Good prompt example:
 
-`Game updated. Use docs/reverse/reports/2026-05-12-player-stats-refresh.md as source of truth and update player_stats.py + related UI.`
+`Game updated. Use docs/recovery/reports/2026-05-12-player-stats-refresh.md as source of truth and update player_stats.py + related UI.`
 
 Even better:
 
@@ -276,9 +276,9 @@ Even better:
 
 At the time of writing, these are the most useful references:
 
-- `docs/reverse/reports/2026-05-11-player-stats-tab-memory-path.md`
-- `docs/reverse/reports/2026-05-11-item-inventory-addresses.md`
-- `docs/reverse/memory-and-hooks-reference.md`
+- `docs/recovery/reports/2026-05-11-player-stats-tab-memory-path.md`
+- `docs/recovery/reports/2026-05-11-item-inventory-addresses.md`
+- `docs/recovery/memory-and-hooks-reference.md`
 
 ## Recovery Output Checklist
 
