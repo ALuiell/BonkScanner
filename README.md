@@ -3,7 +3,24 @@
 **BonkScanner** is a Windows desktop tool for Megabonk reroll automation, live run inspection, saved-run review, OBS overlays, and Twitch chat integration.
 It observes the running game locally, evaluates each reset in real time, and can keep rerolling until a selected template or score tier is found.
 
-## Quick Start on Windows
+## Download
+For most users, download the latest packaged Windows build from
+[GitHub Releases](https://github.com/ALuiell/BonkScanner/releases/latest).
+
+You can also support the project with activity and follow updates on
+[Patreon](https://www.patreon.com/cw/ALuiel).
+
+BonkScanner uses functionality such as global hotkeys, local process memory reads,
+and a packaged `.exe` build. Because of that, some antivirus tools may warn about
+the executable. If this happens, download only from the official releases page or
+Patreon above. You can review the source code and the `build_exe.bat` script used
+to package the executable if you want to verify what the app does and how the
+release build is created.
+
+Use the Python setup below only if you want to run from source or develop the
+project.
+
+## Run From Source on Windows
 1. Install **Python 3.12 x64**.
 2. Open the project folder.
 3. Run `start.bat` once to create `.venv` and install dependencies.
