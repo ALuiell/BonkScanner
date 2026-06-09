@@ -343,7 +343,7 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, "No items found in current run.")
             return
 
-        from run_summary import split_item_stack_suffix, normalize_item_name_for_rarity
+        from run_summary import split_item_stack_suffix, normalize_item_name_for_display, normalize_item_name_for_rarity
         from gui_styles import ITEM_RARITY_BY_NAME
 
         legendary_items = []
@@ -354,10 +354,11 @@ class TwitchBotWorker(QThread):
 
         for item_str in items_list:
             name, suffix = split_item_stack_suffix(item_str)
-            norm_name = normalize_item_name_for_rarity(name)
+            display_name = normalize_item_name_for_display(name)
+            norm_name = normalize_item_name_for_rarity(display_name)
             rarity = ITEM_RARITY_BY_NAME.get(norm_name, "UNKNOWN")
 
-            item_entry = {"name": name, "suffix": suffix, "full_str": item_str}
+            item_entry = {"name": display_name, "suffix": suffix, "full_str": f"{display_name}{suffix}"}
             if rarity == "LEGENDARY":
                 legendary_items.append(item_entry)
             elif rarity == "RARE":

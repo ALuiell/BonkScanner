@@ -22,12 +22,13 @@ Update this file whenever a path is meaningfully changed or newly confirmed.
 | Map stats / interactables | `game_data.py`, `runtime_stats.py`, `logic.py` | `GameAssembly.dll + 0x2FB5E68` to interactables static path; related readiness controllers at `0x2F58E08` and `0x2F59000` | `game_data.py`, `AGENT.md`, future dedicated report if refreshed | medium | 2026-05-11 |
 | Player stats tab | `player_stats.py`, `gui_player_stats.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F6A4B8` -> `class_ptr` -> `+0xB8` -> `root` -> `+0x40` -> `PlayerStatsNew` -> `+0x10` -> stats context -> `+0x18` -> entries | `docs/recovery/reports/2026-05-11-player-stats-tab-memory-path.md` | high | 2026-05-11 |
 | Passive item inventory | `player_stats.py`, `gui_player_stats.py`, `vod_storage.py` | same root to `PlayerStatsNew`; primary `+0xA0` -> inventory object -> `+0x50` passive item dictionary; fallback `+0x28` -> `PlayerInventory` -> `+0x20` `ItemInventory` -> `+0x10` item dictionary | `docs/recovery/reports/2026-05-11-item-inventory-addresses.md` | high | 2026-05-21 |
-| Static item catalog / item rarities | future `player_stats.py`, `gui_player_stats.py`, metadata helpers | `GameAssembly.dll + 0x2F85790` -> `DataManager.Instance` -> `+0xB8 itemData` -> `ItemData +0x60 rarity`; enum names from dumped `EItem` | `docs/recovery/reports/2026-05-19-item-enum-and-rarities.md` | high | 2026-05-19 |
+| Static item catalog / item rarities / item names | future `player_stats.py`, `gui_player_stats.py`, metadata helpers | `GameAssembly.dll + 0x2F85790` -> `DataManager.Instance` -> `+0xB8 itemData` -> `ItemData +0x54 eItem` and `+0x60 rarity`; enum names from known `EItem`; UI names from Unity Localization string tables | `docs/recovery/reports/2026-06-09-item-name-mapping.md` | high | 2026-06-09 |
 | Live weapon inventory / upgraded weapon stats | `player_stats.py`, `gui_player_stats.py`, `vod_storage.py` | same root to `PlayerStatsNew`, then `+0x28` -> `PlayerInventory` -> `+0x28` -> `WeaponInventory` -> `+0x18` weapons dictionary; each `WeaponBase +0x20` level, `+0x28` full stats, `+0x18 -> WeaponData +0xD8 -> UpgradeData +0x18` upgrade stat pool | `docs/recovery/reports/2026-05-19-live-weapon-stats-and-upgrades.md` | high | 2026-05-19 |
 | Live tome inventory / effective tome upgrades | `player_stats.py`, `gui_player_stats.py`, `vod_storage.py` | same root to `PlayerStatsNew`, then `+0x28` -> `PlayerInventory` -> `+0x48` -> `TomeInventory`; `+0x18` `tomeLevels` dictionary and `+0x28` `tomeUpgrade` dictionary | `docs/recovery/reports/2026-05-22-live-tomes.md` | high | 2026-05-22 |
 | Current run time | `player_stats.py`, `gui_player_stats.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F62398` -> `class_ptr` -> `+0xB8` -> `MyTime` static fields -> `+0x20` -> `runTimer` float seconds | `docs/recovery/reports/2026-05-18-current-run-time.md` | high | 2026-05-18 |
 | Run kill counter | `player_stats.py`, `gui_player_stats.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F7A170` -> `RunStats` static fields -> `+0x0` stats dictionary -> key `kills` -> inline `float` at dictionary entry `+0x10`; stable root is the dictionary, final leaf requires key scan | `docs/recovery/reports/2026-05-20-run-kills-counter-path-details.md` | high | 2026-05-20 |
 | Live run banishes (items + tomes) | `player_stats.py`, `gui_player_stats.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F7A210` -> `RunUnlockables` static fields; `+0x0` `banishedItems` `HashSet<ItemData>` and `+0x8` `banishedUpgradables` `HashSet<UnlockableBase>` | `docs/recovery/reports/2026-05-22-item-bans-runtime-path.md` | high | 2026-05-22 |
+| Disabled items pool | `player_stats.py`, future config / overlay | `GameAssembly.dll + 0x02F7A210` -> `RunUnlockables` static fields -> `+0x10` `availableItems` dictionary; compare with `DataManager.Instance.unsortedItems` (`0x2F85790` +0x8 +0x60) | `docs/recovery/reports/2026-06-09-disabled-items-detection.md` | high | 2026-06-09 |
 | Live player level | `player_stats.py`, `gui_player_stats.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F6A4B8` -> `class_ptr` -> `+0xB8` -> `root` -> `+0x40` -> `PlayerStatsNew` -> `+0x28` -> `PlayerInventory` -> `+0x30` -> `PlayerXp` -> `+0x14` -> `level` int | `docs/recovery/reports/2026-05-20-live-player-level.md` | high | 2026-05-20 |
 | Native hook readiness / AlwaysManager path | `hook_loader.py`, `native/BonkHook/*` | `GameAssembly.dll + 0x2F6BAA8` for current AlwaysManager-related path used by hook readiness | `hook_loader.py`, `docs/recovery/memory-and-hooks-reference.md` | medium | 2026-05-11 |
 
@@ -79,9 +80,9 @@ What “healthy” looks like:
 Risk:
 
 - enum names can stay stable while live `ItemData` membership changes
-- some enum ids may exist in dump but be absent from the current loaded catalog
-- `Quest` and `Corrupted` should not be flattened into the normal four-tier UI
-  without an explicit product decision
+- some enum ids may exist but be absent from the current loaded catalog
+- `Quest` should not be flattened into the normal rarity UI without an explicit
+  product decision
 
 What "healthy" looks like:
 
@@ -143,7 +144,7 @@ What “healthy” looks like:
 Risk:
 
 - primary path depends on boxed-value decoding inside `RunStats.stats`
-- current confidence is dump-strong but not CE-live-validated
+- current confidence is static-analysis-strong but not live-validated
 - fallback `Potato.totalKills` may be debug-oriented rather than canonical HUD data
 
 What "healthy" looks like:

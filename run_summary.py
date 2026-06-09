@@ -4,12 +4,8 @@ import html
 
 from gui_styles import (
     COLOR_MAP,
-    ITEM_DISPLAY_NAME_ALIASES,
     ITEM_RARITY_BY_NAME,
     ITEM_RARITY_COLOR_MAP,
-    ITEM_RARITY_FOLDED_NAME_ALIASES,
-    ITEM_RARITY_NAME_ALIASES,
-    ITEM_RARITY_NAME_BY_FOLDED_NAME,
     PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS,
     PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS,
     PLAYER_STATS_STAGE4_GHOST_ENTRY_MAX_SECONDS,
@@ -17,7 +13,10 @@ from gui_styles import (
     PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS,
     PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS,
     PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS,
-    _fold_item_name_for_rarity,
+)
+from item_metadata import (
+    normalize_item_name_for_display,
+    normalize_item_name_for_rarity,
 )
 
 
@@ -52,23 +51,6 @@ def split_item_stack_suffix(item_text: str) -> tuple[str, str]:
     if separator and suffix.isdigit():
         return name, f"{separator}{suffix}"
     return item_text, ""
-
-
-def normalize_item_name_for_display(item_name: str) -> str:
-    normalized = " ".join(item_name.split())
-    return ITEM_DISPLAY_NAME_ALIASES.get(normalized, normalized)
-
-
-def normalize_item_name_for_rarity(item_name: str) -> str:
-    normalized = " ".join(item_name.split())
-    if normalized in ITEM_RARITY_NAME_ALIASES:
-        return ITEM_RARITY_NAME_ALIASES[normalized]
-    if normalized.startswith("Gloves "):
-        normalized = f"Glove {normalized[len('Gloves '):]}"
-
-    folded = _fold_item_name_for_rarity(normalized)
-    folded = ITEM_RARITY_FOLDED_NAME_ALIASES.get(folded, folded)
-    return ITEM_RARITY_NAME_BY_FOLDED_NAME.get(folded, normalized)
 
 
 def item_counts(items) -> dict[str, int]:

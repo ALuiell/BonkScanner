@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+from item_metadata import (
+    ITEM_DISPLAY_NAME_ALIASES,
+    ITEM_RARITY_BY_NAME,
+    ITEM_RARITY_FOLDED_NAME_ALIASES,
+    ITEM_RARITY_NAME_ALIASES,
+    ITEM_RARITY_NAME_BY_FOLDED_NAME,
+    _fold_item_name_for_rarity,
+)
+
 PLAYER_STATS_REFRESH_MS = 10_000
 PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
 PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS = 3.0
@@ -48,116 +57,6 @@ ITEM_RARITY_COLOR_MAP = {
     "UNCOMMON": COLOR_MAP["BLUE"],
     "RARE": COLOR_MAP["MAGENTA"],
     "LEGENDARY": COLOR_MAP["YELLOW"],
-}
-ITEM_RARITY_BY_NAME = {
-    "Key": "COMMON",
-    "Slippery Ring": "COMMON",
-    "Gym Sauce": "COMMON",
-    "Battery": "COMMON",
-    "Forbidden Juice": "COMMON",
-    "Moldy Cheese": "COMMON",
-    "Golden Glove": "COMMON",
-    "Ghost": "COMMON",
-    "Turbo Socks": "COMMON",
-    "Clover": "COMMON",
-    "Skuleg": "COMMON",
-    "Oats": "COMMON",
-    "Cursed Doll": "COMMON",
-    "Borgar": "COMMON",
-    "Medkit": "COMMON",
-    "Boss Buster": "COMMON",
-    "Tactical Glasses": "COMMON",
-    "Cactus": "COMMON",
-    "Ice Crystal": "COMMON",
-    "Time Bracelet": "COMMON",
-    "Wrench": "COMMON",
-    "Old Mask": "COMMON",
-    "Beer": "UNCOMMON",
-    "Cowards Cloak": "UNCOMMON",
-    "Phantom Shroud": "UNCOMMON",
-    "Demon Blade": "UNCOMMON",
-    "Golden Sneakers": "UNCOMMON",
-    "Demonic Blood": "UNCOMMON",
-    "Golden Shield": "UNCOMMON",
-    "Feathers": "UNCOMMON",
-    "Echo Shard": "UNCOMMON",
-    "Backpack": "UNCOMMON",
-    "Campfire": "UNCOMMON",
-    "Electric Plug": "UNCOMMON",
-    "Brass Knuckles": "UNCOMMON",
-    "Idle Juice": "UNCOMMON",
-    "Unstable Transfusion": "UNCOMMON",
-    "Credit Card Red": "UNCOMMON",
-    "Leeching Crystal": "UNCOMMON",
-    "Glove Lightning": "UNCOMMON",
-    "Glove Poison": "UNCOMMON",
-    "Beacon": "UNCOMMON",
-    "Pumpkin": "UNCOMMON",
-    "Spiky Shield": "RARE",
-    "Grandmas Secret Tonic": "RARE",
-    "Demonic Soul": "RARE",
-    "Beefy Ring": "RARE",
-    "Slutty Cannon": "RARE",
-    "Shattered Wisdom": "RARE",
-    "Rollerblades": "RARE",
-    "Eagle Claw": "RARE",
-    "Scarf": "RARE",
-    "Bob Dead": "RARE",
-    "Mirror": "RARE",
-    "Gasmask": "RARE",
-    "Toxic Barrel": "RARE",
-    "Kevin": "RARE",
-    "Gamer Goggles": "RARE",
-    "Credit Card Green": "RARE",
-    "Glove Blood": "RARE",
-    "Glove Curse": "RARE",
-    "Quins Mask": "RARE",
-    "Bobs Lantern": "RARE",
-    "Bonker": "LEGENDARY",
-    "Giant Fork": "LEGENDARY",
-    "Spicy Meatball": "LEGENDARY",
-    "Chonkplate": "LEGENDARY",
-    "Lightning Orb": "LEGENDARY",
-    "Ice Cube": "LEGENDARY",
-    "Dragonfire": "LEGENDARY",
-    "Za Warudo": "LEGENDARY",
-    "Overpowered Lamp": "LEGENDARY",
-    "Sucky Magnet": "LEGENDARY",
-    "Anvil": "LEGENDARY",
-    "Energy Core": "LEGENDARY",
-    "Soul Harvester": "LEGENDARY",
-    "Joes Dagger": "LEGENDARY",
-    "Speed Boi": "LEGENDARY",
-    "Holy Book": "LEGENDARY",
-    "Bloody Cleaver": "LEGENDARY",
-    "Glove Power": "LEGENDARY",
-    "Golden Ring": "LEGENDARY",
-    "Snek": "LEGENDARY",
-    "Pot": "LEGENDARY",
-    "Wizards Hat": "LEGENDARY",
-}
-ITEM_RARITY_NAME_ALIASES = {
-    "Flappy Feathers": "Feathers",
-    "No Implementation": "Golden Ring",
-}
-ITEM_RARITY_FOLDED_NAME_ALIASES = {
-    "boblantern": "bobslantern",
-    "borgor": "borgar",
-    "flappyfeathers": "feathers",
-    "glovecursed": "glovecurse",
-    "glovescursed": "glovecurse",
-    "noimplementation": "goldenring",
-    "potsteel": "pot",
-    "suckyhoof": "suckymagnet",
-}
-ITEM_DISPLAY_NAME_ALIASES = {
-    "No Implementation": "Golden Ring",
-}
-def _fold_item_name_for_rarity(item_name: str) -> str:
-    return "".join(char.lower() for char in item_name if char.isalnum())
-ITEM_RARITY_NAME_BY_FOLDED_NAME = {
-    _fold_item_name_for_rarity(name): name
-    for name in ITEM_RARITY_BY_NAME
 }
 
 def _template_checkbox_stylesheet(color_hex: str) -> str:

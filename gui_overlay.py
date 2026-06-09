@@ -24,11 +24,12 @@ from PySide6.QtWidgets import (
 import config
 import run_summary
 from gui_shared import _make_scroll_section, _set_text, _set_text_input
-from gui_styles import ITEM_RARITY_BY_NAME, PLAYER_STATS_REFRESH_MS, _button_state_stylesheet
+from gui_styles import PLAYER_STATS_REFRESH_MS, _button_state_stylesheet
+from item_metadata import available_item_display_names, preferred_item_display_name
 from live_run_tracker import LiveRunTracker, TrackedItemRule
 from overlay_server import LocalOverlayServer, OverlayStateStore
 from overlay_state import build_overlay_state
-from player_stats import ITEM_ENUM_NAMES_BY_ID, PLAYER_STAT_GROUPS, PlayerStatsClient
+from player_stats import PLAYER_STAT_GROUPS
 
 
 OVERLAY_WIDGET_LABELS = {
@@ -37,20 +38,6 @@ OVERLAY_WIDGET_LABELS = {
     "stats": "Stats",
     "banishes": "Banishes",
 }
-
-TRACKED_ITEM_PREFERRED_DISPLAY_BY_CANONICAL = {
-    "Bobs Lantern": "Bob Lantern",
-    "Borgar": "Borgor",
-    "Feathers": "Flappy Feathers",
-    "Glove Blood": "Gloves Blood",
-    "Glove Curse": "Gloves Cursed",
-    "Glove Lightning": "Gloves Lightning",
-    "Glove Poison": "Gloves Poison",
-    "Glove Power": "Gloves Power",
-    "Pot": "Pot Steel",
-    "Sucky Magnet": "Sucky Hoof",
-}
-
 
 class OverlayMixin:
     def initialize_overlay_runtime(self) -> None:
@@ -879,19 +866,11 @@ class OverlayMixin:
 
     @staticmethod
     def _overlay_available_item_names() -> tuple[str, ...]:
-        names = set(ITEM_RARITY_BY_NAME)
-        for raw_name in ITEM_ENUM_NAMES_BY_ID.values():
-            display_name = PlayerStatsClient._format_item_name(f"Item{raw_name}")
-            if display_name:
-                names.add(display_name)
-        return tuple(sorted(names, key=str.lower))
+        return available_item_display_names()
 
     @staticmethod
     def _tracked_item_display_name(item_name: str) -> str:
-        canonical_name = run_summary.normalize_item_name_for_rarity(
-            run_summary.normalize_item_name_for_display(str(item_name))
-        )
-        return TRACKED_ITEM_PREFERRED_DISPLAY_BY_CANONICAL.get(canonical_name, canonical_name)
+        return preferred_item_display_name(str(item_name))
 
     @classmethod
     def _tracked_rule_display_label(

@@ -29,10 +29,6 @@ from gui_styles import (
     COLOR_MAP,
     ITEM_RARITY_BY_NAME,
     ITEM_RARITY_COLOR_MAP,
-    ITEM_RARITY_FOLDED_NAME_ALIASES,
-    ITEM_RARITY_NAME_ALIASES,
-    ITEM_RARITY_NAME_BY_FOLDED_NAME,
-    ITEM_DISPLAY_NAME_ALIASES,
     ITEM_RARITY_SORT_ORDER,
     ITEM_SORT_DEFAULT,
     ITEM_SORT_RARITY_ASC,
@@ -53,8 +49,8 @@ from gui_styles import (
     PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS,
     PLAYER_STATS_VALUE_FONT_SIZE,
     _button_state_stylesheet,
-    _fold_item_name_for_rarity,
 )
+from item_metadata import item_display_color, normalize_item_name_for_display, normalize_item_name_for_rarity
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from live_run_tracker import CHAOS_TOME_GAME_STAT_ORDER, LiveRunSnapshot
 from player_stats import (
@@ -2940,6 +2936,7 @@ class PlayerStatsMixin:
         display_name = cls._normalize_item_name_for_display(item_name)
         rarity = cls._item_rarity_name(display_name)
         color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
+        color = item_display_color(display_name, color)
         return f'<span style="color:{color}; font-weight:700;">{html.escape(display_name)}</span>'
 
     @classmethod
@@ -3678,7 +3675,7 @@ class PlayerStatsMixin:
                 visible_items = items
             color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
             item_text = " | ".join(
-                f"{html.escape(name)} +{cls.format_count(gain)}"
+                cls._format_item_change_text(name, f"+{cls.format_count(gain)}")
                 for name, gain in visible_items
             )
             rows.append(
@@ -3723,7 +3720,10 @@ class PlayerStatsMixin:
                 continue
             color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
             item_text = " | ".join(
-                f"{html.escape(name)} -{cls.format_count(loss)}{f' {suffix}' if suffix else ''}"
+                cls._format_item_change_text(
+                    name,
+                    f"-{cls.format_count(loss)}{f' {suffix}' if suffix else ''}",
+                )
                 for name, loss in items
             )
             rows.append(
@@ -3737,8 +3737,19 @@ class PlayerStatsMixin:
         if not losses:
             return '<span style="color:#98A7BA;">--</span>'
         return " | ".join(
-            f'<span style="color:#E5E7EB;">{html.escape(cls._normalize_item_name_for_display(name))} -{cls.format_count(count)}</span>'
+            cls._format_item_change_text(
+                cls._normalize_item_name_for_display(name),
+                f"-{cls.format_count(count)}",
+            )
             for name, count in losses
+        )
+
+    @staticmethod
+    def _format_item_change_text(display_name: str, suffix: str) -> str:
+        color = item_display_color(display_name, "#E5E7EB")
+        return (
+            f'<span style="color:{color};">'
+            f'{html.escape(display_name)} {html.escape(suffix)}</span>'
         )
 
     @classmethod
@@ -4174,6 +4185,7 @@ class PlayerStatsMixin:
         rarity_name = cls._normalize_item_name_for_rarity(display_name)
         rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
         color = ITEM_RARITY_COLOR_MAP.get(rarity)
+        color = item_display_color(display_name, color)
         escaped_name = html.escape(display_name)
         if color:
             escaped_name = f'<span style="color: {color}; font-weight: 700;">{escaped_name}</span>'
@@ -4191,20 +4203,11 @@ class PlayerStatsMixin:
 
     @staticmethod
     def _normalize_item_name_for_rarity(item_name: str) -> str:
-        normalized = " ".join(item_name.split())
-        if normalized in ITEM_RARITY_NAME_ALIASES:
-            return ITEM_RARITY_NAME_ALIASES[normalized]
-        if normalized.startswith("Gloves "):
-            normalized = f"Glove {normalized[len('Gloves '):]}"
-
-        folded = _fold_item_name_for_rarity(normalized)
-        folded = ITEM_RARITY_FOLDED_NAME_ALIASES.get(folded, folded)
-        return ITEM_RARITY_NAME_BY_FOLDED_NAME.get(folded, normalized)
+        return normalize_item_name_for_rarity(item_name)
 
     @staticmethod
     def _normalize_item_name_for_display(item_name: str) -> str:
-        normalized = " ".join(item_name.split())
-        return ITEM_DISPLAY_NAME_ALIASES.get(normalized, normalized)
+        return normalize_item_name_for_display(item_name)
 
     @staticmethod
     def calculate_player_chests_per_minute(stats) -> float | None:

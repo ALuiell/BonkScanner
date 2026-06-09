@@ -3121,7 +3121,8 @@ class GuiRunControlTests(unittest.TestCase):
             )
         )
 
-        self.assertIn("Za Warudo +4 | Wizards Hat +3", result)
+        self.assertIn("Za Warudo +4</span> |", result)
+        self.assertIn("Wizard&#x27;s Hat +3</span>", result)
         self.assertIn("Beefy Ring +5", result)
         self.assertIn("Key +6", result)
         self.assertEqual(result.count("&#9679;"), 3)
@@ -3273,22 +3274,22 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn('color: #22C55E', result)
         self.assertIn('>Wrench</span> x2', result)
         self.assertIn('color: #FACC15', result)
-        self.assertIn('>Bonker</span> x1', result)
-        self.assertIn('Crypt Key x1', result)
+        self.assertIn('>Big Bonk</span> x1', result)
+        self.assertIn('Crypt key x1', result)
         self.assertNotIn('color: #22C55E;">Wrench x2</span>', result)
 
     def test_format_items_rich_text_supports_gloves_aliases(self) -> None:
         result = gui.MegabonkApp.format_items_rich_text(("Gloves Blood x1", "Gloves Power x1"))
 
-        self.assertIn('>Gloves Blood</span> x1', result)
+        self.assertIn('>Slurp Gloves</span> x1', result)
         self.assertIn('color: #E879F9', result)
-        self.assertIn('>Gloves Power</span> x1', result)
+        self.assertIn('>Power Gloves</span> x1', result)
         self.assertIn('color: #FACC15', result)
 
     def test_format_items_rich_text_supports_flappy_feathers_alias(self) -> None:
         result = gui.MegabonkApp.format_items_rich_text(("Flappy Feathers x1",))
 
-        self.assertIn('>Flappy Feathers</span> x1', result)
+        self.assertIn('>Feathers</span> x1', result)
         self.assertIn('color: #60A5FA', result)
 
     def test_format_items_rich_text_handles_display_name_variants(self) -> None:
@@ -3305,16 +3306,16 @@ class GuiRunControlTests(unittest.TestCase):
             )
         )
 
-        self.assertIn('>Borgor</span> x1', result)
+        self.assertIn('>Borgar</span> x1', result)
         self.assertIn('color: #22C55E', result)
-        self.assertIn(">Bob Lantern</span> x1", result)
-        self.assertIn(">Bob&#x27;s Lantern</span> x1", result)
+        self.assertIn(">Bob&#x27;s Light</span> x1", result)
         self.assertIn(">Grandma&#x27;s Secret Tonic</span> x1", result)
-        self.assertIn(">Gloves Cursed</span> x1", result)
+        self.assertIn(">Cursed Grabbies</span> x1", result)
         self.assertIn('color: #E879F9', result)
-        self.assertIn(">Golden Ring</span> x1", result)
-        self.assertIn('>Pot Steel</span> x1', result)
-        self.assertIn(">Sucky Hoof</span> x1", result)
+        self.assertIn(">The One Ring</span> x1", result)
+        self.assertIn("color: #F97316", result)
+        self.assertIn('>Pot (stainless steel)</span> x1', result)
+        self.assertIn(">Sucky Magnet</span> x1", result)
         self.assertIn('color: #FACC15', result)
 
     def test_normalize_item_name_for_rarity_handles_aliases_and_gloves_rule(self) -> None:
@@ -3325,16 +3326,27 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Bob's Lantern"), "Bobs Lantern")
         self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Gloves Cursed"), "Glove Curse")
         self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("No Implementation"), "Golden Ring")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("The One Ring"), "Golden Ring")
         self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Pot Steel"), "Pot")
         self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Sucky Hoof"), "Sucky Magnet")
         self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Wrench"), "Wrench")
 
     def test_tracked_item_display_name_prefers_live_inventory_aliases(self) -> None:
-        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Power"), "Gloves Power")
-        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Blood"), "Gloves Blood")
-        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Lightning"), "Gloves Lightning")
-        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Pot"), "Pot Steel")
+        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Power"), "Power Gloves")
+        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Blood"), "Slurp Gloves")
+        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Lightning"), "Thunder Mitts")
+        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Pot"), "Pot (stainless steel)")
         self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Wrench"), "Wrench")
+
+    def test_overlay_available_item_names_use_game_ui_names(self) -> None:
+        names = gui.OverlayMixin._overlay_available_item_names()
+
+        self.assertIn("Bob's Light", names)
+        self.assertIn("Crypt key", names)
+        self.assertIn("Golden key", names)
+        self.assertIn("Slurp Gloves", names)
+        self.assertIn("The One Ring", names)
+        self.assertNotIn("Bobs Lantern", names)
 
     def test_tracked_rule_display_label_prefers_live_alias_for_default_labels(self) -> None:
         self.assertEqual(
@@ -3343,7 +3355,7 @@ class GuiRunControlTests(unittest.TestCase):
                 ["Glove Power"],
                 "map_1_only",
             ),
-            "Gloves Power Map 1",
+            "Power Gloves Map 1",
         )
         self.assertEqual(
             gui.OverlayMixin._tracked_rule_display_label(
@@ -3351,7 +3363,7 @@ class GuiRunControlTests(unittest.TestCase):
                 ["Glove Blood"],
                 "all_run",
             ),
-            "Gloves Blood",
+            "Slurp Gloves",
         )
         self.assertEqual(
             gui.OverlayMixin._tracked_rule_display_label(
@@ -3363,8 +3375,9 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
     def test_normalize_item_name_for_display_replaces_no_implementation(self) -> None:
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("No Implementation"), "Golden Ring")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("Sucky Hoof"), "Sucky Hoof")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("No Implementation"), "The One Ring")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("Golden Ring"), "The One Ring")
+        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("Sucky Hoof"), "Sucky Magnet")
 
     def test_split_item_stack_suffix_handles_plain_names(self) -> None:
         self.assertEqual(gui.MegabonkApp._split_item_stack_suffix("Wrench x2"), ("Wrench", " x2"))

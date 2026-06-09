@@ -202,8 +202,11 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertEqual(items, ("Clover x199",))
 
-    def test_format_item_name_replaces_no_implementation_with_golden_ring(self) -> None:
-        self.assertEqual(PlayerStatsClient._format_item_name("ItemNoImplementation"), "Golden Ring")
+    def test_format_item_name_uses_item_display_overrides(self) -> None:
+        self.assertEqual(PlayerStatsClient._format_item_name("ItemNoImplementation"), "The One Ring")
+        self.assertEqual(PlayerStatsClient._format_item_name("ItemGoldenRing"), "The One Ring")
+        self.assertEqual(PlayerStatsClient._format_item_name("ItemBobsLantern"), "Bob's Light")
+        self.assertEqual(PlayerStatsClient._format_item_name("ItemGloveBlood"), "Slurp Gloves")
 
     def test_get_run_timer_reads_confirmed_static_float(self) -> None:
         client = PlayerStatsClient(memory=self.build_memory())
