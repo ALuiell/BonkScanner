@@ -93,4 +93,56 @@ Announcement ideas:
   - The message should stay short and only list enabled commands.
   - This should share the same command-list formatting/source as the manual commands list command.
 
+---
 
+## Hotkey Improvement — Modifier-Aware Triggering
+
+Status: `[Open]`
+
+Date discussed: 2026-06-10
+
+### Problem
+
+Hotkeys (e.g. skip chest animation, run control hotkeys) fail to trigger when the user holds a game key simultaneously. The hotkey system currently matches exact key combinations, so `Shift + F9` is treated as a different event from `F9` alone and the hotkey does not fire.
+
+### Proposed Solution — Game-Key Whitelist
+
+Instead of registering a raw hotkey listener that requires an exact match, switch to a raw key-press listener that checks the full set of currently pressed keys on every keydown event.
+
+Trigger logic:
+
+```
+if hotkey_key in pressed_keys:
+    modifiers = pressed_keys - {hotkey_key}
+    if modifiers ⊆ GAME_KEYS:
+        → trigger action
+    else:
+        → ignore (non-game modifier present, e.g. Ctrl, Alt, Win)
+```
+
+### GAME_KEYS Whitelist
+
+The whitelist covers keys a player commonly holds during active gameplay:
+
+| Category       | Keys |
+|----------------|------|
+| Movement       | W, A, S, D, Arrow keys |
+| Actions        | Q, E, R, F, G, T, Z, X, C, V, B |
+| Jump / Sprint  | Space, Left Shift |
+| Slots / Skills | 1 – 9, 0 |
+| UI / Map       | Tab |
+
+**Excluded** (treated as non-game modifiers — hotkey will NOT fire):
+- Right Shift, Ctrl (right), Alt, Win key — these can be part of system shortcuts.
+- Left Ctrl is debatable; currently excluded to avoid conflicts with system shortcuts like Ctrl+C.
+
+### Why Whitelist Instead of "Any + Hotkey"
+
+- `Ctrl + F9`, `Alt + F9` may be system or browser shortcuts — should not be hijacked.
+- Whitelist gives precise control with minimal user-visible side effects.
+- GAME_KEYS should be configurable in settings so users can adapt it to custom game keybindings.
+
+### Additional Considerations
+
+- **Debounce**: Ensure one physical key press produces exactly one trigger (no repeat-key spam on hold).
+- **Configurability**: Expose GAME_KEYS as a user-editable list in config/settings for players with non-default bindings.
