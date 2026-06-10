@@ -139,6 +139,7 @@ Available chat commands:
 - `!weapons` — your weapons and only their active/upgraded stats.
 - `!tomes` — your tomes with their stat values (Chaos Tome shows level only).
 - `!stages` — detailed stage summary of kills and elapsed time for stages 1-4.
+- `!chests` / `!chest` — displays the number of chests opened per stage, keys count, and free chest openings.
 - `!scanner` — quick help listing all commands.
 
 Announce Stage Transitions:
