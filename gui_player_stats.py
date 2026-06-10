@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 import config
 import run_summary
-from game_data import GameDataClient, RuntimeGameMode, RuntimeGameState
+from game_data import GameDataClient, RuntimeGameMode, RuntimeGameState, MapStat
 from gui_dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from gui_shared import _clear_layout, _clear_text_input, _read_text, _set_text, _set_text_input
 from gui_styles import (
@@ -150,6 +150,24 @@ class PlayerStatsMixin:
         try:
             client = self._get_player_stats_client()
             owner_stats = client.resolve_owner_stats()
+
+            # High-frequency chest procs tracking
+            is_chests_enabled = config.TWITCH_BOT.get("commands", {}).get("chests", True)
+            with self.live_run_tracker._lock:
+                keys_count = self.live_run_tracker._keys_count
+            
+            if is_chests_enabled and keys_count > 0:
+                try:
+                    if self.player_stats_game_data_client is None:
+                        self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
+                    map_stats = self.player_stats_game_data_client.get_map_stats()
+                    if map_stats and MapStat.CHESTS in map_stats:
+                        chests_opened = map_stats[MapStat.CHESTS].current
+                        gold = client.get_current_gold(owner_stats)
+                        self.live_run_tracker.track_chest_opening(chests_opened, gold)
+                except Exception:
+                    pass
+
             chaos_level = client.get_chaos_tome_level(owner_stats)
             if chaos_level is None:
                 self.live_run_tracker.update_chaos_tome(
@@ -448,6 +466,34 @@ class PlayerStatsMixin:
             stage_ptr=stage_ptr,
         )
         self.live_run_tracker.update(live_snapshot)
+
+        # Update chests and keys (10s interval — sufficient for !chests command)
+        keys_count = 0
+        if items_available:
+            for item_str in effective_items:
+                if item_str == "Key":
+                    keys_count = 1
+                    break
+                elif item_str.startswith("Key x"):
+                    try:
+                        keys_count = int(item_str.split(" x")[-1])
+                    except ValueError:
+                        keys_count = 0
+                    break
+        chests_opened = 0
+        chests_total = 46
+        try:
+            if self.player_stats_game_data_client is None:
+                self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
+            map_stats = self.player_stats_game_data_client.get_map_stats()
+            if map_stats and MapStat.CHESTS in map_stats:
+                chest_stat = map_stats[MapStat.CHESTS]
+                chests_opened = chest_stat.current
+                chests_total = chest_stat.max
+        except Exception:
+            pass
+        self.live_run_tracker.update_chests_and_keys(chests_opened, chests_total, keys_count)
+
         if hasattr(self, "refresh_session_tracked_item_stats_ui"):
             self.refresh_session_tracked_item_stats_ui()
         chaos_snapshot_reader = getattr(self.live_run_tracker, "chaos_tome_snapshot", None)

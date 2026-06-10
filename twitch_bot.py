@@ -200,6 +200,9 @@ class TwitchBotWorker(QThread):
         elif cmd == "!scanner" and commands_cfg.get("scanner", True):
             self._handle_scanner(channel)
             handled = True
+        elif cmd in ("!chests", "!chest") and commands_cfg.get("chests", True):
+            self._handle_chests(channel)
+            handled = True
 
         if handled:
             self.last_global_command_time = now
@@ -378,13 +381,19 @@ class TwitchBotWorker(QThread):
 
         all_ordered = legendary_items + rare_items + uncommon_items + common_items + unknown_items
         full_list = [x["full_str"] for x in all_ordered]
-        total_unique = len(items_list)
+        total_count = 0
+        for x in all_ordered:
+            suffix = x["suffix"]
+            item_count = 1
+            if suffix.startswith(" x") and suffix[2:].isdigit():
+                item_count = int(suffix[2:])
+            total_count += max(1, item_count)
 
         def get_formatted_text(items_str: str) -> str:
             return self._format_template(
                 "items",
                 "Items ({count}): {items}",
-                count=total_unique,
+                count=total_count,
                 items=items_str
             )
 
@@ -564,8 +573,47 @@ class TwitchBotWorker(QThread):
     def _handle_scanner(self, channel: str):
         text = self._format_template(
             "scanner",
-            "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
+            "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
             patreon_url=config.PATREON_SUPPORT_URL
+        )
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, text)
+
+    def _handle_chests(self, channel: str):
+        chests_opened, chests_total, keys_count, free_opens, chests_by_stage, total_by_stage = self.run_tracker.get_chests_and_keys()
+        
+        if chests_by_stage and len(chests_by_stage) > 1:
+            parts = []
+            sorted_stages = sorted(chests_by_stage.items())
+            for i, (stage, count) in enumerate(sorted_stages):
+                stage_max = total_by_stage.get(stage, chests_total)
+                if i < len(sorted_stages) - 1:
+                    parts.append(f"T{stage}:{count}/{stage_max}")
+                else:
+                    parts.append(f"T{stage}:{count}")
+                    chests_total = stage_max
+                        
+            opened_str = " ".join(parts) if parts else str(chests_opened)
+            total_str = str(chests_total)
+        else:
+            opened_str = str(chests_opened)
+            total_str = str(chests_total)
+
+        if keys_count <= 0:
+            chance_val = 0.0
+        else:
+            chance_val = (0.10 * keys_count) / (0.10 * keys_count + 1.0) * 100.0
+        chance_str = f"{chance_val:.1f}%"
+
+        text = self._format_template(
+            "chests",
+            "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance}) | Free chest: {procs}",
+            opened=opened_str,
+            total=total_str,
+            keys=keys_count,
+            chance=chance_str,
+            procs=free_opens,
         )
         if len(text) > 450:
             text = text[:447] + "..."

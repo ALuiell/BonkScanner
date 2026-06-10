@@ -503,6 +503,64 @@ class LiveRunTrackerTests(unittest.TestCase):
         
         self.assertEqual(tracker.chaos_tome_summary_parts(), ["DMG +33.6%", "Luck +7%"])
 
+    def test_chests_first_chest_tracked(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        # Initialize
+        tracker.track_chest_opening(0, 100)
+        # First chest opened with same gold (free proc)
+        tracker.track_chest_opening(1, 100)
+        _, _, _, free_opens, _, _ = tracker.get_chests_and_keys()
+        self.assertEqual(free_opens, 1)
+
+    def test_chests_stage_transition_residual_filtered(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        # Stage 1: opened 28 chests
+        tracker.update(snapshot(time_seconds=1.0, stage_ptr=1000, stage_time_seconds=10.0))
+        tracker.update_chests_and_keys(28, 46, 0)
+        
+        # Transition to Stage 2 (time resets, pointer changes)
+        # Snapshot for stage 2 with low stage time
+        tracker.update(snapshot(time_seconds=20.0, stage_ptr=2000, stage_time_seconds=1.0))
+        
+        # Suppose game data client reads residual chests_opened = 28
+        tracker.update_chests_and_keys(28, 46, 0)
+        
+        _, _, _, _, opened_by_stage, _ = tracker.get_chests_and_keys()
+        self.assertEqual(opened_by_stage[2], 0)
+
+    def test_chests_stage_transition_residual_filtered_high_stage_time(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        # Stage 1: opened 28 chests
+        tracker.update(snapshot(time_seconds=1.0, stage_ptr=1000, stage_time_seconds=10.0))
+        tracker.update_chests_and_keys(28, 46, 0)
+        
+        # Transition to Stage 2 (pointer changes, but first refresh happens late at 8.0s)
+        tracker.update(snapshot(time_seconds=20.0, stage_ptr=2000, stage_time_seconds=8.0))
+        
+        # Suppose game data client reads residual chests_opened = 28
+        tracker.update_chests_and_keys(28, 46, 0)
+        
+        _, _, _, _, opened_by_stage, _ = tracker.get_chests_and_keys()
+        # Should still filter to 0 even though stage_time_seconds >= 5.0
+        self.assertEqual(opened_by_stage[2], 0)
+
+    def test_chests_stage_four_same_ptr_shares_stage_three_stats(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        # Stage 3: opened 15 chests, stage_ptr = 3000
+        tracker.update(snapshot(time_seconds=1.0, stage_ptr=3000, stage_time_seconds=10.0))
+        tracker.update_chests_and_keys(15, 46, 0)
+        
+        # Transition to Stage 4 (virtual stage transition, pointer remains 3000)
+        tracker.update(snapshot(time_seconds=20.0, stage_ptr=3000, stage_time_seconds=1.0))
+        # Boss room reports max chests = 15 instead of 46
+        tracker.update_chests_and_keys(15, 15, 0)
+        
+        _, _, _, _, opened_by_stage, total_by_stage = tracker.get_chests_and_keys()
+        # Stage 4 should not be created as a separate entry, stage 3 should still be 15, and total should be preserved as 46
+        self.assertEqual(len(opened_by_stage), 1)
+        self.assertEqual(opened_by_stage[1], 15)
+        self.assertEqual(total_by_stage[1], 46)
+
 
 if __name__ == "__main__":
     unittest.main()

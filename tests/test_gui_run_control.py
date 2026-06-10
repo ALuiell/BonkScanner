@@ -379,6 +379,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.log = lambda message, tag=None: app.log_messages.append((message, tag))
         app.live_run_tracker = SimpleNamespace(
             update=lambda *args, **kwargs: None,
+            update_chests_and_keys=lambda *args, **kwargs: None,
             mark_read_failed=lambda *args, **kwargs: None,
             stage_summary_rows=lambda: [],
         )
@@ -2156,6 +2157,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.read_passive_items_only = fail_items
         app.live_run_tracker = SimpleNamespace(
             update=lambda *args, **kwargs: None,
+            update_chests_and_keys=lambda *args, **kwargs: None,
             mark_read_failed=lambda *args, **kwargs: None,
             stage_summary_rows=lambda: [],
         )
@@ -2491,6 +2493,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.read_passive_items_only = fail_items
         app.live_run_tracker = SimpleNamespace(
             update=lambda *args, **kwargs: None,
+            update_chests_and_keys=lambda *args, **kwargs: None,
             mark_read_failed=lambda *args, **kwargs: None,
             stage_summary_rows=lambda: [],
         )
@@ -3531,9 +3534,54 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
             gui.MegabonkApp.native_hook_loop(app, loader, 1)
-
         self.assertEqual(loader.inject_calls, 1)
         self.assertIn(("[+] Game restart helper connected successfully.", "success"), logs)
+
+
+    def test_refresh_live_player_stats_now_parses_single_key(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_selected_snapshot_index = None
+        app.player_stats_status_label = FakeLabel()
+        app.player_stats_rows = {}
+        app.player_stats_items_label = FakeLabel()
+        app.player_stats_banishes_label = FakeLabel()
+        app.player_stats_live_banishes = ()
+        app.player_stats_in_game_time_label = FakeLabel()
+        app.player_stats_chests_per_minute_label = FakeLabel()
+        app.player_stats_mob_kills_label = FakeLabel()
+        app.player_stats_level_label = FakeLabel()
+        app.player_stats_new_items_label = FakeLabel()
+        app.player_stats_stage_summary_labels = []
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            get_run_timer=lambda: 21.5,
+            get_killed_mobs=lambda: 37,
+            get_player_level=lambda owner_stats=None: 2,
+        )
+        app.close_player_stats_client = lambda: None
+        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
+        app._refresh_vods_list_if_visible = lambda: None
+        app._is_live_stats_tab_active = lambda: False
+        app.read_player_stats_only = lambda: ({}, 0x1234)
+        app.read_passive_items_only = lambda owner_stats=None: ("Key",)
+        
+        chests_and_keys_args = []
+        app.live_run_tracker = SimpleNamespace(
+            update=lambda *args, **kwargs: None,
+            update_chests_and_keys=lambda chests, total, keys: chests_and_keys_args.append((chests, total, keys)),
+            mark_read_failed=lambda *args, **kwargs: None,
+            stage_summary_rows=lambda: [],
+        )
+        app.player_stats_game_data_client = SimpleNamespace(
+            get_map_stats=lambda: {}
+        )
+        app.overlay_state_store = None
+        
+        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        self.assertTrue(result)
+        self.assertEqual(len(chests_and_keys_args), 1)
+        self.assertEqual(chests_and_keys_args[0][2], 1)
 
 
 if __name__ == "__main__":

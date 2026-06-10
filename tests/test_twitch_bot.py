@@ -168,5 +168,72 @@ class TestTwitchBotWorker(unittest.TestCase):
         cfg = {"username": "BotAccount", "target_channel": "#StreamerChannel"}
         self.assertEqual(TwitchBotWorker._target_channel(cfg), "streamerchannel")
 
+    def test_handle_chests(self):
+        from config import TWITCH_BOT
+        TWITCH_BOT.setdefault("templates", {})["chests"] = "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance}) | Free chest: {procs}"
+        self.bot._send_chat = MagicMock()
+    
+        # Test with 1 key
+        self.run_tracker.get_chests_and_keys.return_value = (5, 46, 1, 0, {1: 5}, {1: 46})
+        self.bot._handle_chests("channel")
+        self.bot._send_chat.assert_called_with(
+            "channel", "Chests opened: 5/46 | Keys: 1 (Proc Chance: 9.1%) | Free chest: 0"
+        )
+        
+        # Test with 10 keys (and multiple maps)
+        self.run_tracker.get_chests_and_keys.return_value = (10, 46, 10, 2, {1: 40, 2: 10}, {1: 46, 2: 46})
+        self.bot._handle_chests("channel")
+        self.bot._send_chat.assert_called_with(
+            "channel", "Chests opened: T1:40/46 T2:10/46 | Keys: 10 (Proc Chance: 50.0%) | Free chest: 2"
+        )
+        
+        # Test with multiple maps, where one map has 0 opened chests (e.g. immediately after transition)
+        self.run_tracker.get_chests_and_keys.return_value = (40, 46, 10, 2, {1: 40, 2: 0}, {1: 46, 2: 46})
+        self.bot._handle_chests("channel")
+        self.bot._send_chat.assert_called_with(
+            "channel", "Chests opened: T1:40/46 T2:0/46 | Keys: 10 (Proc Chance: 50.0%) | Free chest: 2"
+        )
+        
+        # Test with 0 keys
+        self.run_tracker.get_chests_and_keys.return_value = (20, 46, 0, 0, {1: 20}, {1: 46})
+        self.bot._handle_chests("channel")
+        self.bot._send_chat.assert_called_with(
+            "channel", "Chests opened: 20/46 | Keys: 0 (Proc Chance: 0.0%) | Free chest: 0"
+        )
+
+    def test_chests_command_routes_through_chat_handler(self):
+        from config import TWITCH_BOT
+        old_tier = TWITCH_BOT.get("access_tier")
+        old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
+        old_cooldown = TWITCH_BOT.get("cooldown_seconds")
+        old_commands = TWITCH_BOT.get("commands", {})
+
+        TWITCH_BOT["access_tier"] = "Everyone"
+        TWITCH_BOT["global_cooldown_seconds"] = 0
+        TWITCH_BOT["cooldown_seconds"] = 0
+        TWITCH_BOT["commands"] = {"chests": True}
+
+        self.bot._handle_chests = MagicMock()
+        line = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!chests"
+        with patch('time.time', return_value=100.0):
+            self.bot._handle_line(line, "channel")
+
+        self.bot._handle_chests.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!chests"], 100.0)
+
+        # Test alias !chest
+        self.bot._handle_chests.reset_mock()
+        line_alias = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!chest"
+        with patch('time.time', return_value=101.0):
+            self.bot._handle_line(line_alias, "channel")
+
+        self.bot._handle_chests.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!chest"], 101.0)
+
+        TWITCH_BOT["access_tier"] = old_tier
+        TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
+        TWITCH_BOT["cooldown_seconds"] = old_cooldown
+        TWITCH_BOT["commands"] = old_commands
+
 if __name__ == '__main__':
     unittest.main()

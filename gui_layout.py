@@ -1236,6 +1236,8 @@ class GuiLayoutMixin:
         self.twitch_cmd_powerups_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("powerups", True))
         self.twitch_cmd_scanner_cb = QCheckBox("!scanner")
         self.twitch_cmd_scanner_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("scanner", True))
+        self.twitch_cmd_chests_cb = QCheckBox("!chests")
+        self.twitch_cmd_chests_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("chests", True))
         self.twitch_stage_announcements_cb = QCheckBox("Announce Stage Transitions")
         self.twitch_stage_announcements_cb.setChecked(config.TWITCH_BOT.get("stage_announcements", True))
 
@@ -1258,6 +1260,7 @@ class GuiLayoutMixin:
         commands_grid.addWidget(self.twitch_cmd_stages_cb, 3, 0)
         commands_grid.addWidget(self.twitch_cmd_powerups_cb, 3, 1)
         commands_grid.addWidget(self.twitch_cmd_scanner_cb, 4, 0)
+        commands_grid.addWidget(self.twitch_cmd_chests_cb, 4, 1)
 
         settings_layout.addRow("", commands_grid)
 

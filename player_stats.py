@@ -525,6 +525,16 @@ class PlayerStatsClient:
 
         return stats
 
+    def get_current_gold(self, owner_stats: int | None = None) -> int:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        try:
+            player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
+            if not player_inventory:
+                return 0
+            return self.memory.read_i32(player_inventory + 0x70)
+        except MemoryReadError:
+            return 0
+
     def get_passive_items(self, owner_stats: int | None = None) -> tuple[str, ...]:
         owner_stats = owner_stats or self._resolve_owner_stats()
         try:

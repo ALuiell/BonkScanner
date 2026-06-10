@@ -68,6 +68,15 @@ Command ideas:
   - The command should only list enabled commands and should respect streamer configuration.
   - Keep the output short enough that viewers can call it on demand without creating chat spam.
 
+- `!items` / `!tracked` total count update
+  - Update the item count in `Items ({count})` to reflect the total number of items collected, including duplicates/stacks.
+  - For example, if a player has 2 Anvils and 2 Soul Harvesters, it should display `Items (4)` instead of `Items (2)`.
+
+- `!presets`
+  - Add a command to show the active reroller presets currently in use.
+  - If the reroller is in "templates" mode, the command should output which templates are currently active.
+  - If the reroller is in "score" mode, the command should output the currently selected preset and the cost of activities within that preset.
+
 Announcement ideas:
 
 - End-of-run auto announcer

@@ -36,6 +36,7 @@ class TwitchBotMixin:
         self.twitch_cmd_stages_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_powerups_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_scanner_cb.stateChanged.connect(self.save_twitch_settings)
+        self.twitch_cmd_chests_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_stage_announcements_cb.stateChanged.connect(self.save_twitch_settings)
 
     def save_twitch_settings(self, *_):
@@ -54,6 +55,7 @@ class TwitchBotMixin:
         config.TWITCH_BOT["commands"]["stages"] = self.twitch_cmd_stages_cb.isChecked()
         config.TWITCH_BOT["commands"]["powerups"] = self.twitch_cmd_powerups_cb.isChecked()
         config.TWITCH_BOT["commands"]["scanner"] = self.twitch_cmd_scanner_cb.isChecked()
+        config.TWITCH_BOT["commands"]["chests"] = self.twitch_cmd_chests_cb.isChecked()
         config.save_config(config.user_config)
 
     def start_twitch_auth(self):

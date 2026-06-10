@@ -117,7 +117,8 @@ DEFAULT_TWITCH_BOT = {
         "chaos": True,
         "stages": True,
         "powerups": True,
-        "scanner": True
+        "scanner": True,
+        "chests": True
     },
     "selected_stats": [
         "Damage", "XP Gain", "Luck", "Difficulty",
@@ -133,7 +134,8 @@ DEFAULT_TWITCH_BOT = {
         "chaos": "Chaos Tome Lv{level}: {chaos}",
         "stages": "{stages}",
         "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
-        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
+        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
+        "chests": "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance}) | Free chest: {procs}",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
         "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
     }
@@ -142,6 +144,8 @@ DEFAULT_TWITCH_BOT = {
 LEGACY_TWITCH_SCANNER_TEMPLATES = {
     "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages, !powerups.",
     "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups.",
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
+    "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance})"
 }
 
 
@@ -426,6 +430,8 @@ def normalize_twitch_bot_config(value):
             bot_cfg["templates"][k] = str(bot_cfg["templates"].get(k, DEFAULT_TWITCH_BOT["templates"][k]))
     if bot_cfg["templates"].get("scanner") in LEGACY_TWITCH_SCANNER_TEMPLATES:
         bot_cfg["templates"]["scanner"] = DEFAULT_TWITCH_BOT["templates"]["scanner"]
+    if bot_cfg["templates"].get("chests") in LEGACY_TWITCH_SCANNER_TEMPLATES:
+        bot_cfg["templates"]["chests"] = DEFAULT_TWITCH_BOT["templates"]["chests"]
 
     return bot_cfg
 

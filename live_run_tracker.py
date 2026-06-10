@@ -213,6 +213,15 @@ class LiveRunTracker:
         self._chaos_ambiguous_rolls = 0
         self._chaos_available_rolls = 0
         self._cached_stage_summary: list[dict[str, Any]] | None = None
+        self._chests_opened = 0
+        self._chests_total = 46
+        self._keys_count = 0
+        self._last_gold = 0
+        self._last_chests_opened = -1
+        self._free_chest_opens = 0
+        self._stage_ptrs_seen = []
+        self._chests_opened_by_stage = {}
+        self._chests_total_by_stage = {}
         self._lock = threading.RLock()
 
     @with_lock
@@ -424,6 +433,67 @@ class LiveRunTracker:
         return self.snapshots[-1] if self.snapshots else None
 
     @with_lock
+    def update_chests_and_keys(self, chests_opened: int, chests_total: int, keys_count: int) -> None:
+        self._chests_opened = chests_opened
+        self._chests_total = chests_total
+        self._keys_count = keys_count
+        
+        latest = self.latest_snapshot()
+        stage_ptr = latest.stage_ptr if (latest and latest.stage_ptr) else 0
+        if stage_ptr == 0:
+            return
+
+        if stage_ptr not in self._stage_ptrs_seen:
+            self._stage_ptrs_seen.append(stage_ptr)
+            self._chests_opened_by_stage[stage_ptr] = 0
+            self._chests_total_by_stage[stage_ptr] = chests_total
+        
+        # Protect against stage transition race conditions (residual counts)
+        stage_num = len(self._stage_ptrs_seen)
+        if stage_num > 1:
+            prev_stage_ptr = self._stage_ptrs_seen[stage_num - 2]
+            prev_opened = self._chests_opened_by_stage.get(prev_stage_ptr, 0)
+            current_opened = self._chests_opened_by_stage.get(stage_ptr, 0)
+            if current_opened == 0 and chests_opened == prev_opened:
+                chests_opened = 0
+
+        current_opened = self._chests_opened_by_stage.get(stage_ptr, 0)
+        self._chests_opened_by_stage[stage_ptr] = max(current_opened, chests_opened)
+        self._chests_total_by_stage[stage_ptr] = max(self._chests_total_by_stage.get(stage_ptr, 0), chests_total)
+
+    @with_lock
+    def track_chest_opening(self, chests_opened: int, gold: int) -> None:
+        if self._last_chests_opened == -1:
+            self._last_chests_opened = chests_opened
+            self._last_gold = gold
+            return
+
+        if chests_opened < self._last_chests_opened:
+            # Stage transition / reset
+            self._last_chests_opened = chests_opened
+
+        if chests_opened == self._last_chests_opened + 1:
+            if gold >= self._last_gold:
+                self._free_chest_opens += 1
+            self._last_chests_opened = chests_opened
+        elif chests_opened > self._last_chests_opened:
+            # If there's a jump > 1 (e.g. from keys being disabled and re-enabled)
+            # we just sync the state without counting procs
+            self._last_chests_opened = chests_opened
+
+        self._last_gold = gold
+
+    @with_lock
+    def get_chests_and_keys(self) -> tuple[int, int, int, int, dict[int, int], dict[int, int]]:
+        opened_by_num = {}
+        total_by_num = {}
+        for stage_ptr in self._stage_ptrs_seen:
+            stage_num = self._stage_ptrs_seen.index(stage_ptr) + 1
+            opened_by_num[stage_num] = self._chests_opened_by_stage.get(stage_ptr, 0)
+            total_by_num[stage_num] = self._chests_total_by_stage.get(stage_ptr, 0)
+        return self._chests_opened, self._chests_total, self._keys_count, self._free_chest_opens, opened_by_num, total_by_num
+
+    @with_lock
     def status(self) -> str:
         now = self.clock()
         return self._status_unlocked(now)
@@ -441,6 +511,15 @@ class LiveRunTracker:
         self.run_id = uuid4().hex
         self.snapshots.clear()
         self.current_stage_index = 1
+        self._chests_opened = 0
+        self._chests_total = 46
+        self._keys_count = 0
+        self._last_gold = 0
+        self._last_chests_opened = 0
+        self._free_chest_opens = 0
+        self._stage_ptrs_seen = []
+        self._chests_opened_by_stage = {}
+        self._chests_total_by_stage = {}
         self._reset_current_run_item_baseline()
         self._reset_chaos_tracking()
         self._cached_stage_summary = None
