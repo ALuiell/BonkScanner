@@ -37,6 +37,9 @@ class TwitchBotMixin:
         self.twitch_cmd_powerups_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_scanner_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_chests_cb.stateChanged.connect(self.save_twitch_settings)
+        self.twitch_cmd_presets_cb.stateChanged.connect(self.save_twitch_settings)
+        self.twitch_cmd_disabled_cb.stateChanged.connect(self.save_twitch_settings)
+        self.twitch_cmd_commands_cb.stateChanged.connect(self.on_twitch_commands_toggled)
         self.twitch_stage_announcements_cb.stateChanged.connect(self.save_twitch_settings)
 
     def save_twitch_settings(self, *_):
@@ -56,7 +59,21 @@ class TwitchBotMixin:
         config.TWITCH_BOT["commands"]["powerups"] = self.twitch_cmd_powerups_cb.isChecked()
         config.TWITCH_BOT["commands"]["scanner"] = self.twitch_cmd_scanner_cb.isChecked()
         config.TWITCH_BOT["commands"]["chests"] = self.twitch_cmd_chests_cb.isChecked()
+        config.TWITCH_BOT["commands"]["presets"] = self.twitch_cmd_presets_cb.isChecked()
+        config.TWITCH_BOT["commands"]["commands"] = self.twitch_cmd_commands_cb.isChecked()
+        config.TWITCH_BOT["commands"]["disabled"] = self.twitch_cmd_disabled_cb.isChecked()
         config.save_config(config.user_config)
+
+    def on_twitch_commands_toggled(self, *_):
+        if self.twitch_cmd_commands_cb.isChecked():
+            if not config.user_config.get("SKIP_TWITCH_HELP_WARNING", False):
+                from gui_dialogs import TwitchCommandsHelpDialog
+                dialog = TwitchCommandsHelpDialog(self.window)
+                dialog.exec()
+                if dialog.dont_show_again:
+                    config.user_config["SKIP_TWITCH_HELP_WARNING"] = True
+                    config.save_config(config.user_config)
+        self.save_twitch_settings()
 
     def start_twitch_auth(self):
         self.twitch_connect_btn.setEnabled(False)
@@ -176,5 +193,13 @@ class TwitchBotMixin:
 
     def open_twitch_command_settings_dialog(self):
         from gui_dialogs import TwitchCommandSettingsDialog
-        dialog = TwitchCommandSettingsDialog(self.window)
+        self.player_stats_force_refresh_disabled = True
+        try:
+            client = self._get_player_stats_client()
+            self.player_stats_disabled_items_cache = client.get_disabled_items()
+            self.player_stats_force_refresh_disabled = False
+        except Exception:
+            pass
+        self.refresh_live_player_stats_now()
+        dialog = TwitchCommandSettingsDialog(self.window, master=self)
         dialog.exec()

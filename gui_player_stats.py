@@ -267,20 +267,70 @@ class PlayerStatsMixin:
         tomes_available = False
         banishes: tuple[str, ...] = ()
         banishes_available = False
+        disabled_items = ()
+        disabled_items_available = False
         damage_sources: tuple[DamageSourceSnapshot, ...] = ()
         damage_sources_available = False
+
+        # 1. Read run timer and stage timer first to support match start detection
         run_timer_seconds = None
         stage_timer_seconds = None
-        mob_kills = None
-        player_level = None
+        try:
+            client = self._get_player_stats_client()
+            run_timer_seconds = client.get_run_timer()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            run_timer_seconds = None
+        except Exception:
+            run_timer_seconds = None
+
+        try:
+            client = self._get_player_stats_client()
+            stage_timer_seconds = client.get_stage_timer()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            stage_timer_seconds = None
+        except Exception:
+            stage_timer_seconds = None
+
+        # 2. Read map seed and stage ptr
         map_seed = None
         stage_ptr = 0
+        try:
+            recording_state = self.read_player_stats_recording_state()
+            map_seed = recording_state.map_seed
+            stage_ptr = recording_state.current_stage_ptr
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            self.close_player_stats_game_data_client()
+            map_seed = None
+            stage_ptr = 0
+        except Exception:
+            self.close_player_stats_game_data_client()
+            map_seed = None
+            stage_ptr = 0
+
+        # 3. Detect match start
+        is_new_match = False
+        if map_seed is not None and run_timer_seconds is not None:
+            prev_seed = getattr(self, "player_stats_last_seed", None)
+            prev_time = getattr(self, "player_stats_last_run_timer", None)
+
+            # Map seed changed or appeared on low game time
+            if map_seed is not None and (prev_seed is None or int(map_seed) != int(prev_seed)):
+                if run_timer_seconds <= 5.0:
+                    is_new_match = True
+
+            # Timer went backward (reset)
+            if prev_time is not None and run_timer_seconds + 1.0 < prev_time:
+                is_new_match = True
+
+        # 4. Read passive items
         try:
             items = self.read_passive_items_only(owner_stats)
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             items_available = False
         except Exception:
             items_available = False
+
+        # 5. Read optional live stats if relevant tabs/features are active
         if (
             self.player_stats_vod_recorder.is_recording
             or self._is_live_stats_tab_active()
@@ -297,6 +347,7 @@ class PlayerStatsMixin:
             except Exception:
                 weapons = ()
                 weapons_available = False
+
             try:
                 client = self._get_player_stats_client()
                 tomes = client.get_live_tomes(owner_stats)
@@ -307,6 +358,7 @@ class PlayerStatsMixin:
             except Exception:
                 tomes = ()
                 tomes_available = False
+
             try:
                 client = self._get_player_stats_client()
                 banishes = client.get_live_banishes()
@@ -317,6 +369,30 @@ class PlayerStatsMixin:
             except Exception:
                 banishes = ()
                 banishes_available = False
+
+            # Retrieve disabled items (either from memory at match start / force refresh, or from cache)
+            try:
+                should_read_disabled = (
+                    is_new_match
+                    or getattr(self, "player_stats_force_refresh_disabled", False)
+                    or getattr(self, "player_stats_disabled_items_cache", None) is None
+                )
+                if should_read_disabled:
+                    client = self._get_player_stats_client()
+                    disabled_items = client.get_disabled_items()
+                    disabled_items_available = True
+                    self.player_stats_disabled_items_cache = disabled_items
+                    self.player_stats_force_refresh_disabled = False
+                else:
+                    disabled_items = getattr(self, "player_stats_disabled_items_cache", ())
+                    disabled_items_available = True
+            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+                disabled_items = ()
+                disabled_items_available = False
+            except Exception:
+                disabled_items = ()
+                disabled_items_available = False
+
             try:
                 client = self._get_player_stats_client()
                 damage_sources = client.get_live_damage_sources()
@@ -327,20 +403,8 @@ class PlayerStatsMixin:
             except Exception:
                 damage_sources = ()
                 damage_sources_available = False
-        try:
-            client = self._get_player_stats_client()
-            run_timer_seconds = client.get_run_timer()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            run_timer_seconds = None
-        except Exception:
-            run_timer_seconds = None
-        try:
-            client = self._get_player_stats_client()
-            stage_timer_seconds = client.get_stage_timer()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            stage_timer_seconds = None
-        except Exception:
-            stage_timer_seconds = None
+
+        # 6. Read mob kills and player level
         try:
             client = self._get_player_stats_client()
             mob_kills = client.get_killed_mobs()
@@ -348,6 +412,7 @@ class PlayerStatsMixin:
             mob_kills = None
         except Exception:
             mob_kills = None
+
         try:
             client = self._get_player_stats_client()
             player_level = client.get_player_level(owner_stats)
@@ -355,18 +420,11 @@ class PlayerStatsMixin:
             player_level = None
         except Exception:
             player_level = None
-        try:
-            recording_state = self.read_player_stats_recording_state()
-            map_seed = recording_state.map_seed
-            stage_ptr = recording_state.current_stage_ptr
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            self.close_player_stats_game_data_client()
-            map_seed = None
-            stage_ptr = 0
-        except Exception:
-            self.close_player_stats_game_data_client()
-            map_seed = None
-            stage_ptr = 0
+
+        # Update last seed and run timer values for the next tick
+        self.player_stats_last_seed = map_seed
+        self.player_stats_last_run_timer = run_timer_seconds
+
         return (
             stats,
             items,
@@ -385,6 +443,8 @@ class PlayerStatsMixin:
             player_level,
             map_seed,
             stage_ptr,
+            disabled_items,
+            disabled_items_available,
         )
 
     def refresh_live_player_stats_now(
@@ -413,6 +473,8 @@ class PlayerStatsMixin:
                 player_level,
                 map_seed,
                 stage_ptr,
+                disabled_items,
+                disabled_items_available,
             ) = self._read_live_player_stats_data()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
@@ -455,6 +517,8 @@ class PlayerStatsMixin:
             tomes=tomes if tomes_available else (),
             tomes_available=tomes_available,
             banishes=banishes if banishes_available else (),
+            disabled_items=disabled_items if disabled_items_available else (),
+            disabled_items_available=disabled_items_available,
             damage_sources=damage_sources if damage_sources_available else (),
             damage_sources_available=damage_sources_available,
             chests_per_minute=chests_per_minute,
@@ -467,9 +531,16 @@ class PlayerStatsMixin:
         )
         self.live_run_tracker.update(live_snapshot)
 
-        # Update chests and keys (10s interval — sufficient for !chests command)
-        keys_count = 0
+        # Update chests and keys without replacing valid data after a transient read failure.
+        previous_chests = (0, 46, 0, 0, {}, {})
+        get_chests_and_keys = getattr(self.live_run_tracker, "get_chests_and_keys", None)
+        if callable(get_chests_and_keys):
+            previous_chests = get_chests_and_keys()
+        chests_opened, chests_total, keys_count = previous_chests[:3]
+        should_update_chests_and_keys = False
+
         if items_available:
+            keys_count = 0
             for item_str in effective_items:
                 if item_str == "Key":
                     keys_count = 1
@@ -480,8 +551,8 @@ class PlayerStatsMixin:
                     except ValueError:
                         keys_count = 0
                     break
-        chests_opened = 0
-        chests_total = 46
+            should_update_chests_and_keys = True
+
         try:
             if self.player_stats_game_data_client is None:
                 self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
@@ -490,9 +561,11 @@ class PlayerStatsMixin:
                 chest_stat = map_stats[MapStat.CHESTS]
                 chests_opened = chest_stat.current
                 chests_total = chest_stat.max
+                should_update_chests_and_keys = True
         except Exception:
             pass
-        self.live_run_tracker.update_chests_and_keys(chests_opened, chests_total, keys_count)
+        if should_update_chests_and_keys:
+            self.live_run_tracker.update_chests_and_keys(chests_opened, chests_total, keys_count)
 
         if hasattr(self, "refresh_session_tracked_item_stats_ui"):
             self.refresh_session_tracked_item_stats_ui()
@@ -4286,6 +4359,9 @@ class PlayerStatsMixin:
             except Exception:
                 pass
             self.player_stats_client = None
+        self.player_stats_last_seed = None
+        self.player_stats_last_run_timer = None
+        self.player_stats_disabled_items_cache = None
 
     def close_player_stats_game_data_client(self):
         game_data_client = self.__dict__.get("player_stats_game_data_client")

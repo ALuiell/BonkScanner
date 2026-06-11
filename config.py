@@ -118,13 +118,17 @@ DEFAULT_TWITCH_BOT = {
         "stages": True,
         "powerups": True,
         "scanner": True,
-        "chests": True
+        "chests": True,
+        "presets": True,
+        "commands": False,
+        "disabled": False
     },
     "selected_stats": [
         "Damage", "XP Gain", "Luck", "Difficulty",
         "Powerup Drop Chance", "Elite Spawn Increase",
         "Powerup Multiplier", "Size"
     ],
+    "highlighted_disabled_items": [],
     "templates": {
         "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
         "bans": "Bans ({count}): {items}",
@@ -136,6 +140,7 @@ DEFAULT_TWITCH_BOT = {
         "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
         "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
         "chests": "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance}) | Free chest: {procs}",
+        "disabled": "Disabled Items: {items}",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
         "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
     }
@@ -420,6 +425,14 @@ def normalize_twitch_bot_config(value):
         ]
         if not bot_cfg["selected_stats"]:
             bot_cfg["selected_stats"] = list(DEFAULT_TWITCH_BOT["selected_stats"])
+
+    # Normalize highlighted_disabled_items
+    if not isinstance(bot_cfg.get("highlighted_disabled_items"), list):
+        bot_cfg["highlighted_disabled_items"] = list(DEFAULT_TWITCH_BOT["highlighted_disabled_items"])
+    else:
+        bot_cfg["highlighted_disabled_items"] = [
+            str(item).strip() for item in bot_cfg["highlighted_disabled_items"] if item
+        ]
 
     # Normalize templates
     if not isinstance(bot_cfg.get("templates"), dict):

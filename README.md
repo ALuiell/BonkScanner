@@ -263,13 +263,17 @@ bot should join and respond.
 Available chat commands:
 - `!stats` / `!bonkstats`: current selected live stats.
 - `!bans` / `!banishes`: banished items.
+- `!disabled`: lists highlighted items globally disabled in lobby.
 - `!items` / `!tracked`: collected items, sorted by rarity and compressed when needed.
 - `!weapons`: current weapons and upgraded stats.
 - `!tomes`: current tomes and values.
 - `!chaos` / `!chaostome`: tracked Chaos Tome level and stat roll totals.
 - `!stages`: stage summary.
 - `!powerups`: active powerup duration info.
-- `!scanner`: short BonkScanner help message.
+- `!chests` / `!chest`: displays the number of chests opened per stage, keys count, and free chest openings (Free chest includes naturally free chests + chests opened for free using keys).
+- `!scanner`: general info about the BonkScanner app and download link.
+- `!presets`: active templates or score tiers and weights.
+- `!bonkhelp` / `!bonkcmds` / `!bonkcommands` / `!bhelp`: list of all active Twitch bot commands.
 
 Command settings support:
 - access tiers: `Everyone`, `Mods & VIPs`, `Subs & Mods`;

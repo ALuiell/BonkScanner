@@ -661,6 +661,68 @@ class RerollWarningDialog(QDialog):
         self.reject()
 
 
+class TwitchCommandsHelpDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.dont_show_again = False
+        self.setWindowTitle("Twitch Command Aliases")
+        self.setModal(True)
+        self.resize(500, 300)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 20, 18, 18)
+        layout.setSpacing(16)
+
+        card = QFrame()
+        card.setObjectName("WarningCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 16, 18, 14)
+        card_layout.setSpacing(10)
+
+        title = QLabel("!bonkhelp aliases")
+        title.setObjectName("WarningTitle")
+        card_layout.addWidget(title)
+
+        summary = QLabel(
+            "The command that lists enabled BonkScanner Twitch commands has several aliases. "
+            "They all produce the same response, so viewers can use whichever one they prefer:"
+        )
+        summary.setWordWrap(True)
+        summary.setStyleSheet("background: transparent; font-size: 14px;")
+        card_layout.addWidget(summary)
+
+        aliases = QLabel(
+            "<b>!bonkhelp</b><br>"
+            "<b>!bonkcmds</b><br>"
+            "<b>!bonkcommands</b><br>"
+            "<b>!bhelp</b>"
+        )
+        aliases.setTextFormat(Qt.RichText)
+        aliases.setStyleSheet("font-size: 15px;")
+        card_layout.addWidget(aliases)
+        layout.addWidget(card)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(12)
+
+        self.checkbox = QCheckBox("Don't show this again")
+        bottom_row.addWidget(self.checkbox)
+        bottom_row.addStretch(1)
+
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("SuccessButton")
+        ok_btn.setProperty("class", "WideDialogButton")
+        ok_btn.setMinimumHeight(32)
+        ok_btn.setMinimumWidth(100)
+        ok_btn.clicked.connect(self.confirm)
+        bottom_row.addWidget(ok_btn)
+        layout.addLayout(bottom_row)
+
+    def confirm(self):
+        self.dont_show_again = self.checkbox.isChecked()
+        self.accept()
+
+
 class HelpDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -1108,8 +1170,9 @@ class SettingsDialog(QDialog):
 
 
 class TwitchCommandSettingsDialog(QDialog):
-    def __init__(self, parent):
+    def __init__(self, parent, master=None):
         super().__init__(parent)
+        self.master = master or parent
         self.setWindowTitle("Twitch Command Settings")
         self.resize(700, 760)
         self.setMinimumSize(640, 680)
@@ -1234,6 +1297,127 @@ class TwitchCommandSettingsDialog(QDialog):
         others_form.addRow("Stage Transition:", stage_ann_layout)
 
         scroll_layout.addWidget(others_group)
+        scroll_layout.addSpacing(10)
+
+        # 3. Disabled Command Settings
+        disabled_group = QGroupBox("!disabled Command Settings")
+        disabled_layout = QVBoxLayout(disabled_group)
+        disabled_layout.addWidget(QLabel("Select key items to display when globally disabled in lobby:"))
+
+        # Search filter field
+        self.disabled_search_input = QLineEdit()
+        self.disabled_search_input.setPlaceholderText("Search / Filter items...")
+        self.disabled_search_input.textChanged.connect(self.filter_disabled_items)
+        disabled_layout.addWidget(self.disabled_search_input)
+
+        self.show_all_disabled_items_cb = QCheckBox("Show all items")
+        self.show_all_disabled_items_cb.setChecked(False)
+        self.show_all_disabled_items_cb.stateChanged.connect(self.filter_disabled_items)
+        disabled_layout.addWidget(self.show_all_disabled_items_cb)
+
+        # Scrollable checklist of items
+        disabled_scroll = QScrollArea()
+        disabled_scroll.setWidgetResizable(True)
+        disabled_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        disabled_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        disabled_scroll.setFixedHeight(150) # Scrollable height
+
+        disabled_scroll_content = QWidget()
+        self.disabled_grid = QGridLayout(disabled_scroll_content)
+        self.disabled_grid.setContentsMargins(5, 5, 5, 5)
+        self.disabled_grid.setSpacing(8)
+
+        from item_metadata import ITEMS, ITEM_DISPLAY_NAME_BY_RAW_VALUE
+
+        display_names_to_item = {}
+        for item in ITEMS:
+            if item.rarity in ("COMMON", "UNCOMMON", "RARE", "LEGENDARY") and item.item_id != 79:
+                if item.enum_name in ITEM_DISPLAY_NAME_BY_RAW_VALUE:
+                    d_name = ITEM_DISPLAY_NAME_BY_RAW_VALUE[item.enum_name]
+                else:
+                    parts = []
+                    current = ""
+                    for char in item.enum_name:
+                        if char.isupper() and current and not current[-1].isupper():
+                            parts.append(current)
+                            current = char
+                        else:
+                            current += char
+                    if current:
+                        parts.append(current)
+                    d_name = " ".join(parts) if parts else item.enum_name
+                display_names_to_item[d_name] = item
+
+        # Retrieve active disabled items from cache or live_run_tracker
+        disabled_in_game = []
+        if self.master:
+            cache = getattr(self.master, "player_stats_disabled_items_cache", None)
+            if cache is not None:
+                disabled_in_game = list(cache)
+            elif hasattr(self.master, "live_run_tracker") and self.master.live_run_tracker:
+                try:
+                    disabled_in_game = list(self.master.live_run_tracker.get_disabled_items())
+                except Exception:
+                    pass
+        disabled_in_game_set = {name.lower() for name in disabled_in_game if name}
+
+        # Load currently highlighted disabled items
+        highlighted_disabled = set(config.TWITCH_BOT.get("highlighted_disabled_items", []))
+
+        # Sort: priority 0 = checked & disabled, 1 = checked, 2 = disabled, 3 = other
+        def item_sort_key(d_name):
+            is_checked = d_name in highlighted_disabled
+            is_disabled_ingame = d_name.lower() in disabled_in_game_set
+            if is_checked and is_disabled_ingame:
+                priority = 0
+            elif is_checked:
+                priority = 1
+            elif is_disabled_ingame:
+                priority = 2
+            else:
+                priority = 3
+            return (priority, d_name.lower())
+
+        sorted_display_names = sorted(display_names_to_item.keys(), key=item_sort_key)
+
+        self.disabled_item_checkboxes = {}
+        num_cols = 3
+        for idx, d_name in enumerate(sorted_display_names):
+            is_disabled_ingame = d_name.lower() in disabled_in_game_set
+            if is_disabled_ingame:
+                cb = QCheckBox(f"🚫 {d_name} [Disabled]")
+                cb.setStyleSheet("color: #FB7185; font-weight: bold;")
+            else:
+                cb = QCheckBox(d_name)
+            cb.setChecked(d_name in highlighted_disabled)
+            self.disabled_item_checkboxes[d_name] = cb
+
+            row = idx // num_cols
+            col = idx % num_cols
+            self.disabled_grid.addWidget(cb, row, col)
+
+        self.filter_disabled_items()
+
+        disabled_scroll.setWidget(disabled_scroll_content)
+        disabled_layout.addWidget(disabled_scroll)
+        disabled_layout.addSpacing(10)
+
+        disabled_form = QFormLayout()
+        disabled_tpl_val = config.TWITCH_BOT.get("templates", {}).get("disabled", "Disabled Items: {items}")
+        self.disabled_tpl_entry = QLineEdit(disabled_tpl_val)
+        self.templates_entries["disabled"] = self.disabled_tpl_entry
+        disabled_form.addRow("Response template:", self.disabled_tpl_entry)
+        disabled_layout.addLayout(disabled_form)
+
+        disabled_help = QLabel(
+            "<span style='color: #9CA3AF; font-size: 11px;'>"
+            "Available tags: <b>{items}</b> (comma-separated list of selected items that are currently disabled)"
+            "</span>"
+        )
+        disabled_help.setWordWrap(True)
+        disabled_layout.addWidget(disabled_help)
+
+        scroll_layout.addWidget(disabled_group)
         scroll_layout.addStretch(1)
 
         # 3. Sticky action buttons
@@ -1303,6 +1487,9 @@ class TwitchCommandSettingsDialog(QDialog):
 
         self.stats_tpl_entry.setText("Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
 
+        for cb in self.disabled_item_checkboxes.values():
+            cb.setChecked(False)
+
         defaults = {
             "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
             "bans": "Bans ({count}): {items}",
@@ -1311,11 +1498,39 @@ class TwitchCommandSettingsDialog(QDialog):
             "tomes": "Tomes: {tomes}",
             "chaos": "Chaos Tome Lv{level}: {chaos}",
             "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
-            "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩"
+            "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
+            "disabled": "Disabled Items: {items}"
         }
         for key, entry in self.templates_entries.items():
             entry.setText(defaults.get(key, ""))
         self._init_guard = False
+
+    def filter_disabled_items(self):
+        text = self.disabled_search_input.text().strip().lower()
+        show_all = getattr(self, "show_all_disabled_items_cb", None) and self.show_all_disabled_items_cb.isChecked()
+
+        # Temporarily remove all widgets from the grid layout
+        for i in reversed(range(self.disabled_grid.count())):
+            widget = self.disabled_grid.itemAt(i).widget()
+            if widget is not None:
+                self.disabled_grid.removeWidget(widget)
+
+        # Re-add matching widgets in order
+        num_cols = 3
+        visible_idx = 0
+        for d_name, cb in self.disabled_item_checkboxes.items():
+            matches_text = not text or text in d_name.lower()
+            is_priority = "[Disabled]" in cb.text() or cb.isChecked()
+            matches_visibility = show_all or is_priority
+
+            if matches_text and matches_visibility:
+                cb.setVisible(True)
+                row = visible_idx // num_cols
+                col = visible_idx % num_cols
+                self.disabled_grid.addWidget(cb, row, col)
+                visible_idx += 1
+            else:
+                cb.setVisible(False)
 
     def save(self):
         selected_stats = [label for label, cb in self.stat_checkboxes.items() if cb.isChecked()]
@@ -1329,6 +1544,11 @@ class TwitchCommandSettingsDialog(QDialog):
 
         for key, entry in self.templates_entries.items():
             config.TWITCH_BOT["templates"][key] = entry.text().strip()
+
+        highlighted_disabled = [
+            name for name, cb in self.disabled_item_checkboxes.items() if cb.isChecked()
+        ]
+        config.TWITCH_BOT["highlighted_disabled_items"] = highlighted_disabled
 
         config.user_config["TWITCH_BOT"] = config.TWITCH_BOT
         config.save_config(config.user_config)

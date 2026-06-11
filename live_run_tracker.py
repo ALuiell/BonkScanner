@@ -33,6 +33,8 @@ class LiveRunSnapshot:
     tomes: tuple[Any, ...] = ()
     tomes_available: bool = False
     banishes: tuple[str, ...] = ()
+    disabled_items: tuple[str, ...] = ()
+    disabled_items_available: bool = False
     damage_sources: tuple[Any, ...] = ()
     damage_sources_available: bool = False
     chests_per_minute: float | None = None
@@ -433,6 +435,22 @@ class LiveRunTracker:
         return self.snapshots[-1] if self.snapshots else None
 
     @with_lock
+    def has_active_run(self) -> bool:
+        latest = self.latest_snapshot()
+        return bool(
+            latest is not None
+            and self._last_no_game_at is None
+            and self._is_active_snapshot(latest)
+        )
+
+    @with_lock
+    def get_disabled_items(self) -> tuple[str, ...]:
+        latest = self.latest_snapshot()
+        if latest is not None and latest.disabled_items_available:
+            return latest.disabled_items
+        return ()
+
+    @with_lock
     def update_chests_and_keys(self, chests_opened: int, chests_total: int, keys_count: int) -> None:
         self._chests_opened = chests_opened
         self._chests_total = chests_total
@@ -515,7 +533,7 @@ class LiveRunTracker:
         self._chests_total = 46
         self._keys_count = 0
         self._last_gold = 0
-        self._last_chests_opened = 0
+        self._last_chests_opened = -1
         self._free_chest_opens = 0
         self._stage_ptrs_seen = []
         self._chests_opened_by_stage = {}

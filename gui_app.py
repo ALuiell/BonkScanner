@@ -272,6 +272,11 @@ class MegabonkApp(
             interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
         )
         self.initialize_overlay_runtime()
+        self.player_stats_last_run_id = None
+        self.player_stats_disabled_items_cache = None
+        self.player_stats_force_refresh_disabled = False
+        self.player_stats_last_seed = None
+        self.player_stats_last_run_timer = None
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = None

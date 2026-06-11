@@ -554,8 +554,8 @@ class OverlayMixin:
         dialog = QDialog(self.tab_stats)
         dialog.setUpdatesEnabled(False)
         dialog.setWindowTitle("Session Tracked Items")
-        dialog.resize(700, 560)
-        dialog.setMinimumSize(620, 480)
+        dialog.resize(700, 640)
+        dialog.setMinimumSize(620, 520)
         dialog_layout = QVBoxLayout(dialog)
 
         content = QWidget()
@@ -575,7 +575,7 @@ class OverlayMixin:
         content_layout.addWidget(self.session_item_search_entry)
 
         self.session_item_selector = QListWidget()
-        self.session_item_selector.setMinimumHeight(180)
+        self.session_item_selector.setMinimumHeight(140)
         content_layout.addWidget(self.session_item_selector)
 
         add_row = QHBoxLayout()
@@ -587,7 +587,7 @@ class OverlayMixin:
 
         content_layout.addWidget(QLabel("Currently tracked"))
         self.session_tracked_rules_list = QListWidget()
-        self.session_tracked_rules_list.setMinimumHeight(140)
+        self.session_tracked_rules_list.setMinimumHeight(100)
         content_layout.addWidget(self.session_tracked_rules_list)
 
         remove_row = QHBoxLayout()
@@ -686,6 +686,7 @@ class OverlayMixin:
         if rule["id"] not in existing_ids:
             existing_rules.append(rule)
         config.SESSION_TRACKED_ITEMS["tracked_items"] = existing_rules
+        self.refresh_session_tracked_items_ui()
         self.save_session_tracked_items_from_ui()
 
     def remove_session_tracked_item(self) -> None:

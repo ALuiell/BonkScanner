@@ -512,6 +512,30 @@ class LiveRunTrackerTests(unittest.TestCase):
         _, _, _, free_opens, _, _ = tracker.get_chests_and_keys()
         self.assertEqual(free_opens, 1)
 
+    def test_first_chest_sample_after_new_run_only_sets_baseline(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0, map_seed=100))
+
+        tracker.track_chest_opening(1, 90)
+
+        _, _, _, free_opens, _, _ = tracker.get_chests_and_keys()
+        self.assertEqual(free_opens, 0)
+
+    def test_has_active_run_clears_when_game_is_gone(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0))
+        self.assertTrue(tracker.has_active_run())
+
+        tracker.mark_read_failed(no_game=True)
+        self.assertFalse(tracker.has_active_run())
+
+    def test_has_active_run_rejects_inactive_latest_snapshot(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0))
+        tracker.update(LiveRunSnapshot(captured_at=2.0, stats={}))
+
+        self.assertFalse(tracker.has_active_run())
+
     def test_chests_stage_transition_residual_filtered(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         # Stage 1: opened 28 chests

@@ -172,6 +172,8 @@ class TestTwitchBotWorker(unittest.TestCase):
         from config import TWITCH_BOT
         TWITCH_BOT.setdefault("templates", {})["chests"] = "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance}) | Free chest: {procs}"
         self.bot._send_chat = MagicMock()
+        self.run_tracker.has_active_run.return_value = True
+        self.run_tracker.latest_snapshot.return_value = SimpleNamespace(stats={})
     
         # Test with 1 key
         self.run_tracker.get_chests_and_keys.return_value = (5, 46, 1, 0, {1: 5}, {1: 46})
@@ -201,6 +203,16 @@ class TestTwitchBotWorker(unittest.TestCase):
             "channel", "Chests opened: 20/46 | Keys: 0 (Proc Chance: 0.0%) | Free chest: 0"
         )
 
+    def test_handle_chests_without_active_run(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.has_active_run.return_value = False
+        self.run_tracker.latest_snapshot.return_value = None
+
+        self.bot._handle_chests("channel")
+
+        self.bot._send_chat.assert_called_once_with("channel", "No active run detected.")
+        self.run_tracker.get_chests_and_keys.assert_not_called()
+
     def test_chests_command_routes_through_chat_handler(self):
         from config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
@@ -229,6 +241,214 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.bot._handle_chests.assert_called_once_with("channel")
         self.assertEqual(self.bot.last_command_times["!chest"], 101.0)
+
+        TWITCH_BOT["access_tier"] = old_tier
+        TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
+        TWITCH_BOT["cooldown_seconds"] = old_cooldown
+        TWITCH_BOT["commands"] = old_commands
+
+    def test_handle_presets_templates_mode(self):
+        from unittest.mock import patch
+        import config
+        self.bot._send_chat = MagicMock()
+        
+        with patch.object(config, 'EVALUATION_MODE', 'templates'), \
+             patch.object(config, 'ACTIVE_TEMPLATES', ['LIGHT', 'MERCHANT']), \
+             patch.object(config, 'TEMPLATES', [
+                 {"id": 1, "name": "LIGHT", "color": "WHITE", "desc": "", "sm_total": 7, "micro": 2, "boss": 2},
+                 {"id": 2, "name": "MERCHANT", "color": "CYAN", "desc": "", "sm_total": 10, "shady": 3, "moai": 7, "micro": 1, "boss": 2}
+             ]):
+            self.bot._handle_presets("channel")
+            self.bot._send_chat.assert_called_once_with(
+                "channel",
+                "[Reroller] Mode: Templates | Active: LIGHT(S+M:7, Mic:2, B:2), MERCHANT(S:3, M:7, Mic:1, B:2)"
+            )
+
+    def test_handle_presets_scores_mode(self):
+        from unittest.mock import patch
+        import config
+        self.bot._send_chat = MagicMock()
+        
+        scores_system_mock = {
+            "active_tiers": ["Light", "Perfect"],
+            "thresholds": {"Light": 14.0, "Perfect": 25.0},
+            "weights": {"moais": 3.0, "shady": 2.0, "boss": 1.0, "magnet": 0.5}
+        }
+        
+        with patch.object(config, 'EVALUATION_MODE', 'scores'), \
+             patch.object(config, 'SCORES_SYSTEM', scores_system_mock):
+            self.bot._handle_presets("channel")
+            self.bot._send_chat.assert_called_once_with(
+                "channel",
+                "[Reroller] Mode: Scores | Active Tiers: Light (14.0+), Perfect (25.0+) | Weights: Moais=3.0, Shady=2.0, Boss=1.0, Magnet=0.5"
+            )
+
+    def test_presets_command_routes_through_chat_handler(self):
+        from config import TWITCH_BOT
+        old_tier = TWITCH_BOT.get("access_tier")
+        old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
+        old_cooldown = TWITCH_BOT.get("cooldown_seconds")
+        old_commands = TWITCH_BOT.get("commands", {})
+
+        TWITCH_BOT["access_tier"] = "Everyone"
+        TWITCH_BOT["global_cooldown_seconds"] = 0
+        TWITCH_BOT["cooldown_seconds"] = 0
+        TWITCH_BOT["commands"] = {"presets": True}
+
+        self.bot._handle_presets = MagicMock()
+        line = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!presets"
+        with patch('time.time', return_value=100.0):
+            self.bot._handle_line(line, "channel")
+
+        self.bot._handle_presets.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!presets"], 100.0)
+
+        # Test alias !preset
+        self.bot._handle_presets.reset_mock()
+        line_alias = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!preset"
+        with patch('time.time', return_value=101.0):
+            self.bot._handle_line(line_alias, "channel")
+
+        self.bot._handle_presets.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!preset"], 101.0)
+
+        TWITCH_BOT["access_tier"] = old_tier
+        TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
+        TWITCH_BOT["cooldown_seconds"] = old_cooldown
+        TWITCH_BOT["commands"] = old_commands
+
+    def test_handle_commands_lists_enabled_only(self):
+        from unittest.mock import patch
+        import config
+        self.bot._send_chat = MagicMock()
+
+        mock_commands_cfg = {
+            "stats": True,
+            "bans": False,
+            "items": True,
+            "weapons": False,
+            "tomes": True,
+            "chaos": False,
+            "stages": True,
+            "powerups": False,
+            "scanner": True,
+            "chests": False,
+            "presets": True,
+            "commands": True,
+            "disabled": False
+        }
+        with patch.dict(config.TWITCH_BOT, {"commands": mock_commands_cfg}):
+            self.bot._handle_commands("channel")
+            self.bot._send_chat.assert_called_once_with(
+                "channel",
+                "Available commands: !stats, !items, !tomes, !stages, !scanner, !presets, !bonkhelp"
+            )
+
+    def test_commands_command_routes_through_chat_handler(self):
+        from config import TWITCH_BOT
+        old_tier = TWITCH_BOT.get("access_tier")
+        old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
+        old_cooldown = TWITCH_BOT.get("cooldown_seconds")
+        old_commands = TWITCH_BOT.get("commands", {})
+
+        TWITCH_BOT["access_tier"] = "Everyone"
+        TWITCH_BOT["global_cooldown_seconds"] = 0
+        TWITCH_BOT["cooldown_seconds"] = 0
+        TWITCH_BOT["commands"] = {"commands": True}
+
+        # Test main command !bonkhelp
+        self.bot._handle_commands = MagicMock()
+        line = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!bonkhelp"
+        with patch('time.time', return_value=100.0):
+            self.bot._handle_line(line, "channel")
+
+        self.bot._handle_commands.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!bonkhelp"], 100.0)
+
+        # Test alias !bonkcmds
+        self.bot._handle_commands.reset_mock()
+        line_alias = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!bonkcmds"
+        with patch('time.time', return_value=101.0):
+            self.bot._handle_line(line_alias, "channel")
+
+        self.bot._handle_commands.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!bonkcmds"], 101.0)
+
+        # Test alias !bonkcommands
+        self.bot._handle_commands.reset_mock()
+        line_alias2 = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!bonkcommands"
+        with patch('time.time', return_value=102.0):
+            self.bot._handle_line(line_alias2, "channel")
+
+        self.bot._handle_commands.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!bonkcommands"], 102.0)
+
+        # Test alias !bhelp
+        self.bot._handle_commands.reset_mock()
+        line_alias3 = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!bhelp"
+        with patch('time.time', return_value=103.0):
+            self.bot._handle_line(line_alias3, "channel")
+
+        self.bot._handle_commands.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!bhelp"], 103.0)
+
+        TWITCH_BOT["access_tier"] = old_tier
+        TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
+        TWITCH_BOT["cooldown_seconds"] = old_cooldown
+        TWITCH_BOT["commands"] = old_commands
+
+    def test_handle_disabled_no_run(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.latest_snapshot.return_value = None
+
+        self.bot._handle_disabled("channel")
+
+        self.bot._send_chat.assert_called_once_with("channel", "No active run detected.")
+
+    def test_handle_disabled_with_run(self):
+        from config import TWITCH_BOT
+        old_highlighted = TWITCH_BOT.get("highlighted_disabled_items")
+        old_templates = TWITCH_BOT.get("templates")
+
+        TWITCH_BOT["highlighted_disabled_items"] = ["Soul Harvester", "Sucky Magnet"]
+        TWITCH_BOT.setdefault("templates", {})["disabled"] = "Disabled Items: {items}"
+
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.latest_snapshot.return_value = SimpleNamespace(stats={})
+
+        # Scenario A: Soul Harvester is disabled, Magnet is enabled
+        self.run_tracker.get_disabled_items.return_value = ("Soul Harvester", "Golden Ring")
+        self.bot._handle_disabled("channel")
+        self.bot._send_chat.assert_called_with("channel", "Disabled Items: Soul Harvester")
+
+        # Scenario B: No highlighted items are disabled
+        self.bot._send_chat.reset_mock()
+        self.run_tracker.get_disabled_items.return_value = ("Forbidden Juice", "Golden sneakers")
+        self.bot._handle_disabled("channel")
+        self.bot._send_chat.assert_called_with("channel", "Disabled Items: None")
+
+        TWITCH_BOT["highlighted_disabled_items"] = old_highlighted
+        TWITCH_BOT["templates"] = old_templates
+
+    def test_disabled_command_routes_through_chat_handler(self):
+        from config import TWITCH_BOT
+        old_tier = TWITCH_BOT.get("access_tier")
+        old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
+        old_cooldown = TWITCH_BOT.get("cooldown_seconds")
+        old_commands = TWITCH_BOT.get("commands", {})
+
+        TWITCH_BOT["access_tier"] = "Everyone"
+        TWITCH_BOT["global_cooldown_seconds"] = 0
+        TWITCH_BOT["cooldown_seconds"] = 0
+        TWITCH_BOT["commands"] = {"disabled": True}
+
+        self.bot._handle_disabled = MagicMock()
+        line = "@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :!disabled"
+        with patch('time.time', return_value=100.0):
+            self.bot._handle_line(line, "channel")
+
+        self.bot._handle_disabled.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times["!disabled"], 100.0)
 
         TWITCH_BOT["access_tier"] = old_tier
         TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown

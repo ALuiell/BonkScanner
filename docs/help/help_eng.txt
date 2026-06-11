@@ -135,12 +135,16 @@ By default, `Target Channel` uses the authorized Twitch account. If you authoriz
 Available chat commands:
 - `!stats` / `!bonkstats` — displays character's current stats (damage, experience, luck, size, etc.).
 - `!bans` / `!banishes` — list of banished items.
+- `!disabled` — lists the highlighted/selected items that are globally disabled in the game lobby settings. (Note: due to game architecture, actual disabled items are only available in memory once a match starts. When configuring this via the bot UI in the main menu, use "Show all items" to select them beforehand.)
 - `!items` — list of collected items (automatically sorted by rarity; if there are too many items, the bot compresses the list to fit Twitch's limits).
 - `!weapons` — your weapons and only their active/upgraded stats.
 - `!tomes` — your tomes with their stat values (Chaos Tome shows level only).
 - `!stages` — detailed stage summary of kills and elapsed time for stages 1-4.
-- `!chests` / `!chest` — displays the number of chests opened per stage, keys count, and free chest openings.
-- `!scanner` — quick help listing all commands.
+- `!powerups` — prints active powerup duration info.
+- `!chests` / `!chest` — displays the number of chests opened per stage, keys count, and free chest openings (Free chest includes naturally free chests + chests opened for free using keys).
+- `!presets` — displays active reroller templates or score tiers and weights.
+- `!bonkhelp` — lists all active scanner bot commands (aliases: `!bonkcmds`, `!bonkcommands`, `!bhelp`).
+- `!scanner` — general info about the BonkScanner app and download link.
 
 Announce Stage Transitions:
 If enabled, the bot automatically sends a summary to Twitch chat when transitioning between stages, e.g.:

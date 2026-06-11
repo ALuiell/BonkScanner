@@ -203,6 +203,15 @@ class TwitchBotWorker(QThread):
         elif cmd in ("!chests", "!chest") and commands_cfg.get("chests", True):
             self._handle_chests(channel)
             handled = True
+        elif cmd in ("!presets", "!preset") and commands_cfg.get("presets", True):
+            self._handle_presets(channel)
+            handled = True
+        elif cmd == "!disabled" and commands_cfg.get("disabled", True):
+            self._handle_disabled(channel)
+            handled = True
+        elif cmd in ("!bonkhelp", "!bonkcmds", "!bonkcommands", "!bhelp") and commands_cfg.get("commands", True):
+            self._handle_commands(channel)
+            handled = True
 
         if handled:
             self.last_global_command_time = now
@@ -330,6 +339,35 @@ class TwitchBotWorker(QThread):
             "Bans ({count}): {items}",
             count=count,
             items=banish_list
+        )
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, text)
+
+    def _handle_disabled(self, channel: str):
+        snap = self.run_tracker.latest_snapshot()
+        if not snap:
+            self._send_chat(channel, "No active run detected.")
+            return
+
+        disabled_in_game = self.run_tracker.get_disabled_items()
+        highlighted = config.TWITCH_BOT.get("highlighted_disabled_items", [])
+
+        if highlighted:
+            highlighted_set = set(highlighted)
+            active_disabled = [item for item in disabled_in_game if item in highlighted_set]
+        else:
+            active_disabled = []
+
+        if not active_disabled:
+            items_str = "None"
+        else:
+            items_str = ", ".join(active_disabled)
+
+        text = self._format_template(
+            "disabled",
+            "Disabled Items: {items}",
+            items=items_str
         )
         if len(text) > 450:
             text = text[:447] + "..."
@@ -581,6 +619,12 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_chests(self, channel: str):
+        has_active_run = getattr(self.run_tracker, "has_active_run", None)
+        is_active = has_active_run() if callable(has_active_run) else bool(self.run_tracker.latest_snapshot())
+        if not is_active:
+            self._send_chat(channel, "No active run detected.")
+            return
+
         chests_opened, chests_total, keys_count, free_opens, chests_by_stage, total_by_stage = self.run_tracker.get_chests_and_keys()
         
         if chests_by_stage and len(chests_by_stage) > 1:
@@ -618,6 +662,96 @@ class TwitchBotWorker(QThread):
         if len(text) > 450:
             text = text[:447] + "..."
         self._send_chat(channel, text)
+
+    def _handle_presets(self, channel: str):
+        mode = getattr(config, "EVALUATION_MODE", "templates")
+        
+        if mode == "templates":
+            active_names = getattr(config, "ACTIVE_TEMPLATES", [])
+            templates_list = getattr(config, "TEMPLATES", [])
+            
+            # Create a lookup map for easy access
+            templates_by_name = {t["name"]: t for t in templates_list if "name" in t}
+            
+            active_parts = []
+            for name in active_names:
+                template = templates_by_name.get(name)
+                if template:
+                    conds = []
+                    sm_total = template.get("sm_total", 0)
+                    shady = template.get("shady", 0)
+                    moai = template.get("moai", 0)
+                    micro = template.get("micro", 0)
+                    boss = template.get("boss", 0)
+
+                    if shady > 0 or moai > 0:
+                        if shady > 0:
+                            conds.append(f"S:{shady}")
+                        if moai > 0:
+                            conds.append(f"M:{moai}")
+                    elif sm_total > 0:
+                        conds.append(f"S+M:{sm_total}")
+                    if micro > 0:
+                        conds.append(f"Mic:{micro}")
+                    if boss > 0:
+                        conds.append(f"B:{boss}")
+
+                    conds_str = ", ".join(conds) if conds else "Any"
+                    active_parts.append(f"{name}({conds_str})")
+                else:
+                    active_parts.append(name)
+                    
+            if not active_parts:
+                msg = "[Reroller] Mode: Templates | Active: None"
+            else:
+                msg = f"[Reroller] Mode: Templates | Active: {', '.join(active_parts)}"
+                
+        elif mode == "scores":
+            scores_sys = getattr(config, "SCORES_SYSTEM", {})
+            active_tiers = scores_sys.get("active_tiers", [])
+            thresholds = scores_sys.get("thresholds", {})
+            weights = scores_sys.get("weights", {})
+            
+            tier_parts = [f"{tier} ({thresholds.get(tier, 0.0):.1f}+)" for tier in active_tiers]
+            
+            key_names = {"moais": "Moais", "shady": "Shady", "boss": "Boss", "magnet": "Magnet"}
+            weight_parts = [f"{key_names.get(k, k.capitalize())}={v}" for k, v in weights.items()]
+            
+            tiers_str = ", ".join(tier_parts) if tier_parts else "None"
+            weights_str = ", ".join(weight_parts) if weight_parts else "None"
+            
+            msg = f"[Reroller] Mode: Scores | Active Tiers: {tiers_str} | Weights: {weights_str}"
+        else:
+            msg = f"[Reroller] Mode: Unknown ({mode})"
+            
+        self._send_chat(channel, msg)
+
+    def _handle_commands(self, channel: str):
+        commands_cfg = config.TWITCH_BOT.get("commands", {})
+        cmd_mapping = [
+            ("stats", "!stats"),
+            ("bans", "!bans"),
+            ("items", "!items"),
+            ("weapons", "!weapons"),
+            ("tomes", "!tomes"),
+            ("chaos", "!chaos"),
+            ("stages", "!stages"),
+            ("powerups", "!powerups"),
+            ("scanner", "!scanner"),
+            ("chests", "!chests"),
+            ("presets", "!presets"),
+            ("disabled", "!disabled"),
+        ]
+        enabled_cmds = [display_name for key, display_name in cmd_mapping if commands_cfg.get(key, True)]
+        if commands_cfg.get("commands", True):
+            enabled_cmds.append("!bonkhelp")
+            
+        if not enabled_cmds:
+            msg = "No Twitch bot commands are currently enabled."
+        else:
+            msg = f"Available commands: {', '.join(enabled_cmds)}"
+            
+        self._send_chat(channel, msg)
 
     def _check_stage_transitions(self, channel: str):
         if not config.TWITCH_BOT.get("stage_announcements", True):

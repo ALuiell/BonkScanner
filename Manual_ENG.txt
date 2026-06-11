@@ -199,6 +199,7 @@ How to configure:
 Available Chat Commands:
 - `!stats` / `!bonkstats` — prints active player stats (DMG, XP, Luck, Size, etc.).
 - `!bans` / `!banishes` — prints banished items list.
+- `!disabled` — lists the highlighted/selected items that are globally disabled in the game lobby settings.
 - `!items` — lists passive items ordered by rarity (highest first). If the item list is too long, the bot dynamically collapses lower-rarity categories to fit Twitch's 500-char limit.
 - `!weapons` — lists active weapons and their upgraded stats.
 - `!tomes` — lists tomes and their specific stat values (Chaos tome only shows level).

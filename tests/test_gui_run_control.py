@@ -413,6 +413,35 @@ class GuiRunControlTests(unittest.TestCase):
         gui.config.user_config.clear()
         gui.config.user_config.update(self.original_user_config)
 
+    def test_enabling_twitch_help_shows_alias_dialog(self) -> None:
+        import gui_dialogs
+
+        shown = []
+        saved = []
+
+        class FakeAliasDialog:
+            def __init__(self, parent):
+                shown.append(parent)
+                self.dont_show_again = True
+
+            def exec(self):
+                return 1
+
+        app = object.__new__(gui.MegabonkApp)
+        app.window = object()
+        app.twitch_cmd_commands_cb = FakeCheckbox(True)
+        app.save_twitch_settings = lambda *args: saved.append(True)
+        gui.config.user_config["SKIP_TWITCH_HELP_WARNING"] = False
+
+        with patch.object(gui_dialogs, "TwitchCommandsHelpDialog", FakeAliasDialog), patch.object(
+            gui.config, "save_config"
+        ):
+            gui.MegabonkApp.on_twitch_commands_toggled(app)
+
+        self.assertEqual(shown, [app.window])
+        self.assertTrue(gui.config.user_config["SKIP_TWITCH_HELP_WARNING"])
+        self.assertEqual(saved, [True])
+
     def test_settings_save_updates_native_hook_enabled_and_applies_run_control_mode(self) -> None:
         master = FakeSettingsMaster()
         master.player_stats_auto_recording_suppressed = True
@@ -3569,19 +3598,23 @@ class GuiRunControlTests(unittest.TestCase):
         chests_and_keys_args = []
         app.live_run_tracker = SimpleNamespace(
             update=lambda *args, **kwargs: None,
+            get_chests_and_keys=lambda: (12, 50, 3, 1, {1: 12}, {1: 50}),
             update_chests_and_keys=lambda chests, total, keys: chests_and_keys_args.append((chests, total, keys)),
             mark_read_failed=lambda *args, **kwargs: None,
             stage_summary_rows=lambda: [],
         )
+
+        def fail_map_stats():
+            raise RuntimeError("temporary map stats failure")
+
         app.player_stats_game_data_client = SimpleNamespace(
-            get_map_stats=lambda: {}
+            get_map_stats=fail_map_stats
         )
         app.overlay_state_store = None
         
         result = gui.MegabonkApp.refresh_live_player_stats_now(app)
         self.assertTrue(result)
-        self.assertEqual(len(chests_and_keys_args), 1)
-        self.assertEqual(chests_and_keys_args[0][2], 1)
+        self.assertEqual(chests_and_keys_args, [(12, 50, 1)])
 
 
 if __name__ == "__main__":

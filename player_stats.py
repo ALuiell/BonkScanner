@@ -401,6 +401,7 @@ class PlayerStatsClient:
     RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398
     RUN_STATS_TYPE_INFO_OFFSET = 0x02F7A170
     RUN_UNLOCKABLES_TYPE_INFO_OFFSET = 0x02F7A210
+    DATA_MANAGER_TYPE_INFO_OFFSET = 0x02F85790
     POTATO_TYPE_INFO_OFFSET = 0x02F6FC78
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
     STATIC_ROOT_OFFSET = 0x0
@@ -1248,6 +1249,115 @@ class PlayerStatsClient:
         if weapon_spec is not None:
             return weapon_spec.label, PlayerStatFormat(weapon_spec.value_format.value)
         return f"Stat {stat_id}", PlayerStatFormat.FLAT
+
+    def get_disabled_items(self) -> tuple[str, ...]:
+        # 1. Read global catalog
+        try:
+            type_info_address = self.memory.module_offset(
+                self.module_name,
+                self.DATA_MANAGER_TYPE_INFO_OFFSET,
+            )
+            class_ptr = self.memory.read_ptr(type_info_address)
+            if not class_ptr:
+                return ()
+
+            static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+            if not static_fields:
+                return ()
+
+            instance = self.memory.read_ptr(static_fields + 0x8)
+            if not instance:
+                return ()
+
+            unsorted_items_list = self.memory.read_ptr(instance + 0x60)
+            if not unsorted_items_list:
+                return ()
+
+            items_array = self.memory.read_ptr(unsorted_items_list + self.LIST_ITEMS_OFFSET)
+            if not items_array:
+                return ()
+            size = self.memory.read_i32(unsorted_items_list + self.LIST_SIZE_OFFSET)
+            if size <= 0 or size > 1000:
+                return ()
+
+            global_item_ids = set()
+            for index in range(size):
+                item_data_ptr = self.memory.read_ptr(
+                    items_array + self.ARRAY_DATA_OFFSET + (index * self.OBJECT_POINTER_SIZE)
+                )
+                if not item_data_ptr:
+                    continue
+                item_id = self.memory.read_i32(item_data_ptr + self.ITEM_DATA_ENUM_OFFSET)
+                global_item_ids.add(item_id)
+        except MemoryReadError:
+            return ()
+
+        # 2. Read active pool
+        try:
+            type_info_address = self.memory.module_offset(
+                self.module_name,
+                self.RUN_UNLOCKABLES_TYPE_INFO_OFFSET,
+            )
+            class_ptr = self.memory.read_ptr(type_info_address)
+            if not class_ptr:
+                return ()
+
+            static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+            if not static_fields:
+                return ()
+
+            available_items_dict = self.memory.read_ptr(static_fields + 0x10)
+            if not available_items_dict:
+                return ()
+
+            entries = self.memory.read_ptr(available_items_dict + self.DICT_ENTRIES_OFFSET)
+            if not entries:
+                return ()
+
+            count = self.memory.read_i32(available_items_dict + self.DICT_COUNT_OFFSET)
+            if count <= 0 or count > 100:
+                return ()
+
+            available_item_ids = set()
+            for index in range(count):
+                entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+                hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
+                if hash_code < 0:
+                    continue
+                list_address = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+                if not list_address:
+                    continue
+
+                sub_array = self.memory.read_ptr(list_address + self.LIST_ITEMS_OFFSET)
+                if not sub_array:
+                    continue
+                sub_size = self.memory.read_i32(list_address + self.LIST_SIZE_OFFSET)
+                if sub_size <= 0 or sub_size > 1000:
+                    continue
+                for sub_index in range(sub_size):
+                    item_data_ptr = self.memory.read_ptr(
+                        sub_array + self.ARRAY_DATA_OFFSET + (sub_index * self.OBJECT_POINTER_SIZE)
+                    )
+                    if not item_data_ptr:
+                        continue
+                    item_id = self.memory.read_i32(item_data_ptr + self.ITEM_DATA_ENUM_OFFSET)
+                    available_item_ids.add(item_id)
+        except MemoryReadError:
+            return ()
+
+        # 3. Diff and format
+        disabled_item_ids = global_item_ids - available_item_ids
+        disabled_names = []
+        for item_id in disabled_item_ids:
+            raw_name = ITEM_ENUM_NAMES_BY_ID.get(item_id)
+            if raw_name is None:
+                continue
+            display_name = self._format_item_name(f"Item{raw_name}") or raw_name
+            if display_name == "The One Ring":
+                continue
+            disabled_names.append(display_name)
+
+        return tuple(sorted(disabled_names))
 
 
 def iter_player_stat_groups(
