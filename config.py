@@ -108,6 +108,8 @@ DEFAULT_TWITCH_BOT = {
     "global_cooldown_seconds": 5,
     "cooldown_seconds": 5,
     "stage_announcements": True,
+    "commands_announcements": False,
+    "commands_announcement_interval_minutes": 30,
     "commands": {
         "stats": True,
         "bans": True,
@@ -409,6 +411,11 @@ def normalize_twitch_bot_config(value):
     bot_cfg["global_cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("global_cooldown_seconds"), 5))
     bot_cfg["cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("cooldown_seconds"), 5))
     bot_cfg["stage_announcements"] = bool(bot_cfg.get("stage_announcements", True))
+    bot_cfg["commands_announcements"] = bool(bot_cfg.get("commands_announcements", False))
+    bot_cfg["commands_announcement_interval_minutes"] = min(
+        1440,
+        max(1, coerce_nonnegative_int(bot_cfg.get("commands_announcement_interval_minutes"), 30)),
+    )
     
     if not isinstance(bot_cfg.get("commands"), dict):
         bot_cfg["commands"] = dict(DEFAULT_TWITCH_BOT["commands"])

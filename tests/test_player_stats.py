@@ -4,6 +4,7 @@ import unittest
 
 from memory import MemoryReadError
 from player_stats import (
+    DisabledItemsReadStatus,
     PlayerStatsClient,
     PlayerStatFormat,
     PlayerStatsTimeline,
@@ -153,6 +154,79 @@ def build_player_stats_memory() -> FakeMemory:
     )
 
 
+def build_disabled_items_memory(
+    *,
+    global_ids: tuple[int, ...],
+    available_groups: tuple[tuple[int, ...] | None, ...],
+    banished_ids: tuple[int, ...] = (),
+) -> FakeMemory:
+    base = 0x10000000
+    data_type_info = base + PlayerStatsClient.DATA_MANAGER_TYPE_INFO_OFFSET
+    data_class = 0x30000000
+    data_static = 0x30000100
+    data_instance = 0x30000200
+    global_list = 0x30000300
+    global_array = 0x30000400
+    run_type_info = base + PlayerStatsClient.RUN_UNLOCKABLES_TYPE_INFO_OFFSET
+    run_class = 0x30000500
+    run_static = 0x30000600
+    available_dict = 0x30000700
+    available_entries = 0x30000800
+    banished_set = 0x30000900
+    banished_slots = 0x30000A00
+
+    pointers = {
+        data_type_info: data_class,
+        data_class + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: data_static,
+        data_static + 0x8: data_instance,
+        data_instance + 0x60: global_list,
+        global_list + PlayerStatsClient.LIST_ITEMS_OFFSET: global_array,
+        run_type_info: run_class,
+        run_class + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: run_static,
+        run_static + 0x10: available_dict,
+        available_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: available_entries,
+        run_static + PlayerStatsClient.RUN_UNLOCKABLES_BANISHED_ITEMS_OFFSET: banished_set,
+        banished_set + PlayerStatsClient.HASHSET_SLOTS_OFFSET: banished_slots,
+    }
+    ints = {
+        global_list + PlayerStatsClient.LIST_SIZE_OFFSET: len(global_ids),
+        available_dict + PlayerStatsClient.DICT_COUNT_OFFSET: sum(group is not None for group in available_groups),
+        available_entries + PlayerStatsClient.ARRAY_LENGTH_OFFSET: len(available_groups),
+        banished_set + PlayerStatsClient.HASHSET_COUNT_OFFSET: len(banished_ids),
+        banished_set + PlayerStatsClient.HASHSET_LAST_INDEX_OFFSET: len(banished_ids),
+    }
+
+    for index, item_id in enumerate(global_ids):
+        item_ptr = 0x31000000 + index * 0x100
+        pointers[global_array + PlayerStatsClient.ARRAY_DATA_OFFSET + index * PlayerStatsClient.OBJECT_POINTER_SIZE] = item_ptr
+        ints[item_ptr + PlayerStatsClient.ITEM_DATA_ENUM_OFFSET] = item_id
+
+    for index, group in enumerate(available_groups):
+        entry = available_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + index * PlayerStatsClient.DICT_ENTRY_SIZE
+        if group is None:
+            ints[entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET] = -1
+            continue
+        item_list = 0x32000000 + index * 0x1000
+        item_array = item_list + 0x400
+        ints[entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET] = index + 1
+        pointers[entry + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET] = item_list
+        pointers[item_list + PlayerStatsClient.LIST_ITEMS_OFFSET] = item_array
+        ints[item_list + PlayerStatsClient.LIST_SIZE_OFFSET] = len(group)
+        for item_index, item_id in enumerate(group):
+            item_ptr = 0x33000000 + index * 0x1000 + item_index * 0x100
+            pointers[item_array + PlayerStatsClient.ARRAY_DATA_OFFSET + item_index * PlayerStatsClient.OBJECT_POINTER_SIZE] = item_ptr
+            ints[item_ptr + PlayerStatsClient.ITEM_DATA_ENUM_OFFSET] = item_id
+
+    for index, item_id in enumerate(banished_ids):
+        slot = banished_slots + PlayerStatsClient.HASHSET_SLOT_START_OFFSET + index * PlayerStatsClient.HASHSET_SLOT_SIZE
+        item_ptr = 0x34000000 + index * 0x100
+        ints[slot + PlayerStatsClient.HASHSET_SLOT_HASH_CODE_OFFSET] = index + 1
+        pointers[slot + PlayerStatsClient.HASHSET_SLOT_VALUE_OFFSET] = item_ptr
+        ints[item_ptr + PlayerStatsClient.ITEM_DATA_ENUM_OFFSET] = item_id
+
+    return FakeMemory(module_base=base, pointers=pointers, ints=ints)
+
+
 class PlayerStatsClientTests(unittest.TestCase):
     def build_memory(self) -> FakeMemory:
         return build_player_stats_memory()
@@ -165,6 +239,56 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(stats["Max HP"].display_value, "198")
         self.assertEqual(stats["Armor"].display_value, "15%")
         self.assertEqual(stats["Difficulty"].display_value, "9%")
+
+    def test_get_disabled_items_reports_uninitialized_empty_pool(self) -> None:
+        memory = build_disabled_items_memory(global_ids=(4, 7), available_groups=())
+
+        result = PlayerStatsClient(memory=memory).get_disabled_items()
+
+        self.assertEqual(result.status, DisabledItemsReadStatus.NOT_INITIALIZED)
+        self.assertEqual(result.items, ())
+
+    def test_get_disabled_items_reports_memory_read_error(self) -> None:
+        memory = build_disabled_items_memory(global_ids=(4, 7), available_groups=((4,),))
+        del memory.pointers[
+            memory.module_base + PlayerStatsClient.DATA_MANAGER_TYPE_INFO_OFFSET
+        ]
+
+        result = PlayerStatsClient(memory=memory).get_disabled_items()
+
+        self.assertEqual(result.status, DisabledItemsReadStatus.READ_ERROR)
+        self.assertEqual(result.items, ())
+
+    def test_get_disabled_items_allows_successful_empty_result(self) -> None:
+        memory = build_disabled_items_memory(global_ids=(4, 7), available_groups=((4, 7),))
+
+        result = PlayerStatsClient(memory=memory).get_disabled_items()
+
+        self.assertTrue(result.available)
+        self.assertEqual(result.items, ())
+
+    def test_get_disabled_items_restores_banished_items_to_active_pool(self) -> None:
+        memory = build_disabled_items_memory(
+            global_ids=(4, 7, 35),
+            available_groups=((35,),),
+            banished_ids=(4,),
+        )
+
+        result = PlayerStatsClient(memory=memory).get_disabled_items()
+
+        self.assertTrue(result.available)
+        self.assertEqual(result.items, ("Battery",))
+
+    def test_get_disabled_items_reads_entries_after_dictionary_holes(self) -> None:
+        memory = build_disabled_items_memory(
+            global_ids=(4, 7),
+            available_groups=((4,), None, (7,)),
+        )
+
+        result = PlayerStatsClient(memory=memory).get_disabled_items()
+
+        self.assertTrue(result.available)
+        self.assertEqual(result.items, ())
 
     def test_get_passive_items_reads_item_names_and_counts(self) -> None:
         client = PlayerStatsClient(memory=self.build_memory())

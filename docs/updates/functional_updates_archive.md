@@ -4,6 +4,57 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Part 0: Completed / Done Items (Archived 2026-06-12)
+
+### 0. Twitch Commons Follow-Up Commands
+
+Status: `[Done]`
+
+- The built-in Twitch bot now includes the originally planned follow-up utility commands for chests, disabled items, reroller presets, and command discovery.
+- The active `functional_updates.md` file now keeps only the still-open Twitch bot work.
+
+Goal:
+
+- Expand the built-in Twitch bot with common stream commands and chat-facing helpers powered by `LiveRunTracker`, while keeping responses compact and configurable.
+
+Implemented scope:
+
+- `!chests` / `!chest`
+  - `LiveRunTracker` stores chest progress by stage plus run totals.
+  - The Twitch command returns compact per-stage output and overall totals.
+  - Free chest openings are included in the chat response.
+
+- `!disabled`
+  - The app reads real disabled-item state from memory once a run exposes the data.
+  - Streamers can configure a highlighted subset of important disabled items.
+  - The Twitch response stays compact by showing only the highlighted items that are currently disabled.
+
+- Manual commands list command
+  - Implemented as `!bonkhelp` with aliases `!bonkcmds`, `!bonkcommands`, and `!bhelp`.
+  - The response lists only currently enabled commands.
+
+- `!items` / `!tracked` total count update
+  - `Items ({count})` now counts duplicate stacks instead of only distinct item names.
+  - Example: `Anvil x2` plus `Soul Harvester x2` contributes `4` to the total count.
+
+- `!presets` / `!preset`
+  - The command reports active reroller presets in both `templates` mode and `scores` mode.
+  - Templates mode shows the active template names and condensed conditions.
+  - Scores mode shows active tiers and score weights.
+
+Code anchors:
+
+- `twitch_bot.py`
+- `live_run_tracker.py`
+- `player_stats.py`
+- `gui_dialogs.py`
+- `gui_twitch.py`
+- `tests/test_twitch_bot.py`
+- `tests/test_live_run_tracker.py`
+- `tests/test_player_stats.py`
+
+---
+
 ## Part 1: Completed / Done Items (Archived 2026-06-02)
 
 ### 0. Find A Reliable Runtime Signal For True Menu / Non-Gameplay State

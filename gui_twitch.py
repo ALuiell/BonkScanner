@@ -193,11 +193,12 @@ class TwitchBotMixin:
 
     def open_twitch_command_settings_dialog(self):
         from gui_dialogs import TwitchCommandSettingsDialog
-        self.player_stats_force_refresh_disabled = True
         try:
             client = self._get_player_stats_client()
-            self.player_stats_disabled_items_cache = client.get_disabled_items()
-            self.player_stats_force_refresh_disabled = False
+            result = client.get_disabled_items()
+            if result.available:
+                self.player_stats_disabled_items_cache = result.items
+                self.player_stats_disabled_items_refresh_pending = False
         except Exception:
             pass
         self.refresh_live_player_stats_now()

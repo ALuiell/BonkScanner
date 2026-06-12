@@ -16,7 +16,7 @@ Status legend:
 
 #### 1. Twitch Commons
 
-Status: `[Open]`
+Status: `[Partial]`
 
 Goal:
 
@@ -24,26 +24,16 @@ Goal:
 - Keep the feature focused on local live-run data that is already needed by Twitch commands and the OBS overlay.
 - Prefer configurable command names/messages where streamers may want different wording.
 
-Command ideas:
+Implemented and archived on 2026-06-12:
 
 - `!chests`
-  - Track how many chests the player has opened during the current run.
-  - Store the data per map/stage in `LiveRunTracker`, for example:
-    - Map 1: 15 opened chests
-    - Map 2: 20 opened chests
-    - Map 3: 0 opened chests
-  - The Twitch command should return a compact per-map summary and a run total.
-  - Also investigate whether free chest openings from the key item mechanic can be detected.
-  - This requires reverse engineering or dump research to find a reliable signal for "key proc opened this chest for free".
-  - If detectable, add free chest counts to the same statistics, either per map or as a run total.
+- `!disabled` highlighted disabled-items command
+- Manual commands list command (`!bonkhelp` and aliases)
+- Periodic commands-list auto announcer with a configurable interval
+- `!items` / `!tracked` total count update
+- `!presets`
 
-- Disabled/Banned items command
-  - Add a command for viewers to see important items that the streamer has disabled in-game.
-  - Command name is not decided yet.
-  - The streamer should be able to configure a short list of notable disabled items, especially popular build-defining items that viewers may expect to see.
-  - Example items: Soul Harvester, Anvil, Idol Juice, and other high-impact items.
-  - The command should output only the important configured items, not every possible disabled item, so the chat response stays readable.
-  - Future implementation can either read the real disabled-item state from game memory if available, or use streamer-managed configuration first.
+Remaining open work:
 
 - `!cap`
   - Track when the current run reaches important stat caps.
@@ -61,22 +51,6 @@ Command ideas:
   - Support short custom labels so the command can show either just a character name or a character plus build description.
   - Keep the output compact enough for Twitch chat limits.
 
-- Commands list command
-  - Add a manual command that returns the list of currently available Twitch bot commands.
-  - Command name is not decided yet; likely candidates are `!commands` or `!help`.
-  - This should work as an alternative to the periodic commands-list auto announcer.
-  - The command should only list enabled commands and should respect streamer configuration.
-  - Keep the output short enough that viewers can call it on demand without creating chat spam.
-
-- `!items` / `!tracked` total count update
-  - Update the item count in `Items ({count})` to reflect the total number of items collected, including duplicates/stacks.
-  - For example, if a player has 2 Anvils and 2 Soul Harvesters, it should display `Items (4)` instead of `Items (2)`.
-
-- `!presets`
-  - Add a command to show the active reroller presets currently in use.
-  - If the reroller is in "templates" mode, the command should output which templates are currently active.
-  - If the reroller is in "score" mode, the command should output the currently selected preset and the cost of activities within that preset.
-
 Announcement ideas:
 
 - End-of-run auto announcer
@@ -84,14 +58,6 @@ Announcement ideas:
   - Reuse the same run summary data used by existing run tracking and overlay systems where possible.
   - Include high-signal totals such as final time, map/stage progress, kills, score/damage-related stats if available, items, weapons, tomes, and future chest/cap information once implemented.
   - Make this optional in Twitch bot settings, because some streamers may prefer manual summaries only.
-
-- Commands-list auto announcer
-  - Add an optional periodic/event-based announcement that lists available Twitch bot commands.
-  - Intended to replace manual setup in external bots such as Nightbot.
-  - Support a configurable interval, for example every 30 minutes.
-  - Consider also triggering it on selected events, such as bot connection, run start, or stage transition, with cooldown protection.
-  - The message should stay short and only list enabled commands.
-  - This should share the same command-list formatting/source as the manual commands list command.
 
 ---
 

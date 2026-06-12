@@ -274,7 +274,7 @@ class MegabonkApp(
         self.initialize_overlay_runtime()
         self.player_stats_last_run_id = None
         self.player_stats_disabled_items_cache = None
-        self.player_stats_force_refresh_disabled = False
+        self.player_stats_disabled_items_refresh_pending = False
         self.player_stats_last_seed = None
         self.player_stats_last_run_timer = None
         self.player_stats_vod_snapshots = []

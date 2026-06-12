@@ -309,9 +309,11 @@ class PlayerStatsMixin:
 
         # 3. Detect match start
         is_new_match = False
-        if map_seed is not None and run_timer_seconds is not None:
-            prev_seed = getattr(self, "player_stats_last_seed", None)
-            prev_time = getattr(self, "player_stats_last_run_timer", None)
+        prev_seed = getattr(self, "player_stats_last_seed", None)
+        prev_time = getattr(self, "player_stats_last_run_timer", None)
+        if run_timer_seconds is not None:
+            if prev_time is None and run_timer_seconds <= 5.0:
+                is_new_match = True
 
             # Map seed changed or appeared on low game time
             if map_seed is not None and (prev_seed is None or int(map_seed) != int(prev_seed)):
@@ -321,6 +323,9 @@ class PlayerStatsMixin:
             # Timer went backward (reset)
             if prev_time is not None and run_timer_seconds + 1.0 < prev_time:
                 is_new_match = True
+
+        if is_new_match:
+            self.player_stats_disabled_items_refresh_pending = True
 
         # 4. Read passive items
         try:
@@ -370,19 +375,22 @@ class PlayerStatsMixin:
                 banishes = ()
                 banishes_available = False
 
-            # Retrieve disabled items (either from memory at match start / force refresh, or from cache)
+            # Refresh once per run, retrying until memory exposes a complete pool.
             try:
                 should_read_disabled = (
-                    is_new_match
-                    or getattr(self, "player_stats_force_refresh_disabled", False)
+                    getattr(self, "player_stats_disabled_items_refresh_pending", False)
                     or getattr(self, "player_stats_disabled_items_cache", None) is None
                 )
                 if should_read_disabled:
                     client = self._get_player_stats_client()
-                    disabled_items = client.get_disabled_items()
-                    disabled_items_available = True
-                    self.player_stats_disabled_items_cache = disabled_items
-                    self.player_stats_force_refresh_disabled = False
+                    result = client.get_disabled_items()
+                    if result.available:
+                        self.player_stats_disabled_items_cache = result.items
+                        self.player_stats_disabled_items_refresh_pending = False
+                    cache = getattr(self, "player_stats_disabled_items_cache", None)
+                    if cache is not None:
+                        disabled_items = cache
+                        disabled_items_available = True
                 else:
                     disabled_items = getattr(self, "player_stats_disabled_items_cache", ())
                     disabled_items_available = True
@@ -4361,7 +4369,6 @@ class PlayerStatsMixin:
             self.player_stats_client = None
         self.player_stats_last_seed = None
         self.player_stats_last_run_timer = None
-        self.player_stats_disabled_items_cache = None
 
     def close_player_stats_game_data_client(self):
         game_data_client = self.__dict__.get("player_stats_game_data_client")

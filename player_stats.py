@@ -42,6 +42,22 @@ class WeaponStatFormat(Enum):
     MULTIPLIER = "multiplier"
 
 
+class DisabledItemsReadStatus(Enum):
+    AVAILABLE = "available"
+    NOT_INITIALIZED = "not_initialized"
+    READ_ERROR = "read_error"
+
+
+@dataclass(frozen=True)
+class DisabledItemsReadResult:
+    status: DisabledItemsReadStatus
+    items: tuple[str, ...] = ()
+
+    @property
+    def available(self) -> bool:
+        return self.status is DisabledItemsReadStatus.AVAILABLE
+
+
 @dataclass(frozen=True)
 class TomeSnapshot:
     tome_id: int
@@ -1250,7 +1266,7 @@ class PlayerStatsClient:
             return weapon_spec.label, PlayerStatFormat(weapon_spec.value_format.value)
         return f"Stat {stat_id}", PlayerStatFormat.FLAT
 
-    def get_disabled_items(self) -> tuple[str, ...]:
+    def get_disabled_items(self) -> DisabledItemsReadResult:
         # 1. Read global catalog
         try:
             type_info_address = self.memory.module_offset(
@@ -1259,26 +1275,26 @@ class PlayerStatsClient:
             )
             class_ptr = self.memory.read_ptr(type_info_address)
             if not class_ptr:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
             static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
             if not static_fields:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
             instance = self.memory.read_ptr(static_fields + 0x8)
             if not instance:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
             unsorted_items_list = self.memory.read_ptr(instance + 0x60)
             if not unsorted_items_list:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
             items_array = self.memory.read_ptr(unsorted_items_list + self.LIST_ITEMS_OFFSET)
             if not items_array:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
             size = self.memory.read_i32(unsorted_items_list + self.LIST_SIZE_OFFSET)
             if size <= 0 or size > 1000:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
             global_item_ids = set()
             for index in range(size):
@@ -1289,8 +1305,10 @@ class PlayerStatsClient:
                     continue
                 item_id = self.memory.read_i32(item_data_ptr + self.ITEM_DATA_ENUM_OFFSET)
                 global_item_ids.add(item_id)
+            if not global_item_ids:
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
         except MemoryReadError:
-            return ()
+            return DisabledItemsReadResult(DisabledItemsReadStatus.READ_ERROR)
 
         # 2. Read active pool
         try:
@@ -1300,26 +1318,31 @@ class PlayerStatsClient:
             )
             class_ptr = self.memory.read_ptr(type_info_address)
             if not class_ptr:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
             static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
             if not static_fields:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
             available_items_dict = self.memory.read_ptr(static_fields + 0x10)
             if not available_items_dict:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
             entries = self.memory.read_ptr(available_items_dict + self.DICT_ENTRIES_OFFSET)
             if not entries:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
 
             count = self.memory.read_i32(available_items_dict + self.DICT_COUNT_OFFSET)
             if count <= 0 or count > 100:
-                return ()
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
+
+            capacity = self.memory.read_i32(entries + self.ARRAY_LENGTH_OFFSET)
+            if capacity <= 0 or capacity > 100:
+                return DisabledItemsReadResult(DisabledItemsReadStatus.READ_ERROR)
 
             available_item_ids = set()
-            for index in range(count):
+            valid_lists = 0
+            for index in range(capacity):
                 entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
                 hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
                 if hash_code < 0:
@@ -1332,8 +1355,9 @@ class PlayerStatsClient:
                 if not sub_array:
                     continue
                 sub_size = self.memory.read_i32(list_address + self.LIST_SIZE_OFFSET)
-                if sub_size <= 0 or sub_size > 1000:
+                if sub_size < 0 or sub_size > 1000:
                     continue
+                valid_lists += 1
                 for sub_index in range(sub_size):
                     item_data_ptr = self.memory.read_ptr(
                         sub_array + self.ARRAY_DATA_OFFSET + (sub_index * self.OBJECT_POINTER_SIZE)
@@ -1342,11 +1366,18 @@ class PlayerStatsClient:
                         continue
                     item_id = self.memory.read_i32(item_data_ptr + self.ITEM_DATA_ENUM_OFFSET)
                     available_item_ids.add(item_id)
+
+            if valid_lists <= 0 or not available_item_ids:
+                return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
+
+            banished_item_ids = set(self._read_banished_item_ids(
+                self.memory.read_ptr(static_fields + self.RUN_UNLOCKABLES_BANISHED_ITEMS_OFFSET)
+            ))
         except MemoryReadError:
-            return ()
+            return DisabledItemsReadResult(DisabledItemsReadStatus.READ_ERROR)
 
         # 3. Diff and format
-        disabled_item_ids = global_item_ids - available_item_ids
+        disabled_item_ids = global_item_ids - (available_item_ids | banished_item_ids)
         disabled_names = []
         for item_id in disabled_item_ids:
             raw_name = ITEM_ENUM_NAMES_BY_ID.get(item_id)
@@ -1357,7 +1388,16 @@ class PlayerStatsClient:
                 continue
             disabled_names.append(display_name)
 
-        return tuple(sorted(disabled_names))
+        return DisabledItemsReadResult(
+            DisabledItemsReadStatus.AVAILABLE,
+            tuple(sorted(disabled_names)),
+        )
+
+    def _read_banished_item_ids(self, set_address: int) -> tuple[int, ...]:
+        item_ids: list[int] = []
+        for value in self._read_hashset_object_values(set_address):
+            item_ids.append(self.memory.read_i32(value + self.ITEM_DATA_ENUM_OFFSET))
+        return tuple(item_ids)
 
 
 def iter_player_stat_groups(

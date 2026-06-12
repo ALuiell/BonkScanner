@@ -10,6 +10,7 @@ sys.modules['PySide6'] = mock_pyside
 sys.modules['PySide6.QtCore'] = mock_pyside.QtCore
 
 from twitch_bot import TwitchBotWorker
+from player_stats import DisabledItemsReadResult, DisabledItemsReadStatus
 
 class TestTwitchBotWorker(unittest.TestCase):
     def setUp(self):
@@ -344,6 +345,47 @@ class TestTwitchBotWorker(unittest.TestCase):
                 "Available commands: !stats, !items, !tomes, !stages, !scanner, !presets, !bonkhelp"
             )
 
+    def test_commands_announcement_uses_configured_interval(self):
+        import config
+
+        self.bot._handle_commands = MagicMock()
+        with patch.dict(
+            config.TWITCH_BOT,
+            {
+                "commands_announcements": True,
+                "commands_announcement_interval_minutes": 30,
+            },
+        ):
+            self.bot._check_commands_announcement("channel", now=100.0)
+            self.bot._check_commands_announcement("channel", now=1899.0)
+            self.bot._handle_commands.assert_not_called()
+
+            self.bot._check_commands_announcement("channel", now=1900.0)
+            self.bot._handle_commands.assert_called_once_with("channel")
+
+            self.bot._check_commands_announcement("channel", now=2000.0)
+            self.bot._handle_commands.assert_called_once_with("channel")
+
+    def test_commands_announcement_restarts_timer_when_enabled(self):
+        import config
+
+        self.bot._handle_commands = MagicMock()
+        with patch.dict(
+            config.TWITCH_BOT,
+            {
+                "commands_announcements": False,
+                "commands_announcement_interval_minutes": 1,
+            },
+        ):
+            self.bot._check_commands_announcement("channel", now=100.0)
+            config.TWITCH_BOT["commands_announcements"] = True
+            self.bot._check_commands_announcement("channel", now=159.0)
+            self.bot._handle_commands.assert_not_called()
+            self.bot._check_commands_announcement("channel", now=218.0)
+            self.bot._handle_commands.assert_not_called()
+            self.bot._check_commands_announcement("channel", now=219.0)
+            self.bot._handle_commands.assert_called_once_with("channel")
+
     def test_commands_command_routes_through_chat_handler(self):
         from config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
@@ -397,13 +439,17 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["cooldown_seconds"] = old_cooldown
         TWITCH_BOT["commands"] = old_commands
 
-    def test_handle_disabled_no_run(self):
+    def test_handle_disabled_without_cached_data(self):
         self.bot._send_chat = MagicMock()
-        self.run_tracker.latest_snapshot.return_value = None
+        self.run_tracker.get_disabled_items.return_value = DisabledItemsReadResult(
+            DisabledItemsReadStatus.NOT_INITIALIZED
+        )
 
         self.bot._handle_disabled("channel")
 
-        self.bot._send_chat.assert_called_once_with("channel", "No active run detected.")
+        self.bot._send_chat.assert_called_once_with(
+            "channel", "Disabled items data is not available yet."
+        )
 
     def test_handle_disabled_with_run(self):
         from config import TWITCH_BOT
@@ -414,18 +460,23 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT.setdefault("templates", {})["disabled"] = "Disabled Items: {items}"
 
         self.bot._send_chat = MagicMock()
-        self.run_tracker.latest_snapshot.return_value = SimpleNamespace(stats={})
-
         # Scenario A: Soul Harvester is disabled, Magnet is enabled
-        self.run_tracker.get_disabled_items.return_value = ("Soul Harvester", "Golden Ring")
+        self.run_tracker.get_disabled_items.return_value = DisabledItemsReadResult(
+            DisabledItemsReadStatus.AVAILABLE,
+            ("Soul Harvester", "Golden Ring"),
+        )
         self.bot._handle_disabled("channel")
         self.bot._send_chat.assert_called_with("channel", "Disabled Items: Soul Harvester")
 
         # Scenario B: No highlighted items are disabled
         self.bot._send_chat.reset_mock()
-        self.run_tracker.get_disabled_items.return_value = ("Forbidden Juice", "Golden sneakers")
+        TWITCH_BOT["highlighted_disabled_items"] = ["Golden Sneakers"]
+        self.run_tracker.get_disabled_items.return_value = DisabledItemsReadResult(
+            DisabledItemsReadStatus.AVAILABLE,
+            ("Forbidden Juice", "Golden sneakers"),
+        )
         self.bot._handle_disabled("channel")
-        self.bot._send_chat.assert_called_with("channel", "Disabled Items: None")
+        self.bot._send_chat.assert_called_with("channel", "Disabled Items: Golden Sneakers")
 
         TWITCH_BOT["highlighted_disabled_items"] = old_highlighted
         TWITCH_BOT["templates"] = old_templates

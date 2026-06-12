@@ -536,6 +536,27 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertFalse(tracker.has_active_run())
 
+    def test_disabled_items_cache_survives_unavailable_snapshots(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(LiveRunSnapshot(
+            captured_at=1.0,
+            stats={},
+            game_time_seconds=1.0,
+            disabled_items=("Battery",),
+            disabled_items_available=True,
+        ))
+        tracker.update(LiveRunSnapshot(
+            captured_at=2.0,
+            stats={},
+            game_time_seconds=2.0,
+            disabled_items_available=False,
+        ))
+
+        result = tracker.get_disabled_items()
+
+        self.assertTrue(result.available)
+        self.assertEqual(result.items, ("Battery",))
+
     def test_chests_stage_transition_residual_filtered(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         # Stage 1: opened 28 chests

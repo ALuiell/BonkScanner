@@ -1277,6 +1277,25 @@ class TwitchCommandSettingsDialog(QDialog):
         announcements_label.setStyleSheet("color: #F3F4F6; margin-bottom: 4px;")
         others_form.addRow(announcements_label)
 
+        self.commands_announcements_cb = QCheckBox("Periodically announce available commands")
+        self.commands_announcements_cb.setChecked(
+            config.TWITCH_BOT.get("commands_announcements", False)
+        )
+        self.commands_announcement_interval_spin = QSpinBox()
+        self.commands_announcement_interval_spin.setRange(1, 1440)
+        self.commands_announcement_interval_spin.setValue(
+            config.TWITCH_BOT.get("commands_announcement_interval_minutes", 30)
+        )
+        self.commands_announcement_interval_spin.setSuffix(" min")
+        self.commands_announcement_interval_spin.setEnabled(
+            self.commands_announcements_cb.isChecked()
+        )
+        self.commands_announcements_cb.toggled.connect(
+            self.commands_announcement_interval_spin.setEnabled
+        )
+        others_form.addRow(self.commands_announcements_cb)
+        others_form.addRow("Commands interval:", self.commands_announcement_interval_spin)
+
         # stage_announcement field
         stage_ann_val = config.TWITCH_BOT.get("templates", {}).get(
             "stage_announcement",
@@ -1356,7 +1375,9 @@ class TwitchCommandSettingsDialog(QDialog):
                 disabled_in_game = list(cache)
             elif hasattr(self.master, "live_run_tracker") and self.master.live_run_tracker:
                 try:
-                    disabled_in_game = list(self.master.live_run_tracker.get_disabled_items())
+                    result = self.master.live_run_tracker.get_disabled_items()
+                    if result.available:
+                        disabled_in_game = list(result.items)
                 except Exception:
                     pass
         disabled_in_game_set = {name.lower() for name in disabled_in_game if name}
@@ -1391,6 +1412,7 @@ class TwitchCommandSettingsDialog(QDialog):
                 cb = QCheckBox(d_name)
             cb.setChecked(d_name in highlighted_disabled)
             self.disabled_item_checkboxes[d_name] = cb
+            cb.stateChanged.connect(self.filter_disabled_items)
 
             row = idx // num_cols
             col = idx % num_cols
@@ -1490,6 +1512,13 @@ class TwitchCommandSettingsDialog(QDialog):
         for cb in self.disabled_item_checkboxes.values():
             cb.setChecked(False)
 
+        self.commands_announcements_cb.setChecked(
+            config.DEFAULT_TWITCH_BOT["commands_announcements"]
+        )
+        self.commands_announcement_interval_spin.setValue(
+            config.DEFAULT_TWITCH_BOT["commands_announcement_interval_minutes"]
+        )
+
         defaults = {
             "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
             "bans": "Bans ({count}): {items}",
@@ -1549,6 +1578,10 @@ class TwitchCommandSettingsDialog(QDialog):
             name for name, cb in self.disabled_item_checkboxes.items() if cb.isChecked()
         ]
         config.TWITCH_BOT["highlighted_disabled_items"] = highlighted_disabled
+        config.TWITCH_BOT["commands_announcements"] = self.commands_announcements_cb.isChecked()
+        config.TWITCH_BOT["commands_announcement_interval_minutes"] = (
+            self.commands_announcement_interval_spin.value()
+        )
 
         config.user_config["TWITCH_BOT"] = config.TWITCH_BOT
         config.save_config(config.user_config)

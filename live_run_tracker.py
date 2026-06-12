@@ -12,6 +12,7 @@ from functools import wraps
 
 import run_summary
 from gui_styles import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
+from player_stats import DisabledItemsReadResult, DisabledItemsReadStatus
 
 
 def with_lock(method):
@@ -224,6 +225,7 @@ class LiveRunTracker:
         self._stage_ptrs_seen = []
         self._chests_opened_by_stage = {}
         self._chests_total_by_stage = {}
+        self._disabled_items_cache: tuple[str, ...] | None = None
         self._lock = threading.RLock()
 
     @with_lock
@@ -261,6 +263,8 @@ class LiveRunTracker:
             )
 
         self.snapshots.append(snapshot)
+        if snapshot.disabled_items_available:
+            self._disabled_items_cache = snapshot.disabled_items
         self._process_item_deltas(snapshot)
 
     @with_lock
@@ -444,11 +448,13 @@ class LiveRunTracker:
         )
 
     @with_lock
-    def get_disabled_items(self) -> tuple[str, ...]:
-        latest = self.latest_snapshot()
-        if latest is not None and latest.disabled_items_available:
-            return latest.disabled_items
-        return ()
+    def get_disabled_items(self) -> DisabledItemsReadResult:
+        if self._disabled_items_cache is None:
+            return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
+        return DisabledItemsReadResult(
+            DisabledItemsReadStatus.AVAILABLE,
+            self._disabled_items_cache,
+        )
 
     @with_lock
     def update_chests_and_keys(self, chests_opened: int, chests_total: int, keys_count: int) -> None:

@@ -27,6 +27,8 @@ class TwitchBotWorker(QThread):
         self.sock = None
         self.last_command_time = 0
         self._last_run_id = None
+        self._last_commands_announcement_at = None
+        self._commands_announcements_were_enabled = False
         self.last_command_times: dict[str, float] = {}
         self.last_global_command_time: float = 0.0
 
@@ -61,12 +63,17 @@ class TwitchBotWorker(QThread):
 
                 self.status_updated.emit(f"Connected to #{target_channel}")
                 self.log_message.emit("Bot joined chat.")
+                self._last_commands_announcement_at = time.monotonic()
+                self._commands_announcements_were_enabled = bool(
+                    config.TWITCH_BOT.get("commands_announcements", False)
+                )
 
                 buffer = ""
                 self._last_run_id, self._last_stage_index = self.run_tracker.run_identity()
 
                 while self.running:
                     self._check_stage_transitions(target_channel)
+                    self._check_commands_announcement(target_channel)
 
                     self.sock.settimeout(0.5)
                     try:
@@ -345,17 +352,21 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_disabled(self, channel: str):
-        snap = self.run_tracker.latest_snapshot()
-        if not snap:
-            self._send_chat(channel, "No active run detected.")
+        result = self.run_tracker.get_disabled_items()
+        if not result.available:
+            self._send_chat(channel, "Disabled items data is not available yet.")
             return
 
-        disabled_in_game = self.run_tracker.get_disabled_items()
+        disabled_in_game = result.items
         highlighted = config.TWITCH_BOT.get("highlighted_disabled_items", [])
 
         if highlighted:
-            highlighted_set = set(highlighted)
-            active_disabled = [item for item in disabled_in_game if item in highlighted_set]
+            highlighted_by_folded_name = {item.casefold(): item for item in highlighted}
+            active_disabled = [
+                highlighted_by_folded_name[item.casefold()]
+                for item in disabled_in_game
+                if item.casefold() in highlighted_by_folded_name
+            ]
         else:
             active_disabled = []
 
@@ -752,6 +763,35 @@ class TwitchBotWorker(QThread):
             msg = f"Available commands: {', '.join(enabled_cmds)}"
             
         self._send_chat(channel, msg)
+
+    def _check_commands_announcement(self, channel: str, now: float | None = None):
+        if now is None:
+            now = time.monotonic()
+
+        enabled = bool(config.TWITCH_BOT.get("commands_announcements", False))
+        if not enabled:
+            self._last_commands_announcement_at = now
+            self._commands_announcements_were_enabled = False
+            return
+
+        if not self._commands_announcements_were_enabled:
+            self._commands_announcements_were_enabled = True
+            self._last_commands_announcement_at = now
+            return
+
+        interval_minutes = max(
+            1,
+            int(config.TWITCH_BOT.get("commands_announcement_interval_minutes", 30)),
+        )
+        if self._last_commands_announcement_at is None:
+            self._last_commands_announcement_at = now
+            return
+
+        if now - self._last_commands_announcement_at < interval_minutes * 60:
+            return
+
+        self._last_commands_announcement_at = now
+        self._handle_commands(channel)
 
     def _check_stage_transitions(self, channel: str):
         if not config.TWITCH_BOT.get("stage_announcements", True):
