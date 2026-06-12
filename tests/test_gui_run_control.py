@@ -19,6 +19,12 @@ class FakeEntry:
     def get(self) -> str:
         return self.value
 
+    def text(self) -> str:
+        return self.value
+
+    def setText(self, value: str) -> None:
+        self.value = value
+
 
 class FakeVar:
     def __init__(self, value: bool) -> None:
@@ -31,12 +37,34 @@ class FakeVar:
         self.value = value
 
 
+class FakeSpinBox:
+    def __init__(self, value: int) -> None:
+        self._value = value
+
+    def value(self) -> int:
+        return self._value
+
+    def setValue(self, value: int) -> None:
+        self._value = value
+
+
+class FakeComboBox:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def currentText(self) -> str:
+        return self.value
+
+
 class FakeCheckbox:
     def __init__(self, value: bool) -> None:
         self.value = value
 
     def isChecked(self) -> bool:
         return self.value
+
+    def setChecked(self, value: bool) -> None:
+        self.value = value
 
 
 class FakeSettingsMaster:
@@ -467,13 +495,44 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(gui.config.user_config["SKIP_TWITCH_HELP_WARNING"])
         self.assertEqual(saved, [True])
 
+    def test_save_twitch_settings_does_not_depend_on_main_interval_widget(self) -> None:
+        app = types.SimpleNamespace(
+            twitch_tier_combo=FakeComboBox("Everyone"),
+            twitch_target_channel_entry=types.SimpleNamespace(text=lambda: "#bonk"),
+            twitch_global_cooldown_spin=FakeSpinBox(5),
+            twitch_cooldown_spin=FakeSpinBox(7),
+            twitch_stage_announcements_cb=FakeCheckbox(True),
+            twitch_commands_announcements_cb=FakeCheckbox(True),
+            twitch_cmd_stats_cb=FakeCheckbox(True),
+            twitch_cmd_bans_cb=FakeCheckbox(False),
+            twitch_cmd_items_cb=FakeCheckbox(True),
+            twitch_cmd_weapons_cb=FakeCheckbox(True),
+            twitch_cmd_tomes_cb=FakeCheckbox(True),
+            twitch_cmd_chaos_cb=FakeCheckbox(True),
+            twitch_cmd_stages_cb=FakeCheckbox(True),
+            twitch_cmd_powerups_cb=FakeCheckbox(True),
+            twitch_cmd_scanner_cb=FakeCheckbox(True),
+            twitch_cmd_chests_cb=FakeCheckbox(True),
+            twitch_cmd_presets_cb=FakeCheckbox(True),
+            twitch_cmd_commands_cb=FakeCheckbox(True),
+            twitch_cmd_disabled_cb=FakeCheckbox(False),
+        )
+
+        with patch.object(gui.config, "save_config") as save_config:
+            gui.MegabonkApp.save_twitch_settings(app)
+
+        self.assertEqual(gui.config.TWITCH_BOT["target_channel"], "bonk")
+        self.assertEqual(gui.config.TWITCH_BOT["global_cooldown_seconds"], 5)
+        self.assertEqual(gui.config.TWITCH_BOT["cooldown_seconds"], 7)
+        self.assertTrue(gui.config.TWITCH_BOT["commands_announcements"])
+        self.assertTrue(save_config.called)
+
     def test_settings_save_updates_native_hook_enabled_and_applies_run_control_mode(self) -> None:
         master = FakeSettingsMaster()
         master.player_stats_auto_recording_suppressed = True
         destroyed: list[bool] = []
         dialog = types.SimpleNamespace(
             hotkey_entry=FakeEntry("f7"),
-            hotkey_game_keys_entry=FakeEntry("w, left shift, W, space"),
             reset_hotkey_entry=FakeEntry("r"),
             record_hotkey_entry=FakeEntry("f8"),
             toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
@@ -499,11 +558,6 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(gui.config.user_config["NATIVE_HOOK_ENABLED"])
         self.assertFalse(gui.config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"])
         self.assertTrue(gui.config.user_config["AUTO_START_RECORDING"])
-        self.assertEqual(gui.config.HOTKEY_GAME_KEY_WHITELIST, ["w", "left shift", "space"])
-        self.assertEqual(
-            gui.config.user_config["HOTKEY_GAME_KEY_WHITELIST"],
-            ["w", "left shift", "space"],
-        )
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         self.assertTrue(update_game_reset_time.called)
@@ -617,6 +671,42 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(save_config.called)
         self.assertTrue(update_game_reset_time.called)
         self.assertEqual(destroyed, [True])
+
+    def test_twitch_command_settings_save_persists_commands_announcement_interval(self) -> None:
+        accepted: list[bool] = []
+        dialog = types.SimpleNamespace(
+            stat_checkboxes={"Damage": FakeCheckbox(True)},
+            stats_tpl_entry=FakeEntry("Live Stats: {Damage}"),
+            templates_entries={"stats": FakeEntry("Live Stats: {Damage}")},
+            disabled_item_checkboxes={"Anvil": FakeCheckbox(True), "Coin": FakeCheckbox(False)},
+            commands_announcement_interval_spin=FakeSpinBox(42),
+            accept=lambda: accepted.append(True),
+        )
+
+        with patch.object(gui.config, "save_config") as save_config:
+            gui.TwitchCommandSettingsDialog.save(dialog)
+
+        self.assertEqual(gui.config.TWITCH_BOT["commands_announcement_interval_minutes"], 42)
+        self.assertEqual(gui.config.TWITCH_BOT["highlighted_disabled_items"], ["Anvil"])
+        self.assertEqual(accepted, [True])
+        save_config.assert_called_once_with(gui.config.user_config)
+
+    def test_twitch_command_settings_reset_restores_default_interval(self) -> None:
+        dialog = types.SimpleNamespace(
+            _init_guard=False,
+            stat_checkboxes={"Damage": FakeCheckbox(False), "XP Gain": FakeCheckbox(False)},
+            stats_tpl_entry=FakeEntry("custom"),
+            disabled_item_checkboxes={"Anvil": FakeCheckbox(True)},
+            templates_entries={"stats": FakeEntry("custom"), "disabled": FakeEntry("custom")},
+            commands_announcement_interval_spin=FakeSpinBox(99),
+        )
+
+        gui.TwitchCommandSettingsDialog.reset_to_defaults(dialog)
+
+        self.assertEqual(
+            dialog.commands_announcement_interval_spin.value(),
+            gui.config.DEFAULT_TWITCH_BOT["commands_announcement_interval_minutes"],
+        )
 
     def test_apply_run_control_mode_detaches_hook_and_switches_to_keyboard_provider(self) -> None:
         loader = FakeDetachLoader()
@@ -3621,12 +3711,24 @@ class GuiRunControlTests(unittest.TestCase):
             get_player_level=lambda owner_stats=None: 2,
         )
         app.close_player_stats_client = lambda: None
+        app.close_player_stats_game_data_client = lambda: None
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
         app.read_player_stats_only = lambda: ({}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ("Key",)
-        
+        app.read_player_stats_recording_state = lambda: SimpleNamespace(
+            map_seed=None,
+            current_stage_ptr=0,
+        )
+        app._read_player_stats_runtime_game_state_safe = lambda: None
+        app._maybe_auto_start_player_stats_recording = lambda **kwargs: None
+        app.mark_overlay_read_failed = lambda *args, **kwargs: None
+        app.update_overlay_state_from_tracker = lambda: None
+        app.refresh_session_tracked_item_stats_ui = lambda: None
+
         chests_and_keys_args = []
         app.live_run_tracker = SimpleNamespace(
             update=lambda *args, **kwargs: None,

@@ -917,14 +917,6 @@ class SettingsDialog(QDialog):
         form_layout.addRow("Toggle Auto Level-Up Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)
         form_layout.addRow("Toggle Particles Opacity Hotkey:", self.toggle_particles_opacity_hotkey_entry)
 
-        self.hotkey_game_keys_entry = QLineEdit(
-            ", ".join(getattr(config, "HOTKEY_GAME_KEY_WHITELIST", ()))
-        )
-        self.hotkey_game_keys_entry.setToolTip(
-            "Extra game keys that may be held with a hotkey while the game window is active."
-        )
-        form_layout.addRow("Allowed Held Game Keys:", self.hotkey_game_keys_entry)
-
         self.min_delay_entry = QDoubleSpinBox()
         self.min_delay_entry.setRange(0.0, 60.0)
         self.min_delay_entry.setSingleStep(0.1)
@@ -1095,13 +1087,6 @@ class SettingsDialog(QDialog):
         new_toggle_skip_chest_animation_hotkey = _read_text(self.toggle_skip_chest_animation_hotkey_entry).strip()
         new_toggle_auto_select_upgrades_hotkey = _read_text(self.toggle_auto_select_upgrades_hotkey_entry).strip()
         new_toggle_particles_opacity_hotkey = _read_text(self.toggle_particles_opacity_hotkey_entry).strip()
-        hotkey_game_keys_entry = getattr(self, "hotkey_game_keys_entry", None)
-        if hotkey_game_keys_entry is None:
-            new_hotkey_game_keys = list(getattr(config, "HOTKEY_GAME_KEY_WHITELIST", ()))
-        else:
-            new_hotkey_game_keys = config.normalize_hotkey_game_key_whitelist(
-                _read_text(hotkey_game_keys_entry)
-            )
         auto_start_recording = _read_bool(self.auto_start_recording_var)
         native_hook_enabled = _read_bool(self.native_hook_enabled_var)
         native_hook_hotkeys_enabled = _read_bool(self.native_hook_hotkeys_enabled_var)
@@ -1112,7 +1097,6 @@ class SettingsDialog(QDialog):
         config.user_config["TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY"] = new_toggle_skip_chest_animation_hotkey
         config.user_config["TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY"] = new_toggle_auto_select_upgrades_hotkey
         config.user_config["TOGGLE_PARTICLES_OPACITY_HOTKEY"] = new_toggle_particles_opacity_hotkey
-        config.user_config["HOTKEY_GAME_KEY_WHITELIST"] = new_hotkey_game_keys
         config.user_config["AUTO_START_RECORDING"] = auto_start_recording
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
         config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"] = native_hook_hotkeys_enabled
@@ -1123,7 +1107,6 @@ class SettingsDialog(QDialog):
         config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY = new_toggle_skip_chest_animation_hotkey
         config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY = new_toggle_auto_select_upgrades_hotkey
         config.TOGGLE_PARTICLES_OPACITY_HOTKEY = new_toggle_particles_opacity_hotkey
-        config.HOTKEY_GAME_KEY_WHITELIST = new_hotkey_game_keys
         config.AUTO_START_RECORDING = auto_start_recording
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
         config.NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED = native_hook_hotkeys_enabled
@@ -1200,66 +1183,18 @@ class TwitchCommandSettingsDialog(QDialog):
         self._init_guard = True
 
         outer_layout = QVBoxLayout(self)
-        scroll, scroll_content, scroll_layout = _make_scroll_section()
-        outer_layout.addWidget(scroll, 1)
 
-        # 1. Stats Customization
-        stats_group = QGroupBox("!stats Command")
-        stats_layout = QVBoxLayout(stats_group)
-        stats_layout.addWidget(QLabel("Select which stats appear in the {stats} placeholder:"))
+        self.tabs = QTabWidget()
+        outer_layout.addWidget(self.tabs, 1)
 
-        # Horizontal Scroll Area for all 30 stats checkboxes
-        stats_scroll = QScrollArea()
-        stats_scroll.setWidgetResizable(True)
-        stats_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        stats_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        stats_scroll.setFixedHeight(120)
+        # === TAB 1: Response Templates ===
+        tab_templates = QWidget()
+        tab_templates_layout = QVBoxLayout(tab_templates)
+        
+        templates_scroll, _, templates_scroll_layout = _make_scroll_section()
+        tab_templates_layout.addWidget(templates_scroll)
 
-        stats_scroll_content = QWidget()
-        scroll_grid = QGridLayout(stats_scroll_content)
-        scroll_grid.setContentsMargins(5, 5, 5, 5)
-        scroll_grid.setSpacing(10)
-
-        all_stats = [spec.label for group in PLAYER_STAT_GROUPS for spec in group]
-        selected_stats = set(config.TWITCH_BOT.get("selected_stats", config.DEFAULT_TWITCH_BOT["selected_stats"]))
-
-        num_rows = 3
-        for index, label in enumerate(all_stats):
-            checkbox = QCheckBox(label)
-            checkbox.setChecked(label in selected_stats)
-            checkbox.stateChanged.connect(self.on_stat_toggled)
-            self.stat_checkboxes[label] = checkbox
-
-            row = index % num_rows
-            col = index // num_rows
-            scroll_grid.addWidget(checkbox, row, col)
-
-        stats_scroll.setWidget(stats_scroll_content)
-        stats_layout.addWidget(stats_scroll)
-        stats_layout.addSpacing(10)
-
-        stats_form = QFormLayout()
-        stats_tpl_val = config.TWITCH_BOT.get("templates", {}).get("stats", "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
-        self.stats_tpl_entry = QLineEdit(stats_tpl_val)
-        stats_form.addRow("Response template:", self.stats_tpl_entry)
-        stats_layout.addLayout(stats_form)
-
-        stats_help = QLabel(
-            "<span style='color: #9CA3AF; font-size: 11px;'>"
-            "Available tags: <b>{stats}</b> (auto-generated list of checked stats above), "
-            "<b>{Damage}</b>, <b>{XP Gain}</b>, <b>{Luck}</b>, <b>{Difficulty}</b>, <b>{Size}</b>, etc."
-            "</span>"
-        )
-        stats_help.setWordWrap(True)
-        stats_layout.addWidget(stats_help)
-
-        scroll_layout.addWidget(stats_group)
-        scroll_layout.addSpacing(10)
-
-        # 2. Other Commands
-        others_group = QGroupBox("Other Command Templates")
-        others_form = QFormLayout(others_group)
-
+        templates_form = QFormLayout()
         templates_config = [
             ("bans", "!bans / !banishes:", "Bans ({count}): {items}", "Tags: {count}, {items}"),
             ("items", "!items / !tracked:", "Items ({count}): {items}", "Tags: {count}, {items} (automatically collapsed if too long)"),
@@ -1280,67 +1215,76 @@ class TwitchCommandSettingsDialog(QDialog):
             help_lbl.setWordWrap(True)
             entry_layout.addWidget(help_lbl)
 
-            others_form.addRow(label_text, entry_layout)
+            templates_form.addRow(label_text, entry_layout)
+        
+        templates_scroll_layout.addLayout(templates_form)
+        templates_scroll_layout.addStretch(1)
+        self.tabs.addTab(tab_templates, "Response Templates")
 
-        # Horizontal separator divider between commands and announcements
-        divider = QFrame()
-        divider.setFrameShape(QFrame.HLine)
-        divider.setFrameShadow(QFrame.Sunken)
-        divider.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 12px 0px;")
-        others_form.addRow(divider)
+        # === TAB 2: Advanced Commands ===
+        tab_advanced = QWidget()
+        tab_advanced_layout = QVBoxLayout(tab_advanced)
+        adv_scroll, _, adv_scroll_layout = _make_scroll_section()
+        tab_advanced_layout.addWidget(adv_scroll)
 
-        # Announcements templates
-        announcements_label = QLabel("<b>Automatic Announcements</b>")
-        announcements_label.setStyleSheet("color: #F3F4F6; margin-bottom: 4px;")
-        others_form.addRow(announcements_label)
+        # -- !stats section --
+        stats_group = QGroupBox("!stats Command")
+        stats_layout = QVBoxLayout(stats_group)
+        stats_layout.addWidget(QLabel("Select which stats appear in the {stats} placeholder:"))
 
-        self.commands_announcements_cb = QCheckBox("Periodically announce available commands")
-        self.commands_announcements_cb.setChecked(
-            config.TWITCH_BOT.get("commands_announcements", False)
-        )
-        self.commands_announcement_interval_spin = QSpinBox()
-        self.commands_announcement_interval_spin.setRange(1, 1440)
-        self.commands_announcement_interval_spin.setValue(
-            config.TWITCH_BOT.get("commands_announcement_interval_minutes", 30)
-        )
-        self.commands_announcement_interval_spin.setSuffix(" min")
-        self.commands_announcement_interval_spin.setEnabled(
-            self.commands_announcements_cb.isChecked()
-        )
-        self.commands_announcements_cb.toggled.connect(
-            self.commands_announcement_interval_spin.setEnabled
-        )
-        others_form.addRow(self.commands_announcements_cb)
-        others_form.addRow("Commands interval:", self.commands_announcement_interval_spin)
+        stats_scroll_area = QScrollArea()
+        stats_scroll_area.setWidgetResizable(True)
+        stats_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        stats_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        stats_scroll_area.setFixedHeight(120)
 
-        # stage_announcement field
-        stage_ann_val = config.TWITCH_BOT.get("templates", {}).get(
-            "stage_announcement",
-            "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩"
-        )
-        stage_ann_entry = QLineEdit(stage_ann_val)
-        self.templates_entries["stage_announcement"] = stage_ann_entry
+        stats_scroll_content = QWidget()
+        scroll_grid = QGridLayout(stats_scroll_content)
+        scroll_grid.setContentsMargins(5, 5, 5, 5)
+        scroll_grid.setSpacing(10)
 
-        stage_ann_layout = QVBoxLayout()
-        stage_ann_layout.addWidget(stage_ann_entry)
-        stage_ann_help = QLabel(
+        all_stats = [spec.label for group in PLAYER_STAT_GROUPS for spec in group]
+        selected_stats = set(config.TWITCH_BOT.get("selected_stats", config.DEFAULT_TWITCH_BOT["selected_stats"]))
+
+        num_rows = 3
+        for index, label in enumerate(all_stats):
+            checkbox = QCheckBox(label)
+            checkbox.setChecked(label in selected_stats)
+            checkbox.stateChanged.connect(self.on_stat_toggled)
+            self.stat_checkboxes[label] = checkbox
+
+            row = index % num_rows
+            col = index // num_rows
+            scroll_grid.addWidget(checkbox, row, col)
+
+        stats_scroll_area.setWidget(stats_scroll_content)
+        stats_layout.addWidget(stats_scroll_area)
+        stats_layout.addSpacing(10)
+
+        stats_form = QFormLayout()
+        stats_tpl_val = config.TWITCH_BOT.get("templates", {}).get("stats", "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
+        self.stats_tpl_entry = QLineEdit(stats_tpl_val)
+        self.templates_entries["stats"] = self.stats_tpl_entry
+        stats_form.addRow("Response template:", self.stats_tpl_entry)
+        stats_layout.addLayout(stats_form)
+
+        stats_help = QLabel(
             "<span style='color: #9CA3AF; font-size: 11px;'>"
-            "Tags: {stage}, {kills}, {time}, {next_stage}"
+            "Available tags: <b>{stats}</b> (auto-generated list of checked stats above), "
+            "<b>{Damage}</b>, <b>{XP Gain}</b>, <b>{Luck}</b>, <b>{Difficulty}</b>, <b>{Size}</b>, etc."
             "</span>"
         )
-        stage_ann_help.setWordWrap(True)
-        stage_ann_layout.addWidget(stage_ann_help)
-        others_form.addRow("Stage Transition:", stage_ann_layout)
+        stats_help.setWordWrap(True)
+        stats_layout.addWidget(stats_help)
 
-        scroll_layout.addWidget(others_group)
-        scroll_layout.addSpacing(10)
+        adv_scroll_layout.addWidget(stats_group)
+        adv_scroll_layout.addSpacing(15)
 
-        # 3. Disabled Command Settings
+        # -- !disabled section --
         disabled_group = QGroupBox("!disabled Command Settings")
         disabled_layout = QVBoxLayout(disabled_group)
         disabled_layout.addWidget(QLabel("Select key items to display when globally disabled in lobby:"))
 
-        # Search filter field
         self.disabled_search_input = QLineEdit()
         self.disabled_search_input.setPlaceholderText("Search / Filter items...")
         self.disabled_search_input.textChanged.connect(self.filter_disabled_items)
@@ -1351,12 +1295,11 @@ class TwitchCommandSettingsDialog(QDialog):
         self.show_all_disabled_items_cb.stateChanged.connect(self.filter_disabled_items)
         disabled_layout.addWidget(self.show_all_disabled_items_cb)
 
-        # Scrollable checklist of items
-        disabled_scroll = QScrollArea()
-        disabled_scroll.setWidgetResizable(True)
-        disabled_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        disabled_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        disabled_scroll.setFixedHeight(150) # Scrollable height
+        disabled_scroll_area = QScrollArea()
+        disabled_scroll_area.setWidgetResizable(True)
+        disabled_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        disabled_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        disabled_scroll_area.setFixedHeight(150)
 
         disabled_scroll_content = QWidget()
         self.disabled_grid = QGridLayout(disabled_scroll_content)
@@ -1384,7 +1327,6 @@ class TwitchCommandSettingsDialog(QDialog):
                     d_name = " ".join(parts) if parts else item.enum_name
                 display_names_to_item[d_name] = item
 
-        # Retrieve active disabled items from cache or live_run_tracker
         disabled_in_game = []
         if self.master:
             cache = getattr(self.master, "player_stats_disabled_items_cache", None)
@@ -1399,22 +1341,19 @@ class TwitchCommandSettingsDialog(QDialog):
                     pass
         disabled_in_game_set = {name.lower() for name in disabled_in_game if name}
 
-        # Load currently highlighted disabled items
         highlighted_disabled = set(config.TWITCH_BOT.get("highlighted_disabled_items", []))
 
-        # Sort: priority 0 = checked & disabled, 1 = checked, 2 = disabled, 3 = other
         def item_sort_key(d_name):
             is_checked = d_name in highlighted_disabled
             is_disabled_ingame = d_name.lower() in disabled_in_game_set
             if is_checked and is_disabled_ingame:
-                priority = 0
+                return (0, d_name.lower())
             elif is_checked:
-                priority = 1
+                return (1, d_name.lower())
             elif is_disabled_ingame:
-                priority = 2
+                return (2, d_name.lower())
             else:
-                priority = 3
-            return (priority, d_name.lower())
+                return (3, d_name.lower())
 
         sorted_display_names = sorted(display_names_to_item.keys(), key=item_sort_key)
 
@@ -1437,8 +1376,8 @@ class TwitchCommandSettingsDialog(QDialog):
 
         self.filter_disabled_items()
 
-        disabled_scroll.setWidget(disabled_scroll_content)
-        disabled_layout.addWidget(disabled_scroll)
+        disabled_scroll_area.setWidget(disabled_scroll_content)
+        disabled_layout.addWidget(disabled_scroll_area)
         disabled_layout.addSpacing(10)
 
         disabled_form = QFormLayout()
@@ -1456,8 +1395,52 @@ class TwitchCommandSettingsDialog(QDialog):
         disabled_help.setWordWrap(True)
         disabled_layout.addWidget(disabled_help)
 
-        scroll_layout.addWidget(disabled_group)
-        scroll_layout.addStretch(1)
+        adv_scroll_layout.addWidget(disabled_group)
+        adv_scroll_layout.addStretch(1)
+        self.tabs.addTab(tab_advanced, "Advanced Commands")
+
+        # === TAB 3: Announcers ===
+        tab_announcers = QWidget()
+        tab_announcers_layout = QVBoxLayout(tab_announcers)
+        ann_scroll, _, ann_scroll_layout = _make_scroll_section()
+        tab_announcers_layout.addWidget(ann_scroll)
+
+        announcers_form = QFormLayout()
+
+        stage_ann_val = config.TWITCH_BOT.get("templates", {}).get(
+            "stage_announcement",
+            "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩"
+        )
+        stage_ann_entry = QLineEdit(stage_ann_val)
+        self.templates_entries["stage_announcement"] = stage_ann_entry
+
+        stage_ann_layout = QVBoxLayout()
+        stage_ann_layout.addWidget(stage_ann_entry)
+        stage_ann_help = QLabel(
+            "<span style='color: #9CA3AF; font-size: 11px;'>"
+            "Tags: {stage}, {kills}, {time}, {next_stage}"
+            "</span>"
+        )
+        stage_ann_help.setWordWrap(True)
+        stage_ann_layout.addWidget(stage_ann_help)
+        announcers_form.addRow("Stage Transition:", stage_ann_layout)
+
+        ann_scroll_layout.addLayout(announcers_form)
+        
+        # Commands announcer
+        self.commands_announcement_interval_spin = QSpinBox()
+        self.commands_announcement_interval_spin.setRange(1, 1440)
+        self.commands_announcement_interval_spin.setValue(
+            int(config.TWITCH_BOT.get("commands_announcement_interval_minutes", 30))
+        )
+        self.commands_announcement_interval_spin.setSuffix(" min")
+        
+        ann_extra_form = QFormLayout()
+        ann_extra_form.addRow("Commands interval:", self.commands_announcement_interval_spin)
+        ann_scroll_layout.addLayout(ann_extra_form)
+        
+        ann_scroll_layout.addStretch(1)
+        self.tabs.addTab(tab_announcers, "Announcers")
 
         # 3. Sticky action buttons
         button_row = QHBoxLayout()
@@ -1529,12 +1512,7 @@ class TwitchCommandSettingsDialog(QDialog):
         for cb in self.disabled_item_checkboxes.values():
             cb.setChecked(False)
 
-        self.commands_announcements_cb.setChecked(
-            config.DEFAULT_TWITCH_BOT["commands_announcements"]
-        )
-        self.commands_announcement_interval_spin.setValue(
-            config.DEFAULT_TWITCH_BOT["commands_announcement_interval_minutes"]
-        )
+
 
         defaults = {
             "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
@@ -1549,6 +1527,9 @@ class TwitchCommandSettingsDialog(QDialog):
         }
         for key, entry in self.templates_entries.items():
             entry.setText(defaults.get(key, ""))
+        self.commands_announcement_interval_spin.setValue(
+            int(config.DEFAULT_TWITCH_BOT.get("commands_announcement_interval_minutes", 30))
+        )
         self._init_guard = False
 
     def filter_disabled_items(self):
@@ -1595,10 +1576,10 @@ class TwitchCommandSettingsDialog(QDialog):
             name for name, cb in self.disabled_item_checkboxes.items() if cb.isChecked()
         ]
         config.TWITCH_BOT["highlighted_disabled_items"] = highlighted_disabled
-        config.TWITCH_BOT["commands_announcements"] = self.commands_announcements_cb.isChecked()
         config.TWITCH_BOT["commands_announcement_interval_minutes"] = (
             self.commands_announcement_interval_spin.value()
         )
+
 
         config.user_config["TWITCH_BOT"] = config.TWITCH_BOT
         config.save_config(config.user_config)

@@ -386,6 +386,26 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._check_commands_announcement("channel", now=219.0)
             self.bot._handle_commands.assert_called_once_with("channel")
 
+    def test_commands_announcement_skips_when_no_commands_are_enabled(self):
+        import config
+
+        self.bot._handle_commands = MagicMock()
+        disabled_commands = {
+            key: False for key in config.DEFAULT_TWITCH_BOT["commands"]
+        }
+        with patch.dict(
+            config.TWITCH_BOT,
+            {
+                "commands_announcements": True,
+                "commands_announcement_interval_minutes": 1,
+                "commands": disabled_commands,
+            },
+        ):
+            self.bot._check_commands_announcement("channel", now=100.0)
+            self.bot._check_commands_announcement("channel", now=160.0)
+
+        self.bot._handle_commands.assert_not_called()
+
     def test_commands_command_routes_through_chat_handler(self):
         from config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")

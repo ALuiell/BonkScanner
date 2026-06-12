@@ -737,7 +737,8 @@ class TwitchBotWorker(QThread):
             
         self._send_chat(channel, msg)
 
-    def _handle_commands(self, channel: str):
+    @staticmethod
+    def _enabled_command_names() -> list[str]:
         commands_cfg = config.TWITCH_BOT.get("commands", {})
         cmd_mapping = [
             ("stats", "!stats"),
@@ -756,7 +757,12 @@ class TwitchBotWorker(QThread):
         enabled_cmds = [display_name for key, display_name in cmd_mapping if commands_cfg.get(key, True)]
         if commands_cfg.get("commands", True):
             enabled_cmds.append("!bonkhelp")
-            
+
+        return enabled_cmds
+
+    def _handle_commands(self, channel: str):
+        enabled_cmds = self._enabled_command_names()
+
         if not enabled_cmds:
             msg = "No Twitch bot commands are currently enabled."
         else:
@@ -791,6 +797,8 @@ class TwitchBotWorker(QThread):
             return
 
         self._last_commands_announcement_at = now
+        if not self._enabled_command_names():
+            return
         self._handle_commands(channel)
 
     def _check_stage_transitions(self, channel: str):

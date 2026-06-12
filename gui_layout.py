@@ -1246,6 +1246,9 @@ class GuiLayoutMixin:
         self.twitch_cmd_disabled_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("disabled", False))
         self.twitch_stage_announcements_cb = QCheckBox("Announce Stage Transitions")
         self.twitch_stage_announcements_cb.setChecked(config.TWITCH_BOT.get("stage_announcements", True))
+        
+        self.twitch_commands_announcements_cb = QCheckBox("Periodically announce available commands")
+        self.twitch_commands_announcements_cb.setChecked(config.TWITCH_BOT.get("commands_announcements", False))
 
         commands_header_layout = QHBoxLayout()
         commands_header_lbl = QLabel("Configure Commands:")
@@ -1280,6 +1283,7 @@ class GuiLayoutMixin:
         settings_layout.addRow(divider)
 
         settings_layout.addRow("Announcements:", self.twitch_stage_announcements_cb)
+        settings_layout.addRow("", self.twitch_commands_announcements_cb)
 
         twitch_layout.addWidget(settings_group)
 

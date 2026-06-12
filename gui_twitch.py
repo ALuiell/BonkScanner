@@ -41,6 +41,7 @@ class TwitchBotMixin:
         self.twitch_cmd_disabled_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_commands_cb.stateChanged.connect(self.on_twitch_commands_toggled)
         self.twitch_stage_announcements_cb.stateChanged.connect(self.save_twitch_settings)
+        self.twitch_commands_announcements_cb.stateChanged.connect(self.save_twitch_settings)
 
     def save_twitch_settings(self, *_):
         config.TWITCH_BOT["access_tier"] = self.twitch_tier_combo.currentText()
@@ -49,6 +50,7 @@ class TwitchBotMixin:
         config.TWITCH_BOT["global_cooldown_seconds"] = self.twitch_global_cooldown_spin.value()
         config.TWITCH_BOT["cooldown_seconds"] = self.twitch_cooldown_spin.value()
         config.TWITCH_BOT["stage_announcements"] = self.twitch_stage_announcements_cb.isChecked()
+        config.TWITCH_BOT["commands_announcements"] = self.twitch_commands_announcements_cb.isChecked()
         config.TWITCH_BOT["commands"]["stats"] = self.twitch_cmd_stats_cb.isChecked()
         config.TWITCH_BOT["commands"]["bans"] = self.twitch_cmd_bans_cb.isChecked()
         config.TWITCH_BOT["commands"]["items"] = self.twitch_cmd_items_cb.isChecked()
