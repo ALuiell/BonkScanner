@@ -138,13 +138,37 @@ class FakeKeyboardModule:
     def __init__(self) -> None:
         self.press_and_release_calls: list[str] = []
         self.add_hotkey_calls: list[tuple[str, object]] = []
+        self.hook_calls: list[object] = []
+        self.hook_remove_calls = 0
         self.unhook_all_calls = 0
+        self._scan_codes: dict[str, int] = {}
 
     def press_and_release(self, key: str) -> None:
         self.press_and_release_calls.append(key)
 
-    def add_hotkey(self, hotkey: str, callback: object) -> None:
+    def key_to_scan_codes(self, key_name: str) -> tuple[int, ...]:
+        normalized = key_name.strip().lower()
+        if normalized not in self._scan_codes:
+            self._scan_codes[normalized] = len(self._scan_codes) + 1
+        return (self._scan_codes[normalized],)
+
+    def parse_hotkey(self, hotkey: str):
+        return tuple(
+            tuple(self.key_to_scan_codes(key) for key in step.split("+"))
+            for step in hotkey.split(",")
+        )
+
+    def hook(self, callback: object):
+        self.hook_calls.append(callback)
+
+        def remove() -> None:
+            self.hook_remove_calls += 1
+
+        return remove
+
+    def add_hotkey(self, hotkey: str, callback: object):
         self.add_hotkey_calls.append((hotkey, callback))
+        return lambda: None
 
     def unhook_all(self) -> None:
         self.unhook_all_calls += 1
@@ -389,6 +413,7 @@ class GuiRunControlTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_config_values = {
             "HOTKEY": gui.config.HOTKEY,
+            "HOTKEY_GAME_KEY_WHITELIST": deepcopy(gui.config.HOTKEY_GAME_KEY_WHITELIST),
             "RESET_HOTKEY": gui.config.RESET_HOTKEY,
             "PLAYER_STATS_RECORD_HOTKEY": gui.config.PLAYER_STATS_RECORD_HOTKEY,
             "AUTO_START_RECORDING": gui.config.AUTO_START_RECORDING,
@@ -448,6 +473,7 @@ class GuiRunControlTests(unittest.TestCase):
         destroyed: list[bool] = []
         dialog = types.SimpleNamespace(
             hotkey_entry=FakeEntry("f7"),
+            hotkey_game_keys_entry=FakeEntry("w, left shift, W, space"),
             reset_hotkey_entry=FakeEntry("r"),
             record_hotkey_entry=FakeEntry("f8"),
             toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
@@ -473,6 +499,11 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(gui.config.user_config["NATIVE_HOOK_ENABLED"])
         self.assertFalse(gui.config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"])
         self.assertTrue(gui.config.user_config["AUTO_START_RECORDING"])
+        self.assertEqual(gui.config.HOTKEY_GAME_KEY_WHITELIST, ["w", "left shift", "space"])
+        self.assertEqual(
+            gui.config.user_config["HOTKEY_GAME_KEY_WHITELIST"],
+            ["w", "left shift", "space"],
+        )
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         self.assertTrue(update_game_reset_time.called)
@@ -995,9 +1026,10 @@ class GuiRunControlTests(unittest.TestCase):
                             with patch.object(gui.config, "TOGGLE_PARTICLES_OPACITY_HOTKEY", "f7"):
                                 gui.MegabonkApp.setup_hotkeys(app)
 
-        self.assertEqual(fake_keyboard.unhook_all_calls, 1)
-        registered_hotkeys = [hotkey for hotkey, _callback in fake_keyboard.add_hotkey_calls]
-        self.assertEqual(registered_hotkeys, ["f6", "f8", "f11", "f10", "f7"])
+        self.assertEqual(fake_keyboard.unhook_all_calls, 0)
+        self.assertEqual(len(fake_keyboard.hook_calls), 1)
+        self.assertEqual(fake_keyboard.add_hotkey_calls, [])
+        self.assertIsNotNone(app._hotkey_manager)
         self.assertEqual(logs, [])
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:

@@ -295,6 +295,7 @@ The main `Settings` dialog currently includes:
 - `Toggle Chest Skip Hotkey`
 - `Toggle Auto Level-Up Hotkey`
 - `Toggle Particles Opacity Hotkey`
+- `Allowed Held Game Keys`
 - `Min Reroll Delay (s)`
 - `Reset Hold Duration (s)`
 - `Snapshot Interval (s)`
@@ -308,6 +309,8 @@ Notes:
 - `Use hook for game toggles` controls whether `Toggle Chest Skip`,
   `Toggle Auto Level-Up`, and `Toggle Particles Opacity` may use the hook path
   to update supported values inside the game's own config;
+- `Allowed Held Game Keys` lets hotkeys fire while listed gameplay keys are
+  held, but this relaxed matching is used only while the game window is active;
 - native hook mode shows an extra confirmation when enabled and may work better while alt-tabbed on some systems because restarts do not depend on the game window being focused;
 - hook-based game-setting hotkeys also show a confirmation when enabled;
 - global hotkeys and keyboard-driven restart may require Administrator privileges on Windows.

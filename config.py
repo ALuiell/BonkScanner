@@ -50,6 +50,14 @@ DEFAULT_SCORES_SYSTEM = {
     "active_tiers": ["Light", "Good", "Perfect", "Perfect+"]
 }
 
+DEFAULT_HOTKEY_GAME_KEY_WHITELIST = [
+    "w", "a", "s", "d", "up", "down", "left", "right",
+    "q", "e", "r", "f", "g", "t", "z", "x", "c", "v", "b",
+    "space", "left shift",
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+    "tab",
+]
+
 DEFAULT_OVERLAY = {
     "schema_version": 4,
     "enabled": False,
@@ -308,6 +316,22 @@ def coerce_nonnegative_int(value, default=0):
     return max(parsed, 0)
 
 
+def normalize_hotkey_game_key_whitelist(value) -> list[str]:
+    if isinstance(value, str):
+        value = value.split(",")
+    if not isinstance(value, (list, tuple)):
+        value = DEFAULT_HOTKEY_GAME_KEY_WHITELIST
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for key_name in value:
+        key_name = str(key_name).strip().lower()
+        if key_name and key_name not in seen:
+            normalized.append(key_name)
+            seen.add(key_name)
+    return normalized
+
+
 def _merge_dict_defaults(value, defaults):
     result = {}
     source = value if isinstance(value, dict) else {}
@@ -512,6 +536,9 @@ else:
         RESET_HOLD_DURATION = 0.4
 
 HOTKEY = user_config.get("HOTKEY", "f6")
+HOTKEY_GAME_KEY_WHITELIST = normalize_hotkey_game_key_whitelist(
+    user_config.get("HOTKEY_GAME_KEY_WHITELIST", DEFAULT_HOTKEY_GAME_KEY_WHITELIST)
+)
 PLAYER_STATS_RECORD_HOTKEY = user_config.get("PLAYER_STATS_RECORD_HOTKEY", "f8")
 PLAYER_STATS_RECORD_INTERVAL_SECONDS = coerce_nonnegative_int(
     user_config.get("PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
@@ -590,6 +617,7 @@ def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) 
 user_config["MIN_DELAY"] = MIN_DELAY
 user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
 user_config["HOTKEY"] = HOTKEY
+user_config["HOTKEY_GAME_KEY_WHITELIST"] = HOTKEY_GAME_KEY_WHITELIST
 user_config["PLAYER_STATS_RECORD_HOTKEY"] = PLAYER_STATS_RECORD_HOTKEY
 user_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = PLAYER_STATS_RECORD_INTERVAL_SECONDS
 user_config["CHAOS_TOME_TRACKER_INTERVAL_MS"] = CHAOS_TOME_TRACKER_INTERVAL_MS

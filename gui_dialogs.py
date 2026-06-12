@@ -917,6 +917,14 @@ class SettingsDialog(QDialog):
         form_layout.addRow("Toggle Auto Level-Up Hotkey:", self.toggle_auto_select_upgrades_hotkey_entry)
         form_layout.addRow("Toggle Particles Opacity Hotkey:", self.toggle_particles_opacity_hotkey_entry)
 
+        self.hotkey_game_keys_entry = QLineEdit(
+            ", ".join(getattr(config, "HOTKEY_GAME_KEY_WHITELIST", ()))
+        )
+        self.hotkey_game_keys_entry.setToolTip(
+            "Extra game keys that may be held with a hotkey while the game window is active."
+        )
+        form_layout.addRow("Allowed Held Game Keys:", self.hotkey_game_keys_entry)
+
         self.min_delay_entry = QDoubleSpinBox()
         self.min_delay_entry.setRange(0.0, 60.0)
         self.min_delay_entry.setSingleStep(0.1)
@@ -1087,6 +1095,13 @@ class SettingsDialog(QDialog):
         new_toggle_skip_chest_animation_hotkey = _read_text(self.toggle_skip_chest_animation_hotkey_entry).strip()
         new_toggle_auto_select_upgrades_hotkey = _read_text(self.toggle_auto_select_upgrades_hotkey_entry).strip()
         new_toggle_particles_opacity_hotkey = _read_text(self.toggle_particles_opacity_hotkey_entry).strip()
+        hotkey_game_keys_entry = getattr(self, "hotkey_game_keys_entry", None)
+        if hotkey_game_keys_entry is None:
+            new_hotkey_game_keys = list(getattr(config, "HOTKEY_GAME_KEY_WHITELIST", ()))
+        else:
+            new_hotkey_game_keys = config.normalize_hotkey_game_key_whitelist(
+                _read_text(hotkey_game_keys_entry)
+            )
         auto_start_recording = _read_bool(self.auto_start_recording_var)
         native_hook_enabled = _read_bool(self.native_hook_enabled_var)
         native_hook_hotkeys_enabled = _read_bool(self.native_hook_hotkeys_enabled_var)
@@ -1097,6 +1112,7 @@ class SettingsDialog(QDialog):
         config.user_config["TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY"] = new_toggle_skip_chest_animation_hotkey
         config.user_config["TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY"] = new_toggle_auto_select_upgrades_hotkey
         config.user_config["TOGGLE_PARTICLES_OPACITY_HOTKEY"] = new_toggle_particles_opacity_hotkey
+        config.user_config["HOTKEY_GAME_KEY_WHITELIST"] = new_hotkey_game_keys
         config.user_config["AUTO_START_RECORDING"] = auto_start_recording
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
         config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"] = native_hook_hotkeys_enabled
@@ -1107,6 +1123,7 @@ class SettingsDialog(QDialog):
         config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY = new_toggle_skip_chest_animation_hotkey
         config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY = new_toggle_auto_select_upgrades_hotkey
         config.TOGGLE_PARTICLES_OPACITY_HOTKEY = new_toggle_particles_opacity_hotkey
+        config.HOTKEY_GAME_KEY_WHITELIST = new_hotkey_game_keys
         config.AUTO_START_RECORDING = auto_start_recording
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
         config.NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED = native_hook_hotkeys_enabled

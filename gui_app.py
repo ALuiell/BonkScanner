@@ -311,6 +311,7 @@ class MegabonkApp(
         self.native_hook_thread = None
         self.native_hook_generation = 0
         self.run_control_provider = None
+        self._hotkey_manager = None
         self._native_hook_admin_warning_logged = False
         self._native_hook_error_dialog_visible = False
         self.checkboxes = {}

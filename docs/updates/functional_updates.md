@@ -6,6 +6,7 @@ This file tracks open and partially completed functional/runtime work that does 
 
 Status legend:
 
+- `[Implemented]` completed and covered by automated tests
 - `[Partial]` some meaningful work is done, but the feature is not fully complete
 - `[Open]` not implemented yet
 
@@ -63,27 +64,31 @@ Announcement ideas:
 
 ## Hotkey Improvement — Modifier-Aware Triggering
 
-Status: `[Open]`
+Status: `[Implemented]`
 
 Date discussed: 2026-06-10
+Date implemented: 2026-06-12
 
 ### Problem
 
 Hotkeys (e.g. skip chest animation, run control hotkeys) fail to trigger when the user holds a game key simultaneously. The hotkey system currently matches exact key combinations, so `Shift + F9` is treated as a different event from `F9` alone and the hotkey does not fire.
 
-### Proposed Solution — Game-Key Whitelist
+### Implemented Solution — Game-Key Whitelist
 
-Instead of registering a raw hotkey listener that requires an exact match, switch to a raw key-press listener that checks the full set of currently pressed keys on every keydown event.
+The app now uses a raw keyboard hook and tracks pressed physical scan codes. A
+hotkey triggers only on a new keydown of its final configured key, so keyboard
+auto-repeat and later presses of held game keys do not retrigger the action.
 
 Trigger logic:
 
 ```
-if hotkey_key in pressed_keys:
-    modifiers = pressed_keys - {hotkey_key}
-    if modifiers ⊆ GAME_KEYS:
-        → trigger action
-    else:
-        → ignore (non-game modifier present, e.g. Ctrl, Alt, Win)
+if event is a new keydown of the hotkey trigger key:
+    if configured hotkey keys are pressed:
+        extra_keys = pressed_keys - configured_hotkey_keys
+        if no extra_keys:
+            trigger globally
+        elif game window is active and extra_keys ⊆ GAME_KEYS:
+            trigger
 ```
 
 ### GAME_KEYS Whitelist
@@ -98,17 +103,26 @@ The whitelist covers keys a player commonly holds during active gameplay:
 | Slots / Skills | 1 – 9, 0 |
 | UI / Map       | Tab |
 
-**Excluded** (treated as non-game modifiers — hotkey will NOT fire):
+**Excluded by default** (treated as non-game modifiers — a plain hotkey will NOT fire):
 - Right Shift, Ctrl (right), Alt, Win key — these can be part of system shortcuts.
-- Left Ctrl is debatable; currently excluded to avoid conflicts with system shortcuts like Ctrl+C.
+- Left Ctrl is excluded to avoid conflicts with system shortcuts like Ctrl+C.
+
+Configured combinations remain supported. For example, when the configured
+hotkey is `Ctrl+F9`, Ctrl is a required part of that hotkey rather than an extra
+blocked key. Multi-step hotkeys containing a comma continue to use the standard
+`keyboard.add_hotkey()` implementation.
 
 ### Why Whitelist Instead of "Any + Hotkey"
 
 - `Ctrl + F9`, `Alt + F9` may be system or browser shortcuts — should not be hijacked.
 - Whitelist gives precise control with minimal user-visible side effects.
-- GAME_KEYS should be configurable in settings so users can adapt it to custom game keybindings.
+- GAME_KEYS is configurable in Settings as `Allowed Held Game Keys` so users can adapt it to custom game keybindings.
 
-### Additional Considerations
+### Implemented Safeguards
 
-- **Debounce**: Ensure one physical key press produces exactly one trigger (no repeat-key spam on hold).
-- **Configurability**: Expose GAME_KEYS as a user-editable list in config/settings for players with non-default bindings.
+- One physical trigger-key press produces one action until that key is released.
+- Left and right modifiers are distinguished through scan codes.
+- Extra whitelisted keys are accepted only while the game window is active.
+- Exact configured hotkeys continue to work globally.
+- Reconfiguring or closing the app removes only BonkScanner's owned hook rather than all hooks registered through the `keyboard` module.
+- Callbacks remain short and forward GUI work through `after(0, ...)`.

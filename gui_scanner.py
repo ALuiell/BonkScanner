@@ -455,9 +455,11 @@ class ScannerMixin:
                     hook_loader.cleanup_cached_dll()
                 except Exception as exc:
                     self.log(f"[WAIT] Could not clean up cached restart helper DLL. Details: {exc}", tag="warning")
-        if keyboard:
+        hotkey_manager = getattr(self, "_hotkey_manager", None)
+        if hotkey_manager is not None:
             try:
-                keyboard.unhook_all()
+                hotkey_manager.stop()
             except Exception:
                 pass
+            self._hotkey_manager = None
         self.destroy()

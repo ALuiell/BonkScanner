@@ -354,6 +354,8 @@ Main hotkeys:
 Implementation shape:
 
 - Settings are stored in `config.json`.
+- Hotkeys use scan-code-aware pressed-key tracking. Exact hotkeys remain global,
+  while extra whitelisted game keys are accepted only when the game is active.
 - Game config edits use the game's config file where possible.
 - Native hook settings use `hook_loader.py` and the BonkHook DLL.
 
