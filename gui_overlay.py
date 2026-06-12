@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPushButton,
     QScrollArea,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -164,29 +165,49 @@ class OverlayMixin:
         dialog.setMinimumSize(640, 680)
         dialog_layout = QVBoxLayout(dialog)
 
-        settings_scroll = QScrollArea()
-        settings_scroll.setWidgetResizable(True)
-        settings_content = QWidget()
-        settings_content_layout = QVBoxLayout(settings_content)
-        settings_content_layout.setContentsMargins(8, 8, 8, 8)
-        settings_content_layout.setSpacing(10)
+        settings_tabs = QTabWidget()
+        dialog_layout.addWidget(settings_tabs, 1)
 
-        settings_toggles: list[QPushButton] = []
+        basic_tab = QWidget()
+        basic_tab_layout = QVBoxLayout(basic_tab)
+        basic_scroll, _basic_content, basic_layout = _make_scroll_section()
+        basic_layout.setSpacing(10)
+        basic_tab_layout.addWidget(basic_scroll)
 
-        stage_summary_card, stage_summary_content, stage_summary_toggle = self._build_overlay_settings_card("Stage Summary", expanded=False)
-        settings_toggles.append(stage_summary_toggle)
-        stage_summary_layout = QVBoxLayout(stage_summary_content)
+        advanced_tab = QWidget()
+        advanced_tab_layout = QVBoxLayout(advanced_tab)
+        advanced_scroll, _advanced_content, advanced_layout = _make_scroll_section()
+        advanced_layout.setSpacing(10)
+        advanced_tab_layout.addWidget(advanced_scroll)
+
+        stage_summary_group = QGroupBox("Stage Summary")
+        stage_summary_layout = QVBoxLayout(stage_summary_group)
         stage_summary_layout.addWidget(QLabel("Configure the Stage Summary overlay widget."))
         stage_summary_widget_cfg = self._overlay_widget_config_by_id().get("stage_summary", {})
         self.overlay_stage_summary_bg_checkbox = QCheckBox("Show background")
         self.overlay_stage_summary_bg_checkbox.setChecked(float(stage_summary_widget_cfg.get("background_opacity", 0)) > 0)
         self.overlay_stage_summary_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         stage_summary_layout.addWidget(self.overlay_stage_summary_bg_checkbox)
-        settings_content_layout.addWidget(stage_summary_card)
+        basic_layout.addWidget(stage_summary_group)
 
-        stats_card, stats_content, stats_toggle = self._build_overlay_settings_card("Stats", expanded=False)
-        settings_toggles.append(stats_toggle)
-        stats_layout = QVBoxLayout(stats_content)
+        banishes_group = QGroupBox("Banishes")
+        banishes_layout = QVBoxLayout(banishes_group)
+        banishes_layout.addWidget(QLabel("Configure the Banishes overlay widget."))
+        banishes_widget_cfg = self._overlay_widget_config_by_id().get("banishes", {})
+        self.overlay_banishes_bg_checkbox = QCheckBox("Show background")
+        self.overlay_banishes_bg_checkbox.setChecked(float(banishes_widget_cfg.get("background_opacity", 0)) > 0)
+        self.overlay_banishes_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        banishes_layout.addWidget(self.overlay_banishes_bg_checkbox)
+
+        self.overlay_banishes_header_checkbox = QCheckBox("Show header")
+        self.overlay_banishes_header_checkbox.setChecked(bool(banishes_widget_cfg.get("show_header", True)))
+        self.overlay_banishes_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        banishes_layout.addWidget(self.overlay_banishes_header_checkbox)
+        basic_layout.addWidget(banishes_group)
+        basic_layout.addStretch(1)
+
+        stats_group = QGroupBox("Stats")
+        stats_layout = QVBoxLayout(stats_group)
         stats_layout.addWidget(QLabel("Selected stats appear in the Stats overlay widget."))
         stats_widget_cfg = self._overlay_widget_config_by_id().get("stats", {})
         self.overlay_stats_bg_checkbox = QCheckBox("Show background")
@@ -219,11 +240,10 @@ class OverlayMixin:
         reset_btn_layout.addStretch(1)
         stats_layout.addLayout(reset_btn_layout)
 
-        settings_content_layout.addWidget(stats_card)
+        advanced_layout.addWidget(stats_group)
 
-        items_card, items_content, items_toggle = self._build_overlay_settings_card("Items", expanded=False)
-        settings_toggles.append(items_toggle)
-        items_layout = QVBoxLayout(items_content)
+        items_group = QGroupBox("Tracked Items")
+        items_layout = QVBoxLayout(items_group)
         items_layout.addWidget(QLabel("Configure tracked item counters for the overlay."))
         self.overlay_map_one_only_checkbox = QCheckBox("Map 1 only")
         self.overlay_map_one_only_checkbox.setChecked(True)
@@ -252,33 +272,15 @@ class OverlayMixin:
         remove_row.addWidget(self.overlay_remove_tracked_item_btn)
         remove_row.addStretch(1)
         items_layout.addLayout(remove_row)
-        settings_content_layout.addWidget(items_card)
+        advanced_layout.addWidget(items_group)
+        advanced_layout.addStretch(1)
 
-        banishes_card, banishes_content, banishes_toggle = self._build_overlay_settings_card("Banishes", expanded=False)
-        settings_toggles.append(banishes_toggle)
-        banishes_layout = QVBoxLayout(banishes_content)
-        banishes_layout.addWidget(QLabel("Configure the Banishes overlay widget."))
-        banishes_widget_cfg = self._overlay_widget_config_by_id().get("banishes", {})
-        self.overlay_banishes_bg_checkbox = QCheckBox("Show background")
-        self.overlay_banishes_bg_checkbox.setChecked(float(banishes_widget_cfg.get("background_opacity", 0)) > 0)
-        self.overlay_banishes_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
-        banishes_layout.addWidget(self.overlay_banishes_bg_checkbox)
-
-        self.overlay_banishes_header_checkbox = QCheckBox("Show header")
-        self.overlay_banishes_header_checkbox.setChecked(bool(banishes_widget_cfg.get("show_header", True)))
-        self.overlay_banishes_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
-        banishes_layout.addWidget(self.overlay_banishes_header_checkbox)
-        settings_content_layout.addWidget(banishes_card)
-
-        self._bind_exclusive_overlay_settings_cards(settings_toggles)
-
-        settings_content_layout.addStretch(1)
-        settings_scroll.setWidget(settings_content)
-        dialog_layout.addWidget(settings_scroll)
+        settings_tabs.addTab(basic_tab, "Basic")
+        settings_tabs.addTab(advanced_tab, "Advanced")
 
         close_row = QHBoxLayout()
         close_row.addStretch(1)
-        close_btn = QPushButton("Close")
+        close_btn = QPushButton("Done")
         close_btn.clicked.connect(dialog.accept)
         close_row.addWidget(close_btn)
         dialog_layout.addLayout(close_row)
@@ -291,48 +293,6 @@ class OverlayMixin:
         finally:
             self._clear_overlay_widget_settings_dialog_refs()
             self.refresh_overlay_tracked_items_ui()
-
-    def _build_overlay_settings_card(self, title: str, *, expanded: bool) -> tuple[QGroupBox, QWidget, QPushButton]:
-        card = QGroupBox(title)
-        layout = QVBoxLayout(card)
-        toggle_btn = QPushButton("Collapse" if expanded else "Expand")
-        toggle_btn.setCheckable(True)
-        toggle_btn.setChecked(expanded)
-        content = QWidget()
-        content.setVisible(expanded)
-
-        def update_expanded(is_expanded: bool) -> None:
-            content.setVisible(bool(is_expanded))
-            toggle_btn.setText("Collapse" if is_expanded else "Expand")
-
-        toggle_btn.toggled.connect(update_expanded)
-        layout.addWidget(toggle_btn, 0, Qt.AlignLeft)
-        layout.addWidget(content)
-        return card, content, toggle_btn
-
-    @staticmethod
-    def _bind_exclusive_overlay_settings_cards(toggles: list[QPushButton]) -> None:
-        for toggle in toggles:
-            toggle.toggled.connect(
-                lambda checked, active_toggle=toggle: OverlayMixin._collapse_other_overlay_settings_cards(
-                    active_toggle,
-                    toggles,
-                    checked,
-                )
-            )
-
-    @staticmethod
-    def _collapse_other_overlay_settings_cards(
-        active_toggle: QPushButton,
-        toggles: list[QPushButton],
-        checked: bool,
-    ) -> None:
-        if not checked:
-            return
-        for toggle in toggles:
-            if toggle is active_toggle or not toggle.isChecked():
-                continue
-            toggle.setChecked(False)
 
     def _reset_overlay_stats_to_default(self) -> None:
         if not getattr(self, "overlay_stats_checkboxes", None):
