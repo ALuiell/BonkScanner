@@ -31,5 +31,6 @@ __pycache__/
 .tmp_unitypy/
 vods/
 stats_recordings/
+chaos_validation_runs/
 
 Dump

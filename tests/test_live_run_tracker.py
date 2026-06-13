@@ -463,7 +463,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         )
         # Should sum to 2x DMG (1st tick + 2nd tick) and 1x Luck
         self.assertEqual(tracker.chaos_tome_summary_parts(), ["DMG +33.6%", "Luck +7%"])
-        
+
         # Next tick, 1 more valid modifier arrives. But we only had available_rolls=3 (levels 2, 3, 4).
         # We already processed 3 rolls (1 in tick 1, 2 in tick 2).
         # It should ignore the new modifier because available_rolls is 0.
@@ -500,8 +500,109 @@ class LiveRunTrackerTests(unittest.TestCase):
                 )
             },
         )
-        
+
         self.assertEqual(tracker.chaos_tome_summary_parts(), ["DMG +33.6%", "Luck +7%"])
+
+    def test_chaos_tracker_keeps_state_across_transient_missing_tome_read(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        powerup = lambda value: SimpleNamespace(
+            stat_id=40,
+            label="Powerup Multiplier",
+            value=value,
+            value_format=PlayerStatFormat.MULTIPLIER,
+        )
+
+        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={40: (powerup(0.0),)})
+        tracker.update_chaos_tome(chaos_level=2, permanent_modifiers={40: (powerup(0.224),)})
+        tracker.update_chaos_tome(chaos_level=None, permanent_modifiers={})
+        tracker.update_chaos_tome(chaos_level=5, permanent_modifiers={40: (powerup(1.568),)})
+
+        self.assertEqual(tracker.chaos_tome_level(), 5)
+        self.assertEqual(tracker.chaos_tome_summary_parts(), ["PM +156.8%"])
+        self.assertEqual(tracker.chaos_tome_snapshot().stats[0].rolls, 4)
+
+    def test_chaos_tracker_keeps_state_across_prolonged_missing_tome_reads(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        powerup = lambda value: SimpleNamespace(
+            stat_id=40,
+            label="Powerup Multiplier",
+            value=value,
+            value_format=PlayerStatFormat.MULTIPLIER,
+        )
+
+        tracker.update_chaos_tome(chaos_level=138, permanent_modifiers={40: ()})
+
+        for _ in range(20):
+            tracker.update_chaos_tome(chaos_level=None, permanent_modifiers={})
+
+        tracker.update_chaos_tome(
+            chaos_level=141,
+            permanent_modifiers={40: (powerup(1.344),)},
+        )
+
+        self.assertEqual(tracker.chaos_tome_level(), 141)
+        self.assertEqual(tracker.chaos_tome_summary_parts(), ["PM +134.4%"])
+        self.assertEqual(tracker.chaos_tome_snapshot().stats[0].rolls, 3)
+
+    def test_chaos_tracker_keeps_run_totals_when_tome_is_replaced(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        powerup = lambda value: SimpleNamespace(
+            stat_id=40,
+            label="Powerup Multiplier",
+            value=value,
+            value_format=PlayerStatFormat.MULTIPLIER,
+        )
+
+        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={40: ()})
+        tracker.update_chaos_tome(chaos_level=2, permanent_modifiers={40: (powerup(0.448),)})
+        tracker.update_chaos_tome(chaos_level=None, permanent_modifiers={})
+        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={40: ()})
+        tracker.update_chaos_tome(chaos_level=2, permanent_modifiers={40: (powerup(0.224),)})
+
+        self.assertEqual(tracker.chaos_tome_level(), 2)
+        self.assertEqual(tracker.chaos_tome_summary_parts(), ["PM +67.2%"])
+        self.assertEqual(tracker.chaos_tome_snapshot().stats[0].rolls, 2)
+
+    def test_chaos_tracker_expires_unbudgeted_fingerprint_before_future_roll(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        damage = SimpleNamespace(
+            stat_id=12,
+            label="Damage",
+            value=0.168,
+            value_format=PlayerStatFormat.MULTIPLIER,
+        )
+        powerup = SimpleNamespace(
+            stat_id=40,
+            label="Powerup Multiplier",
+            value=0.448,
+            value_format=PlayerStatFormat.MULTIPLIER,
+        )
+
+        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={12: (), 40: ()})
+        for _ in range(4):
+            tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={12: (damage,), 40: ()})
+
+        tracker.update_chaos_tome(
+            chaos_level=2,
+            permanent_modifiers={12: (damage,), 40: (powerup,)},
+        )
+
+        self.assertEqual(tracker.chaos_tome_summary_parts(), ["PM +44.8%"])
+
+    def test_chaos_tracker_allows_modifier_to_arrive_one_tick_before_level(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        powerup = SimpleNamespace(
+            stat_id=40,
+            label="Powerup Multiplier",
+            value=0.448,
+            value_format=PlayerStatFormat.MULTIPLIER,
+        )
+
+        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={40: ()})
+        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={40: (powerup,)})
+        tracker.update_chaos_tome(chaos_level=2, permanent_modifiers={40: (powerup,)})
+
+        self.assertEqual(tracker.chaos_tome_summary_parts(), ["PM +44.8%"])
 
     def test_chests_first_chest_tracked(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)

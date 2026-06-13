@@ -136,6 +136,7 @@ def _compute_chaos_fingerprints() -> dict[int, list[float]]:
 
 CHAOS_FINGERPRINTS: dict[int, list[float]] = _compute_chaos_fingerprints()
 CHAOS_TOME_STAT_IDS: frozenset[int] = frozenset(CHAOS_FINGERPRINTS.keys())
+CHAOS_UNBUDGETED_BASELINE_SAMPLES = 4
 CHAOS_TOME_GAME_STAT_ORDER: dict[int, int] = {
     stat_id: index
     for index, stat_id in enumerate(
@@ -215,6 +216,7 @@ class LiveRunTracker:
         self._chaos_totals: dict[int, ChaosTomeStatTotal] = {}
         self._chaos_ambiguous_rolls = 0
         self._chaos_available_rolls = 0
+        self._chaos_unbudgeted_candidates: dict[tuple[int, int], tuple[float, int]] = {}
         self._cached_stage_summary: list[dict[str, Any]] | None = None
         self._chests_opened = 0
         self._chests_total = 46
@@ -324,9 +326,9 @@ class LiveRunTracker:
         permanent_modifiers: dict[int, tuple[Any, ...]],
     ) -> None:
         if chaos_level is None:
-            self._chaos_tome_level = None
-            self._chaos_modifier_baselines = {}
-            self._chaos_available_rolls = 0
+            # TomeInventory may be unavailable while the game mutates its
+            # dictionaries. A missing read is not evidence that the tome was
+            # removed; run resets and level decreases handle real resets.
             return
 
         current_level = max(0, int(chaos_level))
@@ -336,11 +338,10 @@ class LiveRunTracker:
         }
 
         if self._chaos_tome_level is None or current_level < self._chaos_tome_level:
-            if self._chaos_tome_level is not None and current_level < self._chaos_tome_level:
-                self._chaos_totals = {}
             self._chaos_tome_level = current_level
             self._chaos_modifier_baselines = current_baselines
             self._chaos_available_rolls = 0
+            self._chaos_unbudgeted_candidates = {}
             return
 
         if current_level > self._chaos_tome_level:
@@ -562,6 +563,7 @@ class LiveRunTracker:
         self._chaos_totals = {}
         self._chaos_ambiguous_rolls = 0
         self._chaos_available_rolls = 0
+        self._chaos_unbudgeted_candidates = {}
 
     def _record_chaos_modifier_deltas(
         self,
@@ -583,11 +585,20 @@ class LiveRunTracker:
                     if matched_rolls > 0:
                         rolls_to_process = min(self._chaos_available_rolls, matched_rolls)
                         if rolls_to_process > 0:
-                            self._add_chaos_total_by_value(stat_id, values[i], delta * (rolls_to_process / matched_rolls))
+                            self._add_chaos_total_by_value(
+                                stat_id,
+                                values[i],
+                                delta * (rolls_to_process / matched_rolls),
+                                rolls=rolls_to_process,
+                            )
                             self._chaos_available_rolls -= rolls_to_process
+                            new_baseline[i] = new_values[i]
+                            self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
+                        elif self._should_commit_unbudgeted_candidate(stat_id, i, new_values[i]):
                             new_baseline[i] = new_values[i]
                     else:
                         new_baseline[i] = new_values[i]
+                        self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
             
             # Check new indices for spawned modifiers
             if len(new_values) > len(old_values):
@@ -597,13 +608,22 @@ class LiveRunTracker:
                     if matched_rolls > 0:
                         rolls_to_process = min(self._chaos_available_rolls, matched_rolls)
                         if rolls_to_process > 0:
-                            self._add_chaos_total_by_value(stat_id, values[i], val * (rolls_to_process / matched_rolls))
+                            self._add_chaos_total_by_value(
+                                stat_id,
+                                values[i],
+                                val * (rolls_to_process / matched_rolls),
+                                rolls=rolls_to_process,
+                            )
                             self._chaos_available_rolls -= rolls_to_process
+                            new_baseline.append(val)
+                            self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
+                        elif self._should_commit_unbudgeted_candidate(stat_id, i, val):
                             new_baseline.append(val)
                         else:
                             break
                     else:
                         new_baseline.append(val)
+                        self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
             
             self._chaos_modifier_baselines[stat_id] = tuple(new_baseline)
 
@@ -625,7 +645,30 @@ class LiveRunTracker:
 
         return 0
 
-    def _add_chaos_total_by_value(self, stat_id: int, modifier: Any, delta: float) -> None:
+    def _should_commit_unbudgeted_candidate(self, stat_id: int, index: int, value: float) -> bool:
+        key = (stat_id, index)
+        previous = self._chaos_unbudgeted_candidates.get(key)
+        if previous is not None and abs(previous[0] - value) <= 0.001:
+            samples = previous[1] + 1
+        else:
+            samples = 1
+
+        if samples >= CHAOS_UNBUDGETED_BASELINE_SAMPLES:
+            self._chaos_unbudgeted_candidates.pop(key, None)
+            return True
+
+        self._chaos_unbudgeted_candidates[key] = (value, samples)
+        return False
+
+    def _add_chaos_total_by_value(
+        self,
+        stat_id: int,
+        modifier: Any,
+        delta: float,
+        *,
+        rolls: int = 1,
+    ) -> None:
+        rolls = max(1, int(rolls))
         existing = self._chaos_totals.get(stat_id)
         if existing is None:
             self._chaos_totals[stat_id] = ChaosTomeStatTotal(
@@ -633,7 +676,7 @@ class LiveRunTracker:
                 label=str(getattr(modifier, "label", f"Stat {stat_id}")),
                 value=delta,
                 value_format=getattr(modifier, "value_format", None),
-                rolls=1,
+                rolls=rolls,
             )
             return
         self._chaos_totals[stat_id] = ChaosTomeStatTotal(
@@ -641,7 +684,7 @@ class LiveRunTracker:
             label=existing.label,
             value=existing.value + delta,
             value_format=existing.value_format,
-            rolls=existing.rolls + 1,
+            rolls=existing.rolls + rolls,
         )
 
     def _should_reset_for_snapshot(self, snapshot: LiveRunSnapshot) -> bool:
