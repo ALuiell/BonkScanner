@@ -27,6 +27,14 @@ __pycache__/
 *.pyc
 .venv/
 .idea/
+.vs/
+.vscode/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 .continue/agents/
 .tmp_unitypy/
 vods/
