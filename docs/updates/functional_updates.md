@@ -27,6 +27,15 @@ Goal:
 
 Remaining open work:
 
+- `!shrines`
+  - Track the player stat bonuses gained from activating shrines on the current map.
+  - Build a fingerprint catalog for every stat value that each shrine type can grant, similar to the existing Chaos Tome fingerprint detection.
+  - Detect shrine activations by matching newly added permanent stat modifiers against those fingerprints.
+  - Associate every detected shrine-stat event with the current map seed and maintain a per-seed activation counter so the same modifier is not counted more than once.
+  - Reset the current-map shrine statistics when the seed changes, while keeping enough event data to produce a compact map summary.
+  - The Twitch command should report the accumulated stat gains from shrines on the current map, for example: `Shrines: DMG +20% | Luck +10% | XP +15%`.
+  - Fingerprint discovery and live validation are required before implementation to distinguish shrine modifiers reliably from items, tomes, and other permanent stat sources.
+
 - `!cap`
   - Track when the current run reaches important stat caps.
   - Difficulty cap should be user-configurable, for example `500%`.
