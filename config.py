@@ -61,6 +61,7 @@ DEFAULT_HOTKEY_GAME_KEY_WHITELIST = [
 DEFAULT_OVERLAY = {
     "schema_version": 4,
     "enabled": False,
+    "auto_start": False,
     "host": "127.0.0.1",
     "port": 17845,
     "template": "compact",
@@ -378,6 +379,7 @@ def normalize_overlay_config(value):
 
     overlay["schema_version"] = DEFAULT_OVERLAY["schema_version"]
     overlay["enabled"] = bool(overlay.get("enabled", False))
+    overlay["auto_start"] = bool(overlay.get("auto_start", False))
     overlay["host"] = "127.0.0.1"
     overlay["template"] = str(overlay.get("template") or "compact")
     overlay["poll_ms"] = max(250, min(coerce_nonnegative_int(overlay.get("poll_ms"), 500) or 500, 5000))
@@ -445,8 +447,8 @@ def normalize_twitch_bot_config(value):
     
     if not isinstance(bot_cfg.get("commands"), dict):
         bot_cfg["commands"] = dict(DEFAULT_TWITCH_BOT["commands"])
-    for cmd in DEFAULT_TWITCH_BOT["commands"]:
-        bot_cfg["commands"][cmd] = bool(bot_cfg["commands"].get(cmd, True))
+    for cmd, default_enabled in DEFAULT_TWITCH_BOT["commands"].items():
+        bot_cfg["commands"][cmd] = bool(bot_cfg["commands"].get(cmd, default_enabled))
         
     # Normalize selected_stats
     if not isinstance(bot_cfg.get("selected_stats"), list):

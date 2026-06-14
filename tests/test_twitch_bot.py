@@ -92,6 +92,29 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["cooldown_seconds"] = old_cooldown
         TWITCH_BOT["commands"] = old_commands
 
+    def test_opt_in_commands_stay_disabled_when_missing_from_partial_config(self):
+        import config
+
+        with patch.dict(config.TWITCH_BOT, {"commands": {"stats": True}}):
+            enabled_commands = self.bot._enabled_command_names()
+            self.assertIn("!stats", enabled_commands)
+            self.assertNotIn("!chests", enabled_commands)
+            self.assertNotIn("!presets", enabled_commands)
+            self.assertNotIn("!bonkhelp", enabled_commands)
+            self.assertNotIn("!disabled", enabled_commands)
+
+            self.bot._handle_chests = MagicMock()
+            self.bot._handle_presets = MagicMock()
+            self.bot._handle_commands = MagicMock()
+            for command in ("!chests", "!presets", "!bonkhelp"):
+                line = f"@badges=moderator/1 :user!user@user.tmi.twitch.tv PRIVMSG #channel :{command}"
+                with patch("time.time", return_value=100.0):
+                    self.bot._handle_line(line, "channel")
+
+            self.bot._handle_chests.assert_not_called()
+            self.bot._handle_presets.assert_not_called()
+            self.bot._handle_commands.assert_not_called()
+
     def test_safe_formatter_missing_keys(self):
         from twitch_bot import SafeFormatter
         fmt = SafeFormatter()

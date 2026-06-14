@@ -3541,6 +3541,48 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("The One Ring", names)
         self.assertNotIn("Bobs Lantern", names)
 
+    def test_overlay_settings_persist_auto_start_checkbox(self) -> None:
+        app = types.SimpleNamespace(
+            overlay_port_entry=FakeEntry("17845"),
+            overlay_auto_start_cb=FakeCheckbox(True),
+            overlay_widget_checkboxes={},
+            overlay_stats_checkboxes=None,
+            overlay_stage_summary_bg_checkbox=None,
+            overlay_banishes_bg_checkbox=None,
+            overlay_tracked_rules_list=None,
+            overlay_server=types.SimpleNamespace(is_running=False),
+            live_run_tracker=MagicMock(),
+            _overlay_widget_config_by_id=lambda: {},
+            _combined_tracked_item_rules=lambda: [],
+            update_overlay_state_from_tracker=MagicMock(),
+            refresh_overlay_ui=MagicMock(),
+        )
+        overlay = deepcopy(gui.config.DEFAULT_OVERLAY)
+
+        with patch.object(gui.config, "OVERLAY", overlay), \
+             patch.object(gui.config, "user_config", {}), \
+             patch.object(gui.config, "save_config") as save_config:
+            gui.OverlayMixin.save_overlay_settings_from_ui(app)
+
+            self.assertTrue(gui.config.OVERLAY["auto_start"])
+            self.assertTrue(gui.config.user_config["OVERLAY"]["auto_start"])
+            save_config.assert_called_once_with(gui.config.user_config)
+
+    def test_overlay_autostart_uses_auto_start_setting(self) -> None:
+        app = types.SimpleNamespace(
+            start_overlay_server=MagicMock(),
+            update_overlay_state_from_tracker=MagicMock(),
+        )
+
+        with patch.object(gui.config, "OVERLAY", {"enabled": True, "auto_start": False}):
+            gui.OverlayMixin.apply_overlay_autostart(app)
+        app.start_overlay_server.assert_not_called()
+
+        with patch.object(gui.config, "OVERLAY", {"enabled": False, "auto_start": True}):
+            gui.OverlayMixin.apply_overlay_autostart(app)
+        app.start_overlay_server.assert_called_once_with()
+        self.assertEqual(app.update_overlay_state_from_tracker.call_count, 2)
+
     def test_tracked_rule_display_label_prefers_live_alias_for_default_labels(self) -> None:
         self.assertEqual(
             gui.OverlayMixin._tracked_rule_display_label(

@@ -207,16 +207,16 @@ class TwitchBotWorker(QThread):
         elif cmd == "!scanner" and commands_cfg.get("scanner", True):
             self._handle_scanner(channel)
             handled = True
-        elif cmd in ("!chests", "!chest") and commands_cfg.get("chests", True):
+        elif cmd in ("!chests", "!chest") and commands_cfg.get("chests", False):
             self._handle_chests(channel)
             handled = True
-        elif cmd in ("!presets", "!preset") and commands_cfg.get("presets", True):
+        elif cmd in ("!presets", "!preset") and commands_cfg.get("presets", False):
             self._handle_presets(channel)
             handled = True
-        elif cmd == "!disabled" and commands_cfg.get("disabled", True):
+        elif cmd == "!disabled" and commands_cfg.get("disabled", False):
             self._handle_disabled(channel)
             handled = True
-        elif cmd in ("!bonkhelp", "!bonkcmds", "!bonkcommands", "!bhelp") and commands_cfg.get("commands", True):
+        elif cmd in ("!bonkhelp", "!bonkcmds", "!bonkcommands", "!bhelp") and commands_cfg.get("commands", False):
             self._handle_commands(channel)
             handled = True
 
@@ -754,8 +754,13 @@ class TwitchBotWorker(QThread):
             ("presets", "!presets"),
             ("disabled", "!disabled"),
         ]
-        enabled_cmds = [display_name for key, display_name in cmd_mapping if commands_cfg.get(key, True)]
-        if commands_cfg.get("commands", True):
+        command_defaults = config.DEFAULT_TWITCH_BOT["commands"]
+        enabled_cmds = [
+            display_name
+            for key, display_name in cmd_mapping
+            if commands_cfg.get(key, command_defaults[key])
+        ]
+        if commands_cfg.get("commands", command_defaults["commands"]):
             enabled_cmds.append("!bonkhelp")
 
         return enabled_cmds

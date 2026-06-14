@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
-    QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -63,8 +63,78 @@ class OverlayMixin:
         layout.setSpacing(10)
         tab_layout.addWidget(overlay_scroll)
 
-        status_group = QGroupBox("OBS Browser Source")
-        status_layout = QVBoxLayout(status_group)
+        # Grid layout: cards are aligned initially, but AlignTop lets each grow independently
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(16)
+        grid_layout.setContentsMargins(8, 8, 8, 8)
+        layout.addLayout(grid_layout)
+
+        # Left column narrower, right column wider
+        grid_layout.setColumnStretch(0, 1)
+        grid_layout.setColumnStretch(1, 2)
+
+        # ----------------------------------------------------
+        # WIDGET DEFINITIONS
+        # ----------------------------------------------------
+
+        # 1. Server Control Card (Twitch Bot Style)
+        server_group = QGroupBox("Overlay Server")
+        server_layout = QVBoxLayout(server_group)
+        server_layout.setContentsMargins(16, 12, 16, 12)
+        server_layout.setSpacing(10)
+
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.addWidget(QLabel("Server Status:"))
+        self.overlay_status_label = QLabel()
+        self.overlay_status_label.setTextFormat(Qt.RichText)
+        status_row.addWidget(self.overlay_status_label)
+        status_row.addStretch(1)
+        server_layout.addLayout(status_row)
+
+        settings_row = QHBoxLayout()
+        settings_row.setContentsMargins(0, 0, 0, 0)
+        self.overlay_auto_start_cb = QCheckBox("Auto-start server")
+        self.overlay_auto_start_cb.setChecked(config.OVERLAY.get("auto_start", False))
+        self.overlay_auto_start_cb.setToolTip("Start the overlay server automatically when the application starts.")
+        self.overlay_auto_start_cb.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        settings_row.addWidget(self.overlay_auto_start_cb)
+        settings_row.addStretch(1)
+        port_label = QLabel("Port:")
+        self.overlay_port_entry = QLineEdit(str(config.OVERLAY.get("port", 17845)))
+        self.overlay_port_entry.setMaximumWidth(70)
+        self.overlay_port_entry.editingFinished.connect(self.save_overlay_settings_from_ui)
+        settings_row.addWidget(port_label)
+        settings_row.addWidget(self.overlay_port_entry)
+        server_layout.addLayout(settings_row)
+
+        self.overlay_server_toggle_btn = QPushButton("Start Server")
+        self.overlay_server_toggle_btn.setObjectName("SuccessButton")
+        self.overlay_server_toggle_btn.setMinimumHeight(36)
+        btn_font = self.overlay_server_toggle_btn.font()
+        btn_font.setBold(True)
+        self.overlay_server_toggle_btn.setFont(btn_font)
+        self.overlay_server_toggle_btn.clicked.connect(self.toggle_overlay_server)
+        server_layout.addWidget(self.overlay_server_toggle_btn)
+
+
+        # 3. Styled Info Card (Visual Layout Editor guidance)
+        editor_info_card = QFrame()
+        editor_info_card.setStyleSheet("""
+            QFrame {
+                background: #111A2E;
+                border: 1px solid #1D4ED8;
+                border-left: 4px solid #3B82F6;
+                border-radius: 8px;
+                margin-top: 8px;
+            }
+            QLabel {
+                background: transparent;
+                border: none;
+            }
+        """)
+        editor_info_layout = QVBoxLayout(editor_info_card)
+        editor_info_layout.setContentsMargins(12, 12, 12, 12)
 
         intro_label = QLabel(
             "<span style='font-size:10.5pt; font-weight:bold; color:#ffd23f;'>💡 Visual Layout Editor Mode is active!</span><br>"
@@ -75,57 +145,29 @@ class OverlayMixin:
         )
         intro_label.setTextFormat(Qt.RichText)
         intro_label.setWordWrap(True)
-        status_layout.addWidget(intro_label)
+        editor_info_layout.addWidget(intro_label)
 
-        self.overlay_status_label = QLabel()
-        self.overlay_status_label.setTextFormat(Qt.RichText)
-        self.overlay_url_entry = QLineEdit()
-        self.overlay_url_entry.setReadOnly(True)
-        self.overlay_url_entry.setText(self._overlay_url_text())
-        self.overlay_widget_url_combo = QComboBox()
-        for widget_id, label in OVERLAY_WIDGET_LABELS.items():
-            self.overlay_widget_url_combo.addItem(label, widget_id)
-        self.overlay_widget_url_combo.addItem("Layout Editor Mode", "editor")
-        self.overlay_widget_url_combo.currentIndexChanged.connect(lambda _index: self.refresh_overlay_ui())
-        self.overlay_widget_url_entry = QLineEdit()
-        self.overlay_widget_url_entry.setReadOnly(True)
-        self.overlay_server_toggle_btn = QPushButton("Start")
-        self.overlay_server_toggle_btn.setObjectName("SuccessButton")
-        self.overlay_server_toggle_btn.clicked.connect(self.toggle_overlay_server)
-
-        controls = QHBoxLayout()
-        controls.addWidget(QLabel("OBS Overlay server"))
-        controls.addWidget(self.overlay_status_label)
-        controls.addWidget(self.overlay_server_toggle_btn)
-        controls.addStretch(1)
-        status_layout.addLayout(controls)
-        url_grid = QGridLayout()
-        url_grid.addWidget(QLabel("Full overlay"), 0, 0)
-        url_grid.addWidget(self.overlay_url_entry, 0, 1)
-        url_grid.addWidget(QLabel("Widget URL"), 1, 0)
-        url_grid.addWidget(self.overlay_widget_url_combo, 1, 1)
-        url_grid.addWidget(self.overlay_widget_url_entry, 2, 1)
-        status_layout.addLayout(url_grid)
-        layout.addWidget(status_group)
-
-        settings_group = QGroupBox("Settings")
-        settings_layout = QFormLayout(settings_group)
-        self.overlay_port_entry = QLineEdit(str(config.OVERLAY.get("port", 17845)))
-        self.overlay_port_entry.editingFinished.connect(self.save_overlay_settings_from_ui)
-        settings_layout.addRow("Port", self.overlay_port_entry)
-        layout.addWidget(settings_group)
-
-        widgets_group = QGroupBox("Widgets")
+        # 4. Visible Widgets Card
+        widgets_group = QGroupBox("Visible Widgets")
         widgets_layout = QVBoxLayout(widgets_group)
-        widgets_header = QHBoxLayout()
-        widgets_header.addWidget(QLabel("Visible widgets"))
-        widgets_header.addStretch(1)
+        widgets_layout.setContentsMargins(16, 12, 16, 12)
+        widgets_layout.setSpacing(10)
+
+        # Header Row (Label on the left, Button on the right)
+        widgets_header_layout = QHBoxLayout()
+        widgets_header_layout.setContentsMargins(4, 0, 0, 0)
+        widgets_header_lbl = QLabel("Active Overlay Widgets:")
+        widgets_header_lbl.setStyleSheet("font-weight: bold;")
         self.overlay_widget_settings_btn = QPushButton("Widget Settings")
         self.overlay_widget_settings_btn.clicked.connect(self.open_overlay_widget_settings_dialog)
-        widgets_header.addWidget(self.overlay_widget_settings_btn)
-        widgets_layout.addLayout(widgets_header)
+        widgets_header_layout.addWidget(widgets_header_lbl)
+        widgets_header_layout.addStretch(1)
+        widgets_header_layout.addWidget(self.overlay_widget_settings_btn)
+        widgets_layout.addLayout(widgets_header_layout)
 
+        # Checkboxes Grid
         widgets_grid = QGridLayout()
+        widgets_grid.setSpacing(10)
         self.overlay_widget_checkboxes = {}
         widget_config = self._overlay_widget_config_by_id()
         for index, (widget_id, label) in enumerate(OVERLAY_WIDGET_LABELS.items()):
@@ -133,29 +175,76 @@ class OverlayMixin:
             checkbox.setChecked(bool(widget_config.get(widget_id, {}).get("enabled", True)))
             checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
             self.overlay_widget_checkboxes[widget_id] = checkbox
-            widgets_grid.addWidget(checkbox, index // 4, index % 4)
+            # 2x2 layout
+            widgets_grid.addWidget(checkbox, index // 2, index % 2)
         widgets_layout.addLayout(widgets_grid)
-        layout.addWidget(widgets_group)
+
+        # 5. Browser Source URLs Card
+        urls_group = QGroupBox("Browser Source URLs")
+        urls_layout = QGridLayout(urls_group)
+        urls_group.setContentsMargins(16, 12, 16, 12)
+        urls_layout.setSpacing(10)
+
+        # Full Overlay URL
+        urls_layout.addWidget(QLabel("Full Overlay:"), 0, 0)
+        self.overlay_url_entry = QLineEdit()
+        self.overlay_url_entry.setReadOnly(True)
+        self.overlay_url_entry.setText(self._overlay_url_text())
+        urls_layout.addWidget(self.overlay_url_entry, 0, 1)
+
+        copy_full_btn = QPushButton("Copy")
+        copy_full_btn.setStyleSheet("QPushButton { padding: 5px 10px; min-width: 50px; }")
+        copy_full_btn.clicked.connect(lambda: self._copy_to_clipboard(self.overlay_url_entry.text(), copy_full_btn))
+        urls_layout.addWidget(copy_full_btn, 0, 2)
+
+        # Widget selector
+        urls_layout.addWidget(QLabel("Select Widget:"), 1, 0)
+        self.overlay_widget_url_combo = QComboBox()
+        for widget_id, label in OVERLAY_WIDGET_LABELS.items():
+            self.overlay_widget_url_combo.addItem(label, widget_id)
+        self.overlay_widget_url_combo.addItem("Layout Editor Mode", "editor")
+        self.overlay_widget_url_combo.currentIndexChanged.connect(lambda _index: self.refresh_overlay_ui())
+        urls_layout.addWidget(self.overlay_widget_url_combo, 1, 1, 1, 2)
+
+        # Widget URL
+        urls_layout.addWidget(QLabel("Widget URL:"), 2, 0)
+        self.overlay_widget_url_entry = QLineEdit()
+        self.overlay_widget_url_entry.setReadOnly(True)
+        urls_layout.addWidget(self.overlay_widget_url_entry, 2, 1)
+
+        copy_widget_btn = QPushButton("Copy")
+        copy_widget_btn.setStyleSheet("QPushButton { padding: 5px 10px; min-width: 50px; }")
+        copy_widget_btn.clicked.connect(lambda: self._copy_to_clipboard(self.overlay_widget_url_entry.text(), copy_widget_btn))
+        urls_layout.addWidget(copy_widget_btn, 2, 2)
+
+        # Place all cards in grid — AlignTop ensures no card stretches to fill its neighbour's height
+        grid_layout.addWidget(server_group,      0, 0, Qt.AlignTop)
+        grid_layout.addWidget(urls_group,        0, 1, Qt.AlignTop)
+        grid_layout.addWidget(editor_info_card,  1, 0, Qt.AlignTop)
+        grid_layout.addWidget(widgets_group,     1, 1, Qt.AlignTop)
+        grid_layout.setRowStretch(2, 1)
 
         self.overlay_tracked_items_label = None
 
-        help_row = QHBoxLayout()
-        help_label = QLabel(
-            "Add the local URL as an OBS Browser Source. Recording is not required.<br>"
-            "<b>Tip: Open the overlay URL in your browser with '?edit=true' to visually position widgets and customize canvas resolution!</b>"
-        )
-        help_label.setTextFormat(Qt.RichText)
-        help_label.setWordWrap(True)
-        help_btn = QPushButton("Open Help")
-        help_btn.clicked.connect(self.open_help_dialog)
-        help_row.addWidget(help_label, 1)
-        help_row.addWidget(help_btn)
-        layout.addLayout(help_row)
         layout.addStretch(1)
         self.tabview.addTab(self.tab_overlay, "OBS Overlay")
         self.refresh_overlay_item_selector()
         self.refresh_overlay_tracked_items_ui()
         self.refresh_overlay_ui()
+
+    def _copy_to_clipboard(self, text: str, button: QPushButton) -> None:
+        from PySide6.QtGui import QGuiApplication
+        from PySide6.QtCore import QTimer
+        QGuiApplication.clipboard().setText(text)
+        original_text = button.text()
+        button.setText("Copied!")
+        button.setEnabled(False)
+        button.setStyleSheet("background-color: #2F9E6D; color: white; padding: 5px 10px; min-width: 50px;")
+        def restore():
+            button.setText(original_text)
+            button.setEnabled(True)
+            button.setStyleSheet("QPushButton { padding: 5px 10px; min-width: 50px; }")
+        QTimer.singleShot(1500, restore)
 
     def open_overlay_widget_settings_dialog(self) -> None:
         dialog = QDialog(self.tab_overlay)
@@ -360,6 +449,8 @@ class OverlayMixin:
             except ValueError:
                 port = int(overlay.get("port", 17845))
             overlay["port"] = port
+            if getattr(self, "overlay_auto_start_cb", None) is not None:
+                overlay["auto_start"] = bool(self.overlay_auto_start_cb.isChecked())
             overlay = config.normalize_overlay_config(overlay)
             if self.overlay_port_entry is not None:
                 _set_text_input(self.overlay_port_entry, str(overlay["port"]))
@@ -419,14 +510,14 @@ class OverlayMixin:
             _set_text_input(self.overlay_widget_url_entry, self._overlay_selected_widget_url_text())
         if self.overlay_status_label is not None:
             if running:
-                status = 'Status: <span style="color:#4fd67a;">live</span>'
+                status = '<span style="color:#4fd67a; font-weight: bold;">Live</span>'
             elif server is not None and server.last_error:
-                status = f'Status: <span style="color:#f08b72;">port error</span> ({server.last_error})'
+                status = f'<span style="color:#f08b72; font-weight: bold;">Port Error</span> ({server.last_error})'
             else:
-                status = 'Status: <span style="color:#f08b72;">stopped</span>'
+                status = '<span style="color:#f08b72; font-weight: bold;">Stopped</span>'
             _set_text(self.overlay_status_label, status)
         if getattr(self, "overlay_server_toggle_btn", None) is not None:
-            self.overlay_server_toggle_btn.setText("Stop" if running else "Start")
+            self.overlay_server_toggle_btn.setText("Stop Server" if running else "Start Server")
             if running:
                 self.overlay_server_toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
             else:
@@ -741,7 +832,7 @@ class OverlayMixin:
         )
 
     def apply_overlay_autostart(self) -> None:
-        if bool(config.OVERLAY.get("enabled", False)):
+        if bool(config.OVERLAY.get("auto_start", False)):
             self.start_overlay_server()
         self.update_overlay_state_from_tracker()
 
