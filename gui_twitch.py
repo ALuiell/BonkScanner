@@ -11,6 +11,7 @@ class TwitchBotMixin:
 
         self.twitch_connect_btn.clicked.connect(self.start_twitch_auth)
         self.twitch_bot_toggle_btn.clicked.connect(self.toggle_twitch_bot)
+        self.twitch_auto_connect_cb.stateChanged.connect(self.save_twitch_auto_connect)
         self.twitch_command_settings_btn.clicked.connect(self.open_twitch_command_settings_dialog)
 
         token = get_twitch_oauth_token()
@@ -19,9 +20,11 @@ class TwitchBotMixin:
 
         # Restore UI state if already configured
         if config.TWITCH_BOT.get("username") and token:
-            self.twitch_auth_status_label.setText(f"Connected as <span style='color:#4fd67a;'>{config.TWITCH_BOT['username']}</span>")
+            self.twitch_auth_status_label.setText(f"Connected as <span style='color: #4fd67a; font-weight: bold;'>{config.TWITCH_BOT['username']}</span>")
             self.twitch_connect_btn.setVisible(False)
             self.twitch_disconnect_btn.setVisible(True)
+            if config.TWITCH_BOT.get("auto_connect", False):
+                self.start_twitch_bot()
 
         self.twitch_tier_combo.currentTextChanged.connect(self.save_twitch_settings)
         self.twitch_target_channel_entry.editingFinished.connect(self.save_twitch_settings)
@@ -42,6 +45,10 @@ class TwitchBotMixin:
         self.twitch_cmd_commands_cb.stateChanged.connect(self.on_twitch_commands_toggled)
         self.twitch_stage_announcements_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_commands_announcements_cb.stateChanged.connect(self.save_twitch_settings)
+
+    def save_twitch_auto_connect(self, *_):
+        config.TWITCH_BOT["auto_connect"] = self.twitch_auto_connect_cb.isChecked()
+        config.save_config(config.user_config)
 
     def save_twitch_settings(self, *_):
         config.TWITCH_BOT["access_tier"] = self.twitch_tier_combo.currentText()
@@ -79,7 +86,7 @@ class TwitchBotMixin:
 
     def start_twitch_auth(self):
         self.twitch_connect_btn.setEnabled(False)
-        self.twitch_auth_status_label.setText("<span style='color:#ffd23f;'>Waiting for browser authorization...</span>")
+        self.twitch_auth_status_label.setText("<span style='color: #ffd23f; font-weight: bold;'>Waiting for authorization...</span>")
         self.twitch_auth_thread = TwitchAuthThread(self.window)
         self.twitch_auth_thread.auth_success.connect(self.on_twitch_auth_success)
         self.twitch_auth_thread.auth_error.connect(self.on_twitch_auth_error)
@@ -90,19 +97,21 @@ class TwitchBotMixin:
             set_twitch_oauth_token(token)
         except Exception as exc:
             self.twitch_connect_btn.setEnabled(True)
-            self.twitch_auth_status_label.setText("<span style='color:#f08b72;'>Authorization failed.</span>")
+            self.twitch_auth_status_label.setText("<span style='color: #f08b72; font-weight: bold;'>Authorization failed</span>")
             self.log(f"Twitch credential storage error: {exc}", tag="error")
             return
 
         self.twitch_connect_btn.setEnabled(True)
         self.twitch_connect_btn.setVisible(False)
         self.twitch_disconnect_btn.setVisible(True)
-        self.twitch_auth_status_label.setText(f"Connected as <span style='color:#4fd67a;'>{username}</span>")
+        self.twitch_auth_status_label.setText(f"Connected as <span style='color: #4fd67a; font-weight: bold;'>{username}</span>")
         config.TWITCH_BOT["username"] = username
         if getattr(self, "twitch_target_channel_entry", None) is not None:
             self.twitch_target_channel_entry.setPlaceholderText(username)
         config.save_config(config.user_config)
         self.log(f"Twitch bot authenticated as {username}", tag="success")
+        if config.TWITCH_BOT.get("auto_connect", False):
+            self.start_twitch_bot()
 
     def disconnect_twitch(self):
         import urllib.request
@@ -125,13 +134,13 @@ class TwitchBotMixin:
             except Exception:
                 pass
         
-        self.twitch_auth_status_label.setText("<span style='color:#f08b72;'>Not connected</span>")
+        self.twitch_auth_status_label.setText("<span style='color: #f08b72; font-weight: bold;'>Not connected</span>")
         self.twitch_connect_btn.setVisible(True)
         self.twitch_disconnect_btn.setVisible(False)
 
     def on_twitch_auth_error(self, err):
         self.twitch_connect_btn.setEnabled(True)
-        self.twitch_auth_status_label.setText("<span style='color:#f08b72;'>Authorization failed.</span>")
+        self.twitch_auth_status_label.setText("<span style='color: #f08b72; font-weight: bold;'>Authorization failed</span>")
         self.log(f"Twitch auth error: {err}", tag="error")
 
     def toggle_twitch_bot(self):
@@ -166,15 +175,15 @@ class TwitchBotMixin:
     def _update_twitch_bot_status_ui(self, status: str) -> None:
         status_lower = status.lower()
         if "error" in status_lower:
-            formatted = f'Status: <span style="color:#f08b72;">{status}</span>'
+            formatted = f'<span style="color: #f08b72; font-weight: bold;">{status}</span>'
         elif "connected" in status_lower:
-            formatted = f'Status: <span style="color:#4fd67a;">{status}</span>'
+            formatted = f'<span style="color: #4fd67a; font-weight: bold;">{status}</span>'
         elif "connecting" in status_lower:
-            formatted = f'Status: <span style="color:#ffd23f;">{status}</span>'
+            formatted = f'<span style="color: #ffd23f; font-weight: bold;">{status}</span>'
         elif "stopped" in status_lower:
-            formatted = 'Status: <span style="color:#f08b72;">Stopped</span>'
+            formatted = '<span style="color: #f08b72; font-weight: bold;">Stopped</span>'
         else:
-            formatted = f'Status: {status}'
+            formatted = f'<span style="color: #A0B0C5; font-weight: bold;">{status}</span>'
         self.twitch_bot_status_label.setText(formatted)
 
     def on_twitch_bot_status(self, status):

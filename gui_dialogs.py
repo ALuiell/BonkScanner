@@ -1362,7 +1362,7 @@ class TwitchCommandSettingsDialog(QDialog):
         for idx, d_name in enumerate(sorted_display_names):
             is_disabled_ingame = d_name.lower() in disabled_in_game_set
             if is_disabled_ingame:
-                cb = QCheckBox(f"🚫 {d_name} [Disabled]")
+                cb = QCheckBox(f"🚫 {d_name}")
                 cb.setStyleSheet("color: #FB7185; font-weight: bold;")
             else:
                 cb = QCheckBox(d_name)

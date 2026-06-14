@@ -110,6 +110,7 @@ ALL_STAT_LABELS = [
 
 DEFAULT_TWITCH_BOT = {
     "enabled": False,
+    "auto_connect": False,
     "username": "",
     "target_channel": "",
     "access_tier": "Everyone",
@@ -128,8 +129,8 @@ DEFAULT_TWITCH_BOT = {
         "stages": True,
         "powerups": True,
         "scanner": True,
-        "chests": True,
-        "presets": True,
+        "chests": False,
+        "presets": False,
         "commands": False,
         "disabled": False
     },
@@ -420,6 +421,7 @@ def normalize_session_tracked_items_config(value):
 def normalize_twitch_bot_config(value):
     bot_cfg = _merge_dict_defaults(value, DEFAULT_TWITCH_BOT)
     bot_cfg["enabled"] = bool(bot_cfg.get("enabled", False))
+    bot_cfg["auto_connect"] = bool(bot_cfg.get("auto_connect", False))
     bot_cfg["username"] = str(bot_cfg.get("username") or "")
     target_channel = str(bot_cfg.get("target_channel") or "").strip().lstrip("#")
     bot_cfg["target_channel"] = target_channel.lower()

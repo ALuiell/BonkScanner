@@ -5,7 +5,7 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import gui
 from game_data import RuntimeGameMode, RuntimeGameState
@@ -526,6 +526,45 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(gui.config.TWITCH_BOT["cooldown_seconds"], 7)
         self.assertTrue(gui.config.TWITCH_BOT["commands_announcements"])
         self.assertTrue(save_config.called)
+
+    def test_save_twitch_auto_connect_persists_checkbox_state(self) -> None:
+        app = types.SimpleNamespace(twitch_auto_connect_cb=FakeCheckbox(True))
+
+        with patch.dict(gui.config.TWITCH_BOT, {"auto_connect": False}), patch.object(
+            gui.config, "save_config"
+        ) as save_config:
+            gui.MegabonkApp.save_twitch_auto_connect(app)
+
+            self.assertTrue(gui.config.TWITCH_BOT["auto_connect"])
+            save_config.assert_called_once_with(gui.config.user_config)
+
+    def test_twitch_auth_success_starts_bot_when_auto_connect_is_enabled(self) -> None:
+        app = types.SimpleNamespace(
+            twitch_connect_btn=MagicMock(),
+            twitch_disconnect_btn=MagicMock(),
+            twitch_auth_status_label=MagicMock(),
+            twitch_target_channel_entry=MagicMock(),
+            log=MagicMock(),
+            start_twitch_bot=MagicMock(),
+        )
+
+        with patch.dict(gui.config.TWITCH_BOT, {"auto_connect": True}), patch(
+            "gui_twitch.set_twitch_oauth_token"
+        ), patch.object(gui.config, "save_config"):
+            gui.MegabonkApp.on_twitch_auth_success(app, "bonk", "token")
+
+            self.assertEqual(gui.config.TWITCH_BOT["username"], "bonk")
+            app.start_twitch_bot.assert_called_once_with()
+
+    def test_twitch_bot_status_value_does_not_repeat_status_label(self) -> None:
+        status_label = MagicMock()
+        app = types.SimpleNamespace(twitch_bot_status_label=status_label)
+
+        gui.MegabonkApp._update_twitch_bot_status_ui(app, "Connected")
+
+        formatted = status_label.setText.call_args.args[0]
+        self.assertNotIn("Status:", formatted)
+        self.assertIn("Connected", formatted)
 
     def test_settings_save_updates_native_hook_enabled_and_applies_run_control_mode(self) -> None:
         master = FakeSettingsMaster()
