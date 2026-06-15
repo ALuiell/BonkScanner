@@ -654,8 +654,17 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertTrue(stats.expected_available)
         self.assertEqual(stats.expected_tracked_opens, 3)
-        self.assertAlmostEqual(stats.expected_key_procs, 19.0 / 12.0)
+        self.assertAlmostEqual(stats.expected_key_procs, 5.0 / 3.0)
         self.assertEqual(stats.keys_count, 20)
+
+    def test_expected_key_procs_use_key_dropped_by_same_chest(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        tracker.track_expected_key_procs(0, 0)
+        tracker.track_expected_key_procs(1, 1)
+
+        stats = tracker.get_chest_stats()
+        self.assertAlmostEqual(stats.expected_key_procs, 1.0 / 11.0)
 
     def test_expected_key_procs_are_unavailable_when_tracking_starts_mid_run(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)

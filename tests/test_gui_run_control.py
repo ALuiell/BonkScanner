@@ -2471,6 +2471,34 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_new_items_label.text(), "Live snapshot")
         self.assertEqual(app.player_stats_banishes_label.text(), "No banishes yet")
 
+    def test_chaos_refresh_throttles_expected_chest_reads_to_500ms(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        expected_reads: list[int] = []
+        tracked: list[tuple[int, int]] = []
+        client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_expected_chest_inputs=lambda owner_stats: (
+                expected_reads.append(owner_stats) or 7,
+                3,
+            ),
+            get_chaos_tome_level=lambda owner_stats: None,
+        )
+        app._get_player_stats_client = lambda: client
+        app.live_run_tracker = SimpleNamespace(
+            track_expected_key_procs=lambda bought, keys: tracked.append(
+                (bought, keys)
+            ),
+            update_chaos_tome=lambda **kwargs: None,
+        )
+
+        with patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 100.5)):
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+
+        self.assertEqual(expected_reads, [0x1234, 0x1234])
+        self.assertEqual(tracked, [(7, 3), (7, 3)])
+
     def test_refresh_live_player_stats_now_captures_while_hidden_recording(self) -> None:
         app = self.build_recording_app()
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)

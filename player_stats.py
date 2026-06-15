@@ -451,6 +451,7 @@ class PlayerStatsClient:
     PASSIVE_ITEM_DICT_OFFSET = 0x50
     DICT_ENTRIES_OFFSET = 0x18
     DICT_COUNT_OFFSET = 0x20
+    DICT_VERSION_OFFSET = 0x24
     DICT_ENTRY_START_OFFSET = 0x20
     DICT_ENTRY_SIZE = 0x18
     DICT_ENTRY_HASH_CODE_OFFSET = 0x0
@@ -517,6 +518,14 @@ class PlayerStatsClient:
         self.module_name = module_name
         self._owns_memory = memory is None
         self.memory: MemoryReader = memory or ProcessMemory(process_name)
+        self._cached_chests_bought_dict = 0
+        self._cached_chests_bought_entries = 0
+        self._cached_chests_bought_version: int | None = None
+        self._cached_chests_bought_address = 0
+        self._cached_key_dict = 0
+        self._cached_key_entries = 0
+        self._cached_key_version: int | None = None
+        self._cached_key_stack_address = 0
 
     def close(self) -> None:
         if self._owns_memory and hasattr(self.memory, "close"):
@@ -630,6 +639,121 @@ class PlayerStatsClient:
             if count is not None:
                 return count
         return 0
+
+    def get_expected_chest_inputs(
+        self,
+        owner_stats: int | None = None,
+    ) -> tuple[int, int]:
+        """Read the two fast-changing Expected inputs using validated addresses."""
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        return (
+            self._get_cached_chests_bought(),
+            self._get_cached_key_count(owner_stats),
+        )
+
+    def _get_cached_key_count(self, owner_stats: int) -> int:
+        passive_item_dict = self._resolve_preferred_passive_item_dict(owner_stats)
+        if not passive_item_dict:
+            self._clear_cached_key_address()
+            return 0
+
+        entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
+        version = self.memory.read_i32(passive_item_dict + self.DICT_VERSION_OFFSET)
+        cache_valid = (
+            passive_item_dict == self._cached_key_dict
+            and entries == self._cached_key_entries
+            and version == self._cached_key_version
+        )
+        if not cache_valid:
+            self._cached_key_dict = passive_item_dict
+            self._cached_key_entries = entries
+            self._cached_key_version = version
+            self._cached_key_stack_address = self._find_passive_item_stack_address(
+                passive_item_dict,
+                "Key",
+            )
+
+        if not self._cached_key_stack_address:
+            return 0
+        try:
+            return max(1, self.memory.read_i32(self._cached_key_stack_address))
+        except MemoryReadError:
+            self._clear_cached_key_address()
+            return 0
+
+    def _resolve_preferred_passive_item_dict(self, owner_stats: int) -> int:
+        try:
+            inventory_container = self.memory.read_ptr(
+                owner_stats + self.INVENTORY_CONTAINER_OFFSET
+            )
+            if inventory_container:
+                passive_item_dict = self.memory.read_ptr(
+                    inventory_container + self.PASSIVE_ITEM_DICT_OFFSET
+                )
+                if passive_item_dict:
+                    return passive_item_dict
+        except MemoryReadError:
+            pass
+
+        try:
+            player_inventory = self.memory.read_ptr(
+                owner_stats + self.PLAYER_INVENTORY_OFFSET
+            )
+            item_inventory = (
+                self.memory.read_ptr(player_inventory + self.ITEM_INVENTORY_OFFSET)
+                if player_inventory
+                else 0
+            )
+            return (
+                self.memory.read_ptr(
+                    item_inventory + self.ITEM_INVENTORY_ITEMS_DICT_OFFSET
+                )
+                if item_inventory
+                else 0
+            )
+        except MemoryReadError:
+            return 0
+
+    def _find_passive_item_stack_address(
+        self,
+        passive_item_dict: int,
+        target_name: str,
+    ) -> int:
+        entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return 0
+        count = self.memory.read_i32(passive_item_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return 0
+        if count > self.MAX_PASSIVE_ITEM_DICT_ENTRIES:
+            raise MemoryReadError(f"Passive item dictionary count is invalid: {count}")
+
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            try:
+                item_value = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+                class_meta = (
+                    self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
+                    if item_value
+                    else 0
+                )
+                name_ptr = (
+                    self.memory.read_ptr(class_meta + self.CLASS_META_NAME_PTR_OFFSET)
+                    if class_meta
+                    else 0
+                )
+                raw_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
+                if self._format_item_name(raw_name) == target_name:
+                    return item_value + self.ITEM_STACK_COUNT_OFFSET
+            except MemoryReadError:
+                continue
+        return 0
+
+    def _clear_cached_key_address(self) -> None:
+        self._cached_key_dict = 0
+        self._cached_key_entries = 0
+        self._cached_key_version = None
+        self._cached_key_stack_address = 0
 
     def _read_passive_item_count(
         self,
@@ -977,6 +1101,62 @@ class PlayerStatsClient:
     def get_chests_bought(self) -> int:
         run_stats = self.get_run_stat_values(("chestsBought",))
         return max(0, int(run_stats.get("chestsBought", 0.0)))
+
+    def _get_cached_chests_bought(self) -> int:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.RUN_STATS_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("RunStats type info is not initialized.")
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError("RunStats static fields are not initialized.")
+        stats_dict = self.memory.read_ptr(static_fields + self.RUN_STATS_DICT_OFFSET)
+        if not stats_dict:
+            raise MemoryReadError("RunStats.stats dictionary is not initialized.")
+        entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            raise MemoryReadError("RunStats.stats entries are not initialized.")
+        version = self.memory.read_i32(stats_dict + self.DICT_VERSION_OFFSET)
+
+        if (
+            stats_dict != self._cached_chests_bought_dict
+            or entries != self._cached_chests_bought_entries
+            or (
+                not self._cached_chests_bought_address
+                and version != self._cached_chests_bought_version
+            )
+        ):
+            self._cached_chests_bought_dict = stats_dict
+            self._cached_chests_bought_entries = entries
+            self._cached_chests_bought_version = version
+            self._cached_chests_bought_address = self._find_run_stat_value_address(
+                stats_dict,
+                "chestsBought",
+            )
+
+        if not self._cached_chests_bought_address:
+            return 0
+        return max(0, int(self.memory.read_float(self._cached_chests_bought_address)))
+
+    def _find_run_stat_value_address(self, stats_dict: int, target_key: str) -> int:
+        entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
+        count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return 0
+        if count > self.MAX_RUN_STATS_ENTRIES:
+            raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
+
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
+                continue
+            key_ptr = self.memory.read_ptr(entry + self.DICT_ENTRY_KEY_OFFSET)
+            if key_ptr and self.memory.read_mono_string(key_ptr) == target_key:
+                return entry + self.RUN_STATS_ENTRY_VALUE_OFFSET
+        return 0
 
     def get_live_damage_sources(self) -> tuple[DamageSourceSnapshot, ...]:
         type_info_address = self.memory.module_offset(

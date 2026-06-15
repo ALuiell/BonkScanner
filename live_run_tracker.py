@@ -569,15 +569,9 @@ class LiveRunTracker:
 
         delta = chests_bought - self._expected_chests_bought
         if delta > 0:
-            previous_keys = (
-                keys_count
-                if self._expected_keys_count is None
-                else self._expected_keys_count
-            )
-            chance_before = self.key_proc_chance(previous_keys)
-            chance_after = self.key_proc_chance(keys_count)
-            sampled_chance = (chance_before + chance_after) / 2.0
-            self._expected_key_procs += delta * sampled_chance
+            # A key dropped by a chest can proc on that same chest, so the
+            # post-open stack is the best observable probability sample.
+            self._expected_key_procs += delta * self.key_proc_chance(keys_count)
             self._expected_tracked_opens += delta
 
         self._expected_chests_bought = chests_bought

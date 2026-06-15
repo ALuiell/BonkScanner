@@ -151,15 +151,24 @@ class PlayerStatsMixin:
             client = self._get_player_stats_client()
             owner_stats = client.resolve_owner_stats()
 
-            try:
-                keys_count = client.get_passive_item_count("Key", owner_stats)
-                chests_bought = client.get_chests_bought()
-                self.live_run_tracker.track_expected_key_procs(
-                    chests_bought,
-                    keys_count,
-                )
-            except Exception:
-                pass
+            now = time.monotonic()
+            last_chest_refresh = getattr(
+                self,
+                "_last_chest_expected_refresh_at",
+                None,
+            )
+            if last_chest_refresh is None or now - last_chest_refresh >= 0.5:
+                self._last_chest_expected_refresh_at = now
+                try:
+                    chests_bought, keys_count = client.get_expected_chest_inputs(
+                        owner_stats
+                    )
+                    self.live_run_tracker.track_expected_key_procs(
+                        chests_bought,
+                        keys_count,
+                    )
+                except Exception:
+                    pass
 
             chaos_level = client.get_chaos_tome_level(owner_stats)
             if chaos_level is None:
@@ -4504,6 +4513,7 @@ class PlayerStatsMixin:
             self.player_stats_client = None
         self.player_stats_last_seed = None
         self.player_stats_last_run_timer = None
+        self._last_chest_expected_refresh_at = None
 
     def close_player_stats_game_data_client(self):
         game_data_client = self.__dict__.get("player_stats_game_data_client")

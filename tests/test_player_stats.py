@@ -138,8 +138,10 @@ def build_player_stats_memory() -> FakeMemory:
     )
     ints = {
         passive_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+        passive_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
         item_value + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET: 2,
         run_stats_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+        run_stats_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
         run_stats_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
         player_xp + PlayerStatsClient.PLAYER_XP_LEVEL_OFFSET: 2,
         money_utility_static_fields + PlayerStatsClient.MONEY_UTILITY_CHESTS_PURCHASED_OFFSET: 12,
@@ -399,6 +401,49 @@ class PlayerStatsClientTests(unittest.TestCase):
         client = PlayerStatsClient(memory=memory)
 
         self.assertEqual(client.get_chest_counters(), (0, 0))
+
+    def test_expected_chest_inputs_reuse_validated_entry_addresses(self) -> None:
+        memory = self.build_memory()
+        memory.ascii_strings[0x20000B00] = "ItemKey"
+        memory.ints[0x20000900 + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET] = 13
+        memory.mono_strings[0x20001200] = "chestsBought"
+        value_address = (
+            0x20001100
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.RUN_STATS_ENTRY_VALUE_OFFSET
+        )
+        memory.floats[value_address] = 19.0
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(client.get_expected_chest_inputs(0x20000300), (19, 13))
+
+        del memory.ascii_strings[0x20000B00]
+        del memory.mono_strings[0x20001200]
+        memory.floats[value_address] = 20.0
+        memory.ints[0x20000900 + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET] = 14
+        self.assertEqual(client.get_expected_chest_inputs(0x20000300), (20, 14))
+
+    def test_expected_chest_inputs_rescan_key_after_dictionary_change(self) -> None:
+        memory = self.build_memory()
+        memory.ascii_strings[0x20000B00] = "ItemKey"
+        memory.mono_strings[0x20001200] = "chestsBought"
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(client.get_expected_chest_inputs(0x20000300)[1], 2)
+
+        memory.ints[0x20000700 + PlayerStatsClient.DICT_VERSION_OFFSET] = 2
+        memory.ascii_strings[0x20000B00] = "ItemWrench"
+        self.assertEqual(client.get_expected_chest_inputs(0x20000300)[1], 0)
+
+    def test_expected_chest_inputs_find_bought_stat_when_it_appears(self) -> None:
+        memory = self.build_memory()
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(client.get_expected_chest_inputs(0x20000300)[0], 0)
+
+        memory.mono_strings[0x20001200] = "chestsBought"
+        memory.ints[0x20001000 + PlayerStatsClient.DICT_VERSION_OFFSET] = 2
+        self.assertEqual(client.get_expected_chest_inputs(0x20000300)[0], 37)
 
     def test_get_player_level_reads_live_player_xp_level(self) -> None:
         client = PlayerStatsClient(memory=self.build_memory())
