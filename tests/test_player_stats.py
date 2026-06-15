@@ -91,6 +91,9 @@ def build_player_stats_memory() -> FakeMemory:
     run_stats_dict = 0x20001000
     run_stats_entries = 0x20001100
     kills_key = 0x20001200
+    money_utility_type_info = base + PlayerStatsClient.MONEY_UTILITY_TYPE_INFO_OFFSET
+    money_utility_class_ptr = 0x20001300
+    money_utility_static_fields = 0x20001400
     player_inventory = 0x20001600
     player_xp = 0x20001700
     pointers.update(
@@ -102,6 +105,8 @@ def build_player_stats_memory() -> FakeMemory:
             run_stats_static_fields + PlayerStatsClient.RUN_STATS_DICT_OFFSET: run_stats_dict,
             run_stats_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: run_stats_entries,
             run_stats_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: kills_key,
+            money_utility_type_info: money_utility_class_ptr,
+            money_utility_class_ptr + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: money_utility_static_fields,
             owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
             player_inventory + PlayerStatsClient.PLAYER_XP_OFFSET: player_xp,
         }
@@ -137,6 +142,7 @@ def build_player_stats_memory() -> FakeMemory:
         run_stats_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
         run_stats_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
         player_xp + PlayerStatsClient.PLAYER_XP_LEVEL_OFFSET: 2,
+        money_utility_static_fields + PlayerStatsClient.MONEY_UTILITY_CHESTS_PURCHASED_OFFSET: 12,
     }
     ascii_strings = {
         class_name_ptr: "ItemWrench",
@@ -297,6 +303,23 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertEqual(items, ("Wrench x2",))
 
+    def test_get_passive_item_count_reads_only_requested_stack(self) -> None:
+        memory = self.build_memory()
+        memory.ascii_strings[0x20000B00] = "ItemKey"
+        memory.ints[0x20000900 + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET] = 13
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(client.get_passive_item_count("Key"), 13)
+        self.assertEqual(client.get_passive_item_count("Wrench"), 0)
+
+    def test_get_passive_item_count_defaults_found_item_to_one(self) -> None:
+        memory = self.build_memory()
+        memory.ascii_strings[0x20000B00] = "ItemKey"
+        del memory.ints[0x20000900 + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET]
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(client.get_passive_item_count("Key"), 1)
+
     def test_get_passive_items_falls_back_to_player_item_inventory(self) -> None:
         memory = self.build_memory()
         owner_stats = 0x20000300
@@ -352,6 +375,30 @@ class PlayerStatsClientTests(unittest.TestCase):
         value = client.get_killed_mobs()
 
         self.assertEqual(value, 37)
+
+    def test_get_chest_counters_reads_bought_and_purchased(self) -> None:
+        memory = self.build_memory()
+        run_stats_entries = 0x20001100
+        memory.mono_strings[0x20001200] = "chestsBought"
+        memory.floats[
+            run_stats_entries
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.RUN_STATS_ENTRY_VALUE_OFFSET
+        ] = 19.0
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(client.get_chest_counters(), (19, 12))
+        self.assertEqual(client.get_chests_bought(), 19)
+
+    def test_get_chest_counters_defaults_missing_bought_key_to_zero(self) -> None:
+        memory = self.build_memory()
+        memory.mono_strings[0x20001200] = "kills"
+        memory.ints[
+            0x20001400 + PlayerStatsClient.MONEY_UTILITY_CHESTS_PURCHASED_OFFSET
+        ] = 0
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(client.get_chest_counters(), (0, 0))
 
     def test_get_player_level_reads_live_player_xp_level(self) -> None:
         client = PlayerStatsClient(memory=self.build_memory())

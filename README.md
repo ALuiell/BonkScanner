@@ -270,7 +270,7 @@ Available chat commands:
 - `!chaos` / `!chaostome`: tracked Chaos Tome level and stat roll totals.
 - `!stages`: stage summary.
 - `!powerups`: active powerup duration info.
-- `!chests` / `!chest`: displays the number of chests opened per stage, keys count, and free chest openings (Free chest includes naturally free chests + chests opened for free using keys).
+- `!chests` / `!chest`: displays per-stage and total chest progress, paid openings, actual and expected Key procs, inherently free chests, and the current Key proc chance. The same data is arranged as six readable rows in the sixth Stats card and saved in recordings.
 - `!scanner`: general info about the BonkScanner app and download link.
 - `!presets`: active templates or score tiers and weights.
 - `!bonkhelp` / `!bonkcmds` / `!bonkcommands` / `!bhelp`: list of all active Twitch bot commands.

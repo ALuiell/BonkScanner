@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from math import isfinite, pi, sqrt
 import time
-from typing import Protocol
+from typing import Iterable, Protocol
 
 from item_metadata import ITEM_DISPLAY_NAME_BY_RAW_VALUE, ITEM_ENUM_NAMES_BY_ID
 from memory import MemoryReadError, ProcessMemory
@@ -414,6 +414,7 @@ class PlayerStatsTimeline:
 
 class PlayerStatsClient:
     TYPE_INFO_OFFSET = 0x02F6A4B8
+    MONEY_UTILITY_TYPE_INFO_OFFSET = 0x02F5E0B0
     RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398
     RUN_STATS_TYPE_INFO_OFFSET = 0x02F7A170
     RUN_UNLOCKABLES_TYPE_INFO_OFFSET = 0x02F7A210
@@ -481,6 +482,7 @@ class PlayerStatsClient:
     RUN_STATS_DICT_OFFSET = 0x0
     RUN_STATS_ENTRY_VALUE_OFFSET = 0x10
     MAX_RUN_STATS_ENTRIES = 256
+    MONEY_UTILITY_CHESTS_PURCHASED_OFFSET = 0x48
     RUN_DAMAGE_SOURCES_DICT_OFFSET = 0x8
     DAMAGE_SOURCE_NAME_OFFSET = 0x10
     DAMAGE_SOURCE_ADDED_AT_TIME_OFFSET = 0x18
@@ -579,6 +581,96 @@ class PlayerStatsClient:
             return ()
 
         return self._read_passive_item_dictionary(passive_item_dict)
+
+    def get_passive_item_count(
+        self,
+        item_name: str,
+        owner_stats: int | None = None,
+    ) -> int:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        dictionaries: list[int] = []
+
+        try:
+            inventory_container = self.memory.read_ptr(
+                owner_stats + self.INVENTORY_CONTAINER_OFFSET
+            )
+            if inventory_container:
+                dictionaries.append(
+                    self.memory.read_ptr(
+                        inventory_container + self.PASSIVE_ITEM_DICT_OFFSET
+                    )
+                )
+        except MemoryReadError:
+            pass
+
+        try:
+            player_inventory = self.memory.read_ptr(
+                owner_stats + self.PLAYER_INVENTORY_OFFSET
+            )
+            item_inventory = (
+                self.memory.read_ptr(
+                    player_inventory + self.ITEM_INVENTORY_OFFSET
+                )
+                if player_inventory
+                else 0
+            )
+            if item_inventory:
+                dictionaries.append(
+                    self.memory.read_ptr(
+                        item_inventory + self.ITEM_INVENTORY_ITEMS_DICT_OFFSET
+                    )
+                )
+        except MemoryReadError:
+            pass
+
+        for passive_item_dict in dict.fromkeys(dictionaries):
+            if not passive_item_dict:
+                continue
+            count = self._read_passive_item_count(passive_item_dict, item_name)
+            if count is not None:
+                return count
+        return 0
+
+    def _read_passive_item_count(
+        self,
+        passive_item_dict: int,
+        target_name: str,
+    ) -> int | None:
+        entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return None
+
+        count = self.memory.read_i32(passive_item_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return 0
+        if count > self.MAX_PASSIVE_ITEM_DICT_ENTRIES:
+            raise MemoryReadError(f"Passive item dictionary count is invalid: {count}")
+
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            try:
+                item_value = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+                if not item_value:
+                    continue
+                class_meta = self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
+                name_ptr = (
+                    self.memory.read_ptr(class_meta + self.CLASS_META_NAME_PTR_OFFSET)
+                    if class_meta
+                    else 0
+                )
+                raw_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
+                if self._format_item_name(raw_name) != target_name:
+                    continue
+                try:
+                    stack_count = self.memory.read_i32(
+                        item_value + self.ITEM_STACK_COUNT_OFFSET
+                    )
+                except MemoryReadError:
+                    stack_count = 1
+                return max(1, stack_count)
+            except MemoryReadError:
+                continue
+        return 0
 
     def _read_passive_item_dictionary(self, passive_item_dict: int) -> tuple[str, ...]:
         entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
@@ -802,7 +894,11 @@ class PlayerStatsClient:
 
         return self.memory.read_float(static_fields + self.STAGE_TIMER_OFFSET)
 
-    def get_killed_mobs(self) -> int:
+    def get_run_stat_values(self, keys: Iterable[str]) -> dict[str, float]:
+        requested = frozenset(str(key) for key in keys)
+        if not requested:
+            return {}
+
         type_info_address = self.memory.module_offset(
             self.module_name,
             self.RUN_STATS_TYPE_INFO_OFFSET,
@@ -826,10 +922,11 @@ class PlayerStatsClient:
         count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
 
         if count <= 0:
-            return 0
+            return {}
         if count > self.MAX_RUN_STATS_ENTRIES:
             raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
 
+        values: dict[str, float] = {}
         for index in range(count):
             entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
             hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
@@ -839,11 +936,47 @@ class PlayerStatsClient:
             if not key_ptr:
                 continue
             key = self.memory.read_mono_string(key_ptr)
-            if key != "kills":
+            if key not in requested:
                 continue
-            return max(0, int(self.memory.read_float(entry + self.RUN_STATS_ENTRY_VALUE_OFFSET)))
+            values[key] = self.memory.read_float(entry + self.RUN_STATS_ENTRY_VALUE_OFFSET)
+            if len(values) == len(requested):
+                break
+
+        return values
+
+    def get_killed_mobs(self) -> int:
+        values = self.get_run_stat_values(("kills",))
+        if "kills" in values:
+            return max(0, int(values["kills"]))
 
         raise MemoryReadError("RunStats.stats does not contain a 'kills' entry.")
+
+    def get_chest_counters(self) -> tuple[int, int]:
+        chests_bought = self.get_chests_bought()
+
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.MONEY_UTILITY_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("MoneyUtility type info is not initialized.")
+
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError("MoneyUtility static fields are not initialized.")
+
+        chests_purchased = max(
+            0,
+            self.memory.read_i32(
+                static_fields + self.MONEY_UTILITY_CHESTS_PURCHASED_OFFSET
+            ),
+        )
+        return chests_bought, chests_purchased
+
+    def get_chests_bought(self) -> int:
+        run_stats = self.get_run_stat_values(("chestsBought",))
+        return max(0, int(run_stats.get("chestsBought", 0.0)))
 
     def get_live_damage_sources(self) -> tuple[DamageSourceSnapshot, ...]:
         type_info_address = self.memory.module_offset(

@@ -239,6 +239,15 @@ class FakeRecordingRecorder:
         map_seed=None,
         stage_ptr=0,
         stage_time_seconds=None,
+        chests_opened=None,
+        chests_total=None,
+        paid_chests=None,
+        key_procs=None,
+        free_chests=None,
+        keys_count=None,
+        expected_key_procs=None,
+        chests_opened_by_stage=None,
+        chests_total_by_stage=None,
     ):
         snapshot = SimpleNamespace(
             stats=stats,
@@ -255,6 +264,15 @@ class FakeRecordingRecorder:
             map_seed=map_seed,
             stage_ptr=stage_ptr,
             stage_time_seconds=stage_time_seconds,
+            chests_opened=chests_opened,
+            chests_total=chests_total,
+            paid_chests=paid_chests,
+            key_procs=key_procs,
+            free_chests=free_chests,
+            keys_count=keys_count,
+            expected_key_procs=expected_key_procs,
+            chests_opened_by_stage=chests_opened_by_stage,
+            chests_total_by_stage=chests_total_by_stage,
             time_label="00:00",
         )
         self.capture_calls.append(
@@ -273,6 +291,15 @@ class FakeRecordingRecorder:
                 "map_seed": map_seed,
                 "stage_ptr": stage_ptr,
                 "stage_time_seconds": stage_time_seconds,
+                "chests_opened": chests_opened,
+                "chests_total": chests_total,
+                "paid_chests": paid_chests,
+                "key_procs": key_procs,
+                "free_chests": free_chests,
+                "keys_count": keys_count,
+                "expected_key_procs": expected_key_procs,
+                "chests_opened_by_stage": chests_opened_by_stage,
+                "chests_total_by_stage": chests_total_by_stage,
             }
         )
         self.should_capture_value = False
@@ -372,6 +399,29 @@ class FakeForegroundProcess:
 
 
 class GuiRunControlTests(unittest.TestCase):
+    def test_formats_full_chests_card(self) -> None:
+        self.assertEqual(
+            gui.MegabonkApp.chests_card_values(
+                {1: 46, 2: 46, 3: 42},
+                {1: 46, 2: 46, 3: 46},
+                134,
+                138,
+                52,
+                71,
+                11,
+                17,
+                75.44,
+            ),
+            {
+                "maps": "T1:46/46 T2:46/46 T3:42/46",
+                "total": "134/138",
+                "paid_free": "52 / 11",
+                "key_procs": "71/123 (57.7%)",
+                "expected": "75.4",
+                "keys": "17 (63.0%)",
+            },
+        )
+
     def build_recording_app(self) -> gui.MegabonkApp:
         app = object.__new__(gui.MegabonkApp)
         app.player_stats_vod_recorder = FakeRecordingRecorder()
@@ -918,6 +968,32 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertTrue(gui.MegabonkApp.wait_for_game_window_focus(app, "Megabonk.exe"))
 
+    def test_game_window_focus_falls_back_to_title_when_attached_pid_differs(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.get_game_process_id = lambda: 1234
+        fake_gui = SimpleNamespace(
+            GetForegroundWindow=lambda: 111,
+            GetWindowText=lambda _window: "Megabonk",
+        )
+        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
+
+        with patch.object(gui, "win32gui", fake_gui):
+            with patch.object(gui, "win32process", fake_process):
+                self.assertTrue(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
+
+    def test_game_window_focus_rejects_unrelated_title_when_attached_pid_differs(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.get_game_process_id = lambda: 1234
+        fake_gui = SimpleNamespace(
+            GetForegroundWindow=lambda: 111,
+            GetWindowText=lambda _window: "BonkScanner",
+        )
+        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
+
+        with patch.object(gui, "win32gui", fake_gui):
+            with patch.object(gui, "win32process", fake_process):
+                self.assertFalse(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
+
     def test_keyboard_mode_still_waits_when_game_window_is_not_active(self) -> None:
         logs: list[tuple[str, str | None]] = []
         sleeps: list[float] = []
@@ -1160,6 +1236,36 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(fake_keyboard.add_hotkey_calls, [])
         self.assertIsNotNone(app._hotkey_manager)
         self.assertEqual(logs, [])
+
+    def test_hotkey_with_held_game_key_uses_title_fallback_for_active_window(self) -> None:
+        fake_keyboard = FakeKeyboardModule()
+        scan_toggles: list[str] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.log = lambda _message, tag=None: None
+        app.get_game_process_id = lambda: 1234
+        app.hotkey_toggle_scanning = lambda: scan_toggles.append("scan")
+        app.hotkey_toggle_player_stats_recording = lambda: None
+        app.hotkey_toggle_skip_chest_animation = lambda: None
+        app.hotkey_toggle_auto_select_upgrades = lambda: None
+        app.hotkey_toggle_particles_opacity = lambda: None
+        fake_gui = SimpleNamespace(
+            GetForegroundWindow=lambda: 111,
+            GetWindowText=lambda _window: "Megabonk",
+        )
+        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
+
+        with patch.object(gui, "keyboard", fake_keyboard):
+            with patch.object(gui, "win32gui", fake_gui):
+                with patch.object(gui, "win32process", fake_process):
+                    with patch.object(gui.config, "HOTKEY_GAME_KEY_WHITELIST", ("w",)):
+                        with patch.object(gui.config, "HOTKEY", "f6"):
+                            gui.MegabonkApp.setup_hotkeys(app)
+
+                            hook = fake_keyboard.hook_calls[0]
+                            hook(SimpleNamespace(scan_code=fake_keyboard.key_to_scan_codes("w")[0], event_type="down"))
+                            hook(SimpleNamespace(scan_code=fake_keyboard.key_to_scan_codes("f6")[0], event_type="down"))
+
+        self.assertEqual(scan_toggles, ["scan"])
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:
         loaded_vod = types.SimpleNamespace(
