@@ -3,6 +3,7 @@ import ssl
 import time
 import re
 import string
+from decimal import Decimal, ROUND_HALF_UP
 from math import isfinite
 from PySide6.QtCore import QThread, Signal
 import config
@@ -14,6 +15,18 @@ class SafeFormatter(string.Formatter):
         if isinstance(key, str):
             return kwargs.get(key, "--")
         return super().get_value(key, args, kwargs)
+
+
+def _round_chaos_summary_part(part: str) -> str:
+    def replace_value(match: re.Match[str]) -> str:
+        value = Decimal(match.group("value")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        return f"{match.group('sign')}{value}{match.group('suffix')}"
+
+    return re.sub(
+        r"(?P<sign>[+-])(?P<value>\d+(?:\.\d+)?)(?P<suffix>%?)$",
+        replace_value,
+        part,
+    )
 
 
 class TwitchBotWorker(QThread):
@@ -546,7 +559,7 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, f"Chaos Tome Lv{chaos_level}: no rolls tracked yet.")
             return
 
-        chaos_text = " | ".join(parts)
+        chaos_text = " | ".join(_round_chaos_summary_part(part) for part in parts)
         text = self._format_template(
             "chaos",
             "Chaos Tome Lv{level}: {chaos}",
@@ -636,39 +649,59 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, "No active run detected.")
             return
 
-        chests_opened, chests_total, keys_count, free_opens, chests_by_stage, total_by_stage = self.run_tracker.get_chests_and_keys()
-        
-        if chests_by_stage and len(chests_by_stage) > 1:
-            parts = []
-            sorted_stages = sorted(chests_by_stage.items())
-            for i, (stage, count) in enumerate(sorted_stages):
-                stage_max = total_by_stage.get(stage, chests_total)
-                if i < len(sorted_stages) - 1:
-                    parts.append(f"T{stage}:{count}/{stage_max}")
-                else:
-                    parts.append(f"T{stage}:{count}")
-                    chests_total = stage_max
-                        
-            opened_str = " ".join(parts) if parts else str(chests_opened)
-            total_str = str(chests_total)
+        get_chest_stats = getattr(self.run_tracker, "get_chest_stats", None)
+        if callable(get_chest_stats):
+            stats = get_chest_stats()
+            keys_count = stats.keys_count
+            paid_opens = stats.paid
+            key_procs = stats.key_procs
+            free_chests = stats.free_chests
+            chests_by_stage = stats.opened_by_stage
+            total_by_stage = stats.total_by_stage
+            total_opened = stats.total_opened
+            total_chests = stats.total_chests
+            normal_opened = stats.normal_opened
+            expected_procs = (
+                f"{stats.expected_key_procs:.1f}"
+                if stats.expected_available
+                else "--"
+            )
         else:
-            opened_str = str(chests_opened)
-            total_str = str(chests_total)
+            chests_opened, chests_total, keys_count, key_procs, chests_by_stage, total_by_stage = self.run_tracker.get_chests_and_keys()
+            paid_opens = max(0, chests_opened - key_procs)
+            free_chests = 0
+            total_opened = sum(chests_by_stage.values()) if chests_by_stage else chests_opened
+            total_chests = sum(total_by_stage.values()) if total_by_stage else chests_total
+            normal_opened = paid_opens + key_procs
+            expected_procs = "--"
+
+        stage_parts = [
+            f"T{stage}:{count}/{total_by_stage.get(stage, 0)}"
+            for stage, count in sorted(chests_by_stage.items())
+        ]
+        stages_str = " ".join(stage_parts) if stage_parts else f"T1:{total_opened}/{total_chests}"
 
         if keys_count <= 0:
             chance_val = 0.0
         else:
             chance_val = (0.10 * keys_count) / (0.10 * keys_count + 1.0) * 100.0
         chance_str = f"{chance_val:.1f}%"
-
+        proc_rate = (key_procs / normal_opened * 100.0) if normal_opened > 0 else 0.0
+        proc_rate_str = f"{proc_rate:.1f}%"
         text = self._format_template(
             "chests",
-            "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance}) | Free chest: {procs}",
-            opened=opened_str,
-            total=total_str,
+            "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
+            stages=stages_str,
+            opened=total_opened,
+            total=total_chests,
+            paid=paid_opens,
             keys=keys_count,
             chance=chance_str,
-            procs=free_opens,
+            procs=key_procs,
+            normal=normal_opened,
+            proc_rate=proc_rate_str,
+            expected=expected_procs,
+            free=free_chests,
         )
         if len(text) > 450:
             text = text[:447] + "..."

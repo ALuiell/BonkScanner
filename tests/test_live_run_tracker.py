@@ -604,23 +604,103 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(tracker.chaos_tome_summary_parts(), ["PM +44.8%"])
 
-    def test_chests_first_chest_tracked(self) -> None:
+    def test_chest_counters_derive_exact_breakdown(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
-        # Initialize
-        tracker.track_chest_opening(0, 100)
-        # First chest opened with same gold (free proc)
-        tracker.track_chest_opening(1, 100)
-        _, _, _, free_opens, _, _ = tracker.get_chests_and_keys()
-        self.assertEqual(free_opens, 1)
+        tracker.update(snapshot(time_seconds=1.0, map_seed=100, stage_ptr=1000))
+        tracker.update_chests_and_keys(10, 46, 5)
 
-    def test_first_chest_sample_after_new_run_only_sets_baseline(self) -> None:
+        self.assertTrue(tracker.update_chest_counters(8, 3))
+        stats = tracker.get_chest_stats()
+
+        self.assertEqual(stats.total_opened, 10)
+        self.assertEqual(stats.paid, 3)
+        self.assertEqual(stats.key_procs, 5)
+        self.assertEqual(stats.free_chests, 2)
+        self.assertEqual(stats.normal_opened, 8)
+
+    def test_chest_counters_reject_inconsistent_snapshot(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
-        tracker.update(snapshot(time_seconds=1.0, map_seed=100))
+        tracker.update(snapshot(time_seconds=1.0, map_seed=100, stage_ptr=1000))
+        tracker.update_chests_and_keys(4, 46, 0)
+        self.assertTrue(tracker.update_chest_counters(3, 2))
 
-        tracker.track_chest_opening(1, 90)
+        self.assertFalse(tracker.update_chest_counters(5, 2))
+        stats = tracker.get_chest_stats()
 
-        _, _, _, free_opens, _, _ = tracker.get_chests_and_keys()
-        self.assertEqual(free_opens, 0)
+        self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (2, 1, 1))
+
+    def test_chest_counters_self_heal_after_new_stage_is_observed(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0, map_seed=100, stage_ptr=1000))
+        tracker.update_chests_and_keys(41, 46, 0)
+        self.assertTrue(tracker.update_chest_counters(41, 20))
+
+        self.assertFalse(tracker.update_chest_counters(42, 20))
+        tracker.update(snapshot(time_seconds=2.0, map_seed=100, stage_ptr=2000))
+        tracker.update_chests_and_keys(1, 46, 0)
+
+        self.assertTrue(tracker.update_chest_counters(42, 20))
+        stats = tracker.get_chest_stats()
+        self.assertEqual(stats.total_opened, 42)
+        self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (20, 22, 0))
+
+    def test_expected_key_procs_accumulate_sampled_probabilities(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        tracker.track_expected_key_procs(0, 10)
+        tracker.track_expected_key_procs(2, 10)
+        tracker.track_expected_key_procs(3, 20)
+        stats = tracker.get_chest_stats()
+
+        self.assertTrue(stats.expected_available)
+        self.assertEqual(stats.expected_tracked_opens, 3)
+        self.assertAlmostEqual(stats.expected_key_procs, 5.0 / 3.0)
+        self.assertEqual(stats.keys_count, 20)
+
+    def test_expected_key_procs_use_key_dropped_by_same_chest(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        tracker.track_expected_key_procs(0, 0)
+        tracker.track_expected_key_procs(1, 1)
+
+        stats = tracker.get_chest_stats()
+        self.assertAlmostEqual(stats.expected_key_procs, 1.0 / 11.0)
+
+    def test_expected_key_procs_are_unavailable_when_tracking_starts_mid_run(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        tracker.track_expected_key_procs(12, 10)
+        tracker.track_expected_key_procs(13, 10)
+
+        stats = tracker.get_chest_stats()
+        self.assertFalse(stats.expected_available)
+        self.assertEqual(stats.expected_tracked_opens, 1)
+
+    def test_expected_key_procs_reset_when_run_counter_rolls_back(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.track_expected_key_procs(0, 10)
+        tracker.track_expected_key_procs(4, 10)
+
+        tracker.track_expected_key_procs(0, 2)
+        tracker.track_expected_key_procs(1, 2)
+        stats = tracker.get_chest_stats()
+
+        self.assertTrue(stats.expected_available)
+        self.assertEqual(stats.expected_tracked_opens, 1)
+        self.assertAlmostEqual(stats.expected_key_procs, 1.0 / 6.0)
+
+    def test_full_run_reset_preserves_expected_data_after_fast_counter_reset(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.track_expected_key_procs(20, 10)
+        tracker.track_expected_key_procs(0, 4)
+        tracker.track_expected_key_procs(1, 4)
+
+        tracker._reset_for_new_run()
+        stats = tracker.get_chest_stats()
+
+        self.assertTrue(stats.expected_available)
+        self.assertEqual(stats.expected_tracked_opens, 1)
+        self.assertAlmostEqual(stats.expected_key_procs, 2.0 / 7.0)
 
     def test_has_active_run_clears_when_game_is_gone(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)

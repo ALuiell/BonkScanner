@@ -1202,6 +1202,7 @@ class TwitchCommandSettingsDialog(QDialog):
             ("tomes", "!tomes:", "Tomes: {tomes}", "Tags: {tomes}"),
             ("chaos", "!chaos / !chaostome:", "Chaos Tome Lv{level}: {chaos}", "Tags: {level}, {chaos}"),
             ("powerups", "!powerups:", "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})", "Tags: {standard_duration}, {clock_duration}, {pm}"),
+            ("chests", "!chests / !chest:", config.DEFAULT_TWITCH_BOT["templates"]["chests"], "Tags: {stages}, {opened}, {total}, {paid}, {procs}, {normal}, {proc_rate}, {expected}, {free}, {keys}, {chance}"),
         ]
 
         for key, label_text, default_val, help_text in templates_config:
@@ -1522,6 +1523,7 @@ class TwitchCommandSettingsDialog(QDialog):
             "tomes": "Tomes: {tomes}",
             "chaos": "Chaos Tome Lv{level}: {chaos}",
             "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
+            "chests": config.DEFAULT_TWITCH_BOT["templates"]["chests"],
             "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
             "disabled": "Disabled Items: {items}"
         }

@@ -336,9 +336,10 @@ class RunControlMixin:
         if game_process_id is not None:
             try:
                 _, foreground_process_id = win32process.GetWindowThreadProcessId(foreground_window)
-                return int(foreground_process_id) == game_process_id
+                if int(foreground_process_id) == game_process_id:
+                    return True
             except Exception:
-                return False
+                pass
         try:
             foreground_title = win32gui.GetWindowText(foreground_window) or ""
         except Exception:

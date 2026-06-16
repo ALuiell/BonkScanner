@@ -153,6 +153,15 @@ class VodStorageTests(unittest.TestCase):
                 game_time_seconds=21.52338219,
                 mob_kills=37,
                 player_level=2,
+                chests_opened=37,
+                chests_total=46,
+                paid_chests=16,
+                key_procs=19,
+                free_chests=2,
+                keys_count=13,
+                expected_key_procs=18.4,
+                chests_opened_by_stage={1: 37},
+                chests_total_by_stage={1: 46},
             )
             now += 60
             recorder.capture(
@@ -199,6 +208,15 @@ class VodStorageTests(unittest.TestCase):
             self.assertAlmostEqual(loaded.snapshots[0].game_time_seconds, 21.52338219)
             self.assertEqual(loaded.snapshots[0].mob_kills, 37)
             self.assertEqual(loaded.snapshots[0].player_level, 2)
+            self.assertEqual(loaded.snapshots[0].chests_opened, 37)
+            self.assertEqual(loaded.snapshots[0].chests_total, 46)
+            self.assertEqual(loaded.snapshots[0].paid_chests, 16)
+            self.assertEqual(loaded.snapshots[0].key_procs, 19)
+            self.assertEqual(loaded.snapshots[0].free_chests, 2)
+            self.assertEqual(loaded.snapshots[0].keys_count, 13)
+            self.assertEqual(loaded.snapshots[0].expected_key_procs, 18.4)
+            self.assertEqual(loaded.snapshots[0].chests_opened_by_stage, {1: 37})
+            self.assertEqual(loaded.snapshots[0].chests_total_by_stage, {1: 46})
             self.assertEqual(loaded.snapshots[1].items, ("Wrench x2", "Dice x1"))
             self.assertEqual(loaded.snapshots[1].weapons, ())
             self.assertEqual(loaded.snapshots[1].tomes, ())

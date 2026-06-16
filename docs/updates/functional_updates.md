@@ -45,3 +45,42 @@ Remaining open work:
   - Example output idea: `Difficulty cap 500% reached at 10:00; XP gain 10x not reached yet.`
   - Store the first reached timestamp only; do not keep updating it after the cap has already been recorded.
 
+#### 2. Charge Shrine Documentation and `!shrines` Groundwork
+
+Status: `[Open]`
+
+Goal:
+
+- Rebuild the Charge Shrine mechanics documentation from the current game dump and verified runtime captures before implementing shrine tracking or a Twitch `!shrines` command.
+- Replace speculative or incorrect fingerprint data with values derived directly from `GameAssembly.dll` and confirmed through controlled 15-shrine batches.
+
+Confirmed runtime findings:
+
+- Shrine rewards are written to `StatInventory.permanentChanges`.
+- Charging all 15 map shrines produces exactly 15 reward modifiers after the rewards are applied.
+- Luck changes the observed rarity distribution.
+- Clean batches with `Beacon x0` and `Beacon x1` both produced nominal rarity values; Beacon did not increase reward magnitude in the controlled test.
+- Earlier `1.075`-scaled modifiers came from an unidentified source and must not be attributed to Beacon without new evidence.
+- Several values in the current reverse document were corrected by runtime tests, including Armor, Evasion, Damage, Crit Chance, Luck, Pickup Range, Projectiles, Extra Jumps, Gold Gain, and XP Gain.
+
+Required reverse-engineering work:
+
+- Revisit `EncounterUtility.GetRandomStatValue` and reconstruct every shrine stat case, base value, and modify type from the current assembly.
+- Revisit `EncounterUtility.GetRandomStatOffers`, its rounding path, and rarity selection order.
+- Revisit `EncounterData.GetOffers` and `ItemBeacon.GetRewardMultiplier`; explain why static-analysis claims about Beacon scaling conflict with the clean runtime batch.
+- Confirm the exact source of the historical `1.075` multiplier.
+- Verify the current address and pointer chain for `AchievementTracker.chargedShrines`; the documented TypeInfo RVA did not resolve as a valid IL2CPP class pointer in the tested build.
+- Confirm whether the completion counter increments before or after offer selection and whether it is suitable as a delayed-write reward budget.
+
+Validation requirements:
+
+- Run controlled 15-shrine batches with low and high Luck and with Beacon absent/present.
+- Snapshot permanent modifiers immediately before and after each batch.
+- Require every observed modifier to match a dump-derived fingerprint within float32 tolerance.
+- Keep screenshots and exact memory values as fixtures for future automated tests.
+- Do not implement `!shrines` until all 28 shrine stat fingerprints and the reward-budget source are confirmed.
+
+Documentation anchor:
+
+- `docs/recovery/reports/2026-06-15-shrines-mechanics-and-fingerprints.md`
+

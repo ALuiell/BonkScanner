@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from math import isfinite, pi, sqrt
 import time
-from typing import Protocol
+from typing import Iterable, Protocol
 
 from item_metadata import ITEM_DISPLAY_NAME_BY_RAW_VALUE, ITEM_ENUM_NAMES_BY_ID
 from memory import MemoryReadError, ProcessMemory
@@ -414,6 +414,7 @@ class PlayerStatsTimeline:
 
 class PlayerStatsClient:
     TYPE_INFO_OFFSET = 0x02F6A4B8
+    MONEY_UTILITY_TYPE_INFO_OFFSET = 0x02F5E0B0
     RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398
     RUN_STATS_TYPE_INFO_OFFSET = 0x02F7A170
     RUN_UNLOCKABLES_TYPE_INFO_OFFSET = 0x02F7A210
@@ -450,6 +451,7 @@ class PlayerStatsClient:
     PASSIVE_ITEM_DICT_OFFSET = 0x50
     DICT_ENTRIES_OFFSET = 0x18
     DICT_COUNT_OFFSET = 0x20
+    DICT_VERSION_OFFSET = 0x24
     DICT_ENTRY_START_OFFSET = 0x20
     DICT_ENTRY_SIZE = 0x18
     DICT_ENTRY_HASH_CODE_OFFSET = 0x0
@@ -464,6 +466,7 @@ class PlayerStatsClient:
     CLASS_META_NAME_PTR_OFFSET = 0x10
     LIST_ITEMS_OFFSET = 0x10
     LIST_SIZE_OFFSET = 0x18
+    LIST_VERSION_OFFSET = 0x1C
     ARRAY_LENGTH_OFFSET = 0x18
     ARRAY_DATA_OFFSET = 0x20
     OBJECT_POINTER_SIZE = 0x8
@@ -481,6 +484,7 @@ class PlayerStatsClient:
     RUN_STATS_DICT_OFFSET = 0x0
     RUN_STATS_ENTRY_VALUE_OFFSET = 0x10
     MAX_RUN_STATS_ENTRIES = 256
+    MONEY_UTILITY_CHESTS_PURCHASED_OFFSET = 0x48
     RUN_DAMAGE_SOURCES_DICT_OFFSET = 0x8
     DAMAGE_SOURCE_NAME_OFFSET = 0x10
     DAMAGE_SOURCE_ADDED_AT_TIME_OFFSET = 0x18
@@ -515,6 +519,27 @@ class PlayerStatsClient:
         self.module_name = module_name
         self._owns_memory = memory is None
         self.memory: MemoryReader = memory or ProcessMemory(process_name)
+        self._cached_chests_bought_dict = 0
+        self._cached_chests_bought_entries = 0
+        self._cached_chests_bought_version: int | None = None
+        self._cached_chests_bought_address = 0
+        self._cached_key_dict = 0
+        self._cached_key_entries = 0
+        self._cached_key_version: int | None = None
+        self._cached_key_stack_address = 0
+        self._cached_chaos_level_dict = 0
+        self._cached_chaos_level_entries = 0
+        self._cached_chaos_level_version: int | None = None
+        self._cached_chaos_level_address = 0
+        self._cached_permanent_modifiers_dict = 0
+        self._cached_permanent_modifiers_entries = 0
+        self._cached_permanent_modifiers_count = 0
+        self._cached_permanent_modifiers_version: int | None = None
+        self._cached_chaos_tracking_level: int | None = None
+        self._cached_permanent_modifier_lists: dict[
+            int,
+            tuple[int, int, int, int, tuple[int, ...]],
+        ] = {}
 
     def close(self) -> None:
         if self._owns_memory and hasattr(self.memory, "close"):
@@ -579,6 +604,211 @@ class PlayerStatsClient:
             return ()
 
         return self._read_passive_item_dictionary(passive_item_dict)
+
+    def get_passive_item_count(
+        self,
+        item_name: str,
+        owner_stats: int | None = None,
+    ) -> int:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        dictionaries: list[int] = []
+
+        try:
+            inventory_container = self.memory.read_ptr(
+                owner_stats + self.INVENTORY_CONTAINER_OFFSET
+            )
+            if inventory_container:
+                dictionaries.append(
+                    self.memory.read_ptr(
+                        inventory_container + self.PASSIVE_ITEM_DICT_OFFSET
+                    )
+                )
+        except MemoryReadError:
+            pass
+
+        try:
+            player_inventory = self.memory.read_ptr(
+                owner_stats + self.PLAYER_INVENTORY_OFFSET
+            )
+            item_inventory = (
+                self.memory.read_ptr(
+                    player_inventory + self.ITEM_INVENTORY_OFFSET
+                )
+                if player_inventory
+                else 0
+            )
+            if item_inventory:
+                dictionaries.append(
+                    self.memory.read_ptr(
+                        item_inventory + self.ITEM_INVENTORY_ITEMS_DICT_OFFSET
+                    )
+                )
+        except MemoryReadError:
+            pass
+
+        for passive_item_dict in dict.fromkeys(dictionaries):
+            if not passive_item_dict:
+                continue
+            count = self._read_passive_item_count(passive_item_dict, item_name)
+            if count is not None:
+                return count
+        return 0
+
+    def get_expected_chest_inputs(
+        self,
+        owner_stats: int | None = None,
+    ) -> tuple[int, int]:
+        """Read the two fast-changing Expected inputs using validated addresses."""
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        return (
+            self._get_cached_chests_bought(),
+            self._get_cached_key_count(owner_stats),
+        )
+
+    def _get_cached_key_count(self, owner_stats: int) -> int:
+        passive_item_dict = self._resolve_preferred_passive_item_dict(owner_stats)
+        if not passive_item_dict:
+            self._clear_cached_key_address()
+            return 0
+
+        entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
+        version = self.memory.read_i32(passive_item_dict + self.DICT_VERSION_OFFSET)
+        cache_valid = (
+            passive_item_dict == self._cached_key_dict
+            and entries == self._cached_key_entries
+            and version == self._cached_key_version
+        )
+        if not cache_valid:
+            self._cached_key_dict = passive_item_dict
+            self._cached_key_entries = entries
+            self._cached_key_version = version
+            self._cached_key_stack_address = self._find_passive_item_stack_address(
+                passive_item_dict,
+                "Key",
+            )
+
+        if not self._cached_key_stack_address:
+            return 0
+        try:
+            return max(1, self.memory.read_i32(self._cached_key_stack_address))
+        except MemoryReadError:
+            self._clear_cached_key_address()
+            return 0
+
+    def _resolve_preferred_passive_item_dict(self, owner_stats: int) -> int:
+        try:
+            inventory_container = self.memory.read_ptr(
+                owner_stats + self.INVENTORY_CONTAINER_OFFSET
+            )
+            if inventory_container:
+                passive_item_dict = self.memory.read_ptr(
+                    inventory_container + self.PASSIVE_ITEM_DICT_OFFSET
+                )
+                if passive_item_dict:
+                    return passive_item_dict
+        except MemoryReadError:
+            pass
+
+        try:
+            player_inventory = self.memory.read_ptr(
+                owner_stats + self.PLAYER_INVENTORY_OFFSET
+            )
+            item_inventory = (
+                self.memory.read_ptr(player_inventory + self.ITEM_INVENTORY_OFFSET)
+                if player_inventory
+                else 0
+            )
+            return (
+                self.memory.read_ptr(
+                    item_inventory + self.ITEM_INVENTORY_ITEMS_DICT_OFFSET
+                )
+                if item_inventory
+                else 0
+            )
+        except MemoryReadError:
+            return 0
+
+    def _find_passive_item_stack_address(
+        self,
+        passive_item_dict: int,
+        target_name: str,
+    ) -> int:
+        entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return 0
+        count = self.memory.read_i32(passive_item_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return 0
+        if count > self.MAX_PASSIVE_ITEM_DICT_ENTRIES:
+            raise MemoryReadError(f"Passive item dictionary count is invalid: {count}")
+
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            try:
+                item_value = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+                class_meta = (
+                    self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
+                    if item_value
+                    else 0
+                )
+                name_ptr = (
+                    self.memory.read_ptr(class_meta + self.CLASS_META_NAME_PTR_OFFSET)
+                    if class_meta
+                    else 0
+                )
+                raw_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
+                if self._format_item_name(raw_name) == target_name:
+                    return item_value + self.ITEM_STACK_COUNT_OFFSET
+            except MemoryReadError:
+                continue
+        return 0
+
+    def _clear_cached_key_address(self) -> None:
+        self._cached_key_dict = 0
+        self._cached_key_entries = 0
+        self._cached_key_version = None
+        self._cached_key_stack_address = 0
+
+    def _read_passive_item_count(
+        self,
+        passive_item_dict: int,
+        target_name: str,
+    ) -> int | None:
+        entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return None
+
+        count = self.memory.read_i32(passive_item_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return 0
+        if count > self.MAX_PASSIVE_ITEM_DICT_ENTRIES:
+            raise MemoryReadError(f"Passive item dictionary count is invalid: {count}")
+
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            try:
+                item_value = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+                if not item_value:
+                    continue
+                class_meta = self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
+                name_ptr = (
+                    self.memory.read_ptr(class_meta + self.CLASS_META_NAME_PTR_OFFSET)
+                    if class_meta
+                    else 0
+                )
+                raw_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
+                if self._format_item_name(raw_name) != target_name:
+                    continue
+                try:
+                    stack_count = self.memory.read_i32(
+                        item_value + self.ITEM_STACK_COUNT_OFFSET
+                    )
+                except MemoryReadError:
+                    stack_count = 1
+                return max(1, stack_count)
+            except MemoryReadError:
+                continue
+        return 0
 
     def _read_passive_item_dictionary(self, passive_item_dict: int) -> tuple[str, ...]:
         entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
@@ -735,6 +965,271 @@ class PlayerStatsClient:
             return None
         return max(int(level), 0)
 
+    def get_chaos_tracking_state(
+        self,
+        owner_stats: int | None = None,
+    ) -> tuple[int | None, dict[int, tuple[PlayerStatModifierSnapshot, ...]]]:
+        """Read Chaos Tome state through validated cached container addresses."""
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        player_inventory = self.memory.read_ptr(
+            owner_stats + self.PLAYER_INVENTORY_OFFSET
+        )
+        if not player_inventory:
+            self._clear_chaos_tracking_cache()
+            return None, {}
+
+        chaos_level = self._get_cached_chaos_tome_level(player_inventory)
+        if chaos_level is None:
+            self._clear_cached_permanent_modifiers()
+            self._cached_chaos_tracking_level = None
+            return None, {}
+        force_modifier_rescan = (
+            self._cached_chaos_tracking_level is not None
+            and chaos_level > self._cached_chaos_tracking_level
+        )
+        self._cached_chaos_tracking_level = chaos_level
+        return chaos_level, self._get_cached_permanent_stat_modifiers(
+            player_inventory,
+            force_rescan=force_modifier_rescan,
+        )
+
+    def _get_cached_chaos_tome_level(self, player_inventory: int) -> int | None:
+        tome_inventory = self.memory.read_ptr(
+            player_inventory + self.TOME_INVENTORY_OFFSET
+        )
+        if not tome_inventory:
+            self._clear_cached_chaos_level()
+            return None
+        levels_dict = self.memory.read_ptr(
+            tome_inventory + self.TOME_LEVELS_DICT_OFFSET
+        )
+        if not levels_dict:
+            self._clear_cached_chaos_level()
+            return None
+
+        entries = self.memory.read_ptr(levels_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            self._clear_cached_chaos_level()
+            return None
+        version = self.memory.read_i32(levels_dict + self.DICT_VERSION_OFFSET)
+        if (
+            levels_dict != self._cached_chaos_level_dict
+            or entries != self._cached_chaos_level_entries
+            or (
+                not self._cached_chaos_level_address
+                and version != self._cached_chaos_level_version
+            )
+        ):
+            self._cached_chaos_level_dict = levels_dict
+            self._cached_chaos_level_entries = entries
+            self._cached_chaos_level_version = version
+            self._cached_chaos_level_address = self._find_tome_level_address(
+                levels_dict,
+                self.CHAOS_TOME_ID,
+            )
+
+        if not self._cached_chaos_level_address:
+            return None
+        return max(0, self.memory.read_i32(self._cached_chaos_level_address))
+
+    def _find_tome_level_address(self, levels_dict: int, target_tome_id: int) -> int:
+        entries = self.memory.read_ptr(levels_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return 0
+        count = self.memory.read_i32(levels_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return 0
+        if count > self.MAX_WEAPON_DICT_ENTRIES:
+            raise MemoryReadError(f"Tome levels dictionary count is invalid: {count}")
+
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.STAT_DICT_ENTRY_SIZE)
+            if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
+                continue
+            tome_id = self.memory.read_i32(entry + self.STAT_DICT_ENTRY_KEY_OFFSET)
+            if tome_id == target_tome_id:
+                return entry + self.STAT_DICT_ENTRY_VALUE_OFFSET
+        return 0
+
+    def _get_cached_permanent_stat_modifiers(
+        self,
+        player_inventory: int,
+        *,
+        force_rescan: bool = False,
+    ) -> dict[int, tuple[PlayerStatModifierSnapshot, ...]]:
+        stat_inventory = self.memory.read_ptr(
+            player_inventory + self.STAT_INVENTORY_OFFSET
+        )
+        if not stat_inventory:
+            self._clear_cached_permanent_modifiers()
+            return {}
+        dictionary_address = self.memory.read_ptr(
+            stat_inventory + self.STAT_INVENTORY_PERMANENT_CHANGES_OFFSET
+        )
+        if not dictionary_address:
+            self._clear_cached_permanent_modifiers()
+            return {}
+
+        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            self._clear_cached_permanent_modifiers()
+            return {}
+        count = self.memory.read_i32(dictionary_address + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            self._clear_cached_permanent_modifiers()
+            return {}
+        if count > self.MAX_PERMANENT_STAT_ENTRIES:
+            raise MemoryReadError(f"Permanent stat dictionary count is invalid: {count}")
+        version = self.memory.read_i32(dictionary_address + self.DICT_VERSION_OFFSET)
+        if (
+            force_rescan
+            or dictionary_address != self._cached_permanent_modifiers_dict
+            or entries != self._cached_permanent_modifiers_entries
+            or count != self._cached_permanent_modifiers_count
+            or version != self._cached_permanent_modifiers_version
+        ):
+            self._cached_permanent_modifiers_dict = dictionary_address
+            self._cached_permanent_modifiers_entries = entries
+            self._cached_permanent_modifiers_count = count
+            self._cached_permanent_modifiers_version = version
+            self._cached_permanent_modifier_lists = (
+                self._find_permanent_modifier_lists(dictionary_address, count=count)
+            )
+
+        result: dict[int, tuple[PlayerStatModifierSnapshot, ...]] = {}
+        for stat_id, cached_list in tuple(
+            self._cached_permanent_modifier_lists.items()
+        ):
+            list_address, old_items, old_size, old_version, modifier_ptrs = cached_list
+            items_array = self.memory.read_ptr(list_address + self.LIST_ITEMS_OFFSET)
+            size = self.memory.read_i32(list_address + self.LIST_SIZE_OFFSET)
+            list_version = self.memory.read_i32(list_address + self.LIST_VERSION_OFFSET)
+            if size < 0 or size > self.MAX_PERMANENT_STAT_MODIFIERS:
+                raise MemoryReadError(f"Permanent stat modifier list size is invalid: {size}")
+            if (
+                items_array != old_items
+                or size != old_size
+                or list_version != old_version
+            ):
+                modifier_ptrs = self._find_stat_modifier_ptrs(
+                    items_array,
+                    size,
+                    expected_stat_id=stat_id,
+                )
+                self._cached_permanent_modifier_lists[stat_id] = (
+                    list_address,
+                    items_array,
+                    size,
+                    list_version,
+                    modifier_ptrs,
+                )
+
+            modifiers = tuple(
+                self._read_cached_stat_modifier(stat_id, modifier_ptr)
+                for modifier_ptr in modifier_ptrs
+            )
+            if modifiers:
+                result[stat_id] = modifiers
+        return result
+
+    def _find_permanent_modifier_lists(
+        self,
+        dictionary_address: int,
+        *,
+        count: int | None = None,
+    ) -> dict[int, tuple[int, int, int, int, tuple[int, ...]]]:
+        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return {}
+        if count is None:
+            count = self.memory.read_i32(dictionary_address + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return {}
+        if count > self.MAX_PERMANENT_STAT_ENTRIES:
+            raise MemoryReadError(f"Permanent stat dictionary count is invalid: {count}")
+
+        lists: dict[int, tuple[int, int, int, int, tuple[int, ...]]] = {}
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
+                continue
+            stat_id = self.memory.read_i32(entry + self.WEAPON_DICT_ENTRY_KEY_OFFSET)
+            list_address = self.memory.read_ptr(entry + self.WEAPON_DICT_ENTRY_VALUE_OFFSET)
+            if not list_address:
+                continue
+            items_array = self.memory.read_ptr(list_address + self.LIST_ITEMS_OFFSET)
+            size = self.memory.read_i32(list_address + self.LIST_SIZE_OFFSET)
+            list_version = self.memory.read_i32(list_address + self.LIST_VERSION_OFFSET)
+            if size < 0 or size > self.MAX_PERMANENT_STAT_MODIFIERS:
+                raise MemoryReadError(f"Permanent stat modifier list size is invalid: {size}")
+            modifier_ptrs = self._find_stat_modifier_ptrs(
+                items_array,
+                size,
+                expected_stat_id=stat_id,
+            )
+            lists[stat_id] = (
+                list_address,
+                items_array,
+                size,
+                list_version,
+                modifier_ptrs,
+            )
+        return lists
+
+    def _find_stat_modifier_ptrs(
+        self,
+        items_array: int,
+        size: int,
+        *,
+        expected_stat_id: int,
+    ) -> tuple[int, ...]:
+        if not items_array or size <= 0:
+            return ()
+        modifier_ptrs: list[int] = []
+        for index in range(size):
+            modifier_ptr = self.memory.read_ptr(
+                items_array + self.ARRAY_DATA_OFFSET + (index * self.OBJECT_POINTER_SIZE)
+            )
+            if not modifier_ptr:
+                continue
+            if self.memory.read_i32(
+                modifier_ptr + self.STAT_MODIFIER_STAT_OFFSET
+            ) == expected_stat_id:
+                modifier_ptrs.append(modifier_ptr)
+        return tuple(modifier_ptrs)
+
+    def _read_cached_stat_modifier(
+        self,
+        stat_id: int,
+        modifier_ptr: int,
+    ) -> PlayerStatModifierSnapshot:
+        value = self.memory.read_float(modifier_ptr + self.STAT_MODIFIER_VALUE_OFFSET)
+        label, value_format = self._resolve_stat_display(stat_id)
+        return PlayerStatModifierSnapshot(
+            stat_id=stat_id,
+            label=label,
+            value=value,
+            value_format=value_format,
+        )
+
+    def _clear_cached_chaos_level(self) -> None:
+        self._cached_chaos_level_dict = 0
+        self._cached_chaos_level_entries = 0
+        self._cached_chaos_level_version = None
+        self._cached_chaos_level_address = 0
+
+    def _clear_cached_permanent_modifiers(self) -> None:
+        self._cached_permanent_modifiers_dict = 0
+        self._cached_permanent_modifiers_entries = 0
+        self._cached_permanent_modifiers_count = 0
+        self._cached_permanent_modifiers_version = None
+        self._cached_permanent_modifier_lists = {}
+
+    def _clear_chaos_tracking_cache(self) -> None:
+        self._clear_cached_chaos_level()
+        self._cached_chaos_tracking_level = None
+        self._clear_cached_permanent_modifiers()
+
     def get_permanent_stat_modifiers(
         self,
         owner_stats: int | None = None,
@@ -802,7 +1297,11 @@ class PlayerStatsClient:
 
         return self.memory.read_float(static_fields + self.STAGE_TIMER_OFFSET)
 
-    def get_killed_mobs(self) -> int:
+    def get_run_stat_values(self, keys: Iterable[str]) -> dict[str, float]:
+        requested = frozenset(str(key) for key in keys)
+        if not requested:
+            return {}
+
         type_info_address = self.memory.module_offset(
             self.module_name,
             self.RUN_STATS_TYPE_INFO_OFFSET,
@@ -826,10 +1325,11 @@ class PlayerStatsClient:
         count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
 
         if count <= 0:
-            return 0
+            return {}
         if count > self.MAX_RUN_STATS_ENTRIES:
             raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
 
+        values: dict[str, float] = {}
         for index in range(count):
             entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
             hash_code = self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET)
@@ -839,11 +1339,103 @@ class PlayerStatsClient:
             if not key_ptr:
                 continue
             key = self.memory.read_mono_string(key_ptr)
-            if key != "kills":
+            if key not in requested:
                 continue
-            return max(0, int(self.memory.read_float(entry + self.RUN_STATS_ENTRY_VALUE_OFFSET)))
+            values[key] = self.memory.read_float(entry + self.RUN_STATS_ENTRY_VALUE_OFFSET)
+            if len(values) == len(requested):
+                break
+
+        return values
+
+    def get_killed_mobs(self) -> int:
+        values = self.get_run_stat_values(("kills",))
+        if "kills" in values:
+            return max(0, int(values["kills"]))
 
         raise MemoryReadError("RunStats.stats does not contain a 'kills' entry.")
+
+    def get_chest_counters(self) -> tuple[int, int]:
+        chests_bought = self.get_chests_bought()
+
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.MONEY_UTILITY_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("MoneyUtility type info is not initialized.")
+
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError("MoneyUtility static fields are not initialized.")
+
+        chests_purchased = max(
+            0,
+            self.memory.read_i32(
+                static_fields + self.MONEY_UTILITY_CHESTS_PURCHASED_OFFSET
+            ),
+        )
+        return chests_bought, chests_purchased
+
+    def get_chests_bought(self) -> int:
+        run_stats = self.get_run_stat_values(("chestsBought",))
+        return max(0, int(run_stats.get("chestsBought", 0.0)))
+
+    def _get_cached_chests_bought(self) -> int:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.RUN_STATS_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("RunStats type info is not initialized.")
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError("RunStats static fields are not initialized.")
+        stats_dict = self.memory.read_ptr(static_fields + self.RUN_STATS_DICT_OFFSET)
+        if not stats_dict:
+            raise MemoryReadError("RunStats.stats dictionary is not initialized.")
+        entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            raise MemoryReadError("RunStats.stats entries are not initialized.")
+        version = self.memory.read_i32(stats_dict + self.DICT_VERSION_OFFSET)
+
+        if (
+            stats_dict != self._cached_chests_bought_dict
+            or entries != self._cached_chests_bought_entries
+            or (
+                not self._cached_chests_bought_address
+                and version != self._cached_chests_bought_version
+            )
+        ):
+            self._cached_chests_bought_dict = stats_dict
+            self._cached_chests_bought_entries = entries
+            self._cached_chests_bought_version = version
+            self._cached_chests_bought_address = self._find_run_stat_value_address(
+                stats_dict,
+                "chestsBought",
+            )
+
+        if not self._cached_chests_bought_address:
+            return 0
+        return max(0, int(self.memory.read_float(self._cached_chests_bought_address)))
+
+    def _find_run_stat_value_address(self, stats_dict: int, target_key: str) -> int:
+        entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
+        count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return 0
+        if count > self.MAX_RUN_STATS_ENTRIES:
+            raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
+
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
+                continue
+            key_ptr = self.memory.read_ptr(entry + self.DICT_ENTRY_KEY_OFFSET)
+            if key_ptr and self.memory.read_mono_string(key_ptr) == target_key:
+                return entry + self.RUN_STATS_ENTRY_VALUE_OFFSET
+        return 0
 
     def get_live_damage_sources(self) -> tuple[DamageSourceSnapshot, ...]:
         type_info_address = self.memory.module_offset(

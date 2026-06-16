@@ -156,7 +156,19 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.bot._send_chat.assert_called_once_with(
             "channel",
-            "Chaos Tome Lv5: DMG +16.8% | Luck +14%",
+            "Chaos Tome Lv5: DMG +17% | Luck +14%",
+        )
+
+    def test_handle_chaos_rounds_flat_values_to_whole_numbers(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.chaos_tome_level.return_value = 547
+        self.run_tracker.chaos_tome_summary_parts.return_value = ["HP +1062.6", "Pickup +16.4"]
+
+        self.bot._handle_chaos("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "Chaos Tome Lv547: HP +1063 | Pickup +16",
         )
 
     def test_powerups_command_routes_through_chat_handler(self):
@@ -194,38 +206,53 @@ class TestTwitchBotWorker(unittest.TestCase):
 
     def test_handle_chests(self):
         from config import TWITCH_BOT
-        TWITCH_BOT.setdefault("templates", {})["chests"] = "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance}) | Free chest: {procs}"
+        from live_run_tracker import ChestStatsSnapshot
+
+        TWITCH_BOT.setdefault("templates", {})["chests"] = (
+            "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | "
+            "Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | "
+            "Keys: {keys} ({chance})"
+        )
         self.bot._send_chat = MagicMock()
         self.run_tracker.has_active_run.return_value = True
         self.run_tracker.latest_snapshot.return_value = SimpleNamespace(stats={})
     
         # Test with 1 key
-        self.run_tracker.get_chests_and_keys.return_value = (5, 46, 1, 0, {1: 5}, {1: 46})
+        self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
+            5, 46, 1, 3, 1, 1, {1: 5}, {1: 46}, True, 0.4, 4, True
+        )
         self.bot._handle_chests("channel")
         self.bot._send_chat.assert_called_with(
-            "channel", "Chests opened: 5/46 | Keys: 1 (Proc Chance: 9.1%) | Free chest: 0"
+            "channel", "Chests: T1:5/46 | Total: 5/46 | Paid: 3 | Key Procs: 1/4 (25.0%) | Expected: 0.4 | Free Chests: 1 | Keys: 1 (9.1%)"
         )
         
         # Test with 10 keys (and multiple maps)
-        self.run_tracker.get_chests_and_keys.return_value = (10, 46, 10, 2, {1: 40, 2: 10}, {1: 46, 2: 46})
+        self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
+            10, 46, 10, 30, 15, 5, {1: 40, 2: 10}, {1: 46, 2: 46}, True, 21.75, 45, True
+        )
         self.bot._handle_chests("channel")
         self.bot._send_chat.assert_called_with(
-            "channel", "Chests opened: T1:40/46 T2:10/46 | Keys: 10 (Proc Chance: 50.0%) | Free chest: 2"
+            "channel", "Chests: T1:40/46 T2:10/46 | Total: 50/92 | Paid: 30 | Key Procs: 15/45 (33.3%) | Expected: 21.8 | Free Chests: 5 | Keys: 10 (50.0%)"
         )
         
         # Test with multiple maps, where one map has 0 opened chests (e.g. immediately after transition)
-        self.run_tracker.get_chests_and_keys.return_value = (40, 46, 10, 2, {1: 40, 2: 0}, {1: 46, 2: 46})
+        self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
+            0, 46, 10, 20, 18, 2, {1: 40, 2: 0}, {1: 46, 2: 46}, True, 19.0, 38, True
+        )
         self.bot._handle_chests("channel")
         self.bot._send_chat.assert_called_with(
-            "channel", "Chests opened: T1:40/46 T2:0/46 | Keys: 10 (Proc Chance: 50.0%) | Free chest: 2"
+            "channel", "Chests: T1:40/46 T2:0/46 | Total: 40/92 | Paid: 20 | Key Procs: 18/38 (47.4%) | Expected: 19.0 | Free Chests: 2 | Keys: 10 (50.0%)"
         )
         
         # Test with 0 keys
-        self.run_tracker.get_chests_and_keys.return_value = (20, 46, 0, 0, {1: 20}, {1: 46})
+        self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
+            20, 46, 0, 18, 0, 2, {1: 20}, {1: 46}, True
+        )
         self.bot._handle_chests("channel")
         self.bot._send_chat.assert_called_with(
-            "channel", "Chests opened: 20/46 | Keys: 0 (Proc Chance: 0.0%) | Free chest: 0"
+            "channel", "Chests: T1:20/46 | Total: 20/46 | Paid: 18 | Key Procs: 0/18 (0.0%) | Expected: -- | Free Chests: 2 | Keys: 0 (0.0%)"
         )
+
 
     def test_handle_chests_without_active_run(self):
         self.bot._send_chat = MagicMock()

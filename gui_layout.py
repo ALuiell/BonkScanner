@@ -80,6 +80,32 @@ def _retain_hidden_widget_size(widget) -> None:
     widget.setSizePolicy(policy)
 
 
+def _build_chests_stats_card():
+    card = QFrame()
+    card.setObjectName("StatCard")
+    layout = QFormLayout(card)
+    layout.setContentsMargins(8, 8, 8, 8)
+    layout.setHorizontalSpacing(6)
+    layout.setVerticalSpacing(4)
+    values = {}
+    for key, title in (
+        ("maps", "Maps"),
+        ("total", "Total"),
+        ("paid_free", "Paid / Free"),
+        ("key_procs", "Key Procs"),
+        ("expected", "Expected"),
+        ("keys", "Keys"),
+    ):
+        value_label = QLabel("--")
+        value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
+        value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        if key == "maps":
+            value_label.setWordWrap(True)
+        layout.addRow(title, value_label)
+        values[key] = value_label
+    return card, values
+
+
 def _apply_run_summary_baselines(
     chests_per_minute_label,
     in_game_time_label,
@@ -488,16 +514,7 @@ class GuiLayoutMixin:
                 index % LIVE_STATS_CARD_COLUMNS,
             )
         placeholder_index = len(PLAYER_STAT_GROUPS)
-        placeholder_group = QFrame()
-        placeholder_group.setObjectName("StatCard")
-        placeholder_layout = QVBoxLayout(placeholder_group)
-        placeholder_layout.setContentsMargins(8, 8, 8, 8)
-        placeholder_label = QLabel("Have an idea for this slot? Let me know 💡")
-        placeholder_label.setWordWrap(True)
-        placeholder_label.setAlignment(Qt.AlignCenter)
-        placeholder_layout.addStretch(1)
-        placeholder_layout.addWidget(placeholder_label)
-        placeholder_layout.addStretch(1)
+        placeholder_group, self.player_stats_chests_card_values = _build_chests_stats_card()
         player_stats_grid.addWidget(
             placeholder_group,
             placeholder_index // LIVE_STATS_CARD_COLUMNS,
@@ -774,16 +791,7 @@ class GuiLayoutMixin:
                 index % RECORDINGS_STATS_CARD_COLUMNS,
             )
         placeholder_index = len(PLAYER_STAT_GROUPS)
-        placeholder_group = QFrame()
-        placeholder_group.setObjectName("StatCard")
-        placeholder_layout = QVBoxLayout(placeholder_group)
-        placeholder_layout.setContentsMargins(8, 8, 8, 8)
-        placeholder_label = QLabel("Have an idea for this slot? Let me know 💡")
-        placeholder_label.setWordWrap(True)
-        placeholder_label.setAlignment(Qt.AlignCenter)
-        placeholder_layout.addStretch(1)
-        placeholder_layout.addWidget(placeholder_label)
-        placeholder_layout.addStretch(1)
+        placeholder_group, self.vods_chests_card_values = _build_chests_stats_card()
         vods_stats_grid.addWidget(
             placeholder_group,
             placeholder_index // RECORDINGS_STATS_CARD_COLUMNS,
