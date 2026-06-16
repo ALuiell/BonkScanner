@@ -170,14 +170,15 @@ class PlayerStatsMixin:
                 except Exception:
                     pass
 
-            chaos_level = client.get_chaos_tome_level(owner_stats)
+            chaos_level, permanent_modifiers = client.get_chaos_tracking_state(
+                owner_stats
+            )
             if chaos_level is None:
                 self.live_run_tracker.update_chaos_tome(
                     chaos_level=None,
                     permanent_modifiers={},
                 )
                 return True
-            permanent_modifiers = client.get_permanent_stat_modifiers(owner_stats)
             self.live_run_tracker.update_chaos_tome(
                 chaos_level=chaos_level,
                 permanent_modifiers=permanent_modifiers,

@@ -725,6 +725,210 @@ class PlayerStatsTimelineTests(unittest.TestCase):
 
         self.assertEqual(tomes, ())
 
+    def test_chaos_tracking_state_reuses_cached_level_and_modifier_addresses(self) -> None:
+        memory = build_player_stats_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x20001600
+        tome_inventory = 0x23000000
+        levels_dict = 0x23000100
+        level_entries = 0x23000200
+        stat_inventory = 0x23000300
+        modifiers_dict = 0x23000400
+        modifier_entries = 0x23000500
+        modifier_list = 0x23000600
+        modifier_array = 0x23000700
+        modifier = 0x23000800
+        level_entry = level_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+        modifier_entry = modifier_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+
+        memory.pointers.update(
+            {
+                player_inventory + PlayerStatsClient.TOME_INVENTORY_OFFSET: tome_inventory,
+                tome_inventory + PlayerStatsClient.TOME_LEVELS_DICT_OFFSET: levels_dict,
+                levels_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: level_entries,
+                player_inventory + PlayerStatsClient.STAT_INVENTORY_OFFSET: stat_inventory,
+                stat_inventory + PlayerStatsClient.STAT_INVENTORY_PERMANENT_CHANGES_OFFSET: modifiers_dict,
+                modifiers_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: modifier_entries,
+                modifier_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_VALUE_OFFSET: modifier_list,
+                modifier_list + PlayerStatsClient.LIST_ITEMS_OFFSET: modifier_array,
+                modifier_array + PlayerStatsClient.ARRAY_DATA_OFFSET: modifier,
+            }
+        )
+        memory.ints.update(
+            {
+                levels_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                levels_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                level_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                level_entry + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET: PlayerStatsClient.CHAOS_TOME_ID,
+                level_entry + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 3,
+                modifiers_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                modifiers_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                modifier_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                modifier_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET: 12,
+                modifier_list + PlayerStatsClient.LIST_SIZE_OFFSET: 1,
+                modifier_list + PlayerStatsClient.LIST_VERSION_OFFSET: 1,
+                modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+            }
+        )
+        memory.floats[modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET] = 0.168
+        client = PlayerStatsClient(memory=memory)
+
+        level, modifiers = client.get_chaos_tracking_state(owner_stats)
+        self.assertEqual(level, 3)
+        self.assertAlmostEqual(modifiers[12][0].value, 0.168)
+
+        del memory.ints[level_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET]
+        del memory.ints[level_entry + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET]
+        memory.ints[level_entry + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET] = 4
+        memory.floats[modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET] = 0.336
+
+        level, modifiers = client.get_chaos_tracking_state(owner_stats)
+        self.assertEqual(level, 4)
+        self.assertAlmostEqual(modifiers[12][0].value, 0.336)
+
+        del memory.ints[modifier_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET]
+        del memory.ints[modifier_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET]
+        del memory.ints[modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET]
+        memory.floats[modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET] = 0.504
+
+        level, modifiers = client.get_chaos_tracking_state(owner_stats)
+        self.assertEqual(level, 4)
+        self.assertAlmostEqual(modifiers[12][0].value, 0.504)
+
+    def test_chaos_tracking_state_rescans_changed_modifier_list(self) -> None:
+        memory = build_player_stats_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x20001600
+        tome_inventory = 0x24000000
+        levels_dict = 0x24000100
+        level_entries = 0x24000200
+        stat_inventory = 0x24000300
+        modifiers_dict = 0x24000400
+        modifier_entries = 0x24000500
+        modifier_list = 0x24000600
+        modifier_array = 0x24000700
+        first_modifier = 0x24000800
+        second_modifier = 0x24000900
+        level_entry = level_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+        modifier_entry = modifier_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+        memory.pointers.update(
+            {
+                player_inventory + PlayerStatsClient.TOME_INVENTORY_OFFSET: tome_inventory,
+                tome_inventory + PlayerStatsClient.TOME_LEVELS_DICT_OFFSET: levels_dict,
+                levels_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: level_entries,
+                player_inventory + PlayerStatsClient.STAT_INVENTORY_OFFSET: stat_inventory,
+                stat_inventory + PlayerStatsClient.STAT_INVENTORY_PERMANENT_CHANGES_OFFSET: modifiers_dict,
+                modifiers_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: modifier_entries,
+                modifier_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_VALUE_OFFSET: modifier_list,
+                modifier_list + PlayerStatsClient.LIST_ITEMS_OFFSET: modifier_array,
+                modifier_array + PlayerStatsClient.ARRAY_DATA_OFFSET: first_modifier,
+            }
+        )
+        memory.ints.update(
+            {
+                levels_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                levels_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                level_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                level_entry + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET: PlayerStatsClient.CHAOS_TOME_ID,
+                level_entry + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 2,
+                modifiers_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                modifiers_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                modifier_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                modifier_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET: 12,
+                modifier_list + PlayerStatsClient.LIST_SIZE_OFFSET: 1,
+                modifier_list + PlayerStatsClient.LIST_VERSION_OFFSET: 1,
+                first_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+                second_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+            }
+        )
+        memory.floats.update(
+            {
+                first_modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET: 0.168,
+                second_modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET: 0.168,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+        self.assertEqual(len(client.get_chaos_tracking_state(owner_stats)[1][12]), 1)
+
+        memory.pointers[
+            modifier_array + PlayerStatsClient.ARRAY_DATA_OFFSET + PlayerStatsClient.OBJECT_POINTER_SIZE
+        ] = second_modifier
+        memory.ints[modifier_list + PlayerStatsClient.LIST_SIZE_OFFSET] = 2
+        memory.ints[modifier_list + PlayerStatsClient.LIST_VERSION_OFFSET] = 2
+
+        _, modifiers = client.get_chaos_tracking_state(owner_stats)
+        self.assertEqual(len(modifiers[12]), 2)
+
+    def test_chaos_tracking_state_rescans_changed_modifier_dictionary_count(self) -> None:
+        memory = build_player_stats_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x20001600
+        tome_inventory = 0x25000000
+        levels_dict = 0x25000100
+        level_entries = 0x25000200
+        stat_inventory = 0x25000300
+        modifiers_dict = 0x25000400
+        modifier_entries = 0x25000500
+        damage_list = 0x25000600
+        damage_array = 0x25000700
+        damage_modifier = 0x25000800
+        luck_list = 0x25000900
+        luck_array = 0x25000A00
+        luck_modifier = 0x25000B00
+        level_entry = level_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+        damage_entry = modifier_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+        luck_entry = damage_entry + PlayerStatsClient.DICT_ENTRY_SIZE
+        memory.pointers.update(
+            {
+                player_inventory + PlayerStatsClient.TOME_INVENTORY_OFFSET: tome_inventory,
+                tome_inventory + PlayerStatsClient.TOME_LEVELS_DICT_OFFSET: levels_dict,
+                levels_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: level_entries,
+                player_inventory + PlayerStatsClient.STAT_INVENTORY_OFFSET: stat_inventory,
+                stat_inventory + PlayerStatsClient.STAT_INVENTORY_PERMANENT_CHANGES_OFFSET: modifiers_dict,
+                modifiers_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: modifier_entries,
+                damage_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_VALUE_OFFSET: damage_list,
+                damage_list + PlayerStatsClient.LIST_ITEMS_OFFSET: damage_array,
+                damage_array + PlayerStatsClient.ARRAY_DATA_OFFSET: damage_modifier,
+                luck_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_VALUE_OFFSET: luck_list,
+                luck_list + PlayerStatsClient.LIST_ITEMS_OFFSET: luck_array,
+                luck_array + PlayerStatsClient.ARRAY_DATA_OFFSET: luck_modifier,
+            }
+        )
+        memory.ints.update(
+            {
+                levels_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                levels_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                level_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                level_entry + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET: PlayerStatsClient.CHAOS_TOME_ID,
+                level_entry + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 2,
+                modifiers_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                modifiers_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                damage_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                damage_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET: 12,
+                damage_list + PlayerStatsClient.LIST_SIZE_OFFSET: 1,
+                damage_list + PlayerStatsClient.LIST_VERSION_OFFSET: 1,
+                damage_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 12,
+                luck_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                luck_entry + PlayerStatsClient.WEAPON_DICT_ENTRY_KEY_OFFSET: 30,
+                luck_list + PlayerStatsClient.LIST_SIZE_OFFSET: 1,
+                luck_list + PlayerStatsClient.LIST_VERSION_OFFSET: 1,
+                luck_modifier + PlayerStatsClient.STAT_MODIFIER_STAT_OFFSET: 30,
+            }
+        )
+        memory.floats.update(
+            {
+                damage_modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET: 0.168,
+                luck_modifier + PlayerStatsClient.STAT_MODIFIER_VALUE_OFFSET: 0.07,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+        self.assertEqual(set(client.get_chaos_tracking_state(owner_stats)[1]), {12})
+
+        memory.ints[modifiers_dict + PlayerStatsClient.DICT_COUNT_OFFSET] = 2
+
+        _, modifiers = client.get_chaos_tracking_state(owner_stats)
+        self.assertEqual(set(modifiers), {12, 30})
+
     def test_get_passive_items_falls_back_when_primary_dictionary_read_fails(self) -> None:
         memory = build_player_stats_memory()
         owner_stats = 0x20000300

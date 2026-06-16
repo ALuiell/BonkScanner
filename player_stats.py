@@ -466,6 +466,7 @@ class PlayerStatsClient:
     CLASS_META_NAME_PTR_OFFSET = 0x10
     LIST_ITEMS_OFFSET = 0x10
     LIST_SIZE_OFFSET = 0x18
+    LIST_VERSION_OFFSET = 0x1C
     ARRAY_LENGTH_OFFSET = 0x18
     ARRAY_DATA_OFFSET = 0x20
     OBJECT_POINTER_SIZE = 0x8
@@ -526,6 +527,19 @@ class PlayerStatsClient:
         self._cached_key_entries = 0
         self._cached_key_version: int | None = None
         self._cached_key_stack_address = 0
+        self._cached_chaos_level_dict = 0
+        self._cached_chaos_level_entries = 0
+        self._cached_chaos_level_version: int | None = None
+        self._cached_chaos_level_address = 0
+        self._cached_permanent_modifiers_dict = 0
+        self._cached_permanent_modifiers_entries = 0
+        self._cached_permanent_modifiers_count = 0
+        self._cached_permanent_modifiers_version: int | None = None
+        self._cached_chaos_tracking_level: int | None = None
+        self._cached_permanent_modifier_lists: dict[
+            int,
+            tuple[int, int, int, int, tuple[int, ...]],
+        ] = {}
 
     def close(self) -> None:
         if self._owns_memory and hasattr(self.memory, "close"):
@@ -950,6 +964,271 @@ class PlayerStatsClient:
         if level is None:
             return None
         return max(int(level), 0)
+
+    def get_chaos_tracking_state(
+        self,
+        owner_stats: int | None = None,
+    ) -> tuple[int | None, dict[int, tuple[PlayerStatModifierSnapshot, ...]]]:
+        """Read Chaos Tome state through validated cached container addresses."""
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        player_inventory = self.memory.read_ptr(
+            owner_stats + self.PLAYER_INVENTORY_OFFSET
+        )
+        if not player_inventory:
+            self._clear_chaos_tracking_cache()
+            return None, {}
+
+        chaos_level = self._get_cached_chaos_tome_level(player_inventory)
+        if chaos_level is None:
+            self._clear_cached_permanent_modifiers()
+            self._cached_chaos_tracking_level = None
+            return None, {}
+        force_modifier_rescan = (
+            self._cached_chaos_tracking_level is not None
+            and chaos_level > self._cached_chaos_tracking_level
+        )
+        self._cached_chaos_tracking_level = chaos_level
+        return chaos_level, self._get_cached_permanent_stat_modifiers(
+            player_inventory,
+            force_rescan=force_modifier_rescan,
+        )
+
+    def _get_cached_chaos_tome_level(self, player_inventory: int) -> int | None:
+        tome_inventory = self.memory.read_ptr(
+            player_inventory + self.TOME_INVENTORY_OFFSET
+        )
+        if not tome_inventory:
+            self._clear_cached_chaos_level()
+            return None
+        levels_dict = self.memory.read_ptr(
+            tome_inventory + self.TOME_LEVELS_DICT_OFFSET
+        )
+        if not levels_dict:
+            self._clear_cached_chaos_level()
+            return None
+
+        entries = self.memory.read_ptr(levels_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            self._clear_cached_chaos_level()
+            return None
+        version = self.memory.read_i32(levels_dict + self.DICT_VERSION_OFFSET)
+        if (
+            levels_dict != self._cached_chaos_level_dict
+            or entries != self._cached_chaos_level_entries
+            or (
+                not self._cached_chaos_level_address
+                and version != self._cached_chaos_level_version
+            )
+        ):
+            self._cached_chaos_level_dict = levels_dict
+            self._cached_chaos_level_entries = entries
+            self._cached_chaos_level_version = version
+            self._cached_chaos_level_address = self._find_tome_level_address(
+                levels_dict,
+                self.CHAOS_TOME_ID,
+            )
+
+        if not self._cached_chaos_level_address:
+            return None
+        return max(0, self.memory.read_i32(self._cached_chaos_level_address))
+
+    def _find_tome_level_address(self, levels_dict: int, target_tome_id: int) -> int:
+        entries = self.memory.read_ptr(levels_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return 0
+        count = self.memory.read_i32(levels_dict + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return 0
+        if count > self.MAX_WEAPON_DICT_ENTRIES:
+            raise MemoryReadError(f"Tome levels dictionary count is invalid: {count}")
+
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.STAT_DICT_ENTRY_SIZE)
+            if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
+                continue
+            tome_id = self.memory.read_i32(entry + self.STAT_DICT_ENTRY_KEY_OFFSET)
+            if tome_id == target_tome_id:
+                return entry + self.STAT_DICT_ENTRY_VALUE_OFFSET
+        return 0
+
+    def _get_cached_permanent_stat_modifiers(
+        self,
+        player_inventory: int,
+        *,
+        force_rescan: bool = False,
+    ) -> dict[int, tuple[PlayerStatModifierSnapshot, ...]]:
+        stat_inventory = self.memory.read_ptr(
+            player_inventory + self.STAT_INVENTORY_OFFSET
+        )
+        if not stat_inventory:
+            self._clear_cached_permanent_modifiers()
+            return {}
+        dictionary_address = self.memory.read_ptr(
+            stat_inventory + self.STAT_INVENTORY_PERMANENT_CHANGES_OFFSET
+        )
+        if not dictionary_address:
+            self._clear_cached_permanent_modifiers()
+            return {}
+
+        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            self._clear_cached_permanent_modifiers()
+            return {}
+        count = self.memory.read_i32(dictionary_address + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            self._clear_cached_permanent_modifiers()
+            return {}
+        if count > self.MAX_PERMANENT_STAT_ENTRIES:
+            raise MemoryReadError(f"Permanent stat dictionary count is invalid: {count}")
+        version = self.memory.read_i32(dictionary_address + self.DICT_VERSION_OFFSET)
+        if (
+            force_rescan
+            or dictionary_address != self._cached_permanent_modifiers_dict
+            or entries != self._cached_permanent_modifiers_entries
+            or count != self._cached_permanent_modifiers_count
+            or version != self._cached_permanent_modifiers_version
+        ):
+            self._cached_permanent_modifiers_dict = dictionary_address
+            self._cached_permanent_modifiers_entries = entries
+            self._cached_permanent_modifiers_count = count
+            self._cached_permanent_modifiers_version = version
+            self._cached_permanent_modifier_lists = (
+                self._find_permanent_modifier_lists(dictionary_address, count=count)
+            )
+
+        result: dict[int, tuple[PlayerStatModifierSnapshot, ...]] = {}
+        for stat_id, cached_list in tuple(
+            self._cached_permanent_modifier_lists.items()
+        ):
+            list_address, old_items, old_size, old_version, modifier_ptrs = cached_list
+            items_array = self.memory.read_ptr(list_address + self.LIST_ITEMS_OFFSET)
+            size = self.memory.read_i32(list_address + self.LIST_SIZE_OFFSET)
+            list_version = self.memory.read_i32(list_address + self.LIST_VERSION_OFFSET)
+            if size < 0 or size > self.MAX_PERMANENT_STAT_MODIFIERS:
+                raise MemoryReadError(f"Permanent stat modifier list size is invalid: {size}")
+            if (
+                items_array != old_items
+                or size != old_size
+                or list_version != old_version
+            ):
+                modifier_ptrs = self._find_stat_modifier_ptrs(
+                    items_array,
+                    size,
+                    expected_stat_id=stat_id,
+                )
+                self._cached_permanent_modifier_lists[stat_id] = (
+                    list_address,
+                    items_array,
+                    size,
+                    list_version,
+                    modifier_ptrs,
+                )
+
+            modifiers = tuple(
+                self._read_cached_stat_modifier(stat_id, modifier_ptr)
+                for modifier_ptr in modifier_ptrs
+            )
+            if modifiers:
+                result[stat_id] = modifiers
+        return result
+
+    def _find_permanent_modifier_lists(
+        self,
+        dictionary_address: int,
+        *,
+        count: int | None = None,
+    ) -> dict[int, tuple[int, int, int, int, tuple[int, ...]]]:
+        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return {}
+        if count is None:
+            count = self.memory.read_i32(dictionary_address + self.DICT_COUNT_OFFSET)
+        if count <= 0:
+            return {}
+        if count > self.MAX_PERMANENT_STAT_ENTRIES:
+            raise MemoryReadError(f"Permanent stat dictionary count is invalid: {count}")
+
+        lists: dict[int, tuple[int, int, int, int, tuple[int, ...]]] = {}
+        for index in range(count):
+            entry = entries + self.DICT_ENTRY_START_OFFSET + (index * self.DICT_ENTRY_SIZE)
+            if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
+                continue
+            stat_id = self.memory.read_i32(entry + self.WEAPON_DICT_ENTRY_KEY_OFFSET)
+            list_address = self.memory.read_ptr(entry + self.WEAPON_DICT_ENTRY_VALUE_OFFSET)
+            if not list_address:
+                continue
+            items_array = self.memory.read_ptr(list_address + self.LIST_ITEMS_OFFSET)
+            size = self.memory.read_i32(list_address + self.LIST_SIZE_OFFSET)
+            list_version = self.memory.read_i32(list_address + self.LIST_VERSION_OFFSET)
+            if size < 0 or size > self.MAX_PERMANENT_STAT_MODIFIERS:
+                raise MemoryReadError(f"Permanent stat modifier list size is invalid: {size}")
+            modifier_ptrs = self._find_stat_modifier_ptrs(
+                items_array,
+                size,
+                expected_stat_id=stat_id,
+            )
+            lists[stat_id] = (
+                list_address,
+                items_array,
+                size,
+                list_version,
+                modifier_ptrs,
+            )
+        return lists
+
+    def _find_stat_modifier_ptrs(
+        self,
+        items_array: int,
+        size: int,
+        *,
+        expected_stat_id: int,
+    ) -> tuple[int, ...]:
+        if not items_array or size <= 0:
+            return ()
+        modifier_ptrs: list[int] = []
+        for index in range(size):
+            modifier_ptr = self.memory.read_ptr(
+                items_array + self.ARRAY_DATA_OFFSET + (index * self.OBJECT_POINTER_SIZE)
+            )
+            if not modifier_ptr:
+                continue
+            if self.memory.read_i32(
+                modifier_ptr + self.STAT_MODIFIER_STAT_OFFSET
+            ) == expected_stat_id:
+                modifier_ptrs.append(modifier_ptr)
+        return tuple(modifier_ptrs)
+
+    def _read_cached_stat_modifier(
+        self,
+        stat_id: int,
+        modifier_ptr: int,
+    ) -> PlayerStatModifierSnapshot:
+        value = self.memory.read_float(modifier_ptr + self.STAT_MODIFIER_VALUE_OFFSET)
+        label, value_format = self._resolve_stat_display(stat_id)
+        return PlayerStatModifierSnapshot(
+            stat_id=stat_id,
+            label=label,
+            value=value,
+            value_format=value_format,
+        )
+
+    def _clear_cached_chaos_level(self) -> None:
+        self._cached_chaos_level_dict = 0
+        self._cached_chaos_level_entries = 0
+        self._cached_chaos_level_version = None
+        self._cached_chaos_level_address = 0
+
+    def _clear_cached_permanent_modifiers(self) -> None:
+        self._cached_permanent_modifiers_dict = 0
+        self._cached_permanent_modifiers_entries = 0
+        self._cached_permanent_modifiers_count = 0
+        self._cached_permanent_modifiers_version = None
+        self._cached_permanent_modifier_lists = {}
+
+    def _clear_chaos_tracking_cache(self) -> None:
+        self._clear_cached_chaos_level()
+        self._cached_chaos_tracking_level = None
+        self._clear_cached_permanent_modifiers()
 
     def get_permanent_stat_modifiers(
         self,

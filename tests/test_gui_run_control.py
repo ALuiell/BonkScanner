@@ -2481,7 +2481,7 @@ class GuiRunControlTests(unittest.TestCase):
                 expected_reads.append(owner_stats) or 7,
                 3,
             ),
-            get_chaos_tome_level=lambda owner_stats: None,
+            get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
         app._get_player_stats_client = lambda: client
         app.live_run_tracker = SimpleNamespace(
