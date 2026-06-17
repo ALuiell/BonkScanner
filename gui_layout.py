@@ -1316,6 +1316,8 @@ class GuiLayoutMixin:
 
         self.twitch_cmd_stats_cb = QCheckBox("!stats")
         self.twitch_cmd_stats_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("stats", True))
+        self.twitch_cmd_session_cb = QCheckBox("!session")
+        self.twitch_cmd_session_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("session", True))
         self.twitch_cmd_bans_cb = QCheckBox("!bans")
         self.twitch_cmd_bans_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("bans", True))
         self.twitch_cmd_items_cb = QCheckBox("!items")
@@ -1347,22 +1349,23 @@ class GuiLayoutMixin:
         commands_grid.setContentsMargins(4, 0, 0, 0)
         # Arrange in 3 columns:
         commands_grid.addWidget(self.twitch_cmd_stats_cb, 0, 0)
-        commands_grid.addWidget(self.twitch_cmd_bans_cb, 0, 1)
-        commands_grid.addWidget(self.twitch_cmd_items_cb, 0, 2)
+        commands_grid.addWidget(self.twitch_cmd_session_cb, 0, 1)
+        commands_grid.addWidget(self.twitch_cmd_bans_cb, 0, 2)
 
-        commands_grid.addWidget(self.twitch_cmd_weapons_cb, 1, 0)
-        commands_grid.addWidget(self.twitch_cmd_tomes_cb, 1, 1)
-        commands_grid.addWidget(self.twitch_cmd_chaos_cb, 1, 2)
+        commands_grid.addWidget(self.twitch_cmd_items_cb, 1, 0)
+        commands_grid.addWidget(self.twitch_cmd_weapons_cb, 1, 1)
+        commands_grid.addWidget(self.twitch_cmd_tomes_cb, 1, 2)
 
-        commands_grid.addWidget(self.twitch_cmd_stages_cb, 2, 0)
-        commands_grid.addWidget(self.twitch_cmd_powerups_cb, 2, 1)
-        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 2, 2)
+        commands_grid.addWidget(self.twitch_cmd_chaos_cb, 2, 0)
+        commands_grid.addWidget(self.twitch_cmd_stages_cb, 2, 1)
+        commands_grid.addWidget(self.twitch_cmd_powerups_cb, 2, 2)
 
-        commands_grid.addWidget(self.twitch_cmd_chests_cb, 3, 0)
-        commands_grid.addWidget(self.twitch_cmd_presets_cb, 3, 1)
-        commands_grid.addWidget(self.twitch_cmd_commands_cb, 3, 2)
+        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 3, 0)
+        commands_grid.addWidget(self.twitch_cmd_chests_cb, 3, 1)
+        commands_grid.addWidget(self.twitch_cmd_presets_cb, 3, 2)
 
-        commands_grid.addWidget(self.twitch_cmd_disabled_cb, 4, 0)
+        commands_grid.addWidget(self.twitch_cmd_commands_cb, 4, 0)
+        commands_grid.addWidget(self.twitch_cmd_disabled_cb, 4, 1)
 
         commands_main_layout.addLayout(commands_grid)
 

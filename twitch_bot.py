@@ -33,9 +33,10 @@ class TwitchBotWorker(QThread):
     status_updated = Signal(str)
     log_message = Signal(str)
 
-    def __init__(self, run_tracker, parent=None):
+    def __init__(self, run_tracker, parent=None, session_stats_provider=None):
         super().__init__(parent)
         self.run_tracker = run_tracker
+        self.session_stats_provider = session_stats_provider
         self.running = False
         self.sock = None
         self.last_command_time = 0
@@ -195,6 +196,9 @@ class TwitchBotWorker(QThread):
 
         if cmd in ("!stats", "!bonkstats") and commands_cfg.get("stats", True):
             self._handle_stats(channel)
+            handled = True
+        elif cmd == "!session" and commands_cfg.get("session", True):
+            self._handle_session(channel)
             handled = True
         elif cmd in ("!bans", "!banishes") and commands_cfg.get("bans", True):
             self._handle_bans(channel)
@@ -360,6 +364,19 @@ class TwitchBotWorker(QThread):
             count=count,
             items=banish_list
         )
+        if len(text) > 450:
+            text = text[:447] + "..."
+        self._send_chat(channel, text)
+
+    def _handle_session(self, channel: str):
+        formatter = getattr(self.session_stats_provider, "format_twitch_session_summary", None)
+        if not callable(formatter):
+            self._send_chat(channel, "Session stats are not available yet.")
+            return
+        text = str(formatter() or "").strip()
+        if not text:
+            self._send_chat(channel, "Session stats are not available yet.")
+            return
         if len(text) > 450:
             text = text[:447] + "..."
         self._send_chat(channel, text)
@@ -775,6 +792,7 @@ class TwitchBotWorker(QThread):
         commands_cfg = config.TWITCH_BOT.get("commands", {})
         cmd_mapping = [
             ("stats", "!stats"),
+            ("session", "!session"),
             ("bans", "!bans"),
             ("items", "!items"),
             ("weapons", "!weapons"),

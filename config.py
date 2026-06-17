@@ -122,6 +122,7 @@ DEFAULT_TWITCH_BOT = {
     "commands_announcement_interval_minutes": 30,
     "commands": {
         "stats": True,
+        "session": True,
         "bans": True,
         "items": True,
         "weapons": True,

@@ -554,6 +554,7 @@ class GuiRunControlTests(unittest.TestCase):
             twitch_stage_announcements_cb=FakeCheckbox(True),
             twitch_commands_announcements_cb=FakeCheckbox(True),
             twitch_cmd_stats_cb=FakeCheckbox(True),
+            twitch_cmd_session_cb=FakeCheckbox(True),
             twitch_cmd_bans_cb=FakeCheckbox(False),
             twitch_cmd_items_cb=FakeCheckbox(True),
             twitch_cmd_weapons_cb=FakeCheckbox(True),

@@ -132,6 +132,22 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         TWITCH_BOT["templates"] = old_templates
 
+    def test_handle_session_uses_session_stats_provider(self):
+        provider = SimpleNamespace(format_twitch_session_summary=lambda: "328 resets, 17 seeds found (5.18%)")
+        bot = TwitchBotWorker(self.run_tracker, session_stats_provider=provider)
+        bot._send_chat = MagicMock()
+
+        bot._handle_session("channel")
+
+        bot._send_chat.assert_called_once_with("channel", "328 resets, 17 seeds found (5.18%)")
+
+    def test_handle_session_without_provider(self):
+        self.bot._send_chat = MagicMock()
+
+        self.bot._handle_session("channel")
+
+        self.bot._send_chat.assert_called_once_with("channel", "Session stats are not available yet.")
+
     def test_handle_powerups_uses_powerup_multiplier(self):
         self.bot._send_chat = MagicMock()
         self.run_tracker.latest_snapshot.return_value = SimpleNamespace(
@@ -375,6 +391,7 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         mock_commands_cfg = {
             "stats": True,
+            "session": True,
             "bans": False,
             "items": True,
             "weapons": False,
@@ -392,7 +409,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_commands("channel")
             self.bot._send_chat.assert_called_once_with(
                 "channel",
-                "Available commands: !stats, !items, !tomes, !stages, !scanner, !presets, !bonkhelp"
+                "Available commands: !stats, !session, !items, !tomes, !stages, !scanner, !presets, !bonkhelp"
             )
 
     def test_commands_announcement_uses_configured_interval(self):

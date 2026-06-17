@@ -31,6 +31,7 @@ class TwitchBotMixin:
         self.twitch_global_cooldown_spin.valueChanged.connect(self.save_twitch_settings)
         self.twitch_cooldown_spin.valueChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_stats_cb.stateChanged.connect(self.save_twitch_settings)
+        self.twitch_cmd_session_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_bans_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_items_cb.stateChanged.connect(self.save_twitch_settings)
         self.twitch_cmd_weapons_cb.stateChanged.connect(self.save_twitch_settings)
@@ -59,6 +60,7 @@ class TwitchBotMixin:
         config.TWITCH_BOT["stage_announcements"] = self.twitch_stage_announcements_cb.isChecked()
         config.TWITCH_BOT["commands_announcements"] = self.twitch_commands_announcements_cb.isChecked()
         config.TWITCH_BOT["commands"]["stats"] = self.twitch_cmd_stats_cb.isChecked()
+        config.TWITCH_BOT["commands"]["session"] = self.twitch_cmd_session_cb.isChecked()
         config.TWITCH_BOT["commands"]["bans"] = self.twitch_cmd_bans_cb.isChecked()
         config.TWITCH_BOT["commands"]["items"] = self.twitch_cmd_items_cb.isChecked()
         config.TWITCH_BOT["commands"]["weapons"] = self.twitch_cmd_weapons_cb.isChecked()
@@ -160,7 +162,11 @@ class TwitchBotMixin:
         self.twitch_bot_toggle_btn.setText("Stop Bot")
         self.twitch_bot_toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
         
-        self.twitch_bot_worker = TwitchBotWorker(self.live_run_tracker, self.window)
+        self.twitch_bot_worker = TwitchBotWorker(
+            self.live_run_tracker,
+            session_stats_provider=self,
+            parent=self.window,
+        )
         self.twitch_bot_worker.status_updated.connect(self.on_twitch_bot_status)
         self.twitch_bot_worker.log_message.connect(self.on_twitch_bot_log)
         self.twitch_bot_worker.finished.connect(self.on_twitch_bot_finished)

@@ -707,12 +707,85 @@ class OverlayMixin:
         label = getattr(self, "stats_tracked_items_label", None)
         if label is None or self.live_run_tracker is None:
             return
-        rules = self._session_tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
-        rows = self.live_run_tracker.tracked_item_rows_for_rules(rules)
-        if not rows:
+        text = self.format_session_tracked_items_for_stats_tab()
+        if not text:
             _set_text(label, "No tracked items configured")
             return
-        _set_text(label, " | ".join(f"{row['label']}: {row['count']}" for row in rows))
+        _set_text(label, text)
+
+    def session_found_seed_count(self) -> int:
+        count = 0
+        for data in getattr(self, "template_stats", {}).values():
+            if not isinstance(data, dict):
+                continue
+            history = data.get("history")
+            if isinstance(history, (list, tuple)):
+                count += len(history)
+        return count
+
+    def session_tracked_item_stat_rows(self) -> list[dict[str, Any]]:
+        if self.live_run_tracker is None:
+            return []
+        rules = self._session_tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
+        rows = self.live_run_tracker.tracked_item_rows_for_rules(rules)
+        seed_count = self.session_found_seed_count()
+        formatted_rows: list[dict[str, Any]] = []
+        for row in rows:
+            count = int(row.get("count") or 0)
+            percent = (count / seed_count * 100.0) if seed_count > 0 else None
+            formatted_rows.append(
+                {
+                    "label": self._session_tracked_item_command_label(row),
+                    "count": count,
+                    "percent": percent,
+                }
+            )
+        return formatted_rows
+
+    def format_session_tracked_items_for_stats_tab(self) -> str:
+        rows = self.session_tracked_item_stat_rows()
+        if not rows:
+            return ""
+        parts = []
+        for row in rows:
+            percent = row.get("percent")
+            if percent is None:
+                parts.append(f"{row['label']}: {row['count']}")
+            else:
+                parts.append(f"{row['label']}: {row['count']} ({percent:.2f}%)")
+        return " | ".join(parts)
+
+    def format_twitch_session_summary(self) -> str:
+        rerolls = max(0, int(getattr(self, "session_rerolls", 0) or 0))
+        seeds_found = self.session_found_seed_count()
+        seed_rate = (seeds_found / rerolls * 100.0) if rerolls > 0 else 0.0
+        text = f"{rerolls} resets, {seeds_found} seeds found ({seed_rate:.2f}%)"
+        tracked_parts = []
+        for row in self.session_tracked_item_stat_rows():
+            percent = row.get("percent")
+            if percent is None:
+                tracked_parts.append(f"{row['label']} {row['count']}")
+            else:
+                tracked_parts.append(f"{row['label']} {row['count']} ({percent:.2f}%)")
+        if tracked_parts:
+            text += f" | Tracked Items: {', '.join(tracked_parts)}"
+        return text
+
+    @staticmethod
+    def _session_tracked_item_command_label(row: dict[str, Any]) -> str:
+        label = str(row.get("label") or "").strip() or "Item"
+        mode = str(row.get("mode") or "")
+        if mode != "map_1_only":
+            return label
+
+        lowered = label.casefold()
+        for suffix in (" map 1", " map1", " t1"):
+            if lowered.endswith(suffix):
+                label = label[: -len(suffix)].rstrip()
+                break
+        if label.casefold().endswith(" t1"):
+            return label
+        return f"{label} T1"
 
     def add_session_tracked_item(self) -> None:
         item_name = self._selected_session_item_name()
