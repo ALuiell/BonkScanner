@@ -260,6 +260,41 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(tracker.chaos_tome_level(), 2)
         self.assertEqual(tracker.chaos_tome_summary_parts(), ["DMG +16.8%"])
 
+    def test_chaos_tracker_counts_initial_modifier_when_tome_is_first_seen(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_chaos_tome(
+            chaos_level=1,
+            permanent_modifiers={
+                12: (
+                    SimpleNamespace(
+                        stat_id=12,
+                        label="Damage",
+                        value=0.168,
+                        value_format=PlayerStatFormat.MULTIPLIER,
+                    ),
+                )
+            },
+        )
+
+        self.assertEqual(tracker.chaos_tome_level(), 1)
+        self.assertEqual(tracker.chaos_tome_summary_parts(), ["DMG +16.8%"])
+        self.assertEqual(tracker.chaos_tome_snapshot().stats[0].rolls, 1)
+
+    def test_chaos_tracker_counts_initial_modifier_after_delayed_first_write(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        modifier = SimpleNamespace(
+            stat_id=30,
+            label="Luck",
+            value=0.07,
+            value_format=PlayerStatFormat.PERCENT,
+        )
+
+        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={30: ()})
+        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={30: (modifier,)})
+
+        self.assertEqual(tracker.chaos_tome_summary_parts(), ["Luck +7%"])
+        self.assertEqual(tracker.chaos_tome_snapshot().stats[0].rolls, 1)
+
     def test_chaos_tracker_updates_baseline_when_level_does_not_change(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         damage_small = SimpleNamespace(
@@ -464,9 +499,8 @@ class LiveRunTrackerTests(unittest.TestCase):
         # Should sum to 2x DMG (1st tick + 2nd tick) and 1x Luck
         self.assertEqual(tracker.chaos_tome_summary_parts(), ["DMG +33.6%", "Luck +7%"])
 
-        # Next tick, 1 more valid modifier arrives. But we only had available_rolls=3 (levels 2, 3, 4).
-        # We already processed 3 rolls (1 in tick 1, 2 in tick 2).
-        # It should ignore the new modifier because available_rolls is 0.
+        # Next tick, 1 more valid modifier arrives. We had available_rolls=4
+        # (levels 1, 2, 3, 4), so the delayed initial roll is counted too.
         tracker.update_chaos_tome(
             chaos_level=4,
             permanent_modifiers={
@@ -501,7 +535,7 @@ class LiveRunTrackerTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(tracker.chaos_tome_summary_parts(), ["DMG +33.6%", "Luck +7%"])
+        self.assertEqual(tracker.chaos_tome_summary_parts(), ["DMG +33.6%", "Luck +14%"])
 
     def test_chaos_tracker_keeps_state_across_transient_missing_tome_read(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
@@ -578,12 +612,12 @@ class LiveRunTrackerTests(unittest.TestCase):
             value_format=PlayerStatFormat.MULTIPLIER,
         )
 
-        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={12: (), 40: ()})
+        tracker.update_chaos_tome(chaos_level=0, permanent_modifiers={12: (), 40: ()})
         for _ in range(4):
-            tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={12: (damage,), 40: ()})
+            tracker.update_chaos_tome(chaos_level=0, permanent_modifiers={12: (damage,), 40: ()})
 
         tracker.update_chaos_tome(
-            chaos_level=2,
+            chaos_level=1,
             permanent_modifiers={12: (damage,), 40: (powerup,)},
         )
 

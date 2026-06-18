@@ -372,7 +372,15 @@ class LiveRunTracker:
             for stat_id, modifiers in (permanent_modifiers or {}).items()
         }
 
-        if self._chaos_tome_level is None or current_level < self._chaos_tome_level:
+        if self._chaos_tome_level is None:
+            self._chaos_tome_level = current_level
+            self._chaos_modifier_baselines = {}
+            self._chaos_available_rolls = current_level
+            self._chaos_unbudgeted_candidates = {}
+            self._record_chaos_modifier_deltas(permanent_modifiers)
+            return
+
+        if current_level < self._chaos_tome_level:
             self._chaos_tome_level = current_level
             self._chaos_modifier_baselines = current_baselines
             self._chaos_available_rolls = 0
