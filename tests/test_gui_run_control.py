@@ -495,6 +495,7 @@ class GuiRunControlTests(unittest.TestCase):
             "RESET_HOTKEY": gui.config.RESET_HOTKEY,
             "PLAYER_STATS_RECORD_HOTKEY": gui.config.PLAYER_STATS_RECORD_HOTKEY,
             "AUTO_START_RECORDING": gui.config.AUTO_START_RECORDING,
+            "SHOW_OBS_REMINDER_ON_START_SCANNER": gui.config.SHOW_OBS_REMINDER_ON_START_SCANNER,
             "MAP_LOAD_DELAY": gui.config.MAP_LOAD_DELAY,
             "RESET_HOLD_DURATION": gui.config.RESET_HOLD_DURATION,
             "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY": gui.config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY,
@@ -629,6 +630,7 @@ class GuiRunControlTests(unittest.TestCase):
             toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
             toggle_particles_opacity_hotkey_entry=FakeEntry("f7"),
             auto_start_recording_var=FakeVar(True),
+            show_obs_reminder_on_start_scanner_var=FakeVar(True),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
@@ -644,10 +646,12 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertFalse(gui.config.NATIVE_HOOK_ENABLED)
         self.assertTrue(gui.config.AUTO_START_RECORDING)
+        self.assertTrue(gui.config.SHOW_OBS_REMINDER_ON_START_SCANNER)
         self.assertFalse(master.player_stats_auto_recording_suppressed)
         self.assertFalse(gui.config.user_config["NATIVE_HOOK_ENABLED"])
         self.assertFalse(gui.config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"])
         self.assertTrue(gui.config.user_config["AUTO_START_RECORDING"])
+        self.assertTrue(gui.config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         self.assertTrue(update_game_reset_time.called)
@@ -738,6 +742,7 @@ class GuiRunControlTests(unittest.TestCase):
             toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
             toggle_particles_opacity_hotkey_entry=FakeEntry("f7"),
             auto_start_recording_var=FakeVar(False),
+            show_obs_reminder_on_start_scanner_var=FakeVar(False),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
@@ -753,10 +758,12 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertTrue(gui.config.NATIVE_HOOK_ENABLED)
         self.assertFalse(gui.config.AUTO_START_RECORDING)
+        self.assertFalse(gui.config.SHOW_OBS_REMINDER_ON_START_SCANNER)
         self.assertTrue(gui.config.user_config["NATIVE_HOOK_ENABLED"])
         self.assertTrue(gui.config.NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED)
         self.assertTrue(gui.config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"])
         self.assertFalse(gui.config.user_config["AUTO_START_RECORDING"])
+        self.assertFalse(gui.config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         self.assertTrue(update_game_reset_time.called)
@@ -1122,14 +1129,115 @@ class GuiRunControlTests(unittest.TestCase):
         app.is_ready_to_start = True
 
         with patch.dict(gui.config.user_config, {"SKIP_REROLL_WARNING": True}):
-            with patch.object(gui.config, "EVALUATION_MODE", "templates"):
-                with patch.object(gui.threading, "Thread", FakeThread):
-                    gui.MegabonkApp.toggle_main_loop(app)
+            with patch.object(gui.config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
+                with patch.object(gui.config, "EVALUATION_MODE", "templates"):
+                    with patch.object(gui.threading, "Thread", FakeThread):
+                        gui.MegabonkApp.toggle_main_loop(app)
 
         self.assertFalse(app.scan_event.is_set())
         self.assertFalse(app.stop_event.is_set())
         self.assertFalse(app.is_running)
         self.assertFalse(app.is_ready_to_start)
+        self.assertTrue(app.scanner_thread.started)
+
+    def test_toggle_main_loop_logs_scores_tiers_with_colors(self) -> None:
+        logs: list[tuple[object, object | None]] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.scanner_thread = None
+        app.refresh_stats_ui = lambda: None
+        app.background_loop = lambda: None
+        app.update_status_ui = lambda: None
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.is_running = False
+        app.is_ready_to_start = False
+
+        original_scores = deepcopy(gui.config.SCORES_SYSTEM)
+        updated_scores = deepcopy(gui.config.SCORES_SYSTEM)
+        updated_scores["active_tiers"] = ["Light", "Perfect", "Perfect+"]
+        gui.config.SCORES_SYSTEM = updated_scores
+
+        try:
+            with patch.dict(gui.config.user_config, {"SKIP_REROLL_WARNING": True}):
+                with patch.object(gui.config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
+                    with patch.object(gui.config, "EVALUATION_MODE", "scores"):
+                        with patch.object(gui.threading, "Thread", FakeThread):
+                            gui.MegabonkApp.toggle_main_loop(app)
+        finally:
+            gui.config.SCORES_SYSTEM = original_scores
+
+        self.assertIn(
+            (
+                ["[*] Active Tiers: ", "Light", ", ", "Perfect", ", ", "Perfect+"],
+                [None, "WHITE", None, "YELLOW", None, "LIGHTRED_EX"],
+            ),
+            logs,
+        )
+        self.assertEqual(
+            app.template_stats,
+            {
+                "Light": {"rerolls_since_last": 0, "history": []},
+                "Perfect": {"rerolls_since_last": 0, "history": []},
+                "Perfect+": {"rerolls_since_last": 0, "history": []},
+            },
+        )
+        self.assertTrue(app.scanner_thread.started)
+
+    def test_toggle_main_loop_shows_obs_reminder_when_enabled(self) -> None:
+        logs: list[tuple[object, object | None]] = []
+        shown = []
+        app = object.__new__(gui.MegabonkApp)
+        app.window = object()
+        app.scanner_thread = None
+        app.checkboxes = {"Any": FakeVar(True)}
+        app.refresh_stats_ui = lambda: None
+        app.background_loop = lambda: None
+        app.update_status_ui = lambda: None
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.is_running = False
+        app.is_ready_to_start = False
+        app.obs_recording_reminder_shown = False
+
+        class FakeObsRecordingReminderDialog:
+            def __init__(self, parent):
+                shown.append(parent)
+
+            def exec(self):
+                shown.append("exec")
+                return 1
+
+        with patch.dict(
+            gui.config.user_config,
+            {"SKIP_REROLL_WARNING": True, "SHOW_OBS_REMINDER_ON_START_SCANNER": True},
+        ):
+            with patch.object(gui.config, "SHOW_OBS_REMINDER_ON_START_SCANNER", True):
+                with patch.object(gui.config, "EVALUATION_MODE", "templates"):
+                    with patch.object(gui.threading, "Thread", FakeThread):
+                        with patch("gui_dialogs.ObsRecordingReminderDialog", FakeObsRecordingReminderDialog):
+                            gui.MegabonkApp.toggle_main_loop(app)
+
+        self.assertEqual(shown, [app.window, "exec"])
+        self.assertTrue(app.obs_recording_reminder_shown)
+        self.assertTrue(app.scanner_thread.started)
+
+        app.scanner_thread = None
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+
+        with patch.dict(
+            gui.config.user_config,
+            {"SKIP_REROLL_WARNING": True, "SHOW_OBS_REMINDER_ON_START_SCANNER": True},
+        ):
+            with patch.object(gui.config, "SHOW_OBS_REMINDER_ON_START_SCANNER", True):
+                with patch.object(gui.config, "EVALUATION_MODE", "templates"):
+                    with patch.object(gui.threading, "Thread", FakeThread):
+                        with patch("gui_dialogs.ObsRecordingReminderDialog", FakeObsRecordingReminderDialog):
+                            gui.MegabonkApp.toggle_main_loop(app)
+
+        self.assertEqual(shown, [app.window, "exec"])
         self.assertTrue(app.scanner_thread.started)
 
     def test_hotkey_starts_scanning_inside_running_monitor(self) -> None:

@@ -661,6 +661,54 @@ class RerollWarningDialog(QDialog):
         self.reject()
 
 
+class ObsRecordingReminderDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("OBS Recording Reminder")
+        self.setModal(True)
+        self.resize(500, 245)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 20, 18, 18)
+        layout.setSpacing(16)
+
+        card = QFrame()
+        card.setObjectName("WarningCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 16, 18, 14)
+        card_layout.setSpacing(8)
+
+        title = QLabel("OBS Recording Reminder")
+        title.setObjectName("WarningTitle")
+        card_layout.addWidget(title)
+
+        summary = QLabel(
+            "If this run is for leaderboard verification or YouTube, make sure OBS recording is started before beginning the run."
+        )
+        summary.setWordWrap(True)
+        summary.setStyleSheet("background: transparent; font-size: 15px;")
+        card_layout.addWidget(summary)
+        layout.addWidget(card)
+
+        note = QLabel("This reminder can be switched off at any time from Settings.")
+        note.setWordWrap(True)
+        note.setStyleSheet("font-size: 14px; color: #9CA3AF;")
+        layout.addWidget(note)
+        layout.addStretch(1)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.addStretch(1)
+
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("SuccessButton")
+        ok_btn.setProperty("class", "WideDialogButton")
+        ok_btn.setMinimumHeight(32)
+        ok_btn.setMinimumWidth(100)
+        ok_btn.clicked.connect(self.accept)
+        bottom_row.addWidget(ok_btn)
+        layout.addLayout(bottom_row)
+
+
 class TwitchCommandsHelpDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -945,6 +993,12 @@ class SettingsDialog(QDialog):
         self.auto_start_recording_var.setChecked(bool(getattr(config, "AUTO_START_RECORDING", False)))
         layout.addWidget(self.auto_start_recording_var)
 
+        self.show_obs_reminder_on_start_scanner_var = QCheckBox("Show OBS reminder on Start Scanner")
+        self.show_obs_reminder_on_start_scanner_var.setChecked(
+            bool(getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False))
+        )
+        layout.addWidget(self.show_obs_reminder_on_start_scanner_var)
+
         self.native_hook_enabled_var = QCheckBox("Use native hook restart")
         self.native_hook_enabled_var.setChecked(bool(getattr(config, "NATIVE_HOOK_ENABLED", True)))
         self.native_hook_enabled_var.toggled.connect(self.on_native_hook_toggle)
@@ -1088,6 +1142,9 @@ class SettingsDialog(QDialog):
         new_toggle_auto_select_upgrades_hotkey = _read_text(self.toggle_auto_select_upgrades_hotkey_entry).strip()
         new_toggle_particles_opacity_hotkey = _read_text(self.toggle_particles_opacity_hotkey_entry).strip()
         auto_start_recording = _read_bool(self.auto_start_recording_var)
+        show_obs_reminder_on_start_scanner = _read_bool(
+            getattr(self, "show_obs_reminder_on_start_scanner_var", None)
+        )
         native_hook_enabled = _read_bool(self.native_hook_enabled_var)
         native_hook_hotkeys_enabled = _read_bool(self.native_hook_hotkeys_enabled_var)
 
@@ -1098,6 +1155,7 @@ class SettingsDialog(QDialog):
         config.user_config["TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY"] = new_toggle_auto_select_upgrades_hotkey
         config.user_config["TOGGLE_PARTICLES_OPACITY_HOTKEY"] = new_toggle_particles_opacity_hotkey
         config.user_config["AUTO_START_RECORDING"] = auto_start_recording
+        config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = show_obs_reminder_on_start_scanner
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
         config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"] = native_hook_hotkeys_enabled
 
@@ -1108,6 +1166,7 @@ class SettingsDialog(QDialog):
         config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY = new_toggle_auto_select_upgrades_hotkey
         config.TOGGLE_PARTICLES_OPACITY_HOTKEY = new_toggle_particles_opacity_hotkey
         config.AUTO_START_RECORDING = auto_start_recording
+        config.SHOW_OBS_REMINDER_ON_START_SCANNER = show_obs_reminder_on_start_scanner
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
         config.NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED = native_hook_hotkeys_enabled
         if auto_start_recording and hasattr(self.master, "player_stats_auto_recording_suppressed"):

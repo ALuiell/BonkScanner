@@ -26,6 +26,20 @@ except ImportError:
     keyboard = None
 
 class ScannerMixin:
+    def _score_tier_color_tag(self, tier: str) -> str:
+        colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
+        return colors.get(tier, "BLUE")
+
+    def _log_colored_names(self, prefix: str, names: list[str], color_for_name) -> None:
+        colored_parts = [prefix]
+        colored_tags = [None]
+        for index, name in enumerate(names):
+            colored_parts.append(name)
+            colored_tags.append(color_for_name(name))
+            if index < len(names) - 1:
+                colored_parts.append(", ")
+                colored_tags.append(None)
+        self.log(colored_parts, tag=colored_tags)
 
     def deferred_update_check(self):
         threading.Thread(target=updater.check_and_update, args=(self, False), daemon=True).start()
@@ -107,6 +121,15 @@ class ScannerMixin:
                     config.user_config["SKIP_REROLL_WARNING"] = True
                     config.save_config(config.user_config)
 
+            if (
+                getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False)
+                and not getattr(self, "obs_recording_reminder_shown", False)
+            ):
+                from gui_dialogs import ObsRecordingReminderDialog
+                self.obs_recording_reminder_shown = True
+                dialog = ObsRecordingReminderDialog(self.window)
+                dialog.exec()
+
             self.log(f"\n[*] Starting auto-reroll monitor in {config.EVALUATION_MODE.upper()} mode...")
 
             if config.EVALUATION_MODE == "templates":
@@ -114,27 +137,20 @@ class ScannerMixin:
                 if not self.active_templates:
                     self.log("[-] Error: You must select at least one template!", tag="error")
                     return
-                colored_parts = ["[*] Active profiles: "]
-                colored_tags = [None]
-                for index, name in enumerate(self.active_templates):
-                    color_tag = "BLUE"
+                def template_color_tag(name: str) -> str:
                     for template in config.TEMPLATES:
                         if template["name"] == name:
-                            color_tag = template.get("color", "BLUE").upper()
-                            break
-                    colored_parts.append(name)
-                    colored_tags.append(color_tag)
-                    if index < len(self.active_templates) - 1:
-                        colored_parts.append(", ")
-                        colored_tags.append(None)
-                self.log(colored_parts, tag=colored_tags)
+                            return template.get("color", "BLUE").upper()
+                    return "BLUE"
+
+                self._log_colored_names("[*] Active profiles: ", self.active_templates, template_color_tag)
                 self.template_stats = {name: {"rerolls_since_last": 0, "history": []} for name in self.active_templates}
             else:
                 active_tiers = config.SCORES_SYSTEM.get("active_tiers", [])
                 if not active_tiers:
                     self.log("[-] Error: No active tiers selected in Scores mode!", tag="error")
                     return
-                self.log(f"[*] Active Tiers: {', '.join(active_tiers)}")
+                self._log_colored_names("[*] Active Tiers: ", active_tiers, self._score_tier_color_tag)
                 self.template_stats = {name: {"rerolls_since_last": 0, "history": []} for name in active_tiers}
 
             self.session_start_time = time.time()
@@ -186,8 +202,7 @@ class ScannerMixin:
                         color_tag = template.get("color", "BLUE").upper()
                         break
             else:
-                colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
-                color_tag = colors.get(name, "BLUE")
+                color_tag = self._score_tier_color_tag(name)
             hex_color = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
             history = data["history"]
             avg_text = f"{sum(history) / len(history):.1f} ({len(history)} found)" if history else "N/A"

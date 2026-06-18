@@ -263,6 +263,7 @@ class MegabonkApp(
 
         self.is_running = False
         self.is_ready_to_start = False
+        self.obs_recording_reminder_shown = False
         self.active_templates = []
         self.scanner_thread = None
         self.client = None
