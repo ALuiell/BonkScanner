@@ -1280,7 +1280,7 @@ class TwitchCommandSettingsDialog(QDialog):
         # === TAB 1: Response Templates ===
         tab_templates = QWidget()
         tab_templates_layout = QVBoxLayout(tab_templates)
-        
+
         templates_scroll, _, templates_scroll_layout = _make_scroll_section()
         tab_templates_layout.addWidget(templates_scroll)
 
@@ -1293,6 +1293,7 @@ class TwitchCommandSettingsDialog(QDialog):
             ("chaos", "!chaos / !chaostome:", "Chaos Tome Lv{level}: {chaos}", "Tags: {level}, {chaos}"),
             ("powerups", "!powerups:", "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})", "Tags: {standard_duration}, {clock_duration}, {pm}"),
             ("chests", "!chests / !chest:", config.DEFAULT_TWITCH_BOT["templates"]["chests"], "Tags: {stages}, {opened}, {total}, {paid}, {procs}, {normal}, {proc_rate}, {expected}, {free}, {keys}, {chance}"),
+            ("commands", "!bonkhelp / !bonkcmds:", config.DEFAULT_TWITCH_BOT["templates"]["commands"], "Tags: {commands_list}"),
         ]
 
         for key, label_text, default_val, help_text in templates_config:
@@ -1307,7 +1308,7 @@ class TwitchCommandSettingsDialog(QDialog):
             entry_layout.addWidget(help_lbl)
 
             templates_form.addRow(label_text, entry_layout)
-        
+
         templates_scroll_layout.addLayout(templates_form)
         templates_scroll_layout.addStretch(1)
         self.tabs.addTab(tab_templates, "Response Templates")
@@ -1323,33 +1324,22 @@ class TwitchCommandSettingsDialog(QDialog):
         stats_layout = stats_group.body_layout
         stats_layout.addWidget(QLabel("Select which stats appear in the {stats} placeholder:"))
 
-        stats_scroll_area = QScrollArea()
-        stats_scroll_area.setWidgetResizable(True)
-        stats_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        stats_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        stats_scroll_area.setFixedHeight(120)
-
-        stats_scroll_content = QWidget()
-        scroll_grid = QGridLayout(stats_scroll_content)
-        scroll_grid.setContentsMargins(5, 5, 5, 5)
-        scroll_grid.setSpacing(10)
+        stats_config_layout = QGridLayout()
+        stats_config_layout.setContentsMargins(5, 5, 5, 5)
+        stats_config_layout.setSpacing(10)
 
         all_stats = [spec.label for group in PLAYER_STAT_GROUPS for spec in group]
         selected_stats = set(config.TWITCH_BOT.get("selected_stats", config.DEFAULT_TWITCH_BOT["selected_stats"]))
 
-        num_rows = 3
         for index, label in enumerate(all_stats):
             checkbox = QCheckBox(label)
             checkbox.setChecked(label in selected_stats)
             checkbox.stateChanged.connect(self.on_stat_toggled)
             self.stat_checkboxes[label] = checkbox
 
-            row = index % num_rows
-            col = index // num_rows
-            scroll_grid.addWidget(checkbox, row, col)
+            stats_config_layout.addWidget(checkbox, index // 4, index % 4)
 
-        stats_scroll_area.setWidget(stats_scroll_content)
-        stats_layout.addWidget(stats_scroll_area)
+        stats_layout.addLayout(stats_config_layout)
         stats_layout.addSpacing(10)
 
         stats_form = QFormLayout()
@@ -1368,6 +1358,13 @@ class TwitchCommandSettingsDialog(QDialog):
         stats_help.setWordWrap(True)
         stats_layout.addWidget(stats_help)
 
+        stats_reset_layout = QHBoxLayout()
+        self.twitch_stats_reset_btn = QPushButton("Reset to Default Stats")
+        self.twitch_stats_reset_btn.clicked.connect(self._reset_twitch_stats_to_default)
+        stats_reset_layout.addWidget(self.twitch_stats_reset_btn)
+        stats_reset_layout.addStretch(1)
+        stats_layout.addLayout(stats_reset_layout)
+
         adv_scroll_layout.addWidget(stats_group)
         adv_scroll_layout.addSpacing(15)
 
@@ -1380,7 +1377,7 @@ class TwitchCommandSettingsDialog(QDialog):
         )
         twitch_tracked_group = CollapsibleSection(
             "!session Tracked Items",
-            expanded=not twitch_uses_session_tracked_items,
+            expanded=False,
         )
         twitch_tracked_layout = twitch_tracked_group.body_layout
         twitch_tracked_layout.addWidget(QLabel("Choose which tracked item counters appear in the Twitch !session response."))
@@ -1399,39 +1396,80 @@ class TwitchCommandSettingsDialog(QDialog):
         twitch_custom_layout.setContentsMargins(0, 0, 0, 0)
         twitch_custom_layout.setSpacing(8)
 
-        self.twitch_map_one_only_checkbox = QCheckBox("Map 1 only")
-        self.twitch_map_one_only_checkbox.setChecked(True)
-        twitch_custom_layout.addWidget(self.twitch_map_one_only_checkbox)
+        shuttle_layout = QHBoxLayout()
+
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(4)
+
+        search_top_layout = QHBoxLayout()
+        search_top_layout.addWidget(QLabel("Available Items"))
+        search_top_layout.addStretch(1)
+        left_layout.addLayout(search_top_layout)
 
         self.twitch_item_names = available_item_display_names()
         self.twitch_item_search_entry = QLineEdit()
         self.twitch_item_search_entry.setPlaceholderText("Search items...")
         self.twitch_item_search_entry.textChanged.connect(self.refresh_twitch_item_selector)
-        twitch_custom_layout.addWidget(self.twitch_item_search_entry)
+        left_layout.addWidget(self.twitch_item_search_entry)
 
         self.twitch_item_selector = QListWidget()
-        self.twitch_item_selector.setFixedHeight(TRACKED_ITEM_LIST_HEIGHT)
-        twitch_custom_layout.addWidget(self.twitch_item_selector)
+        self.twitch_item_selector.setMinimumHeight(TRACKED_ITEM_LIST_HEIGHT)
+        left_layout.addWidget(self.twitch_item_selector)
+        shuttle_layout.addLayout(left_layout, 1)
 
-        twitch_add_row = QHBoxLayout()
-        self.twitch_add_tracked_item_btn = QPushButton("Add Tracked Item")
+        middle_layout = QVBoxLayout()
+        middle_layout.setSpacing(10)
+        middle_layout.addStretch(1)
+
+        self.twitch_map_one_only_checkbox = QCheckBox("Map 1 only")
+        self.twitch_map_one_only_checkbox.setChecked(True)
+        self.twitch_map_one_only_checkbox.setToolTip("If checked, only counts gains on the first map.")
+        middle_layout.addWidget(self.twitch_map_one_only_checkbox, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self.twitch_add_tracked_item_btn = QPushButton("Add >>")
         self.twitch_add_tracked_item_btn.clicked.connect(self.add_twitch_tracked_item)
-        twitch_add_row.addWidget(self.twitch_add_tracked_item_btn)
-        twitch_add_row.addStretch(1)
-        twitch_custom_layout.addLayout(twitch_add_row)
+        middle_layout.addWidget(self.twitch_add_tracked_item_btn)
 
-        twitch_custom_layout.addWidget(QLabel("Custom Twitch tracked items"))
-        self.twitch_tracked_rules_list = QListWidget()
-        self.twitch_tracked_rules_list.setFixedHeight(TRACKED_ITEM_LIST_HEIGHT)
-        twitch_custom_layout.addWidget(self.twitch_tracked_rules_list)
-
-        twitch_remove_row = QHBoxLayout()
-        self.twitch_remove_tracked_item_btn = QPushButton("Remove Selected")
+        self.twitch_remove_tracked_item_btn = QPushButton("<< Remove")
         self.twitch_remove_tracked_item_btn.clicked.connect(self.remove_twitch_tracked_item)
-        twitch_remove_row.addWidget(self.twitch_remove_tracked_item_btn)
-        twitch_remove_row.addStretch(1)
-        twitch_custom_layout.addLayout(twitch_remove_row)
+        middle_layout.addWidget(self.twitch_remove_tracked_item_btn)
+
+        middle_layout.addStretch(1)
+        shuttle_layout.addLayout(middle_layout)
+
+        right_layout = QVBoxLayout()
+        right_layout.setSpacing(4)
+
+        tracked_top_layout = QHBoxLayout()
+        tracked_top_layout.addWidget(QLabel("Custom Twitch tracked items"))
+        tracked_top_layout.addStretch(1)
+        right_layout.addLayout(tracked_top_layout)
+
+        self.twitch_tracked_rules_list = QListWidget()
+        self.twitch_tracked_rules_list.setMinimumHeight(TRACKED_ITEM_LIST_HEIGHT + 28)
+        right_layout.addWidget(self.twitch_tracked_rules_list)
+        shuttle_layout.addLayout(right_layout, 1)
+
+        twitch_custom_layout.addLayout(shuttle_layout)
         twitch_tracked_layout.addWidget(self.twitch_custom_tracked_items_widget)
+
+        twitch_tracked_layout.addSpacing(10)
+        session_form = QFormLayout()
+        session_tpl_val = config.TWITCH_BOT.get("templates", {}).get("session", config.DEFAULT_TWITCH_BOT["templates"]["session"])
+        self.session_tpl_entry = QLineEdit(session_tpl_val)
+        self.templates_entries["session"] = self.session_tpl_entry
+        session_form.addRow("Response template:", self.session_tpl_entry)
+        twitch_tracked_layout.addLayout(session_form)
+
+        session_help = QLabel(
+            "<span style='color: #9CA3AF; font-size: 11px;'>"
+            "Available tags: <b>{items}</b> (the tracked items configured above), "
+            "<b>{resets}</b>, <b>{seeds}</b>, <b>{seed_rate}</b>."
+            "</span>"
+        )
+        session_help.setWordWrap(True)
+        twitch_tracked_layout.addWidget(session_help)
+        twitch_tracked_layout.addSpacing(10)
 
         self.refresh_twitch_item_selector()
         self.refresh_twitch_tracked_items_ui()
@@ -1588,7 +1626,7 @@ class TwitchCommandSettingsDialog(QDialog):
         announcers_form.addRow("Stage Transition:", stage_ann_layout)
 
         ann_scroll_layout.addLayout(announcers_form)
-        
+
         # Commands announcer
         self.commands_announcement_interval_spin = QSpinBox()
         self.commands_announcement_interval_spin.setRange(1, 1440)
@@ -1596,11 +1634,11 @@ class TwitchCommandSettingsDialog(QDialog):
             int(config.TWITCH_BOT.get("commands_announcement_interval_minutes", 30))
         )
         self.commands_announcement_interval_spin.setSuffix(" min")
-        
+
         ann_extra_form = QFormLayout()
         ann_extra_form.addRow("Commands interval:", self.commands_announcement_interval_spin)
         ann_scroll_layout.addLayout(ann_extra_form)
-        
+
         ann_scroll_layout.addStretch(1)
         self.tabs.addTab(tab_announcers, "Announcers")
 
@@ -1807,7 +1845,7 @@ class TwitchCommandSettingsDialog(QDialog):
         for label, cb in self.stat_checkboxes.items():
             cb.setChecked(label in default_selected)
 
-        self.stats_tpl_entry.setText("Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
+        self.stats_tpl_entry.setText(config.DEFAULT_TWITCH_BOT["templates"]["stats"])
 
         for cb in self.disabled_item_checkboxes.values():
             cb.setChecked(False)
@@ -1818,24 +1856,19 @@ class TwitchCommandSettingsDialog(QDialog):
             self.twitch_tracked_rules_list.clear()
 
 
-        defaults = {
-            "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
-            "bans": "Bans ({count}): {items}",
-            "items": "Items ({count}): {items}",
-            "weapons": "Weapons: {weapons}",
-            "tomes": "Tomes: {tomes}",
-            "chaos": "Chaos Tome Lv{level}: {chaos}",
-            "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
-            "chests": config.DEFAULT_TWITCH_BOT["templates"]["chests"],
-            "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
-            "disabled": "Disabled Items: {items}"
-        }
+        defaults = config.DEFAULT_TWITCH_BOT["templates"]
         for key, entry in self.templates_entries.items():
             entry.setText(defaults.get(key, ""))
         self.commands_announcement_interval_spin.setValue(
             int(config.DEFAULT_TWITCH_BOT.get("commands_announcement_interval_minutes", 30))
         )
         self._init_guard = False
+
+    def _reset_twitch_stats_to_default(self):
+        default_selected = set(config.DEFAULT_TWITCH_BOT["selected_stats"])
+        for label, cb in self.stat_checkboxes.items():
+            cb.setChecked(label in default_selected)
+        self.stats_tpl_entry.setText(config.DEFAULT_TWITCH_BOT["templates"]["stats"])
 
     def filter_disabled_items(self):
         text = self.disabled_search_input.text().strip().lower()

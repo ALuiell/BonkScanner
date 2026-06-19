@@ -147,6 +147,7 @@ DEFAULT_TWITCH_BOT = {
     "tracked_items": [],
     "templates": {
         "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
+        "session": "{resets} resets, {seeds} seeds found ({seed_rate}%) | Tracked Items: {items}",
         "bans": "Bans ({count}): {items}",
         "items": "Items ({count}): {items}",
         "weapons": "Weapons: {weapons}",
@@ -156,6 +157,7 @@ DEFAULT_TWITCH_BOT = {
         "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
         "scanner": "Download it here: {github_url} | Support the creator here: {patreon_url} | Try !bonkhelp.",
         "chests": "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
+        "commands": "Available commands: {commands_list}",
         "disabled": "Disabled Items: {items}",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
         "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"

@@ -443,6 +443,32 @@ class TestTwitchBotWorker(unittest.TestCase):
                 "Available commands: !stats, !session, !items, !tomes, !stages, !scanner, !presets, !bonkhelp"
             )
 
+    def test_handle_commands_uses_configured_template(self):
+        import config
+
+        self.bot._send_chat = MagicMock()
+        mock_commands_cfg = {key: False for key in config.DEFAULT_TWITCH_BOT["commands"]}
+        mock_commands_cfg["stats"] = True
+        mock_commands_cfg["commands"] = True
+        with patch.dict(
+            config.TWITCH_BOT,
+            {
+                "commands": mock_commands_cfg,
+                "templates": {"commands": "Commands -> {commands_list}"},
+            },
+        ):
+            self.bot._handle_commands("channel")
+
+        self.bot._send_chat.assert_called_once_with("channel", "Commands -> !stats, !bonkhelp")
+
+    def test_twitch_template_defaults_include_configurable_commands_and_session(self):
+        import config
+
+        bot_cfg = config.normalize_twitch_bot_config({"templates": {}})
+
+        self.assertIn("commands", bot_cfg["templates"])
+        self.assertIn("session", bot_cfg["templates"])
+
     def test_commands_announcement_uses_configured_interval(self):
         import config
 

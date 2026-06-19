@@ -169,6 +169,7 @@ class CollapsibleSectionGroup:
         self._updating = False
         for section in sections:
             self.add_section(section)
+        self._normalize_expanded_sections()
 
     def add_section(self, section: CollapsibleSection) -> None:
         if section in self._sections:
@@ -183,6 +184,20 @@ class CollapsibleSectionGroup:
         try:
             for section in self._sections:
                 if section is not current:
+                    section.set_expanded(False)
+        finally:
+            self._updating = False
+
+    def _normalize_expanded_sections(self) -> None:
+        first_expanded = None
+        self._updating = True
+        try:
+            for section in self._sections:
+                if not section.toggle_button.isChecked():
+                    continue
+                if first_expanded is None:
+                    first_expanded = section
+                else:
                     section.set_expanded(False)
         finally:
             self._updating = False

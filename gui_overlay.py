@@ -224,7 +224,7 @@ class OverlayMixin:
         copy_widget_btn.clicked.connect(lambda: self._copy_to_clipboard(self.overlay_widget_url_entry.text(), copy_widget_btn))
         urls_layout.addWidget(copy_widget_btn, 2, 2)
 
-        # Place all cards in grid — AlignTop ensures no card stretches to fill its neighbour's height
+        # Place all cards in grid - AlignTop ensures no card stretches to fill its neighbour's height
         grid_layout.addWidget(server_group,      0, 0, Qt.AlignTop)
         grid_layout.addWidget(urls_group,        0, 1, Qt.AlignTop)
         grid_layout.addWidget(editor_info_card,  1, 0, Qt.AlignTop)
@@ -302,7 +302,7 @@ class OverlayMixin:
         basic_layout.addWidget(banishes_group)
         basic_layout.addStretch(1)
 
-        stats_group = CollapsibleSection("Stats", expanded=False)
+        stats_group = CollapsibleSection("Stats", expanded=True)
         stats_layout = stats_group.body_layout
         stats_layout.addWidget(QLabel("Selected stats appear in the Stats overlay widget."))
         stats_widget_cfg = self._overlay_widget_config_by_id().get("stats", {})
@@ -340,7 +340,7 @@ class OverlayMixin:
 
         items_group = CollapsibleSection(
             "Tracked Items",
-            expanded=not self._uses_session_tracked_items(config.OVERLAY, default="custom"),
+            expanded=False,
         )
         items_layout = items_group.body_layout
         items_layout.addWidget(QLabel("Configure tracked item counters for the overlay."))
@@ -359,33 +359,61 @@ class OverlayMixin:
         overlay_custom_layout.setContentsMargins(0, 0, 0, 0)
         overlay_custom_layout.setSpacing(8)
 
-        self.overlay_map_one_only_checkbox = QCheckBox("Map 1 only")
-        self.overlay_map_one_only_checkbox.setChecked(True)
-        overlay_custom_layout.addWidget(self.overlay_map_one_only_checkbox)
+        shuttle_layout = QHBoxLayout()
+
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(4)
+
+        search_top_layout = QHBoxLayout()
+        search_top_layout.addWidget(QLabel("Available Items"))
+        search_top_layout.addStretch(1)
+        left_layout.addLayout(search_top_layout)
+
         self.overlay_item_names = self._overlay_available_item_names()
         self.overlay_item_search_entry = QLineEdit()
         self.overlay_item_search_entry.setPlaceholderText("Search items...")
         self.overlay_item_search_entry.textChanged.connect(self.refresh_overlay_item_selector)
-        overlay_custom_layout.addWidget(self.overlay_item_search_entry)
+        left_layout.addWidget(self.overlay_item_search_entry)
+
         self.overlay_item_selector = QListWidget()
-        self.overlay_item_selector.setFixedHeight(TRACKED_ITEM_LIST_HEIGHT)
-        overlay_custom_layout.addWidget(self.overlay_item_selector)
-        add_row = QHBoxLayout()
-        self.overlay_add_tracked_item_btn = QPushButton("Add Tracked Item")
+        self.overlay_item_selector.setMinimumHeight(TRACKED_ITEM_LIST_HEIGHT)
+        left_layout.addWidget(self.overlay_item_selector)
+        shuttle_layout.addLayout(left_layout, 1)
+
+        middle_layout = QVBoxLayout()
+        middle_layout.setSpacing(10)
+        middle_layout.addStretch(1)
+
+        self.overlay_map_one_only_checkbox = QCheckBox("Map 1 only")
+        self.overlay_map_one_only_checkbox.setChecked(True)
+        self.overlay_map_one_only_checkbox.setToolTip("If checked, only counts gains on the first map.")
+        middle_layout.addWidget(self.overlay_map_one_only_checkbox, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self.overlay_add_tracked_item_btn = QPushButton("Add >>")
         self.overlay_add_tracked_item_btn.clicked.connect(self.add_overlay_tracked_item)
-        add_row.addWidget(self.overlay_add_tracked_item_btn)
-        add_row.addStretch(1)
-        overlay_custom_layout.addLayout(add_row)
-        overlay_custom_layout.addWidget(QLabel("Currently tracked"))
-        self.overlay_tracked_rules_list = QListWidget()
-        self.overlay_tracked_rules_list.setFixedHeight(TRACKED_ITEM_LIST_HEIGHT)
-        overlay_custom_layout.addWidget(self.overlay_tracked_rules_list)
-        remove_row = QHBoxLayout()
-        self.overlay_remove_tracked_item_btn = QPushButton("Remove Selected")
+        middle_layout.addWidget(self.overlay_add_tracked_item_btn)
+
+        self.overlay_remove_tracked_item_btn = QPushButton("<< Remove")
         self.overlay_remove_tracked_item_btn.clicked.connect(self.remove_overlay_tracked_item)
-        remove_row.addWidget(self.overlay_remove_tracked_item_btn)
-        remove_row.addStretch(1)
-        overlay_custom_layout.addLayout(remove_row)
+        middle_layout.addWidget(self.overlay_remove_tracked_item_btn)
+
+        middle_layout.addStretch(1)
+        shuttle_layout.addLayout(middle_layout)
+
+        right_layout = QVBoxLayout()
+        right_layout.setSpacing(4)
+
+        tracked_top_layout = QHBoxLayout()
+        tracked_top_layout.addWidget(QLabel("Currently tracked"))
+        tracked_top_layout.addStretch(1)
+        right_layout.addLayout(tracked_top_layout)
+
+        self.overlay_tracked_rules_list = QListWidget()
+        self.overlay_tracked_rules_list.setMinimumHeight(TRACKED_ITEM_LIST_HEIGHT + 28)
+        right_layout.addWidget(self.overlay_tracked_rules_list)
+        shuttle_layout.addLayout(right_layout, 1)
+
+        overlay_custom_layout.addLayout(shuttle_layout)
         items_layout.addWidget(self.overlay_custom_tracked_items_widget)
         advanced_layout.addWidget(items_group)
         advanced_layout.addStretch(1)
@@ -694,40 +722,61 @@ class OverlayMixin:
         content_layout.setContentsMargins(8, 8, 8, 8)
         content_layout.setSpacing(10)
         content_layout.addWidget(QLabel("Track item gains in Session Stats. Map 1 only counts gains observed during stage 1."))
+        shuttle_layout = QHBoxLayout()
 
-        self.session_map_one_only_checkbox = QCheckBox("Map 1 only")
-        self.session_map_one_only_checkbox.setChecked(True)
-        content_layout.addWidget(self.session_map_one_only_checkbox)
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(4)
+
+        search_top_layout = QHBoxLayout()
+        search_top_layout.addWidget(QLabel("Available Items"))
+        search_top_layout.addStretch(1)
+        left_layout.addLayout(search_top_layout)
 
         self.session_item_names = self._overlay_available_item_names()
         self.session_item_search_entry = QLineEdit()
         self.session_item_search_entry.setPlaceholderText("Search items...")
         self.session_item_search_entry.textChanged.connect(self.refresh_session_item_selector)
-        content_layout.addWidget(self.session_item_search_entry)
+        left_layout.addWidget(self.session_item_search_entry)
 
         self.session_item_selector = QListWidget()
-        self.session_item_selector.setFixedHeight(TRACKED_ITEM_LIST_HEIGHT)
-        content_layout.addWidget(self.session_item_selector)
+        self.session_item_selector.setMinimumHeight(TRACKED_ITEM_LIST_HEIGHT)
+        left_layout.addWidget(self.session_item_selector)
+        shuttle_layout.addLayout(left_layout, 1)
 
-        add_row = QHBoxLayout()
-        self.session_add_tracked_item_btn = QPushButton("Add Tracked Item")
+        middle_layout = QVBoxLayout()
+        middle_layout.setSpacing(10)
+        middle_layout.addStretch(1)
+
+        self.session_map_one_only_checkbox = QCheckBox("Map 1 only")
+        self.session_map_one_only_checkbox.setChecked(True)
+        self.session_map_one_only_checkbox.setToolTip("If checked, only counts gains on the first map.")
+        middle_layout.addWidget(self.session_map_one_only_checkbox, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self.session_add_tracked_item_btn = QPushButton("Add >>")
         self.session_add_tracked_item_btn.clicked.connect(self.add_session_tracked_item)
-        add_row.addWidget(self.session_add_tracked_item_btn)
-        add_row.addStretch(1)
-        content_layout.addLayout(add_row)
+        middle_layout.addWidget(self.session_add_tracked_item_btn)
 
-        content_layout.addWidget(QLabel("Currently tracked"))
-        self.session_tracked_rules_list = QListWidget()
-        self.session_tracked_rules_list.setFixedHeight(TRACKED_ITEM_LIST_HEIGHT)
-        content_layout.addWidget(self.session_tracked_rules_list)
-
-        remove_row = QHBoxLayout()
-        self.session_remove_tracked_item_btn = QPushButton("Remove Selected")
+        self.session_remove_tracked_item_btn = QPushButton("<< Remove")
         self.session_remove_tracked_item_btn.clicked.connect(self.remove_session_tracked_item)
-        remove_row.addWidget(self.session_remove_tracked_item_btn)
-        remove_row.addStretch(1)
-        content_layout.addLayout(remove_row)
+        middle_layout.addWidget(self.session_remove_tracked_item_btn)
 
+        middle_layout.addStretch(1)
+        shuttle_layout.addLayout(middle_layout)
+
+        right_layout = QVBoxLayout()
+        right_layout.setSpacing(4)
+
+        tracked_top_layout = QHBoxLayout()
+        tracked_top_layout.addWidget(QLabel("Currently tracked"))
+        tracked_top_layout.addStretch(1)
+        right_layout.addLayout(tracked_top_layout)
+
+        self.session_tracked_rules_list = QListWidget()
+        self.session_tracked_rules_list.setMinimumHeight(TRACKED_ITEM_LIST_HEIGHT + 28)
+        right_layout.addWidget(self.session_tracked_rules_list)
+        shuttle_layout.addLayout(right_layout, 1)
+
+        content_layout.addLayout(shuttle_layout)
         dialog_layout.addWidget(content)
 
         close_row = QHBoxLayout()
@@ -847,8 +896,8 @@ class OverlayMixin:
     def format_twitch_session_summary(self) -> str:
         rerolls = max(0, int(getattr(self, "session_rerolls", 0) or 0))
         seeds_found = self.session_found_seed_count()
-        seed_rate = (seeds_found / rerolls * 100.0) if rerolls > 0 else 0.0
-        text = f"{rerolls} resets, {seeds_found} seeds found ({seed_rate:.2f}%)"
+        seed_rate = f"{(seeds_found / rerolls * 100.0) if rerolls > 0 else 0.0:.2f}"
+
         tracked_parts = []
         for row in self.twitch_tracked_item_stat_rows():
             percent = row.get("percent")
@@ -856,9 +905,17 @@ class OverlayMixin:
                 tracked_parts.append(f"{row['label']} {row['count']}")
             else:
                 tracked_parts.append(f"{row['label']} {row['count']} ({percent:.2f}%)")
-        if tracked_parts:
-            text += f" | Tracked Items: {', '.join(tracked_parts)}"
-        return text
+
+        items_str = ", ".join(tracked_parts) if tracked_parts else "None"
+
+        import config
+        tpl = config.TWITCH_BOT.get("templates", {}).get(
+            "session", "{resets} resets, {seeds} seeds found ({seed_rate}%) | Tracked Items: {items}"
+        )
+        try:
+            return tpl.format(resets=rerolls, seeds=seeds_found, seed_rate=seed_rate, items=items_str)
+        except Exception:
+            return f"{rerolls} resets, {seeds_found} seeds found ({seed_rate}%) | Tracked Items: {items_str}"
 
     @staticmethod
     def _session_tracked_item_command_label(row: dict[str, Any]) -> str:

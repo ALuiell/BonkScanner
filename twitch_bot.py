@@ -830,7 +830,12 @@ class TwitchBotWorker(QThread):
         if not enabled_cmds:
             msg = "No Twitch bot commands are currently enabled."
         else:
-            msg = f"Available commands: {', '.join(enabled_cmds)}"
+            commands_list = ', '.join(enabled_cmds)
+            msg = self._format_template(
+                "commands",
+                "Available commands: {commands_list}",
+                commands_list=commands_list
+            )
             
         self._send_chat(channel, msg)
 
