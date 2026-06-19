@@ -214,6 +214,95 @@ class LiveRunTrackerTests(unittest.TestCase):
                 row = {row["id"]: row for row in tracker.tracked_item_rows()}["tracked_item"]
                 self.assertEqual(row["count"], 1)
 
+    def test_tracker_counts_combo_rule_when_all_items_are_present(self) -> None:
+        tracker = LiveRunTracker(
+            clock=lambda: 1000.0,
+            tracked_item_rules=(
+                TrackedItemRule(
+                    id="kevin_plug",
+                    label="Kevin + Electric Plug",
+                    item_names=("Kevin", "Electric Plug"),
+                    mode="all_run",
+                ),
+            ),
+        )
+
+        tracker.update(snapshot(time_seconds=20.0, items=("Kevin x1",)))
+        tracker.update(snapshot(time_seconds=40.0, items=("Kevin x1", "Electric Plug x1")))
+        tracker.update(snapshot(time_seconds=50.0, items=("Kevin x2", "Electric Plug x1")))
+        tracker.update(snapshot(time_seconds=60.0, items=("Kevin x2", "Electric Plug x2")))
+
+        row = {row["id"]: row for row in tracker.tracked_item_rows()}["kevin_plug"]
+        self.assertEqual(row["count"], 1)
+
+    def test_tracker_combo_map_one_only_requires_full_combo_on_first_map(self) -> None:
+        tracker = LiveRunTracker(
+            clock=lambda: 1000.0,
+            tracked_item_rules=(
+                TrackedItemRule(
+                    id="kevin_plug_map_1",
+                    label="Kevin + Electric Plug Map 1",
+                    item_names=("Kevin", "Electric Plug"),
+                    mode="map_1_only",
+                ),
+            ),
+        )
+
+        tracker.update(snapshot(time_seconds=20.0, items=("Kevin x1",)))
+        tracker.update(
+            snapshot(
+                time_seconds=180.0,
+                items=("Kevin x1", "Electric Plug x1"),
+                stage_ptr=2000,
+                stage_time_seconds=1.0,
+            )
+        )
+
+        row = {row["id"]: row for row in tracker.tracked_item_rows()}["kevin_plug_map_1"]
+        self.assertEqual(row["count"], 0)
+
+    def test_tracker_counts_combo_once_per_run_and_again_after_new_run(self) -> None:
+        tracker = LiveRunTracker(
+            clock=lambda: 1000.0,
+            tracked_item_rules=(
+                TrackedItemRule(
+                    id="kevin_plug_map_1",
+                    label="Kevin + Electric Plug Map 1",
+                    item_names=("Kevin", "Electric Plug"),
+                    mode="map_1_only",
+                ),
+            ),
+        )
+
+        tracker.update(snapshot(time_seconds=2.0, items=("Kevin x1", "Electric Plug x1"), map_seed=100))
+        tracker.update(snapshot(time_seconds=10.0, items=("Kevin x2", "Electric Plug x2"), map_seed=100))
+        tracker.update(snapshot(time_seconds=20.0, items=("Kevin x2", "Electric Plug x1"), map_seed=100))
+        tracker.update(snapshot(time_seconds=2.0, items=("Kevin x1", "Electric Plug x1"), map_seed=200))
+
+        row = {row["id"]: row for row in tracker.tracked_item_rows()}["kevin_plug_map_1"]
+        self.assertEqual(row["count"], 2)
+
+    def test_tracker_does_not_retroactively_count_combo_when_rule_is_added_mid_run(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0, tracked_item_rules=())
+        tracker.update(snapshot(time_seconds=20.0, items=("Kevin x1", "Electric Plug x1"), map_seed=100))
+
+        tracker.set_tracked_item_rules(
+            (
+                TrackedItemRule(
+                    id="kevin_plug",
+                    label="Kevin + Electric Plug",
+                    item_names=("Kevin", "Electric Plug"),
+                    mode="all_run",
+                ),
+            )
+        )
+        tracker.update(snapshot(time_seconds=30.0, items=("Kevin x1", "Electric Plug x1"), map_seed=100))
+        tracker.update(snapshot(time_seconds=40.0, items=("Kevin x2", "Electric Plug x1"), map_seed=100))
+        tracker.update(snapshot(time_seconds=50.0, items=("Kevin x2", "Electric Plug x2"), map_seed=100))
+
+        row = {row["id"]: row for row in tracker.tracked_item_rows()}["kevin_plug"]
+        self.assertEqual(row["count"], 0)
+
     def test_chaos_tracker_sums_large_new_modifiers_on_level_gain(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_chaos_tome(

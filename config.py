@@ -143,7 +143,7 @@ DEFAULT_TWITCH_BOT = {
         "Powerup Multiplier", "Size"
     ],
     "highlighted_disabled_items": [],
-    "tracked_items_source": "session",
+    "tracked_items_source": "custom",
     "tracked_items": [],
     "templates": {
         "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
@@ -432,14 +432,24 @@ def normalize_tracked_item_rules_config(value, default_rules=()):
     for raw_rule in raw_rules or ():
         if not isinstance(raw_rule, dict):
             continue
-        item_names = [str(name) for name in raw_rule.get("item_names") or () if str(name).strip()]
+        raw_item_names = raw_rule.get("item_names")
+        if raw_item_names is None:
+            raw_item_names = raw_rule.get("items")
+        if raw_item_names is None and raw_rule.get("item_name"):
+            raw_item_names = [raw_rule.get("item_name")]
+        item_names = []
+        for name in raw_item_names or ():
+            item_name = str(name).strip()
+            if item_name and item_name not in item_names:
+                item_names.append(item_name)
         if not item_names:
             continue
         mode = str(raw_rule.get("mode") or "all_run")
+        default_label = " + ".join(item_names)
         normalized_rules.append(
             {
                 "id": str(raw_rule.get("id") or "_".join(item_names).lower()),
-                "label": str(raw_rule.get("label") or ", ".join(item_names)),
+                "label": str(raw_rule.get("label") or default_label),
                 "item_names": item_names,
                 "mode": mode,
             }
@@ -511,7 +521,7 @@ def normalize_twitch_bot_config(value):
 
     bot_cfg["tracked_items_source"] = normalize_tracked_items_source(
         bot_cfg.get("tracked_items_source"),
-        default="session",
+        default="custom",
     )
     bot_cfg["tracked_items"] = normalize_tracked_item_rules_config(
         bot_cfg.get("tracked_items"),

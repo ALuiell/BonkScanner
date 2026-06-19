@@ -148,7 +148,7 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.bot._send_chat.assert_called_once_with("channel", "Session stats are not available yet.")
 
-    def test_twitch_tracked_items_source_defaults_to_session(self):
+    def test_twitch_tracked_items_source_defaults_to_custom(self):
         from config import normalize_twitch_bot_config
 
         bot_cfg = normalize_twitch_bot_config(
@@ -164,7 +164,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             }
         )
 
-        self.assertEqual(bot_cfg["tracked_items_source"], "session")
+        self.assertEqual(bot_cfg["tracked_items_source"], "custom")
         self.assertEqual(bot_cfg["tracked_items"][0]["id"], "twitch_custom")
 
     def test_handle_powerups_uses_powerup_multiplier(self):

@@ -30,6 +30,20 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual(overlay["tracked_items_source"], "custom")
         self.assertEqual(overlay["tracked_items"][0]["id"], "custom_anvils")
 
+    def test_tracked_item_rules_normalize_combo_items(self) -> None:
+        rules = config.normalize_tracked_item_rules_config(
+            [
+                {
+                    "id": "kevin_plug",
+                    "item_names": ["Kevin", "Electric Plug", "Kevin"],
+                    "mode": "map_1_only",
+                }
+            ]
+        )
+
+        self.assertEqual(rules[0]["label"], "Kevin + Electric Plug")
+        self.assertEqual(rules[0]["item_names"], ["Kevin", "Electric Plug"])
+
     def test_overlay_state_has_json_friendly_missing_data(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 123.0)
         state = build_overlay_state(

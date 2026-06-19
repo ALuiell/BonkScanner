@@ -4132,6 +4132,27 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(chests_and_keys_args, [(12, 50, 1)])
 
+    def test_session_tracked_items_stats_tab_includes_seed_percent(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.template_stats = {
+            "template_a": {"history": [1, 2]},
+            "template_b": {"history": [3, 4]},
+        }
+        app.live_run_tracker = SimpleNamespace(
+            tracked_item_rows_for_rules=lambda _rules: [
+                {
+                    "id": "kevin_plug",
+                    "label": "Kevin + Electric Plug",
+                    "count": 2,
+                    "mode": "map_1_only",
+                }
+            ]
+        )
+
+        text = gui.MegabonkApp.format_session_tracked_items_for_stats_tab(app)
+
+        self.assertEqual(text, "Kevin + Electric Plug T1: 2 (50.00%)")
+
 
 if __name__ == "__main__":
     unittest.main()

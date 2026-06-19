@@ -22,9 +22,9 @@ def enable_windows_dpi_awareness() -> None:
 
 enable_windows_dpi_awareness()
 
-from PySide6.QtCore import QObject, QSize, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QIcon
-from PySide6.QtWidgets import QFrame, QMainWindow, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLayout, QMainWindow, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 TRACKED_ITEM_LIST_HEIGHT = 96
 
@@ -283,3 +283,141 @@ class _AppWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.owner._handle_window_close(event)
+
+class FlowLayout(QLayout):
+    def __init__(self, parent=None, margin=0, spacing=-1):
+        super().__init__(parent)
+        if parent is not None:
+            self.setContentsMargins(margin, margin, margin, margin)
+        self.setSpacing(spacing)
+        self.itemList = []
+
+    def __del__(self):
+        item = self.takeAt(0)
+        while item:
+            item = self.takeAt(0)
+
+    def addItem(self, item):
+        self.itemList.append(item)
+
+    def count(self):
+        return len(self.itemList)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self.itemList):
+            return self.itemList[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self.itemList):
+            return self.itemList.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        height = self.doLayout(QRect(0, 0, width, 0), True)
+        return height
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self.doLayout(rect, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self.itemList:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
+        return size
+
+    def doLayout(self, rect, testOnly):
+        x = rect.x()
+        y = rect.y()
+        lineHeight = 0
+
+        for item in self.itemList:
+            wid = item.widget()
+            spaceX = self.spacing()
+            spaceY = self.spacing()
+            if wid:
+                spaceX = self.spacing() if self.spacing() != -1 else wid.style().layoutSpacing(QSizePolicy.PushButton, QSizePolicy.PushButton, Qt.Horizontal)
+                spaceY = self.spacing() if self.spacing() != -1 else wid.style().layoutSpacing(QSizePolicy.PushButton, QSizePolicy.PushButton, Qt.Vertical)
+
+            nextX = x + item.sizeHint().width() + spaceX
+            if nextX - spaceX > rect.right() and lineHeight > 0:
+                x = rect.x()
+                y = y + lineHeight + spaceY
+                nextX = x + item.sizeHint().width() + spaceX
+                lineHeight = 0
+
+            if not testOnly:
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+
+            x = nextX
+            lineHeight = max(lineHeight, item.sizeHint().height())
+
+        height = y + lineHeight - rect.y()
+        if not testOnly and self.parentWidget():
+            self.parentWidget().setMinimumHeight(height)
+
+        return height
+
+class TrackedRuleTagWidget(QFrame):
+    remove_clicked = Signal(str)
+
+    def __init__(self, rule_id: str, label_text: str, parent=None):
+        super().__init__(parent)
+        self.rule_id = rule_id
+        self.setObjectName("TrackedRuleTag")
+
+        self.setStyleSheet("""
+            QFrame#TrackedRuleTag {
+                background-color: #2D2D35;
+                border: 1px solid #4B4B5A;
+                border-radius: 4px;
+            }
+            QLabel {
+                color: #E2E8F0;
+                font-weight: bold;
+                font-size: 11px;
+                padding-left: 6px;
+                padding-right: 2px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+            }
+            QPushButton#TagCloseBtn {
+                color: #A0AEC0;
+                background: transparent;
+                border: none;
+                font-weight: bold;
+                font-size: 11px;
+                padding-left: 4px;
+                padding-right: 6px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+            }
+            QPushButton#TagCloseBtn:hover {
+                color: #F87171;
+            }
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        lbl = QLabel(label_text)
+        layout.addWidget(lbl)
+
+        close_btn = QPushButton("✕")
+        close_btn.setObjectName("TagCloseBtn")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(lambda: self.remove_clicked.emit(self.rule_id))
+        layout.addWidget(close_btn)

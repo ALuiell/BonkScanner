@@ -239,6 +239,7 @@ class LiveRunTracker:
         self._previous_item_counts: dict[str, int] | None = None
         self._tracked_events: list[TrackedItemEvent] = []
         self._tracked_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
+        self._combo_run_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
         self._chaos_tome_level: int | None = None
         self._chaos_modifier_baselines: dict[int, tuple[float, ...]] = {}
         self._chaos_totals: dict[int, ChaosTomeStatTotal] = {}
@@ -318,6 +319,7 @@ class LiveRunTracker:
             return
         old_rules_by_id = {rule.id: rule for rule in self.tracked_item_rules}
         old_counts = dict(self._tracked_counts)
+        old_combo_run_counts = dict(self._combo_run_counts)
         preserved_rule_ids = {
             rule.id
             for rule in new_rules
@@ -329,12 +331,20 @@ class LiveRunTracker:
             rule.id: old_counts.get(rule.id, 0) if rule.id in preserved_rule_ids else 0
             for rule in self.tracked_item_rules
         }
+        self._combo_run_counts = {
+            rule.id: old_combo_run_counts.get(rule.id, 0) if rule.id in preserved_rule_ids else 0
+            for rule in self.tracked_item_rules
+        }
         self._tracked_events = [
             event for event in old_events if event.rule_id in preserved_rule_ids
         ]
-        self._reset_current_run_item_baseline()
+        self._reset_current_run_item_baseline(reset_combo_counts=False)
         if self.snapshots and self.snapshots[-1].items_available:
-            self._previous_item_counts = run_summary.item_counts(self.snapshots[-1].items)
+            current_counts = run_summary.item_counts(self.snapshots[-1].items)
+            self._previous_item_counts = current_counts
+            for rule in self.tracked_item_rules:
+                if rule.id not in preserved_rule_ids and len(rule.item_names) > 1:
+                    self._combo_run_counts[rule.id] = self._combo_count_for_rule(rule, current_counts)
 
     @with_lock
     def stage_summary_rows(self) -> list[dict[str, Any]]:
@@ -665,9 +675,12 @@ class LiveRunTracker:
         self._reset_current_run_item_baseline()
         self._tracked_events = []
         self._tracked_counts = {rule.id: 0 for rule in self.tracked_item_rules}
+        self._combo_run_counts = {rule.id: 0 for rule in self.tracked_item_rules}
 
-    def _reset_current_run_item_baseline(self) -> None:
+    def _reset_current_run_item_baseline(self, *, reset_combo_counts: bool = True) -> None:
         self._previous_item_counts = None
+        if reset_combo_counts:
+            self._combo_run_counts = {rule.id: 0 for rule in self.tracked_item_rules}
 
     def _reset_chaos_tracking(self) -> None:
         self._chaos_tome_level = None
@@ -844,6 +857,11 @@ class LiveRunTracker:
         if self._previous_item_counts is None:
             self._previous_item_counts = dict(current_counts)
             self._process_initial_item_counts(snapshot, current_counts)
+            self._process_combo_item_rules(
+                snapshot=snapshot,
+                current_counts=current_counts,
+                stage_index=self.current_stage_index,
+            )
             return
 
         for item_name, current_count in current_counts.items():
@@ -860,6 +878,11 @@ class LiveRunTracker:
             item_name: max(current_counts.get(item_name, 0), self._previous_item_counts.get(item_name, 0))
             for item_name in set(current_counts) | set(self._previous_item_counts)
         }
+        self._process_combo_item_rules(
+            snapshot=snapshot,
+            current_counts=current_counts,
+            stage_index=self.current_stage_index,
+        )
 
     def _process_initial_item_counts(
         self,
@@ -893,6 +916,8 @@ class LiveRunTracker:
         stage_index: int,
     ) -> None:
         for rule in self.tracked_item_rules:
+            if len(rule.item_names) > 1:
+                continue
             if not self._rule_matches_item(rule, item_name):
                 continue
             eligible_count = self._eligible_count_for_rule(
@@ -914,6 +939,76 @@ class LiveRunTracker:
                 captured_at=snapshot.captured_at,
             )
             self._tracked_events.append(event)
+
+    def _process_combo_item_rules(
+        self,
+        *,
+        snapshot: LiveRunSnapshot,
+        current_counts: dict[str, int],
+        stage_index: int,
+    ) -> None:
+        folded_counts = {
+            _fold_item_match_name(item_name): max(0, int(count))
+            for item_name, count in current_counts.items()
+        }
+        for rule in self.tracked_item_rules:
+            if len(rule.item_names) <= 1:
+                continue
+            if self._eligible_count_for_rule(
+                rule,
+                gained_count=1,
+                game_time_seconds=snapshot.game_time_seconds,
+                stage_index=stage_index,
+            ) <= 0:
+                continue
+            combo_count = self._combo_count_for_rule(rule, folded_counts, folded=True)
+            if combo_count <= 0:
+                continue
+            combo_count = 1
+            already_counted_this_run = self._combo_run_counts.get(rule.id, 0)
+            eligible_count = max(0, combo_count - already_counted_this_run)
+            if eligible_count <= 0:
+                continue
+            total_count = self._tracked_counts.get(rule.id, 0)
+            if rule.mode == "first_n" and rule.max_copies is not None:
+                remaining = max(0, int(rule.max_copies) - total_count)
+                eligible_count = min(eligible_count, remaining)
+            if eligible_count <= 0:
+                continue
+            self._tracked_counts[rule.id] = total_count + eligible_count
+            self._combo_run_counts[rule.id] = already_counted_this_run + eligible_count
+            self._tracked_events.append(
+                TrackedItemEvent(
+                    rule_id=rule.id,
+                    item_name=" + ".join(rule.item_names),
+                    gained_count=eligible_count,
+                    game_time_seconds=snapshot.game_time_seconds,
+                    stage_index=stage_index,
+                    map_seed=snapshot.map_seed,
+                    captured_at=snapshot.captured_at,
+                )
+            )
+
+    @staticmethod
+    def _combo_count_for_rule(
+        rule: TrackedItemRule,
+        counts: dict[str, int],
+        *,
+        folded: bool = False,
+    ) -> int:
+        if not rule.item_names:
+            return 0
+        if folded:
+            folded_counts = counts
+        else:
+            folded_counts = {
+                _fold_item_match_name(item_name): max(0, int(count))
+                for item_name, count in counts.items()
+            }
+        return min(
+            folded_counts.get(_fold_item_match_name(item_name), 0)
+            for item_name in rule.item_names
+        )
 
     def _eligible_count_for_rule(
         self,
