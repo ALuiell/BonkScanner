@@ -18,6 +18,13 @@ class SafeFormatter(string.Formatter):
 
 
 def _round_chaos_summary_part(part: str) -> str:
+    if part.startswith("Pickup "):
+        return re.sub(
+            r"(?P<sign>[+-])(?P<value>\d+(?:\.\d+)?)(?P<suffix>%?)$",
+            lambda match: f"{match.group('sign')}{float(match.group('value')):.2f}".rstrip("0").rstrip(".") + match.group('suffix'),
+            part,
+        )
+
     def replace_value(match: re.Match[str]) -> str:
         value = Decimal(match.group("value")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         return f"{match.group('sign')}{value}{match.group('suffix')}"
@@ -652,8 +659,9 @@ class TwitchBotWorker(QThread):
     def _handle_scanner(self, channel: str):
         text = self._format_template(
             "scanner",
-            "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
-            patreon_url=config.PATREON_SUPPORT_URL
+            "Download it here: {github_url} | Support the creator here: {patreon_url} | Try !bonkhelp.",
+            patreon_url=config.PATREON_SUPPORT_URL,
+            github_url=config.GITHUB_REPOSITORY_URL,
         )
         if len(text) > 450:
             text = text[:447] + "..."

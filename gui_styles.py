@@ -263,6 +263,32 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     background: #1D262D;
                     border: 1px solid #2F5F77;
                 }
+                QPushButton#GithubButton {
+                    background: #151B23;
+                    color: #F0F6FC;
+                    font-weight: 700;
+                    text-align: center;
+                    padding: 4px 10px;
+                    border: 1px solid #3D444D;
+                    border-radius: 10px;
+                }
+                QPushButton#GithubButton:hover {
+                    background: #1F2832;
+                    border: 1px solid #586069;
+                }
+                QPushButton#DiscordButton {
+                    background: #1C2142;
+                    color: #AEBBFF;
+                    font-weight: 700;
+                    text-align: center;
+                    padding: 4px 10px;
+                    border: 1px solid #3B4383;
+                    border-radius: 10px;
+                }
+                QPushButton#DiscordButton:hover {
+                    background: #252B57;
+                    border: 1px solid #5865F2;
+                }
                 QPushButton#TwitchConnectButton {
                     background: #9146FF;
                     color: white;

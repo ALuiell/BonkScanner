@@ -26,6 +26,8 @@ from PySide6.QtCore import QObject, QSize, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QFrame, QMainWindow, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
+TRACKED_ITEM_LIST_HEIGHT = 96
+
 def resource_path(relative_path: str) -> str:
     base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base_path, relative_path)
@@ -119,6 +121,71 @@ def _make_scroll_section() -> tuple[QScrollArea, QWidget, QVBoxLayout]:
     layout.setSpacing(8)
     scroll.setWidget(content)
     return scroll, content, layout
+
+
+class CollapsibleSection(QWidget):
+    def __init__(self, title: str, *, expanded: bool = False, parent=None):
+        super().__init__(parent)
+        self._title = str(title)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.toggle_button = QPushButton()
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setChecked(bool(expanded))
+        self.toggle_button.setStyleSheet(
+            """
+            QPushButton {
+                text-align: left;
+                padding: 8px 10px;
+                font-weight: bold;
+                border-radius: 6px;
+            }
+            """
+        )
+        self.toggle_button.toggled.connect(self.set_expanded)
+        layout.addWidget(self.toggle_button)
+
+        self.body = QWidget()
+        self.body_layout = QVBoxLayout(self.body)
+        self.body_layout.setContentsMargins(10, 8, 10, 10)
+        self.body_layout.setSpacing(8)
+        layout.addWidget(self.body)
+        self.set_expanded(bool(expanded))
+
+    def set_expanded(self, expanded: bool) -> None:
+        expanded = bool(expanded)
+        if self.toggle_button.isChecked() != expanded:
+            self.toggle_button.setChecked(expanded)
+        prefix = "- " if expanded else "+ "
+        self.toggle_button.setText(prefix + self._title)
+        self.body.setVisible(expanded)
+
+
+class CollapsibleSectionGroup:
+    def __init__(self, sections=()):
+        self._sections: list[CollapsibleSection] = []
+        self._updating = False
+        for section in sections:
+            self.add_section(section)
+
+    def add_section(self, section: CollapsibleSection) -> None:
+        if section in self._sections:
+            return
+        self._sections.append(section)
+        section.toggle_button.toggled.connect(lambda expanded, current=section: self._on_toggled(current, expanded))
+
+    def _on_toggled(self, current: CollapsibleSection, expanded: bool) -> None:
+        if self._updating or not expanded:
+            return
+        self._updating = True
+        try:
+            for section in self._sections:
+                if section is not current:
+                    section.set_expanded(False)
+        finally:
+            self._updating = False
 
 def format_template_conditions(template: dict) -> str:
     parts = []

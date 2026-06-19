@@ -79,9 +79,9 @@ class ChaosTomeStatTotal:
 
     @property
     def display_delta(self) -> str:
-        from player_stats import format_player_stat_delta
+        from player_stats import format_chaos_tome_stat_delta
 
-        return format_player_stat_delta(self.value, self.value_format)
+        return format_chaos_tome_stat_delta(self.label, self.value, self.value_format)
 
 
 @dataclass(frozen=True)
@@ -373,6 +373,8 @@ class LiveRunTracker:
         }
 
         if self._chaos_tome_level is None:
+            if current_level <= 0:
+                return
             self._chaos_tome_level = current_level
             self._chaos_modifier_baselines = {}
             self._chaos_available_rolls = current_level
@@ -381,10 +383,6 @@ class LiveRunTracker:
             return
 
         if current_level < self._chaos_tome_level:
-            self._chaos_tome_level = current_level
-            self._chaos_modifier_baselines = current_baselines
-            self._chaos_available_rolls = 0
-            self._chaos_unbudgeted_candidates = {}
             return
 
         if current_level > self._chaos_tome_level:

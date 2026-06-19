@@ -788,6 +788,64 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(accepted, [True])
         save_config.assert_called_once_with(gui.config.user_config)
 
+    def test_twitch_command_settings_filter_shows_ingame_disabled_items_without_show_all(self) -> None:
+        class FakeGridItem:
+            def __init__(self, widget: object) -> None:
+                self._widget = widget
+
+            def widget(self) -> object:
+                return self._widget
+
+        class FakeGrid:
+            def __init__(self) -> None:
+                self.widgets: list[object] = []
+
+            def count(self) -> int:
+                return len(self.widgets)
+
+            def itemAt(self, index: int) -> FakeGridItem:
+                return FakeGridItem(self.widgets[index])
+
+            def removeWidget(self, widget: object) -> None:
+                self.widgets.remove(widget)
+
+            def addWidget(self, widget: object, _row: int, _col: int) -> None:
+                self.widgets.append(widget)
+
+        class FilterCheckbox(FakeCheckbox):
+            def __init__(self, value: bool, *, is_disabled_ingame: bool = False) -> None:
+                super().__init__(value)
+                self.visible = True
+                self.props = {"is_disabled_ingame": is_disabled_ingame}
+
+            def property(self, name: str) -> object:
+                return self.props.get(name)
+
+            def setVisible(self, value: bool) -> None:
+                self.visible = value
+
+        grid = FakeGrid()
+        disabled_cb = FilterCheckbox(False, is_disabled_ingame=True)
+        normal_cb = FilterCheckbox(False)
+        selected_cb = FilterCheckbox(True)
+        dialog = types.SimpleNamespace(
+            disabled_search_input=FakeEntry(""),
+            show_all_disabled_items_cb=FakeCheckbox(False),
+            disabled_grid=grid,
+            disabled_item_checkboxes={
+                "Disabled Sword": disabled_cb,
+                "Normal Ring": normal_cb,
+                "Selected Tome": selected_cb,
+            },
+        )
+
+        gui.TwitchCommandSettingsDialog.filter_disabled_items(dialog)
+
+        self.assertEqual(grid.widgets, [disabled_cb, selected_cb])
+        self.assertTrue(disabled_cb.visible)
+        self.assertFalse(normal_cb.visible)
+        self.assertTrue(selected_cb.visible)
+
     def test_twitch_command_settings_reset_restores_default_interval(self) -> None:
         dialog = types.SimpleNamespace(
             _init_guard=False,

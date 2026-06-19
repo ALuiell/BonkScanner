@@ -148,6 +148,25 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.bot._send_chat.assert_called_once_with("channel", "Session stats are not available yet.")
 
+    def test_twitch_tracked_items_source_defaults_to_session(self):
+        from config import normalize_twitch_bot_config
+
+        bot_cfg = normalize_twitch_bot_config(
+            {
+                "tracked_items": [
+                    {
+                        "id": "twitch_custom",
+                        "label": "Twitch Custom",
+                        "item_names": ["Anvil"],
+                        "mode": "all_run",
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(bot_cfg["tracked_items_source"], "session")
+        self.assertEqual(bot_cfg["tracked_items"][0]["id"], "twitch_custom")
+
     def test_handle_powerups_uses_powerup_multiplier(self):
         self.bot._send_chat = MagicMock()
         self.run_tracker.latest_snapshot.return_value = SimpleNamespace(
@@ -184,7 +203,19 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.bot._send_chat.assert_called_once_with(
             "channel",
-            "Chaos Tome Lv547: HP +1063 | Pickup +16",
+            "Chaos Tome Lv547: HP +1063 | Pickup +16.4",
+        )
+
+    def test_handle_chaos_keeps_pickup_meter_value(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.chaos_tome_level.return_value = 99
+        self.run_tracker.chaos_tome_summary_parts.return_value = ["Pickup +24.5"]
+
+        self.bot._handle_chaos("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "Chaos Tome Lv99: Pickup +24.5",
         )
 
     def test_powerups_command_routes_through_chat_handler(self):

@@ -4,12 +4,14 @@ import unittest
 
 from memory import MemoryReadError
 from player_stats import (
+    ChaosTomeStatSnapshot,
     DisabledItemsReadStatus,
     PlayerStatsClient,
     PlayerStatFormat,
     PlayerStatsTimeline,
     WeaponStatFormat,
     calculate_chests_per_minute,
+    format_chaos_tome_stat_delta,
     format_player_stat_value,
     format_weapon_stat_value,
 )
@@ -1024,6 +1026,22 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         banishes = client.get_live_banishes()
 
         self.assertEqual(banishes, ("Clover", "Golden Tome"))
+
+    def test_format_chaos_tome_stat_delta_converts_pickup_range_to_meters(self) -> None:
+        self.assertEqual(
+            format_chaos_tome_stat_delta("Pickup Range", 2.72, PlayerStatFormat.FLAT),
+            "+24.5",
+        )
+
+    def test_chaos_tome_snapshot_display_delta_converts_pickup_range_to_meters(self) -> None:
+        stat = ChaosTomeStatSnapshot(
+            stat_id=29,
+            label="Pickup Range",
+            value=2.72,
+            value_format=PlayerStatFormat.FLAT,
+        )
+
+        self.assertEqual(stat.display_delta, "+24.5")
 
     def test_timeline_elapsed_label_tracks_recording_time(self) -> None:
         now = 1000.0

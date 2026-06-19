@@ -74,6 +74,7 @@ DEFAULT_OVERLAY = {
         {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False, "show_header": True},
         {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False, "show_header": True},
     ],
+    "tracked_items_source": "custom",
     "tracked_items": [
         {
             "id": "anvils_map_1",
@@ -142,6 +143,8 @@ DEFAULT_TWITCH_BOT = {
         "Powerup Multiplier", "Size"
     ],
     "highlighted_disabled_items": [],
+    "tracked_items_source": "session",
+    "tracked_items": [],
     "templates": {
         "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
         "bans": "Bans ({count}): {items}",
@@ -151,7 +154,7 @@ DEFAULT_TWITCH_BOT = {
         "chaos": "Chaos Tome Lv{level}: {chaos}",
         "stages": "{stages}",
         "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
-        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
+        "scanner": "Download it here: {github_url} | Support the creator here: {patreon_url} | Try !bonkhelp.",
         "chests": "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
         "disabled": "Disabled Items: {items}",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
@@ -163,6 +166,9 @@ LEGACY_TWITCH_SCANNER_TEMPLATES = {
     "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages, !powerups.",
     "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups.",
     "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !session, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests, !presets, !disabled, !bonkhelp.",
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} or GitHub: {github_url} | Try !stats, !session, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests, !presets, !disabled, !bonkhelp.",
 }
 
 LEGACY_TWITCH_CHESTS_TEMPLATES = {
@@ -176,6 +182,8 @@ LEGACY_TWITCH_CHESTS_TEMPLATES = {
 
 PATREON_SUPPORT_URL = "https://www.patreon.com/cw/ALuiel"
 KOFI_SUPPORT_URL = "https://ko-fi.com/s/34dc062a82"
+GITHUB_REPOSITORY_URL = "https://github.com/ALuiell/BonkScanner"
+DISCORD_SUPPORT_URL = "https://discord.gg/dYkcrMCJWM"
 
 # ==========================================
 # GAME CONFIG PARSER
@@ -396,19 +404,30 @@ def normalize_overlay_config(value):
     if port < 1024 or port > 65535:
         port = DEFAULT_OVERLAY["port"]
     overlay["port"] = port
-    if not isinstance(overlay.get("tracked_items"), list):
-        overlay["tracked_items"] = list(DEFAULT_OVERLAY["tracked_items"])
+    overlay["tracked_items_source"] = normalize_tracked_items_source(
+        overlay.get("tracked_items_source"),
+        default="custom",
+    )
+    overlay["tracked_items"] = normalize_tracked_item_rules_config(
+        overlay.get("tracked_items"),
+        DEFAULT_OVERLAY["tracked_items"],
+    )
     if not isinstance(overlay.get("style"), dict):
         overlay["style"] = dict(DEFAULT_OVERLAY["style"])
     return overlay
 
 
-def normalize_session_tracked_items_config(value):
-    session_cfg = _merge_dict_defaults(value, DEFAULT_SESSION_TRACKED_ITEMS)
-    if not isinstance(session_cfg.get("tracked_items"), list):
-        session_cfg["tracked_items"] = list(DEFAULT_SESSION_TRACKED_ITEMS["tracked_items"])
+def normalize_tracked_items_source(value, *, default="custom"):
+    source = str(value or default).strip().lower()
+    if source not in {"custom", "session"}:
+        source = default
+    return source
+
+
+def normalize_tracked_item_rules_config(value, default_rules=()):
+    raw_rules = value if isinstance(value, list) else list(default_rules)
     normalized_rules = []
-    for raw_rule in session_cfg.get("tracked_items") or ():
+    for raw_rule in raw_rules or ():
         if not isinstance(raw_rule, dict):
             continue
         item_names = [str(name) for name in raw_rule.get("item_names") or () if str(name).strip()]
@@ -423,7 +442,18 @@ def normalize_session_tracked_items_config(value):
                 "mode": mode,
             }
         )
-    session_cfg["tracked_items"] = normalized_rules
+        for optional_key in ("before_stage", "before_seconds", "max_copies"):
+            if optional_key in raw_rule:
+                normalized_rules[-1][optional_key] = raw_rule[optional_key]
+    return normalized_rules
+
+
+def normalize_session_tracked_items_config(value):
+    session_cfg = _merge_dict_defaults(value, DEFAULT_SESSION_TRACKED_ITEMS)
+    session_cfg["tracked_items"] = normalize_tracked_item_rules_config(
+        session_cfg.get("tracked_items"),
+        DEFAULT_SESSION_TRACKED_ITEMS["tracked_items"],
+    )
     return session_cfg
 
 
@@ -476,6 +506,15 @@ def normalize_twitch_bot_config(value):
         bot_cfg["highlighted_disabled_items"] = [
             str(item).strip() for item in bot_cfg["highlighted_disabled_items"] if item
         ]
+
+    bot_cfg["tracked_items_source"] = normalize_tracked_items_source(
+        bot_cfg.get("tracked_items_source"),
+        default="session",
+    )
+    bot_cfg["tracked_items"] = normalize_tracked_item_rules_config(
+        bot_cfg.get("tracked_items"),
+        DEFAULT_TWITCH_BOT["tracked_items"],
+    )
 
     # Normalize templates
     if not isinstance(bot_cfg.get("templates"), dict):

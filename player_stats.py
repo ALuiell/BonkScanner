@@ -42,6 +42,9 @@ class WeaponStatFormat(Enum):
     MULTIPLIER = "multiplier"
 
 
+PICKUP_RANGE_BASE_METERS = 9.0
+
+
 class DisabledItemsReadStatus(Enum):
     AVAILABLE = "available"
     NOT_INITIALIZED = "not_initialized"
@@ -95,7 +98,7 @@ class ChaosTomeStatSnapshot:
 
     @property
     def display_delta(self) -> str:
-        return format_player_stat_delta(self.value, self.value_format)
+        return format_chaos_tome_stat_delta(self.label, self.value, self.value_format)
 
 
 @dataclass(frozen=True)
@@ -2023,6 +2026,21 @@ def format_player_stat_delta(value: float | None, value_format: PlayerStatFormat
     if value_format in {PlayerStatFormat.PERCENT, PlayerStatFormat.MULTIPLIER}:
         return f"{sign}{_format_number(absolute * 100)}%"
     return f"{sign}{_format_number(absolute)}"
+
+
+def format_chaos_tome_stat_delta(
+    label: str,
+    value: float | None,
+    value_format: PlayerStatFormat,
+) -> str:
+    if value is None or not isfinite(value):
+        return "--"
+
+    sign = "+" if value >= 0 else "-"
+    absolute = abs(value)
+    if label == "Pickup Range" and value_format is PlayerStatFormat.FLAT:
+        return f"{sign}{_format_number(absolute * PICKUP_RANGE_BASE_METERS)}"
+    return format_player_stat_delta(value, value_format)
 
 
 def format_weapon_stat_value(value: float | None, value_format: WeaponStatFormat) -> str:
