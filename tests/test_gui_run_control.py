@@ -2640,7 +2640,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(stat_label.text(), "123")
         self.assertEqual(app.player_stats_items_label.text(), "Items unavailable")
         self.assertEqual(app.player_stats_chests_per_minute_label.text(), "Average chests/min: --")
-        self.assertEqual(app.player_stats_powerups_duration_label.text(), "Powerups: 22.5s | Clock: 18s")
+        self.assertEqual(app.player_stats_powerups_duration_label.text(), "Powerups: 22s | Clock: 18s")
         self.assertEqual(app.player_stats_in_game_time_label.text(), "In-Game Time: 00:21")
         self.assertEqual(app.player_stats_mob_kills_label.text(), "Mob Kills: 37")
         self.assertEqual(app.player_stats_level_label.text(), "Level: 2")
@@ -3182,7 +3182,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(
             gui.MegabonkApp.format_powerups_duration(stats),
-            "Powerups: 22.5s | Clock: 18s",
+            "Powerups: 22s | Clock: 18s",
         )
         self.assertEqual(gui.MegabonkApp.format_powerups_duration({}), "Powerups: --")
 

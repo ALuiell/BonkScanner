@@ -594,6 +594,7 @@ class PlayerStatsClient:
         ] = {}
         self._cached_stats_entries_owner_stats = 0
         self._cached_stats_entries = 0
+        self._cached_powerup_multiplier_owner_stats = 0
         self._cached_powerup_multiplier_value: float | None = None
         self._cached_powerup_multiplier_display = "--"
         self._cached_powerup_multiplier_read_at = 0.0
@@ -604,9 +605,10 @@ class PlayerStatsClient:
         self._cached_stage_index: int | None = None
         self._cached_status_effects_dict = 0
         self._cached_status_effects_entries = 0
+        self._cached_status_effects_count = 0
         self._cached_status_effects_capacity = 0
         self._cached_status_effects_version: int | None = None
-        self._cached_status_effect_ptrs: dict[int, int] = {}
+        self._cached_status_effect_value_addresses: dict[int, int] = {}
         self._cached_active_powerup_signature: tuple[int, ...] = ()
 
     def close(self) -> None:
@@ -1452,6 +1454,14 @@ class PlayerStatsClient:
         if not entries:
             self._clear_status_effects_cache()
             return ()
+        try:
+            count = self.memory.read_i32(dictionary_address + self.DICT_COUNT_OFFSET)
+        except MemoryReadError:
+            self._clear_status_effects_cache()
+            return ()
+        if count < 0 or count > 128:
+            self._clear_status_effects_cache()
+            return ()
         capacity = self.memory.read_i32(entries + self.ARRAY_LENGTH_OFFSET)
         if capacity <= 0 or capacity > 128:
             self._clear_status_effects_cache()
@@ -1463,20 +1473,23 @@ class PlayerStatsClient:
         if (
             dictionary_address != self._cached_status_effects_dict
             or entries != self._cached_status_effects_entries
+            or count != self._cached_status_effects_count
             or capacity != self._cached_status_effects_capacity
             or version != self._cached_status_effects_version
         ):
             self._cached_status_effects_dict = dictionary_address
             self._cached_status_effects_entries = entries
+            self._cached_status_effects_count = count
             self._cached_status_effects_capacity = capacity
             self._cached_status_effects_version = version
-            self._cached_status_effect_ptrs = self._scan_status_effect_ptrs(entries, capacity)
+            self._cached_status_effect_value_addresses = self._scan_status_effect_value_addresses(entries, capacity)
 
         effects: list[StatusEffectSnapshot] = []
-        for effect_id, effect_ptr in tuple(self._cached_status_effect_ptrs.items()):
-            if not effect_ptr:
-                continue
+        for effect_id, value_address in tuple(self._cached_status_effect_value_addresses.items()):
             try:
+                effect_ptr = self.memory.read_ptr(value_address)
+                if not effect_ptr:
+                    continue
                 object_effect_id = self.memory.read_i32(
                     effect_ptr + self.STATUS_EFFECT_ESTATUS_OFFSET
                 )
@@ -1744,7 +1757,10 @@ class PlayerStatsClient:
             current_stage = self.memory.read_ptr(
                 static_fields + self.MAP_CONTROLLER_CURRENT_STAGE_OFFSET
             )
-            if current_stage and current_stage != self._cached_stage_pointer:
+            if not current_stage:
+                self._cached_stage_pointer = 0
+                self._cached_stage_timeline_pointer = 0
+            elif current_stage != self._cached_stage_pointer:
                 self._cached_stage_pointer = current_stage
                 self._cached_stage_timeline_pointer = self.memory.read_ptr(
                     current_stage + self.STAGE_DATA_TIMELINE_OFFSET
@@ -1810,6 +1826,7 @@ class PlayerStatsClient:
         cache_age = now - self._cached_powerup_multiplier_read_at
         if (
             not force_refresh
+            and owner_stats == self._cached_powerup_multiplier_owner_stats
             and self._cached_powerup_multiplier_read_at > 0
             and cache_age <= POWERUP_MULTIPLIER_CACHE_TTL_SECONDS
         ):
@@ -1826,19 +1843,21 @@ class PlayerStatsClient:
             value = self.memory.read_float(entries + spec.offset)
         except MemoryReadError:
             self._cached_stats_entries = 0
+            self._cached_powerup_multiplier_owner_stats = 0
             self._cached_powerup_multiplier_value = None
             self._cached_powerup_multiplier_display = "--"
             self._cached_powerup_multiplier_read_at = 0.0
             return None, "--"
 
         display = PlayerStatValue(spec=spec, value=value).display_value
+        self._cached_powerup_multiplier_owner_stats = owner_stats
         self._cached_powerup_multiplier_value = value
         self._cached_powerup_multiplier_display = display
         self._cached_powerup_multiplier_read_at = now
         return value, display
 
-    def _scan_status_effect_ptrs(self, entries: int, capacity: int) -> dict[int, int]:
-        effect_ptrs: dict[int, int] = {}
+    def _scan_status_effect_value_addresses(self, entries: int, capacity: int) -> dict[int, int]:
+        value_addresses: dict[int, int] = {}
         for index in range(capacity):
             entry = (
                 entries
@@ -1851,12 +1870,10 @@ class PlayerStatsClient:
                 effect_id = self.memory.read_i32(entry + self.DICT_ENTRY_KEY_OFFSET)
                 if effect_id not in POWERUP_STATUS_EFFECT_NAMES:
                     continue
-                effect_ptr = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
             except MemoryReadError:
                 continue
-            if effect_ptr:
-                effect_ptrs[effect_id] = effect_ptr
-        return effect_ptrs
+            value_addresses[effect_id] = entry + self.DICT_ENTRY_VALUE_OFFSET
+        return value_addresses
 
     def _clear_my_time_cache(self) -> None:
         self._cached_my_time_static_fields = 0
@@ -1864,9 +1881,10 @@ class PlayerStatsClient:
     def _clear_status_effects_cache(self) -> None:
         self._cached_status_effects_dict = 0
         self._cached_status_effects_entries = 0
+        self._cached_status_effects_count = 0
         self._cached_status_effects_capacity = 0
         self._cached_status_effects_version = None
-        self._cached_status_effect_ptrs = {}
+        self._cached_status_effect_value_addresses = {}
 
     def _resolve_owner_stats(self) -> int:
         type_info_address = self.memory.module_offset(

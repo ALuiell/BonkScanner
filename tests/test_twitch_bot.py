@@ -179,7 +179,7 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.bot._send_chat.assert_called_once_with(
             "channel",
-            "Powerups: none active | Durations: standard 22.5s, clock 18s (PM 1.5x)"
+            "Powerups: none active | Durations: standard 22s, clock 18s (PM 1.5x)"
         )
 
     def test_handle_powerups_uses_tracker_snapshot_when_available(self):

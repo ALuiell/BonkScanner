@@ -534,6 +534,241 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(second.powerup_multiplier_display, "1.5x")
         self.assertEqual(third.powerup_multiplier_display, "2x")
 
+    def test_get_powerup_tracking_snapshot_does_not_reuse_pm_cache_for_other_owner(self) -> None:
+        memory = self.build_memory()
+        base = memory.module_base
+        owner_stats = 0x20000300
+        owner_stats_2 = 0x20010300
+        stats_context_2 = 0x20010400
+        entries_2 = 0x20010500
+        player_inventory = 0x20001600
+        status_effects = 0x26000000
+        status_dict = 0x26000100
+        status_entries = 0x26000200
+        map_controller_type_info = base + PlayerStatsClient.MAP_CONTROLLER_TYPE_INFO_OFFSET
+        map_controller_class = 0x26000500
+        map_controller_static = 0x26000600
+        current_stage = 0x26000700
+        stage_timeline = 0x26000800
+        run_timer_static_fields = 0x20000D00
+        powerup_spec = PLAYER_STAT_SPEC_BY_LABEL["Powerup Multiplier"]
+
+        memory.pointers.update(
+            {
+                owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
+                owner_stats_2 + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
+                owner_stats_2 + PlayerStatsClient.STATS_CONTEXT_OFFSET: stats_context_2,
+                stats_context_2 + PlayerStatsClient.STATS_ENTRIES_OFFSET: entries_2,
+                player_inventory + PlayerStatsClient.PLAYER_STATUS_EFFECTS_OFFSET: status_effects,
+                status_effects + PlayerStatsClient.PLAYER_STATUS_EFFECTS_DICT_OFFSET: status_dict,
+                status_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: status_entries,
+                map_controller_type_info: map_controller_class,
+                map_controller_class + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: map_controller_static,
+                map_controller_static + PlayerStatsClient.MAP_CONTROLLER_CURRENT_STAGE_OFFSET: current_stage,
+                current_stage + PlayerStatsClient.STAGE_DATA_TIMELINE_OFFSET: stage_timeline,
+            }
+        )
+        memory.ints.update(
+            {
+                status_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                status_entries + PlayerStatsClient.ARRAY_LENGTH_OFFSET: 0,
+                map_controller_static + PlayerStatsClient.MAP_CONTROLLER_INDEX_OFFSET: 1,
+            }
+        )
+        memory.floats.update(
+            {
+                run_timer_static_fields + PlayerStatsClient.MY_TIME_TIME_OFFSET: 1000.0,
+                run_timer_static_fields + PlayerStatsClient.STAGE_TIMER_OFFSET: 46.5,
+                stage_timeline + PlayerStatsClient.STAGE_TIMELINE_STAGE_TIME_OFFSET: 540.0,
+                0x20000500 + powerup_spec.offset: 1.5,
+                entries_2 + powerup_spec.offset: 2.0,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        with patch("player_stats.time.monotonic", side_effect=(100.0, 101.0)):
+            first = client.get_powerup_tracking_snapshot(owner_stats)
+            second = client.get_powerup_tracking_snapshot(owner_stats_2)
+
+        self.assertEqual(first.powerup_multiplier_display, "1.5x")
+        self.assertEqual(second.powerup_multiplier_display, "2x")
+
+    def test_get_active_status_effects_picks_up_new_effect_without_dict_rescan(self) -> None:
+        memory = self.build_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x20001600
+        status_effects = 0x26000000
+        status_dict = 0x26000100
+        status_entries = 0x26000200
+        rage_effect = 0x26000300
+        shield_effect = 0x26000400
+        rage_value_address = (
+            status_entries
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET
+        )
+        shield_value_address = (
+            status_entries
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.DICT_ENTRY_SIZE
+            + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET
+        )
+
+        memory.pointers.update(
+            {
+                player_inventory + PlayerStatsClient.PLAYER_STATUS_EFFECTS_OFFSET: status_effects,
+                status_effects + PlayerStatsClient.PLAYER_STATUS_EFFECTS_DICT_OFFSET: status_dict,
+                status_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: status_entries,
+                rage_value_address: rage_effect,
+                shield_value_address: 0,
+            }
+        )
+        memory.ints.update(
+            {
+                status_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                status_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                status_entries + PlayerStatsClient.ARRAY_LENGTH_OFFSET: 2,
+                status_entries
+                + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+                + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                status_entries
+                + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+                + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: 1,
+                status_entries
+                + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+                + PlayerStatsClient.DICT_ENTRY_SIZE
+                + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 2,
+                status_entries
+                + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+                + PlayerStatsClient.DICT_ENTRY_SIZE
+                + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: 2,
+                rage_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 1,
+                shield_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 2,
+            }
+        )
+        memory.floats.update(
+            {
+                rage_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET: 990.0,
+                rage_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET: 1015.0,
+                shield_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET: 991.0,
+                shield_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET: 1016.0,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        first = client.get_active_status_effects(owner_stats)
+        memory.pointers[shield_value_address] = shield_effect
+        second = client.get_active_status_effects(owner_stats)
+
+        self.assertEqual([effect.name for effect in first], ["Rage"])
+        self.assertEqual([effect.name for effect in second], ["Rage", "Shield"])
+
+    def test_get_active_status_effects_rescans_when_supported_effect_count_changes(self) -> None:
+        memory = self.build_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x20001600
+        status_effects = 0x26000000
+        status_dict = 0x26000100
+        status_entries = 0x26000200
+        rage_effect = 0x26000300
+        shield_effect = 0x26000400
+        clock_effect = 0x26000500
+        stonks_effect = 0x26000600
+        rage_entry = status_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+        shield_entry = rage_entry + PlayerStatsClient.DICT_ENTRY_SIZE
+        clock_entry = shield_entry + PlayerStatsClient.DICT_ENTRY_SIZE
+        stonks_entry = clock_entry + PlayerStatsClient.DICT_ENTRY_SIZE
+
+        memory.pointers.update(
+            {
+                player_inventory + PlayerStatsClient.PLAYER_STATUS_EFFECTS_OFFSET: status_effects,
+                status_effects + PlayerStatsClient.PLAYER_STATUS_EFFECTS_DICT_OFFSET: status_dict,
+                status_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: status_entries,
+                rage_entry + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET: rage_effect,
+                shield_entry + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET: shield_effect,
+                clock_entry + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET: clock_effect,
+            }
+        )
+        memory.ints.update(
+            {
+                status_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 3,
+                status_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                status_entries + PlayerStatsClient.ARRAY_LENGTH_OFFSET: 4,
+                rage_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                rage_entry + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: 1,
+                shield_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 2,
+                shield_entry + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: 2,
+                clock_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 3,
+                clock_entry + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: 4,
+                stonks_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: -1,
+                rage_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 1,
+                shield_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 2,
+                clock_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 4,
+            }
+        )
+        memory.floats.update(
+            {
+                rage_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET: 990.0,
+                rage_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET: 1015.0,
+                shield_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET: 991.0,
+                shield_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET: 1016.0,
+                clock_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET: 992.0,
+                clock_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET: 1017.0,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        first = client.get_active_status_effects(owner_stats)
+
+        memory.ints[status_dict + PlayerStatsClient.DICT_COUNT_OFFSET] = 4
+        memory.ints[stonks_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET] = 4
+        memory.ints[stonks_entry + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET] = 3
+        memory.pointers[stonks_entry + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET] = stonks_effect
+        memory.ints[stonks_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET] = 3
+        memory.floats[stonks_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET] = 993.0
+        memory.floats[stonks_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET] = 1018.0
+
+        second = client.get_active_status_effects(owner_stats)
+
+        self.assertEqual([effect.name for effect in first], ["Rage", "Shield", "Clock"])
+        self.assertEqual([effect.name for effect in second], ["Rage", "Shield", "Stonks", "Clock"])
+
+    def test_read_current_stage_time_clears_stale_timeline_when_current_stage_is_missing(self) -> None:
+        memory = self.build_memory()
+        base = memory.module_base
+        map_controller_type_info = base + PlayerStatsClient.MAP_CONTROLLER_TYPE_INFO_OFFSET
+        map_controller_class = 0x26000500
+        map_controller_static = 0x26000600
+        current_stage = 0x26000700
+        stage_timeline = 0x26000800
+        memory.pointers.update(
+            {
+                map_controller_type_info: map_controller_class,
+                map_controller_class + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: map_controller_static,
+                map_controller_static + PlayerStatsClient.MAP_CONTROLLER_CURRENT_STAGE_OFFSET: current_stage,
+                current_stage + PlayerStatsClient.STAGE_DATA_TIMELINE_OFFSET: stage_timeline,
+            }
+        )
+        memory.ints.update(
+            {
+                map_controller_static + PlayerStatsClient.MAP_CONTROLLER_INDEX_OFFSET: 1,
+            }
+        )
+        memory.floats.update(
+            {
+                stage_timeline + PlayerStatsClient.STAGE_TIMELINE_STAGE_TIME_OFFSET: 540.0,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        first_stage_index, first_stage_time = client._read_current_stage_time()
+        memory.pointers[map_controller_static + PlayerStatsClient.MAP_CONTROLLER_CURRENT_STAGE_OFFSET] = 0
+        memory.ints[map_controller_static + PlayerStatsClient.MAP_CONTROLLER_INDEX_OFFSET] = 2
+        second_stage_index, second_stage_time = client._read_current_stage_time()
+
+        self.assertEqual((first_stage_index, first_stage_time), (1, 540.0))
+        self.assertEqual((second_stage_index, second_stage_time), (2, 480.0))
+
     def test_get_killed_mobs_reads_run_stats_kills(self) -> None:
         client = PlayerStatsClient(memory=self.build_memory())
 

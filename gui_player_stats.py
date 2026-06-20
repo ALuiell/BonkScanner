@@ -4549,9 +4549,7 @@ class PlayerStatsMixin:
 
     @staticmethod
     def format_seconds_compact(value: float) -> str:
-        if abs(value - round(value)) < 0.005:
-            return str(int(round(value)))
-        return f"{value:.2f}".rstrip("0").rstrip(".")
+        return str(int(round(value)))
 
     @staticmethod
     def chests_card_values(

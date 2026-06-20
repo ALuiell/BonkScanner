@@ -626,9 +626,7 @@ class TwitchBotWorker(QThread):
 
     @staticmethod
     def _format_seconds(value: float) -> str:
-        if abs(value - round(value)) < 0.005:
-            return str(int(round(value)))
-        return f"{value:.2f}".rstrip("0").rstrip(".")
+        return str(int(round(value)))
 
     def _handle_powerups(self, channel: str):
         snap = self.run_tracker.latest_snapshot()

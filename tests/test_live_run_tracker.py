@@ -987,7 +987,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Rage 01:40 -> 01:17 (22.5s left) | Clock 01:40 -> 01:22 (18s left) (PM 1.5x)",
+            "Powerups: Rage 01:40 -> 01:17 (22s left) | Clock 01:40 -> 01:22 (18s left) (PM 1.5x)",
         )
 
     def test_powerups_summary_uses_duration_fallback_when_none_active(self) -> None:
@@ -1006,7 +1006,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: none active | Durations: standard 22.5s, clock 18s (PM 1.5x)",
+            "Powerups: none active | Durations: standard 22s, clock 18s (PM 1.5x)",
         )
 
     def test_powerups_summary_formats_overtime(self) -> None:

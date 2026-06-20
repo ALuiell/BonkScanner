@@ -722,9 +722,7 @@ class LiveRunTracker:
 
     @staticmethod
     def _format_duration_seconds(value: float) -> str:
-        if abs(value - round(value)) < 0.005:
-            return str(int(round(value)))
-        return f"{value:.2f}".rstrip("0").rstrip(".")
+        return str(int(round(value)))
 
     @staticmethod
     def _format_ui_stage_time(raw_stage_timer: float, stage_time: float) -> str:
