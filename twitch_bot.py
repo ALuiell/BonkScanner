@@ -736,11 +736,16 @@ class TwitchBotWorker(QThread):
             normal_opened = paid_opens + key_procs
             expected_procs = "--"
 
-        stage_parts = [
-            f"T{stage}:{count}/{total_by_stage.get(stage, 0)}"
-            for stage, count in sorted(chests_by_stage.items())
-        ]
-        stages_str = " ".join(stage_parts) if stage_parts else f"T1:{total_opened}/{total_chests}"
+        stage_parts = []
+        for stage, count in sorted(chests_by_stage.items()):
+            stage_total = total_by_stage.get(stage, 0)
+            if int(count) < 0:
+                stage_parts.append(f"T{stage}:--/{stage_total}")
+            else:
+                stage_parts.append(f"T{stage}:{count}/{stage_total}")
+        opened_text = "--" if total_opened is None else str(total_opened)
+        total_text = str(total_chests)
+        stages_str = " ".join(stage_parts) if stage_parts else f"T1:{opened_text}/{total_text}"
 
         if keys_count <= 0:
             chance_val = 0.0
@@ -753,8 +758,8 @@ class TwitchBotWorker(QThread):
             "chests",
             "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
             stages=stages_str,
-            opened=total_opened,
-            total=total_chests,
+            opened=opened_text,
+            total=total_text,
             paid=paid_opens,
             keys=keys_count,
             chance=chance_str,

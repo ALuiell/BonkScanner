@@ -323,6 +323,7 @@ class PlayerStatsMixin:
         # 1. Read run timer and stage timer first to support match start detection
         run_timer_seconds = None
         stage_timer_seconds = None
+        stage_index = None
         try:
             client = self._get_player_stats_client()
             run_timer_seconds = client.get_run_timer()
@@ -333,11 +334,18 @@ class PlayerStatsMixin:
 
         try:
             client = self._get_player_stats_client()
-            stage_timer_seconds = client.get_stage_timer()
+            stage_timer_seconds, stage_index, _ = client.get_stage_timer_context()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             stage_timer_seconds = None
+            stage_index = None
         except Exception:
             stage_timer_seconds = None
+            stage_index = None
+        stage_number = (
+            int(stage_index) + 1
+            if stage_index is not None and int(stage_index) >= 0
+            else None
+        )
 
         # 2. Read map seed and stage ptr
         map_seed = None
@@ -499,6 +507,7 @@ class PlayerStatsMixin:
             player_level,
             map_seed,
             stage_ptr,
+            stage_number,
             disabled_items,
             disabled_items_available,
         )
@@ -529,6 +538,7 @@ class PlayerStatsMixin:
                 player_level,
                 map_seed,
                 stage_ptr,
+                stage_index,
                 disabled_items,
                 disabled_items_available,
             ) = self._read_live_player_stats_data()
@@ -584,6 +594,7 @@ class PlayerStatsMixin:
             player_level=player_level,
             map_seed=map_seed,
             stage_ptr=stage_ptr,
+            stage_index=stage_index,
         )
         self.live_run_tracker.update(live_snapshot)
 
@@ -4563,7 +4574,7 @@ class PlayerStatsMixin:
         keys: int | None,
         expected: float | None,
     ) -> dict[str, str]:
-        if opened is None or total is None:
+        if total is None:
             return {
                 "maps": "--",
                 "total": "--",
@@ -4576,8 +4587,13 @@ class PlayerStatsMixin:
         stage_parts = []
         for stage, count in sorted((opened_by_stage or {}).items()):
             stage_total = (total_by_stage or {}).get(stage, 0)
-            stage_parts.append(f"T{stage}:{count}/{stage_total}")
-        stages = " ".join(stage_parts) if stage_parts else f"T1:{opened}/{total}"
+            if int(count) < 0:
+                stage_parts.append(f"T{stage}:--/{stage_total}")
+            else:
+                stage_parts.append(f"T{stage}:{count}/{stage_total}")
+        opened_text = "--" if opened is None else str(opened)
+        total_text = str(total)
+        stages = " ".join(stage_parts) if stage_parts else f"T1:{opened_text}/{total_text}"
 
         paid_text = "--" if paid is None else str(paid)
         free_text = "--" if free is None else str(free)
@@ -4593,7 +4609,7 @@ class PlayerStatsMixin:
         chance = "--" if keys is None else f"{LiveRunTracker.key_proc_chance(keys) * 100.0:.1f}%"
         return {
             "maps": stages,
-            "total": f"{opened}/{total}",
+            "total": f"{opened_text}/{total_text}",
             "paid_free": f"{paid_text} / {free_text}",
             "key_procs": f"{procs_text} ({proc_rate})",
             "expected": expected_text,

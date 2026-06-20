@@ -13,6 +13,7 @@ def snapshot(
     items=(),
     map_seed: int = 100,
     stage_ptr: int = 1000,
+    stage_index: int | None = None,
     stage_time_seconds: float | None = None,
     mob_kills: int | None = None,
 ) -> LiveRunSnapshot:
@@ -25,6 +26,7 @@ def snapshot(
         mob_kills=mob_kills,
         map_seed=map_seed,
         stage_ptr=stage_ptr,
+        stage_index=stage_index,
     )
 
 
@@ -814,6 +816,17 @@ class LiveRunTrackerTests(unittest.TestCase):
         stats = tracker.get_chest_stats()
         self.assertEqual(stats.total_opened, 42)
         self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (20, 22, 0))
+
+    def test_chests_midrun_start_marks_missing_prior_stage_unknown(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=120.0, map_seed=100, stage_ptr=2000, stage_index=2))
+        tracker.update_chests_and_keys(20, 46, 0)
+        stats = tracker.get_chest_stats()
+
+        self.assertIsNone(stats.total_opened)
+        self.assertEqual(stats.total_chests, 92)
+        self.assertEqual(stats.opened_by_stage, {1: -1, 2: 20})
+        self.assertEqual(stats.total_by_stage, {1: 46, 2: 46})
 
     def test_expected_key_procs_accumulate_sampled_probabilities(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)

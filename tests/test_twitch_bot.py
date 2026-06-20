@@ -323,6 +323,14 @@ class TestTwitchBotWorker(unittest.TestCase):
             "channel", "Chests: T1:20/46 | Total: 20/46 | Paid: 18 | Key Procs: 0/18 (0.0%) | Expected: -- | Free Chests: 2 | Keys: 0 (0.0%)"
         )
 
+        self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
+            20, 46, 0, 0, 0, 0, {1: -1, 2: 20}, {1: 46, 2: 46}, False
+        )
+        self.bot._handle_chests("channel")
+        self.bot._send_chat.assert_called_with(
+            "channel", "Chests: T1:--/46 T2:20/46 | Total: --/92 | Paid: 0 | Key Procs: 0/0 (0.0%) | Expected: -- | Free Chests: 0 | Keys: 0 (0.0%)"
+        )
+
 
     def test_handle_chests_without_active_run(self):
         self.bot._send_chat = MagicMock()
