@@ -52,6 +52,7 @@ STAGE_SUMMARY_COLUMN_PADDING = 8
 SUMMARY_LABEL_BASELINE_PADDING = 8
 RUN_SUMMARY_LABEL_BASELINES = {
     "chests_per_minute": "Average chests/min: 999.99",
+    "powerups_duration": "Powerups: 999.9s | Clock: 999.9s",
     "in_game_time": "In-Game Time: 99:59:59",
     "mob_kills": "Mob Kills: 999,999",
     "level": "Level: 999",
@@ -108,6 +109,7 @@ def _build_chests_stats_card():
 
 def _apply_run_summary_baselines(
     chests_per_minute_label,
+    powerups_duration_label,
     in_game_time_label,
     mob_kills_label,
     level_label,
@@ -115,6 +117,10 @@ def _apply_run_summary_baselines(
     _reserve_label_baseline_width(
         chests_per_minute_label,
         RUN_SUMMARY_LABEL_BASELINES["chests_per_minute"],
+    )
+    _reserve_label_baseline_width(
+        powerups_duration_label,
+        RUN_SUMMARY_LABEL_BASELINES["powerups_duration"],
     )
     _reserve_label_baseline_width(
         in_game_time_label,
@@ -405,6 +411,8 @@ class GuiLayoutMixin:
         chest_rate_layout = QVBoxLayout(chest_rate_group)
         self.player_stats_chests_per_minute_label = QLabel("Average chests/min: --")
         chest_rate_layout.addWidget(self.player_stats_chests_per_minute_label)
+        self.player_stats_powerups_duration_label = QLabel("Powerups: --")
+        chest_rate_layout.addWidget(self.player_stats_powerups_duration_label)
         self.player_stats_in_game_time_label = QLabel("In-Game Time: --")
         chest_rate_layout.addWidget(self.player_stats_in_game_time_label)
         self.player_stats_mob_kills_label = QLabel("Mob Kills: --")
@@ -413,12 +421,14 @@ class GuiLayoutMixin:
         chest_rate_layout.addWidget(self.player_stats_level_label)
         _apply_summary_label_padding(
             self.player_stats_chests_per_minute_label,
+            self.player_stats_powerups_duration_label,
             self.player_stats_in_game_time_label,
             self.player_stats_mob_kills_label,
             self.player_stats_level_label,
         )
         _apply_run_summary_baselines(
             self.player_stats_chests_per_minute_label,
+            self.player_stats_powerups_duration_label,
             self.player_stats_in_game_time_label,
             self.player_stats_mob_kills_label,
             self.player_stats_level_label,
@@ -656,6 +666,8 @@ class GuiLayoutMixin:
         vod_chest_rate_layout = QVBoxLayout(vod_chest_rate_group)
         self.vods_chests_per_minute_label = QLabel("Average chests/min: --")
         vod_chest_rate_layout.addWidget(self.vods_chests_per_minute_label)
+        self.vods_powerups_duration_label = QLabel("Powerups: --")
+        vod_chest_rate_layout.addWidget(self.vods_powerups_duration_label)
         self.vods_in_game_time_label = QLabel("In-Game Time: --")
         vod_chest_rate_layout.addWidget(self.vods_in_game_time_label)
         self.vods_mob_kills_label = QLabel("Mob Kills: --")
@@ -664,12 +676,14 @@ class GuiLayoutMixin:
         vod_chest_rate_layout.addWidget(self.vods_level_label)
         _apply_summary_label_padding(
             self.vods_chests_per_minute_label,
+            self.vods_powerups_duration_label,
             self.vods_in_game_time_label,
             self.vods_mob_kills_label,
             self.vods_level_label,
         )
         _apply_run_summary_baselines(
             self.vods_chests_per_minute_label,
+            self.vods_powerups_duration_label,
             self.vods_in_game_time_label,
             self.vods_mob_kills_label,
             self.vods_level_label,

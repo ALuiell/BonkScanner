@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import html
+from math import isfinite
 import re
 import time
 from pathlib import Path
@@ -228,6 +229,7 @@ class PlayerStatsMixin:
         self.player_stats_last_known_items = ()
         self._update_items_section("live", items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
+        _set_text(getattr(self, "player_stats_powerups_duration_label", None), "Powerups: --")
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
         _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
         _set_text(self.player_stats_level_label, "Level: --")
@@ -724,6 +726,10 @@ class PlayerStatsMixin:
         _set_text(
             self.player_stats_chests_per_minute_label,
             self.format_chests_per_minute(chests_per_minute),
+        )
+        _set_text(
+            getattr(self, "player_stats_powerups_duration_label", None),
+            self.format_powerups_duration(stats),
         )
         _set_text(
             self.player_stats_in_game_time_label,
@@ -1305,6 +1311,7 @@ class PlayerStatsMixin:
             self.vods_items_expanded = False
             self._update_items_section("vod", items_text="--")
             _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
+            _set_text(getattr(self, "vods_powerups_duration_label", None), "Powerups: --")
             _set_text(self.vods_in_game_time_label, "In-Game Time: --")
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
             _set_text(self.vods_level_label, "Level: --")
@@ -1352,6 +1359,10 @@ class PlayerStatsMixin:
         _set_text(
             self.vods_chests_per_minute_label,
             self.format_chests_per_minute(self.resolve_snapshot_chests_per_minute(snapshot)),
+        )
+        _set_text(
+            getattr(self, "vods_powerups_duration_label", None),
+            self.format_powerups_duration(snapshot.stats),
         )
         _set_text(
             self.vods_in_game_time_label,
@@ -2023,6 +2034,7 @@ class PlayerStatsMixin:
         self.vods_items_expanded = False
         self._update_items_section("vod", items_text="--")
         _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
+        _set_text(getattr(self, "vods_powerups_duration_label", None), "Powerups: --")
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
         _set_text(self.vods_level_label, "Level: --")
@@ -4406,6 +4418,29 @@ class PlayerStatsMixin:
         if value is None:
             return "Average chests/min: --"
         return f"Average chests/min: {value:.2f}"
+
+    @classmethod
+    def format_powerups_duration(cls, stats) -> str:
+        stat = (stats or {}).get("Powerup Multiplier")
+        try:
+            powerup_multiplier = float(getattr(stat, "value", None))
+        except (TypeError, ValueError):
+            return "Powerups: --"
+        if not isfinite(powerup_multiplier):
+            return "Powerups: --"
+
+        standard_duration = 15.0 * powerup_multiplier
+        clock_duration = 12.0 * powerup_multiplier
+        return (
+            f"Powerups: {cls.format_seconds_compact(standard_duration)}s"
+            f" | Clock: {cls.format_seconds_compact(clock_duration)}s"
+        )
+
+    @staticmethod
+    def format_seconds_compact(value: float) -> str:
+        if abs(value - round(value)) < 0.005:
+            return str(int(round(value)))
+        return f"{value:.2f}".rstrip("0").rstrip(".")
 
     @staticmethod
     def chests_card_values(

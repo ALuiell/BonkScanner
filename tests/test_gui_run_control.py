@@ -449,6 +449,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_live_banishes = ()
         app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
+        app.player_stats_powerups_duration_label = FakeLabel()
         app.player_stats_mob_kills_label = FakeLabel()
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
@@ -2599,6 +2600,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_live_banishes = ()
         app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
+        app.player_stats_powerups_duration_label = FakeLabel()
         app.player_stats_mob_kills_label = FakeLabel()
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
@@ -2612,7 +2614,13 @@ class GuiRunControlTests(unittest.TestCase):
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app._is_live_stats_tab_active = lambda: True
-        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        app.read_player_stats_only = lambda: (
+            {
+                "Damage": SimpleNamespace(display_value="123", value=1.23),
+                "Powerup Multiplier": SimpleNamespace(display_value="1.5x", value=1.5),
+            },
+            0x1234,
+        )
 
         def fail_items(owner_stats=None):
             raise gui.MemoryReadError("items missing")
@@ -2632,6 +2640,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(stat_label.text(), "123")
         self.assertEqual(app.player_stats_items_label.text(), "Items unavailable")
         self.assertEqual(app.player_stats_chests_per_minute_label.text(), "Average chests/min: --")
+        self.assertEqual(app.player_stats_powerups_duration_label.text(), "Powerups: 22.5s | Clock: 18s")
         self.assertEqual(app.player_stats_in_game_time_label.text(), "In-Game Time: 00:21")
         self.assertEqual(app.player_stats_mob_kills_label.text(), "Mob Kills: 37")
         self.assertEqual(app.player_stats_level_label.text(), "Level: 2")
@@ -3165,6 +3174,17 @@ class GuiRunControlTests(unittest.TestCase):
     def test_format_player_level_formats_missing_and_positive_values(self) -> None:
         self.assertEqual(gui.MegabonkApp.format_player_level(None), "Level: --")
         self.assertEqual(gui.MegabonkApp.format_player_level(4), "Level: 4")
+
+    def test_format_powerups_duration_uses_powerup_multiplier(self) -> None:
+        stats = {
+            "Powerup Multiplier": SimpleNamespace(value=1.5, display_value="1.5x"),
+        }
+
+        self.assertEqual(
+            gui.MegabonkApp.format_powerups_duration(stats),
+            "Powerups: 22.5s | Clock: 18s",
+        )
+        self.assertEqual(gui.MegabonkApp.format_powerups_duration({}), "Powerups: --")
 
     def test_nearest_snapshot_index_prefers_in_game_time(self) -> None:
         snapshots = (

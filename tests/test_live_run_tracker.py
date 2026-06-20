@@ -501,6 +501,19 @@ class LiveRunTrackerTests(unittest.TestCase):
             ["MS +11.2%", "Gold +20.6%", "PDC +17.9%"],
         )
 
+    def test_chaos_tracker_crit_damage_summary_uses_effective_scale(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        crit_damage = SimpleNamespace(
+            stat_id=19,
+            label="Crit Damage",
+            value=0.14,
+            value_format=PlayerStatFormat.MULTIPLIER,
+        )
+        tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={})
+        tracker.update_chaos_tome(chaos_level=2, permanent_modifiers={19: (crit_damage,)})
+
+        self.assertEqual(tracker.chaos_tome_summary_parts(), ["CritDMG +28%"])
+
     def test_chaos_tracker_exposes_structured_snapshot(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={})

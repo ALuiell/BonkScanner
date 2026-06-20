@@ -250,6 +250,21 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(stats["Armor"].display_value, "15%")
         self.assertEqual(stats["Difficulty"].display_value, "9%")
 
+    def test_player_crit_damage_display_includes_base_crit_multiplier(self) -> None:
+        memory = self.build_memory()
+        entries = 0x20000500
+        crit_damage_offset = (
+            PlayerStatsClient.STAT_VALUE_BASE_OFFSET
+            + (19 * PlayerStatsClient.STAT_SLOT_SIZE)
+        )
+        memory.floats[entries + crit_damage_offset] = 3.3
+        client = PlayerStatsClient(memory=memory)
+
+        stats = client.get_player_stats()
+
+        self.assertEqual(stats["Crit Damage"].value, 3.3)
+        self.assertEqual(stats["Crit Damage"].display_value, "6.6x")
+
     def test_get_disabled_items_reports_uninitialized_empty_pool(self) -> None:
         memory = build_disabled_items_memory(global_ids=(4, 7), available_groups=())
 
@@ -1031,6 +1046,12 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         self.assertEqual(
             format_chaos_tome_stat_delta("Pickup Range", 2.72, PlayerStatFormat.FLAT),
             "+24.5",
+        )
+
+    def test_format_chaos_tome_stat_delta_converts_crit_damage_to_effective_scale(self) -> None:
+        self.assertEqual(
+            format_chaos_tome_stat_delta("Crit Damage", 1.31, PlayerStatFormat.MULTIPLIER),
+            "+262%",
         )
 
     def test_chaos_tome_snapshot_display_delta_converts_pickup_range_to_meters(self) -> None:

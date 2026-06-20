@@ -43,6 +43,7 @@ class WeaponStatFormat(Enum):
 
 
 PICKUP_RANGE_BASE_METERS = 9.0
+CRIT_DAMAGE_BASE_MULTIPLIER = 2.0
 
 
 class DisabledItemsReadStatus(Enum):
@@ -117,6 +118,7 @@ class PlayerStatSpec:
     label: str
     stat_id: int | None
     value_format: PlayerStatFormat
+    display_scale: float = 1.0
 
     @property
     def offset(self) -> int | None:
@@ -139,7 +141,7 @@ PLAYER_STAT_GROUPS: tuple[tuple[PlayerStatSpec, ...], ...] = (
     (
         PlayerStatSpec("Damage", 12, PlayerStatFormat.MULTIPLIER),
         PlayerStatSpec("Crit Chance", 18, PlayerStatFormat.PERCENT),
-        PlayerStatSpec("Crit Damage", 19, PlayerStatFormat.MULTIPLIER),
+        PlayerStatSpec("Crit Damage", 19, PlayerStatFormat.MULTIPLIER, display_scale=CRIT_DAMAGE_BASE_MULTIPLIER),
         PlayerStatSpec("Attack Speed", 15, PlayerStatFormat.PERCENT),
         PlayerStatSpec("Projectile Count", 16, PlayerStatFormat.FLAT),
         PlayerStatSpec("Projectile Bounces", None, PlayerStatFormat.FLAT),
@@ -175,7 +177,10 @@ class PlayerStatValue:
 
     @property
     def display_value(self) -> str:
-        return format_player_stat_value(self.value, self.spec.value_format)
+        value = self.value
+        if value is not None and isfinite(value):
+            value *= self.spec.display_scale
+        return format_player_stat_value(value, self.spec.value_format)
 
 
 @dataclass(frozen=True)
@@ -2040,6 +2045,8 @@ def format_chaos_tome_stat_delta(
     absolute = abs(value)
     if label == "Pickup Range" and value_format is PlayerStatFormat.FLAT:
         return f"{sign}{_format_number(absolute * PICKUP_RANGE_BASE_METERS)}"
+    if label == "Crit Damage" and value_format is PlayerStatFormat.MULTIPLIER:
+        return f"{sign}{_format_number(absolute * CRIT_DAMAGE_BASE_MULTIPLIER * 100)}%"
     return format_player_stat_delta(value, value_format)
 
 
