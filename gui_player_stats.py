@@ -143,7 +143,7 @@ class PlayerStatsMixin:
             self.refresh_chaos_tome_tracker_now()
 
         self.after(
-            int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 250)),
+            int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500)),
             self.update_chaos_tome_tracker_timer,
         )
 

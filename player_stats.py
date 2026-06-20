@@ -188,6 +188,11 @@ PLAYER_STAT_GROUPS: tuple[tuple[PlayerStatSpec, ...], ...] = (
         PlayerStatSpec("Powerup Drop Chance", 41, PlayerStatFormat.MULTIPLIER),
     ),
 )
+PLAYER_STAT_SPEC_BY_LABEL: dict[str, PlayerStatSpec] = {
+    spec.label: spec
+    for group in PLAYER_STAT_GROUPS
+    for spec in group
+}
 
 POWERUP_STATUS_EFFECT_NAMES: dict[int, str] = {
     1: "Rage",
@@ -195,6 +200,8 @@ POWERUP_STATUS_EFFECT_NAMES: dict[int, str] = {
     3: "Stonks",
     4: "Clock",
 }
+POWERUP_MULTIPLIER_LABEL = "Powerup Multiplier"
+POWERUP_MULTIPLIER_CACHE_TTL_SECONDS = 5.0
 
 @dataclass(frozen=True)
 class PlayerStatValue:
@@ -585,6 +592,22 @@ class PlayerStatsClient:
             int,
             tuple[int, int, int, int, tuple[int, ...]],
         ] = {}
+        self._cached_stats_entries_owner_stats = 0
+        self._cached_stats_entries = 0
+        self._cached_powerup_multiplier_value: float | None = None
+        self._cached_powerup_multiplier_display = "--"
+        self._cached_powerup_multiplier_read_at = 0.0
+        self._cached_my_time_static_fields = 0
+        self._cached_map_controller_static_fields = 0
+        self._cached_stage_pointer = 0
+        self._cached_stage_timeline_pointer = 0
+        self._cached_stage_index: int | None = None
+        self._cached_status_effects_dict = 0
+        self._cached_status_effects_entries = 0
+        self._cached_status_effects_capacity = 0
+        self._cached_status_effects_version: int | None = None
+        self._cached_status_effect_ptrs: dict[int, int] = {}
+        self._cached_active_powerup_signature: tuple[int, ...] = ()
 
     def close(self) -> None:
         if self._owns_memory and hasattr(self.memory, "close"):
@@ -1360,27 +1383,37 @@ class PlayerStatsClient:
     ) -> PowerupTrackingSnapshot:
         owner_stats = owner_stats or self._resolve_owner_stats()
         my_time_static_fields = self._resolve_my_time_static_fields()
-        my_time_seconds = self.memory.read_float(
-            my_time_static_fields + self.MY_TIME_TIME_OFFSET
-        )
-        stage_timer_seconds = self.memory.read_float(
-            my_time_static_fields + self.STAGE_TIMER_OFFSET
-        )
-        stage_index, stage_time_seconds = self._read_current_stage_time()
-
-        powerup_multiplier: float | None = None
-        powerup_multiplier_display = "--"
         try:
-            stats = self.get_player_stats(owner_stats)
-            stat = stats.get("Powerup Multiplier")
-            if stat is not None:
-                powerup_multiplier = stat.value
-                powerup_multiplier_display = stat.display_value
+            my_time_seconds = self.memory.read_float(
+                my_time_static_fields + self.MY_TIME_TIME_OFFSET
+            )
+            stage_timer_seconds = self.memory.read_float(
+                my_time_static_fields + self.STAGE_TIMER_OFFSET
+            )
         except MemoryReadError:
-            powerup_multiplier = None
-            powerup_multiplier_display = "--"
-
+            self._clear_my_time_cache()
+            raise
+        stage_index, stage_time_seconds = self._read_current_stage_time()
         effects = self.get_active_status_effects(owner_stats)
+        active_signature = tuple(
+            sorted(
+                effect.effect_id
+                for effect in effects
+                if isfinite(effect.expiration_time)
+                and (effect.expiration_time - my_time_seconds) > 0
+            )
+        )
+        force_multiplier_refresh = bool(
+            active_signature
+            and active_signature != self._cached_active_powerup_signature
+        )
+        powerup_multiplier, powerup_multiplier_display = (
+            self._get_cached_powerup_multiplier(
+                owner_stats,
+                force_refresh=force_multiplier_refresh,
+            )
+        )
+        self._cached_active_powerup_signature = active_signature
         return PowerupTrackingSnapshot(
             my_time_seconds=my_time_seconds,
             stage_timer_seconds=stage_timer_seconds,
@@ -1400,39 +1433,50 @@ class PlayerStatsClient:
             owner_stats + self.PLAYER_INVENTORY_OFFSET
         )
         if not player_inventory:
+            self._clear_status_effects_cache()
             return ()
         status_effects = self.memory.read_ptr(
             player_inventory + self.PLAYER_STATUS_EFFECTS_OFFSET
         )
         if not status_effects:
+            self._clear_status_effects_cache()
             return ()
         dictionary_address = self.memory.read_ptr(
             status_effects + self.PLAYER_STATUS_EFFECTS_DICT_OFFSET
         )
         if not dictionary_address:
+            self._clear_status_effects_cache()
             return ()
 
         entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
         if not entries:
+            self._clear_status_effects_cache()
             return ()
         capacity = self.memory.read_i32(entries + self.ARRAY_LENGTH_OFFSET)
         if capacity <= 0 or capacity > 128:
+            self._clear_status_effects_cache()
             return ()
+        try:
+            version = self.memory.read_i32(dictionary_address + self.DICT_VERSION_OFFSET)
+        except MemoryReadError:
+            version = None
+        if (
+            dictionary_address != self._cached_status_effects_dict
+            or entries != self._cached_status_effects_entries
+            or capacity != self._cached_status_effects_capacity
+            or version != self._cached_status_effects_version
+        ):
+            self._cached_status_effects_dict = dictionary_address
+            self._cached_status_effects_entries = entries
+            self._cached_status_effects_capacity = capacity
+            self._cached_status_effects_version = version
+            self._cached_status_effect_ptrs = self._scan_status_effect_ptrs(entries, capacity)
 
         effects: list[StatusEffectSnapshot] = []
-        for index in range(capacity):
-            entry = (
-                entries
-                + self.DICT_ENTRY_START_OFFSET
-                + (index * self.DICT_ENTRY_SIZE)
-            )
+        for effect_id, effect_ptr in tuple(self._cached_status_effect_ptrs.items()):
+            if not effect_ptr:
+                continue
             try:
-                if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
-                    continue
-                effect_id = self.memory.read_i32(entry + self.DICT_ENTRY_KEY_OFFSET)
-                effect_ptr = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
-                if not effect_ptr or effect_id not in POWERUP_STATUS_EFFECT_NAMES:
-                    continue
                 object_effect_id = self.memory.read_i32(
                     effect_ptr + self.STATUS_EFFECT_ESTATUS_OFFSET
                 )
@@ -1666,6 +1710,8 @@ class PlayerStatsClient:
         return self._resolve_owner_stats()
 
     def _resolve_my_time_static_fields(self) -> int:
+        if self._cached_my_time_static_fields:
+            return self._cached_my_time_static_fields
         type_info_address = self.memory.module_offset(
             self.module_name,
             self.RUN_TIMER_TYPE_INFO_OFFSET,
@@ -1677,17 +1723,11 @@ class PlayerStatsClient:
         static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
         if not static_fields:
             raise MemoryReadError("MyTime static fields are not initialized.")
+        self._cached_my_time_static_fields = static_fields
         return static_fields
 
     def _read_current_stage_time(self) -> tuple[int | None, float | None]:
-        type_info_address = self.memory.module_offset(
-            self.module_name,
-            self.MAP_CONTROLLER_TYPE_INFO_OFFSET,
-        )
-        class_ptr = self.memory.read_ptr(type_info_address)
-        if not class_ptr:
-            return None, None
-        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        static_fields = self._resolve_map_controller_static_fields()
         if not static_fields:
             return None, None
 
@@ -1704,19 +1744,24 @@ class PlayerStatsClient:
             current_stage = self.memory.read_ptr(
                 static_fields + self.MAP_CONTROLLER_CURRENT_STAGE_OFFSET
             )
-            if current_stage:
-                timeline = self.memory.read_ptr(
+            if current_stage and current_stage != self._cached_stage_pointer:
+                self._cached_stage_pointer = current_stage
+                self._cached_stage_timeline_pointer = self.memory.read_ptr(
                     current_stage + self.STAGE_DATA_TIMELINE_OFFSET
                 )
-                if timeline:
-                    stage_time = self.memory.read_float(
-                        timeline + self.STAGE_TIMELINE_STAGE_TIME_OFFSET
-                    )
+            timeline = self._cached_stage_timeline_pointer
+            if timeline:
+                stage_time = self.memory.read_float(
+                    timeline + self.STAGE_TIMELINE_STAGE_TIME_OFFSET
+                )
         except MemoryReadError:
+            self._cached_stage_pointer = 0
+            self._cached_stage_timeline_pointer = 0
             stage_time = None
 
         if stage_time is None or not isfinite(stage_time) or stage_time <= 0 or stage_time > 1200:
             stage_time = {0: 600.0, 1: 540.0, 2: 480.0}.get(stage_index)
+        self._cached_stage_index = stage_index
         return stage_index, stage_time
 
     def _resolve_stats_entries(self, owner_stats: int | None = None) -> int:
@@ -1727,6 +1772,101 @@ class PlayerStatsClient:
             raise MemoryReadError("Player stats entries are not initialized.")
 
         return entries
+
+    def _resolve_stats_entries_cached(self, owner_stats: int) -> int:
+        if (
+            owner_stats == self._cached_stats_entries_owner_stats
+            and self._cached_stats_entries
+        ):
+            return self._cached_stats_entries
+        entries = self._resolve_stats_entries(owner_stats)
+        self._cached_stats_entries_owner_stats = owner_stats
+        self._cached_stats_entries = entries
+        return entries
+
+    def _resolve_map_controller_static_fields(self) -> int:
+        if self._cached_map_controller_static_fields:
+            return self._cached_map_controller_static_fields
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.MAP_CONTROLLER_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            return 0
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            return 0
+        self._cached_map_controller_static_fields = static_fields
+        return static_fields
+
+    def _get_cached_powerup_multiplier(
+        self,
+        owner_stats: int,
+        *,
+        force_refresh: bool = False,
+    ) -> tuple[float | None, str]:
+        now = time.monotonic()
+        cache_age = now - self._cached_powerup_multiplier_read_at
+        if (
+            not force_refresh
+            and self._cached_powerup_multiplier_read_at > 0
+            and cache_age <= POWERUP_MULTIPLIER_CACHE_TTL_SECONDS
+        ):
+            return (
+                self._cached_powerup_multiplier_value,
+                self._cached_powerup_multiplier_display,
+            )
+
+        spec = PLAYER_STAT_SPEC_BY_LABEL.get(POWERUP_MULTIPLIER_LABEL)
+        if spec is None or spec.offset is None:
+            return None, "--"
+        try:
+            entries = self._resolve_stats_entries_cached(owner_stats)
+            value = self.memory.read_float(entries + spec.offset)
+        except MemoryReadError:
+            self._cached_stats_entries = 0
+            self._cached_powerup_multiplier_value = None
+            self._cached_powerup_multiplier_display = "--"
+            self._cached_powerup_multiplier_read_at = 0.0
+            return None, "--"
+
+        display = PlayerStatValue(spec=spec, value=value).display_value
+        self._cached_powerup_multiplier_value = value
+        self._cached_powerup_multiplier_display = display
+        self._cached_powerup_multiplier_read_at = now
+        return value, display
+
+    def _scan_status_effect_ptrs(self, entries: int, capacity: int) -> dict[int, int]:
+        effect_ptrs: dict[int, int] = {}
+        for index in range(capacity):
+            entry = (
+                entries
+                + self.DICT_ENTRY_START_OFFSET
+                + (index * self.DICT_ENTRY_SIZE)
+            )
+            try:
+                if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
+                    continue
+                effect_id = self.memory.read_i32(entry + self.DICT_ENTRY_KEY_OFFSET)
+                if effect_id not in POWERUP_STATUS_EFFECT_NAMES:
+                    continue
+                effect_ptr = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+            except MemoryReadError:
+                continue
+            if effect_ptr:
+                effect_ptrs[effect_id] = effect_ptr
+        return effect_ptrs
+
+    def _clear_my_time_cache(self) -> None:
+        self._cached_my_time_static_fields = 0
+
+    def _clear_status_effects_cache(self) -> None:
+        self._cached_status_effects_dict = 0
+        self._cached_status_effects_entries = 0
+        self._cached_status_effects_capacity = 0
+        self._cached_status_effects_version = None
+        self._cached_status_effect_ptrs = {}
 
     def _resolve_owner_stats(self) -> int:
         type_info_address = self.memory.module_offset(

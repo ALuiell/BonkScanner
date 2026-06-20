@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from memory import MemoryReadError
 from player_stats import (
     ChaosTomeStatSnapshot,
     DisabledItemsReadStatus,
+    PLAYER_STAT_SPEC_BY_LABEL,
     PlayerStatsClient,
     PlayerStatFormat,
     PlayerStatsTimeline,
@@ -463,6 +465,74 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(snapshot.stage_time_seconds, 480.0)
         self.assertEqual(snapshot.stage_timer_seconds, 46.5)
         self.assertEqual([effect.name for effect in snapshot.effects], ["Rage", "Clock"])
+
+    def test_get_powerup_tracking_snapshot_caches_powerup_multiplier_until_ttl(self) -> None:
+        memory = self.build_memory()
+        base = memory.module_base
+        owner_stats = 0x20000300
+        entries = 0x20000500
+        player_inventory = 0x20001600
+        status_effects = 0x26000000
+        status_dict = 0x26000100
+        status_entries = 0x26000200
+        rage_effect = 0x26000300
+        map_controller_type_info = base + PlayerStatsClient.MAP_CONTROLLER_TYPE_INFO_OFFSET
+        map_controller_class = 0x26000500
+        map_controller_static = 0x26000600
+        current_stage = 0x26000700
+        stage_timeline = 0x26000800
+        run_timer_static_fields = 0x20000D00
+        powerup_spec = PLAYER_STAT_SPEC_BY_LABEL["Powerup Multiplier"]
+        memory.pointers.update(
+            {
+                owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
+                player_inventory + PlayerStatsClient.PLAYER_STATUS_EFFECTS_OFFSET: status_effects,
+                status_effects + PlayerStatsClient.PLAYER_STATUS_EFFECTS_DICT_OFFSET: status_dict,
+                status_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: status_entries,
+                status_entries
+                + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+                + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET: rage_effect,
+                map_controller_type_info: map_controller_class,
+                map_controller_class + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: map_controller_static,
+                map_controller_static + PlayerStatsClient.MAP_CONTROLLER_CURRENT_STAGE_OFFSET: current_stage,
+                current_stage + PlayerStatsClient.STAGE_DATA_TIMELINE_OFFSET: stage_timeline,
+            }
+        )
+        memory.ints.update(
+            {
+                status_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                status_entries + PlayerStatsClient.ARRAY_LENGTH_OFFSET: 1,
+                status_entries
+                + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+                + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 1,
+                status_entries
+                + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+                + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: 1,
+                rage_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 1,
+                map_controller_static + PlayerStatsClient.MAP_CONTROLLER_INDEX_OFFSET: 1,
+            }
+        )
+        memory.floats.update(
+            {
+                entries + powerup_spec.offset: 1.5,
+                run_timer_static_fields + PlayerStatsClient.MY_TIME_TIME_OFFSET: 1000.0,
+                run_timer_static_fields + PlayerStatsClient.STAGE_TIMER_OFFSET: 46.5,
+                rage_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET: 990.0,
+                rage_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET: 1015.0,
+                stage_timeline + PlayerStatsClient.STAGE_TIMELINE_STAGE_TIME_OFFSET: 540.0,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        with patch("player_stats.time.monotonic", side_effect=(100.0, 101.0, 106.0)):
+            first = client.get_powerup_tracking_snapshot(owner_stats)
+            memory.floats[entries + powerup_spec.offset] = 2.0
+            second = client.get_powerup_tracking_snapshot(owner_stats)
+            third = client.get_powerup_tracking_snapshot(owner_stats)
+
+        self.assertEqual(first.powerup_multiplier_display, "1.5x")
+        self.assertEqual(second.powerup_multiplier_display, "1.5x")
+        self.assertEqual(third.powerup_multiplier_display, "2x")
 
     def test_get_killed_mobs_reads_run_stats_kills(self) -> None:
         client = PlayerStatsClient(memory=self.build_memory())

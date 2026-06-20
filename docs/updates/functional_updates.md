@@ -107,7 +107,10 @@ Implemented behavior:
 
 Polling and activation rules:
 
-- Powerup tracking runs in the existing fast tracker timer (`CHAOS_TOME_TRACKER_INTERVAL_MS`, currently `250 ms`).
+- Powerup tracking runs in the existing fast tracker timer (`CHAOS_TOME_TRACKER_INTERVAL_MS`, currently `500 ms`).
+- `Powerup Multiplier` uses a short cached value with forced refresh when the
+  active powerup set changes, instead of re-reading the full player stats block
+  every fast tick.
 - Powerup memory reads are only attempted when a consumer exists:
   - Live Stats tab is active, or
   - Twitch bot is active and the `powerups` command is enabled.

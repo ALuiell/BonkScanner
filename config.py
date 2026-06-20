@@ -634,7 +634,7 @@ PLAYER_STATS_RECORD_INTERVAL_SECONDS = coerce_nonnegative_int(
 ) or 30
 CHAOS_TOME_TRACKER_INTERVAL_MS = max(
     100,
-    coerce_nonnegative_int(user_config.get("CHAOS_TOME_TRACKER_INTERVAL_MS", 250), 250) or 250,
+    coerce_nonnegative_int(user_config.get("CHAOS_TOME_TRACKER_INTERVAL_MS", 500), 500) or 500,
 )
 AUTO_START_RECORDING = bool(user_config.get("AUTO_START_RECORDING", False))
 SHOW_OBS_REMINDER_ON_START_SCANNER = bool(user_config.get("SHOW_OBS_REMINDER_ON_START_SCANNER", False))
