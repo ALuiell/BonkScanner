@@ -1339,7 +1339,12 @@ class GuiLayoutMixin:
         self.twitch_cmd_presets_cb = QCheckBox("!presets")
         self.twitch_cmd_presets_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("presets", False))
         self.twitch_cmd_commands_cb = QCheckBox("!bonkhelp")
-        self.twitch_cmd_commands_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("commands", False))
+        self.twitch_cmd_commands_cb.setChecked(
+            config.TWITCH_BOT.get("commands", {}).get(
+                "bonkhelp",
+                config.TWITCH_BOT.get("commands", {}).get("commands", True),
+            )
+        )
         self.twitch_cmd_disabled_cb = QCheckBox("!disabled")
         self.twitch_cmd_disabled_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("disabled", False))
 

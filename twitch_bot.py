@@ -240,7 +240,10 @@ class TwitchBotWorker(QThread):
         elif cmd == "!disabled" and commands_cfg.get("disabled", False):
             self._handle_disabled(channel)
             handled = True
-        elif cmd in ("!bonkhelp", "!bonkcmds", "!bonkcommands", "!bhelp") and commands_cfg.get("commands", False):
+        elif cmd in ("!bonkhelp", "!bonkcmds", "!bonkcommands", "!bhelp") and commands_cfg.get(
+            "bonkhelp",
+            commands_cfg.get("commands", True),
+        ):
             self._handle_commands(channel)
             handled = True
 
@@ -819,7 +822,7 @@ class TwitchBotWorker(QThread):
             for key, display_name in cmd_mapping
             if commands_cfg.get(key, command_defaults[key])
         ]
-        if commands_cfg.get("commands", command_defaults["commands"]):
+        if commands_cfg.get("bonkhelp", command_defaults["bonkhelp"]):
             enabled_cmds.append("!bonkhelp")
 
         return enabled_cmds
@@ -832,7 +835,7 @@ class TwitchBotWorker(QThread):
         else:
             commands_list = ', '.join(enabled_cmds)
             msg = self._format_template(
-                "commands",
+                "bonkhelp",
                 "Available commands: {commands_list}",
                 commands_list=commands_list
             )

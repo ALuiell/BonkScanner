@@ -71,7 +71,7 @@ class TwitchBotMixin:
         config.TWITCH_BOT["commands"]["scanner"] = self.twitch_cmd_scanner_cb.isChecked()
         config.TWITCH_BOT["commands"]["chests"] = self.twitch_cmd_chests_cb.isChecked()
         config.TWITCH_BOT["commands"]["presets"] = self.twitch_cmd_presets_cb.isChecked()
-        config.TWITCH_BOT["commands"]["commands"] = self.twitch_cmd_commands_cb.isChecked()
+        config.TWITCH_BOT["commands"]["bonkhelp"] = self.twitch_cmd_commands_cb.isChecked()
         config.TWITCH_BOT["commands"]["disabled"] = self.twitch_cmd_disabled_cb.isChecked()
         config.save_config(config.user_config)
 

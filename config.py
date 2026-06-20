@@ -134,7 +134,7 @@ DEFAULT_TWITCH_BOT = {
         "scanner": True,
         "chests": False,
         "presets": False,
-        "commands": False,
+        "bonkhelp": True,
         "disabled": False
     },
     "selected_stats": [
@@ -157,7 +157,7 @@ DEFAULT_TWITCH_BOT = {
         "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
         "scanner": "Download it here: {github_url} | Support the creator here: {patreon_url} | Try !bonkhelp.",
         "chests": "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
-        "commands": "Available commands: {commands_list}",
+        "bonkhelp": "Available commands: {commands_list}",
         "disabled": "Disabled Items: {items}",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
         "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
@@ -470,6 +470,15 @@ def normalize_session_tracked_items_config(value):
 
 
 def normalize_twitch_bot_config(value):
+    raw_commands_cfg = value.get("commands") if isinstance(value, dict) and isinstance(value.get("commands"), dict) else None
+    raw_templates_cfg = value.get("templates") if isinstance(value, dict) and isinstance(value.get("templates"), dict) else None
+    legacy_bonkhelp_enabled = None
+    legacy_bonkhelp_template = None
+    if raw_commands_cfg is not None and "bonkhelp" not in raw_commands_cfg and "commands" in raw_commands_cfg:
+        legacy_bonkhelp_enabled = bool(raw_commands_cfg.get("commands"))
+    if raw_templates_cfg is not None and "bonkhelp" not in raw_templates_cfg and "commands" in raw_templates_cfg:
+        legacy_bonkhelp_template = str(raw_templates_cfg.get("commands"))
+
     bot_cfg = _merge_dict_defaults(value, DEFAULT_TWITCH_BOT)
     bot_cfg["enabled"] = bool(bot_cfg.get("enabled", False))
     bot_cfg["auto_connect"] = bool(bot_cfg.get("auto_connect", False))
@@ -494,6 +503,11 @@ def normalize_twitch_bot_config(value):
         max(1, coerce_nonnegative_int(bot_cfg.get("commands_announcement_interval_minutes"), 30)),
     )
     bot_cfg.pop("chests_expected_enabled", None)
+
+    if isinstance(bot_cfg.get("commands"), dict):
+        bot_cfg["commands"].pop("commands", None)
+        if legacy_bonkhelp_enabled is not None:
+            bot_cfg["commands"]["bonkhelp"] = legacy_bonkhelp_enabled
     
     if not isinstance(bot_cfg.get("commands"), dict):
         bot_cfg["commands"] = dict(DEFAULT_TWITCH_BOT["commands"])
@@ -532,6 +546,9 @@ def normalize_twitch_bot_config(value):
     if not isinstance(bot_cfg.get("templates"), dict):
         bot_cfg["templates"] = dict(DEFAULT_TWITCH_BOT["templates"])
     else:
+        if legacy_bonkhelp_template is not None:
+            bot_cfg["templates"]["bonkhelp"] = legacy_bonkhelp_template
+        bot_cfg["templates"].pop("commands", None)
         bot_cfg["templates"] = _merge_dict_defaults(bot_cfg["templates"], DEFAULT_TWITCH_BOT["templates"])
         for k in DEFAULT_TWITCH_BOT["templates"]:
             bot_cfg["templates"][k] = str(bot_cfg["templates"].get(k, DEFAULT_TWITCH_BOT["templates"][k]))

@@ -373,27 +373,36 @@ class FlowLayout(QLayout):
 class TrackedRuleTagWidget(QFrame):
     remove_clicked = Signal(str)
 
-    def __init__(self, rule_id: str, label_text: str, parent=None):
+    def __init__(
+        self,
+        rule_id: str,
+        label_text: str,
+        parent=None,
+        *,
+        text_color: str = "#E2E8F0",
+        border_color: str = "#4B4B5A",
+        background_color: str = "#2D2D35",
+    ):
         super().__init__(parent)
         self.rule_id = rule_id
         self.setObjectName("TrackedRuleTag")
 
-        self.setStyleSheet("""
-            QFrame#TrackedRuleTag {
-                background-color: #2D2D35;
-                border: 1px solid #4B4B5A;
+        self.setStyleSheet(f"""
+            QFrame#TrackedRuleTag {{
+                background-color: {background_color};
+                border: 1px solid {border_color};
                 border-radius: 4px;
-            }
-            QLabel {
-                color: #E2E8F0;
+            }}
+            QLabel {{
+                color: {text_color};
                 font-weight: bold;
                 font-size: 11px;
                 padding-left: 6px;
                 padding-right: 2px;
                 padding-top: 4px;
                 padding-bottom: 4px;
-            }
-            QPushButton#TagCloseBtn {
+            }}
+            QPushButton#TagCloseBtn {{
                 color: #A0AEC0;
                 background: transparent;
                 border: none;
@@ -403,10 +412,10 @@ class TrackedRuleTagWidget(QFrame):
                 padding-right: 6px;
                 padding-top: 4px;
                 padding-bottom: 4px;
-            }
-            QPushButton#TagCloseBtn:hover {
+            }}
+            QPushButton#TagCloseBtn:hover {{
                 color: #F87171;
-            }
+            }}
         """)
 
         layout = QHBoxLayout(self)

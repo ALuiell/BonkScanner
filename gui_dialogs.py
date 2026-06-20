@@ -32,7 +32,7 @@ from gui_styles import (
 )
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QBrush, QColor, QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -1298,7 +1298,7 @@ class TwitchCommandSettingsDialog(QDialog):
             ("chaos", "!chaos / !chaostome:", "Chaos Tome Lv{level}: {chaos}", "Tags: {level}, {chaos}"),
             ("powerups", "!powerups:", "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})", "Tags: {standard_duration}, {clock_duration}, {pm}"),
             ("chests", "!chests / !chest:", config.DEFAULT_TWITCH_BOT["templates"]["chests"], "Tags: {stages}, {opened}, {total}, {paid}, {procs}, {normal}, {proc_rate}, {expected}, {free}, {keys}, {chance}"),
-            ("commands", "!bonkhelp / !bonkcmds:", config.DEFAULT_TWITCH_BOT["templates"]["commands"], "Tags: {commands_list}"),
+            ("bonkhelp", "!bonkhelp / !bonkcmds:", config.DEFAULT_TWITCH_BOT["templates"]["bonkhelp"], "Tags: {commands_list}"),
         ]
 
         for key, label_text, default_val, help_text in templates_config:
@@ -1409,7 +1409,7 @@ class TwitchCommandSettingsDialog(QDialog):
         search_top_layout.addStretch(1)
         top_layout.addLayout(search_top_layout)
 
-        self.twitch_item_names = available_item_display_names()
+        self.twitch_item_names = OverlayMixin._overlay_available_item_names()
         self.twitch_item_search_entry = QLineEdit()
         self.twitch_item_search_entry.setPlaceholderText("Search items...")
         self.twitch_item_search_entry.textChanged.connect(self.refresh_twitch_item_selector)
@@ -1735,6 +1735,7 @@ class TwitchCommandSettingsDialog(QDialog):
                 item = QListWidgetItem(display_name)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 item.setData(Qt.UserRole, item_name)
+                item.setForeground(QBrush(QColor(OverlayMixin._tracked_item_color(item_name))))
                 selector.addItem(item)
 
         for i in range(selector.count()):
@@ -1767,7 +1768,14 @@ class TwitchCommandSettingsDialog(QDialog):
             rule_id = str(rule.get("id") or "")
 
             if layout is not None:
-                tag = TrackedRuleTagWidget(rule_id, OverlayMixin._tracked_rule_tag_label(label, mode))
+                accent = OverlayMixin._tracked_rule_color(item_names)
+                tag = TrackedRuleTagWidget(
+                    rule_id,
+                    OverlayMixin._tracked_rule_tag_label(label, mode),
+                    text_color=accent,
+                    border_color=accent,
+                    background_color="#18212C",
+                )
                 tag.remove_clicked.connect(self.remove_twitch_tracked_item)
                 layout.addWidget(tag)
         self._refresh_twitch_tracked_items_source_ui()

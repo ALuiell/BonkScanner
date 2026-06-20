@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -36,8 +37,19 @@ from gui_shared import (
     _set_text,
     _set_text_input,
 )
-from gui_styles import PLAYER_STATS_REFRESH_MS, _button_state_stylesheet
-from item_metadata import available_item_display_names, preferred_item_display_name
+from gui_styles import (
+    ITEM_RARITY_COLOR_MAP,
+    ITEM_RARITY_SORT_ORDER,
+    PLAYER_STATS_REFRESH_MS,
+    _button_state_stylesheet,
+)
+from item_metadata import (
+    ITEM_RARITY_BY_NAME,
+    available_item_display_names,
+    item_display_color,
+    normalize_item_name_for_rarity,
+    preferred_item_display_name,
+)
 from live_run_tracker import LiveRunTracker, TrackedItemRule
 from overlay_server import LocalOverlayServer, OverlayStateStore
 from overlay_state import build_overlay_state
@@ -620,6 +632,7 @@ class OverlayMixin:
                 item = QListWidgetItem(display_name)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 item.setData(Qt.UserRole, item_name)
+                item.setForeground(QBrush(QColor(self._tracked_item_color(item_name))))
                 selector.addItem(item)
 
         for i in range(selector.count()):
@@ -653,7 +666,14 @@ class OverlayMixin:
             rule_id = str(rule.get("id") or "")
 
             if layout is not None:
-                tag = TrackedRuleTagWidget(rule_id, self._tracked_rule_tag_label(label, mode))
+                accent = self._tracked_rule_color(item_names)
+                tag = TrackedRuleTagWidget(
+                    rule_id,
+                    self._tracked_rule_tag_label(label, mode),
+                    text_color=accent,
+                    border_color=accent,
+                    background_color="#18212C",
+                )
                 tag.remove_clicked.connect(self.remove_overlay_tracked_item)
                 layout.addWidget(tag)
             tracked_count += 1
@@ -867,6 +887,7 @@ class OverlayMixin:
                 item = QListWidgetItem(display_name)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 item.setData(Qt.UserRole, item_name)
+                item.setForeground(QBrush(QColor(self._tracked_item_color(item_name))))
                 selector.addItem(item)
 
         for i in range(selector.count()):
@@ -901,7 +922,14 @@ class OverlayMixin:
             label = self._tracked_rule_display_label(dict(rule), item_names, mode)
             rule_id = str(rule.get("id", ""))
 
-            tag = TrackedRuleTagWidget(rule_id=rule_id, label_text=self._tracked_rule_tag_label(label, mode))
+            accent = self._tracked_rule_color(item_names)
+            tag = TrackedRuleTagWidget(
+                rule_id=rule_id,
+                label_text=self._tracked_rule_tag_label(label, mode),
+                text_color=accent,
+                border_color=accent,
+                background_color="#18212C",
+            )
             tag.remove_clicked.connect(self.remove_session_tracked_item)
             layout.addWidget(tag)
 
@@ -1248,17 +1276,49 @@ class OverlayMixin:
             combined[rule.id] = rule
         return tuple(combined.values())
 
-    @staticmethod
-    def _overlay_available_item_names() -> tuple[str, ...]:
-        return available_item_display_names()
+    @classmethod
+    def _overlay_available_item_names(cls) -> tuple[str, ...]:
+        return tuple(sorted(available_item_display_names(), key=cls._tracked_item_sort_key))
 
     @staticmethod
     def _tracked_item_display_name(item_name: str) -> str:
         return preferred_item_display_name(str(item_name))
 
     @classmethod
+    def _tracked_item_sort_key(cls, item_name: str) -> tuple[int, str]:
+        return (-cls._tracked_item_rarity_rank(item_name), cls._tracked_item_display_name(item_name).lower())
+
+    @staticmethod
+    def _tracked_item_rarity_rank(item_name: str) -> int:
+        canonical_name = normalize_item_name_for_rarity(str(item_name))
+        rarity = ITEM_RARITY_BY_NAME.get(canonical_name)
+        return ITEM_RARITY_SORT_ORDER.get(rarity, -1)
+
+    @staticmethod
+    def _tracked_item_color(item_name: str) -> str:
+        direct_color = item_display_color(item_name)
+        if direct_color:
+            return direct_color
+        canonical_name = normalize_item_name_for_rarity(str(item_name))
+        rarity = ITEM_RARITY_BY_NAME.get(canonical_name)
+        return ITEM_RARITY_COLOR_MAP.get(rarity, "#E5E7EB")
+
+    @classmethod
     def _tracked_item_combo_display_name(cls, item_names: list[str] | tuple[str, ...]) -> str:
         return " + ".join(cls._tracked_item_display_name(item_name) for item_name in item_names)
+
+    @classmethod
+    def _tracked_rule_color(cls, item_names: list[str] | tuple[str, ...]) -> str:
+        if not item_names:
+            return "#E5E7EB"
+        ranked_items = sorted(
+            item_names,
+            key=lambda item_name: ITEM_RARITY_SORT_ORDER.get(
+                ITEM_RARITY_BY_NAME.get(normalize_item_name_for_rarity(str(item_name))), -1
+            ),
+            reverse=True,
+        )
+        return cls._tracked_item_color(ranked_items[0])
 
     @staticmethod
     def _tracked_rule_tag_label(label: str, mode: str) -> str:
