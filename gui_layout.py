@@ -57,6 +57,7 @@ RUN_SUMMARY_LABEL_BASELINES = {
     "mob_kills": "Mob Kills: 999,999",
     "level": "Level: 999",
 }
+POWERUPS_CARD_LINE_BASELINE = "Stonks: 99:59 -> +99:59 (999.99s)"
 PLAYER_STAT_VALUE_BASELINES = {
     PlayerStatFormat.FLAT: "999,999",
     PlayerStatFormat.PERCENT: "999.9%",
@@ -107,21 +108,23 @@ def _build_chests_stats_card():
     return card, values
 
 
-def _apply_run_summary_baselines(
-    chests_per_minute_label,
-    powerups_duration_label,
-    in_game_time_label,
-    mob_kills_label,
-    level_label,
-) -> None:
+def _apply_run_summary_baselines(chests_per_minute_label, *labels) -> None:
+    if len(labels) == 3:
+        powerups_duration_label = None
+        in_game_time_label, mob_kills_label, level_label = labels
+    elif len(labels) == 4:
+        powerups_duration_label, in_game_time_label, mob_kills_label, level_label = labels
+    else:
+        raise TypeError("_apply_run_summary_baselines() expects 4 or 5 labels")
     _reserve_label_baseline_width(
         chests_per_minute_label,
         RUN_SUMMARY_LABEL_BASELINES["chests_per_minute"],
     )
-    _reserve_label_baseline_width(
-        powerups_duration_label,
-        RUN_SUMMARY_LABEL_BASELINES["powerups_duration"],
-    )
+    if powerups_duration_label is not None:
+        _reserve_label_baseline_width(
+            powerups_duration_label,
+            RUN_SUMMARY_LABEL_BASELINES["powerups_duration"],
+        )
     _reserve_label_baseline_width(
         in_game_time_label,
         RUN_SUMMARY_LABEL_BASELINES["in_game_time"],
@@ -150,6 +153,11 @@ def _apply_stage_summary_column_baseline(layout, rows) -> None:
             metrics = QFontMetrics(label.font())
             width = max(width, metrics.horizontalAdvance(baseline), metrics.horizontalAdvance(label.text()))
         layout.setColumnMinimumWidth(column, width + STAGE_SUMMARY_COLUMN_PADDING)
+
+
+def _apply_powerups_card_baselines(labels_by_name) -> None:
+    for label in labels_by_name.values():
+        _reserve_label_baseline_width(label, POWERUPS_CARD_LINE_BASELINE)
 
 
 class GuiLayoutMixin:
@@ -411,8 +419,6 @@ class GuiLayoutMixin:
         chest_rate_layout = QVBoxLayout(chest_rate_group)
         self.player_stats_chests_per_minute_label = QLabel("Average chests/min: --")
         chest_rate_layout.addWidget(self.player_stats_chests_per_minute_label)
-        self.player_stats_powerups_duration_label = QLabel("Powerups: --")
-        chest_rate_layout.addWidget(self.player_stats_powerups_duration_label)
         self.player_stats_in_game_time_label = QLabel("In-Game Time: --")
         chest_rate_layout.addWidget(self.player_stats_in_game_time_label)
         self.player_stats_mob_kills_label = QLabel("Mob Kills: --")
@@ -421,14 +427,12 @@ class GuiLayoutMixin:
         chest_rate_layout.addWidget(self.player_stats_level_label)
         _apply_summary_label_padding(
             self.player_stats_chests_per_minute_label,
-            self.player_stats_powerups_duration_label,
             self.player_stats_in_game_time_label,
             self.player_stats_mob_kills_label,
             self.player_stats_level_label,
         )
         _apply_run_summary_baselines(
             self.player_stats_chests_per_minute_label,
-            self.player_stats_powerups_duration_label,
             self.player_stats_in_game_time_label,
             self.player_stats_mob_kills_label,
             self.player_stats_level_label,
@@ -476,14 +480,16 @@ class GuiLayoutMixin:
         live_stage_summary_layout.setColumnStretch(2, 1)
         live_stage_summary_layout.setColumnStretch(3, 1)
         live_summary_grid.addWidget(live_stage_summary_group, 0, 1)
-        live_new_items_group = QGroupBox("Segment Compare")
-        live_new_items_layout = QVBoxLayout(live_new_items_group)
-        self.player_stats_new_items_label = QLabel("Live snapshot")
-        self.player_stats_new_items_label.setTextFormat(Qt.RichText)
-        self.player_stats_new_items_label.setWordWrap(True)
-        _apply_summary_label_padding(self.player_stats_new_items_label)
-        live_new_items_layout.addWidget(self.player_stats_new_items_label)
-        live_summary_grid.addWidget(live_new_items_group, 0, 2)
+        self.player_stats_powerups_group = QGroupBox("Powerups")
+        live_powerups_layout = QVBoxLayout(self.player_stats_powerups_group)
+        self.player_stats_live_powerup_labels = {}
+        for effect_name in ("Rage", "Clock", "Shield", "Stonks"):
+            label = QLabel(f"{effect_name}: --")
+            _apply_summary_label_padding(label)
+            live_powerups_layout.addWidget(label)
+            self.player_stats_live_powerup_labels[effect_name] = label
+        _apply_powerups_card_baselines(self.player_stats_live_powerup_labels)
+        live_summary_grid.addWidget(self.player_stats_powerups_group, 0, 2)
         live_banishes_group = QGroupBox("Banishes")
         live_banishes_layout = QVBoxLayout(live_banishes_group)
         self.player_stats_banishes_label = QLabel("No banishes yet")

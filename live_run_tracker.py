@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from math import isfinite
 import time
 from typing import Any, Callable, Iterable
 from uuid import uuid4
@@ -121,6 +122,31 @@ class ChestStatsSnapshot:
     @property
     def normal_opened(self) -> int:
         return self.paid + self.key_procs
+
+
+@dataclass(frozen=True)
+class PowerupEffectState:
+    effect_id: int
+    name: str
+    pickup_ui: str
+    expires_ui: str
+    remaining_seconds: float
+    duration_seconds: float
+    stage_index: int | None
+    raw_stage_pickup: float
+    raw_stage_expiration: float
+
+
+@dataclass(frozen=True)
+class PowerupsSnapshot:
+    active: tuple[PowerupEffectState, ...] = ()
+    powerup_multiplier: float | None = None
+    powerup_multiplier_display: str = "--"
+    standard_duration_seconds: float | None = None
+    clock_duration_seconds: float | None = None
+    stage_index: int | None = None
+    stage_time_seconds: float | None = None
+    available: bool = False
 
 
 DEFAULT_TRACKED_ITEM_RULES: tuple[TrackedItemRule, ...] = (
@@ -264,6 +290,7 @@ class LiveRunTracker:
         self._chests_opened_by_stage = {}
         self._chests_total_by_stage = {}
         self._disabled_items_cache: tuple[str, ...] | None = None
+        self._powerups_snapshot = PowerupsSnapshot()
         self._lock = threading.RLock()
 
     @with_lock
@@ -512,6 +539,137 @@ class LiveRunTracker:
         )
 
     @with_lock
+    def update_powerups(self, snapshot: Any) -> None:
+        powerup_multiplier = getattr(snapshot, "powerup_multiplier", None)
+        try:
+            powerup_multiplier = float(powerup_multiplier)
+        except (TypeError, ValueError):
+            powerup_multiplier = None
+        if powerup_multiplier is not None and not isfinite(powerup_multiplier):
+            powerup_multiplier = None
+
+        standard_duration = (
+            15.0 * powerup_multiplier if powerup_multiplier is not None else None
+        )
+        clock_duration = (
+            12.0 * powerup_multiplier if powerup_multiplier is not None else None
+        )
+
+        my_time = getattr(snapshot, "my_time_seconds", None)
+        stage_timer = getattr(snapshot, "stage_timer_seconds", None)
+        stage_time = getattr(snapshot, "stage_time_seconds", None)
+        stage_index = getattr(snapshot, "stage_index", None)
+        active: list[PowerupEffectState] = []
+
+        if (
+            my_time is not None
+            and stage_timer is not None
+            and stage_time is not None
+            and powerup_multiplier is not None
+            and int(stage_index if stage_index is not None else -1) < 3
+        ):
+            for effect in getattr(snapshot, "effects", ()) or ():
+                try:
+                    effect_id = int(getattr(effect, "effect_id", -1))
+                    expiration_time = float(getattr(effect, "expiration_time", 0.0))
+                    remaining = expiration_time - float(my_time)
+                    if remaining <= 0 or not isfinite(remaining):
+                        continue
+                    base_duration = 12.0 if effect_id == 4 else 15.0
+                    duration = base_duration * powerup_multiplier
+                    pickup_time = expiration_time - duration
+                    raw_pickup = float(stage_timer) + (pickup_time - float(my_time))
+                    raw_expiration = float(stage_timer) + (expiration_time - float(my_time))
+                    if not isfinite(raw_pickup) or not isfinite(raw_expiration):
+                        continue
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                active.append(
+                    PowerupEffectState(
+                        effect_id=effect_id,
+                        name=str(getattr(effect, "name", effect_id)),
+                        pickup_ui=self._format_ui_stage_time(raw_pickup, float(stage_time)),
+                        expires_ui=self._format_ui_stage_time(raw_expiration, float(stage_time)),
+                        remaining_seconds=remaining,
+                        duration_seconds=duration,
+                        stage_index=stage_index,
+                        raw_stage_pickup=raw_pickup,
+                        raw_stage_expiration=raw_expiration,
+                    )
+                )
+
+        active.sort(key=lambda effect: effect.raw_stage_expiration, reverse=True)
+        self._powerups_snapshot = PowerupsSnapshot(
+            active=tuple(active),
+            powerup_multiplier=powerup_multiplier,
+            powerup_multiplier_display=str(
+                getattr(snapshot, "powerup_multiplier_display", "--") or "--"
+            ),
+            standard_duration_seconds=standard_duration,
+            clock_duration_seconds=clock_duration,
+            stage_index=stage_index,
+            stage_time_seconds=stage_time,
+            available=True,
+        )
+
+    @with_lock
+    def clear_powerups(self) -> None:
+        self._powerups_snapshot = PowerupsSnapshot()
+
+    @with_lock
+    def powerups_snapshot(self) -> PowerupsSnapshot:
+        return self._powerups_snapshot
+
+    @with_lock
+    def format_powerups_summary(self, *, include_left_word: bool = True) -> str:
+        snapshot = self._powerups_snapshot
+        if not snapshot.available:
+            return "Powerups: --"
+        powerups_text = self._format_powerups_text_unlocked(
+            snapshot,
+            include_left_word=include_left_word,
+        )
+        if snapshot.powerup_multiplier_display == "--":
+            return f"Powerups: {powerups_text}"
+        return f"Powerups: {powerups_text} (PM {snapshot.powerup_multiplier_display})"
+
+    @with_lock
+    def powerups_summary_text(self, *, include_left_word: bool = True) -> str:
+        snapshot = self._powerups_snapshot
+        if not snapshot.available:
+            return "--"
+        return self._format_powerups_text_unlocked(
+            snapshot,
+            include_left_word=include_left_word,
+        )
+
+    def _format_powerups_text_unlocked(
+        self,
+        snapshot: PowerupsSnapshot,
+        *,
+        include_left_word: bool = True,
+    ) -> str:
+        if snapshot.active:
+            parts = []
+            suffix = " left" if include_left_word else ""
+            for effect in snapshot.active:
+                parts.append(
+                    f"{effect.name} {effect.pickup_ui} -> {effect.expires_ui} "
+                    f"({self._format_duration_seconds(effect.remaining_seconds)}s{suffix})"
+                )
+            return " | ".join(parts)
+        if (
+            snapshot.standard_duration_seconds is None
+            or snapshot.clock_duration_seconds is None
+        ):
+            return "none active"
+        return (
+            "none active | Durations: "
+            f"standard {self._format_duration_seconds(snapshot.standard_duration_seconds)}s, "
+            f"clock {self._format_duration_seconds(snapshot.clock_duration_seconds)}s"
+        )
+
+    @with_lock
     def update_chests_and_keys(self, chests_opened: int, chests_total: int, keys_count: int) -> None:
         self._chests_opened = chests_opened
         self._chests_total = chests_total
@@ -561,6 +719,23 @@ class LiveRunTracker:
     def key_proc_chance(keys_count: int) -> float:
         keys_count = max(0, int(keys_count))
         return (0.10 * keys_count) / ((0.10 * keys_count) + 1.0)
+
+    @staticmethod
+    def _format_duration_seconds(value: float) -> str:
+        if abs(value - round(value)) < 0.005:
+            return str(int(round(value)))
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    @staticmethod
+    def _format_ui_stage_time(raw_stage_timer: float, stage_time: float) -> str:
+        if raw_stage_timer <= stage_time:
+            value = max(0.0, stage_time - raw_stage_timer)
+            prefix = ""
+        else:
+            value = raw_stage_timer - stage_time
+            prefix = "+"
+        total_seconds = max(0, int(value))
+        return f"{prefix}{total_seconds // 60:02d}:{total_seconds % 60:02d}"
 
     @with_lock
     def track_expected_key_procs(self, chests_bought: int, keys_count: int) -> None:
@@ -669,6 +844,7 @@ class LiveRunTracker:
         self._chests_total_by_stage = {}
         self._reset_current_run_item_baseline()
         self._reset_chaos_tracking()
+        self._powerups_snapshot = PowerupsSnapshot()
         self._cached_stage_summary = None
 
     def _reset_tracking_only(self) -> None:

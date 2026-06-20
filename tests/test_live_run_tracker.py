@@ -958,6 +958,113 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(opened_by_stage[1], 15)
         self.assertEqual(total_by_stage[1], 46)
 
+    def test_powerups_summary_formats_active_effects_with_stage_timer(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=440.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=1.5,
+                powerup_multiplier_display="1.5x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=1,
+                        name="Rage",
+                        added_time=999.0,
+                        expiration_time=1022.5,
+                    ),
+                    SimpleNamespace(
+                        effect_id=4,
+                        name="Clock",
+                        added_time=1004.0,
+                        expiration_time=1018.0,
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Rage 01:40 -> 01:17 (22.5s left) | Clock 01:40 -> 01:22 (18s left) (PM 1.5x)",
+        )
+
+    def test_powerups_summary_uses_duration_fallback_when_none_active(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=440.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=1.5,
+                powerup_multiplier_display="1.5x",
+                effects=(),
+            )
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: none active | Durations: standard 22.5s, clock 18s (PM 1.5x)",
+        )
+
+    def test_powerups_summary_formats_overtime(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=550.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=1.0,
+                powerup_multiplier_display="1x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=1000.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield +00:10 -> +00:25 (15s left) (PM 1x)",
+        )
+
+    def test_powerups_summary_skips_malformed_effects(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=440.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=1.5,
+                powerup_multiplier_display="1.5x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=1,
+                        name="Rage",
+                        expiration_time="not-a-float",
+                    ),
+                    SimpleNamespace(
+                        effect_id=4,
+                        name="Clock",
+                        expiration_time=1018.0,
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Clock 01:40 -> 01:22 (18s left) (PM 1.5x)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

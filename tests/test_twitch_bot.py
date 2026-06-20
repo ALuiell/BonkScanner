@@ -100,7 +100,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.assertIn("!stats", enabled_commands)
             self.assertNotIn("!chests", enabled_commands)
             self.assertNotIn("!presets", enabled_commands)
-            self.assertNotIn("!bonkhelp", enabled_commands)
+            self.assertIn("!bonkhelp", enabled_commands)
             self.assertNotIn("!disabled", enabled_commands)
 
             self.bot._handle_chests = MagicMock()
@@ -113,7 +113,7 @@ class TestTwitchBotWorker(unittest.TestCase):
 
             self.bot._handle_chests.assert_not_called()
             self.bot._handle_presets.assert_not_called()
-            self.bot._handle_commands.assert_not_called()
+            self.bot._handle_commands.assert_called_once_with("channel")
 
     def test_safe_formatter_missing_keys(self):
         from twitch_bot import SafeFormatter
@@ -179,7 +179,30 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.bot._send_chat.assert_called_once_with(
             "channel",
-            "Powerups: Rage/Shield/Coin/Speed 22.5s | Clock 18s (PM 1.5x)"
+            "Powerups: none active | Durations: standard 22.5s, clock 18s (PM 1.5x)"
+        )
+
+    def test_handle_powerups_uses_tracker_snapshot_when_available(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.latest_snapshot.return_value = SimpleNamespace(stats={})
+        self.run_tracker.powerups_snapshot.return_value = SimpleNamespace(
+            available=True,
+            powerup_multiplier_display="5.43x",
+            standard_duration_seconds=81.435,
+            clock_duration_seconds=65.148,
+        )
+        self.run_tracker.powerups_summary_text.return_value = (
+            "Rage 01:33 -> 00:11 (80s left)"
+        )
+
+        self.bot._handle_powerups("channel")
+
+        self.run_tracker.powerups_summary_text.assert_called_once_with(
+            include_left_word=True
+        )
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "Powerups: Rage 01:33 -> 00:11 (80s left) (PM 5.43x)",
         )
 
     def test_handle_chaos_uses_tracker_totals(self):
@@ -433,7 +456,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             "scanner": True,
             "chests": False,
             "presets": True,
-            "commands": True,
+            "bonkhelp": True,
             "disabled": False
         }
         with patch.dict(config.TWITCH_BOT, {"commands": mock_commands_cfg}):
@@ -449,12 +472,12 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._send_chat = MagicMock()
         mock_commands_cfg = {key: False for key in config.DEFAULT_TWITCH_BOT["commands"]}
         mock_commands_cfg["stats"] = True
-        mock_commands_cfg["commands"] = True
+        mock_commands_cfg["bonkhelp"] = True
         with patch.dict(
             config.TWITCH_BOT,
             {
                 "commands": mock_commands_cfg,
-                "templates": {"commands": "Commands -> {commands_list}"},
+                "templates": {"bonkhelp": "Commands -> {commands_list}"},
             },
         ):
             self.bot._handle_commands("channel")
@@ -466,8 +489,39 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         bot_cfg = config.normalize_twitch_bot_config({"templates": {}})
 
-        self.assertIn("commands", bot_cfg["templates"])
+        self.assertIn("bonkhelp", bot_cfg["templates"])
         self.assertIn("session", bot_cfg["templates"])
+
+    def test_legacy_commands_key_migrates_to_bonkhelp(self):
+        import config
+
+        bot_cfg = config.normalize_twitch_bot_config(
+            {
+                "commands": {"commands": True},
+                "templates": {"commands": "Commands -> {commands_list}"},
+            }
+        )
+
+        self.assertTrue(bot_cfg["commands"]["bonkhelp"])
+        self.assertNotIn("commands", bot_cfg["commands"])
+        self.assertEqual(bot_cfg["templates"]["bonkhelp"], "Commands -> {commands_list}")
+        self.assertNotIn("commands", bot_cfg["templates"])
+
+    def test_legacy_powerups_template_migrates_to_live_format(self):
+        import config
+
+        bot_cfg = config.normalize_twitch_bot_config(
+            {
+                "templates": {
+                    "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
+                },
+            }
+        )
+
+        self.assertEqual(
+            bot_cfg["templates"]["powerups"],
+            "Powerups: {powerups} (PM {pm})",
+        )
 
     def test_commands_announcement_uses_configured_interval(self):
         import config
@@ -540,7 +594,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["access_tier"] = "Everyone"
         TWITCH_BOT["global_cooldown_seconds"] = 0
         TWITCH_BOT["cooldown_seconds"] = 0
-        TWITCH_BOT["commands"] = {"commands": True}
+        TWITCH_BOT["commands"] = {"bonkhelp": True}
 
         # Test main command !bonkhelp
         self.bot._handle_commands = MagicMock()

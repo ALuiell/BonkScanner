@@ -154,7 +154,7 @@ DEFAULT_TWITCH_BOT = {
         "tomes": "Tomes: {tomes}",
         "chaos": "Chaos Tome Lv{level}: {chaos}",
         "stages": "{stages}",
-        "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
+        "powerups": "Powerups: {powerups} (PM {pm})",
         "scanner": "Download it here: {github_url} | Support the creator here: {patreon_url} | Try !bonkhelp.",
         "chests": "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
         "bonkhelp": "Available commands: {commands_list}",
@@ -179,6 +179,11 @@ LEGACY_TWITCH_CHESTS_TEMPLATES = {
     "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance}) | Free chest: {procs}",
     "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Free Chests: {free} | Keys: {keys} ({chance})",
     "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
+}
+
+LEGACY_TWITCH_POWERUPS_TEMPLATES = {
+    "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
+    "Powerups: none active | Durations: standard {standard_duration}s, clock {clock_duration}s (PM {pm})",
 }
 
 
@@ -557,6 +562,8 @@ def normalize_twitch_bot_config(value):
         bot_cfg["templates"]["scanner"] = DEFAULT_TWITCH_BOT["templates"]["scanner"]
     if bot_cfg["templates"].get("chests") in LEGACY_TWITCH_CHESTS_TEMPLATES:
         bot_cfg["templates"]["chests"] = DEFAULT_TWITCH_BOT["templates"]["chests"]
+    if bot_cfg["templates"].get("powerups") in LEGACY_TWITCH_POWERUPS_TEMPLATES:
+        bot_cfg["templates"]["powerups"] = DEFAULT_TWITCH_BOT["templates"]["powerups"]
 
     return bot_cfg
 

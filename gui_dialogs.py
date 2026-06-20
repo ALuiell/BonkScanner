@@ -1296,7 +1296,7 @@ class TwitchCommandSettingsDialog(QDialog):
             ("weapons", "!weapons:", "Weapons: {weapons}", "Tags: {weapons}"),
             ("tomes", "!tomes:", "Tomes: {tomes}", "Tags: {tomes}"),
             ("chaos", "!chaos / !chaostome:", "Chaos Tome Lv{level}: {chaos}", "Tags: {level}, {chaos}"),
-            ("powerups", "!powerups:", "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})", "Tags: {standard_duration}, {clock_duration}, {pm}"),
+            ("powerups", "!powerups:", config.DEFAULT_TWITCH_BOT["templates"]["powerups"], "Tags: {powerups}, {standard_duration}, {clock_duration}, {pm}"),
             ("chests", "!chests / !chest:", config.DEFAULT_TWITCH_BOT["templates"]["chests"], "Tags: {stages}, {opened}, {total}, {paid}, {procs}, {normal}, {proc_rate}, {expected}, {free}, {keys}, {chance}"),
             ("bonkhelp", "!bonkhelp / !bonkcmds:", config.DEFAULT_TWITCH_BOT["templates"]["bonkhelp"], "Tags: {commands_list}"),
         ]

@@ -114,6 +114,25 @@ class ChaosTomeSnapshot:
 
 
 @dataclass(frozen=True)
+class StatusEffectSnapshot:
+    effect_id: int
+    name: str
+    added_time: float
+    expiration_time: float
+
+
+@dataclass(frozen=True)
+class PowerupTrackingSnapshot:
+    my_time_seconds: float
+    stage_timer_seconds: float
+    stage_index: int | None
+    stage_time_seconds: float | None
+    powerup_multiplier: float | None
+    powerup_multiplier_display: str
+    effects: tuple[StatusEffectSnapshot, ...] = ()
+
+
+@dataclass(frozen=True)
 class PlayerStatSpec:
     label: str
     stat_id: int | None
@@ -169,6 +188,13 @@ PLAYER_STAT_GROUPS: tuple[tuple[PlayerStatSpec, ...], ...] = (
         PlayerStatSpec("Powerup Drop Chance", 41, PlayerStatFormat.MULTIPLIER),
     ),
 )
+
+POWERUP_STATUS_EFFECT_NAMES: dict[int, str] = {
+    1: "Rage",
+    2: "Shield",
+    3: "Stonks",
+    4: "Clock",
+}
 
 @dataclass(frozen=True)
 class PlayerStatValue:
@@ -423,6 +449,7 @@ class PlayerStatsTimeline:
 class PlayerStatsClient:
     TYPE_INFO_OFFSET = 0x02F6A4B8
     MONEY_UTILITY_TYPE_INFO_OFFSET = 0x02F5E0B0
+    MAP_CONTROLLER_TYPE_INFO_OFFSET = 0x02F58E08
     RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398
     RUN_STATS_TYPE_INFO_OFFSET = 0x02F7A170
     RUN_UNLOCKABLES_TYPE_INFO_OFFSET = 0x02F7A210
@@ -431,11 +458,14 @@ class PlayerStatsClient:
     CLASS_STATIC_FIELDS_OFFSET = 0xB8
     STATIC_ROOT_OFFSET = 0x0
     OWNER_STATS_OFFSET = 0x40
+    MY_TIME_TIME_OFFSET = 0x04
     STATS_CONTEXT_OFFSET = 0x10
     STATS_ENTRIES_OFFSET = 0x18
     STAGE_TIMER_OFFSET = 0x1C
     RUN_TIMER_OFFSET = 0x20
     PLAYER_INVENTORY_OFFSET = 0x28
+    PLAYER_STATUS_EFFECTS_OFFSET = 0x38
+    PLAYER_STATUS_EFFECTS_DICT_OFFSET = 0x10
     WEAPON_INVENTORY_OFFSET = 0x28
     TOME_INVENTORY_OFFSET = 0x48
     STAT_INVENTORY_OFFSET = 0x50
@@ -465,6 +495,13 @@ class PlayerStatsClient:
     DICT_ENTRY_HASH_CODE_OFFSET = 0x0
     DICT_ENTRY_KEY_OFFSET = 0x8
     DICT_ENTRY_VALUE_OFFSET = 0x10
+    STATUS_EFFECT_ESTATUS_OFFSET = 0x10
+    STATUS_EFFECT_EXPIRATION_OFFSET = 0x20
+    STATUS_EFFECT_ADDED_OFFSET = 0x24
+    MAP_CONTROLLER_INDEX_OFFSET = 0x08
+    MAP_CONTROLLER_CURRENT_STAGE_OFFSET = 0x18
+    STAGE_DATA_TIMELINE_OFFSET = 0xD0
+    STAGE_TIMELINE_STAGE_TIME_OFFSET = 0x10
     MAX_PASSIVE_ITEM_DICT_ENTRIES = 512
     MAX_WEAPON_DICT_ENTRIES = 64
     MAX_WEAPON_STATS_ENTRIES = 128
@@ -1305,6 +1342,118 @@ class PlayerStatsClient:
 
         return self.memory.read_float(static_fields + self.STAGE_TIMER_OFFSET)
 
+    def get_my_time_seconds(self) -> float:
+        static_fields = self._resolve_my_time_static_fields()
+        return self.memory.read_float(static_fields + self.MY_TIME_TIME_OFFSET)
+
+    def get_stage_timer_context(self) -> tuple[float, int | None, float | None]:
+        my_time_static_fields = self._resolve_my_time_static_fields()
+        stage_timer = self.memory.read_float(
+            my_time_static_fields + self.STAGE_TIMER_OFFSET
+        )
+        stage_index, stage_time = self._read_current_stage_time()
+        return stage_timer, stage_index, stage_time
+
+    def get_powerup_tracking_snapshot(
+        self,
+        owner_stats: int | None = None,
+    ) -> PowerupTrackingSnapshot:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        my_time_static_fields = self._resolve_my_time_static_fields()
+        my_time_seconds = self.memory.read_float(
+            my_time_static_fields + self.MY_TIME_TIME_OFFSET
+        )
+        stage_timer_seconds = self.memory.read_float(
+            my_time_static_fields + self.STAGE_TIMER_OFFSET
+        )
+        stage_index, stage_time_seconds = self._read_current_stage_time()
+
+        powerup_multiplier: float | None = None
+        powerup_multiplier_display = "--"
+        try:
+            stats = self.get_player_stats(owner_stats)
+            stat = stats.get("Powerup Multiplier")
+            if stat is not None:
+                powerup_multiplier = stat.value
+                powerup_multiplier_display = stat.display_value
+        except MemoryReadError:
+            powerup_multiplier = None
+            powerup_multiplier_display = "--"
+
+        effects = self.get_active_status_effects(owner_stats)
+        return PowerupTrackingSnapshot(
+            my_time_seconds=my_time_seconds,
+            stage_timer_seconds=stage_timer_seconds,
+            stage_index=stage_index,
+            stage_time_seconds=stage_time_seconds,
+            powerup_multiplier=powerup_multiplier,
+            powerup_multiplier_display=powerup_multiplier_display,
+            effects=effects,
+        )
+
+    def get_active_status_effects(
+        self,
+        owner_stats: int | None = None,
+    ) -> tuple[StatusEffectSnapshot, ...]:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        player_inventory = self.memory.read_ptr(
+            owner_stats + self.PLAYER_INVENTORY_OFFSET
+        )
+        if not player_inventory:
+            return ()
+        status_effects = self.memory.read_ptr(
+            player_inventory + self.PLAYER_STATUS_EFFECTS_OFFSET
+        )
+        if not status_effects:
+            return ()
+        dictionary_address = self.memory.read_ptr(
+            status_effects + self.PLAYER_STATUS_EFFECTS_DICT_OFFSET
+        )
+        if not dictionary_address:
+            return ()
+
+        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            return ()
+        capacity = self.memory.read_i32(entries + self.ARRAY_LENGTH_OFFSET)
+        if capacity <= 0 or capacity > 128:
+            return ()
+
+        effects: list[StatusEffectSnapshot] = []
+        for index in range(capacity):
+            entry = (
+                entries
+                + self.DICT_ENTRY_START_OFFSET
+                + (index * self.DICT_ENTRY_SIZE)
+            )
+            try:
+                if self.memory.read_i32(entry + self.DICT_ENTRY_HASH_CODE_OFFSET) < 0:
+                    continue
+                effect_id = self.memory.read_i32(entry + self.DICT_ENTRY_KEY_OFFSET)
+                effect_ptr = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
+                if not effect_ptr or effect_id not in POWERUP_STATUS_EFFECT_NAMES:
+                    continue
+                object_effect_id = self.memory.read_i32(
+                    effect_ptr + self.STATUS_EFFECT_ESTATUS_OFFSET
+                )
+                expiration_time = self.memory.read_float(
+                    effect_ptr + self.STATUS_EFFECT_EXPIRATION_OFFSET
+                )
+                added_time = self.memory.read_float(
+                    effect_ptr + self.STATUS_EFFECT_ADDED_OFFSET
+                )
+            except MemoryReadError:
+                continue
+            effects.append(
+                StatusEffectSnapshot(
+                    effect_id=object_effect_id,
+                    name=POWERUP_STATUS_EFFECT_NAMES.get(effect_id, str(effect_id)),
+                    added_time=added_time,
+                    expiration_time=expiration_time,
+                )
+            )
+        return tuple(sorted(effects, key=lambda effect: effect.effect_id))
+
     def get_run_stat_values(self, keys: Iterable[str]) -> dict[str, float]:
         requested = frozenset(str(key) for key in keys)
         if not requested:
@@ -1515,6 +1664,60 @@ class PlayerStatsClient:
 
     def resolve_owner_stats(self) -> int:
         return self._resolve_owner_stats()
+
+    def _resolve_my_time_static_fields(self) -> int:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.RUN_TIMER_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("MyTime type info is not initialized.")
+
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError("MyTime static fields are not initialized.")
+        return static_fields
+
+    def _read_current_stage_time(self) -> tuple[int | None, float | None]:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.MAP_CONTROLLER_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            return None, None
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            return None, None
+
+        stage_index: int | None = None
+        try:
+            stage_index = self.memory.read_i32(
+                static_fields + self.MAP_CONTROLLER_INDEX_OFFSET
+            )
+        except MemoryReadError:
+            stage_index = None
+
+        stage_time: float | None = None
+        try:
+            current_stage = self.memory.read_ptr(
+                static_fields + self.MAP_CONTROLLER_CURRENT_STAGE_OFFSET
+            )
+            if current_stage:
+                timeline = self.memory.read_ptr(
+                    current_stage + self.STAGE_DATA_TIMELINE_OFFSET
+                )
+                if timeline:
+                    stage_time = self.memory.read_float(
+                        timeline + self.STAGE_TIMELINE_STAGE_TIME_OFFSET
+                    )
+        except MemoryReadError:
+            stage_time = None
+
+        if stage_time is None or not isfinite(stage_time) or stage_time <= 0 or stage_time > 1200:
+            stage_time = {0: 600.0, 1: 540.0, 2: 480.0}.get(stage_index)
+        return stage_index, stage_time
 
     def _resolve_stats_entries(self, owner_stats: int | None = None) -> int:
         owner_stats = owner_stats or self._resolve_owner_stats()

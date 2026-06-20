@@ -636,6 +636,36 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, "No active run detected.")
             return
 
+        powerups_snapshot = getattr(self.run_tracker, "powerups_snapshot", None)
+        format_powerups_summary = getattr(self.run_tracker, "format_powerups_summary", None)
+        powerups_summary_text = getattr(self.run_tracker, "powerups_summary_text", None)
+        if callable(powerups_snapshot) and callable(format_powerups_summary):
+            try:
+                snapshot = powerups_snapshot()
+                if getattr(snapshot, "available", False) is True:
+                    if callable(powerups_summary_text):
+                        powerups_text = powerups_summary_text(include_left_word=True)
+                        text = self._format_template(
+                            "powerups",
+                            "Powerups: {powerups} (PM {pm})",
+                            powerups=powerups_text,
+                            standard_duration=self._format_seconds(
+                                getattr(snapshot, "standard_duration_seconds", 0.0) or 0.0
+                            ),
+                            clock_duration=self._format_seconds(
+                                getattr(snapshot, "clock_duration_seconds", 0.0) or 0.0
+                            ),
+                            pm=getattr(snapshot, "powerup_multiplier_display", "--"),
+                        )
+                    else:
+                        text = format_powerups_summary(include_left_word=True)
+                    if len(text) > 450:
+                        text = text[:447] + "..."
+                    self._send_chat(channel, text)
+                    return
+            except Exception:
+                pass
+
         stat = snap.stats.get("Powerup Multiplier") if getattr(snap, "stats", None) else None
         try:
             powerup_multiplier = float(getattr(stat, "value", None))
@@ -650,10 +680,15 @@ class TwitchBotWorker(QThread):
         clock_duration = 12.0 * powerup_multiplier
         text = self._format_template(
             "powerups",
-            "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
+            "Powerups: {powerups} (PM {pm})",
+            powerups=(
+                "none active | Durations: "
+                f"standard {self._format_seconds(standard_duration)}s, "
+                f"clock {self._format_seconds(clock_duration)}s"
+            ),
             standard_duration=self._format_seconds(standard_duration),
             clock_duration=self._format_seconds(clock_duration),
-            pm=getattr(stat, "display_value", f"{self._format_seconds(powerup_multiplier)}x")
+            pm=getattr(stat, "display_value", f"{self._format_seconds(powerup_multiplier)}x"),
         )
         if len(text) > 450:
             text = text[:447] + "..."

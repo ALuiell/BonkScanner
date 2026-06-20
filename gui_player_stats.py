@@ -151,6 +151,25 @@ class PlayerStatsMixin:
         try:
             client = self._get_player_stats_client()
             owner_stats = client.resolve_owner_stats()
+            should_refresh_powerups = False
+            should_refresh_powerup_tracker = getattr(
+                self,
+                "_should_refresh_powerup_tracker",
+                None,
+            )
+            if callable(should_refresh_powerup_tracker):
+                should_refresh_powerups = should_refresh_powerup_tracker()
+
+            if should_refresh_powerups:
+                try:
+                    powerups_snapshot = client.get_powerup_tracking_snapshot(owner_stats)
+                    self.live_run_tracker.update_powerups(powerups_snapshot)
+                    self._refresh_live_powerups_label()
+                except Exception:
+                    clear_powerups = getattr(self.live_run_tracker, "clear_powerups", None)
+                    if callable(clear_powerups):
+                        clear_powerups()
+                    self._refresh_live_powerups_label()
 
             now = time.monotonic()
             last_chest_refresh = getattr(
@@ -189,6 +208,26 @@ class PlayerStatsMixin:
             return False
         except Exception:
             return False
+
+    def _should_refresh_powerup_tracker(self) -> bool:
+        is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
+        if callable(is_live_stats_tab_active):
+            try:
+                if is_live_stats_tab_active():
+                    return True
+            except Exception:
+                pass
+        is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
+        commands_cfg = config.TWITCH_BOT.get("commands", {})
+        if callable(is_twitch_bot_active):
+            try:
+                return bool(is_twitch_bot_active() and commands_cfg.get("powerups", True))
+            except Exception:
+                return False
+        return False
+
+    def _refresh_live_powerups_label(self) -> None:
+        self._apply_live_powerups_card(None)
 
     def _get_player_stats_client(self) -> PlayerStatsClient:
         if self.player_stats_client is None:
@@ -229,7 +268,7 @@ class PlayerStatsMixin:
         self.player_stats_last_known_items = ()
         self._update_items_section("live", items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
-        _set_text(getattr(self, "player_stats_powerups_duration_label", None), "Powerups: --")
+        self._apply_live_powerups_card(None)
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
         _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
         _set_text(self.player_stats_level_label, "Level: --")
@@ -237,7 +276,7 @@ class PlayerStatsMixin:
             getattr(self, "player_stats_chests_card_values", None),
             None,
         )
-        _set_text(self.player_stats_new_items_label, "Live snapshot")
+        _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, "No banishes yet")
         self.player_stats_live_banishes = ()
         self._set_stage_summary_labels(self.player_stats_stage_summary_labels, None)
@@ -729,8 +768,9 @@ class PlayerStatsMixin:
         )
         _set_text(
             getattr(self, "player_stats_powerups_duration_label", None),
-            self.format_powerups_duration(stats),
+            self.format_live_powerups(stats),
         )
+        self._apply_live_powerups_card(stats)
         _set_text(
             self.player_stats_in_game_time_label,
             self.format_in_game_time(game_time_seconds),
@@ -747,9 +787,9 @@ class PlayerStatsMixin:
         if callable(get_chest_stats):
             self._update_live_chest_summary(get_chest_stats())
         if new_items_text is not None:
-            _set_text(self.player_stats_new_items_label, new_items_text)
+            _set_text(getattr(self, "player_stats_new_items_label", None), new_items_text)
         else:
-            _set_text(self.player_stats_new_items_label, "Live snapshot")
+            _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, self.format_banishes_rich_text(banishes))
         self._set_stage_summary_labels(self.player_stats_stage_summary_labels, stage_summary_rows)
         self.display_weapon_cards(
@@ -4435,6 +4475,77 @@ class PlayerStatsMixin:
             f"Powerups: {cls.format_seconds_compact(standard_duration)}s"
             f" | Clock: {cls.format_seconds_compact(clock_duration)}s"
         )
+
+    def format_live_powerups(self, stats) -> str:
+        formatter = getattr(self.live_run_tracker, "format_powerups_summary", None)
+        snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+        if callable(formatter) and callable(snapshot_reader):
+            try:
+                if getattr(snapshot_reader(), "available", False) is True:
+                    return formatter(include_left_word=False)
+            except Exception:
+                pass
+        return self.format_powerups_duration(stats)
+
+    def _apply_live_powerups_card(self, stats) -> None:
+        group = getattr(self, "player_stats_powerups_group", None)
+        labels = getattr(self, "player_stats_live_powerup_labels", None)
+        if group is None or not isinstance(labels, dict):
+            return
+        title, values = self.format_live_powerups_card(stats)
+        group.setTitle(title)
+        for effect_name, label in labels.items():
+            _set_text(label, f"{effect_name}: {values.get(effect_name, '--')}")
+
+    def format_live_powerups_card(self, stats) -> tuple[str, dict[str, str]]:
+        values = {name: "--" for name in ("Rage", "Clock", "Shield", "Stonks")}
+        title = "Powerups"
+
+        snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+        snapshot = snapshot_reader() if callable(snapshot_reader) else None
+        if getattr(snapshot, "available", False):
+            pm_display = str(getattr(snapshot, "powerup_multiplier_display", "--") or "--")
+            if pm_display != "--":
+                title = f"Powerups (PM {pm_display})"
+            active_by_name = {
+                str(getattr(effect, "name", "")): effect
+                for effect in getattr(snapshot, "active", ()) or ()
+            }
+            for effect_name in values:
+                effect = active_by_name.get(effect_name)
+                if effect is not None:
+                    values[effect_name] = (
+                        f"{effect.pickup_ui} -> {effect.expires_ui} "
+                        f"({self.format_seconds_compact(effect.remaining_seconds)}s)"
+                    )
+                    continue
+                duration = (
+                    getattr(snapshot, "clock_duration_seconds", None)
+                    if effect_name == "Clock"
+                    else getattr(snapshot, "standard_duration_seconds", None)
+                )
+                if duration is not None:
+                    values[effect_name] = f"-- ({self.format_seconds_compact(duration)}s)"
+            return title, values
+
+        stat = (stats or {}).get("Powerup Multiplier")
+        try:
+            powerup_multiplier = float(getattr(stat, "value", None))
+        except (TypeError, ValueError):
+            return title, values
+        if not isfinite(powerup_multiplier):
+            return title, values
+
+        pm_display = str(getattr(stat, "display_value", "") or "").strip()
+        if pm_display:
+            title = f"Powerups (PM {pm_display})"
+        standard_duration = self.format_seconds_compact(15.0 * powerup_multiplier)
+        clock_duration = self.format_seconds_compact(12.0 * powerup_multiplier)
+        values["Rage"] = f"-- ({standard_duration}s)"
+        values["Clock"] = f"-- ({clock_duration}s)"
+        values["Shield"] = f"-- ({standard_duration}s)"
+        values["Stonks"] = f"-- ({standard_duration}s)"
+        return title, values
 
     @staticmethod
     def format_seconds_compact(value: float) -> str:
