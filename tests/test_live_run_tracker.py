@@ -58,13 +58,27 @@ class LiveRunTrackerTests(unittest.TestCase):
         rows = {row["id"]: row for row in tracker.tracked_item_rows()}
         self.assertEqual(rows["anvils_total"]["count"], 2)
 
-    def test_tracker_ignores_late_first_snapshot_for_map_one_counter(self) -> None:
+    def test_tracker_counts_late_first_snapshot_for_map_one_counter_while_still_on_first_map(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=30.0, items=("Anvil x2",)))
 
         row = {row["id"]: row for row in tracker.tracked_item_rows()}["anvils_map_1"]
-        self.assertEqual(row["count"], 0)
+        self.assertEqual(row["count"], 2)
         self.assertNotIn("unknown_starting_inventory", row)
+
+    def test_tracker_ignores_late_first_snapshot_for_map_one_counter_after_stage_transition(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=120.0,
+                items=("Anvil x2",),
+                stage_ptr=2000,
+                stage_time_seconds=5.0,
+            )
+        )
+
+        row = {row["id"]: row for row in tracker.tracked_item_rows()}["anvils_map_1"]
+        self.assertEqual(row["count"], 0)
 
     def test_tracker_accepts_early_first_snapshot_for_map_one_counter(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)

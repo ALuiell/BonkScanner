@@ -896,16 +896,17 @@ class LiveRunTracker:
             and snapshot.game_time_seconds is not None
             and float(snapshot.game_time_seconds) <= 10.0
         )
+        initial_stage_index = 1 if self._snapshot_looks_like_first_stage(snapshot) else 2
         for item_name, count in counts.items():
             if count <= 0:
                 continue
-            if is_clearly_early:
-                self._process_item_gain(
-                    item_name=item_name,
-                    gained_count=count,
-                    snapshot=snapshot,
-                    stage_index=1,
-                )
+            self._process_item_gain(
+                item_name=item_name,
+                gained_count=count,
+                snapshot=snapshot,
+                stage_index=initial_stage_index,
+                initial_map_one_only=not is_clearly_early,
+            )
 
     def _process_item_gain(
         self,
@@ -914,9 +915,12 @@ class LiveRunTracker:
         gained_count: int,
         snapshot: LiveRunSnapshot,
         stage_index: int,
+        initial_map_one_only: bool = False,
     ) -> None:
         for rule in self.tracked_item_rules:
             if len(rule.item_names) > 1:
+                continue
+            if initial_map_one_only and rule.mode != "map_1_only":
                 continue
             if not self._rule_matches_item(rule, item_name):
                 continue
@@ -939,6 +943,16 @@ class LiveRunTracker:
                 captured_at=snapshot.captured_at,
             )
             self._tracked_events.append(event)
+
+    @staticmethod
+    def _snapshot_looks_like_first_stage(snapshot: LiveRunSnapshot) -> bool:
+        if snapshot.game_time_seconds is None or snapshot.stage_time_seconds is None:
+            return True
+        return (
+            float(snapshot.stage_time_seconds)
+            + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
+            >= float(snapshot.game_time_seconds)
+        )
 
     def _process_combo_item_rules(
         self,
