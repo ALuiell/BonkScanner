@@ -720,6 +720,7 @@ class TwitchBotWorker(QThread):
             chests_by_stage = stats.opened_by_stage
             total_by_stage = stats.total_by_stage
             total_opened = stats.total_opened
+            total_opened_is_minimum = stats.total_opened_is_minimum
             total_chests = stats.total_chests
             normal_opened = stats.normal_opened
             expected_procs = (
@@ -732,6 +733,7 @@ class TwitchBotWorker(QThread):
             paid_opens = max(0, chests_opened - key_procs)
             free_chests = 0
             total_opened = sum(chests_by_stage.values()) if chests_by_stage else chests_opened
+            total_opened_is_minimum = False
             total_chests = sum(total_by_stage.values()) if total_by_stage else chests_total
             normal_opened = paid_opens + key_procs
             expected_procs = "--"
@@ -744,6 +746,8 @@ class TwitchBotWorker(QThread):
             else:
                 stage_parts.append(f"T{stage}:{count}/{stage_total}")
         opened_text = "--" if total_opened is None else str(total_opened)
+        if total_opened is not None and total_opened_is_minimum:
+            opened_text += "+"
         total_text = str(total_chests)
         stages_str = " ".join(stage_parts) if stage_parts else f"T1:{opened_text}/{total_text}"
 
@@ -754,6 +758,7 @@ class TwitchBotWorker(QThread):
         chance_str = f"{chance_val:.1f}%"
         proc_rate = (key_procs / normal_opened * 100.0) if normal_opened > 0 else 0.0
         proc_rate_str = f"{proc_rate:.1f}%"
+        free_text = "--" if free_chests is None else str(free_chests)
         text = self._format_template(
             "chests",
             "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
@@ -767,7 +772,7 @@ class TwitchBotWorker(QThread):
             normal=normal_opened,
             proc_rate=proc_rate_str,
             expected=expected_procs,
-            free=free_chests,
+            free=free_text,
         )
         if len(text) > 450:
             text = text[:447] + "..."

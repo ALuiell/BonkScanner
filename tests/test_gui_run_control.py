@@ -422,6 +422,30 @@ class GuiRunControlTests(unittest.TestCase):
             },
         )
 
+    def test_formats_midrun_chests_card_with_minimum_total(self) -> None:
+        self.assertEqual(
+            gui.MegabonkApp.chests_card_values(
+                {1: -1, 2: 20},
+                {1: 46, 2: 46},
+                51,
+                92,
+                17,
+                34,
+                None,
+                0,
+                None,
+                True,
+            ),
+            {
+                "maps": "T1:--/46 T2:20/46",
+                "total": "51+/92",
+                "paid_free": "17 / --",
+                "key_procs": "34/51 (66.7%)",
+                "expected": "--",
+                "keys": "0 (0.0%)",
+            },
+        )
+
     def build_recording_app(self) -> gui.MegabonkApp:
         app = object.__new__(gui.MegabonkApp)
         app.player_stats_vod_recorder = FakeRecordingRecorder()

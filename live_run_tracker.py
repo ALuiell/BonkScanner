@@ -104,16 +104,20 @@ class ChestStatsSnapshot:
     keys_count: int
     paid: int
     key_procs: int
-    free_chests: int
+    free_chests: int | None
     opened_by_stage: dict[int, int]
     total_by_stage: dict[int, int]
     counters_available: bool
     expected_key_procs: float = 0.0
     expected_tracked_opens: int = 0
     expected_available: bool = False
+    total_opened_minimum: int | None = None
+    total_opened_is_minimum: bool = False
 
     @property
     def total_opened(self) -> int | None:
+        if self.total_opened_minimum is not None:
+            return self.total_opened_minimum
         if any(int(value) < 0 for value in self.opened_by_stage.values()):
             return None
         return sum(self.opened_by_stage.values())
@@ -281,8 +285,11 @@ class LiveRunTracker:
         self._keys_count = 0
         self._paid_chest_opens = 0
         self._key_chest_procs = 0
-        self._free_chest_opens = 0
+        self._free_chest_opens: int | None = None
         self._chest_counters_available = False
+        self._chest_history_incomplete = False
+        self._total_opened_minimum: int | None = None
+        self._total_opened_is_minimum = False
         self._expected_key_procs = 0.0
         self._expected_tracked_opens = 0
         self._expected_chests_bought: int | None = None
@@ -681,22 +688,28 @@ class LiveRunTracker:
 
         latest = self.latest_snapshot()
         stage_ptr = latest.stage_ptr if (latest and latest.stage_ptr) else 0
-        stage_index = int(getattr(latest, "stage_index", 0) or 0) if latest else 0
+        raw_stage_index = int(getattr(latest, "stage_index", -1) or 0) if latest else -1
         if stage_ptr == 0:
             return
 
         if stage_ptr not in self._stage_ptrs_seen:
-            if not self._stage_ptrs_seen and stage_index > 1:
-                for missing_stage in range(1, stage_index):
+            stage_num = self._raw_stage_to_human_stage(raw_stage_index)
+            fallback_total = self._baseline_chest_total_for_history(chests_total)
+            if not self._stage_ptrs_seen and raw_stage_index > 0 and stage_num > 1:
+                self._chest_history_incomplete = True
+                for missing_stage in range(1, stage_num):
                     self._chests_opened_by_stage.setdefault(missing_stage, -1)
-                    self._chests_total_by_stage.setdefault(missing_stage, chests_total)
-            stage_num = stage_index if stage_index > 0 else (max(self._chests_total_by_stage.keys(), default=0) + 1)
+                    self._chests_total_by_stage.setdefault(missing_stage, fallback_total)
+            if stage_num <= 0:
+                stage_num = max(self._chests_total_by_stage.keys(), default=0) + 1
             while stage_num in self._chests_total_by_stage:
                 stage_num += 1
             self._stage_ptrs_seen.append(stage_ptr)
             self._stage_numbers_by_ptr[stage_ptr] = stage_num
             self._chests_opened_by_stage[stage_num] = 0
-            self._chests_total_by_stage[stage_num] = chests_total
+            self._chests_total_by_stage[stage_num] = (
+                fallback_total if self._chest_history_incomplete else chests_total
+            )
 
         stage_num = self._stage_numbers_by_ptr.get(stage_ptr, 0)
         if stage_num <= 0:
@@ -718,9 +731,19 @@ class LiveRunTracker:
 
     @with_lock
     def update_chest_counters(self, chests_bought: int, chests_purchased: int) -> bool:
-        total_opened = sum(max(0, value) for value in self._chests_opened_by_stage.values())
         chests_bought = int(chests_bought)
         chests_purchased = int(chests_purchased)
+        known_total = sum(max(0, value) for value in self._chests_opened_by_stage.values())
+        max_total = self._resolve_maximum_chest_total_unlocked()
+        if max_total is None:
+            return False
+        total_opened = known_total
+        total_opened_is_minimum = False
+        if self._chest_history_incomplete:
+            if chests_bought > max_total:
+                return False
+            total_opened = max(known_total, chests_bought)
+            total_opened_is_minimum = True
 
         if not (
             0 <= chests_purchased <= chests_bought <= total_opened
@@ -729,9 +752,34 @@ class LiveRunTracker:
 
         self._paid_chest_opens = chests_purchased
         self._key_chest_procs = chests_bought - chests_purchased
-        self._free_chest_opens = total_opened - chests_bought
+        self._free_chest_opens = (
+            None if self._chest_history_incomplete else total_opened - chests_bought
+        )
+        self._total_opened_minimum = total_opened if total_opened_is_minimum else None
+        self._total_opened_is_minimum = total_opened_is_minimum
         self._chest_counters_available = True
         return True
+
+    def _resolve_maximum_chest_total_unlocked(self) -> int | None:
+        total = 0
+        for stage_num, stage_total in self._chests_total_by_stage.items():
+            opened = int(self._chests_opened_by_stage.get(stage_num, 0))
+            if opened < 0:
+                total += max(0, int(stage_total))
+            else:
+                total += max(0, opened)
+        return total
+
+    @staticmethod
+    def _raw_stage_to_human_stage(raw_stage_index: int) -> int:
+        if raw_stage_index < 0:
+            return 0
+        return int(raw_stage_index) + 1
+
+    @staticmethod
+    def _baseline_chest_total_for_history(chests_total: int) -> int:
+        total = max(0, int(chests_total))
+        return 69 if total >= 69 else 46
 
     @staticmethod
     def key_proc_chance(keys_count: int) -> float:
@@ -810,6 +858,8 @@ class LiveRunTracker:
             expected_key_procs=self._expected_key_procs,
             expected_tracked_opens=self._expected_tracked_opens,
             expected_available=self._expected_available,
+            total_opened_minimum=self._total_opened_minimum,
+            total_opened_is_minimum=self._total_opened_is_minimum,
         )
 
     @with_lock
@@ -847,8 +897,11 @@ class LiveRunTracker:
         self._keys_count = 0
         self._paid_chest_opens = 0
         self._key_chest_procs = 0
-        self._free_chest_opens = 0
+        self._free_chest_opens = None
         self._chest_counters_available = False
+        self._chest_history_incomplete = False
+        self._total_opened_minimum = None
+        self._total_opened_is_minimum = False
         if self._expected_detected_run_reset:
             self._expected_detected_run_reset = False
         else:

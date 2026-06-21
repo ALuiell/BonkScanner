@@ -341,11 +341,6 @@ class PlayerStatsMixin:
         except Exception:
             stage_timer_seconds = None
             stage_index = None
-        stage_number = (
-            int(stage_index) + 1
-            if stage_index is not None and int(stage_index) >= 0
-            else None
-        )
 
         # 2. Read map seed and stage ptr
         map_seed = None
@@ -507,7 +502,7 @@ class PlayerStatsMixin:
             player_level,
             map_seed,
             stage_ptr,
-            stage_number,
+            stage_index,
             disabled_items,
             disabled_items_available,
         )
@@ -4573,6 +4568,7 @@ class PlayerStatsMixin:
         free: int | None,
         keys: int | None,
         expected: float | None,
+        total_is_minimum: bool = False,
     ) -> dict[str, str]:
         if total is None:
             return {
@@ -4592,6 +4588,8 @@ class PlayerStatsMixin:
             else:
                 stage_parts.append(f"T{stage}:{count}/{stage_total}")
         opened_text = "--" if opened is None else str(opened)
+        if opened is not None and total_is_minimum:
+            opened_text += "+"
         total_text = str(total)
         stages = " ".join(stage_parts) if stage_parts else f"T1:{opened_text}/{total_text}"
 
@@ -4641,6 +4639,7 @@ class PlayerStatsMixin:
                     chest_stats.free_chests if chest_stats.counters_available else None,
                     chest_stats.keys_count,
                     chest_stats.expected_key_procs if chest_stats.expected_available else None,
+                    chest_stats.total_opened_is_minimum,
                 ),
             )
 
@@ -4661,6 +4660,7 @@ class PlayerStatsMixin:
                     getattr(snapshot, "free_chests", None),
                     getattr(snapshot, "keys_count", None),
                     getattr(snapshot, "expected_key_procs", None),
+                    False,
                 ),
             )
 

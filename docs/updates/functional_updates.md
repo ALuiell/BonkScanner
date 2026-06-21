@@ -84,69 +84,80 @@ Documentation anchor:
 
 - `docs/recovery/reports/2026-06-15-shrines-mechanics-and-fingerprints.md`
 
-#### 3. Active Powerup Tracking For `!powerups` And Live Stats
 
-Status: `[Implemented]`
+
+
+#### 5. Stage Summary Must Anchor To Raw Stage Index And Treat Boss As Virtual Stage
+
+Status: `[Open]`
 
 Goal:
 
-- Replace the old duration-only `!powerups` behavior with live active powerup tracking.
-- Show active Rage, Shield, Stonks, and Clock/TimeFreeze effects with UI-stage pickup and expiration timestamps.
-- Keep the old duration summary as the fallback when no supported powerup is active.
-- Reuse the existing fast live tracker loop instead of adding a standalone polling subsystem.
+- Make `Stage Summary` deterministic when the app opens in the middle of a run.
+- Use the raw memory `stage_index` as the only source of truth for normal map rows.
+- Treat boss stage as a separate virtual `Stage 4`, not as a normal raw `stage_index` value.
+- Stop `Stage Summary` from starting at row 1 just because the tracker attached late.
 
-Implemented behavior:
+Required baseline mapping:
 
-- `PlayerStatsClient` reads the supported effects from `PlayerStatusEffects.statusEffects`.
-- `LiveRunTracker` stores a normalized active powerup snapshot and formats both Twitch and Live Stats summaries.
-- `!powerups` output when active effects exist:
-  - `Powerups: Rage 01:33 -> 00:11 (80s left) | Stonks 01:32 -> 00:10 (81s left) | Clock 01:32 -> 00:27 (64s left) (PM 5.43x)`
-- `!powerups` output when no supported effect is active:
-  - `Powerups: none active | Durations: standard 81.43s, clock 65.15s (PM 5.43x)`
-- Live Stats uses the same tracker state in the existing `Powerups:` row, without adding a separate tab.
+- Raw memory `stage_index` values must map directly to summary rows:
+  - `0 -> Stage 1`
+  - `1 -> Stage 2`
+  - `2 -> Stage 3`
+- This mapping is a hard rule, not an inference layer.
+- Do not pre-convert the raw value into a human stage number before it reaches live snapshots or summary logic.
 
-Polling and activation rules:
+Required attach behavior:
 
-- Powerup tracking runs in the existing fast tracker timer (`CHAOS_TOME_TRACKER_INTERVAL_MS`, currently `500 ms`).
-- `Powerup Multiplier` uses a short cached value with forced refresh when the
-  active powerup set changes, instead of re-reading the full player stats block
-  every fast tick.
-- Powerup memory reads are only attempted when a consumer exists:
-  - Live Stats tab is active, or
-  - Twitch bot is active and the `powerups` command is enabled.
-- The Twitch command does not read memory directly; it reads the latest `LiveRunTracker` powerup snapshot.
+- If the app opens during Stage 1, `Stage Summary` starts filling row 1.
+- If the app opens during Stage 2, `Stage Summary` starts filling row 2 and leaves Stage 1 empty.
+- If the app opens during Stage 3, `Stage Summary` starts filling row 3 and leaves Stages 1-2 empty.
+- Late attach must not restart the table from Stage 1.
 
-Confirmed memory and formula details:
+Boss-stage rules:
 
-- Supported status effect IDs:
-  - `1` Rage
-  - `2` Shield
-  - `3` Stonks
-  - `4` TimeFreeze / Clock
-- Effect activity is based on `StatusEffect.expirationTime - MyTime.time > 0`.
-- Current pickup time is reconstructed as `expirationTime - expectedDuration`, because refreshed effects may keep an old `addedTime`.
-- Expected durations:
-  - Rage, Shield, and Stonks: `15 * Powerup Multiplier`
-  - Clock/TimeFreeze: `12 * Powerup Multiplier`
-- UI stage timestamps use `MyTime.stageTimer` and `StageTimeline.stageTime`:
-  - countdown: `stageTime - stageTimer`
-  - overtime: `+(stageTimer - stageTime)`
+- `Stage 4` is not represented by a normal raw `stage_index`.
+- Raw `stage_index=2` still means `Stage 3` by default.
+- Boss stage must be promoted to virtual `Stage 4` only after an observed transition marker, not from the base raw index alone.
+- Do not let a single isolated first snapshot in ghost phase automatically start the table on `Stage 4`.
 
-Validation:
+Allowed boss transition markers:
 
-- Live memory validation confirmed Stage 1, Stage 2, Stage 3, countdown, and overtime formatting.
-- Unit coverage was added for:
-  - status effect dictionary reads,
-  - active/fallback powerup summary formatting,
-  - overtime formatting,
-  - Twitch command routing through the tracker snapshot.
+- Existing timer-based transition markers may still be used.
+- Add a dedicated collapse marker based only on raw map activities for:
+  - `chests`
+  - `pots`
+- Valid collapse examples:
+  - `chests: 22/46 -> 23/23`
+  - `pots: 5/55 -> 5/5`
+- These are good boss markers because the reported max collapses downward to the current observed value.
 
-Known caveat:
+What must not count as boss detection:
 
-- If stage time is manually changed through external cheats, the game UI can temporarily diverge from the normal `MyTime.stageTimer` formula. Normal gameplay matched the documented formula during live validation.
+- Honest full-clear values on the normal map must not trigger `Stage 4`, for example:
+  - `chests: 46/46`
+  - `pots: 55/55`
+- The critical signal is not `current == max` by itself.
+- The critical signal is that `max` shrank relative to the previously observed normal-map baseline.
 
-Documentation anchors:
+Implementation constraints:
 
-- `docs/recovery/reports/2026-06-20-player-status-effects-and-buffs.md`
-- `docs/recovery/reports/2026-06-20-ui-stage-timer-calculation.md`
+- Keep the logic split into two layers:
+  - normal stage row selection from raw `stage_index`
+  - virtual `Stage 4` promotion from explicit boss markers
+- Do not merge these into one heuristic that can reinterpret raw `stage_index` based on ghost phase alone.
+- Preserve raw `stage_index` all the way through:
+  - memory read
+  - live snapshot payload
+  - live tracker state
+  - stage summary builder
+- Any human-readable stage number should be derived only at the final mapping point.
+
+Regression coverage required:
+
+- Opening the app on raw `stage_index=1` must fill Stage 2 and leave Stage 3 empty.
+- Opening the app on raw `stage_index=2` must fill Stage 3 and leave Stage 4 empty unless a boss marker is observed later.
+- Opening the app directly in ghost phase on a normal Stage 2 or Stage 3 map must not automatically start on `Stage 4`.
+- A later observed collapse in `chests` or `pots` may promote the run from Stage 3 to Stage 4.
+- Persist the “minimum total” marker into recorded/VOD snapshots if recorded summaries must match live summaries.
 

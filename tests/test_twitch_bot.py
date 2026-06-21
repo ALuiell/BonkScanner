@@ -324,11 +324,11 @@ class TestTwitchBotWorker(unittest.TestCase):
         )
 
         self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
-            20, 46, 0, 0, 0, 0, {1: -1, 2: 20}, {1: 46, 2: 46}, False
+            20, 46, 0, 17, 34, None, {1: -1, 2: 20}, {1: 46, 2: 46}, True, 0.0, 0, False, 51, True
         )
         self.bot._handle_chests("channel")
         self.bot._send_chat.assert_called_with(
-            "channel", "Chests: T1:--/46 T2:20/46 | Total: --/92 | Paid: 0 | Key Procs: 0/0 (0.0%) | Expected: -- | Free Chests: 0 | Keys: 0 (0.0%)"
+            "channel", "Chests: T1:--/46 T2:20/46 | Total: 51+/92 | Paid: 17 | Key Procs: 34/51 (66.7%) | Expected: -- | Free Chests: -- | Keys: 0 (0.0%)"
         )
 
 

@@ -819,14 +819,17 @@ class LiveRunTrackerTests(unittest.TestCase):
 
     def test_chests_midrun_start_marks_missing_prior_stage_unknown(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
-        tracker.update(snapshot(time_seconds=120.0, map_seed=100, stage_ptr=2000, stage_index=2))
+        tracker.update(snapshot(time_seconds=120.0, map_seed=100, stage_ptr=2000, stage_index=1))
         tracker.update_chests_and_keys(20, 46, 0)
+        self.assertTrue(tracker.update_chest_counters(51, 17))
         stats = tracker.get_chest_stats()
 
-        self.assertIsNone(stats.total_opened)
+        self.assertEqual(stats.total_opened, 51)
+        self.assertTrue(stats.total_opened_is_minimum)
         self.assertEqual(stats.total_chests, 92)
         self.assertEqual(stats.opened_by_stage, {1: -1, 2: 20})
         self.assertEqual(stats.total_by_stage, {1: 46, 2: 46})
+        self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (17, 34, None))
 
     def test_expected_key_procs_accumulate_sampled_probabilities(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
