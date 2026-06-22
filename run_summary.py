@@ -142,7 +142,7 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
     }
     stage_kill_baselines: dict[int, int] = {1: 0}
     last_known_mob_kills: int | None = None
-    current_stage_index = 1
+    current_stage_index = resolve_initial_stage_index(snapshots[0])
     item_gain_tracker = None
     previous_snapshot = None
     for snapshot in snapshots:
@@ -237,6 +237,13 @@ def reconcile_stage_summary_kills(rows: list[dict[str, str]], snapshots) -> None
     delta = int(final_total) - known_total
     if delta == 0:
         return
+    first_known_index = None
+    for index, count in enumerate(parsed_counts):
+        if count is not None:
+            first_known_index = index
+            break
+    if first_known_index is not None and first_known_index > 0:
+        return
     last_index = None
     for index, count in enumerate(parsed_counts):
         if count is not None:
@@ -248,12 +255,19 @@ def reconcile_stage_summary_kills(rows: list[dict[str, str]], snapshots) -> None
 
 
 def resolve_next_stage_index(current_stage_index: int, previous_snapshot, snapshot) -> int:
+    raw_stage_number = raw_stage_index_to_stage_number(getattr(snapshot, "stage_index", None))
+    if current_stage_index < 4 and raw_stage_number is not None:
+        current_stage_index = raw_stage_number
+    if current_stage_index == 3 and looks_like_stage_four_from_map_activity(snapshot):
+        return 4
+
     previous_stage_ptr = int(getattr(previous_snapshot, "stage_ptr", 0) or 0)
     current_stage_ptr = int(getattr(snapshot, "stage_ptr", 0) or 0)
     previous_seed = getattr(previous_snapshot, "map_seed", None)
     current_seed = getattr(snapshot, "map_seed", None)
     if (
         current_stage_index < 3
+        and raw_stage_number is None
         and (
             (
                 previous_stage_ptr
@@ -274,6 +288,44 @@ def resolve_next_stage_index(current_stage_index: int, previous_snapshot, snapsh
     if current_stage_index == 3 and looks_like_stage_four_transition(previous_snapshot, snapshot):
         return 4
     return current_stage_index
+
+
+def resolve_initial_stage_index(snapshot) -> int:
+    raw_stage_number = raw_stage_index_to_stage_number(getattr(snapshot, "stage_index", None))
+    if raw_stage_number == 3 and looks_like_stage_four_from_map_activity(snapshot):
+        return 4
+    if raw_stage_number is not None:
+        return raw_stage_number
+    return 1
+
+
+def raw_stage_index_to_stage_number(raw_stage_index) -> int | None:
+    try:
+        raw_value = int(raw_stage_index)
+    except (TypeError, ValueError):
+        return None
+    if 0 <= raw_value <= 2:
+        return raw_value + 1
+    return None
+
+
+def looks_like_stage_four_from_map_activity(snapshot) -> bool:
+    raw_stage_number = raw_stage_index_to_stage_number(getattr(snapshot, "stage_index", None))
+    if raw_stage_number != 3:
+        return False
+    chest_total = _coerce_positive_int(getattr(snapshot, "chests_total", None))
+    if chest_total is not None and chest_total < 46:
+        return True
+    pots_total = _coerce_positive_int(getattr(snapshot, "pots_total", None))
+    return pots_total is not None and pots_total < 55
+
+
+def _coerce_positive_int(value) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def is_stage_transition_boundary_snapshot(snapshot) -> bool:

@@ -568,6 +568,21 @@ class PlayerStatsMixin:
         else:
             banishes = self.player_stats_live_banishes
         is_live_tab_active = self._is_live_stats_tab_active()
+        map_stats = {}
+        map_chests_total = None
+        map_pots_total = None
+        try:
+            if self.player_stats_game_data_client is None:
+                self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
+            map_stats = self.player_stats_game_data_client.get_map_stats() or {}
+            chest_stat = map_stats.get(MapStat.CHESTS)
+            if chest_stat is not None:
+                map_chests_total = chest_stat.max
+            pots_stat = map_stats.get(MapStat.POTS)
+            if pots_stat is not None:
+                map_pots_total = pots_stat.max
+        except Exception:
+            map_stats = {}
         live_snapshot = LiveRunSnapshot(
             captured_at=time.monotonic(),
             stats=stats,
@@ -590,6 +605,8 @@ class PlayerStatsMixin:
             map_seed=map_seed,
             stage_ptr=stage_ptr,
             stage_index=stage_index,
+            chests_total=map_chests_total,
+            pots_total=map_pots_total,
         )
         self.live_run_tracker.update(live_snapshot)
 
@@ -615,17 +632,11 @@ class PlayerStatsMixin:
                     break
             should_update_chests_and_keys = True
 
-        try:
-            if self.player_stats_game_data_client is None:
-                self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
-            map_stats = self.player_stats_game_data_client.get_map_stats()
-            if map_stats and MapStat.CHESTS in map_stats:
-                chest_stat = map_stats[MapStat.CHESTS]
-                chests_opened = chest_stat.current
-                chests_total = chest_stat.max
-                should_update_chests_and_keys = True
-        except Exception:
-            pass
+        chest_stat = map_stats.get(MapStat.CHESTS) if map_stats else None
+        if chest_stat is not None:
+            chests_opened = chest_stat.current
+            chests_total = chest_stat.max
+            should_update_chests_and_keys = True
         if should_update_chests_and_keys:
             self.live_run_tracker.update_chests_and_keys(chests_opened, chests_total, keys_count)
 

@@ -16,6 +16,8 @@ def snapshot(
     stage_index: int | None = None,
     stage_time_seconds: float | None = None,
     mob_kills: int | None = None,
+    chests_total: int | None = None,
+    pots_total: int | None = None,
 ) -> LiveRunSnapshot:
     return LiveRunSnapshot(
         captured_at=time_seconds,
@@ -27,6 +29,8 @@ def snapshot(
         map_seed=map_seed,
         stage_ptr=stage_ptr,
         stage_index=stage_index,
+        chests_total=chests_total,
+        pots_total=pots_total,
     )
 
 
@@ -830,6 +834,76 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(stats.opened_by_stage, {1: -1, 2: 20})
         self.assertEqual(stats.total_by_stage, {1: 46, 2: 46})
         self.assertEqual((stats.paid, stats.key_procs, stats.free_chests), (17, 34, None))
+
+    def test_run_identity_starts_from_raw_stage_index_on_late_attach(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        tracker.update(snapshot(time_seconds=120.0, map_seed=100, stage_ptr=2000, stage_index=1))
+
+        _, stage_index = tracker.run_identity()
+        self.assertEqual(stage_index, 2)
+
+    def test_stage_summary_late_attach_starts_at_raw_stage_three(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=240.0, map_seed=100, stage_ptr=3000, stage_index=2, stage_time_seconds=80.0, mob_kills=2_000))
+        tracker.update(snapshot(time_seconds=300.0, map_seed=100, stage_ptr=3000, stage_index=2, stage_time_seconds=140.0, mob_kills=2_600))
+
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(rows[0]["kills"], "--")
+        self.assertEqual(rows[1]["kills"], "--")
+        self.assertEqual(rows[2]["kills"], "600")
+        self.assertEqual(rows[3]["kills"], "--")
+
+    def test_run_identity_promotes_raw_stage_three_attach_to_stage_four_from_chest_total(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        tracker.update(
+            snapshot(
+                time_seconds=240.0,
+                map_seed=100,
+                stage_ptr=3000,
+                stage_index=2,
+                stage_time_seconds=80.0,
+                mob_kills=2_000,
+                chests_total=15,
+            )
+        )
+
+        _, stage_index = tracker.run_identity()
+        self.assertEqual(stage_index, 4)
+
+    def test_stage_summary_starts_at_stage_four_when_attach_snapshot_has_collapsed_pots_total(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=240.0,
+                map_seed=100,
+                stage_ptr=3000,
+                stage_index=2,
+                stage_time_seconds=80.0,
+                mob_kills=2_000,
+                pots_total=5,
+            )
+        )
+        tracker.update(
+            snapshot(
+                time_seconds=300.0,
+                map_seed=100,
+                stage_ptr=3000,
+                stage_index=2,
+                stage_time_seconds=140.0,
+                mob_kills=2_600,
+                pots_total=5,
+            )
+        )
+
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(rows[0]["kills"], "--")
+        self.assertEqual(rows[1]["kills"], "--")
+        self.assertEqual(rows[2]["kills"], "--")
+        self.assertEqual(rows[3]["kills"], "600")
 
     def test_expected_key_procs_accumulate_sampled_probabilities(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)

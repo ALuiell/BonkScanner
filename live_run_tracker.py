@@ -47,6 +47,8 @@ class LiveRunSnapshot:
     map_seed: int | None = None
     stage_ptr: int = 0
     stage_index: int | None = None
+    chests_total: int | None = None
+    pots_total: int | None = None
 
 
 @dataclass(frozen=True)
@@ -311,6 +313,7 @@ class LiveRunTracker:
         self._last_update_at = now
         self._last_failed_at = None
         self._last_no_game_at = None
+        reset_for_snapshot = False
         if not self._is_active_snapshot(snapshot):
             if not self.snapshots:
                 return
@@ -319,10 +322,12 @@ class LiveRunTracker:
 
         if self._should_reset_for_snapshot(snapshot):
             self._reset_for_new_run()
+            reset_for_snapshot = True
 
         if self.run_id is None:
             self.run_id = uuid4().hex
-            self.current_stage_index = 1
+        if reset_for_snapshot:
+            self.current_stage_index = run_summary.resolve_initial_stage_index(snapshot)
 
         previous_snapshot = self.snapshots[-1] if self.snapshots else None
         if previous_snapshot is not None and self._is_active_snapshot(previous_snapshot):
@@ -1144,7 +1149,10 @@ class LiveRunTracker:
             and snapshot.game_time_seconds is not None
             and float(snapshot.game_time_seconds) <= 10.0
         )
-        initial_stage_index = 1 if self._snapshot_looks_like_first_stage(snapshot) else 2
+        initial_stage_index = max(
+            self.current_stage_index,
+            1 if self._snapshot_looks_like_first_stage(snapshot) else 2,
+        )
         for item_name, count in counts.items():
             if count <= 0:
                 continue

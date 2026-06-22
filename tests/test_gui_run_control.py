@@ -2517,6 +2517,97 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertIn(">2</span>", rows[0]["items"])
 
+    def test_build_stage_summary_late_attach_uses_raw_stage_two_row(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=120.0,
+                stage_time_seconds=40.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                stage_index=1,
+                mob_kills=1_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=150.0,
+                stage_time_seconds=70.0,
+                stage_ptr=0x2000,
+                map_seed=22,
+                stage_index=1,
+                mob_kills=1_250,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["kills"], "--")
+        self.assertEqual(rows[1]["kills"], "250")
+        self.assertEqual(rows[1]["time"], "00:30")
+        self.assertEqual(rows[2]["kills"], "--")
+
+    def test_build_stage_summary_late_attach_uses_raw_stage_three_row_without_auto_stage_four(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=240.0,
+                stage_time_seconds=80.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                stage_index=2,
+                mob_kills=2_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=300.0,
+                stage_time_seconds=140.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                stage_index=2,
+                mob_kills=2_600,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["kills"], "--")
+        self.assertEqual(rows[1]["kills"], "--")
+        self.assertEqual(rows[2]["kills"], "600")
+        self.assertEqual(rows[2]["time"], "01:00")
+        self.assertEqual(rows[3]["kills"], "--")
+
+    def test_build_stage_summary_attach_on_stage_four_uses_collapsed_chest_total_marker(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=240.0,
+                stage_time_seconds=80.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                stage_index=2,
+                chests_total=15,
+                mob_kills=2_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=300.0,
+                stage_time_seconds=140.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                stage_index=2,
+                chests_total=15,
+                mob_kills=2_600,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["kills"], "--")
+        self.assertEqual(rows[1]["kills"], "--")
+        self.assertEqual(rows[2]["kills"], "--")
+        self.assertEqual(rows[3]["kills"], "600")
+        self.assertEqual(rows[3]["time"], "01:00")
+
     def test_item_total_count_includes_stacks_and_duplicate_entries(self) -> None:
         total = gui.MegabonkApp._item_total_count(
             ("Wrench x3", "Anvil x2", "Anvil x1", "Moldy Cheese")
