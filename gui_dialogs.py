@@ -91,19 +91,24 @@ class TemplateFormFrame(QWidget):
         self.moai_entry = QLineEdit()
         self.micro_entry = QLineEdit()
         self.boss_entry = QLineEdit()
+        self.bald_heads_entry = QLineEdit()
 
         layout.addRow("S+M Total (optional):", self.sm_entry)
         layout.addRow("Shady Guy (min):", self.shady_entry)
         layout.addRow("Moais (min):", self.moai_entry)
         layout.addRow("Microwaves (min):", self.micro_entry)
         layout.addRow("Boss Curses (min):", self.boss_entry)
+        layout.addRow("Bald Heads (min):", self.bald_heads_entry)
 
-        self.shady_entry.textChanged.connect(self.update_sm_total)
-        self.moai_entry.textChanged.connect(self.update_sm_total)
+        self.sm_entry.textChanged.connect(self._sync_sm_fields)
+        self.shady_entry.textChanged.connect(self._sync_sm_fields)
+        self.moai_entry.textChanged.connect(self._sync_sm_fields)
         self.load_template(self.template_data)
 
     def load_template(self, template_data=None):
         self.template_data = template_data or {}
+        for widget in (self.sm_entry, self.shady_entry, self.moai_entry):
+            widget.blockSignals(True)
         self.name_entry.setText(self.template_data.get("name", ""))
         self.name_entry.setEnabled(self.template_data.get("id", 100) > 7)
         self.sm_entry.setText(str(self.template_data.get("sm_total", 0)))
@@ -111,15 +116,31 @@ class TemplateFormFrame(QWidget):
         self.moai_entry.setText(str(self.template_data.get("moai", 0)))
         self.micro_entry.setText(str(self.template_data.get("micro", 0)))
         self.boss_entry.setText(str(self.template_data.get("boss", 0)))
-        self.update_sm_total()
+        self.bald_heads_entry.setText(str(self.template_data.get("bald_heads", 0)))
+        for widget in (self.sm_entry, self.shady_entry, self.moai_entry):
+            widget.blockSignals(False)
+        self._sync_sm_fields()
 
-    def update_sm_total(self) -> None:
-        shady = self.shady_entry.text().strip()
-        moai = self.moai_entry.text().strip()
-        if shady.isdigit() and moai.isdigit() and (int(shady) > 0 or int(moai) > 0):
-            self.sm_entry.setPlaceholderText("Disabled while individual S/M values are set")
-        else:
-            self.sm_entry.setPlaceholderText("")
+    def _sync_sm_fields(self) -> None:
+        sender = self.sender()
+
+        sm_text = self.sm_entry.text().strip()
+        shady_text = self.shady_entry.text().strip()
+        moai_text = self.moai_entry.text().strip()
+
+        sm_val = int(sm_text) if sm_text.isdigit() else 0
+        shady_val = int(shady_text) if shady_text.isdigit() else 0
+        moai_val = int(moai_text) if moai_text.isdigit() else 0
+
+        if sender is self.sm_entry and sm_val > 0:
+            for widget in (self.shady_entry, self.moai_entry):
+                widget.blockSignals(True)
+                widget.setText("0")
+                widget.blockSignals(False)
+        elif sender in (self.shady_entry, self.moai_entry) and (shady_val > 0 or moai_val > 0):
+            self.sm_entry.blockSignals(True)
+            self.sm_entry.setText("0")
+            self.sm_entry.blockSignals(False)
 
     def get_payload(self):
         return build_template_payload(
@@ -129,6 +150,7 @@ class TemplateFormFrame(QWidget):
             self.moai_entry.text(),
             self.micro_entry.text(),
             self.boss_entry.text(),
+            self.bald_heads_entry.text(),
             source_template=self.template_data,
         )
 

@@ -26,6 +26,9 @@ except ImportError:
     keyboard = None
 
 class ScannerMixin:
+    def _scan_abort_requested(self) -> bool:
+        return self.stop_event.is_set() or not self.scan_event.is_set()
+
     def _score_tier_color_tag(self, tier: str) -> str:
         colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
         return colors.get(tier, "BLUE")
@@ -259,10 +262,12 @@ class ScannerMixin:
             self.worst_map_stats = stats
             self.after(0, self.refresh_stats_ui)
 
-    def reroll_map(self):
+    def reroll_map(self) -> bool:
         if self.run_control_provider is None:
             self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
-            return
+            return False
+        if self._scan_abort_requested():
+            return False
 
         previous_state = None
         previous_stats = None
@@ -272,20 +277,28 @@ class ScannerMixin:
                 previous_stats = self.client.get_map_stats()
             except MemoryReadError as exc:
                 self.log(f"[WAIT] Could not read current map state before restart: {exc}", tag="warning")
+        if self._scan_abort_requested():
+            return False
 
         try:
             self.run_control_provider.restart_run()
         except RunControlError as exc:
             self.log(f"[-] {exc}", tag="error")
-            return
+            return False
 
-        self.run_control_provider.wait_for_next_run(
-            client=self.client,
-            previous_state=previous_state,
-            previous_stats=previous_stats,
-            warn=lambda message: self.log(f"[WAIT] {message}", tag="warning"),
-        )
+        try:
+            self.run_control_provider.wait_for_next_run(
+                client=self.client,
+                previous_state=previous_state,
+                previous_stats=previous_stats,
+                warn=lambda message: self.log(f"[WAIT] {message}", tag="warning"),
+                abort_condition=self._scan_abort_requested,
+            )
+        except InterruptedError:
+            return False
+
         self.log_reroll_stats()
+        return True
 
     def close_client(self):
         if self.client:
@@ -354,10 +367,13 @@ class ScannerMixin:
                 last_state = self.client.get_map_generation_state()
                 last_stats = raw_stats
                 stats = adapt_map_stats(raw_stats)
+                eval_context = {
+                    "supports_bald_heads": stats.get("Chests", 0) >= 69,
+                }
 
                 self.check_best_map(stats)
                 self.check_worst_map(stats)
-                candidate = self.evaluate_candidate(stats)
+                candidate = self.evaluate_candidate(stats, context=eval_context)
 
                 if candidate is not None:
                     if not self.wait_for_game_window_focus(process_name):
@@ -389,22 +405,22 @@ class ScannerMixin:
 
                 elapsed = time.monotonic() - last_reroll_time
                 while elapsed < config.MIN_DELAY:
-                    if self.stop_event.is_set() or not self.scan_event.is_set():
+                    if self._scan_abort_requested():
                         break
                     time.sleep(0.05)
                     elapsed = time.monotonic() - last_reroll_time
 
-                if self.stop_event.is_set() or not self.scan_event.is_set():
+                if self._scan_abort_requested():
                     continue
 
-                self.reroll_map()
-                last_reroll_time = time.monotonic()
+                if self.reroll_map():
+                    last_reroll_time = time.monotonic()
 
             except TimeoutError as exc:
                 self.log(f"[-] Map took too long to load: {exc}", tag="warning")
                 self.log("[*] Restarting run to recover...", tag="warning")
-                self.reroll_map()
-                last_reroll_time = time.monotonic()
+                if self.reroll_map():
+                    last_reroll_time = time.monotonic()
                 last_state = None
                 last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:

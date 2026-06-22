@@ -209,6 +209,7 @@ def format_template_conditions(template: dict) -> str:
     moai = template.get("moai", 0)
     micro = template.get("micro", 0)
     boss = template.get("boss", 0)
+    bald_heads = template.get("bald_heads", 0)
 
     if sm_total > 0:
         parts.append(f"S+M: {sm_total}")
@@ -220,6 +221,8 @@ def format_template_conditions(template: dict) -> str:
         parts.append(f"Mic:{micro}")
     if boss > 0:
         parts.append(f"B:{boss}")
+    if bald_heads > 0:
+        parts.append(f"BH:{bald_heads}")
 
     return ", ".join(parts) if parts else "Any"
 
@@ -230,6 +233,7 @@ def build_template_payload(
     moai: str,
     micro: str,
     boss: str,
+    bald_heads: str = "",
     source_template=None,
 ):
     name = name.strip()
@@ -247,6 +251,7 @@ def build_template_payload(
         "moai": parse_int(moai),
         "micro": parse_int(micro),
         "boss": parse_int(boss),
+        "bald_heads": parse_int(bald_heads),
     }
 
     if result["sm_total"] <= 0 or result["shady"] > 0 or result["moai"] > 0:
@@ -254,7 +259,7 @@ def build_template_payload(
 
     if source_template:
         for key, value in source_template.items():
-            if key not in result and key not in ["sm_total", "shady", "moai", "micro", "boss"]:
+            if key not in result and key not in ["sm_total", "shady", "moai", "micro", "boss", "bald_heads"]:
                 result[key] = value
 
     return result

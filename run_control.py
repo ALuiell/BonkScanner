@@ -12,6 +12,7 @@ WarningHandler = Callable[[str], None]
 SleepFunction = Callable[[float], None]
 DynamicFloat = float | Callable[[], float]
 DynamicString = str | Callable[[], str]
+AbortCondition = Callable[[], bool]
 
 
 class RunControlError(Exception):
@@ -29,6 +30,7 @@ class RunControlProvider(Protocol):
         previous_state: MapGenerationState | None = None,
         previous_stats: dict[MapStat, StatValue] | None = None,
         warn: WarningHandler | None = None,
+        abort_condition: AbortCondition | None = None,
     ) -> None:
         ...
 
@@ -60,10 +62,22 @@ class HookRunControlProvider:
         previous_state: MapGenerationState | None = None,
         previous_stats: dict[MapStat, StatValue] | None = None,
         warn: WarningHandler | None = None,
+        abort_condition: AbortCondition | None = None,
     ) -> None:
         snapshot_ready = False
         try:
-            snapshot_ready = self.loader.wait_for_snapshot_ready(timeout=self.snapshot_timeout)
+            if abort_condition is None:
+                snapshot_ready = self.loader.wait_for_snapshot_ready(timeout=self.snapshot_timeout)
+            else:
+                deadline = time.monotonic() + self.snapshot_timeout
+                while True:
+                    self._raise_if_aborted(abort_condition)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    snapshot_ready = self.loader.wait_for_snapshot_ready(timeout=min(0.2, remaining))
+                    if snapshot_ready:
+                        break
         except HookLoadError as exc:
             self._warn(warn, f"Native snapshot-ready wait failed; using memory readiness polling: {exc}")
 
@@ -72,12 +86,15 @@ class HookRunControlProvider:
                 client.wait_for_map_ready(
                     previous_state=previous_state,
                     previous_stats=previous_stats,
+                    abort_condition=abort_condition,
                 )
+            except InterruptedError:
+                raise
             except (TimeoutError, MemoryReadError) as exc:
                 self._warn(warn, f"Map readiness polling failed; using fallback delay: {exc}")
-                self._sleep(self._map_load_delay())
+                self._sleep_abortable(self._map_load_delay(), abort_condition)
         elif client is None:
-            self._sleep(self._map_load_delay())
+            self._sleep_abortable(self._map_load_delay(), abort_condition)
 
     @staticmethod
     def _warn(warn: WarningHandler | None, message: str) -> None:
@@ -86,6 +103,27 @@ class HookRunControlProvider:
 
     def _map_load_delay(self) -> float:
         return float(self.map_load_delay() if callable(self.map_load_delay) else self.map_load_delay)
+
+    def _sleep_abortable(
+        self,
+        duration: float,
+        abort_condition: AbortCondition | None,
+    ) -> None:
+        if abort_condition is None:
+            self._sleep(duration)
+            return
+        deadline = time.monotonic() + max(0.0, float(duration))
+        while True:
+            self._raise_if_aborted(abort_condition)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            self._sleep(min(0.05, remaining))
+
+    @staticmethod
+    def _raise_if_aborted(abort_condition: AbortCondition | None) -> None:
+        if abort_condition is not None and abort_condition():
+            raise InterruptedError("Run-control wait aborted.")
 
 
 class KeyboardRunControlProvider:
@@ -122,9 +160,21 @@ class KeyboardRunControlProvider:
         previous_state: MapGenerationState | None = None,
         previous_stats: dict[MapStat, StatValue] | None = None,
         warn: WarningHandler | None = None,
+        abort_condition: AbortCondition | None = None,
     ) -> None:
         del client, previous_state, previous_stats, warn
-        self._sleep(self._map_load_delay())
+        duration = self._map_load_delay()
+        if abort_condition is None:
+            self._sleep(duration)
+            return
+        deadline = time.monotonic() + max(0.0, float(duration))
+        while True:
+            if abort_condition():
+                raise InterruptedError("Run-control wait aborted.")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            self._sleep(min(0.05, remaining))
 
     def _reset_hotkey(self) -> str:
         return str(self.reset_hotkey() if callable(self.reset_hotkey) else self.reset_hotkey)

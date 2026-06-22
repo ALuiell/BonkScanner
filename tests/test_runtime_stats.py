@@ -10,13 +10,15 @@ class RuntimeStatsTests(unittest.TestCase):
     def test_empty_runtime_stats_contains_all_known_labels(self) -> None:
         stats = empty_runtime_stats()
 
+        self.assertEqual(stats["Bald Heads"], 0)
         self.assertEqual(stats["Boss Curses"], 0)
         self.assertEqual(stats["Shady Guy"], 0)
-        self.assertEqual(len(stats), 10)
+        self.assertEqual(len(stats), 11)
 
     def test_adapt_map_stats_uses_max_values_and_defaults_missing_to_zero(self) -> None:
         stats = adapt_map_stats(
             {
+                MapStat.BALD_HEADS: StatValue(current=5, max=8),
                 MapStat.BOSS_CURSES: StatValue(current=3, max=5),
                 MapStat.MICROWAVES: StatValue(current=2, max=2),
                 MapStat.SHADY_GUY: StatValue(current=4, max=6),
@@ -26,6 +28,7 @@ class RuntimeStatsTests(unittest.TestCase):
         self.assertEqual(
             stats,
             {
+                "Bald Heads": 8,
                 "Boss Curses": 5,
                 "Challenges": 0,
                 "Charge Shrines": 0,

@@ -1582,6 +1582,26 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(logs, [("[*] Active templates updated live: Alpha, Gamma", None)])
         save_config.assert_called_once_with(gui.config.user_config)
 
+    def test_format_stats_includes_bald_heads_when_active_template_requires_it(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.active_templates = ["BALD"]
+        stats = {
+            "Shady Guy": 1,
+            "Moais": 2,
+            "Microwaves": 7,
+            "Chests": 69,
+            "Boss Curses": 3,
+            "Magnet Shrines": 1,
+            "Bald Heads": 4,
+        }
+
+        with patch.object(gui.config, "EVALUATION_MODE", "templates"):
+            with patch.object(gui.config, "TEMPLATES", [{"name": "BALD", "bald_heads": 2}]):
+                text = gui.MegabonkApp.format_stats(app, stats)
+
+        self.assertIn("Bald Heads: 4", text)
+        self.assertIn("Microwaves: 7", text)
+
     def test_refresh_scores_ui_updates_runtime_tiers_without_restart(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.scores_desc_label = SimpleNamespace(setHtml=lambda _text: None)
@@ -1668,7 +1688,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.wait_for_game_window_focus = lambda _process_name: True
         app.check_best_map = lambda _stats: None
         app.check_worst_map = lambda _stats: None
-        app.evaluate_candidate = lambda stats: {"name": "Perfect", "color": "GREEN"} if stats["Moais"] == 4 else None
+        app.evaluate_candidate = lambda stats, context=None: {"name": "Perfect", "color": "GREEN"} if stats["Moais"] == 4 else None
         app.log_target_found = lambda _name: None
         app.handle_confirmed_target_window = lambda _process_name: app.stop_event.set() or True
         app.close_client = lambda: None
@@ -1678,6 +1698,19 @@ class GuiRunControlTests(unittest.TestCase):
             gui.MegabonkApp.background_loop(app)
 
         self.assertEqual(app.client.get_map_stats_calls, 0)
+
+    def test_reroll_map_returns_false_when_scan_is_paused(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.run_control_provider = SimpleNamespace(
+            restart_run=lambda: self.fail("restart_run should not be called while paused"),
+            wait_for_next_run=lambda **_kwargs: self.fail("wait_for_next_run should not be called while paused"),
+        )
+        app.client = None
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.log = lambda _message, tag=None: None
+
+        self.assertFalse(gui.MegabonkApp.reroll_map(app))
 
     def test_recording_run_state_split_starts_new_file_when_seed_changes(self) -> None:
         app = self.build_recording_app()

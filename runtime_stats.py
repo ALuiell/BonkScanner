@@ -3,6 +3,7 @@ from __future__ import annotations
 from game_data import MapStat, StatValue
 
 STAT_LABELS = (
+    "Bald Heads",
     "Boss Curses",
     "Challenges",
     "Charge Shrines",
@@ -16,6 +17,7 @@ STAT_LABELS = (
 )
 
 MAP_STAT_TO_LABEL = {
+    MapStat.BALD_HEADS: "Bald Heads",
     MapStat.BOSS_CURSES: "Boss Curses",
     MapStat.CHALLENGES: "Challenges",
     MapStat.CHARGE_SHRINES: "Charge Shrines",

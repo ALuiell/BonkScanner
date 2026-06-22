@@ -101,6 +101,7 @@ class RunControlTests(unittest.TestCase):
                 {
                     "previous_state": previous_state,
                     "previous_stats": previous_stats,
+                    "abort_condition": None,
                 }
             ],
         )
@@ -140,6 +141,19 @@ class RunControlTests(unittest.TestCase):
         provider.wait_for_next_run(client=None)
 
         self.assertEqual(sleep_calls, [0.4])
+
+    def test_hook_provider_wait_can_be_aborted(self) -> None:
+        loader = FakeHookLoader(snapshot_ready=False)
+        client = FakeGameDataClient()
+        provider = HookRunControlProvider(loader, map_load_delay=0.4)
+
+        with self.assertRaises(InterruptedError):
+            provider.wait_for_next_run(
+                client=client,
+                abort_condition=lambda: True,
+            )
+
+        self.assertEqual(client.wait_calls, [])
 
     def test_keyboard_provider_holds_and_releases_reset_key(self) -> None:
         keyboard = FakeKeyboard()
@@ -210,6 +224,17 @@ class RunControlTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RunControlError, "Keyboard restart control is unavailable"):
             provider.restart_run()
+
+    def test_keyboard_provider_wait_can_be_aborted(self) -> None:
+        provider = KeyboardRunControlProvider(
+            FakeKeyboard(),
+            reset_hotkey="r",
+            reset_hold_duration=0.3,
+            map_load_delay=0.4,
+        )
+
+        with self.assertRaises(InterruptedError):
+            provider.wait_for_next_run(abort_condition=lambda: True)
 
 
 if __name__ == "__main__":

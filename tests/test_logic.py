@@ -375,6 +375,36 @@ class LogicTests(unittest.TestCase):
 
         self.assertEqual(result, template)
 
+    def test_high_total_chest_family_uses_raw_microwaves_for_templates(self) -> None:
+        template = {
+            "id": 1,
+            "name": "FOUR_MICRO",
+            "micro": 4,
+        }
+        stats = {
+            "Chests": 69,
+            "Microwaves": 4,
+        }
+
+        result = logic.find_matching_template(stats, ["FOUR_MICRO"], [template])
+
+        self.assertEqual(result, template)
+
+    def test_high_total_chest_family_does_not_treat_zero_microwaves_as_one(self) -> None:
+        template = {
+            "id": 1,
+            "name": "ONE_MICRO",
+            "micro": 1,
+        }
+        stats = {
+            "Chests": 69,
+            "Microwaves": 0,
+        }
+
+        result = logic.find_matching_template(stats, ["ONE_MICRO"], [template])
+
+        self.assertIsNone(result)
+
     def test_templates_are_checked_by_descending_id(self) -> None:
         low = {"id": 1, "name": "LOW", "sm_total": 1}
         high = {"id": 10, "name": "HIGH", "sm_total": 1}
@@ -441,6 +471,39 @@ class LogicTests(unittest.TestCase):
 
         self.assertTrue(logic.conditions_met(matching_stats, ["MICRO"], [self.template]))
         self.assertFalse(logic.conditions_met(failing_stats, ["MICRO"], [self.template]))
+
+    def test_bald_heads_template_does_not_match_on_normal_chest_family(self) -> None:
+        template = {"id": 1, "name": "BALD", "bald_heads": 3}
+        stats = {
+            "Chests": 46,
+            "Bald Heads": 8,
+        }
+
+        result = logic.find_matching_template(stats, ["BALD"], [template])
+
+        self.assertIsNone(result)
+
+    def test_bald_heads_template_matches_on_high_total_chest_family(self) -> None:
+        template = {"id": 1, "name": "BALD", "bald_heads": 3}
+        stats = {
+            "Chests": 69,
+            "Bald Heads": 8,
+        }
+
+        result = logic.find_matching_template(stats, ["BALD"], [template])
+
+        self.assertEqual(result, template)
+
+    def test_bald_heads_template_requires_minimum_count_on_high_total_chest_family(self) -> None:
+        template = {"id": 1, "name": "BALD", "bald_heads": 3}
+        stats = {
+            "Chests": 69,
+            "Bald Heads": 2,
+        }
+
+        result = logic.find_matching_template(stats, ["BALD"], [template])
+
+        self.assertIsNone(result)
 
 
 if __name__ == "__main__":

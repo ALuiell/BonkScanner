@@ -6,6 +6,29 @@ def normalize_microwaves(value: int | None) -> int:
     return value
 
 
+def is_high_total_chest_family(stats: dict) -> bool:
+    chests = stats.get("Chests", 0)
+    return isinstance(chests, (int, float)) and chests >= 69
+
+
+def template_microwaves(stats: dict) -> int:
+    value = stats.get("Microwaves")
+    if is_high_total_chest_family(stats):
+        if value is None:
+            return 0
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 0
+    return normalize_microwaves(value)
+
+
+def supports_bald_heads(stats: dict, context: dict | None = None) -> bool:
+    if is_high_total_chest_family(stats):
+        return True
+    return bool(context and context.get("supports_bald_heads"))
+
+
 def calculate_score(stats: dict, scores_config: dict) -> float:
     """Вычисляет балл карты на основе системы Scores."""
     shady = stats.get("Shady Guy", 0)
@@ -81,13 +104,19 @@ def evaluate_map_by_scores(stats: dict, scores_config: dict) -> dict | None:
         
     return None
 
-def find_matching_template(stats: dict, active_names: list, all_templates: list) -> dict | None:
+def find_matching_template(
+    stats: dict,
+    active_names: list,
+    all_templates: list,
+    context: dict | None = None,
+) -> dict | None:
     """Return the first active template matched by the provided stats."""
     shady = stats.get("Shady Guy", 0)
     moai = stats.get("Moais", 0)
-    microwaves = normalize_microwaves(stats.get("Microwaves"))
+    microwaves = template_microwaves(stats)
 
     boss = stats.get("Boss Curses", 0)
+    bald_heads = stats.get("Bald Heads", 0)
     sm_total = shady + moai
 
     sorted_templates = sorted(all_templates, key=lambda t: t.get("id", 0), reverse=True)
@@ -108,15 +137,23 @@ def find_matching_template(stats: dict, active_names: list, all_templates: list)
             meets_conditions = False
         if "boss" in template and boss < template["boss"]:
             meets_conditions = False
+        if "bald_heads" in template and template["bald_heads"] > 0:
+            if not supports_bald_heads(stats, context) or bald_heads < template["bald_heads"]:
+                meets_conditions = False
 
         if meets_conditions:
             return template
 
     return None
 
-def conditions_met(stats: dict, active_names: list, all_templates: list) -> bool:
+def conditions_met(
+    stats: dict,
+    active_names: list,
+    all_templates: list,
+    context: dict | None = None,
+) -> bool:
     """Check map against active profiles dynamically."""
-    template = find_matching_template(stats, active_names, all_templates)
+    template = find_matching_template(stats, active_names, all_templates, context=context)
     if template is None:
         return False
     return True
