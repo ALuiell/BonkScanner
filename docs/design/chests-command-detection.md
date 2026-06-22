@@ -1,4 +1,4 @@
-# `!chests` Detection Options
+# `!chests` Command Detection Design
 
 ## Purpose
 
@@ -12,6 +12,10 @@ by the Twitch Bot `!chests` command. The important distinction is between:
 The command formatter itself is in `twitch_bot.py::_handle_chests()`. Runtime
 state is maintained by `LiveRunTracker`, and the cumulative counters are read
 by the regular player-stat refresh in `gui_player_stats.py`.
+
+For the raw reverse-engineering background, enum definitions, class layouts,
+and chest-price formula, see
+`docs/recovery/reports/2026-06-10-chests-and-keys-detection.md`.
 
 ## Relevant Game Types
 

@@ -1,92 +1,170 @@
-# Project Wiki: Megabonk Reroll (BonkScanner)
+# Project Guide: Megabonk Reroll (BonkScanner)
 
-This document serves as a comprehensive guide for the Megabonk Reroll project. It describes the architecture, key components, and logic to provide context for future development and maintenance.
+This document provides a compact, up-to-date guide for working on the
+Megabonk Reroll project. It is intended for contributors and coding agents who
+need a practical map of the codebase and the project's working rules.
 
----
-
-## 📌 Overview
-**Megabonk Reroll** (also known as **BonkScanner**) is an automation tool (macro) for the game "Megabonk". It monitors the game's memory in real-time to detect map statistics and automatically performs rerolls until a map satisfies user-defined criteria.
-
-### Key Goals:
-- **Automation:** Automate the tedious process of rerolling maps.
-- **Accuracy:** Use direct memory reading instead of OCR for 100% accuracy.
-- **Flexibility:** Support both hard-coded templates and a weighted scoring system.
+For subsystem-level documentation, architecture notes, and debugging details,
+use the wiki under [docs/wiki](./docs/wiki/Home.md).
 
 ---
 
-## 🛠 Tech Stack
-- **Language:** Python 3.12+
-- **UI Framework:** `PySide6` (Qt widgets with a dark stylesheet-driven interface).
-- **Memory Access:** `pymem` for process attachment and memory reading.
-- **Automation:** `keyboard` for simulating key presses (requires Admin rights).
-- **Other Libs:** `Pillow` (icons), `pywin32` (window focus detection).
+## Overview
+
+Megabonk Reroll, also known as BonkScanner, is a desktop automation tool for
+the game "Megabonk". It reads the game's memory in real time, evaluates map
+quality, and automatically rerolls until a map matches user-defined criteria.
+
+### Core goals
+
+- Automate repetitive map rerolling.
+- Prefer direct memory reads over OCR for accuracy and speed.
+- Support both strict template matching and weighted score-based evaluation.
+- Provide live run inspection, recording, and streamer-facing integrations.
 
 ---
 
-## 🏗 Architecture & Project Structure
+## Tech Stack
 
-### Core Files:
-- **`main.py`**: The application entry point. Initializes the GUI.
-- **`gui.py` + `gui_*` modules**: `gui.py` is the compatibility facade; `gui_app.py` defines `MegabonkApp`, while `gui_layout.py`, `gui_run_control.py`, `gui_templates.py`, `gui_player_stats.py`, `gui_scanner.py`, `gui_dialogs.py`, `gui_shared.py`, and `gui_styles.py` split the PySide6 UI responsibilities.
-- **`game_data.py`**: High-level memory client (`GameDataClient`). Defines offsets for the interactables dictionary in the game memory and maps them to readable stats.
-- **`logic.py`**: Evaluation engine.
-    - `find_matching_template`: Logic for "Templates" mode.
-    - `evaluate_map_by_scores`: Logic for "Scores" mode (weighted calculations).
-- **`config.py`**: Handles `config.json`. Loads settings, handles default templates, and synchronizes with the game's own configuration (reset timings).
-- **`memory.py`**: Low-level wrapper around `pymem`. Provides a `ProcessMemory` class with methods to read pointers, integers, and Mono strings.
-- **`runtime_stats.py`**: Bridges raw `StatValue` objects from `game_data.py` to the simple dictionary format used by `logic.py`.
-- **`updater.py`**: Handles version checks against a remote source (typically GitHub).
+- Language: `Python 3.12+`
+- UI framework: `PySide6`
+- Memory access: `pymem`
+- Automation: `keyboard`
+- Windows integration: `pywin32`
+- Assets / images: `Pillow`
+- Native hook: C# / .NET 8 (`BonkHook.dll`)
+- Overlay server: `ThreadingHTTPServer`
+- Twitch integration: IRC over sockets
 
 ---
 
-## 🚀 Key Features
+## Code Map
 
-### 1. Evaluation Modes
-- **Templates Mode:** Maps are matched against specific minimum requirements (e.g., "S+M: 7, Micro: 2").
-- **Scores Mode:** A weighted system where different stats (Moais, Shady Guy, Boss Curses, Magnets) contribute points. The total is multiplied by a factor based on the number of Microwaves.
-    - **Tiers:** Light, Good, Perfect, Perfect+.
-    - **Scaling:** Automatically adjusts thresholds based on weights.
+### Application and UI
 
-### 2. Direct Memory Reading
-The tool reads from `GameAssembly.dll` using static offsets (e.g., `TYPE_INFO_OFFSET = 0x2FB5E68`). It traverses the game's internal `Interactables` dictionary to find counts for:
-- Shady Guy
-- Moais
-- Microwaves
-- Boss Curses
-- Magnet Shrines
-- And more (Pots, Chests, etc.)
+- `main.py`: Application entry point.
+- `gui.py`: Compatibility facade for the UI layer.
+- `gui_app.py`: Defines `MegabonkApp`, the main application container.
+- `gui_layout.py`, `gui_scanner.py`, `gui_run_control.py`,
+  `gui_player_stats.py`, `gui_templates.py`, `gui_dialogs.py`,
+  `gui_shared.py`, `gui_twitch.py`, `gui_overlay.py`, `gui_styles.py`:
+  Focused UI modules split by responsibility.
 
-### 3. Smart Rerolling
-- **Stable Snapshot Readiness:** Before a map is evaluated, the scanner waits for two matching ready-state stat snapshots so candidate checks run on a stable snapshot instead of doing a second confirmation read in the GUI loop.
-- **Focus Detection:** Pauses automation if the game window is not in the foreground.
-- **Game Config Sync:** Can read and write the game's `quick_reset_time` in its local AppData folder to ensure the macro timing matches the game settings.
+### Memory, evaluation, and runtime logic
 
----
+- `memory.py`: Low-level process memory wrapper.
+- `game_data.py`: Map and reroll-related memory reads.
+- `player_stats.py`: Live player stats, items, weapons, timers, and run data.
+- `runtime_stats.py`: Adapts raw map stats into logic-friendly structures.
+- `logic.py`: Template matching and score evaluation.
+- `live_run_tracker.py`: Tracks stage progress, item deltas, and related live
+  run state.
+- `run_summary.py`: Builds stage summaries and transition-derived aggregates.
 
-## 📜 Development Guidelines
+### Integrations and persistence
 
-### Memory Offsets
-If the game updates, the `TYPE_INFO_OFFSET` in `game_data.py` is the most likely value to change. This offset points to the static class metadata for the interactables system.
-
-### Adding New Stats
-1.  Add the stat to `MapStat` enum in `game_data.py`.
-2.  Add the game's internal string label to `LABEL_TO_STAT`.
-3.  Update `adapt_map_stats` in `runtime_stats.py`.
-4.  Update `logic.py` to include the new stat in scoring or template matching.
-
-### UI Modifications
-The project uses a grid layout. Most UI changes should happen in the focused `gui_*` module for that feature, with `gui.py` kept as a compatibility facade. Remember to update `update_status_ui` if adding new states to the background loop.
+- `config.py`: Loads and saves app settings and runtime preferences.
+- `vod_storage.py`: Persists and loads `.jsonl` run recordings.
+- `twitch_bot.py`: Twitch IRC integration.
+- `overlay_server.py`: Local HTTP server for OBS/browser overlays.
+- `hook_loader.py`: Injects and communicates with `BonkHook.dll`.
+- `updater.py`: Handles packaged-app update checks and update flow.
 
 ---
 
-## ⚠️ Constraints & Known Issues
-- **Admin Rights:** Required to simulate keyboard input in most games.
-- **Process Name:** Defaults to `Megabonk.exe`. Can be changed in `config.json`.
-- **Game Updates:** Any major update to the game's engine or code may break memory offsets.
+## Key Features
+
+### Evaluation modes
+
+- Templates mode: Strict minimum requirements for selected map stats.
+- Scores mode: Weighted evaluation with tiers such as `Light`, `Good`,
+  `Perfect`, and `Perfect+`.
+
+### Live inspection
+
+- Reads map data, player stats, items, weapons, timers, and run progress
+  directly from game memory.
+
+### Recording and replay
+
+- Stores run recordings as `.jsonl` snapshots for replay and analysis.
+
+### Streamer tools
+
+- Twitch chat integration for announcements and commands.
+- OBS/browser overlays for stage summary, tracked items, stats, and banishes.
+
+### Restart control
+
+- Keyboard-based restart automation.
+- Native hook restart via `BonkHook.dll` for more reliable background resets.
 
 ---
 
-## 🗺 Roadmap / Future Ideas
-- [ ] Support for multiple game versions/offsets.
-- [ ] Exporting session stats to CSV for long-term analysis.
-- [ ] Visual overlay on top of the game window.
+## Development Guidelines
+
+### Memory changes
+
+- If a game update breaks memory reads, start by reviewing offsets and pointer
+  chains in `game_data.py` and `player_stats.py`.
+- Do not guess memory behavior. Use the reverse-engineering notes in
+  `docs/recovery/reports/` and related docs first.
+
+### Adding a new map stat
+
+1. Add the stat to the relevant enum or identifier set in `game_data.py`.
+2. Map the game's internal label or source field to that stat.
+3. Update `runtime_stats.py` so the stat reaches the evaluation layer.
+4. Update `logic.py` if the stat should affect templates or scoring.
+5. Update UI and docs if the stat becomes user-visible.
+
+### UI changes
+
+- Prefer editing the focused `gui_*` module for the feature you are touching.
+- Keep `gui.py` as a compatibility facade rather than growing new logic there.
+- If UI state or worker states change, make sure status and control refresh
+  paths stay in sync.
+
+### Documentation-first rule
+
+- For mechanics, formulas, and reverse-engineered behavior, consult project
+  docs before making assumptions.
+- Prefer `docs/wiki/` for architecture and feature behavior.
+- Prefer `docs/design/` for chosen implementation approaches, option
+  comparisons, and fallback strategies for revisitable features.
+- Prefer `docs/recovery/reports/` for memory paths, offsets, and validation
+  notes.
+
+---
+
+## Constraints and Known Risks
+
+- Admin rights may be required for keyboard automation in some setups.
+- The game process name defaults to `Megabonk.exe` unless changed in config.
+- Game updates can invalidate offsets, pointer chains, or hook behavior.
+- Native injection paths may be affected by antivirus or OS protections.
+
+---
+
+## Working Rules for Agents
+
+- Do not start editing code without explicit user approval to proceed.
+- When requirements are unclear, outline the approach first and wait for a
+  clear go-ahead such as "proceed", "start", or "do it".
+- Before changing behavior tied to game memory or formulas, check the project
+  docs instead of inferring from incomplete context.
+
+---
+
+## Recommended Reading
+
+- Main wiki entry: [docs/wiki/Home.md](./docs/wiki/Home.md)
+- Design notes index: [docs/design/README.md](./docs/design/README.md)
+- Scanner and evaluation: [docs/wiki/Scanner_and_Evaluation.md](./docs/wiki/Scanner_and_Evaluation.md)
+- Live stats and memory layout: [docs/wiki/Memory_and_Live_Stats.md](./docs/wiki/Memory_and_Live_Stats.md)
+- Stage transitions: [docs/wiki/Stage_Summary_Transitions.md](./docs/wiki/Stage_Summary_Transitions.md)
+- Recordings and VODs: [docs/wiki/Recordings_and_VODs.md](./docs/wiki/Recordings_and_VODs.md)
+- Integrations and overlays: [docs/wiki/Integrations_and_Overlay.md](./docs/wiki/Integrations_and_Overlay.md)
+- Settings and hooks: [docs/wiki/Settings_and_Hooks.md](./docs/wiki/Settings_and_Hooks.md)
+- Troubleshooting: [docs/wiki/Troubleshooting_and_Diagnostics.md](./docs/wiki/Troubleshooting_and_Diagnostics.md)
+- `!chests` command design: [docs/design/chests-command-detection.md](./docs/design/chests-command-detection.md)
