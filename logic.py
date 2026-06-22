@@ -6,6 +6,15 @@ def normalize_microwaves(value: int | None) -> int:
     return value
 
 
+def raw_microwaves(value: int | None) -> int:
+    if value is None:
+        return 0
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def is_high_total_chest_family(stats: dict) -> bool:
     chests = stats.get("Chests", 0)
     return isinstance(chests, (int, float)) and chests >= 69
@@ -14,13 +23,14 @@ def is_high_total_chest_family(stats: dict) -> bool:
 def template_microwaves(stats: dict) -> int:
     value = stats.get("Microwaves")
     if is_high_total_chest_family(stats):
-        if value is None:
-            return 0
-        try:
-            return max(0, int(value))
-        except (TypeError, ValueError):
-            return 0
+        return raw_microwaves(value)
     return normalize_microwaves(value)
+
+
+def score_microwaves(stats: dict) -> int:
+    # Score mode intentionally keeps the legacy OCR-era 1..2 microwave
+    # buckets so existing score tiers continue to behave as before.
+    return normalize_microwaves(stats.get("Microwaves"))
 
 
 def supports_bald_heads(stats: dict, context: dict | None = None) -> bool:
@@ -34,7 +44,7 @@ def calculate_score(stats: dict, scores_config: dict) -> float:
     shady = stats.get("Shady Guy", 0)
     moai = stats.get("Moais", 0)
     magnet = stats.get("Magnet Shrines", 0)
-    microwaves = normalize_microwaves(stats.get("Microwaves"))
+    microwaves = score_microwaves(stats)
 
     boss = stats.get("Boss Curses", 0)
     
@@ -63,7 +73,7 @@ def evaluate_map_by_scores(stats: dict, scores_config: dict) -> dict | None:
     shady = stats.get("Shady Guy", 0)
     moai = stats.get("Moais", 0)
     sm_total = shady + moai
-    microwaves = normalize_microwaves(stats.get("Microwaves"))
+    microwaves = score_microwaves(stats)
 
     boss = stats.get("Boss Curses", 0)
 

@@ -56,7 +56,7 @@ The `Live Stats` tab shows:
 - `Mob Kills`;
 - `Level`;
 - `Stage Summary`;
-- `Segment Compare`;
+- `Powerups`;
 - `Banishes`.
 
 Additional tabs inside `Live Stats`:
@@ -64,7 +64,7 @@ Additional tabs inside `Live Stats`:
 - `Weapons` - current weapons, their levels, and upgraded weapon stats;
 - `Tomes` - current tomes, their levels, and active effects.
 
-The `Segment Compare` card can compare the current snapshot against an earlier point in the same run and summarize item, kill, level, and time changes.
+The `Powerups` card tracks active powerups (Rage, Shield, Stonks, Clock) and shows their pickup and expiration timestamps.
 
 If some sections temporarily say that data is unavailable, that is not always an error. During loading, some memory pointers may not be ready yet.
 
@@ -144,7 +144,7 @@ Available chat commands:
 - `!tomes` — your tomes with their stat values (Chaos Tome shows level only).
 - `!chaos` / `!chaostome` — displays tracked Chaos Tome level and stat roll totals.
 - `!stages` — detailed stage summary of kills and elapsed time for stages 1-4.
-- `!powerups` — prints active powerup duration info.
+- `!powerups` — displays active powerups (Rage, Shield, Stonks, Clock) with their pickup and expiration timestamps.
 - `!chests` / `!chest` — displays the number of chests opened per stage, keys count, and free chest openings (Free chest includes naturally free chests + chests opened for free using keys).
 - `!presets` / `!preset` — displays active reroller templates or score tiers and weights.
 - `!bonkhelp` — lists all active scanner bot commands (aliases: `!bonkcmds`, `!bonkcommands`, `!bhelp`).

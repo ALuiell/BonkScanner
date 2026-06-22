@@ -54,6 +54,19 @@ class LogicTests(unittest.TestCase):
             with self.subTest(raw_value=raw_value):
                 self.assertEqual(logic.normalize_microwaves(raw_value), expected)
 
+    def test_raw_microwaves_preserves_memory_value_without_legacy_clamp(self) -> None:
+        self.assertEqual(logic.raw_microwaves(7), 7)
+        self.assertEqual(logic.raw_microwaves(0), 0)
+        self.assertEqual(logic.raw_microwaves(None), 0)
+
+    def test_score_microwaves_keeps_legacy_score_buckets_on_high_total_map(self) -> None:
+        stats = {
+            "Chests": 69,
+            "Microwaves": 7,
+        }
+
+        self.assertEqual(logic.score_microwaves(stats), 2)
+
     def test_score_uses_default_weights_and_multipliers_when_config_is_empty(self) -> None:
         stats = {
             "Shady Guy": 2,

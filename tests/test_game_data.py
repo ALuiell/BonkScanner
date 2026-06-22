@@ -581,6 +581,30 @@ class GameDataClientTests(unittest.TestCase):
                 poll_interval=0.001,
             )
 
+    def test_wait_for_map_ready_ignores_missing_bald_heads_in_previous_stats(self) -> None:
+        ready_state = MapGenerationState(
+            is_generating=False,
+            map_seed=1,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        old_stats = full_stats(current=1)
+        new_stats = full_stats(current=1)
+        new_stats.pop(MapStat.BALD_HEADS)
+        client = SequencedGameDataClient(
+            states=[ready_state],
+            stats_snapshots=[new_stats],
+        )
+
+        with self.assertRaisesRegex(TimeoutError, "change_seen=False"):
+            client.wait_for_map_ready(
+                previous_seed=1,
+                previous_stats=old_stats,
+                timeout=0.01,
+                poll_interval=0.001,
+            )
+
     def test_wait_for_map_ready_can_use_previous_stats_as_baseline(self) -> None:
         ready_state = MapGenerationState(
             is_generating=False,

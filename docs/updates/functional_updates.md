@@ -13,6 +13,22 @@ Status legend:
 
 ## Open Updates
 
+#### 6. Extend Scores For The 69-Chest Map Family
+
+Status: `[Open]`
+
+Goal:
+
+- Keep current legacy score behavior stable while planning a dedicated score extension for the 69-chest map family.
+- Extend score mode later with raw `Microwaves` and `Bald Heads` for the map family that actually exposes those values in memory.
+
+Planned future work:
+
+- Add a dedicated score path for the 69-chest map family instead of reusing the legacy OCR-era microwave normalization everywhere.
+- Decide whether the 69-chest map family should use distinct score weights, thresholds, or both.
+- Add `Bald Heads` as a score input only for the map family where it exists.
+- Keep legacy score tiers backward-compatible for older maps unless there is an explicit rebalance pass.
+
 ### Twitch Commands
 
 #### 1. Twitch Commons

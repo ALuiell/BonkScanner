@@ -157,7 +157,11 @@ class GameDataClient:
         "Pots": MapStat.POTS,
         "Shady Guy": MapStat.SHADY_GUY,
     }
-    EXPECTED_READY_STATS = frozenset(LABEL_TO_STAT.values())
+    # Readiness/change detection should stay anchored to the baseline stat set
+    # shared across maps. Map-specific extras remain readable, but do not
+    # participate in map-ready normalization.
+    OPTIONAL_READY_STATS = frozenset({MapStat.BALD_HEADS})
+    EXPECTED_READY_STATS = frozenset(LABEL_TO_STAT.values()) - OPTIONAL_READY_STATS
 
     def __init__(
         self,
