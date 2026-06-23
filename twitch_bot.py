@@ -780,14 +780,14 @@ class TwitchBotWorker(QThread):
 
     def _handle_presets(self, channel: str):
         mode = getattr(config, "EVALUATION_MODE", "templates")
-        
+
         if mode == "templates":
             active_names = getattr(config, "ACTIVE_TEMPLATES", [])
             templates_list = getattr(config, "TEMPLATES", [])
-            
+
             # Create a lookup map for easy access
             templates_by_name = {t["name"]: t for t in templates_list if "name" in t}
-            
+
             active_parts = []
             for name in active_names:
                 template = templates_by_name.get(name)
@@ -815,30 +815,30 @@ class TwitchBotWorker(QThread):
                     active_parts.append(f"{name}({conds_str})")
                 else:
                     active_parts.append(name)
-                    
+
             if not active_parts:
                 msg = "[Reroller] Mode: Templates | Active: None"
             else:
                 msg = f"[Reroller] Mode: Templates | Active: {', '.join(active_parts)}"
-                
+
         elif mode == "scores":
             scores_sys = getattr(config, "SCORES_SYSTEM", {})
             active_tiers = scores_sys.get("active_tiers", [])
             thresholds = scores_sys.get("thresholds", {})
             weights = scores_sys.get("weights", {})
-            
+
             tier_parts = [f"{tier} ({thresholds.get(tier, 0.0):.1f}+)" for tier in active_tiers]
-            
+
             key_names = {"moais": "Moais", "shady": "Shady", "boss": "Boss", "magnet": "Magnet"}
             weight_parts = [f"{key_names.get(k, k.capitalize())}={v}" for k, v in weights.items()]
-            
+
             tiers_str = ", ".join(tier_parts) if tier_parts else "None"
             weights_str = ", ".join(weight_parts) if weight_parts else "None"
-            
+
             msg = f"[Reroller] Mode: Scores | Active Tiers: {tiers_str} | Weights: {weights_str}"
         else:
             msg = f"[Reroller] Mode: Unknown ({mode})"
-            
+
         self._send_chat(channel, msg)
 
     @staticmethod
@@ -882,7 +882,7 @@ class TwitchBotWorker(QThread):
                 "Available commands: {commands_list}",
                 commands_list=commands_list
             )
-            
+
         self._send_chat(channel, msg)
 
     def _check_commands_announcement(self, channel: str, now: float | None = None):

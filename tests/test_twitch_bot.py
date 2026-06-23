@@ -286,7 +286,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._send_chat = MagicMock()
         self.run_tracker.has_active_run.return_value = True
         self.run_tracker.latest_snapshot.return_value = SimpleNamespace(stats={})
-    
+
         # Test with 1 key
         self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
             5, 46, 1, 3, 1, 1, {1: 5}, {1: 46}, True, 0.4, 4, True
@@ -295,7 +295,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._send_chat.assert_called_with(
             "channel", "Chests: T1:5/46 | Total: 5/46 | Paid: 3 | Key Procs: 1/4 (25.0%) | Expected: 0.4 | Free Chests: 1 | Keys: 1 (9.1%)"
         )
-        
+
         # Test with 10 keys (and multiple maps)
         self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
             10, 46, 10, 30, 15, 5, {1: 40, 2: 10}, {1: 46, 2: 46}, True, 21.75, 45, True
@@ -304,7 +304,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._send_chat.assert_called_with(
             "channel", "Chests: T1:40/46 T2:10/46 | Total: 50/92 | Paid: 30 | Key Procs: 15/45 (33.3%) | Expected: 21.8 | Free Chests: 5 | Keys: 10 (50.0%)"
         )
-        
+
         # Test with multiple maps, where one map has 0 opened chests (e.g. immediately after transition)
         self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
             0, 46, 10, 20, 18, 2, {1: 40, 2: 0}, {1: 46, 2: 46}, True, 19.0, 38, True
@@ -313,7 +313,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._send_chat.assert_called_with(
             "channel", "Chests: T1:40/46 T2:0/46 | Total: 40/92 | Paid: 20 | Key Procs: 18/38 (47.4%) | Expected: 19.0 | Free Chests: 2 | Keys: 10 (50.0%)"
         )
-        
+
         # Test with 0 keys
         self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
             20, 46, 0, 18, 0, 2, {1: 20}, {1: 46}, True
@@ -380,7 +380,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         from unittest.mock import patch
         import config
         self.bot._send_chat = MagicMock()
-        
+
         with patch.object(config, 'EVALUATION_MODE', 'templates'), \
              patch.object(config, 'ACTIVE_TEMPLATES', ['LIGHT', 'MERCHANT']), \
              patch.object(config, 'TEMPLATES', [
@@ -397,13 +397,13 @@ class TestTwitchBotWorker(unittest.TestCase):
         from unittest.mock import patch
         import config
         self.bot._send_chat = MagicMock()
-        
+
         scores_system_mock = {
             "active_tiers": ["Light", "Perfect"],
             "thresholds": {"Light": 14.0, "Perfect": 25.0},
             "weights": {"moais": 3.0, "shady": 2.0, "boss": 1.0, "magnet": 0.5}
         }
-        
+
         with patch.object(config, 'EVALUATION_MODE', 'scores'), \
              patch.object(config, 'SCORES_SYSTEM', scores_system_mock):
             self.bot._handle_presets("channel")

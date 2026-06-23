@@ -60,10 +60,10 @@ public class PlayerInventory
     public PlayerStatsNew playerStats;   // Offset: 0x10
     public ItemInventory itemInventory;   // Offset: 0x20 (Pointer to ItemInventory)
     public TomeInventory tomeInventory;   // Offset: 0x48
-    
+
     private float <gold>k__BackingField;  // Offset: 0x68 (Current gold - float)
     private int <goldInt>k__BackingField; // Offset: 0x70 (Current gold - int)
-    
+
     public int banishes;                  // Offset: 0x74
     public int refreshes;                 // Offset: 0x78
     public int skips;                     // Offset: 0x7C
@@ -73,7 +73,7 @@ public class PlayerInventory
 
     // Methods
     // RVA: 0x4DFF90 | VA: 0x1804DFF90 -- Modifies player's gold amount
-    public void ChangeGold(int amount); 
+    public void ChangeGold(int amount);
 }
 ```
 
@@ -89,7 +89,7 @@ public class ItemInventory
 
     // Methods
     // RVA: 0x4427E0 | VA: 0x1804427E0 -- Returns the stack amount of an item
-    public int GetAmount(EItem eItem); 
+    public int GetAmount(EItem eItem);
 }
 ```
 
@@ -107,24 +107,24 @@ public class ItemKey : ItemBase
 
     // Methods
     // RVA: 0x38CFF0 | VA: 0x18038CFF0 -- Returns the current proc chance
-    public float GetChance(); 
+    public float GetChance();
 }
 ```
 
 > [!NOTE]
 > **Key Stacking Formula: Verified & Confirmed** ✅
-> 
+>
 > The standard Key item uses a **hyperbolic stacking formula** to calculate `currentChance` from the number of key stacks ($n$, stored in `amount` at `0x18` of `ItemBase`):
-> 
+>
 > $$\text{currentChance} = \frac{\text{chancePerStack} \times n}{\text{chancePerStack} \times n + 1.0}$$
-> 
+>
 > With `chancePerStack = 0.10f` (10% chance per stack):
 > - **1 key**: $\approx 9.09\%$ chance (diminished from 10% base value)
 > - **10 keys**: $50.0\%$ chance
 > - **50 keys**: $\approx 83.33\%$ chance
 > - **100 keys**: $\approx 90.91\%$ chance
 > - **99,990 keys**: $\approx 99.99\%$ chance
-> 
+>
 > You can never reach exactly $100\%$ chance, but it asymptotically approaches $100\%$ with diminishing returns per stack.
 
 ---
@@ -152,16 +152,16 @@ public class InteractableChest : BaseInteractable
 
     // Methods
     // RVA: 0x452FB0 | VA: 0x180452FB0 -- Main interaction entry point
-    public override bool Interact(); 
+    public override bool Interact();
 
     // RVA: 0x453990 | VA: 0x180453990 -- Internal opening routine
-    private void OpenChestImplementation(); 
+    private void OpenChestImplementation();
 
     // RVA: 0x452F50 | VA: 0x180452F50 -- Computes the gold cost of the chest
-    private int GetPrice(); 
+    private int GetPrice();
 
     // RVA: 0x452B00 | VA: 0x180452B00 -- Checks if player has enough gold to purchase
-    private bool CanAfford(); 
+    private bool CanAfford();
 }
 ```
 
@@ -184,10 +184,10 @@ public class ChestOpening : MonoBehaviour
 
     // Methods
     // RVA: 0x351380 | VA: 0x180351380 -- Starts chest open animation with specific loot
-    public void OpenChest(ItemData itemData); 
+    public void OpenChest(ItemData itemData);
 
     // RVA: 0x351660 | VA: 0x180351660 -- Configures meshes and materials based on chest type
-    public void SetChest(EChest chestType); 
+    public void SetChest(EChest chestType);
 }
 ```
 
@@ -238,13 +238,13 @@ Where:
 * **$\text{chestPriceIncrease}$** = `1.22f` (static field at `0x44` of `MoneyUtility`)
 * **$N$** = `chestsPurchased` (static field at `0x48` of `MoneyUtility`), representing the number of chests already purchased in the run.
 * **$\text{AccumulatedIncrease}$** is a flat value calculated piecewise based on the number of chests purchased:
-  * **For $N \le 10$:**  
+  * **For $N \le 10$:**
     $\text{AccumulatedIncrease} = N \times 35$
-  * **For $10 < N \le 20$:**  
+  * **For $10 < N \le 20$:**
     $\text{AccumulatedIncrease} = N \times 35 + (N - 10) \times 300$
-  * **For $20 < N \le 30$:**  
+  * **For $20 < N \le 30$:**
     $\text{AccumulatedIncrease} = N \times 35 + (N - 10) \times 300 + (N - 20) \times 550$
-  * **For $30 < N \le 40$:**  
+  * **For $30 < N \le 40$:**
     $\text{AccumulatedIncrease} = N \times 35 + (N - 10) \times 300 + (N - 20) \times 550 + (N - 30) \times 1200$
   * *Note: For thresholds $N > 40$ and $N > 50$, there is a copy-paste bug in the game's assembly where it continues to subtract `30` instead of `40` or `50` (i.e. `(N - 30) * 2400` and `(N - 30) * 4500` respectively).*
 

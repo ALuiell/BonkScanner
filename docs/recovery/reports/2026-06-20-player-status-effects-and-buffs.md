@@ -92,7 +92,7 @@ public enum EStatusEffect // TypeDefIndex: 5575
 	public const EStatusEffect BossPoison = 10;
 }
 
-// Namespace: 
+// Namespace:
 public class PlayerInventory // TypeDefIndex: 4801
 {
 	public PlayerStatsNew playerStats; // 0x10

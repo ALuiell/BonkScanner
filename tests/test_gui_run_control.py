@@ -4295,7 +4295,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_map_stats=fail_map_stats
         )
         app.overlay_state_store = None
-        
+
         result = gui.MegabonkApp.refresh_live_player_stats_now(app)
         self.assertTrue(result)
         self.assertEqual(chests_and_keys_args, [(12, 50, 1)])

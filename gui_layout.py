@@ -1413,7 +1413,7 @@ class GuiLayoutMixin:
         self.twitch_stage_announcements_cb = QCheckBox("Announce Stage Transitions")
         self.twitch_stage_announcements_cb.setChecked(config.TWITCH_BOT.get("stage_announcements", True))
         ann_layout.addWidget(self.twitch_stage_announcements_cb)
-        
+
         self.twitch_commands_announcements_cb = QCheckBox("Periodically announce available commands")
         self.twitch_commands_announcements_cb.setChecked(config.TWITCH_BOT.get("commands_announcements", False))
         ann_layout.addWidget(self.twitch_commands_announcements_cb)
