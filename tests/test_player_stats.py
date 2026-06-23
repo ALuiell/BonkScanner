@@ -1193,6 +1193,48 @@ class PlayerStatsTimelineTests(unittest.TestCase):
         self.assertEqual(level, 4)
         self.assertAlmostEqual(modifiers[12][0].value, 0.504)
 
+    def test_chaos_tracking_state_retries_unresolved_level_entry_without_version_change(self) -> None:
+        memory = build_player_stats_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x20001600
+        tome_inventory = 0x23100000
+        levels_dict = 0x23100100
+        level_entries = 0x23100200
+        level_entry = level_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+
+        memory.pointers.update(
+            {
+                owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
+                player_inventory + PlayerStatsClient.TOME_INVENTORY_OFFSET: tome_inventory,
+                player_inventory + PlayerStatsClient.STAT_INVENTORY_OFFSET: 0,
+                tome_inventory + PlayerStatsClient.TOME_LEVELS_DICT_OFFSET: levels_dict,
+                levels_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: level_entries,
+            }
+        )
+        memory.ints.update(
+            {
+                levels_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                levels_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 7,
+                level_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: -1,
+                level_entry + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET: 2,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        level, modifiers = client.get_chaos_tracking_state(owner_stats)
+        self.assertIsNone(level)
+        self.assertEqual(modifiers, {})
+
+        memory.ints[level_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET] = 1
+        memory.ints[level_entry + PlayerStatsClient.STAT_DICT_ENTRY_KEY_OFFSET] = (
+            PlayerStatsClient.CHAOS_TOME_ID
+        )
+        memory.ints[level_entry + PlayerStatsClient.STAT_DICT_ENTRY_VALUE_OFFSET] = 3
+
+        level, modifiers = client.get_chaos_tracking_state(owner_stats)
+        self.assertEqual(level, 3)
+        self.assertEqual(modifiers, {})
+
     def test_chaos_tracking_state_rescans_changed_modifier_list(self) -> None:
         memory = build_player_stats_memory()
         owner_stats = 0x20000300

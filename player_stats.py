@@ -1085,10 +1085,9 @@ class PlayerStatsClient:
         if (
             levels_dict != self._cached_chaos_level_dict
             or entries != self._cached_chaos_level_entries
-            or (
-                not self._cached_chaos_level_address
-                and version != self._cached_chaos_level_version
-            )
+            # Keep retrying while the entry is unresolved: dictionary version can
+            # advance before its entry array/count is fully visible to this read.
+            or not self._cached_chaos_level_address
         ):
             self._cached_chaos_level_dict = levels_dict
             self._cached_chaos_level_entries = entries
