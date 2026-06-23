@@ -147,7 +147,7 @@ class PlayerStatsMixin:
             self.update_chaos_tome_tracker_timer,
         )
 
-    def refresh_chaos_tome_tracker_now(self) -> bool:
+    def refresh_chaos_tome_tracker_now(self, *, refresh_auxiliary: bool = True) -> bool:
         try:
             client = self._get_player_stats_client()
             owner_stats = client.resolve_owner_stats()
@@ -160,7 +160,7 @@ class PlayerStatsMixin:
             if callable(should_refresh_powerup_tracker):
                 should_refresh_powerups = should_refresh_powerup_tracker()
 
-            if should_refresh_powerups:
+            if refresh_auxiliary and should_refresh_powerups:
                 try:
                     powerups_snapshot = client.get_powerup_tracking_snapshot(owner_stats)
                     self.live_run_tracker.update_powerups(powerups_snapshot)
@@ -177,7 +177,9 @@ class PlayerStatsMixin:
                 "_last_chest_expected_refresh_at",
                 None,
             )
-            if last_chest_refresh is None or now - last_chest_refresh >= 0.5:
+            if refresh_auxiliary and (
+                last_chest_refresh is None or now - last_chest_refresh >= 0.5
+            ):
                 self._last_chest_expected_refresh_at = now
                 try:
                     chests_bought, keys_count = client.get_expected_chest_inputs(
@@ -652,6 +654,10 @@ class PlayerStatsMixin:
 
         if hasattr(self, "refresh_session_tracked_item_stats_ui"):
             self.refresh_session_tracked_item_stats_ui()
+        # Keep the live Chaos Tome card in sync with the same refresh that paints
+        # the rest of the live stats UI instead of relying on the separate timer
+        # to have populated the tracker first.
+        self.refresh_chaos_tome_tracker_now(refresh_auxiliary=False)
         chaos_snapshot_reader = getattr(self.live_run_tracker, "chaos_tome_snapshot", None)
         chaos_tome_snapshot = chaos_snapshot_reader() if callable(chaos_snapshot_reader) else None
         chest_snapshot_reader = getattr(self.live_run_tracker, "get_chest_stats", None)
