@@ -4,6 +4,88 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Archived & Shelved Items (Archived 2026-06-23)
+
+### Stage Summary Must Anchor To Raw Stage Index And Treat Boss As Virtual Stage
+
+Status: `[Archived]`
+
+Goal:
+
+- Make `Stage Summary` deterministic when the app opens in the middle of a run.
+- Use the raw memory `stage_index` as the only source of truth for normal map rows.
+- Treat boss stage as a separate virtual `Stage 4`, not as a normal raw `stage_index` value.
+- Stop `Stage Summary` from starting at row 1 just because the tracker attached late.
+
+Required baseline mapping:
+
+- Raw memory `stage_index` values must map directly to summary rows:
+  - `0 -> Stage 1`
+  - `1 -> Stage 2`
+  - `2 -> Stage 3`
+- This mapping is a hard rule, not an inference layer.
+- Do not pre-convert the raw value into a human stage number before it reaches live snapshots or summary logic.
+
+Required attach behavior:
+
+- If the app opens during Stage 1, `Stage Summary` starts filling row 1.
+- If the app opens during Stage 2, `Stage Summary` starts filling row 2 and leaves Stage 1 empty.
+- If the app opens during Stage 3, `Stage Summary` starts filling row 3 and leaves Stages 1-2 empty.
+- Late attach must not restart the table from Stage 1.
+
+Boss-stage rules:
+
+- `Stage 4` is not represented by a normal raw `stage_index`.
+- Raw `stage_index=2` still means `Stage 3` by default.
+- Boss stage must be promoted to virtual `Stage 4` only after an observed transition marker, not from the base raw index alone.
+- Do not let a single isolated first snapshot in ghost phase automatically start the table on `Stage 4`.
+
+Allowed boss transition markers:
+
+- Existing timer-based transition markers may still be used.
+- Add a dedicated collapse marker based only on raw map activities for:
+  - `chests`
+  - `pots`
+- Valid collapse examples:
+  - `chests: 22/46 -> 23/23`
+  - `pots: 5/55 -> 5/5`
+- These are good boss markers because the reported max collapses downward to the current observed value.
+
+What must not count as boss detection:
+
+- Honest full-clear values on the normal map must not trigger `Stage 4`, for example:
+  - `chests: 46/46`
+  - `pots: 55/55`
+- The critical signal is not `current == max` by itself.
+- The critical signal is that `max` shrank relative to the previously observed normal-map baseline.
+
+Implementation constraints:
+
+- Keep the logic split into two layers:
+  - normal stage row selection from raw `stage_index`
+  - virtual `Stage 4` promotion from explicit boss markers
+- Do not merge these into one heuristic that can reinterpret raw `stage_index` based on ghost phase alone.
+- Preserve raw `stage_index` all the way through:
+  - memory read
+  - live snapshot payload
+  - live tracker state
+  - stage summary builder
+- Any human-readable stage number should be derived only at the final mapping point.
+
+Regression coverage required:
+
+- Opening the app on raw `stage_index=1` must fill Stage 2 and leave Stage 3 empty.
+- Opening the app on raw `stage_index=2` must fill Stage 3 and leave Stage 4 empty unless a boss marker is observed later.
+- Opening the app directly in ghost phase on a normal Stage 2 or Stage 3 map must not automatically start on `Stage 4`.
+- A later observed collapse in `chests` or `pots` may promote the run from Stage 3 to Stage 4.
+- Persist the “minimum total” marker into recorded/VOD snapshots if recorded summaries must match live summaries.
+
+Archive note:
+
+- Shelved out of the active `functional_updates.md` list.
+
+---
+
 ## Completed / Done Items (Archived 2026-06-21)
 
 ### Mid-Run `!chests` Recovery And Honest Totals

@@ -2,6 +2,7 @@
 old/my_private_settings.py
 
 # === DOCUMENTATION & PERSONAL NOTES & CONFIGS===
+AGENT.md
 Instructions_*.txt
 config.json
 
@@ -40,5 +41,7 @@ htmlcov/
 vods/
 stats_recordings/
 chaos_validation_runs/
+tools/
+docs/recovery/HISTORY-DONT-USE/
 
 Dump
