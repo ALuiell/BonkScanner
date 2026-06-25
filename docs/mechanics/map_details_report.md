@@ -46,18 +46,22 @@ Please fill in the data for each of the 3 maps below, including memory addresses
 - Standard `Pots` are completely replaced by `Crypt Pots` (25 per crypt).
 - Features specialized `Crypt Chests` (6 per crypt) in addition to the standard `Chests` (69 on the main map).
 - Presence of map-specific interactables: `Pumpkin` (105) and `Gravestones` (22).
-- The entire progression cycle (`crypt1` -> `main map` -> `crypt2` -> `boss`) is loaded as a single entity into memory. The pointers remain completely static throughout all these transitions: **`Current Map Ptr` = 0x20f412adee0**, and **`Current Stage Ptr` = 0x20f412a8c60**.
+- The entire progression cycle (`crypt1` -> `main map` -> `crypt2` -> `boss` -> `post-boss main map`) is loaded as a single entity into memory. The pointers remain completely static throughout all these transitions: **`Current Map Ptr` = 0x20f412adee0**, and **`Current Stage Ptr` = 0x20f412a8c60**.
+- The raw `stage_index` also remains effectively useless for tracker-side phase detection here. In live validation, Graveyard continued to report raw **`stage_index = 0`** across the different sub-phases, so software should not expect a clean raw stage progression inside this map.
 - **Timer Behavior**: 
-  - **Crypt 1**: UI reverse countdown lasts **1:30**. Memory `Stage Time` stays frozen at `0.0`.
-  - **Main Map**: Memory `Stage Time` ticks upwards normally. UI shows a 16-minute countdown. Once the 16 minutes elapse, a "Ghost Phase" begins and the UI timer starts counting upwards.
-  - **Boss Room**: Memory `Stage Time` resets and ticks upwards from `0.0`. The UI displays a 16-minute countdown to defeat the final boss.
+  - **Crypt 1 Start Room**: The timer does **not** start immediately on spawn. The crypt timer begins only after the player exits the initial room.
+  - **Crypt 1 / Crypt 2**: The UI uses a reverse countdown, but the relevant memory field is a dedicated **`crypt_timer`** that ticks **upwards**. The visible countdown duration is **not fixed at 1:30**; it varies by seed. After the visible timer reaches `00:00`, the UI clamps at `00:00`, while memory `crypt_timer` continues to increase.
+  - **Main Map**: The main outdoor phase uses the regular `stage_timer` path. The UI behaves like a **16:00** countdown (`960s` limit), then transitions into Ghost Phase overtime formatting.
+  - **Boss Room**: On entry, the UI initially shows **16:00**, but when the final boss actually appears the displayed timer jumps down to **10:00**. This phase still reuses the same raw map/stage identity as the rest of Graveyard.
+  - **Post-Boss Ghost Phase**: After the boss dies, there is a short transition (roughly `10s`) before the ghost/final swarm phase starts. The most reliable dedicated timer here is **`final_swarm_timer`**, which ticks upward and continues seamlessly even if the player stays in the boss room for a while and only later returns through the portal to the main map.
 - **Crypt Boss Mechanics**: In both Crypt 1 and Crypt 2, when the countdown timer ends, a specific boss named **Spooky Steeve** spawns.
-- **Final Boss Mechanics & Ghost Phase Transition**: Players must manually summon and defeat 4 mini-bosses on the Main Map to get 4 keys, unlock Crypt 2, and eventually navigate to the Final Boss room. Upon entering, players are given 16 minutes (UI countdown) to kill the boss. Once defeated, the player is dropped back onto the Main Map, and the memory variable `Stage Time` is forcefully **fast-forwarded** (e.g., jumping directly to ~597 seconds, which is ~10 minutes). This artificial jump actually causes `Stage Time` to exceed the total `Game Time`! This jump intentionally triggers the Ghost Phase (hard mode) to start almost immediately (in ~3-8 seconds) upon returning to the main map. This is a core map mechanic that seamlessly transitions the player into the ghost phase without making them wait.
+- **Final Boss Mechanics & Ghost Phase Transition**: Players must manually summon and defeat 4 mini-bosses on the Main Map to get 4 keys, unlock Crypt 2, and eventually navigate to the Final Boss room. After the boss dies, the game transitions into a shared post-boss ghost phase. The important practical detail is that this post-boss timer is **shared between the boss instance and the returned main map**; leaving through the portal does **not** restart it from zero. For tracker logic, `final_swarm_timer` is a much safer source of truth here than trying to reconstruct the phase from `stage_ptr`, `stage_index`, or raw room changes.
 - **Dynamic Interactables & Object Mapping**: 
   - `Crypt Pots` and `Crypt Chests` exist **only** inside the crypts. When exiting to the Main Map or entering the Boss room, they are completely removed from the memory dictionary.
   - On the Main Map, standard `Pots` are entirely replaced by **`Pumpkins`** (105).
   - In addition to standard `Greed Shrines` (12), the Main Map features **`Gravestones`** (22) which serve a similar or supplementary role.
   - The number of `Microwaves` is variable and can range from 4 to 8 per run.
+  - For tracker-side Graveyard detection, the strongest practical markers are `Pumpkin`, `Gravestones`, `Crypt Chests`, `Crypt Pots`, or `Chests.max == 69`. The mere absence of standard `Pots` is **not** strong enough to use as a standalone proof.
 
 ---
 
@@ -141,8 +145,9 @@ Looking across **Graveyard**, **Forest**, and **Desert**, the game employs disti
 
 ### 1. The Monolith (Graveyard)
 * **Structure**: The entire run (Crypts, Main Map, Boss) is a single, static `Stage Ptr`. 
-* **Transitions**: Progression is entirely illusionary. You never leave the stage; the game simply teleports you and violently hot-swaps the memory dictionary (injecting/removing `Crypt Pots` and `Crypt Chests` dynamically).
-* **Timers**: Timers are completely non-linear. They freeze at `0.0` inside crypts, count down via UI but tick up in memory, and jump to artificial values (~597s) upon boss death.
+* **Transitions**: Progression is entirely illusionary. You never leave the stage in raw memory terms; the game teleports the player and violently hot-swaps the memory dictionary (injecting/removing `Crypt Pots` and `Crypt Chests` dynamically).
+* **Raw IDs**: `Current Stage Ptr`, `Current Map Ptr`, and even raw `stage_index` are not reliable sub-phase separators here.
+* **Timers**: Timers are completely non-linear. Crypt UI uses a reverse countdown while memory `crypt_timer` ticks upward and continues past `00:00`. The main outdoor phase uses `stage_timer` with a `960s` limit. The post-boss ghost phase is best modeled with a dedicated `final_swarm_timer` that continues across the boss room and the returned main map.
 
 ### 2. The False Climax (Forest & Desert)
 * **Structure**: Stages 1, 2, and 3 behave like normal sequential levels. For tracker purposes, the raw progression cleanly reaches Stage 3, and the Boss Room is then inferred as a virtual `Stage 4`.
@@ -150,7 +155,7 @@ Looking across **Graveyard**, **Forest**, and **Desert**, the game employs disti
 * **Timers**: Timers are mostly standard but feature massive artificial "fast-forwards" at the end of each stage (jumping to ~590s or ~530s) to force the Ghost Phase if the player lingers too long or kills the boss.
 
 ### Conclusion for Tracking Software (`live_run_tracker.py`)
-Any tracker relying on `Current Stage Ptr` changes to detect room transitions will completely fail to see the boss room in Forest/Desert, and will fail to see *any* transitions in Graveyard. In the current BonkScanner model, Stage 4 is a **derived tracker state**, not a directly trusted raw `stage_index` value. Robust tracking must monitor `Stage Time` resets to `0.0`, ghost-phase timer jumps, and activity-dictionary collapses rather than relying solely on `Stage Ptr`.
+Any tracker relying on `Current Stage Ptr` changes to detect room transitions will completely fail to see the boss room in Forest/Desert, and will fail to see *any* meaningful sub-phase transitions in Graveyard. In the current BonkScanner model, Stage 4 is a **derived tracker state**, not a directly trusted raw `stage_index` value. Robust tracking must monitor timer-family changes (`stage_timer` vs `crypt_timer` vs `final_swarm_timer`), `Stage Time` resets/jumps, and activity-dictionary collapses rather than relying solely on `Stage Ptr`.
 
 
 ---

@@ -217,7 +217,6 @@ ITEM_DISPLAY_COLOR_BY_CANONICAL_NAME: dict[str, str] = {
 ITEM_DISPLAY_NAME_BY_RAW_VALUE: dict[str, str] = {
     **ITEM_UI_NAME_BY_ENUM_NAME,
     "GoldenRing": "The One Ring",
-    "NoImplementation": "The One Ring",
 }
 
 

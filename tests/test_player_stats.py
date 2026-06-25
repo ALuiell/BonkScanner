@@ -324,6 +324,64 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertEqual(items, ("Wrench x2",))
 
+    def test_get_passive_items_prefers_item_id_for_crypt_key_over_placeholder_class(self) -> None:
+        memory = self.build_memory()
+        passive_entries = 0x20000800
+        class_name_ptr = 0x20000B00
+        memory.ints[
+            passive_entries
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET
+        ] = 81
+        memory.ascii_strings[class_name_ptr] = "ItemNoImplementation"
+        client = PlayerStatsClient(memory=memory)
+
+        items = client.get_passive_items()
+
+        self.assertEqual(items, ("Crypt key x2",))
+
+    def test_get_passive_items_uses_item_id_for_one_ring_when_class_is_placeholder(self) -> None:
+        memory = self.build_memory()
+        passive_entries = 0x20000800
+        class_name_ptr = 0x20000B00
+        memory.ints[
+            passive_entries
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET
+        ] = 79
+        memory.ascii_strings[class_name_ptr] = "ItemNoImplementation"
+        client = PlayerStatsClient(memory=memory)
+
+        items = client.get_passive_items()
+
+        self.assertEqual(items, ("The One Ring x2",))
+
+    def test_get_passive_items_falls_back_to_class_name_when_item_id_is_unknown(self) -> None:
+        memory = self.build_memory()
+        passive_entries = 0x20000800
+        class_name_ptr = 0x20000B00
+        memory.ints[
+            passive_entries
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET
+        ] = 999
+        memory.ascii_strings[class_name_ptr] = "ItemGoldenEgg"
+        client = PlayerStatsClient(memory=memory)
+
+        items = client.get_passive_items()
+
+        self.assertEqual(items, ("Golden Egg x2",))
+
+    def test_get_passive_items_falls_back_to_class_name_when_item_id_is_unreadable(self) -> None:
+        memory = self.build_memory()
+        class_name_ptr = 0x20000B00
+        memory.ascii_strings[class_name_ptr] = "ItemGoldenEgg"
+        client = PlayerStatsClient(memory=memory)
+
+        items = client.get_passive_items()
+
+        self.assertEqual(items, ("Golden Egg x2",))
+
     def test_get_passive_item_count_reads_only_requested_stack(self) -> None:
         memory = self.build_memory()
         memory.ascii_strings[0x20000B00] = "ItemKey"
@@ -371,7 +429,6 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(items, ("Clover x199",))
 
     def test_format_item_name_uses_item_display_overrides(self) -> None:
-        self.assertEqual(PlayerStatsClient._format_item_name("ItemNoImplementation"), "The One Ring")
         self.assertEqual(PlayerStatsClient._format_item_name("ItemGoldenRing"), "The One Ring")
         self.assertEqual(PlayerStatsClient._format_item_name("ItemBobsLantern"), "Bob's Light")
         self.assertEqual(PlayerStatsClient._format_item_name("ItemGloveBlood"), "Slurp Gloves")

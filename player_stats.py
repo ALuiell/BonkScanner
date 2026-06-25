@@ -894,7 +894,6 @@ class PlayerStatsClient:
             return ()
         if count > self.MAX_PASSIVE_ITEM_DICT_ENTRIES:
             raise MemoryReadError(f"Passive item dictionary count is invalid: {count}")
-
         items: list[str] = []
         broken_entries = 0
         for index in range(count):
@@ -904,10 +903,20 @@ class PlayerStatsClient:
                 if not item_value:
                     continue
 
-                class_meta = self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
-                name_ptr = self.memory.read_ptr(class_meta + self.CLASS_META_NAME_PTR_OFFSET) if class_meta else 0
-                raw_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
-                item_name = self._format_item_name(raw_name)
+                try:
+                    item_id = self.memory.read_i32(entry + self.DICT_ENTRY_KEY_OFFSET)
+                    enum_name = ITEM_ENUM_NAMES_BY_ID.get(item_id)
+                except MemoryReadError:
+                    enum_name = None
+                
+                if enum_name:
+                    item_name = self._format_item_name(f"Item{enum_name}")
+                else:
+                    class_meta = self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
+                    name_ptr = self.memory.read_ptr(class_meta + self.CLASS_META_NAME_PTR_OFFSET) if class_meta else 0
+                    raw_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
+                    item_name = self._format_item_name(raw_name)
+
                 if not item_name:
                     continue
 
