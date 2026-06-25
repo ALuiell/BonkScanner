@@ -1312,15 +1312,16 @@ class TwitchCommandSettingsDialog(QDialog):
         tab_templates_layout.addWidget(templates_scroll)
 
         templates_form = QFormLayout()
+        default_templates = config.DEFAULT_TWITCH_BOT.get("templates", {})
         templates_config = [
             ("bans", "!bans / !banishes:", "Bans ({count}): {items}", "Tags: {count}, {items}"),
             ("items", "!items / !tracked:", "Items ({count}): {items}", "Tags: {count}, {items} (automatically collapsed if too long)"),
             ("weapons", "!weapons:", "Weapons: {weapons}", "Tags: {weapons}"),
             ("tomes", "!tomes:", "Tomes: {tomes}", "Tags: {tomes}"),
             ("chaos", "!chaos / !chaostome:", "Chaos Tome Lv{level}: {chaos}", "Tags: {level}, {chaos}"),
-            ("powerups", "!powerups:", config.DEFAULT_TWITCH_BOT["templates"]["powerups"], "Tags: {powerups}, {standard_duration}, {clock_duration}, {pm}"),
-            ("chests", "!chests / !chest:", config.DEFAULT_TWITCH_BOT["templates"]["chests"], "Tags: {stages}, {opened}, {total}, {paid}, {procs}, {normal}, {proc_rate}, {expected}, {free}, {keys}, {chance}"),
-            ("bonkhelp", "!bonkhelp / !bonkcmds:", config.DEFAULT_TWITCH_BOT["templates"]["bonkhelp"], "Tags: {commands_list}"),
+            ("powerups", "!powerups:", default_templates.get("powerups", "Powerups: {powerups} (PM {pm})"), "Tags: {powerups}, {standard_duration}, {clock_duration}, {pm}"),
+            ("chests", "!chests / !chest:", default_templates.get("chests", "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})"), "Tags: {stages}, {opened}, {total}, {paid}, {procs}, {normal}, {proc_rate}, {expected}, {free}, {keys}, {chance}"),
+            ("bonkhelp", "!bonkhelp / !bonkcmds:", default_templates.get("bonkhelp", "Available commands: {commands_list}"), "Tags: {commands_list}"),
         ]
 
         for key, label_text, default_val, help_text in templates_config:
