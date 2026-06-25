@@ -3,7 +3,12 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from live_run_tracker import LiveRunSnapshot, LiveRunTracker, TrackedItemRule
+from live_run_tracker import (
+    LiveRunSnapshot,
+    LiveRunTracker,
+    PowerupMapContext,
+    TrackedItemRule,
+)
 from player_stats import PlayerStatFormat
 
 
@@ -35,6 +40,18 @@ def snapshot(
 
 
 class LiveRunTrackerTests(unittest.TestCase):
+    def non_graveyard_context(self) -> PowerupMapContext:
+        return PowerupMapContext.from_activity_max(
+            {"Chests": 46, "Pots": 55},
+            captured_at=1000.0,
+        )
+
+    def graveyard_context(self) -> PowerupMapContext:
+        return PowerupMapContext.from_activity_max(
+            {"Chests": 69, "Pumpkin": 105, "Gravestones": 22},
+            captured_at=1000.0,
+        )
+
     def test_tracker_counts_anvil_map_one_only_before_stage_transition(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=1.0))
@@ -867,7 +884,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 stage_time_seconds=80.0,
                 mob_kills=2_000,
                 chests_total=15,
-            )
+            ),
         )
 
         _, stage_index = tracker.run_identity()
@@ -884,7 +901,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 stage_time_seconds=80.0,
                 mob_kills=2_000,
                 pots_total=5,
-            )
+            ),
         )
         tracker.update(
             snapshot(
@@ -895,7 +912,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 stage_time_seconds=140.0,
                 mob_kills=2_600,
                 pots_total=5,
-            )
+            ),
         )
 
         rows = tracker.stage_summary_rows()
@@ -1072,12 +1089,13 @@ class LiveRunTrackerTests(unittest.TestCase):
                         expiration_time=1018.0,
                     ),
                 ),
-            )
+            ),
+            map_context=self.non_graveyard_context(),
         )
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Rage 01:40 -> 01:17 (22s left) | Clock 01:40 -> 01:22 (18s left) (PM 1.5x)",
+            "Powerups: Rage 01:41 -> 01:17 (22s left) | Clock 01:40 -> 01:22 (18s left) (PM 1.5x)",
         )
 
     def test_powerups_summary_uses_duration_fallback_when_none_active(self) -> None:
@@ -1091,7 +1109,8 @@ class LiveRunTrackerTests(unittest.TestCase):
                 powerup_multiplier=1.5,
                 powerup_multiplier_display="1.5x",
                 effects=(),
-            )
+            ),
+            map_context=self.non_graveyard_context(),
         )
 
         self.assertEqual(
@@ -1117,12 +1136,40 @@ class LiveRunTrackerTests(unittest.TestCase):
                         expiration_time=1015.0,
                     ),
                 ),
-            )
+            ),
+            map_context=self.non_graveyard_context(),
         )
 
         self.assertEqual(
             tracker.format_powerups_summary(),
             "Powerups: Shield +00:10 -> +00:25 (15s left) (PM 1x)",
+        )
+
+    def test_powerups_summary_prefers_added_time_over_current_multiplier(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=440.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=3.0,
+                powerup_multiplier_display="3x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=995.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.non_graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield 01:45 -> 01:25 (15s left) (PM 3x)",
         )
 
     def test_powerups_summary_skips_malformed_effects(self) -> None:
@@ -1147,13 +1194,152 @@ class LiveRunTrackerTests(unittest.TestCase):
                         expiration_time=1018.0,
                     ),
                 ),
-            )
+            ),
+            map_context=self.non_graveyard_context(),
         )
 
         self.assertEqual(
             tracker.format_powerups_summary(),
             "Powerups: Clock 01:40 -> 01:22 (18s left) (PM 1.5x)",
         )
+
+    def test_powerups_summary_uses_final_swarm_timer_for_graveyard_ghost_phase(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=1000.0,
+                stage_index=0,
+                chests_total=69,
+                pots_total=None,
+            ),
+        )
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=771.0,
+                stage_index=0,
+                stage_time_seconds=600.0,
+                final_swarm_timer_seconds=170.0,
+                crypt_timer_seconds=39.0,
+                powerup_multiplier=1.0,
+                powerup_multiplier_display="1x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=990.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield +02:40 -> +03:05 (15s left) (PM 1x)",
+        )
+
+    def test_powerups_summary_uses_graveyard_stage_limit_before_final_swarm(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=1000.0,
+                stage_index=0,
+                chests_total=69,
+                pots_total=None,
+            ),
+        )
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=771.0,
+                stage_index=0,
+                stage_time_seconds=600.0,
+                final_swarm_timer_seconds=0.0,
+                crypt_timer_seconds=0.0,
+                powerup_multiplier=1.0,
+                powerup_multiplier_display="1x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=990.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield 03:19 -> 02:54 (15s left) (PM 1x)",
+        )
+
+    def test_powerups_summary_uses_safe_format_for_graveyard_crypt_phase(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=0.0,
+                stage_index=0,
+                stage_time_seconds=600.0,
+                final_swarm_timer_seconds=0.0,
+                crypt_timer_seconds=76.0,
+                powerup_multiplier=1.0,
+                powerup_multiplier_display="1x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=990.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield (15s left) (PM 1x)",
+        )
+
+    def test_powerups_summary_uses_safe_format_without_fresh_map_context(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=440.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=1.0,
+                powerup_multiplier_display="1x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=1000.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield (15s left) (PM 1x)",
+        )
+
+    def test_powerup_map_context_detects_graveyard_from_strong_markers(self) -> None:
+        self.assertTrue(PowerupMapContext.from_activity_max({"Pumpkin": 105}).is_graveyard)
+        self.assertTrue(PowerupMapContext.from_activity_max({"Gravestones": 22}).is_graveyard)
+        self.assertTrue(PowerupMapContext.from_activity_max({"Crypt Chests": 6}).is_graveyard)
+        self.assertTrue(PowerupMapContext.from_activity_max({"Crypt Pots": 25}).is_graveyard)
+        self.assertTrue(PowerupMapContext.from_activity_max({"Chests": 69}).is_graveyard)
+        self.assertFalse(PowerupMapContext.from_activity_max({"Chests": 46}).is_graveyard)
+        self.assertFalse(PowerupMapContext.from_activity_max({"Pots": 55}).is_graveyard)
 
 
 if __name__ == "__main__":

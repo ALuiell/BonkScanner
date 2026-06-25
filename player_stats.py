@@ -129,6 +129,8 @@ class PowerupTrackingSnapshot:
     stage_time_seconds: float | None
     powerup_multiplier: float | None
     powerup_multiplier_display: str
+    final_swarm_timer_seconds: float | None = None
+    crypt_timer_seconds: float | None = None
     effects: tuple[StatusEffectSnapshot, ...] = ()
 
 
@@ -470,6 +472,8 @@ class PlayerStatsClient:
     STATS_ENTRIES_OFFSET = 0x18
     STAGE_TIMER_OFFSET = 0x1C
     RUN_TIMER_OFFSET = 0x20
+    FINAL_SWARM_TIMER_OFFSET = 0x24
+    CRYPT_TIMER_OFFSET = 0x2C
     PLAYER_INVENTORY_OFFSET = 0x28
     PLAYER_STATUS_EFFECTS_OFFSET = 0x38
     PLAYER_STATUS_EFFECTS_DICT_OFFSET = 0x10
@@ -1394,6 +1398,18 @@ class PlayerStatsClient:
         except MemoryReadError:
             self._clear_my_time_cache()
             raise
+        try:
+            final_swarm_timer_seconds = self.memory.read_float(
+                my_time_static_fields + self.FINAL_SWARM_TIMER_OFFSET
+            )
+        except MemoryReadError:
+            final_swarm_timer_seconds = None
+        try:
+            crypt_timer_seconds = self.memory.read_float(
+                my_time_static_fields + self.CRYPT_TIMER_OFFSET
+            )
+        except MemoryReadError:
+            crypt_timer_seconds = None
         stage_index, stage_time_seconds = self._read_current_stage_time()
         effects = self.get_active_status_effects(owner_stats)
         active_signature = tuple(
@@ -1422,6 +1438,8 @@ class PlayerStatsClient:
             stage_time_seconds=stage_time_seconds,
             powerup_multiplier=powerup_multiplier,
             powerup_multiplier_display=powerup_multiplier_display,
+            final_swarm_timer_seconds=final_swarm_timer_seconds,
+            crypt_timer_seconds=crypt_timer_seconds,
             effects=effects,
         )
 
@@ -1500,10 +1518,12 @@ class PlayerStatsClient:
                 )
             except MemoryReadError:
                 continue
+            if object_effect_id not in POWERUP_STATUS_EFFECT_NAMES:
+                continue
             effects.append(
                 StatusEffectSnapshot(
                     effect_id=object_effect_id,
-                    name=POWERUP_STATUS_EFFECT_NAMES.get(effect_id, str(effect_id)),
+                    name=POWERUP_STATUS_EFFECT_NAMES[object_effect_id],
                     added_time=added_time,
                     expiration_time=expiration_time,
                 )

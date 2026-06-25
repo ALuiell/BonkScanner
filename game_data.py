@@ -79,6 +79,10 @@ class RuntimeGameState:
     is_loading: bool = False
     run_timer_seconds: float | None = None
     stage_timer_seconds: float | None = None
+    final_swarm_timer_seconds: float | None = None
+    difficulty_timer_seconds: float | None = None
+    crypt_timer_seconds: float | None = None
+    current_stage_index: int | None = None
     current_map_ptr: int = 0
     current_stage_ptr: int = 0
     run_config_ptr: int = 0
@@ -122,6 +126,7 @@ class GameDataClient:
     GAME_MANAGER_IS_PLAYING_OFFSET = 0x84
     MAP_CONTROLLER_CURRENT_MAP_OFFSET = 0x10
     MAP_CONTROLLER_CURRENT_STAGE_OFFSET = 0x18
+    MAP_CONTROLLER_INDEX_OFFSET = 0x08
     MAP_CONTROLLER_RESETING_OFFSET = 0x21
     MAP_CONTROLLER_RUN_CONFIG_OFFSET = 0x30
     MAP_GENERATION_IS_GENERATING_OFFSET = 0x10
@@ -130,6 +135,9 @@ class GameDataClient:
     MY_TIME_PAUSED_OFFSET = 0x0
     MY_TIME_STAGE_TIMER_OFFSET = 0x1C
     MY_TIME_RUN_TIMER_OFFSET = 0x20
+    MY_TIME_FINAL_SWARM_TIMER_OFFSET = 0x24
+    MY_TIME_DIFFICULTY_TIMER_OFFSET = 0x28
+    MY_TIME_CRYPT_TIMER_OFFSET = 0x2C
     PLAYER_MOVEMENT_INSTANCE_OFFSET = 0x18
     MUSIC_CONTROLLER_INSTANCE_OFFSET = 0x0
     MUSIC_CONTROLLER_MENU_TRACK_OFFSET = 0x40
@@ -275,6 +283,22 @@ class GameDataClient:
             my_time_static_fields,
             self.MY_TIME_STAGE_TIMER_OFFSET,
         )
+        final_swarm_timer_seconds = self._read_float_optional(
+            my_time_static_fields,
+            self.MY_TIME_FINAL_SWARM_TIMER_OFFSET,
+        )
+        difficulty_timer_seconds = self._read_float_optional(
+            my_time_static_fields,
+            self.MY_TIME_DIFFICULTY_TIMER_OFFSET,
+        )
+        crypt_timer_seconds = self._read_float_optional(
+            my_time_static_fields,
+            self.MY_TIME_CRYPT_TIMER_OFFSET,
+        )
+        current_stage_index = self._read_i32_optional(
+            map_controller_static_fields,
+            self.MAP_CONTROLLER_INDEX_OFFSET,
+        )
         current_map_ptr = self._read_ptr_optional(
             map_controller_static_fields,
             self.MAP_CONTROLLER_CURRENT_MAP_OFFSET,
@@ -329,6 +353,10 @@ class GameDataClient:
             is_loading=is_loading,
             run_timer_seconds=run_timer_seconds,
             stage_timer_seconds=stage_timer_seconds,
+            final_swarm_timer_seconds=final_swarm_timer_seconds,
+            difficulty_timer_seconds=difficulty_timer_seconds,
+            crypt_timer_seconds=crypt_timer_seconds,
+            current_stage_index=current_stage_index,
             current_map_ptr=current_map_ptr,
             current_stage_ptr=current_stage_ptr,
             run_config_ptr=run_config_ptr,
@@ -448,29 +476,35 @@ class GameDataClient:
         raise TimeoutError(error_text)
 
     def get_map_stats(self) -> dict[MapStat, StatValue]:
-        stats: dict[MapStat, StatValue] = {}
+        return {
+            stat: value
+            for label, value in self.get_map_activity_values().items()
+            if (stat := self.LABEL_TO_STAT.get(label)) is not None
+        }
 
+    def get_map_activity_values(self) -> dict[str, StatValue]:
+        activities: dict[str, StatValue] = {}
         type_info_address = self.memory.module_offset(
             self.module_name,
             self.TYPE_INFO_OFFSET,
         )
         class_ptr = self.memory.read_ptr(type_info_address)
         if not class_ptr:
-            return stats
+            return activities
 
         static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
         if not static_fields:
-            return stats
+            return activities
 
         interactables_dict = self.memory.read_ptr(static_fields)
         if not interactables_dict:
-            return stats
+            return activities
 
         entries = self.memory.read_ptr(interactables_dict + self.DICT_ENTRIES_OFFSET)
         count = self.memory.read_i32(interactables_dict + self.DICT_COUNT_OFFSET)
 
         if not entries:
-            return stats
+            return activities
 
         if count < 0 or count > self.MAX_DICT_ENTRIES:
             raise MemoryReadError(f"Interactables dictionary count is invalid: {count}")
@@ -491,19 +525,15 @@ class GameDataClient:
             if not label:
                 continue
 
-            stat = self.LABEL_TO_STAT.get(label)
-            if stat is None:
-                continue
-
             try:
                 max_value = self.memory.read_i32(value_ptr + self.CONTAINER_MAX_OFFSET)
                 current_value = self.memory.read_i32(value_ptr + self.CONTAINER_CURRENT_OFFSET)
             except MemoryReadError:
                 continue
 
-            stats[stat] = StatValue(current=current_value, max=max_value)
+            activities[label] = StatValue(current=current_value, max=max_value)
 
-        return stats
+        return activities
 
     def _read_static_fields(self, type_info_offset: int) -> int:
         try:

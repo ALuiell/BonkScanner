@@ -87,6 +87,10 @@ def build_runtime_state_memory(
     is_loading: bool = False,
     run_timer: float = 0.0,
     stage_timer: float = 0.0,
+    final_swarm_timer: float = 0.0,
+    difficulty_timer: float = 0.0,
+    crypt_timer: float = 0.0,
+    current_stage_index: int = 0,
     current_map: int = 0,
     current_stage: int = 0,
     run_config: int = 0,
@@ -135,6 +139,9 @@ def build_runtime_state_memory(
         player_movement_static + GameDataClient.PLAYER_MOVEMENT_INSTANCE_OFFSET: player_movement_instance,
         music_controller_static + GameDataClient.MUSIC_CONTROLLER_INSTANCE_OFFSET: music_controller_instance,
     }
+    integers = {
+        map_controller_static + GameDataClient.MAP_CONTROLLER_INDEX_OFFSET: current_stage_index,
+    }
     if music_controller_instance:
         pointers.update(
             {
@@ -156,8 +163,17 @@ def build_runtime_state_memory(
     floats = {
         my_time_static + GameDataClient.MY_TIME_RUN_TIMER_OFFSET: run_timer,
         my_time_static + GameDataClient.MY_TIME_STAGE_TIMER_OFFSET: stage_timer,
+        my_time_static + GameDataClient.MY_TIME_FINAL_SWARM_TIMER_OFFSET: final_swarm_timer,
+        my_time_static + GameDataClient.MY_TIME_DIFFICULTY_TIMER_OFFSET: difficulty_timer,
+        my_time_static + GameDataClient.MY_TIME_CRYPT_TIMER_OFFSET: crypt_timer,
     }
-    return FakeMemory(module_base=base, pointers=pointers, bytes_=bytes_, floats=floats)
+    return FakeMemory(
+        module_base=base,
+        pointers=pointers,
+        integers=integers,
+        bytes_=bytes_,
+        floats=floats,
+    )
 
 
 class SequencedGameDataClient(GameDataClient):
@@ -365,6 +381,10 @@ class GameDataClientTests(unittest.TestCase):
                 mode=RuntimeGameMode.MAIN_MENU,
                 run_timer_seconds=0.0,
                 stage_timer_seconds=0.0,
+                final_swarm_timer_seconds=0.0,
+                difficulty_timer_seconds=0.0,
+                crypt_timer_seconds=0.0,
+                current_stage_index=0,
             ),
         )
 
@@ -376,6 +396,10 @@ class GameDataClientTests(unittest.TestCase):
             is_paused=False,
             run_timer=82.5,
             stage_timer=82.5,
+            final_swarm_timer=12.5,
+            difficulty_timer=45.0,
+            crypt_timer=90.0,
+            current_stage_index=2,
             current_map=0x50000000,
             current_stage=0x50000100,
             run_config=0x50000200,
@@ -394,6 +418,10 @@ class GameDataClientTests(unittest.TestCase):
         self.assertFalse(state.is_paused)
         self.assertEqual(state.run_timer_seconds, 82.5)
         self.assertEqual(state.stage_timer_seconds, 82.5)
+        self.assertEqual(state.final_swarm_timer_seconds, 12.5)
+        self.assertEqual(state.difficulty_timer_seconds, 45.0)
+        self.assertEqual(state.crypt_timer_seconds, 90.0)
+        self.assertEqual(state.current_stage_index, 2)
         self.assertEqual(state.current_map_ptr, 0x50000000)
         self.assertEqual(state.current_stage_ptr, 0x50000100)
         self.assertEqual(state.run_config_ptr, 0x50000200)

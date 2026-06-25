@@ -53,7 +53,12 @@ from gui_styles import (
 )
 from item_metadata import item_display_color, normalize_item_name_for_display, normalize_item_name_for_rarity
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
-from live_run_tracker import CHAOS_TOME_GAME_STAT_ORDER, LiveRunSnapshot, LiveRunTracker
+from live_run_tracker import (
+    CHAOS_TOME_GAME_STAT_ORDER,
+    LiveRunSnapshot,
+    LiveRunTracker,
+    PowerupMapContext,
+)
 from player_stats import (
     PLAYER_STAT_GROUPS,
     DamageSourceSnapshot,
@@ -571,10 +576,22 @@ class PlayerStatsMixin:
         map_stats = {}
         map_chests_total = None
         map_pots_total = None
+        map_activity_max = {}
         try:
             if self.player_stats_game_data_client is None:
                 self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
-            map_stats = self.player_stats_game_data_client.get_map_stats() or {}
+            map_activity_values = (
+                self.player_stats_game_data_client.get_map_activity_values() or {}
+            )
+            map_activity_max = {
+                label: int(value.max)
+                for label, value in map_activity_values.items()
+            }
+            map_stats = {
+                stat: value
+                for label, value in map_activity_values.items()
+                if (stat := GameDataClient.LABEL_TO_STAT.get(label)) is not None
+            }
             chest_stat = map_stats.get(MapStat.CHESTS)
             if chest_stat is not None:
                 map_chests_total = chest_stat.max
@@ -583,6 +600,17 @@ class PlayerStatsMixin:
                 map_pots_total = pots_stat.max
         except Exception:
             map_stats = {}
+            map_activity_max = {}
+        if map_activity_max and hasattr(
+            self.live_run_tracker,
+            "update_powerup_map_context",
+        ):
+            self.live_run_tracker.update_powerup_map_context(
+                PowerupMapContext.from_activity_max(
+                    map_activity_max,
+                    captured_at=time.monotonic(),
+                )
+            )
         live_snapshot = LiveRunSnapshot(
             captured_at=time.monotonic(),
             stats=stats,
@@ -4531,10 +4559,17 @@ class PlayerStatsMixin:
             for effect_name in values:
                 effect = active_by_name.get(effect_name)
                 if effect is not None:
-                    values[effect_name] = (
-                        f"{effect.pickup_ui} -> {effect.expires_ui} "
-                        f"({self.format_seconds_compact(effect.remaining_seconds)}s)"
-                    )
+                    left_text = f"({self.format_seconds_compact(effect.remaining_seconds)}s)"
+                    if (
+                        getattr(effect, "pickup_ui", None) is None
+                        or getattr(effect, "expires_ui", None) is None
+                    ):
+                        values[effect_name] = left_text
+                    else:
+                        values[effect_name] = (
+                            f"{effect.pickup_ui} -> {effect.expires_ui} "
+                            f"{left_text}"
+                        )
                     continue
                 duration = (
                     getattr(snapshot, "clock_duration_seconds", None)

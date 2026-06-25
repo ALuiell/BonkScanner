@@ -733,6 +733,53 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual([effect.name for effect in first], ["Rage", "Shield", "Clock"])
         self.assertEqual([effect.name for effect in second], ["Rage", "Shield", "Stonks", "Clock"])
 
+    def test_get_active_status_effects_uses_object_effect_id_after_slot_reuse(self) -> None:
+        memory = self.build_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x20001600
+        status_effects = 0x26000000
+        status_dict = 0x26000100
+        status_entries = 0x26000200
+        shield_effect = 0x26000300
+        haste_effect = 0x26000400
+        shield_entry = status_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+
+        memory.pointers.update(
+            {
+                player_inventory + PlayerStatsClient.PLAYER_STATUS_EFFECTS_OFFSET: status_effects,
+                status_effects + PlayerStatsClient.PLAYER_STATUS_EFFECTS_DICT_OFFSET: status_dict,
+                status_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: status_entries,
+                shield_entry + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET: shield_effect,
+            }
+        )
+        memory.ints.update(
+            {
+                status_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                status_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                status_entries + PlayerStatsClient.ARRAY_LENGTH_OFFSET: 1,
+                shield_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 2,
+                shield_entry + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: 2,
+                shield_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 2,
+                haste_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 0,
+            }
+        )
+        memory.floats.update(
+            {
+                shield_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET: 990.0,
+                shield_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET: 1015.0,
+                haste_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET: 1016.0,
+                haste_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET: 1033.0,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        first = client.get_active_status_effects(owner_stats)
+        memory.pointers[shield_entry + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET] = haste_effect
+        second = client.get_active_status_effects(owner_stats)
+
+        self.assertEqual([effect.name for effect in first], ["Shield"])
+        self.assertEqual(second, ())
+
     def test_read_current_stage_time_clears_stale_timeline_when_current_stage_is_missing(self) -> None:
         memory = self.build_memory()
         base = memory.module_base

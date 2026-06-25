@@ -15,6 +15,8 @@ import run_summary
 from gui_styles import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
 from player_stats import DisabledItemsReadResult, DisabledItemsReadStatus
 
+POWERUP_MAP_CONTEXT_TTL_SECONDS = 15.0
+
 
 def with_lock(method):
     @wraps(method)
@@ -137,8 +139,8 @@ class ChestStatsSnapshot:
 class PowerupEffectState:
     effect_id: int
     name: str
-    pickup_ui: str
-    expires_ui: str
+    pickup_ui: str | None
+    expires_ui: str | None
     remaining_seconds: float
     duration_seconds: float
     stage_index: int | None
@@ -156,6 +158,37 @@ class PowerupsSnapshot:
     stage_index: int | None = None
     stage_time_seconds: float | None = None
     available: bool = False
+
+
+@dataclass(frozen=True)
+class _PowerupUiContext:
+    timer_value: float
+    timer_limit: float | None
+
+
+@dataclass(frozen=True)
+class PowerupMapContext:
+    is_graveyard: bool = False
+    captured_at: float = 0.0
+    activity_max: dict[str, int] | None = None
+
+    @classmethod
+    def from_activity_max(
+        cls,
+        activity_max: dict[str, int],
+        *,
+        captured_at: float = 0.0,
+    ) -> "PowerupMapContext":
+        labels = set(activity_max)
+        is_graveyard = bool(
+            {"Pumpkin", "Gravestones", "Crypt Chests", "Crypt Pots"} & labels
+            or int(activity_max.get("Chests", 0) or 0) == 69
+        )
+        return cls(
+            is_graveyard=is_graveyard,
+            captured_at=captured_at,
+            activity_max=dict(activity_max),
+        )
 
 
 DEFAULT_TRACKED_ITEM_RULES: tuple[TrackedItemRule, ...] = (
@@ -304,6 +337,7 @@ class LiveRunTracker:
         self._chests_total_by_stage = {}
         self._disabled_items_cache: tuple[str, ...] | None = None
         self._powerups_snapshot = PowerupsSnapshot()
+        self._powerup_map_context = PowerupMapContext()
         self._lock = threading.RLock()
 
     @with_lock
@@ -555,7 +589,26 @@ class LiveRunTracker:
         )
 
     @with_lock
-    def update_powerups(self, snapshot: Any) -> None:
+    def update_powerup_map_context(self, context: PowerupMapContext) -> None:
+        self._powerup_map_context = context
+
+    def _fresh_powerup_map_context_unlocked(self) -> PowerupMapContext | None:
+        context = self._powerup_map_context
+        if context.captured_at <= 0:
+            return None
+        if self.clock() - context.captured_at > POWERUP_MAP_CONTEXT_TTL_SECONDS:
+            return None
+        return context
+
+    @with_lock
+    def update_powerups(
+        self,
+        snapshot: Any,
+        *,
+        map_context: PowerupMapContext | None = None,
+    ) -> None:
+        if map_context is not None:
+            self._powerup_map_context = map_context
         powerup_multiplier = getattr(snapshot, "powerup_multiplier", None)
         try:
             powerup_multiplier = float(powerup_multiplier)
@@ -574,6 +627,8 @@ class LiveRunTracker:
         my_time = getattr(snapshot, "my_time_seconds", None)
         stage_timer = getattr(snapshot, "stage_timer_seconds", None)
         stage_time = getattr(snapshot, "stage_time_seconds", None)
+        final_swarm_timer = getattr(snapshot, "final_swarm_timer_seconds", None)
+        crypt_timer = getattr(snapshot, "crypt_timer_seconds", None)
         stage_index = getattr(snapshot, "stage_index", None)
         active: list[PowerupEffectState] = []
 
@@ -587,6 +642,10 @@ class LiveRunTracker:
             for effect in getattr(snapshot, "effects", ()) or ():
                 try:
                     effect_id = int(getattr(effect, "effect_id", -1))
+                    added_time_raw = getattr(effect, "added_time", None)
+                    added_time = (
+                        float(added_time_raw) if added_time_raw is not None else float("nan")
+                    )
                     expiration_time = float(getattr(effect, "expiration_time", 0.0))
                     remaining = expiration_time - float(my_time)
                     if remaining <= 0 or not isfinite(remaining):
@@ -594,8 +653,24 @@ class LiveRunTracker:
                     base_duration = 12.0 if effect_id == 4 else 15.0
                     duration = base_duration * powerup_multiplier
                     pickup_time = expiration_time - duration
-                    raw_pickup = float(stage_timer) + (pickup_time - float(my_time))
-                    raw_expiration = float(stage_timer) + (expiration_time - float(my_time))
+                    if (
+                        isfinite(added_time)
+                        and added_time <= expiration_time
+                        and added_time <= float(my_time)
+                    ):
+                        pickup_time = added_time
+                    ui_context = self._resolve_powerup_ui_context_unlocked(
+                        my_time=float(my_time),
+                        pickup_time=pickup_time,
+                        stage_timer=float(stage_timer),
+                        stage_time=float(stage_time),
+                        final_swarm_timer=final_swarm_timer,
+                        crypt_timer=crypt_timer,
+                    )
+                    raw_pickup = ui_context.timer_value + (pickup_time - float(my_time))
+                    raw_expiration = ui_context.timer_value + (
+                        expiration_time - float(my_time)
+                    )
                     if not isfinite(raw_pickup) or not isfinite(raw_expiration):
                         continue
                 except (TypeError, ValueError, OverflowError):
@@ -604,8 +679,22 @@ class LiveRunTracker:
                     PowerupEffectState(
                         effect_id=effect_id,
                         name=str(getattr(effect, "name", effect_id)),
-                        pickup_ui=self._format_ui_stage_time(raw_pickup, float(stage_time)),
-                        expires_ui=self._format_ui_stage_time(raw_expiration, float(stage_time)),
+                        pickup_ui=(
+                            self._format_ui_stage_time(
+                                raw_pickup,
+                                ui_context.timer_limit,
+                            )
+                            if ui_context.timer_limit is not None
+                            else None
+                        ),
+                        expires_ui=(
+                            self._format_ui_stage_time(
+                                raw_expiration,
+                                ui_context.timer_limit,
+                            )
+                            if ui_context.timer_limit is not None
+                            else None
+                        ),
                         remaining_seconds=remaining,
                         duration_seconds=duration,
                         stage_index=stage_index,
@@ -669,10 +758,16 @@ class LiveRunTracker:
             parts = []
             suffix = " left" if include_left_word else ""
             for effect in snapshot.active:
-                parts.append(
-                    f"{effect.name} {effect.pickup_ui} -> {effect.expires_ui} "
+                duration_text = (
                     f"({self._format_duration_seconds(effect.remaining_seconds)}s{suffix})"
                 )
+                if effect.pickup_ui is None or effect.expires_ui is None:
+                    parts.append(f"{effect.name} {duration_text}")
+                else:
+                    parts.append(
+                        f"{effect.name} {effect.pickup_ui} -> {effect.expires_ui} "
+                        f"{duration_text}"
+                    )
             return " | ".join(parts)
         if (
             snapshot.standard_duration_seconds is None
@@ -794,6 +889,48 @@ class LiveRunTracker:
     @staticmethod
     def _format_duration_seconds(value: float) -> str:
         return str(int(round(value)))
+
+    def _resolve_powerup_ui_context_unlocked(
+        self,
+        *,
+        my_time: float,
+        pickup_time: float,
+        stage_timer: float,
+        stage_time: float,
+        final_swarm_timer: Any,
+        crypt_timer: Any,
+    ) -> _PowerupUiContext:
+        map_context = self._fresh_powerup_map_context_unlocked()
+        if map_context is None:
+            return _PowerupUiContext(stage_timer, None)
+        if not map_context.is_graveyard:
+            return _PowerupUiContext(stage_timer, stage_time)
+
+        try:
+            final_swarm_value = float(final_swarm_timer)
+        except (TypeError, ValueError):
+            final_swarm_value = float("nan")
+        if (
+            isfinite(final_swarm_value)
+            and final_swarm_value > 0.0
+            and pickup_time >= my_time - final_swarm_value
+        ):
+            return _PowerupUiContext(final_swarm_value, 0.0)
+
+        try:
+            crypt_value = float(crypt_timer)
+        except (TypeError, ValueError):
+            crypt_value = float("nan")
+        if (
+            isfinite(crypt_value)
+            and crypt_value > 0.0
+            and stage_timer <= 1.0
+            and pickup_time >= my_time - crypt_value
+        ):
+            return _PowerupUiContext(crypt_value, None)
+
+        graveyard_stage_limit = 960.0
+        return _PowerupUiContext(stage_timer, graveyard_stage_limit)
 
     @staticmethod
     def _format_ui_stage_time(raw_stage_timer: float, stage_time: float) -> str:
