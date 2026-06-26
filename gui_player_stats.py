@@ -195,6 +195,17 @@ class PlayerStatsMixin:
                 except Exception:
                     pass
 
+            try:
+                run_timer_seconds = client.get_run_timer()
+                mob_kills = client.get_killed_mobs()
+                self.live_run_tracker.track_kills(run_timer_seconds, mob_kills)
+                _set_text(
+                    self.player_stats_mob_kills_label,
+                    self.format_mob_kills(mob_kills, self.live_run_tracker.current_kps())
+                )
+            except Exception:
+                pass
+
             chaos_level, permanent_modifiers = client.get_chaos_tracking_state(
                 owner_stats
             )
@@ -714,6 +725,7 @@ class PlayerStatsMixin:
                 chests_per_minute=chests_per_minute,
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
+                kps_at_capture=self.live_run_tracker.current_kps(),
                 player_level=player_level,
                 map_seed=map_seed,
                 stage_ptr=stage_ptr,
@@ -771,6 +783,7 @@ class PlayerStatsMixin:
                 items_text=items_text,
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
+                kps=self.live_run_tracker.current_kps(),
                 player_level=player_level,
                 stage_summary_rows=live_stage_summary_rows,
             )
@@ -794,6 +807,7 @@ class PlayerStatsMixin:
         items_text: str | None = None,
         game_time_seconds: float | None = None,
         mob_kills: int | None = None,
+        kps: int | None = None,
         player_level: int | None = None,
         new_items_text: str | None = None,
         stage_summary_rows: list[dict[str, str]] | None = None,
@@ -822,7 +836,7 @@ class PlayerStatsMixin:
         )
         _set_text(
             self.player_stats_mob_kills_label,
-            self.format_mob_kills(mob_kills),
+            self.format_mob_kills(mob_kills, kps),
         )
         _set_text(
             self.player_stats_level_label,
@@ -877,6 +891,7 @@ class PlayerStatsMixin:
             items_text=items_text,
             game_time_seconds=snapshot.game_time_seconds,
             mob_kills=getattr(snapshot, "mob_kills", None),
+            kps=getattr(snapshot, "kps_at_capture", None),
             player_level=getattr(snapshot, "player_level", None),
             new_items_text=self.format_snapshot_item_gains_preview(
                 self._previous_player_stats_snapshot(snapshot),
@@ -2767,10 +2782,13 @@ class PlayerStatsMixin:
         return f"In-Game Time: {cls.format_elapsed_time(seconds)}"
 
     @staticmethod
-    def format_mob_kills(value: int | None) -> str:
+    def format_mob_kills(value: int | None, kps: int | None = None) -> str:
         if value is None:
             return "Mob Kills: --"
-        return f"Mob Kills: {PlayerStatsMixin.format_count(value)}"
+        formatted_value = PlayerStatsMixin.format_count(value)
+        if kps is not None:
+            return f"Mob Kills: {formatted_value} ({PlayerStatsMixin.format_count(kps)}/s)"
+        return f"Mob Kills: {formatted_value}"
 
     @staticmethod
     def format_count(value: int | float) -> str:

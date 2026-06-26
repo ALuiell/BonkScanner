@@ -338,6 +338,7 @@ class LiveRunTracker:
         self._disabled_items_cache: tuple[str, ...] | None = None
         self._powerups_snapshot = PowerupsSnapshot()
         self._powerup_map_context = PowerupMapContext()
+        self._recent_kills_history: deque[tuple[float, int]] = deque()
         self._lock = threading.RLock()
 
     @with_lock
@@ -388,6 +389,7 @@ class LiveRunTracker:
         self._last_failed_at = now
         if no_game:
             self._last_no_game_at = now
+            self._recent_kills_history.clear()
 
     @with_lock
     def set_tracked_item_rules(self, rules: Iterable[TrackedItemRule]) -> None:
@@ -558,6 +560,36 @@ class LiveRunTracker:
                 }
             )
         return rows
+
+    @with_lock
+    def track_kills(self, game_time_seconds: float | None, current_kills: int | None) -> None:
+        if game_time_seconds is None or current_kills is None:
+            return
+
+        if self._recent_kills_history:
+            last_time, last_kills = self._recent_kills_history[-1]
+            if current_kills < last_kills or game_time_seconds < last_time:
+                self._recent_kills_history.clear()
+
+        self._recent_kills_history.append((game_time_seconds, current_kills))
+
+        while self._recent_kills_history and self._recent_kills_history[0][0] < game_time_seconds - 3.0:
+            self._recent_kills_history.popleft()
+
+    @with_lock
+    def current_kps(self) -> int | None:
+        if len(self._recent_kills_history) < 2:
+            return None
+
+        oldest_time, oldest_kills = self._recent_kills_history[0]
+        newest_time, newest_kills = self._recent_kills_history[-1]
+
+        time_delta = newest_time - oldest_time
+        if time_delta <= 0:
+            return None
+
+        kills_delta = newest_kills - oldest_kills
+        return int(round(kills_delta / time_delta))
 
     @with_lock
     def run_identity(self) -> tuple[str | None, int]:
@@ -1038,6 +1070,7 @@ class LiveRunTracker:
     def _reset_for_new_run(self) -> None:
         self.run_id = uuid4().hex
         self.snapshots.clear()
+        self._recent_kills_history.clear()
         self.current_stage_index = 1
         self._chests_opened = 0
         self._chests_total = 46

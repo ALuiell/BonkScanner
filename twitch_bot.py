@@ -228,6 +228,9 @@ class TwitchBotWorker(QThread):
         elif cmd == "!powerups" and commands_cfg.get("powerups", True):
             self._handle_powerups(channel)
             handled = True
+        elif cmd == "!kps" and commands_cfg.get("kps", True):
+            self._handle_kps(channel)
+            handled = True
         elif cmd == "!scanner" and commands_cfg.get("scanner", True):
             self._handle_scanner(channel)
             handled = True
@@ -858,6 +861,7 @@ class TwitchBotWorker(QThread):
             ("chests", "!chests"),
             ("presets", "!presets"),
             ("disabled", "!disabled"),
+            ("kps", "!kps"),
         ]
         command_defaults = config.DEFAULT_TWITCH_BOT["commands"]
         enabled_cmds = [
@@ -869,6 +873,26 @@ class TwitchBotWorker(QThread):
             enabled_cmds.append("!bonkhelp")
 
         return enabled_cmds
+
+    def _handle_kps(self, channel: str):
+        tracker_status = getattr(self.run_tracker, "status", None)
+        if callable(tracker_status):
+            try:
+                if tracker_status() == "no_game":
+                    self._send_chat(
+                        channel,
+                        "Kills Per Second is not available because no run is active.",
+                    )
+                    return
+            except Exception:
+                pass
+
+        kps = self.run_tracker.current_kps()
+        if kps is None:
+            msg = "Not enough data yet to calculate Kills Per Second."
+        else:
+            msg = f"Kills per second: {kps:,}"
+        self._send_chat(channel, msg)
 
     def _handle_commands(self, channel: str):
         enabled_cmds = self._enabled_command_names()

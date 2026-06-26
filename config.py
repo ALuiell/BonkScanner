@@ -131,6 +131,7 @@ DEFAULT_TWITCH_BOT = {
         "chaos": True,
         "stages": True,
         "powerups": True,
+        "kps": True,
         "scanner": True,
         "chests": False,
         "presets": False,

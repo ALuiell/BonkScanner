@@ -185,6 +185,17 @@ class LiveRunTrackerTests(unittest.TestCase):
         now[0] = 1007.0
         self.assertEqual(tracker.status(), "stale")
 
+    def test_current_kps_clears_when_game_disappears(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.track_kills(10.0, 100)
+        tracker.track_kills(13.0, 160)
+
+        self.assertEqual(tracker.current_kps(), 20)
+
+        tracker.mark_read_failed(no_game=True)
+
+        self.assertIsNone(tracker.current_kps())
+
     def test_tracker_counts_configured_non_anvil_map_one_item(self) -> None:
         tracker = LiveRunTracker(
             clock=lambda: 1000.0,

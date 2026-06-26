@@ -49,6 +49,7 @@ class VodSnapshot:
     chests_per_minute: float | None = None
     game_time_seconds: float | None = None
     mob_kills: int | None = None
+    kps_at_capture: int | None = None
     player_level: int | None = None
     map_seed: int | None = None
     stage_ptr: int = 0
@@ -199,6 +200,7 @@ class VodRecorder:
         chests_per_minute: float | None = None,
         game_time_seconds: float | None = None,
         mob_kills: int | None = None,
+        kps_at_capture: int | None = None,
         player_level: int | None = None,
         map_seed: int | None = None,
         stage_ptr: int = 0,
@@ -233,6 +235,7 @@ class VodRecorder:
             chests_per_minute=chests_per_minute,
             game_time_seconds=game_time_seconds,
             mob_kills=mob_kills,
+            kps_at_capture=kps_at_capture,
             player_level=player_level,
             map_seed=map_seed,
             stage_ptr=stage_ptr,
@@ -506,6 +509,8 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         record["game_time_seconds"] = snapshot.game_time_seconds
     if snapshot.mob_kills is not None:
         record["mob_kills"] = snapshot.mob_kills
+    if snapshot.kps_at_capture is not None:
+        record["kps_at_capture"] = snapshot.kps_at_capture
     if snapshot.player_level is not None:
         record["player_level"] = snapshot.player_level
     if snapshot.map_seed is not None:
@@ -559,6 +564,7 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
             record.get("game_time_seconds", record.get("in_game_elapsed_seconds"))
         ),
         mob_kills=_coerce_optional_int(record.get("mob_kills", record.get("mobs_alive"))),
+        kps_at_capture=_coerce_optional_int(record.get("kps_at_capture")),
         player_level=_coerce_optional_int(record.get("player_level")),
         map_seed=_coerce_optional_int(record.get("map_seed", record.get("run_seed"))),
         stage_ptr=_coerce_int(record.get("stage_ptr")),

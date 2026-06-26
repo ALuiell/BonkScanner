@@ -579,6 +579,10 @@ class PlayerStatsClient:
         self._cached_chests_bought_entries = 0
         self._cached_chests_bought_version: int | None = None
         self._cached_chests_bought_address = 0
+        self._cached_kills_dict = 0
+        self._cached_kills_entries = 0
+        self._cached_kills_version: int | None = None
+        self._cached_kills_address = 0
         self._cached_key_dict = 0
         self._cached_key_entries = 0
         self._cached_key_version: int | None = None
@@ -1590,11 +1594,7 @@ class PlayerStatsClient:
         return values
 
     def get_killed_mobs(self) -> int:
-        values = self.get_run_stat_values(("kills",))
-        if "kills" in values:
-            return max(0, int(values["kills"]))
-
-        raise MemoryReadError("RunStats.stats does not contain a 'kills' entry.")
+        return self._get_cached_killed_mobs()
 
     def get_chest_counters(self) -> tuple[int, int]:
         chests_bought = self.get_chests_bought()
@@ -1645,10 +1645,7 @@ class PlayerStatsClient:
         if (
             stats_dict != self._cached_chests_bought_dict
             or entries != self._cached_chests_bought_entries
-            or (
-                not self._cached_chests_bought_address
-                and version != self._cached_chests_bought_version
-            )
+            or version != self._cached_chests_bought_version
         ):
             self._cached_chests_bought_dict = stats_dict
             self._cached_chests_bought_entries = entries
@@ -1661,6 +1658,42 @@ class PlayerStatsClient:
         if not self._cached_chests_bought_address:
             return 0
         return max(0, int(self.memory.read_float(self._cached_chests_bought_address)))
+
+    def _get_cached_killed_mobs(self) -> int:
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.RUN_STATS_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            raise MemoryReadError("RunStats type info is not initialized.")
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            raise MemoryReadError("RunStats static fields are not initialized.")
+        stats_dict = self.memory.read_ptr(static_fields + self.RUN_STATS_DICT_OFFSET)
+        if not stats_dict:
+            raise MemoryReadError("RunStats.stats dictionary is not initialized.")
+        entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
+        if not entries:
+            raise MemoryReadError("RunStats.stats entries are not initialized.")
+        version = self.memory.read_i32(stats_dict + self.DICT_VERSION_OFFSET)
+
+        if (
+            stats_dict != self._cached_kills_dict
+            or entries != self._cached_kills_entries
+            or version != self._cached_kills_version
+        ):
+            self._cached_kills_dict = stats_dict
+            self._cached_kills_entries = entries
+            self._cached_kills_version = version
+            self._cached_kills_address = self._find_run_stat_value_address(
+                stats_dict,
+                "kills",
+            )
+
+        if not self._cached_kills_address:
+            raise MemoryReadError("RunStats.stats does not contain a 'kills' entry.")
+        return max(0, int(self.memory.read_float(self._cached_kills_address)))
 
     def _find_run_stat_value_address(self, stats_dict: int, target_key: str) -> int:
         entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)

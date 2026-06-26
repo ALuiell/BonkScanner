@@ -977,6 +977,38 @@ class PlayerStatsClientTests(unittest.TestCase):
         with self.assertRaises(MemoryReadError):
             client.get_killed_mobs()
 
+    def test_get_killed_mobs_rescans_when_dictionary_version_changes(self) -> None:
+        memory = self.build_memory()
+        run_stats_dict = 0x20001000
+        run_stats_entries = 0x20001100
+        first_value_address = (
+            run_stats_entries
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.RUN_STATS_ENTRY_VALUE_OFFSET
+        )
+        second_entry = run_stats_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET + PlayerStatsClient.DICT_ENTRY_SIZE
+        second_value_address = second_entry + PlayerStatsClient.RUN_STATS_ENTRY_VALUE_OFFSET
+        memory.ints[run_stats_dict + PlayerStatsClient.DICT_COUNT_OFFSET] = 2
+        memory.ints[run_stats_entries + PlayerStatsClient.ARRAY_LENGTH_OFFSET] = 2
+
+        client = PlayerStatsClient(memory=memory)
+        self.assertEqual(client.get_killed_mobs(), 37)
+
+        memory.ints[run_stats_dict + PlayerStatsClient.DICT_VERSION_OFFSET] = 2
+        memory.ints[
+            run_stats_entries
+            + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+            + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET
+        ] = -1
+        memory.mono_strings[0x20001200] = "otherStat"
+        memory.floats[first_value_address] = 1.0
+        memory.ints[second_entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET] = 2
+        memory.pointers[second_entry + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET] = 0x20001210
+        memory.mono_strings[0x20001210] = "kills"
+        memory.floats[second_value_address] = 91.0
+
+        self.assertEqual(client.get_killed_mobs(), 91)
+
     def test_get_passive_items_uses_default_stack_when_count_is_unreadable(self) -> None:
         memory = self.build_memory()
         item_value = 0x20000900

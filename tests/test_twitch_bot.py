@@ -98,6 +98,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         with patch.dict(config.TWITCH_BOT, {"commands": {"stats": True}}):
             enabled_commands = self.bot._enabled_command_names()
             self.assertIn("!stats", enabled_commands)
+            self.assertIn("!kps", enabled_commands)
             self.assertNotIn("!chests", enabled_commands)
             self.assertNotIn("!presets", enabled_commands)
             self.assertIn("!bonkhelp", enabled_commands)
@@ -461,6 +462,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             "chaos": False,
             "stages": True,
             "powerups": False,
+            "kps": False,
             "scanner": True,
             "chests": False,
             "presets": True,
@@ -660,6 +662,26 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
         TWITCH_BOT["cooldown_seconds"] = old_cooldown
         TWITCH_BOT["commands"] = old_commands
+
+    def test_handle_kps_reports_no_game_state(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.status.return_value = "no_game"
+
+        self.bot._handle_kps("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "Kills Per Second is not available because no run is active.",
+        )
+
+    def test_handle_kps_reports_current_value(self):
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.status.return_value = "live"
+        self.run_tracker.current_kps.return_value = 150
+
+        self.bot._handle_kps("channel")
+
+        self.bot._send_chat.assert_called_once_with("channel", "Kills per second: 150")
 
     def test_handle_disabled_without_cached_data(self):
         self.bot._send_chat = MagicMock()
