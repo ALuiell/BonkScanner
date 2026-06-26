@@ -2,6 +2,7 @@
 old/my_private_settings.py
 
 # === DOCUMENTATION & PERSONAL NOTES & CONFIGS===
+AGENT.md
 Instructions_*.txt
 config.json
 
@@ -27,9 +28,21 @@ __pycache__/
 *.pyc
 .venv/
 .idea/
+.vs/
+.vscode/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
 .continue/agents/
 .tmp_unitypy/
 vods/
 stats_recordings/
+chaos_validation_runs/
+tools/
+docs/recovery/HISTORY-DONT-USE/
+reports/
 
 Dump

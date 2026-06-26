@@ -11,7 +11,7 @@ Status legend:
 
 ## 1. Preserve Template Colors In Runtime Active-Templates Log
 
-Status: `[Open]`
+Status: `[Implemented]`
 
 Current issue:
 
@@ -138,6 +138,7 @@ Why this might help:
 
 Implementation note:
 
-- Treat this as exploratory UI/product work.
-- Keep the recordings `Segment Compare` behavior separate, since that remains
-  useful for manual snapshot analysis.
+- `Live Stats` now uses a dedicated `Powerups` summary card in place of the
+  live `Segment Compare` card.
+- `Recordings` keeps the existing `Segment Compare` behavior for manual
+  snapshot analysis.

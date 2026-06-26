@@ -22,7 +22,7 @@ from player_stats import (
 )
 
 
-VOD_FORMAT_VERSION = 4
+VOD_FORMAT_VERSION = 5
 RECORDINGS_DIR = Path(config.application_path) / "stats_recordings"
 LEGACY_VODS_DIR = Path(config.application_path) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -53,6 +53,15 @@ class VodSnapshot:
     map_seed: int | None = None
     stage_ptr: int = 0
     stage_time_seconds: float | None = None
+    chests_opened: int | None = None
+    chests_total: int | None = None
+    paid_chests: int | None = None
+    key_procs: int | None = None
+    free_chests: int | None = None
+    keys_count: int | None = None
+    expected_key_procs: float | None = None
+    chests_opened_by_stage: dict[int, int] | None = None
+    chests_total_by_stage: dict[int, int] | None = None
 
     @property
     def time_label(self) -> str:
@@ -194,6 +203,15 @@ class VodRecorder:
         map_seed: int | None = None,
         stage_ptr: int = 0,
         stage_time_seconds: float | None = None,
+        chests_opened: int | None = None,
+        chests_total: int | None = None,
+        paid_chests: int | None = None,
+        key_procs: int | None = None,
+        free_chests: int | None = None,
+        keys_count: int | None = None,
+        expected_key_procs: float | None = None,
+        chests_opened_by_stage: dict[int, int] | None = None,
+        chests_total_by_stage: dict[int, int] | None = None,
     ) -> VodSnapshot:
         if not self.is_recording or self._file is None:
             raise RuntimeError("VOD recorder is not active.")
@@ -219,6 +237,19 @@ class VodRecorder:
             map_seed=map_seed,
             stage_ptr=stage_ptr,
             stage_time_seconds=stage_time_seconds,
+            chests_opened=chests_opened,
+            chests_total=chests_total,
+            paid_chests=paid_chests,
+            key_procs=key_procs,
+            free_chests=free_chests,
+            keys_count=keys_count,
+            expected_key_procs=expected_key_procs,
+            chests_opened_by_stage=(
+                dict(chests_opened_by_stage) if chests_opened_by_stage is not None else None
+            ),
+            chests_total_by_stage=(
+                dict(chests_total_by_stage) if chests_total_by_stage is not None else None
+            ),
         )
         self.snapshot_count += 1
         self._write_record(
@@ -483,6 +514,24 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         record["stage_ptr"] = snapshot.stage_ptr
     if snapshot.stage_time_seconds is not None:
         record["stage_time_seconds"] = snapshot.stage_time_seconds
+    if snapshot.chests_opened is not None:
+        record["chests_opened"] = snapshot.chests_opened
+    if snapshot.chests_total is not None:
+        record["chests_total"] = snapshot.chests_total
+    if snapshot.paid_chests is not None:
+        record["paid_chests"] = snapshot.paid_chests
+    if snapshot.key_procs is not None:
+        record["key_procs"] = snapshot.key_procs
+    if snapshot.free_chests is not None:
+        record["free_chests"] = snapshot.free_chests
+    if snapshot.keys_count is not None:
+        record["keys_count"] = snapshot.keys_count
+    if snapshot.expected_key_procs is not None:
+        record["expected_key_procs"] = snapshot.expected_key_procs
+    if snapshot.chests_opened_by_stage is not None:
+        record["chests_opened_by_stage"] = snapshot.chests_opened_by_stage
+    if snapshot.chests_total_by_stage is not None:
+        record["chests_total_by_stage"] = snapshot.chests_total_by_stage
     return record
 
 
@@ -514,6 +563,15 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
         map_seed=_coerce_optional_int(record.get("map_seed", record.get("run_seed"))),
         stage_ptr=_coerce_int(record.get("stage_ptr")),
         stage_time_seconds=_coerce_optional_float(record.get("stage_time_seconds")),
+        chests_opened=_coerce_optional_int(record.get("chests_opened")),
+        chests_total=_coerce_optional_int(record.get("chests_total")),
+        paid_chests=_coerce_optional_int(record.get("paid_chests")),
+        key_procs=_coerce_optional_int(record.get("key_procs")),
+        free_chests=_coerce_optional_int(record.get("free_chests")),
+        keys_count=_coerce_optional_int(record.get("keys_count")),
+        expected_key_procs=_coerce_optional_float(record.get("expected_key_procs")),
+        chests_opened_by_stage=_coerce_int_dict(record.get("chests_opened_by_stage")),
+        chests_total_by_stage=_coerce_int_dict(record.get("chests_total_by_stage")),
     )
 
 
@@ -522,6 +580,18 @@ def _coerce_optional_int(value: Any) -> int | None:
         return int(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_int_dict(value: Any) -> dict[int, int] | None:
+    if not isinstance(value, dict):
+        return None
+    result: dict[int, int] = {}
+    for key, item in value.items():
+        try:
+            result[int(key)] = int(item)
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def _weapon_to_record(weapon: WeaponSnapshot) -> dict[str, Any]:

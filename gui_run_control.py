@@ -18,6 +18,7 @@ from hook_loader import (
     HookProcessNotReadyError,
     NativeHookLoader,
 )
+from hotkey_manager import HotkeyBinding, ModifierAwareHotkeyManager
 from run_control import HookRunControlProvider, KeyboardRunControlProvider, RunControlError
 
 try:
@@ -241,21 +242,34 @@ class RunControlMixin:
     def setup_hotkeys(self):
         if keyboard:
             try:
-                keyboard.unhook_all()
-                keyboard.add_hotkey(config.HOTKEY, self.hotkey_toggle_scanning)
-                keyboard.add_hotkey(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording)
-                keyboard.add_hotkey(
-                    config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY,
-                    self.hotkey_toggle_skip_chest_animation,
+                previous_manager = getattr(self, "_hotkey_manager", None)
+                if previous_manager is not None:
+                    previous_manager.stop()
+                    self._hotkey_manager = None
+                manager = ModifierAwareHotkeyManager(
+                    keyboard,
+                    allowed_game_keys=getattr(config, "HOTKEY_GAME_KEY_WHITELIST", ()),
+                    is_game_window_active=lambda: self.is_game_window_active(config.PROCESS_NAME),
                 )
-                keyboard.add_hotkey(
-                    config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
-                    self.hotkey_toggle_auto_select_upgrades,
+                manager.start(
+                    (
+                        HotkeyBinding(config.HOTKEY, self.hotkey_toggle_scanning),
+                        HotkeyBinding(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording),
+                        HotkeyBinding(
+                            config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY,
+                            self.hotkey_toggle_skip_chest_animation,
+                        ),
+                        HotkeyBinding(
+                            config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
+                            self.hotkey_toggle_auto_select_upgrades,
+                        ),
+                        HotkeyBinding(
+                            config.TOGGLE_PARTICLES_OPACITY_HOTKEY,
+                            self.hotkey_toggle_particles_opacity,
+                        ),
+                    )
                 )
-                keyboard.add_hotkey(
-                    config.TOGGLE_PARTICLES_OPACITY_HOTKEY,
-                    self.hotkey_toggle_particles_opacity,
-                )
+                self._hotkey_manager = manager
             except Exception as exc:
                 self.log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
 
@@ -322,9 +336,10 @@ class RunControlMixin:
         if game_process_id is not None:
             try:
                 _, foreground_process_id = win32process.GetWindowThreadProcessId(foreground_window)
-                return int(foreground_process_id) == game_process_id
+                if int(foreground_process_id) == game_process_id:
+                    return True
             except Exception:
-                return False
+                pass
         try:
             foreground_title = win32gui.GetWindowText(foreground_window) or ""
         except Exception:

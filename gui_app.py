@@ -105,6 +105,7 @@ class MegabonkApp(
         self.player_stats_live_banishes = ()
         self.player_stats_in_game_time_label = None
         self.player_stats_chests_per_minute_label = None
+        self.player_stats_powerups_duration_label = None
         self.player_stats_mob_kills_label = None
         self.player_stats_level_label = None
         self.player_stats_new_items_label = None
@@ -144,6 +145,7 @@ class MegabonkApp(
         self.vods_banishes_label = None
         self.vods_in_game_time_label = None
         self.vods_chests_per_minute_label = None
+        self.vods_powerups_duration_label = None
         self.vods_mob_kills_label = None
         self.vods_level_label = None
         self.vods_new_items_label = None
@@ -263,6 +265,7 @@ class MegabonkApp(
 
         self.is_running = False
         self.is_ready_to_start = False
+        self.obs_recording_reminder_shown = False
         self.active_templates = []
         self.scanner_thread = None
         self.client = None
@@ -272,6 +275,11 @@ class MegabonkApp(
             interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
         )
         self.initialize_overlay_runtime()
+        self.player_stats_last_run_id = None
+        self.player_stats_disabled_items_cache = None
+        self.player_stats_disabled_items_refresh_pending = False
+        self.player_stats_last_seed = None
+        self.player_stats_last_run_timer = None
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = None
@@ -306,6 +314,7 @@ class MegabonkApp(
         self.native_hook_thread = None
         self.native_hook_generation = 0
         self.run_control_provider = None
+        self._hotkey_manager = None
         self._native_hook_admin_warning_logged = False
         self._native_hook_error_dialog_visible = False
         self.checkboxes = {}

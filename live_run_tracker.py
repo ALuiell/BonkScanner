@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from math import isfinite
 import time
 from typing import Any, Callable, Iterable
 from uuid import uuid4
@@ -12,6 +13,9 @@ from functools import wraps
 
 import run_summary
 from gui_styles import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
+from player_stats import DisabledItemsReadResult, DisabledItemsReadStatus
+
+POWERUP_MAP_CONTEXT_TTL_SECONDS = 15.0
 
 
 def with_lock(method):
@@ -33,6 +37,8 @@ class LiveRunSnapshot:
     tomes: tuple[Any, ...] = ()
     tomes_available: bool = False
     banishes: tuple[str, ...] = ()
+    disabled_items: tuple[str, ...] = ()
+    disabled_items_available: bool = False
     damage_sources: tuple[Any, ...] = ()
     damage_sources_available: bool = False
     chests_per_minute: float | None = None
@@ -42,6 +48,9 @@ class LiveRunSnapshot:
     player_level: int | None = None
     map_seed: int | None = None
     stage_ptr: int = 0
+    stage_index: int | None = None
+    chests_total: int | None = None
+    pots_total: int | None = None
 
 
 @dataclass(frozen=True)
@@ -76,9 +85,9 @@ class ChaosTomeStatTotal:
 
     @property
     def display_delta(self) -> str:
-        from player_stats import format_player_stat_delta
+        from player_stats import format_chaos_tome_stat_delta
 
-        return format_player_stat_delta(self.value, self.value_format)
+        return format_chaos_tome_stat_delta(self.label, self.value, self.value_format)
 
 
 @dataclass(frozen=True)
@@ -90,6 +99,96 @@ class LiveRunTrackerState:
     latest_snapshot: LiveRunSnapshot | None
     tracked_items: list[dict[str, Any]]
     stage_summary: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class ChestStatsSnapshot:
+    current_opened: int
+    current_total: int
+    keys_count: int
+    paid: int
+    key_procs: int
+    free_chests: int | None
+    opened_by_stage: dict[int, int]
+    total_by_stage: dict[int, int]
+    counters_available: bool
+    expected_key_procs: float = 0.0
+    expected_tracked_opens: int = 0
+    expected_available: bool = False
+    total_opened_minimum: int | None = None
+    total_opened_is_minimum: bool = False
+
+    @property
+    def total_opened(self) -> int | None:
+        if self.total_opened_minimum is not None:
+            return self.total_opened_minimum
+        if any(int(value) < 0 for value in self.opened_by_stage.values()):
+            return None
+        return sum(self.opened_by_stage.values())
+
+    @property
+    def total_chests(self) -> int:
+        return sum(self.total_by_stage.values())
+
+    @property
+    def normal_opened(self) -> int:
+        return self.paid + self.key_procs
+
+
+@dataclass(frozen=True)
+class PowerupEffectState:
+    effect_id: int
+    name: str
+    pickup_ui: str | None
+    expires_ui: str | None
+    remaining_seconds: float
+    duration_seconds: float
+    stage_index: int | None
+    raw_stage_pickup: float
+    raw_stage_expiration: float
+
+
+@dataclass(frozen=True)
+class PowerupsSnapshot:
+    active: tuple[PowerupEffectState, ...] = ()
+    powerup_multiplier: float | None = None
+    powerup_multiplier_display: str = "--"
+    standard_duration_seconds: float | None = None
+    clock_duration_seconds: float | None = None
+    stage_index: int | None = None
+    stage_time_seconds: float | None = None
+    available: bool = False
+
+
+@dataclass(frozen=True)
+class _PowerupUiContext:
+    timer_value: float
+    timer_limit: float | None
+
+
+@dataclass(frozen=True)
+class PowerupMapContext:
+    is_graveyard: bool = False
+    captured_at: float = 0.0
+    activity_max: dict[str, int] | None = None
+
+    @classmethod
+    def from_activity_max(
+        cls,
+        activity_max: dict[str, int],
+        *,
+        captured_at: float = 0.0,
+    ) -> "PowerupMapContext":
+        labels = set(activity_max)
+        is_graveyard = bool(
+            {"Pumpkin", "Gravestones", "Crypt Chests", "Crypt Pots"} & labels
+            or int(activity_max.get("Chests", 0) or 0) == 69
+        )
+        return cls(
+            is_graveyard=is_graveyard,
+            captured_at=captured_at,
+            activity_max=dict(activity_max),
+        )
 
 
 DEFAULT_TRACKED_ITEM_RULES: tuple[TrackedItemRule, ...] = (
@@ -133,6 +232,7 @@ def _compute_chaos_fingerprints() -> dict[int, list[float]]:
 
 CHAOS_FINGERPRINTS: dict[int, list[float]] = _compute_chaos_fingerprints()
 CHAOS_TOME_STAT_IDS: frozenset[int] = frozenset(CHAOS_FINGERPRINTS.keys())
+CHAOS_UNBUDGETED_BASELINE_SAMPLES = 4
 CHAOS_TOME_GAME_STAT_ORDER: dict[int, int] = {
     stat_id: index
     for index, stat_id in enumerate(
@@ -207,12 +307,37 @@ class LiveRunTracker:
         self._previous_item_counts: dict[str, int] | None = None
         self._tracked_events: list[TrackedItemEvent] = []
         self._tracked_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
+        self._combo_run_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
         self._chaos_tome_level: int | None = None
         self._chaos_modifier_baselines: dict[int, tuple[float, ...]] = {}
         self._chaos_totals: dict[int, ChaosTomeStatTotal] = {}
         self._chaos_ambiguous_rolls = 0
         self._chaos_available_rolls = 0
+        self._chaos_unbudgeted_candidates: dict[tuple[int, int], tuple[float, int]] = {}
         self._cached_stage_summary: list[dict[str, Any]] | None = None
+        self._chests_opened = 0
+        self._chests_total = 46
+        self._keys_count = 0
+        self._paid_chest_opens = 0
+        self._key_chest_procs = 0
+        self._free_chest_opens: int | None = None
+        self._chest_counters_available = False
+        self._chest_history_incomplete = False
+        self._total_opened_minimum: int | None = None
+        self._total_opened_is_minimum = False
+        self._expected_key_procs = 0.0
+        self._expected_tracked_opens = 0
+        self._expected_chests_bought: int | None = None
+        self._expected_keys_count: int | None = None
+        self._expected_available = False
+        self._expected_detected_run_reset = False
+        self._stage_ptrs_seen = []
+        self._stage_numbers_by_ptr: dict[int, int] = {}
+        self._chests_opened_by_stage = {}
+        self._chests_total_by_stage = {}
+        self._disabled_items_cache: tuple[str, ...] | None = None
+        self._powerups_snapshot = PowerupsSnapshot()
+        self._powerup_map_context = PowerupMapContext()
         self._lock = threading.RLock()
 
     @with_lock
@@ -222,6 +347,7 @@ class LiveRunTracker:
         self._last_update_at = now
         self._last_failed_at = None
         self._last_no_game_at = None
+        reset_for_snapshot = False
         if not self._is_active_snapshot(snapshot):
             if not self.snapshots:
                 return
@@ -230,10 +356,12 @@ class LiveRunTracker:
 
         if self._should_reset_for_snapshot(snapshot):
             self._reset_for_new_run()
+            reset_for_snapshot = True
 
         if self.run_id is None:
             self.run_id = uuid4().hex
-            self.current_stage_index = 1
+        if reset_for_snapshot:
+            self.current_stage_index = run_summary.resolve_initial_stage_index(snapshot)
 
         previous_snapshot = self.snapshots[-1] if self.snapshots else None
         if previous_snapshot is not None and self._is_active_snapshot(previous_snapshot):
@@ -250,6 +378,8 @@ class LiveRunTracker:
             )
 
         self.snapshots.append(snapshot)
+        if snapshot.disabled_items_available:
+            self._disabled_items_cache = snapshot.disabled_items
         self._process_item_deltas(snapshot)
 
     @with_lock
@@ -266,6 +396,7 @@ class LiveRunTracker:
             return
         old_rules_by_id = {rule.id: rule for rule in self.tracked_item_rules}
         old_counts = dict(self._tracked_counts)
+        old_combo_run_counts = dict(self._combo_run_counts)
         preserved_rule_ids = {
             rule.id
             for rule in new_rules
@@ -277,12 +408,20 @@ class LiveRunTracker:
             rule.id: old_counts.get(rule.id, 0) if rule.id in preserved_rule_ids else 0
             for rule in self.tracked_item_rules
         }
+        self._combo_run_counts = {
+            rule.id: old_combo_run_counts.get(rule.id, 0) if rule.id in preserved_rule_ids else 0
+            for rule in self.tracked_item_rules
+        }
         self._tracked_events = [
             event for event in old_events if event.rule_id in preserved_rule_ids
         ]
-        self._reset_current_run_item_baseline()
+        self._reset_current_run_item_baseline(reset_combo_counts=False)
         if self.snapshots and self.snapshots[-1].items_available:
-            self._previous_item_counts = run_summary.item_counts(self.snapshots[-1].items)
+            current_counts = run_summary.item_counts(self.snapshots[-1].items)
+            self._previous_item_counts = current_counts
+            for rule in self.tracked_item_rules:
+                if rule.id not in preserved_rule_ids and len(rule.item_names) > 1:
+                    self._combo_run_counts[rule.id] = self._combo_count_for_rule(rule, current_counts)
 
     @with_lock
     def stage_summary_rows(self) -> list[dict[str, Any]]:
@@ -309,9 +448,9 @@ class LiveRunTracker:
         permanent_modifiers: dict[int, tuple[Any, ...]],
     ) -> None:
         if chaos_level is None:
-            self._chaos_tome_level = None
-            self._chaos_modifier_baselines = {}
-            self._chaos_available_rolls = 0
+            # TomeInventory may be unavailable while the game mutates its
+            # dictionaries. A missing read is not evidence that the tome was
+            # removed; run resets and level decreases handle real resets.
             return
 
         current_level = max(0, int(chaos_level))
@@ -320,12 +459,17 @@ class LiveRunTracker:
             for stat_id, modifiers in (permanent_modifiers or {}).items()
         }
 
-        if self._chaos_tome_level is None or current_level < self._chaos_tome_level:
-            if self._chaos_tome_level is not None and current_level < self._chaos_tome_level:
-                self._chaos_totals = {}
+        if self._chaos_tome_level is None:
+            if current_level <= 0:
+                return
             self._chaos_tome_level = current_level
-            self._chaos_modifier_baselines = current_baselines
-            self._chaos_available_rolls = 0
+            self._chaos_modifier_baselines = {}
+            self._chaos_available_rolls = current_level
+            self._chaos_unbudgeted_candidates = {}
+            self._record_chaos_modifier_deltas(permanent_modifiers)
+            return
+
+        if current_level < self._chaos_tome_level:
             return
 
         if current_level > self._chaos_tome_level:
@@ -421,7 +565,461 @@ class LiveRunTracker:
 
     @with_lock
     def latest_snapshot(self) -> LiveRunSnapshot | None:
+        return self._latest_snapshot_unlocked()
+
+    def _latest_snapshot_unlocked(self) -> LiveRunSnapshot | None:
         return self.snapshots[-1] if self.snapshots else None
+
+    @with_lock
+    def has_active_run(self) -> bool:
+        latest = self._latest_snapshot_unlocked()
+        return bool(
+            latest is not None
+            and self._last_no_game_at is None
+            and self._is_active_snapshot(latest)
+        )
+
+    @with_lock
+    def get_disabled_items(self) -> DisabledItemsReadResult:
+        if self._disabled_items_cache is None:
+            return DisabledItemsReadResult(DisabledItemsReadStatus.NOT_INITIALIZED)
+        return DisabledItemsReadResult(
+            DisabledItemsReadStatus.AVAILABLE,
+            self._disabled_items_cache,
+        )
+
+    @with_lock
+    def update_powerup_map_context(self, context: PowerupMapContext) -> None:
+        self._powerup_map_context = context
+
+    def _fresh_powerup_map_context_unlocked(self) -> PowerupMapContext | None:
+        context = self._powerup_map_context
+        if context.captured_at <= 0:
+            return None
+        if self.clock() - context.captured_at > POWERUP_MAP_CONTEXT_TTL_SECONDS:
+            return None
+        return context
+
+    @with_lock
+    def update_powerups(
+        self,
+        snapshot: Any,
+        *,
+        map_context: PowerupMapContext | None = None,
+    ) -> None:
+        if map_context is not None:
+            self._powerup_map_context = map_context
+        powerup_multiplier = getattr(snapshot, "powerup_multiplier", None)
+        try:
+            powerup_multiplier = float(powerup_multiplier)
+        except (TypeError, ValueError):
+            powerup_multiplier = None
+        if powerup_multiplier is not None and not isfinite(powerup_multiplier):
+            powerup_multiplier = None
+
+        standard_duration = (
+            15.0 * powerup_multiplier if powerup_multiplier is not None else None
+        )
+        clock_duration = (
+            12.0 * powerup_multiplier if powerup_multiplier is not None else None
+        )
+
+        my_time = getattr(snapshot, "my_time_seconds", None)
+        stage_timer = getattr(snapshot, "stage_timer_seconds", None)
+        stage_time = getattr(snapshot, "stage_time_seconds", None)
+        final_swarm_timer = getattr(snapshot, "final_swarm_timer_seconds", None)
+        crypt_timer = getattr(snapshot, "crypt_timer_seconds", None)
+        stage_index = getattr(snapshot, "stage_index", None)
+        active: list[PowerupEffectState] = []
+
+        if (
+            my_time is not None
+            and stage_timer is not None
+            and stage_time is not None
+            and powerup_multiplier is not None
+            and int(stage_index if stage_index is not None else -1) < 3
+        ):
+            for effect in getattr(snapshot, "effects", ()) or ():
+                try:
+                    effect_id = int(getattr(effect, "effect_id", -1))
+                    added_time_raw = getattr(effect, "added_time", None)
+                    added_time = (
+                        float(added_time_raw) if added_time_raw is not None else float("nan")
+                    )
+                    expiration_time = float(getattr(effect, "expiration_time", 0.0))
+                    remaining = expiration_time - float(my_time)
+                    if remaining <= 0 or not isfinite(remaining):
+                        continue
+                    base_duration = 12.0 if effect_id == 4 else 15.0
+                    duration = base_duration * powerup_multiplier
+                    pickup_time = expiration_time - duration
+                    if (
+                        isfinite(added_time)
+                        and added_time <= expiration_time
+                        and added_time <= float(my_time)
+                    ):
+                        pickup_time = added_time
+                    ui_context = self._resolve_powerup_ui_context_unlocked(
+                        my_time=float(my_time),
+                        pickup_time=pickup_time,
+                        stage_timer=float(stage_timer),
+                        stage_time=float(stage_time),
+                        final_swarm_timer=final_swarm_timer,
+                        crypt_timer=crypt_timer,
+                    )
+                    raw_pickup = ui_context.timer_value + (pickup_time - float(my_time))
+                    raw_expiration = ui_context.timer_value + (
+                        expiration_time - float(my_time)
+                    )
+                    if not isfinite(raw_pickup) or not isfinite(raw_expiration):
+                        continue
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                active.append(
+                    PowerupEffectState(
+                        effect_id=effect_id,
+                        name=str(getattr(effect, "name", effect_id)),
+                        pickup_ui=(
+                            self._format_ui_stage_time(
+                                raw_pickup,
+                                ui_context.timer_limit,
+                            )
+                            if ui_context.timer_limit is not None
+                            else None
+                        ),
+                        expires_ui=(
+                            self._format_ui_stage_time(
+                                raw_expiration,
+                                ui_context.timer_limit,
+                            )
+                            if ui_context.timer_limit is not None
+                            else None
+                        ),
+                        remaining_seconds=remaining,
+                        duration_seconds=duration,
+                        stage_index=stage_index,
+                        raw_stage_pickup=raw_pickup,
+                        raw_stage_expiration=raw_expiration,
+                    )
+                )
+
+        active.sort(key=lambda effect: effect.raw_stage_expiration, reverse=True)
+        self._powerups_snapshot = PowerupsSnapshot(
+            active=tuple(active),
+            powerup_multiplier=powerup_multiplier,
+            powerup_multiplier_display=str(
+                getattr(snapshot, "powerup_multiplier_display", "--") or "--"
+            ),
+            standard_duration_seconds=standard_duration,
+            clock_duration_seconds=clock_duration,
+            stage_index=stage_index,
+            stage_time_seconds=stage_time,
+            available=True,
+        )
+
+    @with_lock
+    def clear_powerups(self) -> None:
+        self._powerups_snapshot = PowerupsSnapshot()
+
+    @with_lock
+    def powerups_snapshot(self) -> PowerupsSnapshot:
+        return self._powerups_snapshot
+
+    @with_lock
+    def format_powerups_summary(self, *, include_left_word: bool = True) -> str:
+        snapshot = self._powerups_snapshot
+        if not snapshot.available:
+            return "Powerups: --"
+        powerups_text = self._format_powerups_text_unlocked(
+            snapshot,
+            include_left_word=include_left_word,
+        )
+        if snapshot.powerup_multiplier_display == "--":
+            return f"Powerups: {powerups_text}"
+        return f"Powerups: {powerups_text} (PM {snapshot.powerup_multiplier_display})"
+
+    @with_lock
+    def powerups_summary_text(self, *, include_left_word: bool = True) -> str:
+        snapshot = self._powerups_snapshot
+        if not snapshot.available:
+            return "--"
+        return self._format_powerups_text_unlocked(
+            snapshot,
+            include_left_word=include_left_word,
+        )
+
+    def _format_powerups_text_unlocked(
+        self,
+        snapshot: PowerupsSnapshot,
+        *,
+        include_left_word: bool = True,
+    ) -> str:
+        durations_text = None
+        if (
+            snapshot.standard_duration_seconds is not None
+            and snapshot.clock_duration_seconds is not None
+        ):
+            durations_text = (
+                "Durations: "
+                f"standard {self._format_duration_seconds(snapshot.standard_duration_seconds)}s, "
+                f"clock {self._format_duration_seconds(snapshot.clock_duration_seconds)}s"
+            )
+        if snapshot.active:
+            parts = []
+            suffix = " left" if include_left_word else ""
+            for effect in snapshot.active:
+                duration_text = (
+                    f"({self._format_duration_seconds(effect.remaining_seconds)}s{suffix})"
+                )
+                if effect.pickup_ui is None or effect.expires_ui is None:
+                    parts.append(f"{effect.name} {duration_text}")
+                else:
+                    parts.append(
+                        f"{effect.name} {effect.pickup_ui} -> {effect.expires_ui} "
+                        f"{duration_text}"
+                    )
+            if durations_text is not None:
+                parts.append(durations_text)
+            return " | ".join(parts)
+        if durations_text is None:
+            return "none active"
+        return f"none active | {durations_text}"
+
+    @with_lock
+    def update_chests_and_keys(self, chests_opened: int, chests_total: int, keys_count: int) -> None:
+        self._chests_opened = chests_opened
+        self._chests_total = chests_total
+        self._keys_count = keys_count
+
+        latest = self.latest_snapshot()
+        stage_ptr = latest.stage_ptr if (latest and latest.stage_ptr) else 0
+        raw_stage_index = int(getattr(latest, "stage_index", -1) or 0) if latest else -1
+        if stage_ptr == 0:
+            return
+
+        if stage_ptr not in self._stage_ptrs_seen:
+            stage_num = self._raw_stage_to_human_stage(raw_stage_index)
+            fallback_total = self._baseline_chest_total_for_history(chests_total)
+            if not self._stage_ptrs_seen and raw_stage_index > 0 and stage_num > 1:
+                self._chest_history_incomplete = True
+                for missing_stage in range(1, stage_num):
+                    self._chests_opened_by_stage.setdefault(missing_stage, -1)
+                    self._chests_total_by_stage.setdefault(missing_stage, fallback_total)
+            if stage_num <= 0:
+                stage_num = max(self._chests_total_by_stage.keys(), default=0) + 1
+            while stage_num in self._chests_total_by_stage:
+                stage_num += 1
+            self._stage_ptrs_seen.append(stage_ptr)
+            self._stage_numbers_by_ptr[stage_ptr] = stage_num
+            self._chests_opened_by_stage[stage_num] = 0
+            self._chests_total_by_stage[stage_num] = (
+                fallback_total if self._chest_history_incomplete else chests_total
+            )
+
+        stage_num = self._stage_numbers_by_ptr.get(stage_ptr, 0)
+        if stage_num <= 0:
+            return
+
+        # Protect against stage transition race conditions (residual counts)
+        ptr_order = self._stage_ptrs_seen.index(stage_ptr)
+        if ptr_order > 0:
+            prev_stage_ptr = self._stage_ptrs_seen[ptr_order - 1]
+            prev_stage_num = self._stage_numbers_by_ptr.get(prev_stage_ptr, 0)
+            prev_opened = max(0, self._chests_opened_by_stage.get(prev_stage_num, 0))
+            current_opened = max(0, self._chests_opened_by_stage.get(stage_num, 0))
+            if current_opened == 0 and chests_opened == prev_opened:
+                chests_opened = 0
+
+        current_opened = max(0, self._chests_opened_by_stage.get(stage_num, 0))
+        self._chests_opened_by_stage[stage_num] = max(current_opened, chests_opened)
+        self._chests_total_by_stage[stage_num] = max(self._chests_total_by_stage.get(stage_num, 0), chests_total)
+
+    @with_lock
+    def update_chest_counters(self, chests_bought: int, chests_purchased: int) -> bool:
+        chests_bought = int(chests_bought)
+        chests_purchased = int(chests_purchased)
+        known_total = sum(max(0, value) for value in self._chests_opened_by_stage.values())
+        max_total = self._resolve_maximum_chest_total_unlocked()
+        if max_total is None:
+            return False
+        total_opened = known_total
+        total_opened_is_minimum = False
+        if self._chest_history_incomplete:
+            if chests_bought > max_total:
+                return False
+            total_opened = max(known_total, chests_bought)
+            total_opened_is_minimum = True
+
+        if not (
+            0 <= chests_purchased <= chests_bought <= total_opened
+        ):
+            return False
+
+        self._paid_chest_opens = chests_purchased
+        self._key_chest_procs = chests_bought - chests_purchased
+        self._free_chest_opens = (
+            None if self._chest_history_incomplete else total_opened - chests_bought
+        )
+        self._total_opened_minimum = total_opened if total_opened_is_minimum else None
+        self._total_opened_is_minimum = total_opened_is_minimum
+        self._chest_counters_available = True
+        return True
+
+    def _resolve_maximum_chest_total_unlocked(self) -> int | None:
+        total = 0
+        for stage_num, stage_total in self._chests_total_by_stage.items():
+            opened = int(self._chests_opened_by_stage.get(stage_num, 0))
+            if opened < 0:
+                total += max(0, int(stage_total))
+            else:
+                total += max(0, opened)
+        return total
+
+    @staticmethod
+    def _raw_stage_to_human_stage(raw_stage_index: int) -> int:
+        if raw_stage_index < 0:
+            return 0
+        return int(raw_stage_index) + 1
+
+    @staticmethod
+    def _baseline_chest_total_for_history(chests_total: int) -> int:
+        total = max(0, int(chests_total))
+        return 69 if total >= 69 else 46
+
+    @staticmethod
+    def key_proc_chance(keys_count: int) -> float:
+        keys_count = max(0, int(keys_count))
+        return (0.10 * keys_count) / ((0.10 * keys_count) + 1.0)
+
+    @staticmethod
+    def _format_duration_seconds(value: float) -> str:
+        return str(int(round(value)))
+
+    def _resolve_powerup_ui_context_unlocked(
+        self,
+        *,
+        my_time: float,
+        pickup_time: float,
+        stage_timer: float,
+        stage_time: float,
+        final_swarm_timer: Any,
+        crypt_timer: Any,
+    ) -> _PowerupUiContext:
+        map_context = self._fresh_powerup_map_context_unlocked()
+        if map_context is None:
+            return _PowerupUiContext(stage_timer, None)
+        if not map_context.is_graveyard:
+            return _PowerupUiContext(stage_timer, stage_time)
+
+        try:
+            final_swarm_value = float(final_swarm_timer)
+        except (TypeError, ValueError):
+            final_swarm_value = float("nan")
+        if (
+            isfinite(final_swarm_value)
+            and final_swarm_value > 0.0
+            and pickup_time >= my_time - final_swarm_value
+        ):
+            return _PowerupUiContext(final_swarm_value, 0.0)
+
+        try:
+            crypt_value = float(crypt_timer)
+        except (TypeError, ValueError):
+            crypt_value = float("nan")
+        if (
+            isfinite(crypt_value)
+            and crypt_value > 0.0
+            and stage_timer <= 1.0
+            and pickup_time >= my_time - crypt_value
+        ):
+            return _PowerupUiContext(crypt_value, None)
+
+        graveyard_stage_limit = 960.0
+        return _PowerupUiContext(stage_timer, graveyard_stage_limit)
+
+    @staticmethod
+    def _format_ui_stage_time(raw_stage_timer: float, stage_time: float) -> str:
+        if raw_stage_timer <= stage_time:
+            value = max(0.0, stage_time - raw_stage_timer)
+            prefix = ""
+        else:
+            value = raw_stage_timer - stage_time
+            prefix = "+"
+        total_seconds = max(0, int(value))
+        return f"{prefix}{total_seconds // 60:02d}:{total_seconds % 60:02d}"
+
+    @with_lock
+    def track_expected_key_procs(self, chests_bought: int, keys_count: int) -> None:
+        chests_bought = max(0, int(chests_bought))
+        keys_count = max(0, int(keys_count))
+        self._keys_count = keys_count
+
+        if self._expected_chests_bought is None:
+            self._expected_chests_bought = chests_bought
+            self._expected_keys_count = keys_count
+            self._expected_available = chests_bought == 0
+            return
+
+        if chests_bought < self._expected_chests_bought:
+            self._expected_key_procs = 0.0
+            self._expected_tracked_opens = 0
+            self._expected_chests_bought = chests_bought
+            self._expected_keys_count = keys_count
+            self._expected_available = chests_bought == 0
+            self._expected_detected_run_reset = True
+            return
+
+        delta = chests_bought - self._expected_chests_bought
+        if delta > 0:
+            # A key dropped by a chest can proc on that same chest, so the
+            # post-open stack is the best observable probability sample.
+            self._expected_key_procs += delta * self.key_proc_chance(keys_count)
+            self._expected_tracked_opens += delta
+
+        self._expected_chests_bought = chests_bought
+        self._expected_keys_count = keys_count
+
+    @with_lock
+    def get_chest_stats(self) -> ChestStatsSnapshot:
+        return self._get_chest_stats_unlocked()
+
+    def _get_chest_stats_unlocked(self) -> ChestStatsSnapshot:
+        opened_by_num = {
+            stage_num: self._chests_opened_by_stage.get(stage_num, 0)
+            for stage_num in sorted(self._chests_total_by_stage)
+        }
+        total_by_num = {
+            stage_num: self._chests_total_by_stage.get(stage_num, 0)
+            for stage_num in sorted(self._chests_total_by_stage)
+        }
+        return ChestStatsSnapshot(
+            current_opened=self._chests_opened,
+            current_total=self._chests_total,
+            keys_count=self._keys_count,
+            paid=self._paid_chest_opens,
+            key_procs=self._key_chest_procs,
+            free_chests=self._free_chest_opens,
+            opened_by_stage=opened_by_num,
+            total_by_stage=total_by_num,
+            counters_available=self._chest_counters_available,
+            expected_key_procs=self._expected_key_procs,
+            expected_tracked_opens=self._expected_tracked_opens,
+            expected_available=self._expected_available,
+            total_opened_minimum=self._total_opened_minimum,
+            total_opened_is_minimum=self._total_opened_is_minimum,
+        )
+
+    @with_lock
+    def get_chests_and_keys(self) -> tuple[int, int, int, int, dict[int, int], dict[int, int]]:
+        stats = self._get_chest_stats_unlocked()
+        return (
+            stats.current_opened,
+            stats.current_total,
+            stats.keys_count,
+            stats.key_procs,
+            stats.opened_by_stage,
+            stats.total_by_stage,
+        )
 
     @with_lock
     def status(self) -> str:
@@ -441,17 +1039,43 @@ class LiveRunTracker:
         self.run_id = uuid4().hex
         self.snapshots.clear()
         self.current_stage_index = 1
+        self._chests_opened = 0
+        self._chests_total = 46
+        self._keys_count = 0
+        self._paid_chest_opens = 0
+        self._key_chest_procs = 0
+        self._free_chest_opens = None
+        self._chest_counters_available = False
+        self._chest_history_incomplete = False
+        self._total_opened_minimum = None
+        self._total_opened_is_minimum = False
+        if self._expected_detected_run_reset:
+            self._expected_detected_run_reset = False
+        else:
+            self._expected_key_procs = 0.0
+            self._expected_tracked_opens = 0
+            self._expected_chests_bought = None
+            self._expected_keys_count = None
+            self._expected_available = False
+        self._stage_ptrs_seen = []
+        self._stage_numbers_by_ptr = {}
+        self._chests_opened_by_stage = {}
+        self._chests_total_by_stage = {}
         self._reset_current_run_item_baseline()
         self._reset_chaos_tracking()
+        self._powerups_snapshot = PowerupsSnapshot()
         self._cached_stage_summary = None
 
     def _reset_tracking_only(self) -> None:
         self._reset_current_run_item_baseline()
         self._tracked_events = []
         self._tracked_counts = {rule.id: 0 for rule in self.tracked_item_rules}
+        self._combo_run_counts = {rule.id: 0 for rule in self.tracked_item_rules}
 
-    def _reset_current_run_item_baseline(self) -> None:
+    def _reset_current_run_item_baseline(self, *, reset_combo_counts: bool = True) -> None:
         self._previous_item_counts = None
+        if reset_combo_counts:
+            self._combo_run_counts = {rule.id: 0 for rule in self.tracked_item_rules}
 
     def _reset_chaos_tracking(self) -> None:
         self._chaos_tome_level = None
@@ -459,6 +1083,7 @@ class LiveRunTracker:
         self._chaos_totals = {}
         self._chaos_ambiguous_rolls = 0
         self._chaos_available_rolls = 0
+        self._chaos_unbudgeted_candidates = {}
 
     def _record_chaos_modifier_deltas(
         self,
@@ -480,11 +1105,20 @@ class LiveRunTracker:
                     if matched_rolls > 0:
                         rolls_to_process = min(self._chaos_available_rolls, matched_rolls)
                         if rolls_to_process > 0:
-                            self._add_chaos_total_by_value(stat_id, values[i], delta * (rolls_to_process / matched_rolls))
+                            self._add_chaos_total_by_value(
+                                stat_id,
+                                values[i],
+                                delta * (rolls_to_process / matched_rolls),
+                                rolls=rolls_to_process,
+                            )
                             self._chaos_available_rolls -= rolls_to_process
+                            new_baseline[i] = new_values[i]
+                            self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
+                        elif self._should_commit_unbudgeted_candidate(stat_id, i, new_values[i]):
                             new_baseline[i] = new_values[i]
                     else:
                         new_baseline[i] = new_values[i]
+                        self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
             
             # Check new indices for spawned modifiers
             if len(new_values) > len(old_values):
@@ -494,13 +1128,22 @@ class LiveRunTracker:
                     if matched_rolls > 0:
                         rolls_to_process = min(self._chaos_available_rolls, matched_rolls)
                         if rolls_to_process > 0:
-                            self._add_chaos_total_by_value(stat_id, values[i], val * (rolls_to_process / matched_rolls))
+                            self._add_chaos_total_by_value(
+                                stat_id,
+                                values[i],
+                                val * (rolls_to_process / matched_rolls),
+                                rolls=rolls_to_process,
+                            )
                             self._chaos_available_rolls -= rolls_to_process
+                            new_baseline.append(val)
+                            self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
+                        elif self._should_commit_unbudgeted_candidate(stat_id, i, val):
                             new_baseline.append(val)
                         else:
                             break
                     else:
                         new_baseline.append(val)
+                        self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
             
             self._chaos_modifier_baselines[stat_id] = tuple(new_baseline)
 
@@ -522,7 +1165,30 @@ class LiveRunTracker:
 
         return 0
 
-    def _add_chaos_total_by_value(self, stat_id: int, modifier: Any, delta: float) -> None:
+    def _should_commit_unbudgeted_candidate(self, stat_id: int, index: int, value: float) -> bool:
+        key = (stat_id, index)
+        previous = self._chaos_unbudgeted_candidates.get(key)
+        if previous is not None and abs(previous[0] - value) <= 0.001:
+            samples = previous[1] + 1
+        else:
+            samples = 1
+
+        if samples >= CHAOS_UNBUDGETED_BASELINE_SAMPLES:
+            self._chaos_unbudgeted_candidates.pop(key, None)
+            return True
+
+        self._chaos_unbudgeted_candidates[key] = (value, samples)
+        return False
+
+    def _add_chaos_total_by_value(
+        self,
+        stat_id: int,
+        modifier: Any,
+        delta: float,
+        *,
+        rolls: int = 1,
+    ) -> None:
+        rolls = max(1, int(rolls))
         existing = self._chaos_totals.get(stat_id)
         if existing is None:
             self._chaos_totals[stat_id] = ChaosTomeStatTotal(
@@ -530,7 +1196,7 @@ class LiveRunTracker:
                 label=str(getattr(modifier, "label", f"Stat {stat_id}")),
                 value=delta,
                 value_format=getattr(modifier, "value_format", None),
-                rolls=1,
+                rolls=rolls,
             )
             return
         self._chaos_totals[stat_id] = ChaosTomeStatTotal(
@@ -538,7 +1204,7 @@ class LiveRunTracker:
             label=existing.label,
             value=existing.value + delta,
             value_format=existing.value_format,
-            rolls=existing.rolls + 1,
+            rolls=existing.rolls + rolls,
         )
 
     def _should_reset_for_snapshot(self, snapshot: LiveRunSnapshot) -> bool:
@@ -586,6 +1252,11 @@ class LiveRunTracker:
         if self._previous_item_counts is None:
             self._previous_item_counts = dict(current_counts)
             self._process_initial_item_counts(snapshot, current_counts)
+            self._process_combo_item_rules(
+                snapshot=snapshot,
+                current_counts=current_counts,
+                stage_index=self.current_stage_index,
+            )
             return
 
         for item_name, current_count in current_counts.items():
@@ -602,6 +1273,11 @@ class LiveRunTracker:
             item_name: max(current_counts.get(item_name, 0), self._previous_item_counts.get(item_name, 0))
             for item_name in set(current_counts) | set(self._previous_item_counts)
         }
+        self._process_combo_item_rules(
+            snapshot=snapshot,
+            current_counts=current_counts,
+            stage_index=self.current_stage_index,
+        )
 
     def _process_initial_item_counts(
         self,
@@ -615,16 +1291,20 @@ class LiveRunTracker:
             and snapshot.game_time_seconds is not None
             and float(snapshot.game_time_seconds) <= 10.0
         )
+        initial_stage_index = max(
+            self.current_stage_index,
+            1 if self._snapshot_looks_like_first_stage(snapshot) else 2,
+        )
         for item_name, count in counts.items():
             if count <= 0:
                 continue
-            if is_clearly_early:
-                self._process_item_gain(
-                    item_name=item_name,
-                    gained_count=count,
-                    snapshot=snapshot,
-                    stage_index=1,
-                )
+            self._process_item_gain(
+                item_name=item_name,
+                gained_count=count,
+                snapshot=snapshot,
+                stage_index=initial_stage_index,
+                initial_map_one_only=not is_clearly_early,
+            )
 
     def _process_item_gain(
         self,
@@ -633,8 +1313,13 @@ class LiveRunTracker:
         gained_count: int,
         snapshot: LiveRunSnapshot,
         stage_index: int,
+        initial_map_one_only: bool = False,
     ) -> None:
         for rule in self.tracked_item_rules:
+            if len(rule.item_names) > 1:
+                continue
+            if initial_map_one_only and rule.mode != "map_1_only":
+                continue
             if not self._rule_matches_item(rule, item_name):
                 continue
             eligible_count = self._eligible_count_for_rule(
@@ -656,6 +1341,86 @@ class LiveRunTracker:
                 captured_at=snapshot.captured_at,
             )
             self._tracked_events.append(event)
+
+    @staticmethod
+    def _snapshot_looks_like_first_stage(snapshot: LiveRunSnapshot) -> bool:
+        if snapshot.game_time_seconds is None or snapshot.stage_time_seconds is None:
+            return True
+        return (
+            float(snapshot.stage_time_seconds)
+            + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
+            >= float(snapshot.game_time_seconds)
+        )
+
+    def _process_combo_item_rules(
+        self,
+        *,
+        snapshot: LiveRunSnapshot,
+        current_counts: dict[str, int],
+        stage_index: int,
+    ) -> None:
+        folded_counts = {
+            _fold_item_match_name(item_name): max(0, int(count))
+            for item_name, count in current_counts.items()
+        }
+        for rule in self.tracked_item_rules:
+            if len(rule.item_names) <= 1:
+                continue
+            if self._eligible_count_for_rule(
+                rule,
+                gained_count=1,
+                game_time_seconds=snapshot.game_time_seconds,
+                stage_index=stage_index,
+            ) <= 0:
+                continue
+            combo_count = self._combo_count_for_rule(rule, folded_counts, folded=True)
+            if combo_count <= 0:
+                continue
+            combo_count = 1
+            already_counted_this_run = self._combo_run_counts.get(rule.id, 0)
+            eligible_count = max(0, combo_count - already_counted_this_run)
+            if eligible_count <= 0:
+                continue
+            total_count = self._tracked_counts.get(rule.id, 0)
+            if rule.mode == "first_n" and rule.max_copies is not None:
+                remaining = max(0, int(rule.max_copies) - total_count)
+                eligible_count = min(eligible_count, remaining)
+            if eligible_count <= 0:
+                continue
+            self._tracked_counts[rule.id] = total_count + eligible_count
+            self._combo_run_counts[rule.id] = already_counted_this_run + eligible_count
+            self._tracked_events.append(
+                TrackedItemEvent(
+                    rule_id=rule.id,
+                    item_name=" + ".join(rule.item_names),
+                    gained_count=eligible_count,
+                    game_time_seconds=snapshot.game_time_seconds,
+                    stage_index=stage_index,
+                    map_seed=snapshot.map_seed,
+                    captured_at=snapshot.captured_at,
+                )
+            )
+
+    @staticmethod
+    def _combo_count_for_rule(
+        rule: TrackedItemRule,
+        counts: dict[str, int],
+        *,
+        folded: bool = False,
+    ) -> int:
+        if not rule.item_names:
+            return 0
+        if folded:
+            folded_counts = counts
+        else:
+            folded_counts = {
+                _fold_item_match_name(item_name): max(0, int(count))
+                for item_name, count in counts.items()
+            }
+        return min(
+            folded_counts.get(_fold_item_match_name(item_name), 0)
+            for item_name in rule.item_names
+        )
 
     def _eligible_count_for_rule(
         self,

@@ -37,8 +37,8 @@ Source runs do not build `BonkHook.dll` automatically. If you want to use
 source, build the hook once:
 
 ```bat
-tools\bootstrap_tools.bat
-tools\build_native_hook.bat
+build_tools\bootstrap_tools.bat
+build_tools\build_native_hook.bat
 ```
 
 `start.bat` is the normal setup entry point. It will:
@@ -263,13 +263,17 @@ bot should join and respond.
 Available chat commands:
 - `!stats` / `!bonkstats`: current selected live stats.
 - `!bans` / `!banishes`: banished items.
+- `!disabled`: lists highlighted items globally disabled in lobby.
 - `!items` / `!tracked`: collected items, sorted by rarity and compressed when needed.
 - `!weapons`: current weapons and upgraded stats.
 - `!tomes`: current tomes and values.
 - `!chaos` / `!chaostome`: tracked Chaos Tome level and stat roll totals.
 - `!stages`: stage summary.
 - `!powerups`: active powerup duration info.
-- `!scanner`: short BonkScanner help message.
+- `!chests` / `!chest`: displays per-stage and total chest progress, paid openings, actual and expected Key procs, inherently free chests, and the current Key proc chance. The same data is arranged as six readable rows in the sixth Stats card and saved in recordings.
+- `!scanner`: general info about the BonkScanner app and download link.
+- `!presets`: active templates or score tiers and weights.
+- `!bonkhelp` / `!bonkcmds` / `!bonkcommands` / `!bhelp`: list of all active Twitch bot commands.
 
 Command settings support:
 - access tiers: `Everyone`, `Mods & VIPs`, `Subs & Mods`;
@@ -291,6 +295,7 @@ The main `Settings` dialog currently includes:
 - `Toggle Chest Skip Hotkey`
 - `Toggle Auto Level-Up Hotkey`
 - `Toggle Particles Opacity Hotkey`
+- `Allowed Held Game Keys`
 - `Min Reroll Delay (s)`
 - `Reset Hold Duration (s)`
 - `Snapshot Interval (s)`
@@ -304,6 +309,8 @@ Notes:
 - `Use hook for game toggles` controls whether `Toggle Chest Skip`,
   `Toggle Auto Level-Up`, and `Toggle Particles Opacity` may use the hook path
   to update supported values inside the game's own config;
+- `Allowed Held Game Keys` lets hotkeys fire while listed gameplay keys are
+  held, but this relaxed matching is used only while the game window is active;
 - native hook mode shows an extra confirmation when enabled and may work better while alt-tabbed on some systems because restarts do not depend on the game window being focused;
 - hook-based game-setting hotkeys also show a confirmation when enabled;
 - global hotkeys and keyboard-driven restart may require Administrator privileges on Windows.
@@ -321,16 +328,16 @@ Notes:
 Use these entry points on Windows x64:
 
 ```bat
-tools\bootstrap_tools.bat
-tools\build_native_hook.bat
+build_tools\bootstrap_tools.bat
+build_tools\build_native_hook.bat
 build_exe.bat
 ```
 
 What happens on the first run:
-- `tools\bootstrap_tools.bat` downloads a pinned .NET SDK into `.tools\dotnet`;
+- `build_tools\bootstrap_tools.bat` downloads a pinned .NET SDK into `.tools\dotnet`;
 - it downloads portable MSVC + Windows SDK into `.tools\msvc`;
 - it keeps NuGet packages/cache and dotnet CLI state inside `.tools\nuget` and `.tools\dotnet-home`;
-- `tools\build_native_hook.bat` publishes `native\BonkHook` with those local tools and forces NativeAOT to use the prepared linker environment;
+- `build_tools\build_native_hook.bat` publishes `native\BonkHook` with those local tools and forces NativeAOT to use the prepared linker environment;
 - `build_exe.bat` installs PyInstaller into `.venv` if needed;
 - `build_exe.bat` publishes the hook, then packages `BonkScanner.exe` into `dist\`;
 - the packaged exe includes required media, help files, overlay assets, and the published `BonkHook.dll`;
@@ -372,7 +379,7 @@ python main.py
 To build only the native hook locally, prefer:
 
 ```bat
-tools\build_native_hook.bat
+build_tools\build_native_hook.bat
 ```
 
 To build the packaged executable:

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QPushButton,
+    QSizePolicy,
     QSlider,
     QSplitter,
     QTabWidget,
@@ -51,10 +52,12 @@ STAGE_SUMMARY_COLUMN_PADDING = 8
 SUMMARY_LABEL_BASELINE_PADDING = 8
 RUN_SUMMARY_LABEL_BASELINES = {
     "chests_per_minute": "Average chests/min: 999.99",
+    "powerups_duration": "Powerups: 999.9s | Clock: 999.9s",
     "in_game_time": "In-Game Time: 99:59:59",
     "mob_kills": "Mob Kills: 999,999",
     "level": "Level: 999",
 }
+POWERUPS_CARD_LINE_BASELINE = "Stonks: 99:59 -> +99:59 (999.99s)"
 PLAYER_STAT_VALUE_BASELINES = {
     PlayerStatFormat.FLAT: "999,999",
     PlayerStatFormat.PERCENT: "999.9%",
@@ -79,16 +82,49 @@ def _retain_hidden_widget_size(widget) -> None:
     widget.setSizePolicy(policy)
 
 
-def _apply_run_summary_baselines(
-    chests_per_minute_label,
-    in_game_time_label,
-    mob_kills_label,
-    level_label,
-) -> None:
+def _build_chests_stats_card():
+    card = QFrame()
+    card.setObjectName("StatCard")
+    layout = QFormLayout(card)
+    layout.setContentsMargins(8, 8, 8, 8)
+    layout.setHorizontalSpacing(6)
+    layout.setVerticalSpacing(4)
+    values = {}
+    for key, title in (
+        ("maps", "Maps"),
+        ("total", "Total"),
+        ("paid_free", "Paid / Free"),
+        ("key_procs", "Key Procs"),
+        ("expected", "Expected"),
+        ("keys", "Keys"),
+    ):
+        value_label = QLabel("--")
+        value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
+        value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        if key == "maps":
+            value_label.setWordWrap(True)
+        layout.addRow(title, value_label)
+        values[key] = value_label
+    return card, values
+
+
+def _apply_run_summary_baselines(chests_per_minute_label, *labels) -> None:
+    if len(labels) == 3:
+        powerups_duration_label = None
+        in_game_time_label, mob_kills_label, level_label = labels
+    elif len(labels) == 4:
+        powerups_duration_label, in_game_time_label, mob_kills_label, level_label = labels
+    else:
+        raise TypeError("_apply_run_summary_baselines() expects 4 or 5 labels")
     _reserve_label_baseline_width(
         chests_per_minute_label,
         RUN_SUMMARY_LABEL_BASELINES["chests_per_minute"],
     )
+    if powerups_duration_label is not None:
+        _reserve_label_baseline_width(
+            powerups_duration_label,
+            RUN_SUMMARY_LABEL_BASELINES["powerups_duration"],
+        )
     _reserve_label_baseline_width(
         in_game_time_label,
         RUN_SUMMARY_LABEL_BASELINES["in_game_time"],
@@ -117,6 +153,11 @@ def _apply_stage_summary_column_baseline(layout, rows) -> None:
             metrics = QFontMetrics(label.font())
             width = max(width, metrics.horizontalAdvance(baseline), metrics.horizontalAdvance(label.text()))
         layout.setColumnMinimumWidth(column, width + STAGE_SUMMARY_COLUMN_PADDING)
+
+
+def _apply_powerups_card_baselines(labels_by_name) -> None:
+    for label in labels_by_name.values():
+        _reserve_label_baseline_width(label, POWERUPS_CARD_LINE_BASELINE)
 
 
 class GuiLayoutMixin:
@@ -439,14 +480,16 @@ class GuiLayoutMixin:
         live_stage_summary_layout.setColumnStretch(2, 1)
         live_stage_summary_layout.setColumnStretch(3, 1)
         live_summary_grid.addWidget(live_stage_summary_group, 0, 1)
-        live_new_items_group = QGroupBox("Segment Compare")
-        live_new_items_layout = QVBoxLayout(live_new_items_group)
-        self.player_stats_new_items_label = QLabel("Live snapshot")
-        self.player_stats_new_items_label.setTextFormat(Qt.RichText)
-        self.player_stats_new_items_label.setWordWrap(True)
-        _apply_summary_label_padding(self.player_stats_new_items_label)
-        live_new_items_layout.addWidget(self.player_stats_new_items_label)
-        live_summary_grid.addWidget(live_new_items_group, 0, 2)
+        self.player_stats_powerups_group = QGroupBox("Powerups")
+        live_powerups_layout = QVBoxLayout(self.player_stats_powerups_group)
+        self.player_stats_live_powerup_labels = {}
+        for effect_name in ("Rage", "Clock", "Shield", "Stonks"):
+            label = QLabel(f"{effect_name}: --")
+            _apply_summary_label_padding(label)
+            live_powerups_layout.addWidget(label)
+            self.player_stats_live_powerup_labels[effect_name] = label
+        _apply_powerups_card_baselines(self.player_stats_live_powerup_labels)
+        live_summary_grid.addWidget(self.player_stats_powerups_group, 0, 2)
         live_banishes_group = QGroupBox("Banishes")
         live_banishes_layout = QVBoxLayout(live_banishes_group)
         self.player_stats_banishes_label = QLabel("No banishes yet")
@@ -487,16 +530,7 @@ class GuiLayoutMixin:
                 index % LIVE_STATS_CARD_COLUMNS,
             )
         placeholder_index = len(PLAYER_STAT_GROUPS)
-        placeholder_group = QFrame()
-        placeholder_group.setObjectName("StatCard")
-        placeholder_layout = QVBoxLayout(placeholder_group)
-        placeholder_layout.setContentsMargins(8, 8, 8, 8)
-        placeholder_label = QLabel("Have an idea for this slot? Let me know 💡")
-        placeholder_label.setWordWrap(True)
-        placeholder_label.setAlignment(Qt.AlignCenter)
-        placeholder_layout.addStretch(1)
-        placeholder_layout.addWidget(placeholder_label)
-        placeholder_layout.addStretch(1)
+        placeholder_group, self.player_stats_chests_card_values = _build_chests_stats_card()
         player_stats_grid.addWidget(
             placeholder_group,
             placeholder_index // LIVE_STATS_CARD_COLUMNS,
@@ -638,6 +672,8 @@ class GuiLayoutMixin:
         vod_chest_rate_layout = QVBoxLayout(vod_chest_rate_group)
         self.vods_chests_per_minute_label = QLabel("Average chests/min: --")
         vod_chest_rate_layout.addWidget(self.vods_chests_per_minute_label)
+        self.vods_powerups_duration_label = QLabel("Powerups: --")
+        vod_chest_rate_layout.addWidget(self.vods_powerups_duration_label)
         self.vods_in_game_time_label = QLabel("In-Game Time: --")
         vod_chest_rate_layout.addWidget(self.vods_in_game_time_label)
         self.vods_mob_kills_label = QLabel("Mob Kills: --")
@@ -646,12 +682,14 @@ class GuiLayoutMixin:
         vod_chest_rate_layout.addWidget(self.vods_level_label)
         _apply_summary_label_padding(
             self.vods_chests_per_minute_label,
+            self.vods_powerups_duration_label,
             self.vods_in_game_time_label,
             self.vods_mob_kills_label,
             self.vods_level_label,
         )
         _apply_run_summary_baselines(
             self.vods_chests_per_minute_label,
+            self.vods_powerups_duration_label,
             self.vods_in_game_time_label,
             self.vods_mob_kills_label,
             self.vods_level_label,
@@ -773,16 +811,7 @@ class GuiLayoutMixin:
                 index % RECORDINGS_STATS_CARD_COLUMNS,
             )
         placeholder_index = len(PLAYER_STAT_GROUPS)
-        placeholder_group = QFrame()
-        placeholder_group.setObjectName("StatCard")
-        placeholder_layout = QVBoxLayout(placeholder_group)
-        placeholder_layout.setContentsMargins(8, 8, 8, 8)
-        placeholder_label = QLabel("Have an idea for this slot? Let me know 💡")
-        placeholder_label.setWordWrap(True)
-        placeholder_label.setAlignment(Qt.AlignCenter)
-        placeholder_layout.addStretch(1)
-        placeholder_layout.addWidget(placeholder_label)
-        placeholder_layout.addStretch(1)
+        placeholder_group, self.vods_chests_card_values = _build_chests_stats_card()
         vods_stats_grid.addWidget(
             placeholder_group,
             placeholder_index // RECORDINGS_STATS_CARD_COLUMNS,
@@ -1152,7 +1181,6 @@ class GuiLayoutMixin:
 
     def _is_compare_runs_tab_active(self) -> bool:
         return self.tabview.tabText(self.tabview.currentIndex()) == "Compare Runs"
-
     def _refresh_vods_list_if_visible(self):
         if self._is_recordings_tab_active():
             self.refresh_vods_list()
@@ -1168,13 +1196,42 @@ class GuiLayoutMixin:
         twitch_layout.setSpacing(10)
         tab_layout.addWidget(twitch_scroll)
 
-        auth_group = QGroupBox("Authentication")
+        # Create a horizontal layout inside the scrollable content for two columns
+        columns_layout = QHBoxLayout()
+        columns_layout.setSpacing(16)
+        columns_layout.setContentsMargins(8, 8, 8, 8)
+        twitch_layout.addLayout(columns_layout)
+
+        # Left column layout (Connection, Bot Control & Settings)
+        left_col = QVBoxLayout()
+        left_col.setSpacing(12)
+        left_col.setContentsMargins(0, 0, 0, 0)
+        columns_layout.addLayout(left_col, stretch=1)
+
+        # Right column layout (Commands Configuration)
+        right_col = QVBoxLayout()
+        right_col.setSpacing(12)
+        right_col.setContentsMargins(0, 0, 0, 0)
+        columns_layout.addLayout(right_col, stretch=2)
+
+        # LEFT COLUMN WIDGETS
+        # 1. Twitch Account Connection Card
+        auth_group = QGroupBox("Twitch Account")
         auth_layout = QVBoxLayout(auth_group)
-        self.twitch_auth_status_label = QLabel("<span style='color:#f08b72;'>Not connected</span>")
+        auth_layout.setContentsMargins(16, 12, 16, 12)
+        auth_layout.setSpacing(10)
+
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.addWidget(QLabel("Account Status:"))
+        self.twitch_auth_status_label = QLabel("<span style='color: #f08b72; font-weight: bold;'>Not connected</span>")
         self.twitch_auth_status_label.setTextFormat(Qt.RichText)
-        auth_layout.addWidget(self.twitch_auth_status_label)
+        status_row.addWidget(self.twitch_auth_status_label)
+        status_row.addStretch(1)
+        auth_layout.addLayout(status_row)
 
         self.twitch_auth_buttons_layout = QHBoxLayout()
+        self.twitch_auth_buttons_layout.setContentsMargins(0, 0, 0, 0)
         self.twitch_connect_btn = QPushButton("Connect to Twitch")
         self.twitch_connect_btn.setObjectName("TwitchConnectButton")
         self.twitch_auth_buttons_layout.addWidget(self.twitch_connect_btn)
@@ -1183,43 +1240,104 @@ class GuiLayoutMixin:
         self.twitch_disconnect_btn.setObjectName("DangerButton")
         self.twitch_disconnect_btn.setVisible(False)
         self.twitch_auth_buttons_layout.addWidget(self.twitch_disconnect_btn)
-
         auth_layout.addLayout(self.twitch_auth_buttons_layout)
-        twitch_layout.addWidget(auth_group)
 
+        # Target Channel input field under connection
+        target_layout = QFormLayout()
+        target_layout.setContentsMargins(0, 4, 0, 0)
+        self.twitch_target_channel_entry = QLineEdit()
+        self.twitch_target_channel_entry.setPlaceholderText(config.TWITCH_BOT.get("username") or "Authorized account")
+        self.twitch_target_channel_entry.setText(config.TWITCH_BOT.get("target_channel", ""))
+        target_layout.addRow("Target Channel:", self.twitch_target_channel_entry)
+        auth_layout.addLayout(target_layout)
+
+        left_col.addWidget(auth_group)
+
+        # 2. Bot Control Card
+        control_group = QGroupBox("Bot Control")
+        control_layout = QVBoxLayout(control_group)
+        control_layout.setContentsMargins(16, 12, 16, 12)
+        control_layout.setSpacing(10)
+
+        bot_status_row = QHBoxLayout()
+        bot_status_row.setContentsMargins(0, 0, 0, 0)
+        bot_status_row.addWidget(QLabel("Bot Status:"))
+        self.twitch_bot_status_label = QLabel("<span style='color: #f08b72; font-weight: bold;'>Stopped</span>")
+        self.twitch_bot_status_label.setTextFormat(Qt.RichText)
+        self.twitch_bot_status_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        bot_status_row.addWidget(self.twitch_bot_status_label)
+        bot_status_row.addStretch(1)
+        control_layout.addLayout(bot_status_row)
+
+        self.twitch_auto_connect_cb = QCheckBox("Auto-connect")
+        self.twitch_auto_connect_cb.setChecked(config.TWITCH_BOT.get("auto_connect", False))
+        self.twitch_auto_connect_cb.setToolTip(
+            "Start the bot automatically after Twitch authorization and when the application starts."
+        )
+        control_layout.addWidget(self.twitch_auto_connect_cb)
+
+        self.twitch_bot_toggle_btn = QPushButton("Start Bot")
+        self.twitch_bot_toggle_btn.setObjectName("SuccessButton")
+        self.twitch_bot_toggle_btn.setMinimumHeight(36)
+        btn_font = self.twitch_bot_toggle_btn.font()
+        btn_font.setBold(True)
+        self.twitch_bot_toggle_btn.setFont(btn_font)
+        control_layout.addWidget(self.twitch_bot_toggle_btn)
+
+        left_col.addWidget(control_group)
+
+        # 3. Bot Settings Card (under Bot Control in left column)
         settings_group = QGroupBox("Bot Settings")
-        settings_layout = QFormLayout(settings_group)
+        settings_main_layout = QVBoxLayout(settings_group)
+        settings_main_layout.setContentsMargins(16, 12, 16, 12)
+        settings_main_layout.setSpacing(10)
+
+        form_layout = QFormLayout()
+        form_layout.setContentsMargins(0, 0, 0, 0)
 
         self.twitch_tier_combo = QComboBox()
         self.twitch_tier_combo.addItems(["Everyone", "Mods & VIPs", "Subs & Mods"])
         self.twitch_tier_combo.setCurrentText(config.TWITCH_BOT.get("access_tier", "Everyone"))
-        settings_layout.addRow("Access Tier:", self.twitch_tier_combo)
-
-        self.twitch_target_channel_entry = QLineEdit()
-        self.twitch_target_channel_entry.setPlaceholderText(config.TWITCH_BOT.get("username") or "Authorized account")
-        self.twitch_target_channel_entry.setText(config.TWITCH_BOT.get("target_channel", ""))
-        settings_layout.addRow("Target Channel:", self.twitch_target_channel_entry)
+        form_layout.addRow("Access Tier:", self.twitch_tier_combo)
 
         self.twitch_global_cooldown_spin = QSpinBox()
         self.twitch_global_cooldown_spin.setRange(0, 600)
         self.twitch_global_cooldown_spin.setValue(config.TWITCH_BOT.get("global_cooldown_seconds", 1))
         self.twitch_global_cooldown_spin.setSuffix(" sec")
-        settings_layout.addRow("Global Cooldown:", self.twitch_global_cooldown_spin)
+        form_layout.addRow("Global Cooldown:", self.twitch_global_cooldown_spin)
 
         self.twitch_cooldown_spin = QSpinBox()
         self.twitch_cooldown_spin.setRange(0, 600)
         self.twitch_cooldown_spin.setValue(config.TWITCH_BOT.get("cooldown_seconds", 5))
         self.twitch_cooldown_spin.setSuffix(" sec")
-        settings_layout.addRow("Command Cooldown:", self.twitch_cooldown_spin)
+        form_layout.addRow("Command Cooldown:", self.twitch_cooldown_spin)
 
-        divider_top = QFrame()
-        divider_top.setFrameShape(QFrame.HLine)
-        divider_top.setFrameShadow(QFrame.Sunken)
-        divider_top.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 8px 0px;")
-        settings_layout.addRow(divider_top)
+        settings_main_layout.addLayout(form_layout)
+
+        left_col.addWidget(settings_group)
+        left_col.addStretch(1)
+
+        # RIGHT COLUMN WIDGETS
+        # 1. Chat Commands Config Card
+        commands_group = QGroupBox("Command Configuration")
+        commands_main_layout = QVBoxLayout(commands_group)
+        commands_main_layout.setContentsMargins(16, 12, 16, 12)
+        commands_main_layout.setSpacing(10)
+
+        commands_header_layout = QHBoxLayout()
+        commands_header_layout.setContentsMargins(4, 0, 0, 0)
+        commands_header_lbl = QLabel("Active Chat Commands:")
+        commands_header_lbl.setStyleSheet("font-weight: bold;")
+        self.twitch_command_settings_btn = QPushButton("Command Settings")
+        commands_header_layout.addWidget(commands_header_lbl)
+        commands_header_layout.addStretch(1)
+        commands_header_layout.addWidget(self.twitch_command_settings_btn)
+        commands_main_layout.addLayout(commands_header_layout)
 
         self.twitch_cmd_stats_cb = QCheckBox("!stats")
         self.twitch_cmd_stats_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("stats", True))
+        self.twitch_cmd_session_cb = QCheckBox("!session")
+        self.twitch_cmd_session_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("session", True))
         self.twitch_cmd_bans_cb = QCheckBox("!bans")
         self.twitch_cmd_bans_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("bans", True))
         self.twitch_cmd_items_cb = QCheckBox("!items")
@@ -1236,51 +1354,75 @@ class GuiLayoutMixin:
         self.twitch_cmd_powerups_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("powerups", True))
         self.twitch_cmd_scanner_cb = QCheckBox("!scanner")
         self.twitch_cmd_scanner_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("scanner", True))
-        self.twitch_stage_announcements_cb = QCheckBox("Announce Stage Transitions")
-        self.twitch_stage_announcements_cb.setChecked(config.TWITCH_BOT.get("stage_announcements", True))
-
-        commands_header_layout = QHBoxLayout()
-        commands_header_lbl = QLabel("Configure Commands:")
-        self.twitch_command_settings_btn = QPushButton("Command Settings")
-        commands_header_layout.addWidget(commands_header_lbl)
-        commands_header_layout.addStretch(1)
-        commands_header_layout.addWidget(self.twitch_command_settings_btn)
-        settings_layout.addRow(commands_header_layout)
+        self.twitch_cmd_chests_cb = QCheckBox("!chests")
+        self.twitch_cmd_chests_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("chests", False))
+        self.twitch_cmd_presets_cb = QCheckBox("!presets")
+        self.twitch_cmd_presets_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("presets", False))
+        self.twitch_cmd_commands_cb = QCheckBox("!bonkhelp")
+        self.twitch_cmd_commands_cb.setChecked(
+            config.TWITCH_BOT.get("commands", {}).get(
+                "bonkhelp",
+                config.TWITCH_BOT.get("commands", {}).get("commands", True),
+            )
+        )
+        self.twitch_cmd_disabled_cb = QCheckBox("!disabled")
+        self.twitch_cmd_disabled_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("disabled", False))
 
         commands_grid = QGridLayout()
-        commands_grid.setSpacing(6)
+        commands_grid.setVerticalSpacing(14)
+        commands_grid.setHorizontalSpacing(12)
+        commands_grid.setContentsMargins(4, 0, 0, 0)
+        # Arrange in 3 columns:
         commands_grid.addWidget(self.twitch_cmd_stats_cb, 0, 0)
-        commands_grid.addWidget(self.twitch_cmd_bans_cb, 0, 1)
+        commands_grid.addWidget(self.twitch_cmd_session_cb, 0, 1)
+        commands_grid.addWidget(self.twitch_cmd_bans_cb, 0, 2)
+
         commands_grid.addWidget(self.twitch_cmd_items_cb, 1, 0)
         commands_grid.addWidget(self.twitch_cmd_weapons_cb, 1, 1)
-        commands_grid.addWidget(self.twitch_cmd_tomes_cb, 2, 0)
-        commands_grid.addWidget(self.twitch_cmd_chaos_cb, 2, 1)
-        commands_grid.addWidget(self.twitch_cmd_stages_cb, 3, 0)
-        commands_grid.addWidget(self.twitch_cmd_powerups_cb, 3, 1)
-        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 4, 0)
+        commands_grid.addWidget(self.twitch_cmd_tomes_cb, 1, 2)
 
-        settings_layout.addRow("", commands_grid)
+        commands_grid.addWidget(self.twitch_cmd_chaos_cb, 2, 0)
+        commands_grid.addWidget(self.twitch_cmd_stages_cb, 2, 1)
+        commands_grid.addWidget(self.twitch_cmd_powerups_cb, 2, 2)
 
-        divider = QFrame()
-        divider.setFrameShape(QFrame.HLine)
-        divider.setFrameShadow(QFrame.Sunken)
-        divider.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 8px 0px;")
-        settings_layout.addRow(divider)
+        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 3, 0)
+        commands_grid.addWidget(self.twitch_cmd_chests_cb, 3, 1)
+        commands_grid.addWidget(self.twitch_cmd_presets_cb, 3, 2)
 
-        settings_layout.addRow("Announcements:", self.twitch_stage_announcements_cb)
+        commands_grid.addWidget(self.twitch_cmd_commands_cb, 4, 0)
+        commands_grid.addWidget(self.twitch_cmd_disabled_cb, 4, 1)
 
-        twitch_layout.addWidget(settings_group)
+        commands_main_layout.addLayout(commands_grid)
 
-        control_group = QGroupBox("Control")
-        control_layout = QHBoxLayout(control_group)
-        self.twitch_bot_toggle_btn = QPushButton("Start Bot")
-        self.twitch_bot_toggle_btn.setObjectName("SuccessButton")
-        self.twitch_bot_status_label = QLabel("Status: <span style='color:#f08b72;'>Stopped</span>")
-        self.twitch_bot_status_label.setTextFormat(Qt.RichText)
-        control_layout.addWidget(self.twitch_bot_toggle_btn)
-        control_layout.addWidget(self.twitch_bot_status_label)
-        control_layout.addStretch(1)
-        twitch_layout.addWidget(control_group)
+        # Separator line before Announcements (with larger vertical margins)
+        commands_divider = QFrame()
+        commands_divider.setFrameShape(QFrame.HLine)
+        commands_divider.setFrameShadow(QFrame.Sunken)
+        commands_divider.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 14px 4px;")
+        commands_main_layout.addWidget(commands_divider)
 
+        # Announcements layout with left margin to match the checkboxes grid
+        ann_layout = QVBoxLayout()
+        ann_layout.setContentsMargins(4, 0, 0, 0)
+        ann_layout.setSpacing(6)
+
+        ann_title = QLabel("Announcements:")
+        ann_title.setStyleSheet("font-weight: bold; margin-top: 6px; margin-bottom: 4px;")
+        ann_layout.addWidget(ann_title)
+
+        self.twitch_stage_announcements_cb = QCheckBox("Announce Stage Transitions")
+        self.twitch_stage_announcements_cb.setChecked(config.TWITCH_BOT.get("stage_announcements", True))
+        ann_layout.addWidget(self.twitch_stage_announcements_cb)
+
+        self.twitch_commands_announcements_cb = QCheckBox("Periodically announce available commands")
+        self.twitch_commands_announcements_cb.setChecked(config.TWITCH_BOT.get("commands_announcements", False))
+        ann_layout.addWidget(self.twitch_commands_announcements_cb)
+
+        commands_main_layout.addLayout(ann_layout)
+
+        right_col.addWidget(commands_group)
+        right_col.addStretch(1)
+
+        # Add stretch and add to tabview
         twitch_layout.addStretch(1)
         self.tabview.addTab(self.tab_twitch, "Twitch Bot")

@@ -50,9 +50,18 @@ DEFAULT_SCORES_SYSTEM = {
     "active_tiers": ["Light", "Good", "Perfect", "Perfect+"]
 }
 
+DEFAULT_HOTKEY_GAME_KEY_WHITELIST = [
+    "w", "a", "s", "d", "up", "down", "left", "right",
+    "q", "e", "r", "f", "g", "t", "z", "x", "c", "v", "b",
+    "space", "left shift",
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
+    "tab",
+]
+
 DEFAULT_OVERLAY = {
     "schema_version": 4,
     "enabled": False,
+    "auto_start": False,
     "host": "127.0.0.1",
     "port": 17845,
     "template": "compact",
@@ -65,6 +74,7 @@ DEFAULT_OVERLAY = {
         {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False, "show_header": True},
         {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False, "show_header": True},
     ],
+    "tracked_items_source": "custom",
     "tracked_items": [
         {
             "id": "anvils_map_1",
@@ -102,14 +112,18 @@ ALL_STAT_LABELS = [
 
 DEFAULT_TWITCH_BOT = {
     "enabled": False,
+    "auto_connect": False,
     "username": "",
     "target_channel": "",
     "access_tier": "Everyone",
     "global_cooldown_seconds": 5,
     "cooldown_seconds": 5,
     "stage_announcements": True,
+    "commands_announcements": False,
+    "commands_announcement_interval_minutes": 30,
     "commands": {
         "stats": True,
+        "session": True,
         "bans": True,
         "items": True,
         "weapons": True,
@@ -117,37 +131,68 @@ DEFAULT_TWITCH_BOT = {
         "chaos": True,
         "stages": True,
         "powerups": True,
-        "scanner": True
+        "scanner": True,
+        "chests": False,
+        "presets": False,
+        "bonkhelp": True,
+        "disabled": False
     },
     "selected_stats": [
         "Damage", "XP Gain", "Luck", "Difficulty",
         "Powerup Drop Chance", "Elite Spawn Increase",
         "Powerup Multiplier", "Size"
     ],
+    "highlighted_disabled_items": [],
+    "tracked_items_source": "custom",
+    "tracked_items": [],
     "templates": {
         "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
+        "session": "{resets} resets, {seeds} seeds found ({seed_rate}%) | Tracked Items: {items}",
         "bans": "Bans ({count}): {items}",
         "items": "Items ({count}): {items}",
         "weapons": "Weapons: {weapons}",
         "tomes": "Tomes: {tomes}",
         "chaos": "Chaos Tome Lv{level}: {chaos}",
         "stages": "{stages}",
-        "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
-        "scanner": "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
+        "powerups": "Powerups: {powerups} (PM {pm})",
+        "scanner": "Download it here: {github_url} | Support the creator here: {patreon_url} | Try !bonkhelp.",
+        "chests": "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
+        "bonkhelp": "Available commands: {commands_list}",
+        "disabled": "Disabled Items: {items}",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
         "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
     }
 }
 
 LEGACY_TWITCH_SCANNER_TEMPLATES = {
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages.",
     "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !stages, !powerups.",
     "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups.",
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests. Aliases: !bonkstats, !banishes, !tracked, !chaostome.",
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} | Try !stats, !session, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests, !presets, !disabled, !bonkhelp.",
+    "This channel is using BonkScanner for live gameplay stats tracking! Download it here: {patreon_url} or GitHub: {github_url} | Try !stats, !session, !bans, !items, !weapons, !tomes, !chaos, !stages, !powerups, !chests, !presets, !disabled, !bonkhelp.",
+}
+
+LEGACY_TWITCH_CHESTS_TEMPLATES = {
+    "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance})",
+    "Chests opened: {opened}/{total} | Keys: {keys} (Proc Chance: {chance}) | Free chest: {procs}",
+    "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Free Chests: {free} | Keys: {keys} ({chance})",
+    "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
+}
+
+LEGACY_TWITCH_POWERUPS_TEMPLATES = {
+    "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
+    "Powerups: none active | Durations: standard {standard_duration}s, clock {clock_duration}s (PM {pm})",
+    "Powerups: {powerups} | Durations: standard {standard_duration}s, clock {clock_duration}s (PM {pm})",
 }
 
 
 
 PATREON_SUPPORT_URL = "https://www.patreon.com/cw/ALuiel"
 KOFI_SUPPORT_URL = "https://ko-fi.com/s/34dc062a82"
+GITHUB_REPOSITORY_URL = "https://github.com/ALuiell/BonkScanner"
+DISCORD_SUPPORT_URL = "https://discord.gg/dYkcrMCJWM"
 
 # ==========================================
 # GAME CONFIG PARSER
@@ -297,6 +342,22 @@ def coerce_nonnegative_int(value, default=0):
     return max(parsed, 0)
 
 
+def normalize_hotkey_game_key_whitelist(value) -> list[str]:
+    if isinstance(value, str):
+        value = value.split(",")
+    if not isinstance(value, (list, tuple)):
+        value = DEFAULT_HOTKEY_GAME_KEY_WHITELIST
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for key_name in value:
+        key_name = str(key_name).strip().lower()
+        if key_name and key_name not in seen:
+            normalized.append(key_name)
+            seen.add(key_name)
+    return normalized
+
+
 def _merge_dict_defaults(value, defaults):
     result = {}
     source = value if isinstance(value, dict) else {}
@@ -342,6 +403,7 @@ def normalize_overlay_config(value):
 
     overlay["schema_version"] = DEFAULT_OVERLAY["schema_version"]
     overlay["enabled"] = bool(overlay.get("enabled", False))
+    overlay["auto_start"] = bool(overlay.get("auto_start", False))
     overlay["host"] = "127.0.0.1"
     overlay["template"] = str(overlay.get("template") or "compact")
     overlay["poll_ms"] = max(250, min(coerce_nonnegative_int(overlay.get("poll_ms"), 500) or 500, 5000))
@@ -351,40 +413,82 @@ def normalize_overlay_config(value):
     if port < 1024 or port > 65535:
         port = DEFAULT_OVERLAY["port"]
     overlay["port"] = port
-    if not isinstance(overlay.get("tracked_items"), list):
-        overlay["tracked_items"] = list(DEFAULT_OVERLAY["tracked_items"])
+    overlay["tracked_items_source"] = normalize_tracked_items_source(
+        overlay.get("tracked_items_source"),
+        default="custom",
+    )
+    overlay["tracked_items"] = normalize_tracked_item_rules_config(
+        overlay.get("tracked_items"),
+        DEFAULT_OVERLAY["tracked_items"],
+    )
     if not isinstance(overlay.get("style"), dict):
         overlay["style"] = dict(DEFAULT_OVERLAY["style"])
     return overlay
 
 
-def normalize_session_tracked_items_config(value):
-    session_cfg = _merge_dict_defaults(value, DEFAULT_SESSION_TRACKED_ITEMS)
-    if not isinstance(session_cfg.get("tracked_items"), list):
-        session_cfg["tracked_items"] = list(DEFAULT_SESSION_TRACKED_ITEMS["tracked_items"])
+def normalize_tracked_items_source(value, *, default="custom"):
+    source = str(value or default).strip().lower()
+    if source not in {"custom", "session"}:
+        source = default
+    return source
+
+
+def normalize_tracked_item_rules_config(value, default_rules=()):
+    raw_rules = value if isinstance(value, list) else list(default_rules)
     normalized_rules = []
-    for raw_rule in session_cfg.get("tracked_items") or ():
+    for raw_rule in raw_rules or ():
         if not isinstance(raw_rule, dict):
             continue
-        item_names = [str(name) for name in raw_rule.get("item_names") or () if str(name).strip()]
+        raw_item_names = raw_rule.get("item_names")
+        if raw_item_names is None:
+            raw_item_names = raw_rule.get("items")
+        if raw_item_names is None and raw_rule.get("item_name"):
+            raw_item_names = [raw_rule.get("item_name")]
+        item_names = []
+        for name in raw_item_names or ():
+            item_name = str(name).strip()
+            if item_name and item_name not in item_names:
+                item_names.append(item_name)
         if not item_names:
             continue
         mode = str(raw_rule.get("mode") or "all_run")
+        default_label = " + ".join(item_names)
         normalized_rules.append(
             {
                 "id": str(raw_rule.get("id") or "_".join(item_names).lower()),
-                "label": str(raw_rule.get("label") or ", ".join(item_names)),
+                "label": str(raw_rule.get("label") or default_label),
                 "item_names": item_names,
                 "mode": mode,
             }
         )
-    session_cfg["tracked_items"] = normalized_rules
+        for optional_key in ("before_stage", "before_seconds", "max_copies"):
+            if optional_key in raw_rule:
+                normalized_rules[-1][optional_key] = raw_rule[optional_key]
+    return normalized_rules
+
+
+def normalize_session_tracked_items_config(value):
+    session_cfg = _merge_dict_defaults(value, DEFAULT_SESSION_TRACKED_ITEMS)
+    session_cfg["tracked_items"] = normalize_tracked_item_rules_config(
+        session_cfg.get("tracked_items"),
+        DEFAULT_SESSION_TRACKED_ITEMS["tracked_items"],
+    )
     return session_cfg
 
 
 def normalize_twitch_bot_config(value):
+    raw_commands_cfg = value.get("commands") if isinstance(value, dict) and isinstance(value.get("commands"), dict) else None
+    raw_templates_cfg = value.get("templates") if isinstance(value, dict) and isinstance(value.get("templates"), dict) else None
+    legacy_bonkhelp_enabled = None
+    legacy_bonkhelp_template = None
+    if raw_commands_cfg is not None and "bonkhelp" not in raw_commands_cfg and "commands" in raw_commands_cfg:
+        legacy_bonkhelp_enabled = bool(raw_commands_cfg.get("commands"))
+    if raw_templates_cfg is not None and "bonkhelp" not in raw_templates_cfg and "commands" in raw_templates_cfg:
+        legacy_bonkhelp_template = str(raw_templates_cfg.get("commands"))
+
     bot_cfg = _merge_dict_defaults(value, DEFAULT_TWITCH_BOT)
     bot_cfg["enabled"] = bool(bot_cfg.get("enabled", False))
+    bot_cfg["auto_connect"] = bool(bot_cfg.get("auto_connect", False))
     bot_cfg["username"] = str(bot_cfg.get("username") or "")
     target_channel = str(bot_cfg.get("target_channel") or "").strip().lstrip("#")
     bot_cfg["target_channel"] = target_channel.lower()
@@ -400,11 +504,22 @@ def normalize_twitch_bot_config(value):
     bot_cfg["global_cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("global_cooldown_seconds"), 5))
     bot_cfg["cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("cooldown_seconds"), 5))
     bot_cfg["stage_announcements"] = bool(bot_cfg.get("stage_announcements", True))
+    bot_cfg["commands_announcements"] = bool(bot_cfg.get("commands_announcements", False))
+    bot_cfg["commands_announcement_interval_minutes"] = min(
+        1440,
+        max(1, coerce_nonnegative_int(bot_cfg.get("commands_announcement_interval_minutes"), 30)),
+    )
+    bot_cfg.pop("chests_expected_enabled", None)
+
+    if isinstance(bot_cfg.get("commands"), dict):
+        bot_cfg["commands"].pop("commands", None)
+        if legacy_bonkhelp_enabled is not None:
+            bot_cfg["commands"]["bonkhelp"] = legacy_bonkhelp_enabled
     
     if not isinstance(bot_cfg.get("commands"), dict):
         bot_cfg["commands"] = dict(DEFAULT_TWITCH_BOT["commands"])
-    for cmd in DEFAULT_TWITCH_BOT["commands"]:
-        bot_cfg["commands"][cmd] = bool(bot_cfg["commands"].get(cmd, True))
+    for cmd, default_enabled in DEFAULT_TWITCH_BOT["commands"].items():
+        bot_cfg["commands"][cmd] = bool(bot_cfg["commands"].get(cmd, default_enabled))
         
     # Normalize selected_stats
     if not isinstance(bot_cfg.get("selected_stats"), list):
@@ -417,15 +532,39 @@ def normalize_twitch_bot_config(value):
         if not bot_cfg["selected_stats"]:
             bot_cfg["selected_stats"] = list(DEFAULT_TWITCH_BOT["selected_stats"])
 
+    # Normalize highlighted_disabled_items
+    if not isinstance(bot_cfg.get("highlighted_disabled_items"), list):
+        bot_cfg["highlighted_disabled_items"] = list(DEFAULT_TWITCH_BOT["highlighted_disabled_items"])
+    else:
+        bot_cfg["highlighted_disabled_items"] = [
+            str(item).strip() for item in bot_cfg["highlighted_disabled_items"] if item
+        ]
+
+    bot_cfg["tracked_items_source"] = normalize_tracked_items_source(
+        bot_cfg.get("tracked_items_source"),
+        default="custom",
+    )
+    bot_cfg["tracked_items"] = normalize_tracked_item_rules_config(
+        bot_cfg.get("tracked_items"),
+        DEFAULT_TWITCH_BOT["tracked_items"],
+    )
+
     # Normalize templates
     if not isinstance(bot_cfg.get("templates"), dict):
         bot_cfg["templates"] = dict(DEFAULT_TWITCH_BOT["templates"])
     else:
+        if legacy_bonkhelp_template is not None:
+            bot_cfg["templates"]["bonkhelp"] = legacy_bonkhelp_template
+        bot_cfg["templates"].pop("commands", None)
         bot_cfg["templates"] = _merge_dict_defaults(bot_cfg["templates"], DEFAULT_TWITCH_BOT["templates"])
         for k in DEFAULT_TWITCH_BOT["templates"]:
             bot_cfg["templates"][k] = str(bot_cfg["templates"].get(k, DEFAULT_TWITCH_BOT["templates"][k]))
     if bot_cfg["templates"].get("scanner") in LEGACY_TWITCH_SCANNER_TEMPLATES:
         bot_cfg["templates"]["scanner"] = DEFAULT_TWITCH_BOT["templates"]["scanner"]
+    if bot_cfg["templates"].get("chests") in LEGACY_TWITCH_CHESTS_TEMPLATES:
+        bot_cfg["templates"]["chests"] = DEFAULT_TWITCH_BOT["templates"]["chests"]
+    if bot_cfg["templates"].get("powerups") in LEGACY_TWITCH_POWERUPS_TEMPLATES:
+        bot_cfg["templates"]["powerups"] = DEFAULT_TWITCH_BOT["templates"]["powerups"]
 
     return bot_cfg
 
@@ -486,6 +625,9 @@ else:
         RESET_HOLD_DURATION = 0.4
 
 HOTKEY = user_config.get("HOTKEY", "f6")
+HOTKEY_GAME_KEY_WHITELIST = normalize_hotkey_game_key_whitelist(
+    user_config.get("HOTKEY_GAME_KEY_WHITELIST", DEFAULT_HOTKEY_GAME_KEY_WHITELIST)
+)
 PLAYER_STATS_RECORD_HOTKEY = user_config.get("PLAYER_STATS_RECORD_HOTKEY", "f8")
 PLAYER_STATS_RECORD_INTERVAL_SECONDS = coerce_nonnegative_int(
     user_config.get("PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
@@ -493,9 +635,10 @@ PLAYER_STATS_RECORD_INTERVAL_SECONDS = coerce_nonnegative_int(
 ) or 30
 CHAOS_TOME_TRACKER_INTERVAL_MS = max(
     100,
-    coerce_nonnegative_int(user_config.get("CHAOS_TOME_TRACKER_INTERVAL_MS", 250), 250) or 250,
+    coerce_nonnegative_int(user_config.get("CHAOS_TOME_TRACKER_INTERVAL_MS", 500), 500) or 500,
 )
 AUTO_START_RECORDING = bool(user_config.get("AUTO_START_RECORDING", False))
+SHOW_OBS_REMINDER_ON_START_SCANNER = bool(user_config.get("SHOW_OBS_REMINDER_ON_START_SCANNER", False))
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
 TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY = user_config.get("TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11")
@@ -564,10 +707,12 @@ def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) 
 user_config["MIN_DELAY"] = MIN_DELAY
 user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
 user_config["HOTKEY"] = HOTKEY
+user_config["HOTKEY_GAME_KEY_WHITELIST"] = HOTKEY_GAME_KEY_WHITELIST
 user_config["PLAYER_STATS_RECORD_HOTKEY"] = PLAYER_STATS_RECORD_HOTKEY
 user_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = PLAYER_STATS_RECORD_INTERVAL_SECONDS
 user_config["CHAOS_TOME_TRACKER_INTERVAL_MS"] = CHAOS_TOME_TRACKER_INTERVAL_MS
 user_config["AUTO_START_RECORDING"] = AUTO_START_RECORDING
+user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = SHOW_OBS_REMINDER_ON_START_SCANNER
 user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY
 user_config["TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY"] = TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY

@@ -178,18 +178,31 @@ class TemplatesMixin:
         dialog = HelpDialog(self.window)
         dialog.exec()
 
-    @staticmethod
-    def format_stats(stats: dict) -> str:
+    def _active_templates_require_bald_heads(self) -> bool:
+        if config.EVALUATION_MODE != "templates":
+            return False
+        active_names = set(getattr(self, "active_templates", []) or [])
+        if not active_names:
+            return False
+        return any(
+            template.get("name") in active_names and int(template.get("bald_heads", 0) or 0) > 0
+            for template in config.TEMPLATES
+        )
+
+    def format_stats(self, stats: dict) -> str:
         shady = stats.get("Shady Guy", 0)
         moai = stats.get("Moais", 0)
-        microwaves = logic.normalize_microwaves(stats.get("Microwaves"))
+        microwaves = logic.template_microwaves(stats)
         boss = stats.get("Boss Curses", 0)
         magnet = stats.get("Magnet Shrines", 0)
-        return (
+        parts = [
             f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, "
-            f"Boss: {boss}, Magnet: {magnet}, "
-            f"Score: {logic.calculate_score(stats, config.SCORES_SYSTEM):.1f}"
-        )
+            f"Boss: {boss}, Magnet: {magnet}"
+        ]
+        if self._active_templates_require_bald_heads():
+            parts.append(f", Bald Heads: {stats.get('Bald Heads', 0)}")
+        parts.append(f", Score: {logic.calculate_score(stats, config.SCORES_SYSTEM):.1f}")
+        return "".join(parts)
 
     @staticmethod
     def _format_template_checkbox_text(template: dict) -> str:
@@ -206,7 +219,12 @@ class TemplatesMixin:
     def calculate_map_score(stats: dict) -> float:
         return logic.calculate_score(stats, config.SCORES_SYSTEM)
 
-    def evaluate_candidate(self, stats: dict) -> dict | None:
+    def evaluate_candidate(self, stats: dict, *, context: dict | None = None) -> dict | None:
         if config.EVALUATION_MODE == "templates":
-            return logic.find_matching_template(stats, self.active_templates, config.TEMPLATES)
+            return logic.find_matching_template(
+                stats,
+                self.active_templates,
+                config.TEMPLATES,
+                context=context,
+            )
         return logic.evaluate_map_by_scores(stats, config.SCORES_SYSTEM)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import html
+from math import isfinite
 import re
 import time
 from pathlib import Path
@@ -22,7 +23,7 @@ from PySide6.QtWidgets import (
 
 import config
 import run_summary
-from game_data import GameDataClient, RuntimeGameMode, RuntimeGameState
+from game_data import GameDataClient, RuntimeGameMode, RuntimeGameState, MapStat
 from gui_dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from gui_shared import _clear_layout, _clear_text_input, _read_text, _set_text, _set_text_input
 from gui_styles import (
@@ -52,7 +53,12 @@ from gui_styles import (
 )
 from item_metadata import item_display_color, normalize_item_name_for_display, normalize_item_name_for_rarity
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
-from live_run_tracker import CHAOS_TOME_GAME_STAT_ORDER, LiveRunSnapshot
+from live_run_tracker import (
+    CHAOS_TOME_GAME_STAT_ORDER,
+    LiveRunSnapshot,
+    LiveRunTracker,
+    PowerupMapContext,
+)
 from player_stats import (
     PLAYER_STAT_GROUPS,
     DamageSourceSnapshot,
@@ -142,7 +148,7 @@ class PlayerStatsMixin:
             self.refresh_chaos_tome_tracker_now()
 
         self.after(
-            int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 250)),
+            int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500)),
             self.update_chaos_tome_tracker_timer,
         )
 
@@ -150,14 +156,54 @@ class PlayerStatsMixin:
         try:
             client = self._get_player_stats_client()
             owner_stats = client.resolve_owner_stats()
-            chaos_level = client.get_chaos_tome_level(owner_stats)
+            should_refresh_powerups = False
+            should_refresh_powerup_tracker = getattr(
+                self,
+                "_should_refresh_powerup_tracker",
+                None,
+            )
+            if callable(should_refresh_powerup_tracker):
+                should_refresh_powerups = should_refresh_powerup_tracker()
+
+            if should_refresh_powerups:
+                try:
+                    powerups_snapshot = client.get_powerup_tracking_snapshot(owner_stats)
+                    self.live_run_tracker.update_powerups(powerups_snapshot)
+                    self._refresh_live_powerups_label()
+                except Exception:
+                    clear_powerups = getattr(self.live_run_tracker, "clear_powerups", None)
+                    if callable(clear_powerups):
+                        clear_powerups()
+                    self._refresh_live_powerups_label()
+
+            now = time.monotonic()
+            last_chest_refresh = getattr(
+                self,
+                "_last_chest_expected_refresh_at",
+                None,
+            )
+            if last_chest_refresh is None or now - last_chest_refresh >= 0.5:
+                self._last_chest_expected_refresh_at = now
+                try:
+                    chests_bought, keys_count = client.get_expected_chest_inputs(
+                        owner_stats
+                    )
+                    self.live_run_tracker.track_expected_key_procs(
+                        chests_bought,
+                        keys_count,
+                    )
+                except Exception:
+                    pass
+
+            chaos_level, permanent_modifiers = client.get_chaos_tracking_state(
+                owner_stats
+            )
             if chaos_level is None:
                 self.live_run_tracker.update_chaos_tome(
                     chaos_level=None,
                     permanent_modifiers={},
                 )
                 return True
-            permanent_modifiers = client.get_permanent_stat_modifiers(owner_stats)
             self.live_run_tracker.update_chaos_tome(
                 chaos_level=chaos_level,
                 permanent_modifiers=permanent_modifiers,
@@ -167,6 +213,26 @@ class PlayerStatsMixin:
             return False
         except Exception:
             return False
+
+    def _should_refresh_powerup_tracker(self) -> bool:
+        is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
+        if callable(is_live_stats_tab_active):
+            try:
+                if is_live_stats_tab_active():
+                    return True
+            except Exception:
+                pass
+        is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
+        commands_cfg = config.TWITCH_BOT.get("commands", {})
+        if callable(is_twitch_bot_active):
+            try:
+                return bool(is_twitch_bot_active() and commands_cfg.get("powerups", True))
+            except Exception:
+                return False
+        return False
+
+    def _refresh_live_powerups_label(self) -> None:
+        self._apply_live_powerups_card(None)
 
     def _get_player_stats_client(self) -> PlayerStatsClient:
         if self.player_stats_client is None:
@@ -207,10 +273,15 @@ class PlayerStatsMixin:
         self.player_stats_last_known_items = ()
         self._update_items_section("live", items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
+        self._apply_live_powerups_card(None)
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
         _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
         _set_text(self.player_stats_level_label, "Level: --")
-        _set_text(self.player_stats_new_items_label, "Live snapshot")
+        self._set_chests_card_values(
+            getattr(self, "player_stats_chests_card_values", None),
+            None,
+        )
+        _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, "No banishes yet")
         self.player_stats_live_banishes = ()
         self._set_stage_summary_labels(self.player_stats_stage_summary_labels, None)
@@ -249,20 +320,78 @@ class PlayerStatsMixin:
         tomes_available = False
         banishes: tuple[str, ...] = ()
         banishes_available = False
+        disabled_items = ()
+        disabled_items_available = False
         damage_sources: tuple[DamageSourceSnapshot, ...] = ()
         damage_sources_available = False
+
+        # 1. Read run timer and stage timer first to support match start detection
         run_timer_seconds = None
         stage_timer_seconds = None
-        mob_kills = None
-        player_level = None
+        stage_index = None
+        try:
+            client = self._get_player_stats_client()
+            run_timer_seconds = client.get_run_timer()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            run_timer_seconds = None
+        except Exception:
+            run_timer_seconds = None
+
+        try:
+            client = self._get_player_stats_client()
+            stage_timer_seconds, stage_index, _ = client.get_stage_timer_context()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            stage_timer_seconds = None
+            stage_index = None
+        except Exception:
+            stage_timer_seconds = None
+            stage_index = None
+
+        # 2. Read map seed and stage ptr
         map_seed = None
         stage_ptr = 0
+        try:
+            recording_state = self.read_player_stats_recording_state()
+            map_seed = recording_state.map_seed
+            stage_ptr = recording_state.current_stage_ptr
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            self.close_player_stats_game_data_client()
+            map_seed = None
+            stage_ptr = 0
+        except Exception:
+            self.close_player_stats_game_data_client()
+            map_seed = None
+            stage_ptr = 0
+
+        # 3. Detect match start
+        is_new_match = False
+        prev_seed = getattr(self, "player_stats_last_seed", None)
+        prev_time = getattr(self, "player_stats_last_run_timer", None)
+        if run_timer_seconds is not None:
+            if prev_time is None and run_timer_seconds <= 5.0:
+                is_new_match = True
+
+            # Map seed changed or appeared on low game time
+            if map_seed is not None and (prev_seed is None or int(map_seed) != int(prev_seed)):
+                if run_timer_seconds <= 5.0:
+                    is_new_match = True
+
+            # Timer went backward (reset)
+            if prev_time is not None and run_timer_seconds + 1.0 < prev_time:
+                is_new_match = True
+
+        if is_new_match:
+            self.player_stats_disabled_items_refresh_pending = True
+
+        # 4. Read passive items
         try:
             items = self.read_passive_items_only(owner_stats)
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             items_available = False
         except Exception:
             items_available = False
+
+        # 5. Read optional live stats if relevant tabs/features are active
         if (
             self.player_stats_vod_recorder.is_recording
             or self._is_live_stats_tab_active()
@@ -279,6 +408,7 @@ class PlayerStatsMixin:
             except Exception:
                 weapons = ()
                 weapons_available = False
+
             try:
                 client = self._get_player_stats_client()
                 tomes = client.get_live_tomes(owner_stats)
@@ -289,6 +419,7 @@ class PlayerStatsMixin:
             except Exception:
                 tomes = ()
                 tomes_available = False
+
             try:
                 client = self._get_player_stats_client()
                 banishes = client.get_live_banishes()
@@ -299,6 +430,33 @@ class PlayerStatsMixin:
             except Exception:
                 banishes = ()
                 banishes_available = False
+
+            # Refresh once per run, retrying until memory exposes a complete pool.
+            try:
+                should_read_disabled = (
+                    getattr(self, "player_stats_disabled_items_refresh_pending", False)
+                    or getattr(self, "player_stats_disabled_items_cache", None) is None
+                )
+                if should_read_disabled:
+                    client = self._get_player_stats_client()
+                    result = client.get_disabled_items()
+                    if result.available:
+                        self.player_stats_disabled_items_cache = result.items
+                        self.player_stats_disabled_items_refresh_pending = False
+                    cache = getattr(self, "player_stats_disabled_items_cache", None)
+                    if cache is not None:
+                        disabled_items = cache
+                        disabled_items_available = True
+                else:
+                    disabled_items = getattr(self, "player_stats_disabled_items_cache", ())
+                    disabled_items_available = True
+            except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+                disabled_items = ()
+                disabled_items_available = False
+            except Exception:
+                disabled_items = ()
+                disabled_items_available = False
+
             try:
                 client = self._get_player_stats_client()
                 damage_sources = client.get_live_damage_sources()
@@ -309,20 +467,8 @@ class PlayerStatsMixin:
             except Exception:
                 damage_sources = ()
                 damage_sources_available = False
-        try:
-            client = self._get_player_stats_client()
-            run_timer_seconds = client.get_run_timer()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            run_timer_seconds = None
-        except Exception:
-            run_timer_seconds = None
-        try:
-            client = self._get_player_stats_client()
-            stage_timer_seconds = client.get_stage_timer()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            stage_timer_seconds = None
-        except Exception:
-            stage_timer_seconds = None
+
+        # 6. Read mob kills and player level
         try:
             client = self._get_player_stats_client()
             mob_kills = client.get_killed_mobs()
@@ -330,6 +476,7 @@ class PlayerStatsMixin:
             mob_kills = None
         except Exception:
             mob_kills = None
+
         try:
             client = self._get_player_stats_client()
             player_level = client.get_player_level(owner_stats)
@@ -337,18 +484,11 @@ class PlayerStatsMixin:
             player_level = None
         except Exception:
             player_level = None
-        try:
-            recording_state = self.read_player_stats_recording_state()
-            map_seed = recording_state.map_seed
-            stage_ptr = recording_state.current_stage_ptr
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            self.close_player_stats_game_data_client()
-            map_seed = None
-            stage_ptr = 0
-        except Exception:
-            self.close_player_stats_game_data_client()
-            map_seed = None
-            stage_ptr = 0
+
+        # Update last seed and run timer values for the next tick
+        self.player_stats_last_seed = map_seed
+        self.player_stats_last_run_timer = run_timer_seconds
+
         return (
             stats,
             items,
@@ -367,6 +507,9 @@ class PlayerStatsMixin:
             player_level,
             map_seed,
             stage_ptr,
+            stage_index,
+            disabled_items,
+            disabled_items_available,
         )
 
     def refresh_live_player_stats_now(
@@ -395,6 +538,9 @@ class PlayerStatsMixin:
                 player_level,
                 map_seed,
                 stage_ptr,
+                stage_index,
+                disabled_items,
+                disabled_items_available,
             ) = self._read_live_player_stats_data()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             self.close_player_stats_client()
@@ -427,6 +573,44 @@ class PlayerStatsMixin:
         else:
             banishes = self.player_stats_live_banishes
         is_live_tab_active = self._is_live_stats_tab_active()
+        map_stats = {}
+        map_chests_total = None
+        map_pots_total = None
+        map_activity_max = {}
+        try:
+            if self.player_stats_game_data_client is None:
+                self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
+            map_activity_values = (
+                self.player_stats_game_data_client.get_map_activity_values() or {}
+            )
+            map_activity_max = {
+                label: int(value.max)
+                for label, value in map_activity_values.items()
+            }
+            map_stats = {
+                stat: value
+                for label, value in map_activity_values.items()
+                if (stat := GameDataClient.LABEL_TO_STAT.get(label)) is not None
+            }
+            chest_stat = map_stats.get(MapStat.CHESTS)
+            if chest_stat is not None:
+                map_chests_total = chest_stat.max
+            pots_stat = map_stats.get(MapStat.POTS)
+            if pots_stat is not None:
+                map_pots_total = pots_stat.max
+        except Exception:
+            map_stats = {}
+            map_activity_max = {}
+        if map_activity_max and hasattr(
+            self.live_run_tracker,
+            "update_powerup_map_context",
+        ):
+            self.live_run_tracker.update_powerup_map_context(
+                PowerupMapContext.from_activity_max(
+                    map_activity_max,
+                    captured_at=time.monotonic(),
+                )
+            )
         live_snapshot = LiveRunSnapshot(
             captured_at=time.monotonic(),
             stats=stats,
@@ -437,6 +621,8 @@ class PlayerStatsMixin:
             tomes=tomes if tomes_available else (),
             tomes_available=tomes_available,
             banishes=banishes if banishes_available else (),
+            disabled_items=disabled_items if disabled_items_available else (),
+            disabled_items_available=disabled_items_available,
             damage_sources=damage_sources if damage_sources_available else (),
             damage_sources_available=damage_sources_available,
             chests_per_minute=chests_per_minute,
@@ -446,12 +632,58 @@ class PlayerStatsMixin:
             player_level=player_level,
             map_seed=map_seed,
             stage_ptr=stage_ptr,
+            stage_index=stage_index,
+            chests_total=map_chests_total,
+            pots_total=map_pots_total,
         )
         self.live_run_tracker.update(live_snapshot)
+
+        # Update chests and keys without replacing valid data after a transient read failure.
+        previous_chests = (0, 46, 0, 0, {}, {})
+        get_chests_and_keys = getattr(self.live_run_tracker, "get_chests_and_keys", None)
+        if callable(get_chests_and_keys):
+            previous_chests = get_chests_and_keys()
+        chests_opened, chests_total, keys_count = previous_chests[:3]
+        should_update_chests_and_keys = False
+
+        if items_available:
+            keys_count = 0
+            for item_str in effective_items:
+                if item_str == "Key":
+                    keys_count = 1
+                    break
+                elif item_str.startswith("Key x"):
+                    try:
+                        keys_count = int(item_str.split(" x")[-1])
+                    except ValueError:
+                        keys_count = 0
+                    break
+            should_update_chests_and_keys = True
+
+        chest_stat = map_stats.get(MapStat.CHESTS) if map_stats else None
+        if chest_stat is not None:
+            chests_opened = chest_stat.current
+            chests_total = chest_stat.max
+            should_update_chests_and_keys = True
+        if should_update_chests_and_keys:
+            self.live_run_tracker.update_chests_and_keys(chests_opened, chests_total, keys_count)
+
+        try:
+            client = self._get_player_stats_client()
+            chests_bought, chests_purchased = client.get_chest_counters()
+            self.live_run_tracker.update_chest_counters(
+                chests_bought,
+                chests_purchased,
+            )
+        except Exception:
+            pass
+
         if hasattr(self, "refresh_session_tracked_item_stats_ui"):
             self.refresh_session_tracked_item_stats_ui()
         chaos_snapshot_reader = getattr(self.live_run_tracker, "chaos_tome_snapshot", None)
         chaos_tome_snapshot = chaos_snapshot_reader() if callable(chaos_snapshot_reader) else None
+        chest_snapshot_reader = getattr(self.live_run_tracker, "get_chest_stats", None)
+        chest_stats_snapshot = chest_snapshot_reader() if callable(chest_snapshot_reader) else None
         self.update_overlay_state_from_tracker()
         live_stage_summary_rows = self.live_run_tracker.stage_summary_rows()
         runtime_state = self._runtime_game_state_or_unknown()
@@ -486,6 +718,23 @@ class PlayerStatsMixin:
                 map_seed=map_seed,
                 stage_ptr=stage_ptr,
                 stage_time_seconds=stage_timer_seconds,
+                chests_opened=(chest_stats_snapshot.total_opened if chest_stats_snapshot else None),
+                chests_total=(chest_stats_snapshot.total_chests if chest_stats_snapshot else None),
+                paid_chests=(chest_stats_snapshot.paid if chest_stats_snapshot else None),
+                key_procs=(chest_stats_snapshot.key_procs if chest_stats_snapshot else None),
+                free_chests=(chest_stats_snapshot.free_chests if chest_stats_snapshot else None),
+                keys_count=(chest_stats_snapshot.keys_count if chest_stats_snapshot else None),
+                expected_key_procs=(
+                    chest_stats_snapshot.expected_key_procs
+                    if chest_stats_snapshot and chest_stats_snapshot.expected_available
+                    else None
+                ),
+                chests_opened_by_stage=(
+                    chest_stats_snapshot.opened_by_stage if chest_stats_snapshot else None
+                ),
+                chests_total_by_stage=(
+                    chest_stats_snapshot.total_by_stage if chest_stats_snapshot else None
+                ),
             )
             self.player_stats_vod_snapshots.append(snapshot)
             self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
@@ -563,6 +812,11 @@ class PlayerStatsMixin:
             self.format_chests_per_minute(chests_per_minute),
         )
         _set_text(
+            getattr(self, "player_stats_powerups_duration_label", None),
+            self.format_live_powerups(stats),
+        )
+        self._apply_live_powerups_card(stats)
+        _set_text(
             self.player_stats_in_game_time_label,
             self.format_in_game_time(game_time_seconds),
         )
@@ -574,10 +828,13 @@ class PlayerStatsMixin:
             self.player_stats_level_label,
             self.format_player_level(player_level),
         )
+        get_chest_stats = getattr(self.live_run_tracker, "get_chest_stats", None)
+        if callable(get_chest_stats):
+            self._update_live_chest_summary(get_chest_stats())
         if new_items_text is not None:
-            _set_text(self.player_stats_new_items_label, new_items_text)
+            _set_text(getattr(self, "player_stats_new_items_label", None), new_items_text)
         else:
-            _set_text(self.player_stats_new_items_label, "Live snapshot")
+            _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, self.format_banishes_rich_text(banishes))
         self._set_stage_summary_labels(self.player_stats_stage_summary_labels, stage_summary_rows)
         self.display_weapon_cards(
@@ -1139,9 +1396,14 @@ class PlayerStatsMixin:
             self.vods_items_expanded = False
             self._update_items_section("vod", items_text="--")
             _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
+            _set_text(getattr(self, "vods_powerups_duration_label", None), "Powerups: --")
             _set_text(self.vods_in_game_time_label, "In-Game Time: --")
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
             _set_text(self.vods_level_label, "Level: --")
+            self._set_chests_card_values(
+                getattr(self, "vods_chests_card_values", None),
+                None,
+            )
             _set_text(self.vods_new_items_label, "No previous snapshot")
             self._refresh_vod_compare_controls()
             self._refresh_vod_compare_details(None, None, index=None)
@@ -1184,6 +1446,10 @@ class PlayerStatsMixin:
             self.format_chests_per_minute(self.resolve_snapshot_chests_per_minute(snapshot)),
         )
         _set_text(
+            getattr(self, "vods_powerups_duration_label", None),
+            self.format_powerups_duration(snapshot.stats),
+        )
+        _set_text(
             self.vods_in_game_time_label,
             self.format_in_game_time(snapshot.game_time_seconds),
         )
@@ -1195,6 +1461,7 @@ class PlayerStatsMixin:
             self.vods_level_label,
             self.format_player_level(getattr(snapshot, "player_level", None)),
         )
+        self._update_recorded_chest_summary(snapshot)
         self._set_stage_summary_labels(
             self.vods_stage_summary_labels,
             self.build_stage_summary(self.loaded_vod.snapshots[: index + 1]),
@@ -1852,9 +2119,14 @@ class PlayerStatsMixin:
         self.vods_items_expanded = False
         self._update_items_section("vod", items_text="--")
         _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
+        _set_text(getattr(self, "vods_powerups_duration_label", None), "Powerups: --")
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
         _set_text(self.vods_level_label, "Level: --")
+        self._set_chests_card_values(
+            getattr(self, "vods_chests_card_values", None),
+            None,
+        )
         _set_text(self.vods_new_items_label, "No previous snapshot")
         self._refresh_vod_compare_controls()
         self._refresh_vod_compare_details(None, None, index=None)
@@ -4232,6 +4504,212 @@ class PlayerStatsMixin:
             return "Average chests/min: --"
         return f"Average chests/min: {value:.2f}"
 
+    @classmethod
+    def format_powerups_duration(cls, stats) -> str:
+        stat = (stats or {}).get("Powerup Multiplier")
+        try:
+            powerup_multiplier = float(getattr(stat, "value", None))
+        except (TypeError, ValueError):
+            return "Powerups: --"
+        if not isfinite(powerup_multiplier):
+            return "Powerups: --"
+
+        standard_duration = 15.0 * powerup_multiplier
+        clock_duration = 12.0 * powerup_multiplier
+        return (
+            f"Powerups: {cls.format_seconds_compact(standard_duration)}s"
+            f" | Clock: {cls.format_seconds_compact(clock_duration)}s"
+        )
+
+    def format_live_powerups(self, stats) -> str:
+        formatter = getattr(self.live_run_tracker, "format_powerups_summary", None)
+        snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+        if callable(formatter) and callable(snapshot_reader):
+            try:
+                if getattr(snapshot_reader(), "available", False) is True:
+                    return formatter(include_left_word=False)
+            except Exception:
+                pass
+        return self.format_powerups_duration(stats)
+
+    def _apply_live_powerups_card(self, stats) -> None:
+        group = getattr(self, "player_stats_powerups_group", None)
+        labels = getattr(self, "player_stats_live_powerup_labels", None)
+        if group is None or not isinstance(labels, dict):
+            return
+        title, values = self.format_live_powerups_card(stats)
+        group.setTitle(title)
+        for effect_name, label in labels.items():
+            _set_text(label, f"{effect_name}: {values.get(effect_name, '--')}")
+
+    def format_live_powerups_card(self, stats) -> tuple[str, dict[str, str]]:
+        values = {name: "--" for name in ("Rage", "Clock", "Shield", "Stonks")}
+        title = "Powerups"
+
+        snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+        snapshot = snapshot_reader() if callable(snapshot_reader) else None
+        if getattr(snapshot, "available", False):
+            pm_display = str(getattr(snapshot, "powerup_multiplier_display", "--") or "--")
+            if pm_display != "--":
+                title = f"Powerups (PM {pm_display})"
+            active_by_name = {
+                str(getattr(effect, "name", "")): effect
+                for effect in getattr(snapshot, "active", ()) or ()
+            }
+            for effect_name in values:
+                effect = active_by_name.get(effect_name)
+                if effect is not None:
+                    left_text = f"({self.format_seconds_compact(effect.remaining_seconds)}s)"
+                    if (
+                        getattr(effect, "pickup_ui", None) is None
+                        or getattr(effect, "expires_ui", None) is None
+                    ):
+                        values[effect_name] = left_text
+                    else:
+                        values[effect_name] = (
+                            f"{effect.pickup_ui} -> {effect.expires_ui} "
+                            f"{left_text}"
+                        )
+                    continue
+                duration = (
+                    getattr(snapshot, "clock_duration_seconds", None)
+                    if effect_name == "Clock"
+                    else getattr(snapshot, "standard_duration_seconds", None)
+                )
+                if duration is not None:
+                    values[effect_name] = f"-- ({self.format_seconds_compact(duration)}s)"
+            return title, values
+
+        stat = (stats or {}).get("Powerup Multiplier")
+        try:
+            powerup_multiplier = float(getattr(stat, "value", None))
+        except (TypeError, ValueError):
+            return title, values
+        if not isfinite(powerup_multiplier):
+            return title, values
+
+        pm_display = str(getattr(stat, "display_value", "") or "").strip()
+        if pm_display:
+            title = f"Powerups (PM {pm_display})"
+        standard_duration = self.format_seconds_compact(15.0 * powerup_multiplier)
+        clock_duration = self.format_seconds_compact(12.0 * powerup_multiplier)
+        values["Rage"] = f"-- ({standard_duration}s)"
+        values["Clock"] = f"-- ({clock_duration}s)"
+        values["Shield"] = f"-- ({standard_duration}s)"
+        values["Stonks"] = f"-- ({standard_duration}s)"
+        return title, values
+
+    @staticmethod
+    def format_seconds_compact(value: float) -> str:
+        return str(int(round(value)))
+
+    @staticmethod
+    def chests_card_values(
+        opened_by_stage: dict[int, int] | None,
+        total_by_stage: dict[int, int] | None,
+        opened: int | None,
+        total: int | None,
+        paid: int | None,
+        key_procs: int | None,
+        free: int | None,
+        keys: int | None,
+        expected: float | None,
+        total_is_minimum: bool = False,
+    ) -> dict[str, str]:
+        if total is None:
+            return {
+                "maps": "--",
+                "total": "--",
+                "paid_free": "-- / --",
+                "key_procs": "-- (--)",
+                "expected": "--",
+                "keys": "-- (--)",
+            }
+
+        stage_parts = []
+        for stage, count in sorted((opened_by_stage or {}).items()):
+            stage_total = (total_by_stage or {}).get(stage, 0)
+            if int(count) < 0:
+                stage_parts.append(f"T{stage}:--/{stage_total}")
+            else:
+                stage_parts.append(f"T{stage}:{count}/{stage_total}")
+        opened_text = "--" if opened is None else str(opened)
+        if opened is not None and total_is_minimum:
+            opened_text += "+"
+        total_text = str(total)
+        stages = " ".join(stage_parts) if stage_parts else f"T1:{opened_text}/{total_text}"
+
+        paid_text = "--" if paid is None else str(paid)
+        free_text = "--" if free is None else str(free)
+        normal = None if paid is None or key_procs is None else paid + key_procs
+        procs_text = "--" if key_procs is None or normal is None else f"{key_procs}/{normal}"
+        proc_rate = (
+            "--"
+            if key_procs is None or not normal
+            else f"{key_procs / normal * 100.0:.1f}%"
+        )
+        expected_text = "--" if expected is None else f"{expected:.1f}"
+        keys_text = "--" if keys is None else str(keys)
+        chance = "--" if keys is None else f"{LiveRunTracker.key_proc_chance(keys) * 100.0:.1f}%"
+        return {
+            "maps": stages,
+            "total": f"{opened_text}/{total_text}",
+            "paid_free": f"{paid_text} / {free_text}",
+            "key_procs": f"{procs_text} ({proc_rate})",
+            "expected": expected_text,
+            "keys": f"{keys_text} ({chance})",
+        }
+
+    @staticmethod
+    def _set_chests_card_values(labels, values: dict[str, str] | None) -> None:
+        if not labels:
+            return
+        values = values or PlayerStatsMixin.chests_card_values(
+            None, None, None, None, None, None, None, None, None
+        )
+        for key, label in labels.items():
+            _set_text(label, values.get(key, "--"))
+
+    def _update_live_chest_summary(self, chest_stats) -> None:
+        labels = getattr(self, "player_stats_chests_card_values", None)
+        if labels:
+            self._set_chests_card_values(
+                labels,
+                self.chests_card_values(
+                    chest_stats.opened_by_stage,
+                    chest_stats.total_by_stage,
+                    chest_stats.total_opened,
+                    chest_stats.total_chests,
+                    chest_stats.paid if chest_stats.counters_available else None,
+                    chest_stats.key_procs if chest_stats.counters_available else None,
+                    chest_stats.free_chests if chest_stats.counters_available else None,
+                    chest_stats.keys_count,
+                    chest_stats.expected_key_procs if chest_stats.expected_available else None,
+                    chest_stats.total_opened_is_minimum,
+                ),
+            )
+
+    def _update_recorded_chest_summary(self, snapshot) -> None:
+        paid = getattr(snapshot, "paid_chests", None)
+        key_procs = getattr(snapshot, "key_procs", None)
+        labels = getattr(self, "vods_chests_card_values", None)
+        if labels:
+            self._set_chests_card_values(
+                labels,
+                self.chests_card_values(
+                    getattr(snapshot, "chests_opened_by_stage", None),
+                    getattr(snapshot, "chests_total_by_stage", None),
+                    getattr(snapshot, "chests_opened", None),
+                    getattr(snapshot, "chests_total", None),
+                    paid,
+                    key_procs,
+                    getattr(snapshot, "free_chests", None),
+                    getattr(snapshot, "keys_count", None),
+                    getattr(snapshot, "expected_key_procs", None),
+                    False,
+                ),
+            )
+
     def close_player_stats_client(self):
         player_stats_client = self.__dict__.get("player_stats_client")
         if player_stats_client:
@@ -4240,6 +4718,9 @@ class PlayerStatsMixin:
             except Exception:
                 pass
             self.player_stats_client = None
+        self.player_stats_last_seed = None
+        self.player_stats_last_run_timer = None
+        self._last_chest_expected_refresh_at = None
 
     def close_player_stats_game_data_client(self):
         game_data_client = self.__dict__.get("player_stats_game_data_client")

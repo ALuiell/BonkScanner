@@ -22,9 +22,11 @@ def enable_windows_dpi_awareness() -> None:
 
 enable_windows_dpi_awareness()
 
-from PySide6.QtCore import QObject, QSize, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QTimer, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QIcon
-from PySide6.QtWidgets import QFrame, QMainWindow, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLayout, QMainWindow, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+
+TRACKED_ITEM_LIST_HEIGHT = 96
 
 def resource_path(relative_path: str) -> str:
     base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
@@ -120,6 +122,86 @@ def _make_scroll_section() -> tuple[QScrollArea, QWidget, QVBoxLayout]:
     scroll.setWidget(content)
     return scroll, content, layout
 
+
+class CollapsibleSection(QWidget):
+    def __init__(self, title: str, *, expanded: bool = False, parent=None):
+        super().__init__(parent)
+        self._title = str(title)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.toggle_button = QPushButton()
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setChecked(bool(expanded))
+        self.toggle_button.setStyleSheet(
+            """
+            QPushButton {
+                text-align: left;
+                padding: 8px 10px;
+                font-weight: bold;
+                border-radius: 6px;
+            }
+            """
+        )
+        self.toggle_button.toggled.connect(self.set_expanded)
+        layout.addWidget(self.toggle_button)
+
+        self.body = QWidget()
+        self.body_layout = QVBoxLayout(self.body)
+        self.body_layout.setContentsMargins(10, 8, 10, 10)
+        self.body_layout.setSpacing(8)
+        layout.addWidget(self.body)
+        self.set_expanded(bool(expanded))
+
+    def set_expanded(self, expanded: bool) -> None:
+        expanded = bool(expanded)
+        if self.toggle_button.isChecked() != expanded:
+            self.toggle_button.setChecked(expanded)
+        prefix = "- " if expanded else "+ "
+        self.toggle_button.setText(prefix + self._title)
+        self.body.setVisible(expanded)
+
+
+class CollapsibleSectionGroup:
+    def __init__(self, sections=()):
+        self._sections: list[CollapsibleSection] = []
+        self._updating = False
+        for section in sections:
+            self.add_section(section)
+        self._normalize_expanded_sections()
+
+    def add_section(self, section: CollapsibleSection) -> None:
+        if section in self._sections:
+            return
+        self._sections.append(section)
+        section.toggle_button.toggled.connect(lambda expanded, current=section: self._on_toggled(current, expanded))
+
+    def _on_toggled(self, current: CollapsibleSection, expanded: bool) -> None:
+        if self._updating or not expanded:
+            return
+        self._updating = True
+        try:
+            for section in self._sections:
+                if section is not current:
+                    section.set_expanded(False)
+        finally:
+            self._updating = False
+
+    def _normalize_expanded_sections(self) -> None:
+        first_expanded = None
+        self._updating = True
+        try:
+            for section in self._sections:
+                if not section.toggle_button.isChecked():
+                    continue
+                if first_expanded is None:
+                    first_expanded = section
+                else:
+                    section.set_expanded(False)
+        finally:
+            self._updating = False
+
 def format_template_conditions(template: dict) -> str:
     parts = []
     sm_total = template.get("sm_total", 0)
@@ -127,6 +209,7 @@ def format_template_conditions(template: dict) -> str:
     moai = template.get("moai", 0)
     micro = template.get("micro", 0)
     boss = template.get("boss", 0)
+    bald_heads = template.get("bald_heads", 0)
 
     if sm_total > 0:
         parts.append(f"S+M: {sm_total}")
@@ -138,6 +221,8 @@ def format_template_conditions(template: dict) -> str:
         parts.append(f"Mic:{micro}")
     if boss > 0:
         parts.append(f"B:{boss}")
+    if bald_heads > 0:
+        parts.append(f"BH:{bald_heads}")
 
     return ", ".join(parts) if parts else "Any"
 
@@ -148,6 +233,7 @@ def build_template_payload(
     moai: str,
     micro: str,
     boss: str,
+    bald_heads: str = "",
     source_template=None,
 ):
     name = name.strip()
@@ -165,6 +251,7 @@ def build_template_payload(
         "moai": parse_int(moai),
         "micro": parse_int(micro),
         "boss": parse_int(boss),
+        "bald_heads": parse_int(bald_heads),
     }
 
     if result["sm_total"] <= 0 or result["shady"] > 0 or result["moai"] > 0:
@@ -172,7 +259,7 @@ def build_template_payload(
 
     if source_template:
         for key, value in source_template.items():
-            if key not in result and key not in ["sm_total", "shady", "moai", "micro", "boss"]:
+            if key not in result and key not in ["sm_total", "shady", "moai", "micro", "boss", "bald_heads"]:
                 result[key] = value
 
     return result
@@ -201,3 +288,150 @@ class _AppWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.owner._handle_window_close(event)
+
+class FlowLayout(QLayout):
+    def __init__(self, parent=None, margin=0, spacing=-1):
+        super().__init__(parent)
+        if parent is not None:
+            self.setContentsMargins(margin, margin, margin, margin)
+        self.setSpacing(spacing)
+        self.itemList = []
+
+    def __del__(self):
+        item = self.takeAt(0)
+        while item:
+            item = self.takeAt(0)
+
+    def addItem(self, item):
+        self.itemList.append(item)
+
+    def count(self):
+        return len(self.itemList)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self.itemList):
+            return self.itemList[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self.itemList):
+            return self.itemList.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        height = self.doLayout(QRect(0, 0, width, 0), True)
+        return height
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self.doLayout(rect, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self.itemList:
+            size = size.expandedTo(item.minimumSize())
+        margins = self.contentsMargins()
+        size += QSize(margins.left() + margins.right(), margins.top() + margins.bottom())
+        return size
+
+    def doLayout(self, rect, testOnly):
+        x = rect.x()
+        y = rect.y()
+        lineHeight = 0
+
+        for item in self.itemList:
+            wid = item.widget()
+            spaceX = self.spacing()
+            spaceY = self.spacing()
+            if wid:
+                spaceX = self.spacing() if self.spacing() != -1 else wid.style().layoutSpacing(QSizePolicy.PushButton, QSizePolicy.PushButton, Qt.Horizontal)
+                spaceY = self.spacing() if self.spacing() != -1 else wid.style().layoutSpacing(QSizePolicy.PushButton, QSizePolicy.PushButton, Qt.Vertical)
+
+            nextX = x + item.sizeHint().width() + spaceX
+            if nextX - spaceX > rect.right() and lineHeight > 0:
+                x = rect.x()
+                y = y + lineHeight + spaceY
+                nextX = x + item.sizeHint().width() + spaceX
+                lineHeight = 0
+
+            if not testOnly:
+                item.setGeometry(QRect(QPoint(x, y), item.sizeHint()))
+
+            x = nextX
+            lineHeight = max(lineHeight, item.sizeHint().height())
+
+        height = y + lineHeight - rect.y()
+        if not testOnly and self.parentWidget():
+            self.parentWidget().setMinimumHeight(height)
+
+        return height
+
+class TrackedRuleTagWidget(QFrame):
+    remove_clicked = Signal(str)
+
+    def __init__(
+        self,
+        rule_id: str,
+        label_text: str,
+        parent=None,
+        *,
+        text_color: str = "#E2E8F0",
+        border_color: str = "#4B4B5A",
+        background_color: str = "#2D2D35",
+    ):
+        super().__init__(parent)
+        self.rule_id = rule_id
+        self.setObjectName("TrackedRuleTag")
+
+        self.setStyleSheet(f"""
+            QFrame#TrackedRuleTag {{
+                background-color: {background_color};
+                border: 1px solid {border_color};
+                border-radius: 4px;
+            }}
+            QLabel {{
+                color: {text_color};
+                font-weight: bold;
+                font-size: 11px;
+                padding-left: 6px;
+                padding-right: 2px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+            }}
+            QPushButton#TagCloseBtn {{
+                color: #A0AEC0;
+                background: transparent;
+                border: none;
+                font-weight: bold;
+                font-size: 11px;
+                padding-left: 4px;
+                padding-right: 6px;
+                padding-top: 4px;
+                padding-bottom: 4px;
+            }}
+            QPushButton#TagCloseBtn:hover {{
+                color: #F87171;
+            }}
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        lbl = QLabel(label_text)
+        layout.addWidget(lbl)
+
+        close_btn = QPushButton("✕")
+        close_btn.setObjectName("TagCloseBtn")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(lambda: self.remove_clicked.emit(self.rule_id))
+        layout.addWidget(close_btn)

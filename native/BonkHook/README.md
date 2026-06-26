@@ -16,8 +16,8 @@ export returns immediately, and timeout/retry logic belongs to the caller.
 Build with the project-local portable toolchain:
 
 ```bat
-tools\bootstrap_tools.bat
-tools\build_native_hook.bat
+build_tools\bootstrap_tools.bat
+build_tools\build_native_hook.bat
 ```
 
 The publish output must contain:
@@ -34,7 +34,7 @@ the first time it runs. The wrapper also tells NativeAOT to use the prepared
 environment-provided linker toolchain.
 
 Running bare `dotnet publish native\BonkHook -c Release -r win-x64` from a
-normal shell is not the supported workflow; use `tools\build_native_hook.bat`
+normal shell is not the supported workflow; use `build_tools\build_native_hook.bat`
 so the MSVC/Windows SDK environment is prepared correctly and the local NuGet
 cache layout is applied.
 

@@ -7,8 +7,8 @@ It is meant to help future debugging, feature planning, and review of possible
 logic flaws without needing to rediscover the whole codebase from scratch.
 
 It is not a low-level reverse engineering report. For exact memory offsets and
-validation notes, use `docs/reverse/MEMORY_PATH_INDEX.md` and the reports under
-`docs/reverse/reports/`.
+validation notes, use `docs/recovery/MEMORY_PATH_INDEX.md` and the reports under
+`docs/recovery/reports/`.
 
 ## Mental Model
 
@@ -25,13 +25,23 @@ Memory-facing readers are split mostly into `game_data.py` for map/reroll data
 and `player_stats.py` for run inspection. Recordings are stored and loaded
 through `vod_storage.py`.
 
+## System Architecture & Concurrency Model
+
+BonkScanner uses a strict multithreaded architecture to prevent UI freezing:
+- **Main Thread (PySide6 Event Loop):** Owns all UI components.
+- **ScannerWorker Thread (`QThread`):** Runs the background loop for memory polling and logic evaluation.
+- **TwitchBotWorker Thread (`QThread`):** Runs the IRC client loop for Twitch integration.
+- **ThreadingHTTPServer Thread:** Handles background HTTP requests for OBS Overlays.
+
+State synchronization between threads relies entirely on PySide6 Signals and Slots.
+
 ## Main Files
 
 - `main.py` starts the desktop app.
 - `gui.py` is the compatibility facade for imports/tests; `gui_app.py`,
   `gui_layout.py`, `gui_scanner.py`, `gui_run_control.py`,
   `gui_player_stats.py`, `gui_templates.py`, `gui_dialogs.py`,
-  `gui_shared.py`, and `gui_styles.py` split the PySide6 responsibilities.
+  `gui_shared.py`, `gui_twitch.py`, `gui_overlay.py`, and `gui_styles.py` split the PySide6 responsibilities.
 - `config.py` loads and saves app settings, templates, score rules, hotkeys,
   and update preferences.
 - `logic.py` evaluates map stats against templates and score tiers.
@@ -39,6 +49,9 @@ through `vod_storage.py`.
   state from the game process.
 - `player_stats.py` reads live player stats, passive items, weapons, run timer,
   stage timer, kill count, and level.
+- `live_run_tracker.py` maintains live stage boundaries, item deltas, and chaos stats.
+- `twitch_bot.py` handles the Twitch IRC connection and commands.
+- `overlay_server.py` runs a local HTTP/WebSocket server for OBS widgets.
 - `vod_storage.py` writes and reads `.jsonl` recordings.
 - `run_control.py` abstracts keyboard restart and native hook restart.
 - `hook_loader.py` injects and drives the optional native hook.
@@ -305,8 +318,44 @@ Risks:
 
 - Old recordings may lack newer fields.
 - Snapshot interval affects Stage Summary precision.
-- Seed or stage metadata can be unavailable during loading screens.
 - Renaming must avoid filename collisions and invalid filesystem characters.
+
+## Twitch Integration
+
+Purpose:
+
+- Connect to a Twitch chat channel to announce run results and respond to viewer commands.
+
+Implementation shape:
+
+- `TwitchBotWorker` (`twitch_bot.py`) runs on a background thread.
+- Connects via IRC socket using a Twitch OAuth token (`twitch_auth.py`).
+- Listens to internal application signals to broadcast "Run finished" messages containing the stage and tier.
+- Controlled via `gui_twitch.py`.
+
+Risks:
+
+- Twitch tokens expire or scopes change.
+- IRC socket disconnects and needs backoff-retry logic.
+- Sending too fast hits Twitch chat rate limits.
+
+## Stream Overlays
+
+Purpose:
+
+- Provide real-time, transparent graphical widgets (e.g., stage summary, items) for streamers to embed in OBS Browser Sources.
+
+Implementation shape:
+
+- Background `ThreadingHTTPServer` (`overlay_server.py`).
+- Routes like `/stage_summary` return styled HTML widgets.
+- Widgets poll or use WebSockets connecting to the `OverlayStateStore`.
+- Managed in `gui_overlay.py`.
+
+Risks:
+
+- Local port 8080 (or chosen port) conflicts with other development servers.
+- Browser sources may cache aggressively if headers are wrong.
 
 ## Weapons
 
@@ -354,6 +403,8 @@ Main hotkeys:
 Implementation shape:
 
 - Settings are stored in `config.json`.
+- Hotkeys use scan-code-aware pressed-key tracking. Exact hotkeys remain global,
+  while extra whitelisted game keys are accepted only when the game is active.
 - Game config edits use the game's config file where possible.
 - Native hook settings use `hook_loader.py` and the BonkHook DLL.
 

@@ -8,6 +8,11 @@ from functools import partial
 from pathlib import Path
 
 from gui_shared import (
+    TRACKED_ITEM_LIST_HEIGHT,
+    CollapsibleSection,
+    CollapsibleSectionGroup,
+    TrackedRuleTagWidget,
+    FlowLayout,
     _apply_button_icon,
     _clear_layout,
     _make_scroll_section,
@@ -27,7 +32,7 @@ from gui_styles import (
 )
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QBrush, QColor, QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -42,6 +47,10 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QPlainTextEdit,
+    QAbstractItemView,
+    QListView,
+    QListWidget,
+    QListWidgetItem,
     QScrollArea,
     QTabWidget,
     QTextEdit,
@@ -50,15 +59,21 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QDoubleSpinBox,
 )
+from item_metadata import available_item_display_names, preferred_item_display_name
 from player_stats import PLAYER_STAT_GROUPS
+from gui_overlay import OverlayMixin
 
 import config
 import updater
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
 KOFI_SUPPORT_URL = config.KOFI_SUPPORT_URL
+GITHUB_REPOSITORY_URL = config.GITHUB_REPOSITORY_URL
+DISCORD_SUPPORT_URL = config.DISCORD_SUPPORT_URL
 PATREON_ICON_PATH = "media/patreon_logo.svg"
 KOFI_ICON_PATH = "media/kofi_logo.svg"
+GITHUB_ICON_PATH = "media/github_logo.svg"
+DISCORD_ICON_PATH = "media/discord_logo.svg"
 
 class TemplateFormFrame(QWidget):
     def __init__(self, parent=None, template_data=None):
@@ -76,19 +91,24 @@ class TemplateFormFrame(QWidget):
         self.moai_entry = QLineEdit()
         self.micro_entry = QLineEdit()
         self.boss_entry = QLineEdit()
+        self.bald_heads_entry = QLineEdit()
 
         layout.addRow("S+M Total (optional):", self.sm_entry)
         layout.addRow("Shady Guy (min):", self.shady_entry)
         layout.addRow("Moais (min):", self.moai_entry)
         layout.addRow("Microwaves (min):", self.micro_entry)
         layout.addRow("Boss Curses (min):", self.boss_entry)
+        layout.addRow("Bald Heads (min):", self.bald_heads_entry)
 
-        self.shady_entry.textChanged.connect(self.update_sm_total)
-        self.moai_entry.textChanged.connect(self.update_sm_total)
+        self.sm_entry.textChanged.connect(self._sync_sm_fields)
+        self.shady_entry.textChanged.connect(self._sync_sm_fields)
+        self.moai_entry.textChanged.connect(self._sync_sm_fields)
         self.load_template(self.template_data)
 
     def load_template(self, template_data=None):
         self.template_data = template_data or {}
+        for widget in (self.sm_entry, self.shady_entry, self.moai_entry):
+            widget.blockSignals(True)
         self.name_entry.setText(self.template_data.get("name", ""))
         self.name_entry.setEnabled(self.template_data.get("id", 100) > 7)
         self.sm_entry.setText(str(self.template_data.get("sm_total", 0)))
@@ -96,15 +116,31 @@ class TemplateFormFrame(QWidget):
         self.moai_entry.setText(str(self.template_data.get("moai", 0)))
         self.micro_entry.setText(str(self.template_data.get("micro", 0)))
         self.boss_entry.setText(str(self.template_data.get("boss", 0)))
-        self.update_sm_total()
+        self.bald_heads_entry.setText(str(self.template_data.get("bald_heads", 0)))
+        for widget in (self.sm_entry, self.shady_entry, self.moai_entry):
+            widget.blockSignals(False)
+        self._sync_sm_fields()
 
-    def update_sm_total(self) -> None:
-        shady = self.shady_entry.text().strip()
-        moai = self.moai_entry.text().strip()
-        if shady.isdigit() and moai.isdigit() and (int(shady) > 0 or int(moai) > 0):
-            self.sm_entry.setPlaceholderText("Disabled while individual S/M values are set")
-        else:
-            self.sm_entry.setPlaceholderText("")
+    def _sync_sm_fields(self) -> None:
+        sender = self.sender()
+
+        sm_text = self.sm_entry.text().strip()
+        shady_text = self.shady_entry.text().strip()
+        moai_text = self.moai_entry.text().strip()
+
+        sm_val = int(sm_text) if sm_text.isdigit() else 0
+        shady_val = int(shady_text) if shady_text.isdigit() else 0
+        moai_val = int(moai_text) if moai_text.isdigit() else 0
+
+        if sender is self.sm_entry and sm_val > 0:
+            for widget in (self.shady_entry, self.moai_entry):
+                widget.blockSignals(True)
+                widget.setText("0")
+                widget.blockSignals(False)
+        elif sender in (self.shady_entry, self.moai_entry) and (shady_val > 0 or moai_val > 0):
+            self.sm_entry.blockSignals(True)
+            self.sm_entry.setText("0")
+            self.sm_entry.blockSignals(False)
 
     def get_payload(self):
         return build_template_payload(
@@ -114,6 +150,7 @@ class TemplateFormFrame(QWidget):
             self.moai_entry.text(),
             self.micro_entry.text(),
             self.boss_entry.text(),
+            self.bald_heads_entry.text(),
             source_template=self.template_data,
         )
 
@@ -661,6 +698,116 @@ class RerollWarningDialog(QDialog):
         self.reject()
 
 
+class ObsRecordingReminderDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("OBS Recording Reminder")
+        self.setModal(True)
+        self.resize(500, 245)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 20, 18, 18)
+        layout.setSpacing(16)
+
+        card = QFrame()
+        card.setObjectName("WarningCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 16, 18, 14)
+        card_layout.setSpacing(8)
+
+        title = QLabel("OBS Recording Reminder")
+        title.setObjectName("WarningTitle")
+        card_layout.addWidget(title)
+
+        summary = QLabel(
+            "If this run is for leaderboard verification or YouTube, make sure OBS recording is started before beginning the run."
+        )
+        summary.setWordWrap(True)
+        summary.setStyleSheet("background: transparent; font-size: 15px;")
+        card_layout.addWidget(summary)
+        layout.addWidget(card)
+
+        note = QLabel("This reminder can be switched off at any time from Settings.")
+        note.setWordWrap(True)
+        note.setStyleSheet("font-size: 14px; color: #9CA3AF;")
+        layout.addWidget(note)
+        layout.addStretch(1)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.addStretch(1)
+
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("SuccessButton")
+        ok_btn.setProperty("class", "WideDialogButton")
+        ok_btn.setMinimumHeight(32)
+        ok_btn.setMinimumWidth(100)
+        ok_btn.clicked.connect(self.accept)
+        bottom_row.addWidget(ok_btn)
+        layout.addLayout(bottom_row)
+
+
+class TwitchCommandsHelpDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.dont_show_again = False
+        self.setWindowTitle("Twitch Command Aliases")
+        self.setModal(True)
+        self.resize(500, 300)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 20, 18, 18)
+        layout.setSpacing(16)
+
+        card = QFrame()
+        card.setObjectName("WarningCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(18, 16, 18, 14)
+        card_layout.setSpacing(10)
+
+        title = QLabel("!bonkhelp aliases")
+        title.setObjectName("WarningTitle")
+        card_layout.addWidget(title)
+
+        summary = QLabel(
+            "The command that lists enabled BonkScanner Twitch commands has several aliases. "
+            "They all produce the same response, so viewers can use whichever one they prefer:"
+        )
+        summary.setWordWrap(True)
+        summary.setStyleSheet("background: transparent; font-size: 14px;")
+        card_layout.addWidget(summary)
+
+        aliases = QLabel(
+            "<b>!bonkhelp</b><br>"
+            "<b>!bonkcmds</b><br>"
+            "<b>!bonkcommands</b><br>"
+            "<b>!bhelp</b>"
+        )
+        aliases.setTextFormat(Qt.RichText)
+        aliases.setStyleSheet("font-size: 15px;")
+        card_layout.addWidget(aliases)
+        layout.addWidget(card)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(12)
+
+        self.checkbox = QCheckBox("Don't show this again")
+        bottom_row.addWidget(self.checkbox)
+        bottom_row.addStretch(1)
+
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("SuccessButton")
+        ok_btn.setProperty("class", "WideDialogButton")
+        ok_btn.setMinimumHeight(32)
+        ok_btn.setMinimumWidth(100)
+        ok_btn.clicked.connect(self.confirm)
+        bottom_row.addWidget(ok_btn)
+        layout.addLayout(bottom_row)
+
+    def confirm(self):
+        self.dont_show_again = self.checkbox.isChecked()
+        self.accept()
+
+
 class HelpDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -883,6 +1030,12 @@ class SettingsDialog(QDialog):
         self.auto_start_recording_var.setChecked(bool(getattr(config, "AUTO_START_RECORDING", False)))
         layout.addWidget(self.auto_start_recording_var)
 
+        self.show_obs_reminder_on_start_scanner_var = QCheckBox("Show OBS reminder on Start Scanner")
+        self.show_obs_reminder_on_start_scanner_var.setChecked(
+            bool(getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False))
+        )
+        layout.addWidget(self.show_obs_reminder_on_start_scanner_var)
+
         self.native_hook_enabled_var = QCheckBox("Use native hook restart")
         self.native_hook_enabled_var.setChecked(bool(getattr(config, "NATIVE_HOOK_ENABLED", True)))
         self.native_hook_enabled_var.toggled.connect(self.on_native_hook_toggle)
@@ -921,7 +1074,8 @@ class SettingsDialog(QDialog):
 
         support_note = QLabel(
             "BonkScanner is free to download here. "
-            "If you want, you can also support the project."
+            "You can also support the project. For feedback, bugs, "
+            "or ideas, use GitHub or Discord."
         )
         support_note.setObjectName("SupportSectionNote")
         support_note.setAlignment(Qt.AlignCenter)
@@ -943,9 +1097,23 @@ class SettingsDialog(QDialog):
         self.kofi_btn.setIconSize(QSize(18, 18))
         self.kofi_btn.clicked.connect(self.open_kofi_support_page)
         self.kofi_btn.setProperty("class", "SupportPlatformButton")
+        self.github_btn = QPushButton("GitHub")
+        self.github_btn.setObjectName("GithubButton")
+        self.github_btn.setIcon(QIcon(resource_path(GITHUB_ICON_PATH)))
+        self.github_btn.setIconSize(QSize(18, 18))
+        self.github_btn.clicked.connect(self.open_github_repository_page)
+        self.github_btn.setProperty("class", "SupportPlatformButton")
+        self.discord_btn = QPushButton("Discord")
+        self.discord_btn.setObjectName("DiscordButton")
+        self.discord_btn.setIcon(QIcon(resource_path(DISCORD_ICON_PATH)))
+        self.discord_btn.setIconSize(QSize(18, 18))
+        self.discord_btn.clicked.connect(self.open_discord_support_page)
+        self.discord_btn.setProperty("class", "SupportPlatformButton")
         self._sync_support_button_sizes()
         support_button_row.addWidget(self.patreon_btn)
         support_button_row.addWidget(self.kofi_btn)
+        support_button_row.addWidget(self.github_btn)
+        support_button_row.addWidget(self.discord_btn)
         layout.addLayout(support_button_row)
 
     def _set_native_hook_checkbox_value(self, enabled: bool):
@@ -963,7 +1131,7 @@ class SettingsDialog(QDialog):
             self._native_hook_hotkeys_toggle_guard = False
 
     def _sync_support_button_sizes(self):
-        buttons = [self.patreon_btn, self.kofi_btn]
+        buttons = [self.patreon_btn, self.kofi_btn, self.github_btn, self.discord_btn]
         target_width = max(button.sizeHint().width() for button in buttons)
         for button in buttons:
             button.setFixedWidth(target_width)
@@ -1018,6 +1186,12 @@ class SettingsDialog(QDialog):
     def open_kofi_support_page(self):
         webbrowser.open(KOFI_SUPPORT_URL)
 
+    def open_github_repository_page(self):
+        webbrowser.open(GITHUB_REPOSITORY_URL)
+
+    def open_discord_support_page(self):
+        webbrowser.open(DISCORD_SUPPORT_URL)
+
     def save(self):
         new_hotkey = _read_text(self.hotkey_entry).strip()
         new_reset_hotkey = _read_text(self.reset_hotkey_entry).strip()
@@ -1026,6 +1200,9 @@ class SettingsDialog(QDialog):
         new_toggle_auto_select_upgrades_hotkey = _read_text(self.toggle_auto_select_upgrades_hotkey_entry).strip()
         new_toggle_particles_opacity_hotkey = _read_text(self.toggle_particles_opacity_hotkey_entry).strip()
         auto_start_recording = _read_bool(self.auto_start_recording_var)
+        show_obs_reminder_on_start_scanner = _read_bool(
+            getattr(self, "show_obs_reminder_on_start_scanner_var", None)
+        )
         native_hook_enabled = _read_bool(self.native_hook_enabled_var)
         native_hook_hotkeys_enabled = _read_bool(self.native_hook_hotkeys_enabled_var)
 
@@ -1036,6 +1213,7 @@ class SettingsDialog(QDialog):
         config.user_config["TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY"] = new_toggle_auto_select_upgrades_hotkey
         config.user_config["TOGGLE_PARTICLES_OPACITY_HOTKEY"] = new_toggle_particles_opacity_hotkey
         config.user_config["AUTO_START_RECORDING"] = auto_start_recording
+        config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = show_obs_reminder_on_start_scanner
         config.user_config["NATIVE_HOOK_ENABLED"] = native_hook_enabled
         config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"] = native_hook_hotkeys_enabled
 
@@ -1046,6 +1224,7 @@ class SettingsDialog(QDialog):
         config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY = new_toggle_auto_select_upgrades_hotkey
         config.TOGGLE_PARTICLES_OPACITY_HOTKEY = new_toggle_particles_opacity_hotkey
         config.AUTO_START_RECORDING = auto_start_recording
+        config.SHOW_OBS_REMINDER_ON_START_SCANNER = show_obs_reminder_on_start_scanner
         config.NATIVE_HOOK_ENABLED = native_hook_enabled
         config.NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED = native_hook_hotkeys_enabled
         if auto_start_recording and hasattr(self.master, "player_stats_auto_recording_suppressed"):
@@ -1108,8 +1287,9 @@ class SettingsDialog(QDialog):
 
 
 class TwitchCommandSettingsDialog(QDialog):
-    def __init__(self, parent):
+    def __init__(self, parent, master=None):
         super().__init__(parent)
+        self.master = master or parent
         self.setWindowTitle("Twitch Command Settings")
         self.resize(700, 760)
         self.setMinimumSize(640, 680)
@@ -1120,73 +1300,28 @@ class TwitchCommandSettingsDialog(QDialog):
         self._init_guard = True
 
         outer_layout = QVBoxLayout(self)
-        scroll, scroll_content, scroll_layout = _make_scroll_section()
-        outer_layout.addWidget(scroll, 1)
 
-        # 1. Stats Customization
-        stats_group = QGroupBox("!stats Command")
-        stats_layout = QVBoxLayout(stats_group)
-        stats_layout.addWidget(QLabel("Select which stats appear in the {stats} placeholder:"))
+        self.tabs = QTabWidget()
+        outer_layout.addWidget(self.tabs, 1)
 
-        # Horizontal Scroll Area for all 30 stats checkboxes
-        stats_scroll = QScrollArea()
-        stats_scroll.setWidgetResizable(True)
-        stats_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        stats_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        stats_scroll.setFixedHeight(120)
+        # === TAB 1: Response Templates ===
+        tab_templates = QWidget()
+        tab_templates_layout = QVBoxLayout(tab_templates)
 
-        stats_scroll_content = QWidget()
-        scroll_grid = QGridLayout(stats_scroll_content)
-        scroll_grid.setContentsMargins(5, 5, 5, 5)
-        scroll_grid.setSpacing(10)
+        templates_scroll, _, templates_scroll_layout = _make_scroll_section()
+        tab_templates_layout.addWidget(templates_scroll)
 
-        all_stats = [spec.label for group in PLAYER_STAT_GROUPS for spec in group]
-        selected_stats = set(config.TWITCH_BOT.get("selected_stats", config.DEFAULT_TWITCH_BOT["selected_stats"]))
-
-        num_rows = 3
-        for index, label in enumerate(all_stats):
-            checkbox = QCheckBox(label)
-            checkbox.setChecked(label in selected_stats)
-            checkbox.stateChanged.connect(self.on_stat_toggled)
-            self.stat_checkboxes[label] = checkbox
-
-            row = index % num_rows
-            col = index // num_rows
-            scroll_grid.addWidget(checkbox, row, col)
-
-        stats_scroll.setWidget(stats_scroll_content)
-        stats_layout.addWidget(stats_scroll)
-        stats_layout.addSpacing(10)
-
-        stats_form = QFormLayout()
-        stats_tpl_val = config.TWITCH_BOT.get("templates", {}).get("stats", "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
-        self.stats_tpl_entry = QLineEdit(stats_tpl_val)
-        stats_form.addRow("Response template:", self.stats_tpl_entry)
-        stats_layout.addLayout(stats_form)
-
-        stats_help = QLabel(
-            "<span style='color: #9CA3AF; font-size: 11px;'>"
-            "Available tags: <b>{stats}</b> (auto-generated list of checked stats above), "
-            "<b>{Damage}</b>, <b>{XP Gain}</b>, <b>{Luck}</b>, <b>{Difficulty}</b>, <b>{Size}</b>, etc."
-            "</span>"
-        )
-        stats_help.setWordWrap(True)
-        stats_layout.addWidget(stats_help)
-
-        scroll_layout.addWidget(stats_group)
-        scroll_layout.addSpacing(10)
-
-        # 2. Other Commands
-        others_group = QGroupBox("Other Command Templates")
-        others_form = QFormLayout(others_group)
-
+        templates_form = QFormLayout()
+        default_templates = config.DEFAULT_TWITCH_BOT.get("templates", {})
         templates_config = [
             ("bans", "!bans / !banishes:", "Bans ({count}): {items}", "Tags: {count}, {items}"),
             ("items", "!items / !tracked:", "Items ({count}): {items}", "Tags: {count}, {items} (automatically collapsed if too long)"),
             ("weapons", "!weapons:", "Weapons: {weapons}", "Tags: {weapons}"),
             ("tomes", "!tomes:", "Tomes: {tomes}", "Tags: {tomes}"),
             ("chaos", "!chaos / !chaostome:", "Chaos Tome Lv{level}: {chaos}", "Tags: {level}, {chaos}"),
-            ("powerups", "!powerups:", "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})", "Tags: {standard_duration}, {clock_duration}, {pm}"),
+            ("powerups", "!powerups:", default_templates.get("powerups", "Powerups: {powerups} (PM {pm})"), "Tags: {powerups}, {standard_duration}, {clock_duration}, {pm}"),
+            ("chests", "!chests / !chest:", default_templates.get("chests", "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})"), "Tags: {stages}, {opened}, {total}, {paid}, {procs}, {normal}, {proc_rate}, {expected}, {free}, {keys}, {chance}"),
+            ("bonkhelp", "!bonkhelp / !bonkcmds:", default_templates.get("bonkhelp", "Available commands: {commands_list}"), "Tags: {commands_list}"),
         ]
 
         for key, label_text, default_val, help_text in templates_config:
@@ -1200,21 +1335,322 @@ class TwitchCommandSettingsDialog(QDialog):
             help_lbl.setWordWrap(True)
             entry_layout.addWidget(help_lbl)
 
-            others_form.addRow(label_text, entry_layout)
+            templates_form.addRow(label_text, entry_layout)
 
-        # Horizontal separator divider between commands and announcements
-        divider = QFrame()
-        divider.setFrameShape(QFrame.HLine)
-        divider.setFrameShadow(QFrame.Sunken)
-        divider.setStyleSheet("background-color: #2B3648; max-height: 1px; margin: 12px 0px;")
-        others_form.addRow(divider)
+        templates_scroll_layout.addLayout(templates_form)
+        templates_scroll_layout.addStretch(1)
+        self.tabs.addTab(tab_templates, "Response Templates")
 
-        # Announcements templates
-        announcements_label = QLabel("<b>Automatic Announcements</b>")
-        announcements_label.setStyleSheet("color: #F3F4F6; margin-bottom: 4px;")
-        others_form.addRow(announcements_label)
+        # === TAB 2: Advanced Commands ===
+        tab_advanced = QWidget()
+        tab_advanced_layout = QVBoxLayout(tab_advanced)
+        adv_scroll, _, adv_scroll_layout = _make_scroll_section()
+        tab_advanced_layout.addWidget(adv_scroll)
 
-        # stage_announcement field
+        # -- !stats section --
+        stats_group = CollapsibleSection("!stats Command", expanded=False)
+        stats_layout = stats_group.body_layout
+        stats_layout.addWidget(QLabel("Select which stats appear in the {stats} placeholder:"))
+
+        stats_config_layout = QGridLayout()
+        stats_config_layout.setContentsMargins(5, 5, 5, 5)
+        stats_config_layout.setSpacing(10)
+
+        all_stats = [spec.label for group in PLAYER_STAT_GROUPS for spec in group]
+        selected_stats = set(config.TWITCH_BOT.get("selected_stats", config.DEFAULT_TWITCH_BOT["selected_stats"]))
+
+        for index, label in enumerate(all_stats):
+            checkbox = QCheckBox(label)
+            checkbox.setChecked(label in selected_stats)
+            checkbox.stateChanged.connect(self.on_stat_toggled)
+            self.stat_checkboxes[label] = checkbox
+
+            stats_config_layout.addWidget(checkbox, index // 4, index % 4)
+
+        stats_layout.addLayout(stats_config_layout)
+        stats_layout.addSpacing(10)
+
+        stats_form = QFormLayout()
+        stats_tpl_val = config.TWITCH_BOT.get("templates", {}).get("stats", "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
+        self.stats_tpl_entry = QLineEdit(stats_tpl_val)
+        self.templates_entries["stats"] = self.stats_tpl_entry
+        stats_form.addRow("Response template:", self.stats_tpl_entry)
+        stats_layout.addLayout(stats_form)
+
+        stats_help = QLabel(
+            "<span style='color: #9CA3AF; font-size: 11px;'>"
+            "Available tags: <b>{stats}</b> (auto-generated list of checked stats above), "
+            "<b>{Damage}</b>, <b>{XP Gain}</b>, <b>{Luck}</b>, <b>{Difficulty}</b>, <b>{Size}</b>, etc."
+            "</span>"
+        )
+        stats_help.setWordWrap(True)
+        stats_layout.addWidget(stats_help)
+
+        stats_reset_layout = QHBoxLayout()
+        self.twitch_stats_reset_btn = QPushButton("Reset to Default Stats")
+        self.twitch_stats_reset_btn.clicked.connect(self._reset_twitch_stats_to_default)
+        stats_reset_layout.addWidget(self.twitch_stats_reset_btn)
+        stats_reset_layout.addStretch(1)
+        stats_layout.addLayout(stats_reset_layout)
+
+        adv_scroll_layout.addWidget(stats_group)
+        adv_scroll_layout.addSpacing(15)
+
+        # -- !session tracked items section --
+        twitch_uses_session_tracked_items = (
+            config.normalize_tracked_items_source(
+                config.TWITCH_BOT.get("tracked_items_source"),
+                default="session",
+            ) == "session"
+        )
+        twitch_tracked_group = CollapsibleSection(
+            "!session Tracked Items",
+            expanded=False,
+        )
+        twitch_tracked_layout = twitch_tracked_group.body_layout
+        twitch_tracked_layout.addWidget(QLabel("Choose which tracked item counters appear in the Twitch !session response."))
+
+        self.twitch_use_session_tracked_items_cb = QCheckBox("Use Session Stats tracked items")
+        self.twitch_use_session_tracked_items_cb.setChecked(twitch_uses_session_tracked_items)
+        self.twitch_use_session_tracked_items_cb.stateChanged.connect(self.on_twitch_tracked_items_source_toggled)
+        twitch_tracked_layout.addWidget(self.twitch_use_session_tracked_items_cb)
+
+        self.twitch_tracked_items_source_label = QLabel()
+        self.twitch_tracked_items_source_label.setWordWrap(True)
+        twitch_tracked_layout.addWidget(self.twitch_tracked_items_source_label)
+
+        self.twitch_custom_tracked_items_widget = QWidget()
+        twitch_custom_layout = QVBoxLayout(self.twitch_custom_tracked_items_widget)
+        twitch_custom_layout.setContentsMargins(0, 0, 0, 0)
+        twitch_custom_layout.setSpacing(8)
+
+        top_layout = QVBoxLayout()
+        top_layout.setSpacing(4)
+
+        search_top_layout = QHBoxLayout()
+        search_top_layout.addWidget(QLabel("Available Items (select one or more)"))
+        search_top_layout.addStretch(1)
+        top_layout.addLayout(search_top_layout)
+
+        self.twitch_item_names = OverlayMixin._overlay_available_item_names()
+        self.twitch_item_search_entry = QLineEdit()
+        self.twitch_item_search_entry.setPlaceholderText("Search items...")
+        self.twitch_item_search_entry.textChanged.connect(self.refresh_twitch_item_selector)
+        top_layout.addWidget(self.twitch_item_search_entry)
+
+        self.twitch_item_selector = QListWidget()
+        self.twitch_item_selector.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.twitch_item_selector.setMinimumHeight(220)
+        self.twitch_item_selector.setMaximumHeight(280)
+        self.twitch_item_selector.setFlow(QListView.Flow.LeftToRight)
+        self.twitch_item_selector.setWrapping(True)
+        self.twitch_item_selector.setResizeMode(QListView.ResizeMode.Adjust)
+        self.twitch_item_selector.setStyleSheet("QListWidget { font-size: 13px; }")
+        top_layout.addWidget(self.twitch_item_selector)
+
+        action_row = QHBoxLayout()
+        self.twitch_map_one_only_checkbox = QCheckBox("Map 1 only")
+        self.twitch_map_one_only_checkbox.setChecked(True)
+        self.twitch_map_one_only_checkbox.setToolTip("If checked, only counts gains on the first map.")
+        action_row.addWidget(self.twitch_map_one_only_checkbox)
+        action_row.addStretch(1)
+
+        self.twitch_add_tracked_item_btn = QPushButton("Add Rule")
+        self.twitch_add_tracked_item_btn.clicked.connect(self.add_twitch_tracked_item)
+        action_row.addWidget(self.twitch_add_tracked_item_btn)
+
+        top_layout.addLayout(action_row)
+        twitch_custom_layout.addLayout(top_layout)
+
+        twitch_custom_layout.addSpacing(10)
+
+        tags_top_layout = QHBoxLayout()
+        tags_top_layout.addWidget(QLabel("Custom Twitch tracked items"))
+        tags_top_layout.addStretch(1)
+
+        twitch_custom_layout.addLayout(tags_top_layout)
+
+        self.twitch_tags_container = QWidget()
+        self.twitch_tags_container.setStyleSheet("background-color: #0B1220;")
+        self.twitch_tags_layout = FlowLayout(self.twitch_tags_container, margin=6, spacing=4)
+
+        self.twitch_tags_scroll = QScrollArea()
+        self.twitch_tags_scroll.setWidgetResizable(True)
+        self.twitch_tags_scroll.setStyleSheet("""
+            QScrollArea {
+                border: 1px solid #2B3648;
+                border-radius: 6px;
+                background-color: #0B1220;
+            }
+        """)
+        self.twitch_tags_scroll.setWidget(self.twitch_tags_container)
+        self.twitch_tags_scroll.setMinimumHeight(80)
+        self.twitch_tags_scroll.setMaximumHeight(130)
+        twitch_custom_layout.addWidget(self.twitch_tags_scroll)
+
+        tags_bottom_layout = QHBoxLayout()
+        self.twitch_clear_all_tags_btn = QPushButton("Clear All")
+        self.twitch_clear_all_tags_btn.clicked.connect(self.clear_all_twitch_tracked_items)
+        tags_bottom_layout.addWidget(self.twitch_clear_all_tags_btn)
+        tags_bottom_layout.addStretch(1)
+
+        twitch_custom_layout.addLayout(tags_bottom_layout)
+        twitch_tracked_layout.addWidget(self.twitch_custom_tracked_items_widget)
+
+        twitch_tracked_layout.addSpacing(10)
+        session_form = QFormLayout()
+        session_tpl_val = config.TWITCH_BOT.get("templates", {}).get("session", config.DEFAULT_TWITCH_BOT["templates"]["session"])
+        self.session_tpl_entry = QLineEdit(session_tpl_val)
+        self.templates_entries["session"] = self.session_tpl_entry
+        session_form.addRow("Response template:", self.session_tpl_entry)
+        twitch_tracked_layout.addLayout(session_form)
+
+        session_help = QLabel(
+            "<span style='color: #9CA3AF; font-size: 11px;'>"
+            "Available tags: <b>{items}</b> (the tracked items configured above), "
+            "<b>{resets}</b>, <b>{seeds}</b>, <b>{seed_rate}</b>."
+            "</span>"
+        )
+        session_help.setWordWrap(True)
+        twitch_tracked_layout.addWidget(session_help)
+        twitch_tracked_layout.addSpacing(10)
+
+        self.refresh_twitch_item_selector()
+        self.refresh_twitch_tracked_items_ui()
+        adv_scroll_layout.addWidget(twitch_tracked_group)
+        adv_scroll_layout.addSpacing(15)
+
+        # -- !disabled section --
+        disabled_group = CollapsibleSection("!disabled Command Settings", expanded=False)
+        disabled_layout = disabled_group.body_layout
+        disabled_layout.addWidget(QLabel("Select key items to display when globally disabled in lobby:"))
+
+        self.disabled_search_input = QLineEdit()
+        self.disabled_search_input.setPlaceholderText("Search / Filter items...")
+        self.disabled_search_input.textChanged.connect(self.filter_disabled_items)
+        disabled_layout.addWidget(self.disabled_search_input)
+
+        self.show_all_disabled_items_cb = QCheckBox("Show all items")
+        self.show_all_disabled_items_cb.setChecked(False)
+        self.show_all_disabled_items_cb.stateChanged.connect(self.filter_disabled_items)
+        disabled_layout.addWidget(self.show_all_disabled_items_cb)
+
+        disabled_scroll_area = QScrollArea()
+        disabled_scroll_area.setWidgetResizable(True)
+        disabled_scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        disabled_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        disabled_scroll_area.setFixedHeight(150)
+
+        disabled_scroll_content = QWidget()
+        self.disabled_grid = QGridLayout(disabled_scroll_content)
+        self.disabled_grid.setContentsMargins(5, 5, 5, 5)
+        self.disabled_grid.setSpacing(8)
+
+        from item_metadata import ITEMS, ITEM_DISPLAY_NAME_BY_RAW_VALUE
+
+        display_names_to_item = {}
+        for item in ITEMS:
+            if item.rarity in ("COMMON", "UNCOMMON", "RARE", "LEGENDARY") and item.item_id != 79:
+                if item.enum_name in ITEM_DISPLAY_NAME_BY_RAW_VALUE:
+                    d_name = ITEM_DISPLAY_NAME_BY_RAW_VALUE[item.enum_name]
+                else:
+                    parts = []
+                    current = ""
+                    for char in item.enum_name:
+                        if char.isupper() and current and not current[-1].isupper():
+                            parts.append(current)
+                            current = char
+                        else:
+                            current += char
+                    if current:
+                        parts.append(current)
+                    d_name = " ".join(parts) if parts else item.enum_name
+                display_names_to_item[d_name] = item
+
+        disabled_in_game = []
+        if self.master:
+            cache = getattr(self.master, "player_stats_disabled_items_cache", None)
+            if cache is not None:
+                disabled_in_game = list(cache)
+            elif hasattr(self.master, "live_run_tracker") and self.master.live_run_tracker:
+                try:
+                    result = self.master.live_run_tracker.get_disabled_items()
+                    if result.available:
+                        disabled_in_game = list(result.items)
+                except Exception:
+                    pass
+        disabled_in_game_set = {name.lower() for name in disabled_in_game if name}
+
+        highlighted_disabled = set(config.TWITCH_BOT.get("highlighted_disabled_items", []))
+
+        def item_sort_key(d_name):
+            is_checked = d_name in highlighted_disabled
+            is_disabled_ingame = d_name.lower() in disabled_in_game_set
+            if is_checked and is_disabled_ingame:
+                return (0, d_name.lower())
+            elif is_checked:
+                return (1, d_name.lower())
+            elif is_disabled_ingame:
+                return (2, d_name.lower())
+            else:
+                return (3, d_name.lower())
+
+        sorted_display_names = sorted(display_names_to_item.keys(), key=item_sort_key)
+
+        self.disabled_item_checkboxes = {}
+        num_cols = 3
+        for idx, d_name in enumerate(sorted_display_names):
+            is_disabled_ingame = d_name.lower() in disabled_in_game_set
+            if is_disabled_ingame:
+                cb = QCheckBox(f"🚫 {d_name}")
+                cb.setStyleSheet("color: #FB7185; font-weight: bold;")
+            else:
+                cb = QCheckBox(d_name)
+            cb.setProperty("is_disabled_ingame", is_disabled_ingame)
+            cb.setChecked(d_name in highlighted_disabled)
+            self.disabled_item_checkboxes[d_name] = cb
+            cb.stateChanged.connect(self.filter_disabled_items)
+
+            row = idx // num_cols
+            col = idx % num_cols
+            self.disabled_grid.addWidget(cb, row, col)
+
+        self.filter_disabled_items()
+
+        disabled_scroll_area.setWidget(disabled_scroll_content)
+        disabled_layout.addWidget(disabled_scroll_area)
+        disabled_layout.addSpacing(10)
+
+        disabled_form = QFormLayout()
+        disabled_tpl_val = config.TWITCH_BOT.get("templates", {}).get("disabled", "Disabled Items: {items}")
+        self.disabled_tpl_entry = QLineEdit(disabled_tpl_val)
+        self.templates_entries["disabled"] = self.disabled_tpl_entry
+        disabled_form.addRow("Response template:", self.disabled_tpl_entry)
+        disabled_layout.addLayout(disabled_form)
+
+        disabled_help = QLabel(
+            "<span style='color: #9CA3AF; font-size: 11px;'>"
+            "Available tags: <b>{items}</b> (comma-separated list of selected items that are currently disabled)"
+            "</span>"
+        )
+        disabled_help.setWordWrap(True)
+        disabled_layout.addWidget(disabled_help)
+
+        adv_scroll_layout.addWidget(disabled_group)
+        adv_scroll_layout.addStretch(1)
+        self.twitch_advanced_sections_group = CollapsibleSectionGroup(
+            (stats_group, twitch_tracked_group, disabled_group)
+        )
+        self.tabs.addTab(tab_advanced, "Advanced Commands")
+
+        # === TAB 3: Announcers ===
+        tab_announcers = QWidget()
+        tab_announcers_layout = QVBoxLayout(tab_announcers)
+        ann_scroll, _, ann_scroll_layout = _make_scroll_section()
+        tab_announcers_layout.addWidget(ann_scroll)
+
+        announcers_form = QFormLayout()
+
         stage_ann_val = config.TWITCH_BOT.get("templates", {}).get(
             "stage_announcement",
             "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩"
@@ -1231,10 +1667,24 @@ class TwitchCommandSettingsDialog(QDialog):
         )
         stage_ann_help.setWordWrap(True)
         stage_ann_layout.addWidget(stage_ann_help)
-        others_form.addRow("Stage Transition:", stage_ann_layout)
+        announcers_form.addRow("Stage Transition:", stage_ann_layout)
 
-        scroll_layout.addWidget(others_group)
-        scroll_layout.addStretch(1)
+        ann_scroll_layout.addLayout(announcers_form)
+
+        # Commands announcer
+        self.commands_announcement_interval_spin = QSpinBox()
+        self.commands_announcement_interval_spin.setRange(1, 1440)
+        self.commands_announcement_interval_spin.setValue(
+            int(config.TWITCH_BOT.get("commands_announcement_interval_minutes", 30))
+        )
+        self.commands_announcement_interval_spin.setSuffix(" min")
+
+        ann_extra_form = QFormLayout()
+        ann_extra_form.addRow("Commands interval:", self.commands_announcement_interval_spin)
+        ann_scroll_layout.addLayout(ann_extra_form)
+
+        ann_scroll_layout.addStretch(1)
+        self.tabs.addTab(tab_announcers, "Announcers")
 
         # 3. Sticky action buttons
         button_row = QHBoxLayout()
@@ -1295,27 +1745,255 @@ class TwitchCommandSettingsDialog(QDialog):
         new_tpl = "Live Stats: " + " | ".join(parts)
         self.stats_tpl_entry.setText(new_tpl)
 
+    def refresh_twitch_item_selector(self) -> None:
+        selector = getattr(self, "twitch_item_selector", None)
+        if selector is None:
+            return
+        query = ""
+        if getattr(self, "twitch_item_search_entry", None) is not None:
+            query = self.twitch_item_search_entry.text().strip().lower()
+        if selector.count() == 0:
+            for item_name in getattr(self, "twitch_item_names", ()):
+                display_name = preferred_item_display_name(str(item_name))
+                item = QListWidgetItem(display_name)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                item.setData(Qt.UserRole, item_name)
+                item.setForeground(QBrush(QColor(OverlayMixin._tracked_item_color(item_name))))
+                selector.addItem(item)
+
+        for i in range(selector.count()):
+            item = selector.item(i)
+            item_name = str(item.data(Qt.UserRole) or item.text())
+            display_name = preferred_item_display_name(str(item_name))
+            haystacks = {str(item_name).lower(), display_name.lower()}
+            if query and not any(query in haystack for haystack in haystacks):
+                item.setHidden(True)
+            else:
+                item.setHidden(False)
+
+    def refresh_twitch_tracked_items_ui(self) -> None:
+        layout = getattr(self, "twitch_tags_layout", None)
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+
+        for rule in config.TWITCH_BOT.get("tracked_items") or ():
+            if not isinstance(rule, dict):
+                continue
+            item_names = [str(name) for name in rule.get("item_names") or () if str(name).strip()]
+            if not item_names:
+                continue
+            mode = str(rule.get("mode") or "all_run")
+            label = self._twitch_tracked_rule_display_label(rule, item_names, mode)
+            rule_id = str(rule.get("id") or "")
+
+            if layout is not None:
+                accent = OverlayMixin._tracked_rule_color(item_names)
+                tag = TrackedRuleTagWidget(
+                    rule_id,
+                    OverlayMixin._tracked_rule_tag_label(label, mode),
+                    text_color=accent,
+                    border_color=accent,
+                    background_color="#18212C",
+                )
+                tag.remove_clicked.connect(self.remove_twitch_tracked_item)
+                layout.addWidget(tag)
+        self._refresh_twitch_tracked_items_source_ui()
+
+    def _refresh_twitch_tracked_items_source_ui(self) -> None:
+        use_session = bool(
+            getattr(self, "twitch_use_session_tracked_items_cb", None)
+            and self.twitch_use_session_tracked_items_cb.isChecked()
+        )
+        custom_count = len(config.normalize_tracked_item_rules_config(config.TWITCH_BOT.get("tracked_items"), []))
+        session_count = len(config.normalize_tracked_item_rules_config(config.SESSION_TRACKED_ITEMS.get("tracked_items"), []))
+        source_label = getattr(self, "twitch_tracked_items_source_label", None)
+        if source_label is not None:
+            if use_session:
+                source_label.setText(f"Twitch !session source: Session Stats ({session_count}). Custom Twitch list is preserved ({custom_count}).")
+            else:
+                source_label.setText(f"Twitch !session source: Custom ({custom_count}). Session Stats has {session_count} rule(s).")
+        custom_widget = getattr(self, "twitch_custom_tracked_items_widget", None)
+        if custom_widget is not None:
+            custom_widget.setVisible(not use_session)
+        for widget in (
+            getattr(self, "twitch_map_one_only_checkbox", None),
+            getattr(self, "twitch_item_search_entry", None),
+            getattr(self, "twitch_item_selector", None),
+            getattr(self, "twitch_add_tracked_item_btn", None),
+            getattr(self, "twitch_clear_all_tags_btn", None),
+        ):
+            if widget is not None:
+                widget.setEnabled(not use_session)
+
+    def on_twitch_tracked_items_source_toggled(self, *_args) -> None:
+        self._refresh_twitch_tracked_items_source_ui()
+
+    def add_twitch_tracked_item(self) -> None:
+        item_names = self._selected_twitch_item_names()
+        if not item_names:
+            return
+        map_one_only = bool(self.twitch_map_one_only_checkbox.isChecked())
+        mode = "map_1_only" if map_one_only else "all_run"
+        display_name = self._twitch_tracked_combo_display_name(item_names)
+        label = f"{display_name} Map 1" if map_one_only else display_name
+        rule = {
+            "id": self._twitch_rule_id(item_names, mode),
+            "label": label,
+            "item_names": item_names,
+            "mode": mode,
+        }
+        existing_rules = [
+            dict(raw_rule)
+            for raw_rule in config.TWITCH_BOT.get("tracked_items") or ()
+            if isinstance(raw_rule, dict)
+        ]
+        existing_ids = {str(raw_rule.get("id") or "") for raw_rule in existing_rules}
+        if rule["id"] not in existing_ids:
+            existing_rules.append(rule)
+        config.TWITCH_BOT["tracked_items"] = existing_rules
+
+        if getattr(self, "twitch_item_selector", None) is not None:
+            self.twitch_item_selector.clearSelection()
+            self.twitch_item_selector.setCurrentItem(None)
+
+        self.refresh_twitch_tracked_items_ui()
+
+    def remove_twitch_tracked_item(self, rule_id: str) -> None:
+        rule_id = str(rule_id)
+        existing_rules = [
+            dict(raw_rule)
+            for raw_rule in config.TWITCH_BOT.get("tracked_items") or ()
+            if isinstance(raw_rule, dict)
+        ]
+        new_rules = [r for r in existing_rules if str(r.get("id") or "") != rule_id]
+        config.TWITCH_BOT["tracked_items"] = new_rules
+        self.refresh_twitch_tracked_items_ui()
+
+    def clear_all_twitch_tracked_items(self) -> None:
+        config.TWITCH_BOT["tracked_items"] = []
+        self.refresh_twitch_tracked_items_ui()
+
+    def _selected_twitch_item_names(self) -> list[str]:
+        selector = getattr(self, "twitch_item_selector", None)
+        if selector is not None:
+            selected_items = selector.selectedItems()
+            if not selected_items and selector.currentItem() is not None:
+                selected_items = [selector.currentItem()]
+            item_names = [
+                str(item.data(Qt.UserRole) or item.text()).strip()
+                for item in selected_items
+                if str(item.data(Qt.UserRole) or item.text()).strip()
+            ]
+            if item_names:
+                return self._dedupe_twitch_item_names(item_names)
+        if getattr(self, "twitch_item_search_entry", None) is not None:
+            query = self.twitch_item_search_entry.text().strip()
+            for item_name in getattr(self, "twitch_item_names", ()):
+                display_name = preferred_item_display_name(str(item_name))
+                if str(item_name).lower() == query.lower() or display_name.lower() == query.lower():
+                    return [str(item_name)]
+        return []
+
+    def _twitch_tracked_item_config_from_ui(self) -> list[dict[str, object]]:
+        return [
+            dict(raw_rule)
+            for raw_rule in config.TWITCH_BOT.get("tracked_items") or ()
+            if isinstance(raw_rule, dict)
+        ]
+
+    @staticmethod
+    def _twitch_rule_id(item_names: list[str] | tuple[str, ...], mode: str) -> str:
+        folded = "_".join(
+            "".join(char.lower() for char in item_name if char.isalnum())
+            for item_name in item_names
+        )
+        return f"twitch_{folded or 'item'}_{mode}"
+
+    @staticmethod
+    def _twitch_tracked_rule_display_label(rule: dict, item_names: list[str], mode: str) -> str:
+        raw_label = str(rule.get("label") or " + ".join(item_names))
+        if len(item_names) != 1:
+            return raw_label
+        canonical_name = str(item_names[0])
+        preferred_name = preferred_item_display_name(canonical_name)
+        default_label = f"{canonical_name} Map 1" if mode == "map_1_only" else canonical_name
+        preferred_label = f"{preferred_name} Map 1" if mode == "map_1_only" else preferred_name
+        return preferred_label if raw_label == default_label else raw_label
+
+    @staticmethod
+    def _twitch_tracked_combo_display_name(item_names: list[str] | tuple[str, ...]) -> str:
+        return " + ".join(preferred_item_display_name(str(item_name)) for item_name in item_names)
+
+    @staticmethod
+    def _dedupe_twitch_item_names(item_names: list[str] | tuple[str, ...]) -> list[str]:
+        deduped: list[str] = []
+        for item_name in item_names:
+            value = str(item_name).strip()
+            if value and value not in deduped:
+                deduped.append(value)
+        return deduped
+
     def reset_to_defaults(self):
         self._init_guard = True
         default_selected = set(config.DEFAULT_TWITCH_BOT["selected_stats"])
         for label, cb in self.stat_checkboxes.items():
             cb.setChecked(label in default_selected)
 
-        self.stats_tpl_entry.setText("Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}")
+        self.stats_tpl_entry.setText(config.DEFAULT_TWITCH_BOT["templates"]["stats"])
 
-        defaults = {
-            "stats": "Live Stats: DMG: {Damage} | XP: {XP Gain} | Luck: {Luck} | Size: {Size}",
-            "bans": "Bans ({count}): {items}",
-            "items": "Items ({count}): {items}",
-            "weapons": "Weapons: {weapons}",
-            "tomes": "Tomes: {tomes}",
-            "chaos": "Chaos Tome Lv{level}: {chaos}",
-            "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
-            "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩"
-        }
+        for cb in self.disabled_item_checkboxes.values():
+            cb.setChecked(False)
+
+        if getattr(self, "twitch_use_session_tracked_items_cb", None) is not None:
+            self.twitch_use_session_tracked_items_cb.setChecked(False)
+        config.TWITCH_BOT["tracked_items"] = list(config.DEFAULT_TWITCH_BOT.get("tracked_items", []))
+        if hasattr(self, "refresh_twitch_tracked_items_ui"):
+            self.refresh_twitch_tracked_items_ui()
+
+        defaults = config.DEFAULT_TWITCH_BOT["templates"]
         for key, entry in self.templates_entries.items():
             entry.setText(defaults.get(key, ""))
+        self.commands_announcement_interval_spin.setValue(
+            int(config.DEFAULT_TWITCH_BOT.get("commands_announcement_interval_minutes", 30))
+        )
         self._init_guard = False
+
+    def _reset_twitch_stats_to_default(self):
+        default_selected = set(config.DEFAULT_TWITCH_BOT["selected_stats"])
+        for label, cb in self.stat_checkboxes.items():
+            cb.setChecked(label in default_selected)
+        self.stats_tpl_entry.setText(config.DEFAULT_TWITCH_BOT["templates"]["stats"])
+
+    def filter_disabled_items(self):
+        text = self.disabled_search_input.text().strip().lower()
+        show_all = getattr(self, "show_all_disabled_items_cb", None) and self.show_all_disabled_items_cb.isChecked()
+
+        # Temporarily remove all widgets from the grid layout
+        for i in reversed(range(self.disabled_grid.count())):
+            widget = self.disabled_grid.itemAt(i).widget()
+            if widget is not None:
+                self.disabled_grid.removeWidget(widget)
+
+        # Re-add matching widgets in order
+        num_cols = 3
+        visible_idx = 0
+        for d_name, cb in self.disabled_item_checkboxes.items():
+            matches_text = not text or text in d_name.lower()
+            is_priority = bool(cb.property("is_disabled_ingame")) or cb.isChecked()
+            matches_visibility = show_all or is_priority
+
+            if matches_text and matches_visibility:
+                cb.setVisible(True)
+                row = visible_idx // num_cols
+                col = visible_idx % num_cols
+                self.disabled_grid.addWidget(cb, row, col)
+                visible_idx += 1
+            else:
+                cb.setVisible(False)
 
     def save(self):
         selected_stats = [label for label, cb in self.stat_checkboxes.items() if cb.isChecked()]
@@ -1329,6 +2007,29 @@ class TwitchCommandSettingsDialog(QDialog):
 
         for key, entry in self.templates_entries.items():
             config.TWITCH_BOT["templates"][key] = entry.text().strip()
+
+        highlighted_disabled = [
+            name for name, cb in self.disabled_item_checkboxes.items() if cb.isChecked()
+        ]
+        config.TWITCH_BOT["highlighted_disabled_items"] = highlighted_disabled
+        config.TWITCH_BOT["commands_announcement_interval_minutes"] = (
+            self.commands_announcement_interval_spin.value()
+        )
+
+        if getattr(self, "twitch_use_session_tracked_items_cb", None) is not None:
+            config.TWITCH_BOT["tracked_items_source"] = (
+                "session" if self.twitch_use_session_tracked_items_cb.isChecked() else "custom"
+            )
+        if getattr(self, "twitch_tags_layout", None) is not None:
+            config.TWITCH_BOT["tracked_items"] = config.TWITCH_BOT.get("tracked_items", [])
+
+        config.TWITCH_BOT = config.normalize_twitch_bot_config(config.TWITCH_BOT)
+        master = getattr(self, "master", None)
+        live_run_tracker = getattr(master, "live_run_tracker", None)
+        if live_run_tracker is not None and hasattr(master, "_combined_tracked_item_rules"):
+            live_run_tracker.set_tracked_item_rules(master._combined_tracked_item_rules())
+        if master is not None and hasattr(master, "refresh_session_tracked_item_stats_ui"):
+            master.refresh_session_tracked_item_stats_ui()
 
         config.user_config["TWITCH_BOT"] = config.TWITCH_BOT
         config.save_config(config.user_config)

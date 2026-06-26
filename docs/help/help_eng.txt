@@ -56,7 +56,7 @@ The `Live Stats` tab shows:
 - `Mob Kills`;
 - `Level`;
 - `Stage Summary`;
-- `Segment Compare`;
+- `Powerups`;
 - `Banishes`.
 
 Additional tabs inside `Live Stats`:
@@ -64,7 +64,7 @@ Additional tabs inside `Live Stats`:
 - `Weapons` - current weapons, their levels, and upgraded weapon stats;
 - `Tomes` - current tomes, their levels, and active effects.
 
-The `Segment Compare` card can compare the current snapshot against an earlier point in the same run and summarize item, kill, level, and time changes.
+The `Powerups` card tracks active powerups (Rage, Shield, Stonks, Clock) and shows their pickup and expiration timestamps.
 
 If some sections temporarily say that data is unavailable, that is not always an error. During loading, some memory pointers may not be ready yet.
 
@@ -110,6 +110,7 @@ OBS Overlay
 - Recording is not required. The overlay uses live stats reads and can work while `.jsonl` recording is off.
 - Widget selection controls what appears on stream. The default focuses on `Stage Summary`, `Tracked Items`, `Stats`, and `Banishes`.
 - Tracked items count selected item gains, such as first-map item luck. Search for an item, choose whether it should count `Map 1 only`, then add it to the tracked list.
+- The Tracked Items widget uses its own custom list by default. Enable `Use Session Stats tracked items` to show the same counters as `Session Stats` without deleting the custom overlay list.
 - The overlay page is transparent, so OBS should show only the compact text/widgets over the game instead of a large solid background.
 - **Widget Scaling**: In Layout Editor mode, hover over any widget to reveal a scale toolbar. Use `+` / `-` buttons or type a custom percentage (e.g. `125`) directly to zoom individual widgets.
 - **Widget Resizing**: Drag the bottom-right corner of any widget in Layout Editor to stretch its width and height. Stats and Banishes automatically reflow into multiple columns when widened.
@@ -131,15 +132,23 @@ How to configure:
 5. Click `Start Bot`.
 
 By default, `Target Channel` uses the authorized Twitch account. If you authorize a separate bot account, set `Target Channel` to the streamer channel where the bot should join and respond.
+In `Command Settings`, `!session` uses `Session Stats` tracked items by default. Disable `Use Session Stats tracked items` to maintain a separate custom Twitch list.
 
 Available chat commands:
 - `!stats` / `!bonkstats` — displays character's current stats (damage, experience, luck, size, etc.).
+- `!session` — displays current app session stats: resets, found seeds, seed rate, and configured tracked item counters.
 - `!bans` / `!banishes` — list of banished items.
+- `!disabled` — lists the highlighted/selected items that are globally disabled in the game lobby settings. (Note: due to game architecture, actual disabled items are only available in memory once a match starts. When configuring this via the bot UI in the main menu, use "Show all items" to select them beforehand.)
 - `!items` — list of collected items (automatically sorted by rarity; if there are too many items, the bot compresses the list to fit Twitch's limits).
 - `!weapons` — your weapons and only their active/upgraded stats.
 - `!tomes` — your tomes with their stat values (Chaos Tome shows level only).
+- `!chaos` / `!chaostome` — displays tracked Chaos Tome level and stat roll totals.
 - `!stages` — detailed stage summary of kills and elapsed time for stages 1-4.
-- `!scanner` — quick help listing all commands.
+- `!powerups` — displays active powerups (Rage, Shield, Stonks, Clock) with their pickup and expiration timestamps.
+- `!chests` / `!chest` — displays the number of chests opened per stage, keys count, and free chest openings (Free chest includes naturally free chests + chests opened for free using keys).
+- `!presets` / `!preset` — displays active reroller templates or score tiers and weights.
+- `!bonkhelp` — lists all active scanner bot commands (aliases: `!bonkcmds`, `!bonkcommands`, `!bhelp`).
+- `!scanner` — general info about the BonkScanner app and download link.
 
 Announce Stage Transitions:
 If enabled, the bot automatically sends a summary to Twitch chat when transitioning between stages, e.g.:

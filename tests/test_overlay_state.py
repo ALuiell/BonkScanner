@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+import config
 from live_run_tracker import LiveRunSnapshot, LiveRunTracker
 from overlay_state import build_overlay_state
 
@@ -12,6 +13,37 @@ class _DisplayValue:
 
 
 class OverlayStateTests(unittest.TestCase):
+    def test_overlay_tracked_items_source_defaults_to_custom_for_compatibility(self) -> None:
+        overlay = config.normalize_overlay_config(
+            {
+                "tracked_items": [
+                    {
+                        "id": "custom_anvils",
+                        "label": "Custom Anvils",
+                        "item_names": ["Anvil"],
+                        "mode": "all_run",
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(overlay["tracked_items_source"], "custom")
+        self.assertEqual(overlay["tracked_items"][0]["id"], "custom_anvils")
+
+    def test_tracked_item_rules_normalize_combo_items(self) -> None:
+        rules = config.normalize_tracked_item_rules_config(
+            [
+                {
+                    "id": "kevin_plug",
+                    "item_names": ["Kevin", "Electric Plug", "Kevin"],
+                    "mode": "map_1_only",
+                }
+            ]
+        )
+
+        self.assertEqual(rules[0]["label"], "Kevin + Electric Plug")
+        self.assertEqual(rules[0]["item_names"], ["Kevin", "Electric Plug"])
+
     def test_overlay_state_has_json_friendly_missing_data(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 123.0)
         state = build_overlay_state(

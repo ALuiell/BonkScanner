@@ -26,6 +26,23 @@ except ImportError:
     keyboard = None
 
 class ScannerMixin:
+    def _scan_abort_requested(self) -> bool:
+        return self.stop_event.is_set() or not self.scan_event.is_set()
+
+    def _score_tier_color_tag(self, tier: str) -> str:
+        colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
+        return colors.get(tier, "BLUE")
+
+    def _log_colored_names(self, prefix: str, names: list[str], color_for_name) -> None:
+        colored_parts = [prefix]
+        colored_tags = [None]
+        for index, name in enumerate(names):
+            colored_parts.append(name)
+            colored_tags.append(color_for_name(name))
+            if index < len(names) - 1:
+                colored_parts.append(", ")
+                colored_tags.append(None)
+        self.log(colored_parts, tag=colored_tags)
 
     def deferred_update_check(self):
         threading.Thread(target=updater.check_and_update, args=(self, False), daemon=True).start()
@@ -107,6 +124,15 @@ class ScannerMixin:
                     config.user_config["SKIP_REROLL_WARNING"] = True
                     config.save_config(config.user_config)
 
+            if (
+                getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False)
+                and not getattr(self, "obs_recording_reminder_shown", False)
+            ):
+                from gui_dialogs import ObsRecordingReminderDialog
+                self.obs_recording_reminder_shown = True
+                dialog = ObsRecordingReminderDialog(self.window)
+                dialog.exec()
+
             self.log(f"\n[*] Starting auto-reroll monitor in {config.EVALUATION_MODE.upper()} mode...")
 
             if config.EVALUATION_MODE == "templates":
@@ -114,27 +140,20 @@ class ScannerMixin:
                 if not self.active_templates:
                     self.log("[-] Error: You must select at least one template!", tag="error")
                     return
-                colored_parts = ["[*] Active profiles: "]
-                colored_tags = [None]
-                for index, name in enumerate(self.active_templates):
-                    color_tag = "BLUE"
+                def template_color_tag(name: str) -> str:
                     for template in config.TEMPLATES:
                         if template["name"] == name:
-                            color_tag = template.get("color", "BLUE").upper()
-                            break
-                    colored_parts.append(name)
-                    colored_tags.append(color_tag)
-                    if index < len(self.active_templates) - 1:
-                        colored_parts.append(", ")
-                        colored_tags.append(None)
-                self.log(colored_parts, tag=colored_tags)
+                            return template.get("color", "BLUE").upper()
+                    return "BLUE"
+
+                self._log_colored_names("[*] Active profiles: ", self.active_templates, template_color_tag)
                 self.template_stats = {name: {"rerolls_since_last": 0, "history": []} for name in self.active_templates}
             else:
                 active_tiers = config.SCORES_SYSTEM.get("active_tiers", [])
                 if not active_tiers:
                     self.log("[-] Error: No active tiers selected in Scores mode!", tag="error")
                     return
-                self.log(f"[*] Active Tiers: {', '.join(active_tiers)}")
+                self._log_colored_names("[*] Active Tiers: ", active_tiers, self._score_tier_color_tag)
                 self.template_stats = {name: {"rerolls_since_last": 0, "history": []} for name in active_tiers}
 
             self.session_start_time = time.time()
@@ -186,8 +205,7 @@ class ScannerMixin:
                         color_tag = template.get("color", "BLUE").upper()
                         break
             else:
-                colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
-                color_tag = colors.get(name, "BLUE")
+                color_tag = self._score_tier_color_tag(name)
             hex_color = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
             history = data["history"]
             avg_text = f"{sum(history) / len(history):.1f} ({len(history)} found)" if history else "N/A"
@@ -244,10 +262,12 @@ class ScannerMixin:
             self.worst_map_stats = stats
             self.after(0, self.refresh_stats_ui)
 
-    def reroll_map(self):
+    def reroll_map(self) -> bool:
         if self.run_control_provider is None:
             self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
-            return
+            return False
+        if self._scan_abort_requested():
+            return False
 
         previous_state = None
         previous_stats = None
@@ -257,20 +277,28 @@ class ScannerMixin:
                 previous_stats = self.client.get_map_stats()
             except MemoryReadError as exc:
                 self.log(f"[WAIT] Could not read current map state before restart: {exc}", tag="warning")
+        if self._scan_abort_requested():
+            return False
 
         try:
             self.run_control_provider.restart_run()
         except RunControlError as exc:
             self.log(f"[-] {exc}", tag="error")
-            return
+            return False
 
-        self.run_control_provider.wait_for_next_run(
-            client=self.client,
-            previous_state=previous_state,
-            previous_stats=previous_stats,
-            warn=lambda message: self.log(f"[WAIT] {message}", tag="warning"),
-        )
+        try:
+            self.run_control_provider.wait_for_next_run(
+                client=self.client,
+                previous_state=previous_state,
+                previous_stats=previous_stats,
+                warn=lambda message: self.log(f"[WAIT] {message}", tag="warning"),
+                abort_condition=self._scan_abort_requested,
+            )
+        except InterruptedError:
+            return False
+
         self.log_reroll_stats()
+        return True
 
     def close_client(self):
         if self.client:
@@ -339,10 +367,13 @@ class ScannerMixin:
                 last_state = self.client.get_map_generation_state()
                 last_stats = raw_stats
                 stats = adapt_map_stats(raw_stats)
+                eval_context = {
+                    "supports_bald_heads": stats.get("Chests", 0) >= 69,
+                }
 
                 self.check_best_map(stats)
                 self.check_worst_map(stats)
-                candidate = self.evaluate_candidate(stats)
+                candidate = self.evaluate_candidate(stats, context=eval_context)
 
                 if candidate is not None:
                     if not self.wait_for_game_window_focus(process_name):
@@ -374,22 +405,22 @@ class ScannerMixin:
 
                 elapsed = time.monotonic() - last_reroll_time
                 while elapsed < config.MIN_DELAY:
-                    if self.stop_event.is_set() or not self.scan_event.is_set():
+                    if self._scan_abort_requested():
                         break
                     time.sleep(0.05)
                     elapsed = time.monotonic() - last_reroll_time
 
-                if self.stop_event.is_set() or not self.scan_event.is_set():
+                if self._scan_abort_requested():
                     continue
 
-                self.reroll_map()
-                last_reroll_time = time.monotonic()
+                if self.reroll_map():
+                    last_reroll_time = time.monotonic()
 
             except TimeoutError as exc:
                 self.log(f"[-] Map took too long to load: {exc}", tag="warning")
                 self.log("[*] Restarting run to recover...", tag="warning")
-                self.reroll_map()
-                last_reroll_time = time.monotonic()
+                if self.reroll_map():
+                    last_reroll_time = time.monotonic()
                 last_state = None
                 last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
@@ -455,9 +486,11 @@ class ScannerMixin:
                     hook_loader.cleanup_cached_dll()
                 except Exception as exc:
                     self.log(f"[WAIT] Could not clean up cached restart helper DLL. Details: {exc}", tag="warning")
-        if keyboard:
+        hotkey_manager = getattr(self, "_hotkey_manager", None)
+        if hotkey_manager is not None:
             try:
-                keyboard.unhook_all()
+                hotkey_manager.stop()
             except Exception:
                 pass
+            self._hotkey_manager = None
         self.destroy()
