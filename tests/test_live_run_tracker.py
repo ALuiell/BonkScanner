@@ -196,6 +196,25 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertIsNone(tracker.current_kps())
 
+    def test_current_ui_kps_uses_valid_one_second_tick(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.track_kills(100.0, 1_000)
+        tracker.track_kills(100.5, 1_100)
+        self.assertIsNone(tracker.current_ui_kps())
+
+        tracker.track_kills(101.0, 1_300)
+
+        self.assertEqual(tracker.current_ui_kps(), 300)
+
+    def test_current_ui_kps_ignores_tiny_timer_jump_after_pause(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.track_kills(586.522217, 48_349)
+        tracker.track_kills(586.522217, 48_349)
+        tracker.track_kills(586.770508, 48_462)
+
+        self.assertIsNone(tracker.current_ui_kps())
+        self.assertEqual(tracker.current_kps(), 455)
+
     def test_tracker_counts_configured_non_anvil_map_one_item(self) -> None:
         tracker = LiveRunTracker(
             clock=lambda: 1000.0,

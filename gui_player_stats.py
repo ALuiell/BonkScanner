@@ -201,7 +201,7 @@ class PlayerStatsMixin:
                 self.live_run_tracker.track_kills(run_timer_seconds, mob_kills)
                 _set_text(
                     self.player_stats_mob_kills_label,
-                    self.format_mob_kills(mob_kills, self.live_run_tracker.current_kps())
+                    self.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps())
                 )
             except Exception:
                 pass
@@ -725,7 +725,7 @@ class PlayerStatsMixin:
                 chests_per_minute=chests_per_minute,
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
-                kps_at_capture=self.live_run_tracker.current_kps(),
+                kps_at_capture=self.live_run_tracker.current_ui_kps(),
                 player_level=player_level,
                 map_seed=map_seed,
                 stage_ptr=stage_ptr,
@@ -783,7 +783,7 @@ class PlayerStatsMixin:
                 items_text=items_text,
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
-                kps=self.live_run_tracker.current_kps(),
+                kps=self.live_run_tracker.current_ui_kps(),
                 player_level=player_level,
                 stage_summary_rows=live_stage_summary_rows,
             )

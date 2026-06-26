@@ -509,6 +509,7 @@ class GuiRunControlTests(unittest.TestCase):
             update_chests_and_keys=lambda *args, **kwargs: None,
             mark_read_failed=lambda *args, **kwargs: None,
             stage_summary_rows=lambda: [],
+            current_ui_kps=lambda: None,
         )
         app.overlay_state_store = None
         return app
@@ -2779,6 +2780,7 @@ class GuiRunControlTests(unittest.TestCase):
             update_chests_and_keys=lambda *args, **kwargs: None,
             mark_read_failed=lambda *args, **kwargs: None,
             stage_summary_rows=lambda: [],
+            current_ui_kps=lambda: None,
         )
         app.overlay_state_store = None
         result = gui.MegabonkApp.refresh_live_player_stats_now(app)
@@ -2813,6 +2815,8 @@ class GuiRunControlTests(unittest.TestCase):
                 (bought, keys)
             ),
             update_chaos_tome=lambda **kwargs: None,
+            track_kills=lambda *args, **kwargs: None,
+            current_ui_kps=lambda: None,
         )
 
         with patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 100.5)):
@@ -3144,6 +3148,7 @@ class GuiRunControlTests(unittest.TestCase):
             update_chests_and_keys=lambda *args, **kwargs: None,
             mark_read_failed=lambda *args, **kwargs: None,
             stage_summary_rows=lambda: [],
+            current_ui_kps=lambda: None,
         )
         app.overlay_state_store = None
         gui.MegabonkApp._stop_player_stats_recording(app)
@@ -4286,6 +4291,7 @@ class GuiRunControlTests(unittest.TestCase):
             update_chests_and_keys=lambda chests, total, keys: chests_and_keys_args.append((chests, total, keys)),
             mark_read_failed=lambda *args, **kwargs: None,
             stage_summary_rows=lambda: [],
+            current_ui_kps=lambda: None,
         )
 
         def fail_map_stats():

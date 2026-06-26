@@ -677,7 +677,7 @@ class TestTwitchBotWorker(unittest.TestCase):
     def test_handle_kps_reports_current_value(self):
         self.bot._send_chat = MagicMock()
         self.run_tracker.status.return_value = "live"
-        self.run_tracker.current_kps.return_value = 150
+        self.run_tracker.current_ui_kps.return_value = 150
 
         self.bot._handle_kps("channel")
 

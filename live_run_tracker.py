@@ -339,6 +339,8 @@ class LiveRunTracker:
         self._powerups_snapshot = PowerupsSnapshot()
         self._powerup_map_context = PowerupMapContext()
         self._recent_kills_history: deque[tuple[float, int]] = deque()
+        self._ui_kps_baseline: tuple[float, int] | None = None
+        self._ui_kps_value: int | None = None
         self._lock = threading.RLock()
 
     @with_lock
@@ -390,6 +392,7 @@ class LiveRunTracker:
         if no_game:
             self._last_no_game_at = now
             self._recent_kills_history.clear()
+            self._reset_ui_kps_unlocked()
 
     @with_lock
     def set_tracked_item_rules(self, rules: Iterable[TrackedItemRule]) -> None:
@@ -570,11 +573,14 @@ class LiveRunTracker:
             last_time, last_kills = self._recent_kills_history[-1]
             if current_kills < last_kills or game_time_seconds < last_time:
                 self._recent_kills_history.clear()
+                self._reset_ui_kps_unlocked()
 
         self._recent_kills_history.append((game_time_seconds, current_kills))
 
         while self._recent_kills_history and self._recent_kills_history[0][0] < game_time_seconds - 3.0:
             self._recent_kills_history.popleft()
+
+        self._track_ui_kps_unlocked(game_time_seconds, current_kills)
 
     @with_lock
     def current_kps(self) -> int | None:
@@ -590,6 +596,10 @@ class LiveRunTracker:
 
         kills_delta = newest_kills - oldest_kills
         return int(round(kills_delta / time_delta))
+
+    @with_lock
+    def current_ui_kps(self) -> int | None:
+        return self._ui_kps_value
 
     @with_lock
     def run_identity(self) -> tuple[str | None, int]:
@@ -1071,6 +1081,7 @@ class LiveRunTracker:
         self.run_id = uuid4().hex
         self.snapshots.clear()
         self._recent_kills_history.clear()
+        self._reset_ui_kps_unlocked()
         self.current_stage_index = 1
         self._chests_opened = 0
         self._chests_total = 46
@@ -1117,6 +1128,30 @@ class LiveRunTracker:
         self._chaos_ambiguous_rolls = 0
         self._chaos_available_rolls = 0
         self._chaos_unbudgeted_candidates = {}
+
+    def _reset_ui_kps_unlocked(self) -> None:
+        self._ui_kps_baseline = None
+        self._ui_kps_value = None
+
+    def _track_ui_kps_unlocked(self, game_time_seconds: float, current_kills: int) -> None:
+        baseline = self._ui_kps_baseline
+        current_sample = (float(game_time_seconds), int(current_kills))
+        if baseline is None:
+            self._ui_kps_baseline = current_sample
+            return
+
+        baseline_time, baseline_kills = baseline
+        time_delta = float(game_time_seconds) - baseline_time
+        if time_delta <= 0:
+            return
+        if time_delta < 0.9:
+            return
+        if time_delta > 1.2:
+            self._ui_kps_baseline = current_sample
+            return
+
+        self._ui_kps_value = max(0, int(current_kills) - baseline_kills)
+        self._ui_kps_baseline = current_sample
 
     def _record_chaos_modifier_deltas(
         self,

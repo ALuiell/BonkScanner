@@ -887,7 +887,7 @@ class TwitchBotWorker(QThread):
             except Exception:
                 pass
 
-        kps = self.run_tracker.current_kps()
+        kps = self.run_tracker.current_ui_kps()
         if kps is None:
             msg = "Not enough data yet to calculate Kills Per Second."
         else:

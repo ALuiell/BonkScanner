@@ -1352,6 +1352,8 @@ class GuiLayoutMixin:
         self.twitch_cmd_stages_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("stages", True))
         self.twitch_cmd_powerups_cb = QCheckBox("!powerups")
         self.twitch_cmd_powerups_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("powerups", True))
+        self.twitch_cmd_kps_cb = QCheckBox("!kps")
+        self.twitch_cmd_kps_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("kps", True))
         self.twitch_cmd_scanner_cb = QCheckBox("!scanner")
         self.twitch_cmd_scanner_cb.setChecked(config.TWITCH_BOT.get("commands", {}).get("scanner", True))
         self.twitch_cmd_chests_cb = QCheckBox("!chests")
@@ -1385,12 +1387,13 @@ class GuiLayoutMixin:
         commands_grid.addWidget(self.twitch_cmd_stages_cb, 2, 1)
         commands_grid.addWidget(self.twitch_cmd_powerups_cb, 2, 2)
 
-        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 3, 0)
-        commands_grid.addWidget(self.twitch_cmd_chests_cb, 3, 1)
-        commands_grid.addWidget(self.twitch_cmd_presets_cb, 3, 2)
+        commands_grid.addWidget(self.twitch_cmd_kps_cb, 3, 0)
+        commands_grid.addWidget(self.twitch_cmd_scanner_cb, 3, 1)
+        commands_grid.addWidget(self.twitch_cmd_chests_cb, 3, 2)
 
-        commands_grid.addWidget(self.twitch_cmd_commands_cb, 4, 0)
-        commands_grid.addWidget(self.twitch_cmd_disabled_cb, 4, 1)
+        commands_grid.addWidget(self.twitch_cmd_presets_cb, 4, 0)
+        commands_grid.addWidget(self.twitch_cmd_commands_cb, 4, 1)
+        commands_grid.addWidget(self.twitch_cmd_disabled_cb, 4, 2)
 
         commands_main_layout.addLayout(commands_grid)
 
