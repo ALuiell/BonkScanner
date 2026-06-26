@@ -754,6 +754,16 @@ class LiveRunTracker:
         *,
         include_left_word: bool = True,
     ) -> str:
+        durations_text = None
+        if (
+            snapshot.standard_duration_seconds is not None
+            and snapshot.clock_duration_seconds is not None
+        ):
+            durations_text = (
+                "Durations: "
+                f"standard {self._format_duration_seconds(snapshot.standard_duration_seconds)}s, "
+                f"clock {self._format_duration_seconds(snapshot.clock_duration_seconds)}s"
+            )
         if snapshot.active:
             parts = []
             suffix = " left" if include_left_word else ""
@@ -768,17 +778,12 @@ class LiveRunTracker:
                         f"{effect.name} {effect.pickup_ui} -> {effect.expires_ui} "
                         f"{duration_text}"
                     )
+            if durations_text is not None:
+                parts.append(durations_text)
             return " | ".join(parts)
-        if (
-            snapshot.standard_duration_seconds is None
-            or snapshot.clock_duration_seconds is None
-        ):
+        if durations_text is None:
             return "none active"
-        return (
-            "none active | Durations: "
-            f"standard {self._format_duration_seconds(snapshot.standard_duration_seconds)}s, "
-            f"clock {self._format_duration_seconds(snapshot.clock_duration_seconds)}s"
-        )
+        return f"none active | {durations_text}"
 
     @with_lock
     def update_chests_and_keys(self, chests_opened: int, chests_total: int, keys_count: int) -> None:

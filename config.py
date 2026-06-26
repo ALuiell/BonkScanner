@@ -184,6 +184,7 @@ LEGACY_TWITCH_CHESTS_TEMPLATES = {
 LEGACY_TWITCH_POWERUPS_TEMPLATES = {
     "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
     "Powerups: none active | Durations: standard {standard_duration}s, clock {clock_duration}s (PM {pm})",
+    "Powerups: {powerups} | Durations: standard {standard_duration}s, clock {clock_duration}s (PM {pm})",
 }
 
 

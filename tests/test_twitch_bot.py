@@ -192,7 +192,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             clock_duration_seconds=65.148,
         )
         self.run_tracker.powerups_summary_text.return_value = (
-            "Rage 01:33 -> 00:11 (80s left)"
+            "Rage 01:33 -> 00:11 (80s left) | Durations: standard 81s, clock 65s"
         )
 
         self.bot._handle_powerups("channel")
@@ -202,7 +202,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         )
         self.bot._send_chat.assert_called_once_with(
             "channel",
-            "Powerups: Rage 01:33 -> 00:11 (80s left) (PM 5.43x)",
+            "Powerups: Rage 01:33 -> 00:11 (80s left) | Durations: standard 81s, clock 65s (PM 5.43x)",
         )
 
     def test_handle_chaos_uses_tracker_totals(self):
@@ -522,6 +522,22 @@ class TestTwitchBotWorker(unittest.TestCase):
             {
                 "templates": {
                     "powerups": "Powerups: Rage/Shield/Coin/Speed {standard_duration}s | Clock {clock_duration}s (PM {pm})",
+                },
+            }
+        )
+
+        self.assertEqual(
+            bot_cfg["templates"]["powerups"],
+            "Powerups: {powerups} (PM {pm})",
+        )
+
+    def test_intermediate_powerups_template_with_durations_tail_migrates_to_live_format(self):
+        import config
+
+        bot_cfg = config.normalize_twitch_bot_config(
+            {
+                "templates": {
+                    "powerups": "Powerups: {powerups} | Durations: standard {standard_duration}s, clock {clock_duration}s (PM {pm})",
                 },
             }
         )

@@ -1095,7 +1095,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Rage 01:41 -> 01:17 (22s left) | Clock 01:40 -> 01:22 (18s left) (PM 1.5x)",
+            "Powerups: Rage 01:41 -> 01:17 (22s left) | Clock 01:40 -> 01:22 (18s left) | Durations: standard 22s, clock 18s (PM 1.5x)",
         )
 
     def test_powerups_summary_uses_duration_fallback_when_none_active(self) -> None:
@@ -1142,7 +1142,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield +00:10 -> +00:25 (15s left) (PM 1x)",
+            "Powerups: Shield +00:10 -> +00:25 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
     def test_powerups_summary_prefers_added_time_over_current_multiplier(self) -> None:
@@ -1169,7 +1169,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield 01:45 -> 01:25 (15s left) (PM 3x)",
+            "Powerups: Shield 01:45 -> 01:25 (15s left) | Durations: standard 45s, clock 36s (PM 3x)",
         )
 
     def test_powerups_summary_skips_malformed_effects(self) -> None:
@@ -1200,7 +1200,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Clock 01:40 -> 01:22 (18s left) (PM 1.5x)",
+            "Powerups: Clock 01:40 -> 01:22 (18s left) | Durations: standard 22s, clock 18s (PM 1.5x)",
         )
 
     def test_powerups_summary_uses_final_swarm_timer_for_graveyard_ghost_phase(self) -> None:
@@ -1237,7 +1237,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield +02:40 -> +03:05 (15s left) (PM 1x)",
+            "Powerups: Shield +02:40 -> +03:05 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
     def test_powerups_summary_uses_graveyard_stage_limit_before_final_swarm(self) -> None:
@@ -1274,7 +1274,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield 03:19 -> 02:54 (15s left) (PM 1x)",
+            "Powerups: Shield 03:19 -> 02:54 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
     def test_powerups_summary_uses_safe_format_for_graveyard_crypt_phase(self) -> None:
@@ -1303,7 +1303,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield (15s left) (PM 1x)",
+            "Powerups: Shield (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
     def test_powerups_summary_uses_safe_format_without_fresh_map_context(self) -> None:
@@ -1329,7 +1329,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield (15s left) (PM 1x)",
+            "Powerups: Shield (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
     def test_powerup_map_context_detects_graveyard_from_strong_markers(self) -> None:

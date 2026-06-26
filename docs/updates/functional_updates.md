@@ -29,6 +29,16 @@ Planned future work:
 - Add `Bald Heads` as a score input only for the map family where it exists.
 - Keep legacy score tiers backward-compatible for older maps unless there is an explicit rebalance pass.
 
+#### 7. Fix Clean Short Active Run Edge Case
+
+Status: `[Open]`
+
+Goal:
+
+- Ensure the "Clean Short" recordings functionality does not crash when the current active run falls below the snapshot threshold.
+- Catch the file lock exception (e.g., `WinError 32` / `PermissionError`) raised when attempting to delete the active recording file, or implement a check to explicitly skip the active run's file during iteration.
+- Ensure all other short recordings are successfully deleted even if the active run is encountered and skipped.
+
 ### Twitch Commands
 
 #### 1. Twitch Commons
@@ -93,6 +103,7 @@ Validation requirements:
 - Run controlled 15-shrine batches with low and high Luck and with Beacon absent/present.
 - Snapshot permanent modifiers immediately before and after each batch.
 - Require every observed modifier to match a dump-derived fingerprint within float32 tolerance.
+
 - Keep screenshots and exact memory values as fixtures for future automated tests.
 - Do not implement `!shrines` until all 28 shrine stat fingerprints and the reward-budget source are confirmed.
 
@@ -100,3 +111,114 @@ Documentation anchor:
 
 - `docs/recovery/reports/2026-06-15-shrines-mechanics-and-fingerprints.md`
 
+#### 3. `!powerups` Total Pickups Counter
+
+Status: `[Open]`
+
+Goal:
+
+- Extend `!powerups` so it can also report end-of-run totals such as
+  `Clock: 10, Shield: 8, Rage: 5, Stonks: 15`.
+
+Why this needs special handling:
+
+- Active status effects are not a reliable historical pickup log.
+- For `Rage`, `Shield`, and likely `Stonks`, repeated pickups do not create a
+  fresh status-effect instance:
+  - `added_time` stays at the original value.
+  - `expiration_time` is refreshed forward from "now".
+- This means `added_time` is not a safe "last pickup time" signal.
+- `Clock` is more complicated because the `Zawarudo` item uses the same
+  `TimeFreeze` / `Clock` status effect as the normal Clock powerup.
+
+Confirmed behavior from live validation:
+
+- Re-taking `Rage` or `Shield` keeps the old `added_time`.
+- Re-taking `Rage` or `Shield` moves `expiration_time` to a new later value.
+- `Zawarudo` produces a `TimeFreeze` effect with a strict `15.0s` duration.
+- A normal Clock powerup scales with `Powerup Multiplier`.
+- Because `Zawarudo` and Clock share the same status effect, a pure
+  `StatusEffect` read cannot always tell which source caused the effect.
+
+Recommended counting model:
+
+- Count pickups from transitions between snapshots, not from `added_time`.
+- Maintain per-effect tracker state:
+  - last seen `expiration_time`
+  - last seen `remaining`
+  - total pickup count per effect
+- When `expiration_time` jumps upward more than normal time decay would allow,
+  treat that as a new pickup / refresh event.
+- This should work well for `Rage`, `Shield`, and `Stonks`.
+
+Recommended special handling for `Clock`:
+
+- If a new `TimeFreeze` event clearly adds more than `15s`, classify it as a
+  normal Clock pickup.
+- If a new `TimeFreeze` event is close to `15s`, treat it as ambiguous.
+- Do not add a high-frequency inventory poll just for this edge case.
+- Instead, use the existing slow live-stats item refresh as confirmation:
+  - when an ambiguous `Clock` event appears, mark it as pending
+  - on the next normal item snapshot, compare `Zawarudo` stack count
+  - if the stack dropped, classify the event as `Zawarudo`, not Clock
+  - if the stack did not drop, classify it as a real Clock pickup
+
+Why the delayed-confirmation approach is acceptable:
+
+- The ambiguous case mainly matters around `PM = 1x`, where Clock duration can
+  look similar to a `Zawarudo` proc.
+- `Zawarudo` proc duration is short (`15s`), and repeated procs inside one
+  live-stats refresh window are unlikely enough to tolerate delayed
+  confirmation.
+- This avoids adding a dedicated fast item-inventory scan to the hot path.
+
+Suggested implementation notes:
+
+- Keep the current live `!powerups` output logic unchanged for active timers.
+- Add a separate pickup-counter state machine to `LiveRunTracker`.
+- Feed it from:
+  - powerup tracking snapshots on the fast path
+  - normal live item snapshots on the slow path
+- Consider exposing the final totals only in chat output or end-of-run summary
+  first, before adding more UI surface area.
+
+Open product decision:
+
+- It may be reasonable to ship counts for `Rage`, `Shield`, and `Stonks`
+  first, while leaving `Clock` disabled or marked approximate until the
+  delayed-confirmation path is implemented.
+
+#### 4. `!dice` Dicehead Passive Tracker
+
+Status: `[Open]`
+
+Goal:
+
+- Expand Twitch commands with `!dice` to output the accumulated stat bonuses gained from the "Dicehead" character's passive ability.
+- The Dicehead passive mechanism upgrades a random stat at every level up. The command should compute and display the total stats gained this way over the current run.
+
+Required reverse-engineering work:
+
+- Investigate `GameAssembly.dll` to find the exact mechanism (fingerprints and formula) for how the Dicehead passive calculates and applies stat upgrades per level.
+- Confirm whether these stats are stored separately or just baked into the player's stat inventory alongside other permanent changes.
+- Prepare a documentation report detailing the findings, the formula, and memory paths needed to accurately track these specific level-up bonuses.
+- Do not implement the tracking logic until the reverse-engineering documentation is complete and the stat fingerprints are confirmed.
+
+#### 5. The One Ring Announcer
+
+Status: `[Open]`
+
+Goal:
+
+- Add an automatic announcer for the Twitch bot that triggers when the player picks up "The One Ring" (in-game name: "Golden Ring").
+- Support multiple randomized messages to keep the chat reaction fresh.
+
+Example trigger messages:
+
+- "Ash nazg durbatulûk... One Ring to rule them all, One Ring to find them, One Ring to bring them all, and in the darkness bind them! 👁️🌋"
+- "[Streamer's Name] has found The One Ring... Keep it secret, keep it safe! 🧙‍♂️"
+
+From the perspective of Gollum (using his signature speech style):
+
+- "Ssss... Our precioussss! [Streamer's Name] found our precious! *gollum-gollum* 🐟💍"
+- "Filthy, tricksy viewerssss want to steal it... But The One Ring is ours now! 👁️" (using "tricksy" as a classic Gollum reference)
