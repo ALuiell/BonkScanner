@@ -37,8 +37,8 @@ Source runs do not build `BonkHook.dll` automatically. If you want to use
 source, build the hook once:
 
 ```bat
-tools\bootstrap_tools.bat
-tools\build_native_hook.bat
+build_tools\bootstrap_tools.bat
+build_tools\build_native_hook.bat
 ```
 
 `start.bat` is the normal setup entry point. It will:
@@ -328,16 +328,16 @@ Notes:
 Use these entry points on Windows x64:
 
 ```bat
-tools\bootstrap_tools.bat
-tools\build_native_hook.bat
+build_tools\bootstrap_tools.bat
+build_tools\build_native_hook.bat
 build_exe.bat
 ```
 
 What happens on the first run:
-- `tools\bootstrap_tools.bat` downloads a pinned .NET SDK into `.tools\dotnet`;
+- `build_tools\bootstrap_tools.bat` downloads a pinned .NET SDK into `.tools\dotnet`;
 - it downloads portable MSVC + Windows SDK into `.tools\msvc`;
 - it keeps NuGet packages/cache and dotnet CLI state inside `.tools\nuget` and `.tools\dotnet-home`;
-- `tools\build_native_hook.bat` publishes `native\BonkHook` with those local tools and forces NativeAOT to use the prepared linker environment;
+- `build_tools\build_native_hook.bat` publishes `native\BonkHook` with those local tools and forces NativeAOT to use the prepared linker environment;
 - `build_exe.bat` installs PyInstaller into `.venv` if needed;
 - `build_exe.bat` publishes the hook, then packages `BonkScanner.exe` into `dist\`;
 - the packaged exe includes required media, help files, overlay assets, and the published `BonkHook.dll`;
@@ -379,7 +379,7 @@ python main.py
 To build only the native hook locally, prefer:
 
 ```bat
-tools\build_native_hook.bat
+build_tools\build_native_hook.bat
 ```
 
 To build the packaged executable:

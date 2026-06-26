@@ -27,7 +27,7 @@ if not exist "%PYINSTALLER_EXE%" (
 )
 
 echo [BUILD] Publishing native hook...
-call tools\build_native_hook.bat
+call build_tools\build_native_hook.bat
 
 if errorlevel 1 (
     echo [ERROR] Failed to publish native hook.

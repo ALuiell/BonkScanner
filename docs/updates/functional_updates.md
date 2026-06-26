@@ -222,3 +222,36 @@ From the perspective of Gollum (using his signature speech style):
 
 - "Ssss... Our precioussss! [Streamer's Name] found our precious! *gollum-gollum* 🐟💍"
 - "Filthy, tricksy viewerssss want to steal it... But The One Ring is ours now! 👁️" (using "tricksy" as a classic Gollum reference)
+
+#### 6. `!kps` (Kills Per Second) Tracker
+
+Status: `[Open]`
+
+Goal:
+
+- Implement real-time Kills Per Second (KPS) tracking to be displayed in the Live Stats Run Summary and via a new Twitch bot command (`!kps`, `!mobs`, `!kills`).
+- Ensure the tracker updates rapidly (every 500ms) without causing memory reading lag or UI stuttering.
+
+Implementation details:
+
+- **Pointer Caching (`player_stats.py`)**: 
+  - To poll the kill count rapidly without CPU overhead, the pointer to the `"kills"` value inside the `RunStats.stats` dictionary will be cached. 
+  - Will introduce `_cached_kills_dict`, `_cached_kills_entries`, `_cached_kills_version`, and `_cached_kills_address` instance variables in `PlayerStatsClient`.
+  - A new method `_get_cached_killed_mobs()` will verify the cache validity (by comparing the dictionary address, the entries array pointer, and the version integer). If valid, it reads the float value directly from `_cached_kills_address` and casts it to an integer. If invalid, it falls back to `_find_run_stat_value_address` to re-resolve the offset.
+  - The existing `get_killed_mobs()` method will be updated to route through `_get_cached_killed_mobs()`.
+
+- **Moving Window Calculation (`live_run_tracker.py`)**: 
+  - The `LiveRunTracker` will house a short ~3-second moving window `_recent_kills_history: deque[tuple[float, int]]` initialized with `maxlen=6` (assuming a 500ms poll interval).
+  - A new `track_kills(self, current_kills: int)` method will append `(time.monotonic(), current_kills)` pairs to the deque.
+  - **Resets & Pauses Handling**: If `current_kills` drops below the previously recorded value (indicating a new run or run reset), the history is instantly cleared. When the game is paused, `current_kills` remains static while `time.monotonic()` advances, causing the calculated KPS to naturally decay to zero.
+  - A new `current_kps(self) -> int` method will compute the KPS by taking the kill delta over the time delta between the oldest and newest items in the deque.
+
+- **Fast UI Updates (`gui_player_stats.py`)**: 
+  - The kills read operation and UI label update will be injected directly into the `refresh_chaos_tome_tracker_now` loop, which fires every 500ms.
+  - Inside the loop, it will call `client.get_killed_mobs()`, update the tracker, and format the string (e.g., `Mob Kills: 12,345 (150/s)`), applying it instantly to `self.player_stats_mob_kills_label`.
+  - To prevent "blinking" caused by the slower 10-second `_apply_live_player_stats` timer blindly overwriting the label, the slow timer will also be updated to fetch and append the current KPS from the tracker.
+
+- **Twitch Bot Command (`twitch_bot.py`)**: 
+  - The command `!kps` (with aliases `!mobs`, `!kills`) will be registered in `_handle_line` and tied to a configuration check `commands_cfg.get("kps", True)`.
+  - The `_handle_kps(self, channel: str)` callback will invoke `self.run_tracker.current_kps()` and output exclusively the KPS metric (e.g., `@User, 150 kills/sec.`) to keep chat noise minimal.
+  - The command will be automatically appended to the output of the `!bonkhelp` message.
