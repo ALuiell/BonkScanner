@@ -7,8 +7,8 @@ It is meant to help future debugging, feature planning, and review of possible
 logic flaws without needing to rediscover the whole codebase from scratch.
 
 It is not a low-level reverse engineering report. For exact memory offsets and
-validation notes, use `docs/reverse/MEMORY_PATH_INDEX.md` and the reports under
-`docs/reverse/reports/`.
+validation notes, use `docs/recovery/MEMORY_PATH_INDEX.md` and the reports under
+`docs/recovery/reports/`.
 
 ## Mental Model
 

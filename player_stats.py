@@ -908,7 +908,7 @@ class PlayerStatsClient:
                     enum_name = ITEM_ENUM_NAMES_BY_ID.get(item_id)
                 except MemoryReadError:
                     enum_name = None
-                
+
                 if enum_name:
                     item_name = self._format_item_name(f"Item{enum_name}")
                 else:

@@ -6,7 +6,23 @@ $toolsRoot = Join-Path $repoRoot ".tools"
 $dotnetRoot = Join-Path $toolsRoot "dotnet"
 $dotnetExe = Join-Path $dotnetRoot "dotnet.exe"
 $installScript = Join-Path $toolsRoot "dotnet-install.ps1"
-$dotnetVersion = "8.0.411"
+$globalJsonPath = Join-Path $repoRoot "global.json"
+
+if (-not (Test-Path -LiteralPath $globalJsonPath)) {
+    throw "global.json was not found at $globalJsonPath."
+}
+
+try {
+    $globalJson = Get-Content -LiteralPath $globalJsonPath -Raw | ConvertFrom-Json
+    $dotnetVersion = [string]$globalJson.sdk.version
+}
+catch {
+    throw "Failed to read sdk.version from global.json. $($_.Exception.Message)"
+}
+
+if ([string]::IsNullOrWhiteSpace($dotnetVersion)) {
+    throw "global.json does not contain sdk.version."
+}
 
 New-Item -ItemType Directory -Force -Path $toolsRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $dotnetRoot | Out-Null
