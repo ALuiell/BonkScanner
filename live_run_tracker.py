@@ -341,7 +341,6 @@ class LiveRunTracker:
         self._recent_kills_history: deque[tuple[float, int]] = deque()
         self._ui_kps_baseline: tuple[float, int] | None = None
         self._ui_kps_value: int | None = None
-        self._run_kps_baseline: tuple[float, int] | None = None
         self._lock = threading.RLock()
 
     @with_lock
@@ -575,14 +574,15 @@ class LiveRunTracker:
             if current_kills < last_kills or game_time_seconds < last_time:
                 self._recent_kills_history.clear()
                 self._reset_ui_kps_unlocked()
+            elif game_time_seconds == last_time:
+                # Prevent deque bloat when the game is paused (time is frozen)
+                self._recent_kills_history[-1] = (game_time_seconds, max(last_kills, current_kills))
+                return
 
         self._recent_kills_history.append((game_time_seconds, current_kills))
 
         while self._recent_kills_history and self._recent_kills_history[0][0] < game_time_seconds - 60.0:
             self._recent_kills_history.popleft()
-
-        if self._run_kps_baseline is None:
-            self._run_kps_baseline = (float(game_time_seconds), int(current_kills))
 
         self._track_ui_kps_unlocked(game_time_seconds, current_kills)
 
@@ -600,17 +600,14 @@ class LiveRunTracker:
 
     @with_lock
     def current_run_avg_kps(self) -> int | None:
-        if self._run_kps_baseline is None or not self._recent_kills_history:
+        if not self._recent_kills_history:
             return None
 
-        baseline_time, baseline_kills = self._run_kps_baseline
         newest_time, newest_kills = self._recent_kills_history[-1]
-        time_delta = newest_time - baseline_time
-        if time_delta <= 0:
+        if newest_time <= 0:
             return None
 
-        kills_delta = newest_kills - baseline_kills
-        return int(round(kills_delta / time_delta))
+        return int(round(newest_kills / newest_time))
 
     @with_lock
     def run_identity(self) -> tuple[str | None, int]:
@@ -1143,7 +1140,6 @@ class LiveRunTracker:
     def _reset_ui_kps_unlocked(self) -> None:
         self._ui_kps_baseline = None
         self._ui_kps_value = None
-        self._run_kps_baseline = None
 
     def _average_kps_for_window_unlocked(self, window_seconds: float) -> int | None:
         if len(self._recent_kills_history) < 2:
