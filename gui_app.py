@@ -145,7 +145,6 @@ class MegabonkApp(
         self.vods_banishes_label = None
         self.vods_in_game_time_label = None
         self.vods_chests_per_minute_label = None
-        self.vods_powerups_duration_label = None
         self.vods_mob_kills_label = None
         self.vods_level_label = None
         self.vods_new_items_label = None

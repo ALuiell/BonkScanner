@@ -1411,7 +1411,6 @@ class PlayerStatsMixin:
             self.vods_items_expanded = False
             self._update_items_section("vod", items_text="--")
             _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
-            _set_text(getattr(self, "vods_powerups_duration_label", None), "Powerups: --")
             _set_text(self.vods_in_game_time_label, "In-Game Time: --")
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
             _set_text(self.vods_level_label, "Level: --")
@@ -1459,10 +1458,6 @@ class PlayerStatsMixin:
         _set_text(
             self.vods_chests_per_minute_label,
             self.format_chests_per_minute(self.resolve_snapshot_chests_per_minute(snapshot)),
-        )
-        _set_text(
-            getattr(self, "vods_powerups_duration_label", None),
-            self.format_powerups_duration(snapshot.stats),
         )
         _set_text(
             self.vods_in_game_time_label,
@@ -2134,7 +2129,6 @@ class PlayerStatsMixin:
         self.vods_items_expanded = False
         self._update_items_section("vod", items_text="--")
         _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
-        _set_text(getattr(self, "vods_powerups_duration_label", None), "Powerups: --")
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
         _set_text(self.vods_level_label, "Level: --")
