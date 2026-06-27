@@ -678,10 +678,15 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._send_chat = MagicMock()
         self.run_tracker.status.return_value = "live"
         self.run_tracker.current_ui_kps.return_value = 150
+        self.run_tracker.current_minute_avg_kps.return_value = 243
+        self.run_tracker.current_run_avg_kps.return_value = 138
 
         self.bot._handle_kps("channel")
 
-        self.bot._send_chat.assert_called_once_with("channel", "Kills per second: 150")
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "KPS: 150/s | 60s Avg: 243/s | Run Avg: 138/s",
+        )
 
     def test_handle_disabled_without_cached_data(self):
         self.bot._send_chat = MagicMock()

@@ -215,6 +215,21 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertIsNone(tracker.current_ui_kps())
         self.assertEqual(tracker.current_kps(), 455)
 
+    def test_current_minute_avg_kps_uses_last_sixty_seconds(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.track_kills(0.0, 0)
+        tracker.track_kills(10.0, 100)
+        tracker.track_kills(70.0, 1_300)
+
+        self.assertEqual(tracker.current_minute_avg_kps(), 20)
+
+    def test_current_run_avg_kps_uses_run_baseline(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.track_kills(10.0, 100)
+        tracker.track_kills(70.0, 1_300)
+
+        self.assertEqual(tracker.current_run_avg_kps(), 20)
+
     def test_tracker_counts_configured_non_anvil_map_one_item(self) -> None:
         tracker = LiveRunTracker(
             clock=lambda: 1000.0,
