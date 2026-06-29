@@ -174,8 +174,8 @@ class PlayerStatsClient:
 ---
 
 ## Verification Steps
-1. Run pytest:
+1. Run tests:
    ```powershell
-   pytest src/tests/test_player_stats.py -k "timer or kills or level or banish"
+   .\run_tests.bat -k "timer or kills or level or banish" src.tests.test_player_stats
    ```
 2. Verify that in-game timers, mob kills, and damage sources updates match the HUD/overlay panel live outputs.

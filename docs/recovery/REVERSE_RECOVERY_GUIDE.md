@@ -40,9 +40,9 @@ the code is updated.
 
 Code:
 
-- `game_data.py`
-- `runtime_stats.py`
-- `logic.py`
+- `src/game_data.py`
+- `src/runtime_stats.py`
+- `src/logic.py`
 
 Symptoms:
 
@@ -63,9 +63,9 @@ Most fragile pieces:
 
 Code:
 
-- `player_stats.py`
-- `gui.py`
-- `vod_storage.py`
+- `src/player_stats.py`
+- `src/gui.py`
+- `src/vod_storage.py`
 
 Symptoms:
 
@@ -84,9 +84,9 @@ Most fragile pieces:
 
 Code:
 
-- `player_stats.py`
-- `gui.py`
-- `vod_storage.py`
+- `src/player_stats.py`
+- `src/gui.py`
+- `src/vod_storage.py`
 
 Symptoms:
 
@@ -107,7 +107,7 @@ Most fragile pieces:
 
 Code:
 
-- `run_control.py`
+- `src/run_control.py`
 
 Symptoms:
 
@@ -146,7 +146,7 @@ Reason:
 
 Check:
 
-- current `TYPE_INFO_OFFSET` values in `game_data.py`
+- current `TYPE_INFO_OFFSET` values in `src/game_data.py`
 - whether the interactables dictionary still resolves
 - whether labels still match the expected map stats
 
@@ -263,7 +263,7 @@ Best workflow:
 
 Good prompt example:
 
-`Game updated. Use docs/recovery/reports/2026-05-12-player-stats-refresh.md as source of truth and update player_stats.py + related UI.`
+`Game updated. Use docs/recovery/reports/2026-05-12-player-stats-refresh.md as source of truth and update src/player_stats.py + related UI.`
 
 Even better:
 

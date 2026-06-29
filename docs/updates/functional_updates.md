@@ -235,13 +235,13 @@ Goal:
 
 Implementation details:
 
-- **Pointer Caching (`player_stats.py`)**:
+- **Pointer Caching (`src/player_stats.py`)**:
   - To poll the kill count rapidly without CPU overhead, the pointer to the `"kills"` value inside the `RunStats.stats` dictionary will be cached.
   - Will introduce `_cached_kills_dict`, `_cached_kills_entries`, `_cached_kills_version`, and `_cached_kills_address` instance variables in `PlayerStatsClient`.
   - A new method `_get_cached_killed_mobs()` will verify the cache validity (by comparing the dictionary address, the entries array pointer, and the version integer). If valid, it reads the float value directly from `_cached_kills_address` and casts it to an integer. If invalid, it falls back to `_find_run_stat_value_address` to re-resolve the offset.
   - The existing `get_killed_mobs()` method will be updated to route through `_get_cached_killed_mobs()`.
 
-- **Moving Window Calculation (`live_run_tracker.py`)**:
+- **Moving Window Calculation (`src/live_run_tracker.py`)**:
   - The `LiveRunTracker` will house a short ~3-second moving window `_recent_kills_history` that stores `(game_time_seconds, current_kills)` pairs gathered from the existing 500ms live polling path.
   - A new `track_kills(self, game_time_seconds: float | None, current_kills: int | None)` method will append only valid readings and trim stale samples so the tracker always reflects the most recent ~3 seconds of in-game time.
   - The primary displayed metric will be a smoothed current KPS, computed from the kill delta across the oldest and newest valid samples in that ~3-second window rather than from a single 1-second bucket. This avoids noisy spikes while still reflecting the current live pace much better than a full-run average.
@@ -249,19 +249,19 @@ Implementation details:
   - A new `current_kps(self) -> int | None` method will return the rounded smoothed KPS value when at least two valid samples exist; otherwise it returns `None`.
   - A secondary internal helper or bucketed history may be kept later if needed for debugging or future analytics, but the shipped product metric should remain the smoothed ~3-second KPS.
 
-- **Fast UI Updates (`gui_player_stats.py`)**:
+- **Fast UI Updates (`src/gui_player_stats.py`)**:
   - The kills read operation and UI label update will be injected directly into the `refresh_chaos_tome_tracker_now` loop, which fires every 500ms.
   - Inside the loop, it will read both `game_time_seconds` and `client.get_killed_mobs()`, update the tracker, and format the string as `Mob Kills: 12,345 (150/s)` once KPS becomes available.
   - Before the tracker has enough history to compute KPS, the label should remain in its plain form (`Mob Kills: 12,345`) rather than showing a fake `0/s` or placeholder suffix.
   - To prevent "blinking" caused by the slower live stats refresh path blindly overwriting the label, the shared mob-kills formatter must be updated so every writer uses the same KPS-aware output.
   - The KPS display is intended for live stats only; it should not be injected into the stage summary rows, which represent aggregate stage totals rather than short-window live pace.
 
-- **VOD Snapshot Capture (`vod_storage.py` / `gui_player_stats.py`)**:
+- **VOD Snapshot Capture (`src/vod_storage.py` / `src/gui_player_stats.py`)**:
   - Recorded VOD snapshots are too sparse to reconstruct a trustworthy live KPS curve after the fact because the recorder captures on a much slower interval than the 500ms live polling path.
   - Instead of recomputing KPS from VOD snapshots later, the recorder should persist the current live-tracker value at capture time as a dedicated field such as `kps_at_capture`.
   - Snapshot playback can then display the stored KPS value for that capture if desired, without pretending it was derived from the sparse VOD timeline itself.
 
-- **Twitch Bot Command (`twitch_bot.py`)**:
+- **Twitch Bot Command (`src/twitch_bot.py`)**:
   - The command `!kps` will be registered in `_handle_line` and tied to a configuration check `commands_cfg.get("kps", True)`.
   - The `_handle_kps(self, channel: str)` callback will invoke `self.run_tracker.current_kps()` and output exclusively the KPS metric (e.g., `@User, 150 kills/sec.`) to keep chat noise minimal.
   - If KPS is not available yet because the run has just started or live reads are not ready, the command should return a short unavailable/warming-up response rather than a misleading `0 kills/sec`.

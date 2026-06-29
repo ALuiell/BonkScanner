@@ -18,12 +18,12 @@ BonkScanner has three major responsibilities:
 2. Inspect the current run in real time through memory reads.
 3. Record and replay live run snapshots for later review.
 
-The desktop UI now uses a split GUI layout. `gui.py` is a compatibility facade,
-`gui_app.py` defines `MegabonkApp`, and focused `gui_*` modules own layout,
+The desktop UI now uses a split GUI layout. `src/gui.py` is a compatibility facade,
+`src/gui_app.py` defines `MegabonkApp`, and focused `gui_*` modules own layout,
 scanner flow, run control, dialogs, live stats, and recordings behavior.
-Memory-facing readers are split mostly into `game_data.py` for map/reroll data
-and `player_stats.py` for run inspection. Recordings are stored and loaded
-through `vod_storage.py`.
+Memory-facing readers are split mostly into `src/game_data.py` for map/reroll data
+and `src/player_stats.py` for run inspection. Recordings are stored and loaded
+through `src/vod_storage.py`.
 
 ## System Architecture & Concurrency Model
 
@@ -38,23 +38,23 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
 ## Main Files
 
 - `src/main.py` starts the desktop app.
-- `gui.py` is the compatibility facade for imports/tests; `gui_app.py`,
-  `gui_layout.py`, `gui_scanner.py`, `gui_run_control.py`,
-  `gui_player_stats.py`, `gui_templates.py`, `gui_dialogs.py`,
-  `gui_shared.py`, `gui_twitch.py`, `gui_overlay.py`, and `gui_styles.py` split the PySide6 responsibilities.
-- `config.py` loads and saves app settings, templates, score rules, hotkeys,
+- `src/gui.py` is the compatibility facade for imports/tests; `src/gui_app.py`,
+  `src/gui_layout.py`, `src/gui_scanner.py`, `src/gui_run_control.py`,
+  `src/gui_player_stats.py`, `src/gui_templates.py`, `src/gui_dialogs.py`,
+  `src/gui_shared.py`, `src/gui_twitch.py`, `src/gui_overlay.py`, and `src/gui_styles.py` split the PySide6 responsibilities.
+- `src/config.py` loads and saves app settings, templates, score rules, hotkeys,
   and update preferences.
-- `logic.py` evaluates map stats against templates and score tiers.
-- `game_data.py` reads map readiness, interactable counters, and map generation
+- `src/logic.py` evaluates map stats against templates and score tiers.
+- `src/game_data.py` reads map readiness, interactable counters, and map generation
   state from the game process.
-- `player_stats.py` reads live player stats, passive items, weapons, run timer,
+- `src/player_stats.py` reads live player stats, passive items, weapons, run timer,
   stage timer, kill count, and level.
-- `live_run_tracker.py` maintains live stage boundaries, item deltas, and chaos stats.
-- `twitch_bot.py` handles the Twitch IRC connection and commands.
-- `overlay_server.py` runs a local HTTP/WebSocket server for OBS widgets.
-- `vod_storage.py` writes and reads `.jsonl` recordings.
-- `run_control.py` abstracts keyboard restart timing and input.
-- `updater.py` handles packaged-build update checks and update application.
+- `src/live_run_tracker.py` maintains live stage boundaries, item deltas, and chaos stats.
+- `src/twitch_bot.py` handles the Twitch IRC connection and commands.
+- `src/overlay_server.py` runs a local HTTP/WebSocket server for OBS widgets.
+- `src/vod_storage.py` writes and reads `.jsonl` recordings.
+- `src/run_control.py` abstracts keyboard restart timing and input.
+- `src/updater.py` handles packaged-build update checks and update application.
 
 ## Scanner Flow
 
@@ -75,11 +75,11 @@ User-facing flow:
 Implementation shape:
 
 - UI state is centralized in `MegabonkApp`; scanner loop control mainly lives
-  in `gui_scanner.py`, with run-control helpers in `gui_run_control.py`.
-- Map memory reads come from `GameDataClient` in `game_data.py`.
-- Runtime map stats are normalized through `runtime_stats.py`.
-- Template and score decisions come from `logic.py`.
-- Restart execution goes through `run_control.py`.
+  in `src/gui_scanner.py`, with run-control helpers in `src/gui_run_control.py`.
+- Map memory reads come from `GameDataClient` in `src/game_data.py`.
+- Runtime map stats are normalized through `src/runtime_stats.py`.
+- Template and score decisions come from `src/logic.py`.
+- Restart execution goes through `src/run_control.py`.
 
 Important details:
 
@@ -124,10 +124,10 @@ Scores:
 
 Implementation shape:
 
-- Defaults and persisted values live in `config.py`.
-- Evaluation lives in `logic.py`.
-- UI controls live across `gui_layout.py`, `gui_templates.py`, and
-  `gui_dialogs.py`; runtime refresh for this area is coordinated through
+- Defaults and persisted values live in `src/config.py`.
+- Evaluation lives in `src/logic.py`.
+- UI controls live across `src/gui_layout.py`, `src/gui_templates.py`, and
+  `src/gui_dialogs.py`; runtime refresh for this area is coordinated through
   `MegabonkApp`.
 
 Risks:
@@ -153,7 +153,7 @@ Tracks:
 Implementation shape:
 
 - Runtime state is mostly in `MegabonkApp`.
-- Persistent total rerolls and template stats are saved through `config.py`.
+- Persistent total rerolls and template stats are saved through `src/config.py`.
 
 Risks:
 
@@ -180,11 +180,11 @@ Shown data:
 
 Implementation shape:
 
-- `PlayerStatsClient` in `player_stats.py` reads memory.
+- `PlayerStatsClient` in `src/player_stats.py` reads memory.
 - `MegabonkApp.refresh_live_player_stats_now()` coordinates reads.
 - `MegabonkApp.display_player_stats()` updates the UI.
 - Passive item formatting, coloring, counting, and sorting are handled in
-  `gui_player_stats.py` and style constants from `gui_styles.py`.
+  `src/gui_player_stats.py` and style constants from `src/gui_styles.py`.
 
 Passive item logic:
 
@@ -327,10 +327,10 @@ Purpose:
 
 Implementation shape:
 
-- `TwitchBotWorker` (`twitch_bot.py`) runs on a background thread.
-- Connects via IRC socket using a Twitch OAuth token (`twitch_auth.py`).
+- `TwitchBotWorker` (`src/twitch_bot.py`) runs on a background thread.
+- Connects via IRC socket using a Twitch OAuth token (`src/twitch_auth.py`).
 - Listens to internal application signals to broadcast "Run finished" messages containing the stage and tier.
-- Controlled via `gui_twitch.py`.
+- Controlled via `src/gui_twitch.py`.
 
 Risks:
 
@@ -346,10 +346,10 @@ Purpose:
 
 Implementation shape:
 
-- Background `ThreadingHTTPServer` (`overlay_server.py`).
+- Background `ThreadingHTTPServer` (`src/overlay_server.py`).
 - Routes like `/stage_summary` return styled HTML widgets.
 - Widgets poll or use WebSockets connecting to the `OverlayStateStore`.
-- Managed in `gui_overlay.py`.
+- Managed in `src/gui_overlay.py`.
 
 Risks:
 
@@ -438,7 +438,7 @@ Purpose:
 
 Implementation shape:
 
-- `updater.py` handles version checks and update application.
+- `src/updater.py` handles version checks and update application.
 - Source runs should not auto-update themselves.
 - Skipped versions are remembered in `config.json`.
 

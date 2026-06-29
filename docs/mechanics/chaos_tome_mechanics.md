@@ -11,7 +11,7 @@ All tome data and player stats are linked to the player stats manager (`PlayerSt
 ### 1.1. Locating Chaos Tome Level
 The Chaos Tome level is stored in the tome inventory (`TomeInventory`):
 
-1. **Static Module Base**: `GameAssembly.dll` + `RUN_STATS_TYPE_INFO_OFFSET` (defined as `0x02F7A170` in `player_stats.py`).
+1. **Static Module Base**: `GameAssembly.dll` + `RUN_STATS_TYPE_INFO_OFFSET` (defined as `0x02F7A170` in `src/player_stats.py`).
 2. **PlayerStats (ownerStats)**: `[StaticRoot + 0xB8] + 0x40` (class static fields -> `ownerStats`).
 3. **PlayerInventory**: `[PlayerStats + 0x28]` (`PLAYER_INVENTORY_OFFSET`).
 4. **TomeInventory**: `[PlayerInventory + 0x48]` (`TOME_INVENTORY_OFFSET`).

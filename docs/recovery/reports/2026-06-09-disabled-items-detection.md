@@ -61,10 +61,10 @@ Do **not** call `ItemData.GetName()` or rely on a live string field for the UI
 name unless a future feature explicitly needs localized game strings. The app
 already has the correct item-name mapping layers:
 
-- `player_stats.py`
+- `src/player_stats.py`
   - `ITEM_ENUM_NAMES_BY_ID`: maps live `EItem` IDs to the known internal enum
     names, for example `33 -> SuckyMagnet`.
-- `gui_styles.py`
+- `src/gui_styles.py`
   - `ITEM_RARITY_BY_NAME`: contains the canonical display names already used by
     the UI/rarity styling, for example `Sucky Magnet`, `Golden Sneakers`,
     `Forbidden Juice`.

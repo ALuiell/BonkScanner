@@ -70,34 +70,34 @@ Here is how the responsibilities are distributed across the project's codebase:
 | Component / Filename | Responsibility |
 | :--- | :--- |
 | **Startup & Application Control** | |
-| [main.py](../../src/main.py) | Entry point of the desktop application. Instantiates `QApplication` and displays the GUI. |
-| [config.py](../../src/config.py) | Loads, validates, and saves configuration settings, profile templates, scoring configurations, custom hotkeys, and version histories in `config.json`. |
-| [updater.py](../../src/updater.py) | Checks for updates from releases and handles self-updates for packaged applications. |
+| [src/main.py](../../src/main.py) | Entry point of the desktop application. Instantiates `QApplication` and displays the GUI. |
+| [src/config.py](../../src/config.py) | Loads, validates, and saves configuration settings, profile templates, scoring configurations, custom hotkeys, and version histories in `config.json`. |
+| [src/updater.py](../../src/updater.py) | Checks for updates from releases and handles self-updates for packaged applications. |
 | **User Interface (PySide6)** | |
-| [gui.py](../../src/gui.py) | Backward compatibility facade containing core interfaces for tests and imports. |
-| [gui_app.py](../../src/gui_app.py) | Definitive application container class (`MegabonkApp`) linking core business logic to UI events. |
-| [gui_layout.py](../../src/gui_layout.py) | Defines the main desktop application layout, split views, and primary window panels. |
-| [gui_scanner.py](../../src/gui_scanner.py) | Manages scanner settings UI, scan state machines, and active session control buttons. |
-| [gui_run_control.py](../../src/gui_run_control.py) | Layout and button event mappings for resetting runs and configuring game restart options. |
-| [gui_player_stats.py](../../src/gui_player_stats.py) | Controls the live statistics panels, item inventory styling, weapon upgrade tabs, and item sorting. |
-| [gui_templates.py](../../src/gui_templates.py) | Dialogs and controls for creating, deleting, and tweaking template profiles. |
-| [gui_dialogs.py](../../src/gui_dialogs.py) | Custom prompt dialogs, scoring rules adjustments, and details widgets. |
-| [gui_shared.py](../../src/gui_shared.py) | Base classes, utility widgets, and common state-sharing interfaces for the GUI components. |
-| [gui_styles.py](../../src/gui_styles.py) | Central styling stylesheets, color constants, tier badges, and theme parameters. |
+| [src/gui.py](../../src/gui.py) | Backward compatibility facade containing core interfaces for tests and imports. |
+| [src/gui_app.py](../../src/gui_app.py) | Definitive application container class (`MegabonkApp`) linking core business logic to UI events. |
+| [src/gui_layout.py](../../src/gui_layout.py) | Defines the main desktop application layout, split views, and primary window panels. |
+| [src/gui_scanner.py](../../src/gui_scanner.py) | Manages scanner settings UI, scan state machines, and active session control buttons. |
+| [src/gui_run_control.py](../../src/gui_run_control.py) | Layout and button event mappings for resetting runs and configuring game restart options. |
+| [src/gui_player_stats.py](../../src/gui_player_stats.py) | Controls the live statistics panels, item inventory styling, weapon upgrade tabs, and item sorting. |
+| [src/gui_templates.py](../../src/gui_templates.py) | Dialogs and controls for creating, deleting, and tweaking template profiles. |
+| [src/gui_dialogs.py](../../src/gui_dialogs.py) | Custom prompt dialogs, scoring rules adjustments, and details widgets. |
+| [src/gui_shared.py](../../src/gui_shared.py) | Base classes, utility widgets, and common state-sharing interfaces for the GUI components. |
+| [src/gui_styles.py](../../src/gui_styles.py) | Central styling stylesheets, color constants, tier badges, and theme parameters. |
 | **Logic & Evaluators** | |
-| [logic.py](../../src/logic.py) | Functional core that evaluates map stats against rules (Templates) and computes map scores (Scores). |
-| [runtime_stats.py](../../src/runtime_stats.py) | Standardizes raw map details into structures suitable for matching logic. |
-| [live_run_tracker.py](../../src/live_run_tracker.py) | Tracks live stage transitions, item acquisition differentials, and chaos stats during runs. |
+| [src/logic.py](../../src/logic.py) | Functional core that evaluates map stats against rules (Templates) and computes map scores (Scores). |
+| [src/runtime_stats.py](../../src/runtime_stats.py) | Standardizes raw map details into structures suitable for matching logic. |
+| [src/live_run_tracker.py](../../src/live_run_tracker.py) | Tracks live stage transitions, item acquisition differentials, and chaos stats during runs. |
 | **Memory Readers & Low-level** | |
-| [memory.py](../../src/memory.py) | Core memory access module wrapping Windows APIs (OpenProcess, ReadProcessMemory) to read raw bytes. |
-| [game_data.py](../../src/game_data.py) | Uses pointers to read current map properties, seed, status indicators, and generation cycles. |
-| [player_stats.py](../../src/player_stats.py) | Decodes complex player statistics, inventory dictionaries, tome modifications, and passive item arrays. |
-| [item_metadata.py](../../src/item_metadata.py) | Normalization tables mapping raw item hashes or names to readable titles and rarity. |
-| [run_control.py](../../src/run_control.py) | Keyboard automation engine for issuing restart macro keystrokes to the game process. |
+| [src/memory.py](../../src/memory.py) | Core memory access module wrapping Windows APIs (OpenProcess, ReadProcessMemory) to read raw bytes. |
+| [src/game_data.py](../../src/game_data.py) | Uses pointers to read current map properties, seed, status indicators, and generation cycles. |
+| [src/player_stats.py](../../src/player_stats.py) | Decodes complex player statistics, inventory dictionaries, tome modifications, and passive item arrays. |
+| [src/item_metadata.py](../../src/item_metadata.py) | Normalization tables mapping raw item hashes or names to readable titles and rarity. |
+| [src/run_control.py](../../src/run_control.py) | Keyboard automation engine for issuing restart macro keystrokes to the game process. |
 | **Integrations & Recording** | |
-| [vod_storage.py](../../src/vod_storage.py) | Serializes and deserializes snapshot data to `.jsonl` run records. |
-| [twitch_bot.py](../../src/twitch_bot.py) | Handles Twitch channel connection, IRC message handling, and command processing. |
-| [overlay_server.py](../../src/overlay_server.py) | Lightweight server hosting CSS/JS web widgets for OBS Studio overlays. |
+| [src/vod_storage.py](../../src/vod_storage.py) | Serializes and deserializes snapshot data to `.jsonl` run records. |
+| [src/twitch_bot.py](../../src/twitch_bot.py) | Handles Twitch channel connection, IRC message handling, and command processing. |
+| [src/overlay_server.py](../../src/overlay_server.py) | Lightweight server hosting CSS/JS web widgets for OBS Studio overlays. |
 
 ---
 

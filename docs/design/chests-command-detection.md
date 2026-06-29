@@ -9,9 +9,9 @@ by the Twitch Bot `!chests` command. The important distinction is between:
 - a normal chest opened for free because the Key item proc succeeded;
 - a chest that was inherently free when it spawned on the map.
 
-The command formatter itself is in `twitch_bot.py::_handle_chests()`. Runtime
+The command formatter itself is in `src/twitch_bot.py::_handle_chests()`. Runtime
 state is maintained by `LiveRunTracker`, and the cumulative counters are read
-by the regular player-stat refresh in `gui_player_stats.py`.
+by the regular player-stat refresh in `src/gui_player_stats.py`.
 
 For the raw reverse-engineering background, enum definitions, class layouts,
 and chest-price formula, see

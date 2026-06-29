@@ -156,5 +156,5 @@ Write the exact prompt that can be given to Codex later.
 
 Example:
 
-`Use this report as source of truth and update player_stats.py, gui.py, and tests to read passive item inventory.`
+`Use this report as source of truth and update src/player_stats.py, src/gui.py, and tests to read passive item inventory.`
 

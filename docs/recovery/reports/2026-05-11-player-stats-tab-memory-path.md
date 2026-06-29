@@ -245,14 +245,14 @@ Difficulty update correctly.
 Current implementation files:
 
 ```text
-player_stats.py
-memory.py
-gui.py
+src/player_stats.py
+src/memory.py
+src/gui.py
 ```
 
-`memory.py` needs `read_float`.
+`src/memory.py` needs `read_float`.
 
-`player_stats.py` reads:
+`src/player_stats.py` reads:
 
 ```text
 type_info = read_ptr(GameAssembly.dll + 0x02F6A4B8)

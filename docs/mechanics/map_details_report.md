@@ -3,7 +3,7 @@
 This document is designed for an in-depth, low-level analysis of map generation across 3 different maps.
 
 ## Data Extraction Mechanics
-We parse the game's memory (`game_data.py`) to extract static addresses and structures containing map information:
+We parse the game's memory (`src/game_data.py`) to extract static addresses and structures containing map information:
 - `GameManager` / `MapController` / `MapGenerationController`
 - From `MapController`, we retrieve `current_map_ptr` and `current_stage_ptr`.
 - Map activities are located in the `interactables_dict`, which maps string Labels to their current and max capacities.
@@ -154,7 +154,7 @@ Looking across **Graveyard**, **Forest**, and **Desert**, the game employs disti
 * **The Boss Room Trap**: The transition to the Boss Room (tracker-side `Stage 4`) is a trap. The game **does not load a new stage**. It keeps the `Stage Ptr` from Stage 3 exactly the same, but triggers a dictionary wipe (reducing `Pots` and `Chests` max counts to near 0) and resets the `Stage Time` to `0.0`.
 * **Timers**: Timers are mostly standard but feature massive artificial "fast-forwards" at the end of each stage (jumping to ~590s or ~530s) to force the Ghost Phase if the player lingers too long or kills the boss.
 
-### Conclusion for Tracking Software (`live_run_tracker.py`)
+### Conclusion for Tracking Software (`src/live_run_tracker.py`)
 Any tracker relying on `Current Stage Ptr` changes to detect room transitions will completely fail to see the boss room in Forest/Desert, and will fail to see *any* meaningful sub-phase transitions in Graveyard. In the current BonkScanner model, Stage 4 is a **derived tracker state**, not a directly trusted raw `stage_index` value. Robust tracking must monitor timer-family changes (`stage_timer` vs `crypt_timer` vs `final_swarm_timer`), `Stage Time` resets/jumps, and activity-dictionary collapses rather than relying solely on `Stage Ptr`.
 
 

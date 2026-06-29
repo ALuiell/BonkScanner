@@ -116,9 +116,9 @@ The current implementation maps these ids to display names:
 
 Implemented in:
 
-- `player_stats.py`
-- `vod_storage.py`
-- `gui.py`
+- `src/player_stats.py`
+- `src/vod_storage.py`
+- `src/gui.py`
 
 Normalized runtime structure:
 

@@ -10,8 +10,8 @@ Twitch integration enables streamers to announce run milestones (e.g., successfu
 
 ### Concurrency & Architecture
 The integration is split into:
-- **`twitch_auth.py`**: Manages credentials, tokens, and OAuth scopes.
-- **`twitch_bot.py`**: Runs a background `TwitchBotWorker` thread subclassing PySide6's `QThread`.
+- **`src/twitch_auth.py`**: Manages credentials, tokens, and OAuth scopes.
+- **`src/twitch_bot.py`**: Runs a background `TwitchBotWorker` thread subclassing PySide6's `QThread`.
 
 ```mermaid
 sequenceDiagram
@@ -47,7 +47,7 @@ sequenceDiagram
 To provide real-time status displays for stream overlays without taxing screen capture cards, BonkScanner hosts a local web server that outputs transparent HTML widgets.
 
 ### Local HTTP Server Details
-- **Engine**: Python's native `ThreadingHTTPServer` configured inside `LocalOverlayServer` (defined in [overlay_server.py](../../src/overlay_server.py)).
+- **Engine**: Python's native `ThreadingHTTPServer` configured inside `LocalOverlayServer` (defined in [src/overlay_server.py](../../src/overlay_server.py)).
 - **Port**: Listens on port `17845` (binds to localhost `127.0.0.1`).
 - **Assets Source**: Resolves assets folder in `./src/media/overlay` (or the unpacked PyInstaller bundle `_MEIPASS/media/overlay` directory).
 

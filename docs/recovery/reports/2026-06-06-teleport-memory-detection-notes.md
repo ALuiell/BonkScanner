@@ -301,7 +301,7 @@ class TeleportMemoryState:
     is_player_teleporting: bool = False
 ```
 
-Read it using the same `_read_static_fields`, `_read_i32_optional`, `_read_ptr_optional`, and `_read_bool` helpers already present in `game_data.py`.
+Read it using the same `_read_static_fields`, `_read_i32_optional`, `_read_ptr_optional`, and `_read_bool` helpers already present in `src/game_data.py`.
 
 ## Best First Experiment
 

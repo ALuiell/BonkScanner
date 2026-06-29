@@ -91,8 +91,8 @@ class PlayerStatsClient:
 ---
 
 ## Verification Steps
-1. Run pytest:
+1. Run tests:
    ```powershell
-   pytest src/tests/test_player_stats.py -k "passive"
+   .\run_tests.bat -k "passive" src.tests.test_player_stats
    ```
 2. Verify in the overlay interface under "Live Stats" that picked up items are shown with correct counts (e.g., `Wrench x2`).

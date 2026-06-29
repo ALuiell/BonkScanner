@@ -130,7 +130,7 @@ the source.
 Current code reads the timer through:
 
 ```text
-player_stats.py
+src/player_stats.py
 PlayerStatsClient.get_run_timer()
 ```
 

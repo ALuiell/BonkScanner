@@ -29,13 +29,13 @@ project.
 You can also launch manually after setup:
 
 ```bat
-.\.venv\Scripts\python.exe src\main.py
+.\.venv\Scripts\python.exe src/main.py
 ```
 
 `start.bat` is the normal setup entry point. It will:
 - create `.venv` if it does not exist;
 - upgrade pip inside the virtual environment;
-- install runtime dependencies from `src\requirements.txt`;
+- install runtime dependencies from `src/requirements.txt`;
 - stop after the environment is ready.
 
 ## Safety Notes
@@ -280,7 +280,7 @@ Notes:
 - global hotkeys and keyboard-driven restart may require Administrator privileges on Windows.
 
 ## Auto-Update Behavior
-- source runs (`python src\main.py`) do not auto-update themselves;
+- source runs (`python src/main.py`) do not auto-update themselves;
 - packaged builds can check for updates from the settings dialog;
 - skipped update versions are remembered in `config.json`;
 - the updater checks the latest GitHub release for `ALuiell/BonkScanner` and downloads the packaged `.exe` asset when a newer version is available.
@@ -296,7 +296,7 @@ Requirements:
 - internet access if PyInstaller needs to be installed into the virtual environment.
 
 ## Dependencies
-Runtime dependencies are listed in `src\requirements.txt`:
+Runtime dependencies are listed in `src/requirements.txt`:
 - `pymem==1.14.0`
 - `keyboard==0.13.5`
 - `colorama==0.4.6`
@@ -313,8 +313,8 @@ If you want to run manually instead of using `start.bat`:
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install -r src\requirements.txt
-python src\main.py
+python -m pip install -r src/requirements.txt
+python src/main.py
 ```
 
 
@@ -325,31 +325,31 @@ build_exe.bat
 ```
 
 ## Project Structure
-- `src\main.py` - desktop app entry point.
-- `src\gui_app.py` - PySide6 application class and top-level app wiring.
-- `src\gui_layout.py` - main UI layout, tabs, and shared UI sections.
-- `src\gui_scanner.py` - scanner loop, hotkeys, lifecycle, and shutdown flow.
-- `src\gui_run_control.py` - run restart mode UI and provider coordination.
-- `src\gui_player_stats.py` - live stats, recordings, compare runs, and snapshot UI.
-- `src\gui_overlay.py` - OBS overlay controls and overlay state refresh.
-- `src\gui_twitch.py` - Twitch authentication and bot UI orchestration.
-- `src\gui_dialogs.py` - settings, help, score, template, and Twitch command dialogs.
-- `src\gui_styles.py` - Qt stylesheet and item rarity styling.
-- `src\config.py` - app config, game config integration, templates, scores, overlay, Twitch, and compare settings.
-- `src\logic.py` - template and score evaluation logic.
-- `src\game_data.py` - map-ready state, counters, seed-related runtime reads, and scan data.
-- `src\memory.py` - low-level `pymem` wrappers and memory helpers.
-- `src\player_stats.py` - live player stats, passive items, weapons, tomes, banishes, damage sources, and chest-rate calculations.
-- `src\live_run_tracker.py` - thread-safe live run snapshot tracking for overlay and Twitch.
-- `src\overlay_state.py` - overlay state serialization.
-- `src\overlay_server.py` - local HTTP server for OBS/browser overlay pages.
-- `src\twitch_auth.py` - local Twitch OAuth flow.
-- `src\twitch_bot.py` - Twitch IRC bot worker and command handlers.
-- `src\twitch_credentials.py` - Twitch token storage helpers.
-- `src\vod_storage.py` - saved recording format, metadata cache, load, rename, and cleanup helpers.
-- `src\run_summary.py` - recording and compare summary helpers.
-- `src\run_control.py` - keyboard restart provider and restart timing helpers.
-- `src\updater.py` - packaged-build update checks and update application flow.
+- `src/main.py` - desktop app entry point.
+- `src/gui_app.py` - PySide6 application class and top-level app wiring.
+- `src/gui_layout.py` - main UI layout, tabs, and shared UI sections.
+- `src/gui_scanner.py` - scanner loop, hotkeys, lifecycle, and shutdown flow.
+- `src/gui_run_control.py` - run restart mode UI and provider coordination.
+- `src/gui_player_stats.py` - live stats, recordings, compare runs, and snapshot UI.
+- `src/gui_overlay.py` - OBS overlay controls and overlay state refresh.
+- `src/gui_twitch.py` - Twitch authentication and bot UI orchestration.
+- `src/gui_dialogs.py` - settings, help, score, template, and Twitch command dialogs.
+- `src/gui_styles.py` - Qt stylesheet and item rarity styling.
+- `src/config.py` - app config, game config integration, templates, scores, overlay, Twitch, and compare settings.
+- `src/logic.py` - template and score evaluation logic.
+- `src/game_data.py` - map-ready state, counters, seed-related runtime reads, and scan data.
+- `src/memory.py` - low-level `pymem` wrappers and memory helpers.
+- `src/player_stats.py` - live player stats, passive items, weapons, tomes, banishes, damage sources, and chest-rate calculations.
+- `src/live_run_tracker.py` - thread-safe live run snapshot tracking for overlay and Twitch.
+- `src/overlay_state.py` - overlay state serialization.
+- `src/overlay_server.py` - local HTTP server for OBS/browser overlay pages.
+- `src/twitch_auth.py` - local Twitch OAuth flow.
+- `src/twitch_bot.py` - Twitch IRC bot worker and command handlers.
+- `src/twitch_credentials.py` - Twitch token storage helpers.
+- `src/vod_storage.py` - saved recording format, metadata cache, load, rename, and cleanup helpers.
+- `src/run_summary.py` - recording and compare summary helpers.
+- `src/run_control.py` - keyboard restart provider and restart timing helpers.
+- `src/updater.py` - packaged-build update checks and update application flow.
 - `src\tests` - unit tests.
 - `src\media\overlay` - browser overlay HTML, CSS, JS, and preview asset.
 - `docs\help` - in-app help text in English, Ukrainian, and Russian.

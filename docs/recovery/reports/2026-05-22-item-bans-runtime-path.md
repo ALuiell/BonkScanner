@@ -128,9 +128,9 @@ This is strong confirmation that:
 
 Implemented in:
 
-- `player_stats.py`
-- `vod_storage.py`
-- `gui.py`
+- `src/player_stats.py`
+- `src/vod_storage.py`
+- `src/gui.py`
 
 Current feature behavior:
 

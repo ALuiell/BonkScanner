@@ -23,7 +23,7 @@ If items are equipped in-game but do not show up in the live stats grid:
 ```mermaid
 graph TD
     Start[Verify Passive Item Readings] --> CheckPrimary{Does Primary Path<br>InvContainer -> Dict work?}
-    CheckPrimary -- Yes --> ResolveNames[Check item_metadata.py normalization]
+    CheckPrimary -- Yes --> ResolveNames[Check src/item_metadata.py normalization]
     CheckPrimary -- No --> CheckFallback{Does Fallback Path<br>ItemInventory -> Dict work?}
 
     CheckFallback -- Yes --> FallbackActive[Using Fallback Path]

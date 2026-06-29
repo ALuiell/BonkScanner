@@ -126,13 +126,13 @@ Current app color mapping:
 Code source:
 
 ```text
-item_metadata.py
+src/item_metadata.py
 -> ITEMS
 -> ITEM_ENUM_NAMES_BY_ID
 -> normalize_item_name_for_display()
 -> normalize_item_name_for_rarity()
 
-gui_styles.py
+src/gui_styles.py
 -> ITEM_RARITY_BY_NAME compatibility export
 -> ITEM_RARITY_COLOR_MAP
 -> COLOR_MAP

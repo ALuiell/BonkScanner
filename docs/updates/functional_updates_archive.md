@@ -254,11 +254,11 @@ Implemented scope:
 
 Code anchors:
 
-- `twitch_bot.py`
-- `live_run_tracker.py`
-- `player_stats.py`
-- `gui_dialogs.py`
-- `gui_twitch.py`
+- `src/twitch_bot.py`
+- `src/live_run_tracker.py`
+- `src/player_stats.py`
+- `src/gui_dialogs.py`
+- `src/gui_twitch.py`
 - `src/tests/test_twitch_bot.py`
 - `src/tests/test_live_run_tracker.py`
 - `src/tests/test_player_stats.py`
@@ -288,10 +288,10 @@ Implemented scope:
 
 Code anchors:
 
-- `hotkey_manager.py`
-- `gui_run_control.py`
-- `gui_dialogs.py`
-- `config.py`
+- `src/hotkey_manager.py`
+- `src/gui_run_control.py`
+- `src/gui_dialogs.py`
+- `src/config.py`
 - `src/tests/test_hotkey_manager.py`
 - `src/tests/test_gui_run_control.py`
 

@@ -6,7 +6,7 @@ This page documents the low-level memory inspection architecture of BonkScanner.
 
 ## Process Access & Memory Reading
 
-Memory reading is handled by the `ProcessMemory` class in [memory.py](../../src/memory.py). It uses native Windows APIs to hook into the game process:
+Memory reading is handled by the `ProcessMemory` class in [src/memory.py](../../src/memory.py). It uses native Windows APIs to hook into the game process:
 - `OpenProcess` with permissions `PROCESS_VM_READ | PROCESS_QUERY_INFORMATION`.
 - `ReadProcessMemory` to read raw bytes from the virtual address space of the process.
 

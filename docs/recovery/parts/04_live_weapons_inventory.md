@@ -120,8 +120,8 @@ class PlayerStatsClient:
 ---
 
 ## Verification Steps
-1. Run pytest:
+1. Run tests:
    ```powershell
-   pytest src/tests/test_player_stats.py -k "weapon"
+   .\run_tests.bat -k "weapon" src.tests.test_player_stats
    ```
 2. Verify in the overlay interface under "Live Stats" that active weapons appear with correct names (e.g. "Fire Staff"), levels, and stat matrices.

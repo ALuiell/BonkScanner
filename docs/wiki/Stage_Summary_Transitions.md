@@ -13,7 +13,7 @@ In the game, stage transitions are not marked by explicit event logs. Instead, B
 
 ## resolve_next_stage_index Algorithm
 
-Stage transitions are evaluated sequentially for every snapshot using `resolve_next_stage_index` (defined in [run_summary.py](../../src/run_summary.py)):
+Stage transitions are evaluated sequentially for every snapshot using `resolve_next_stage_index` (defined in [src/run_summary.py](../../src/run_summary.py)):
 
 ### 1. Transitions to Stage 2 & Stage 3
 If the current stage index is **less than 3**, the index increments to the next stage if:
@@ -70,7 +70,7 @@ Kills are calculated using cumulative snapshot totals (`mob_kills`):
   $$\text{Last Stage Kills} = \text{Last Stage Kills} + (\text{Final Snapshot Total Kills} - \sum \text{Calculated Stage Kills})$$
 
 ### 3. Items Gained (Debouncing logic)
-Inventory item counts can occasionally drop temporarily due to thread reading race conditions or memory glitches. To avoid creating fake item deltas, a **Debounce Tracker** is implemented in [run_summary.py](../../src/run_summary.py):
+Inventory item counts can occasionally drop temporarily due to thread reading race conditions or memory glitches. To avoid creating fake item deltas, a **Debounce Tracker** is implemented in [src/run_summary.py](../../src/run_summary.py):
 - **Pending Drop Streaks**: If an item count decreases, the drop is not immediately committed. It is marked as "pending" for up to 3 snapshots (`PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS`).
 - If the count does not recover within 3 snapshots, the drop is finalized.
 - Item counts represent stack differences: if `Wrench x1` upgrades to `Wrench x3` at the transition boundary, $+2$ item counts are attributed to the new stage.

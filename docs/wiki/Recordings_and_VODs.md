@@ -85,7 +85,7 @@ The run seed is recorded in the initial metadata record, not duplicated in the s
 
 ## Auto-Split & Cleanup Heuristics
 
-The recorder (managed in [vod_storage.py](../../src/vod_storage.py)) contains safety mechanisms to split files or discard junk records automatically.
+The recorder (managed in [src/vod_storage.py](../../src/vod_storage.py)) contains safety mechanisms to split files or discard junk records automatically.
 
 ### 1. Auto-Split (New Run Detection)
 A recording session is split into a new file when a genuinely new run is started, but *must not* split on stage transitions.

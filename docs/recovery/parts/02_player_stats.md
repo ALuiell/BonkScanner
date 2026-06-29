@@ -104,8 +104,8 @@ class PlayerStatsClient:
 ---
 
 ## Verification Steps
-1. Run pytest:
+1. Run tests:
    ```powershell
-   pytest src/tests/test_player_stats.py
+   .\run_tests.bat src.tests.test_player_stats
    ```
 2. Launch the overlay and verify that "Live Stats" tab outputs matches the values in the in-game stats UI.

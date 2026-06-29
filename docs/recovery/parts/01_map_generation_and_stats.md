@@ -93,9 +93,9 @@ class GameDataClient:
 ---
 
 ## Verification Steps
-1. Run pytest:
+1. Run tests:
    ```powershell
-   pytest src/tests/test_game_data.py
+   .\run_tests.bat src.tests.test_game_data
    ```
 2. Run the application and check the Reroll scanner overlay:
    - Ensure the map seed updates.
