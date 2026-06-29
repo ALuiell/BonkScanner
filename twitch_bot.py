@@ -889,13 +889,15 @@ class TwitchBotWorker(QThread):
 
         kps = self.run_tracker.current_ui_kps()
         minute_avg = self.run_tracker.current_minute_avg_kps()
+        ten_minute_avg = self.run_tracker.current_five_minute_avg_kps()
         run_avg = self.run_tracker.current_run_avg_kps()
         if kps is None:
             msg = "Not enough data yet to calculate Kills Per Second."
         else:
             minute_text = "--" if minute_avg is None else f"{minute_avg:,}/s"
+            ten_minute_text = "--" if ten_minute_avg is None else f"{ten_minute_avg:,}/s"
             run_text = "--" if run_avg is None else f"{run_avg:,}/s"
-            msg = f"KPS: {kps:,}/s | 60s Avg: {minute_text} | Run Avg: {run_text}"
+            msg = f"KPS: {kps:,}/s | 60s Avg: {minute_text} | 5m Avg: {ten_minute_text} | Run Avg: {run_text}"
         self._send_chat(channel, msg)
 
     def _handle_commands(self, channel: str):

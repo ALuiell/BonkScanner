@@ -54,13 +54,6 @@ import ctypes
 import os
 import threading
 import time
-from hook_loader import (
-    HookDllAccessError,
-    HookLoadError,
-    HookProcessNotFoundError,
-    HookProcessNotReadyError,
-    NativeHookLoader,
-)
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from runtime_stats import adapt_map_stats
 from vod_storage import delete_vod, delete_vods_below_snapshot_count, list_vods, load_vod, rename_vod
@@ -108,7 +101,6 @@ __all__ = [
     "DeleteDialog",
     "ConfirmDeleteRecordingDialog",
     "CleanupRecordingsDialog",
-    "NativeHookWarningDialog",
     "HelpDialog",
     "SettingsDialog",
     "UiInvoker",
@@ -171,11 +163,6 @@ __all__ = [
     "time",
     "win32gui",
     "win32process",
-    "HookDllAccessError",
-    "HookLoadError",
-    "HookProcessNotFoundError",
-    "HookProcessNotReadyError",
-    "NativeHookLoader",
     "MemoryReadError",
     "ModuleNotFoundError",
     "ProcessNotFoundError",

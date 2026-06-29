@@ -30,7 +30,6 @@ Update this file whenever a path is meaningfully changed or newly confirmed.
 | Live run banishes (items + tomes) | `player_stats.py`, `gui_player_stats.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F7A210` -> `RunUnlockables` static fields; `+0x0` `banishedItems` `HashSet<ItemData>` and `+0x8` `banishedUpgradables` `HashSet<UnlockableBase>` | `docs/recovery/reports/2026-05-22-item-bans-runtime-path.md` | high | 2026-05-22 |
 | Disabled items pool | `player_stats.py`, future config / overlay | `GameAssembly.dll + 0x02F7A210` -> `RunUnlockables` static fields -> `+0x10` `availableItems` dictionary; compare with `DataManager.Instance.unsortedItems` (`0x2F85790` +0x8 +0x60) | `docs/recovery/reports/2026-06-09-disabled-items-detection.md` | high | 2026-06-09 |
 | Live player level | `player_stats.py`, `gui_player_stats.py`, `vod_storage.py` | `GameAssembly.dll + 0x2F6A4B8` -> `class_ptr` -> `+0xB8` -> `root` -> `+0x40` -> `PlayerStatsNew` -> `+0x28` -> `PlayerInventory` -> `+0x30` -> `PlayerXp` -> `+0x14` -> `level` int | `docs/recovery/reports/2026-05-20-live-player-level.md` | high | 2026-05-20 |
-| Native hook readiness / AlwaysManager path | `hook_loader.py`, `native/BonkHook/*` | `GameAssembly.dll + 0x2F6BAA8` for current AlwaysManager-related path used by hook readiness | `hook_loader.py`, `docs/recovery/memory-and-hooks-reference.md` | medium | 2026-05-11 |
 
 ## Notes Per Feature
 

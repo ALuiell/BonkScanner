@@ -581,7 +581,7 @@ class LiveRunTracker:
 
         self._recent_kills_history.append((game_time_seconds, current_kills))
 
-        while self._recent_kills_history and self._recent_kills_history[0][0] < game_time_seconds - 60.0:
+        while self._recent_kills_history and self._recent_kills_history[0][0] < game_time_seconds - 300.0:
             self._recent_kills_history.popleft()
 
         self._track_ui_kps_unlocked(game_time_seconds, current_kills)
@@ -593,6 +593,10 @@ class LiveRunTracker:
     @with_lock
     def current_minute_avg_kps(self) -> int | None:
         return self._average_kps_for_window_unlocked(60.0)
+
+    @with_lock
+    def current_five_minute_avg_kps(self) -> int | None:
+        return self._average_kps_for_window_unlocked(300.0)
 
     @with_lock
     def current_ui_kps(self) -> int | None:

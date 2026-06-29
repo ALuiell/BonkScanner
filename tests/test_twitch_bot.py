@@ -679,13 +679,14 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.run_tracker.status.return_value = "live"
         self.run_tracker.current_ui_kps.return_value = 150
         self.run_tracker.current_minute_avg_kps.return_value = 243
+        self.run_tracker.current_five_minute_avg_kps.return_value = 221
         self.run_tracker.current_run_avg_kps.return_value = 138
 
         self.bot._handle_kps("channel")
 
         self.bot._send_chat.assert_called_once_with(
             "channel",
-            "KPS: 150/s | 60s Avg: 243/s | Run Avg: 138/s",
+            "KPS: 150/s | 60s Avg: 243/s | 5m Avg: 221/s | Run Avg: 138/s",
         )
 
     def test_handle_disabled_without_cached_data(self):

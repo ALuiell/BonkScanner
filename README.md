@@ -32,15 +32,6 @@ You can also launch manually after setup:
 .\.venv\Scripts\python.exe main.py
 ```
 
-Source runs do not build `BonkHook.dll` automatically. If you want to use
-`Use native hook restart` or `Use hook for game toggles` while running from
-source, build the hook once:
-
-```bat
-build_tools\bootstrap_tools.bat
-build_tools\build_native_hook.bat
-```
-
 `start.bat` is the normal setup entry point. It will:
 - create `.venv` if it does not exist;
 - upgrade pip inside the virtual environment;
@@ -59,20 +50,6 @@ Some parts of the project use technical names, so here is what they mean:
   and Twitch commands.
 - `Standard restart`: the default restart mode sends the configured reset hotkey,
   similar to pressing it yourself.
-- `BonkHook`: an optional native helper used for the alternate restart path and
-  map-ready signal. Its goal is to request a run restart and detect when a new
-  map snapshot is ready. You can use BonkScanner without enabling native hook
-  restart.
-  When enabled, native hook restart loads `BonkHook.dll` into the running game
-  process so the app can request restarts and receive map-ready signals.
-  This can make restarts a little faster and lets the restart path keep working
-  while the game is not focused, such as when you are alt-tabbed.
-  The hook is limited to specific supported actions: restart requests,
-  map-ready signaling, and supported game-setting toggles without opening the
-  in-game settings menu. **It does not touch anything else beyond those listed
-  actions.**
-  If both `Use native hook restart` and `Use hook for game toggles`
-  are disabled, BonkScanner does not load `BonkHook.dll`.
 - `OBS Overlay`: runs only on `127.0.0.1`, which means it is available from the
   same PC for OBS/browser sources, not from the public internet.
 - `Twitch Bot`: only connects after you authorize it manually. Disconnecting
@@ -89,8 +66,7 @@ Some parts of the project use technical names, so here is what they mean:
 - compares saved runs side by side with synced in-game time and configurable diff sections;
 - serves a local OBS browser overlay with draggable/resizable widgets and widget-specific URLs;
 - runs an optional Twitch chat bot with live stat commands and stage announcements;
-- can use standard keyboard reset or the optional native hook restart path;
-- can toggle several in-game settings through dedicated hotkeys;
+- uses the configured keyboard reset hotkey for run restarts;
 - stores app settings, templates, score rules, overlay settings, Twitch bot settings, and update preferences in `config.json`.
 
 ## Main UI Areas
@@ -292,27 +268,15 @@ The main `Settings` dialog currently includes:
 - `Reset Hotkey`
 - `Record Hotkey`
 - `Auto-start recording`
-- `Toggle Chest Skip Hotkey`
-- `Toggle Auto Level-Up Hotkey`
-- `Toggle Particles Opacity Hotkey`
-- `Allowed Held Game Keys`
+- `Show OBS reminder on Start Scanner`
 - `Min Reroll Delay (s)`
 - `Reset Hold Duration (s)`
 - `Snapshot Interval (s)`
-- `Use native hook restart`
-- `Use hook for game toggles`
 - `Check for Updates`
 
 Notes:
-- `Reset Hold Duration` is used for standard keyboard reset mode;
-- the app also syncs the game's `quick_reset_time` value when that setting is changed;
-- `Use hook for game toggles` controls whether `Toggle Chest Skip`,
-  `Toggle Auto Level-Up`, and `Toggle Particles Opacity` may use the hook path
-  to update supported values inside the game's own config;
-- `Allowed Held Game Keys` lets hotkeys fire while listed gameplay keys are
-  held, but this relaxed matching is used only while the game window is active;
-- native hook mode shows an extra confirmation when enabled and may work better while alt-tabbed on some systems because restarts do not depend on the game window being focused;
-- hook-based game-setting hotkeys also show a confirmation when enabled;
+- `Reset Hotkey` and `Reset Hold Duration` control the community restart path;
+- the app also syncs the game's `quick_reset_time` value when reset hold duration changes;
 - global hotkeys and keyboard-driven restart may require Administrator privileges on Windows.
 
 ## Auto-Update Behavior
@@ -321,38 +285,15 @@ Notes:
 - skipped update versions are remembered in `config.json`;
 - the updater checks the latest GitHub release for `ALuiell/BonkScanner` and downloads the packaged `.exe` asset when a newer version is available.
 
-## Portable Native Build
+## Packaged Build
 
-`BonkHook` is the optional native restart helper. It is built through a project-local toolchain and does not require a globally installed .NET SDK or Visual Studio Build Tools in the normal path.
+`build_exe.bat` builds the community executable with PyInstaller. It packages the Python app, media assets, overlay files, and in-app help files into `dist\BonkScanner.exe`.
 
-Use these entry points on Windows x64:
-
-```bat
-build_tools\bootstrap_tools.bat
-build_tools\build_native_hook.bat
-build_exe.bat
-```
-
-What happens on the first run:
-- `build_tools\bootstrap_tools.bat` downloads a pinned .NET SDK into `.tools\dotnet`;
-- it downloads portable MSVC + Windows SDK into `.tools\msvc`;
-- it keeps NuGet packages/cache and dotnet CLI state inside `.tools\nuget` and `.tools\dotnet-home`;
-- `build_tools\build_native_hook.bat` publishes `native\BonkHook` with those local tools and forces NativeAOT to use the prepared linker environment;
-- `build_exe.bat` installs PyInstaller into `.venv` if needed;
-- `build_exe.bat` publishes the hook, then packages `BonkScanner.exe` into `dist\`;
-- the packaged exe includes required media, help files, overlay assets, and the published `BonkHook.dll`;
-- PyInstaller is invoked with `--noupx` to avoid UPX compression.
-
-Requirements and constraints:
+Requirements:
 - Windows 10/11 x64;
-- Python 3.12 x64 for the Python app environment;
-- internet access on the first bootstrap;
-- Windows PowerShell available for the helper scripts;
-- downloaded `.tools\` contents are local artifacts and are not committed;
-- `.tools\` will be larger because it also stores NuGet packages and dotnet CLI caches.
-
-Fallback: if portable MSVC bootstrap fails, install Visual Studio Build Tools
-with the Desktop development with C++ workload, then rerun the build scripts.
+- Python 3.12 x64;
+- dependencies installed in `.venv` via `start.bat`;
+- internet access if PyInstaller needs to be installed into the virtual environment.
 
 ## Dependencies
 Runtime dependencies are listed in `requirements.txt`:
@@ -376,11 +317,6 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-To build only the native hook locally, prefer:
-
-```bat
-build_tools\build_native_hook.bat
-```
 
 To build the packaged executable:
 
@@ -412,12 +348,10 @@ build_exe.bat
 - `twitch_credentials.py` - Twitch token storage helpers.
 - `vod_storage.py` - saved recording format, metadata cache, load, rename, and cleanup helpers.
 - `run_summary.py` - recording and compare summary helpers.
-- `run_control.py` - keyboard and hook-based restart providers.
-- `hook_loader.py` - native hook loading, restart requests, and cleanup logic.
+- `run_control.py` - keyboard restart provider and restart timing helpers.
 - `updater.py` - packaged-build update checks and update application flow.
 - `media\overlay` - browser overlay HTML, CSS, JS, and preview asset.
 - `docs\help` - in-app help text in English, Ukrainian, and Russian.
-- `native\BonkHook` - NativeAOT hook project.
 
 ## Basic Usage
 1. Start Megabonk and wait until the target scene is loaded.

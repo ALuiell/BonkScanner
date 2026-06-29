@@ -5,8 +5,6 @@ set "VENV_DIR=.venv"
 set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
 set "PIP_EXE=%VENV_DIR%\Scripts\pip.exe"
 set "PYINSTALLER_EXE=%VENV_DIR%\Scripts\pyinstaller.exe"
-set "HOOK_PROJECT=native\BonkHook"
-set "HOOK_PUBLISH_DIR=%HOOK_PROJECT%\bin\Release\net8.0\win-x64\publish"
 
 if not exist "%PYTHON_EXE%" (
     echo [ERROR] Virtual environment was not found.
@@ -26,23 +24,8 @@ if not exist "%PYINSTALLER_EXE%" (
     )
 )
 
-echo [BUILD] Publishing native hook...
-call build_tools\build_native_hook.bat
-
-if errorlevel 1 (
-    echo [ERROR] Failed to publish native hook.
-    pause
-    exit /b 1
-)
-
-if not exist "%HOOK_PUBLISH_DIR%\BonkHook.dll" (
-    echo [ERROR] Native hook DLL was not found after publish: "%HOOK_PUBLISH_DIR%\BonkHook.dll"
-    pause
-    exit /b 1
-)
-
 echo [BUILD] Building executable...
-"%PYINSTALLER_EXE%" --clean --noupx --noconfirm --noconsole --onefile --icon="media/bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --hidden-import win32cred --hidden-import win32timezone --hidden-import keyring --add-data "media/bonkscanner_icon.ico;media" --add-data "media/settings_icon.png;media" --add-data "media/help_icon.svg;media" --add-data "media/bonkscanner_icon2.png;media" --add-data "media/checkmark.svg;media" --add-data "media/patreon_logo.svg;media" --add-data "media/kofi_logo.svg;media" --add-data "media/github_logo.svg;media" --add-data "media/discord_logo.svg;media" --add-data "media/overlay/index.html;media/overlay" --add-data "media/overlay/overlay.css;media/overlay" --add-data "media/overlay/overlay.js;media/overlay" --add-data "media/overlay/game_preview.jpg;media/overlay" --add-data "docs/help/help_ru.txt;docs/help" --add-data "docs/help/help_eng.txt;docs/help" --add-data "docs/help/help_ukr.txt;docs/help" --add-binary "%HOOK_PUBLISH_DIR%\*.dll;%HOOK_PUBLISH_DIR%" main.py
+"%PYINSTALLER_EXE%" --clean --noupx --noconfirm --noconsole --onefile --icon="media/bonkscanner_icon.ico" --name "BonkScanner" --hidden-import unicodedata --hidden-import win32cred --hidden-import win32timezone --hidden-import keyring --add-data "media/bonkscanner_icon.ico;media" --add-data "media/settings_icon.png;media" --add-data "media/help_icon.svg;media" --add-data "media/bonkscanner_icon2.png;media" --add-data "media/checkmark.svg;media" --add-data "media/patreon_logo.svg;media" --add-data "media/kofi_logo.svg;media" --add-data "media/github_logo.svg;media" --add-data "media/discord_logo.svg;media" --add-data "media/overlay/index.html;media/overlay" --add-data "media/overlay/overlay.css;media/overlay" --add-data "media/overlay/overlay.js;media/overlay" --add-data "media/overlay/game_preview.jpg;media/overlay" --add-data "docs/help/help_ru.txt;docs/help" --add-data "docs/help/help_eng.txt;docs/help" --add-data "docs/help/help_ukr.txt;docs/help" main.py
 
 if errorlevel 1 (
     echo [ERROR] PyInstaller failed to build the executable.

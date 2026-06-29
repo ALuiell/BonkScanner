@@ -53,8 +53,7 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
 - `twitch_bot.py` handles the Twitch IRC connection and commands.
 - `overlay_server.py` runs a local HTTP/WebSocket server for OBS widgets.
 - `vod_storage.py` writes and reads `.jsonl` recordings.
-- `run_control.py` abstracts keyboard restart and native hook restart.
-- `hook_loader.py` injects and drives the optional native hook.
+- `run_control.py` abstracts keyboard restart timing and input.
 - `updater.py` handles packaged-build update checks and update application.
 
 ## Scanner Flow
@@ -94,7 +93,7 @@ Risks:
 
 - Game updates can move memory paths or change dictionary/key layouts.
 - Too-low reroll delay can make the app read partial map state.
-- Native hook restart and keyboard restart have different failure modes.
+- Keyboard restart depends on global hotkeys and game window/input behavior.
 - If scan loop state, hotkeys, and UI buttons get out of sync, the app can look
   idle while still armed or vice versa.
 
@@ -406,7 +405,6 @@ Implementation shape:
 - Hotkeys use scan-code-aware pressed-key tracking. Exact hotkeys remain global,
   while extra whitelisted game keys are accepted only when the game is active.
 - Game config edits use the game's config file where possible.
-- Native hook settings use `hook_loader.py` and the BonkHook DLL.
 
 Risks:
 
@@ -424,8 +422,6 @@ Purpose:
 
 Implementation shape:
 
-- NativeAOT DLL lives under `native/BonkHook`.
-- `hook_loader.py` injects and calls exported hook actions.
 - Build uses project-local toolchain scripts under `tools/`.
 
 Risks:
@@ -470,7 +466,7 @@ If map rerolling behaves wrong:
 - Is the map-ready state stable before evaluation?
 - Are map counters non-zero and plausible?
 - Did active templates or score tiers update at runtime?
-- Is the reset provider keyboard or native hook?
+- Is keyboard restart configured with the expected reset hotkey and hold duration?
 
 If live stats are blank:
 

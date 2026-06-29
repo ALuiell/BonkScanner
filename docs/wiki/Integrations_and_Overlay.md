@@ -82,4 +82,4 @@ Expires: 0
 
 - Back to Home: [Home Wiki](./Home.md)
 - Back to Recordings: [Recordings & VODs Wiki](./Recordings_and_VODs.md)
-- Next up: [Settings & Hooks Wiki](./Settings_and_Hooks.md)
+- Next up: [Troubleshooting & Diagnostics Wiki](./Troubleshooting_and_Diagnostics.md)

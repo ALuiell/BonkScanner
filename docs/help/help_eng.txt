@@ -155,44 +155,29 @@ If enabled, the bot automatically sends a summary to Twitch chat when transition
 🚩 Stage 1 completed! Kills: 1,042 | Time: 05:00. Moving to Stage 2! 🚩
 
 
-Hotkeys and Game Toggles
-------------------------
+Hotkeys
+-------
 `Settings` currently includes:
 - `Scan Hotkey`
 - `Reset Hotkey`
 - `Record Hotkey`
 - `Auto-start recording` - automatically starts player-stats recording when a live run is detected.
-- `Toggle Chest Skip Hotkey`
-- `Toggle Auto Level-Up Hotkey`
-- `Toggle Particles Opacity Hotkey`
+- `Show OBS reminder on Start Scanner`
 
 Important:
+- `Reset Hotkey` is the community restart path. BonkScanner sends this key to restart runs.
 - Some hotkeys on Windows may require Administrator privileges.
-- Game toggles can apply immediately even if the in-game settings menu only refreshes visually after reopening it.
-- Supported game-setting toggles are applied live through the app when the hook path is available.
-- If a hotkey does nothing, first make sure the game is open and BonkScanner has attached cleanly.
-
-Native Hook
------------
-- `Use native hook restart` enables the alternate restart path.
-- This mode can be more convenient while alt-tabbed or running in the background.
-- Native hook attach only works after the game reaches a safe initialized runtime state.
-- If native hook does not connect yet, let the game reach a stable menu or in-run state and try again.
-- You can always switch back to standard keyboard restart from `Settings`.
+- If a hotkey does nothing, first make sure the game is open, focused when needed, and BonkScanner has attached cleanly.
 
 Settings and Updates
 --------------------
 Main settings:
 - `Scan Hotkey` - starts or pauses the scan loop while the app is running.
-- `Reset Hotkey` - the keyboard restart hotkey used by standard restart mode.
+- `Reset Hotkey` - keyboard restart hotkey.
 - `Record Hotkey` - starts or stops live stats recording.
-- `Toggle Chest Skip Hotkey` - toggles the supported chest-skip game setting.
-- `Toggle Auto Level-Up Hotkey` - toggles the supported auto level-up game setting.
-- `Toggle Particles Opacity Hotkey` - toggles the supported particles opacity game setting.
 - `Min Reroll Delay (s)` - minimum delay before the app evaluates the next reroll result.
 - `Reset Hold Duration (s)` - keyboard reset hold time in the app. This setting also syncs the game's `quick_reset_time` value. If you change it, restart the game so the in-game restart timing fully picks up the new value.
 - `Snapshot Interval (s)` - how often recording saves a new snapshot.
-- `Use native hook restart` - enables the alternate restart path.
 - `Check for Updates` - checks for a newer packaged build when that updater flow is available.
 
 Other notes:

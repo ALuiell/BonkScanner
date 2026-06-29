@@ -94,7 +94,6 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [player_stats.py](../../player_stats.py) | Decodes complex player statistics, inventory dictionaries, tome modifications, and passive item arrays. |
 | [item_metadata.py](../../item_metadata.py) | Normalization tables mapping raw item hashes or names to readable titles and rarity. |
 | [run_control.py](../../run_control.py) | Keyboard automation engine for issuing restart macro keystrokes to the game process. |
-| [hook_loader.py](../../hook_loader.py) | Loads and interfaces with `BonkHook.dll` for native restart capability. |
 | **Integrations & Recording** | |
 | [vod_storage.py](../../vod_storage.py) | Serializes and deserializes snapshot data to `.jsonl` run records. |
 | [twitch_bot.py](../../twitch_bot.py) | Handles Twitch channel connection, IRC message handling, and command processing. |
@@ -109,5 +108,4 @@ Here is how the responsibilities are distributed across the project's codebase:
 - Learn about stage transitions: [Stage Summary Transitions Wiki](./Stage_Summary_Transitions.md)
 - Learn about VODs and recording formats: [Recordings & VODs Wiki](./Recordings_and_VODs.md)
 - Learn about integrations and overlays: [Integrations & Overlays Wiki](./Integrations_and_Overlay.md)
-- Learn about hotkeys and native DLL hooks: [Settings & Hooks Wiki](./Settings_and_Hooks.md)
 - Learn about troubleshooting and debugging: [Troubleshooting & Diagnostics Wiki](./Troubleshooting_and_Diagnostics.md)

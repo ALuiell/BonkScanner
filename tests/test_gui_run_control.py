@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import gui
 from game_data import RuntimeGameMode, RuntimeGameState
-from run_control import HookRunControlProvider, KeyboardRunControlProvider
+from run_control import KeyboardRunControlProvider
 
 
 class FakeEntry:
@@ -85,19 +85,6 @@ class FakeSettingsMaster:
         self.events.append("log")
 
 
-class FakeDetachLoader:
-    def __init__(self, pid: int = 1234, error: Exception | None = None) -> None:
-        self.pid = pid
-        self.error = error
-        self.uninitialize_calls = 0
-
-    def uninitialize(self) -> types.SimpleNamespace:
-        self.uninitialize_calls += 1
-        if self.error is not None:
-            raise self.error
-        return types.SimpleNamespace(pid=self.pid)
-
-
 class FakeThread:
     def __init__(self, *, target: object, args: tuple[object, ...] = (), daemon: bool) -> None:
         self.target = target
@@ -137,29 +124,6 @@ class FakeTabWidget:
 
     def tabText(self, _index: int) -> str:
         return self.active_tab
-
-
-class FakeHookLoopLoader:
-    def __init__(
-        self,
-        *,
-        pid: int = 1234,
-        skipped: bool = False,
-        inject_error: Exception | list[Exception | None] | None = None,
-    ) -> None:
-        self.pid = pid
-        self.skipped = skipped
-        self.inject_error = inject_error
-        self.inject_calls = 0
-
-    def inject_once(self) -> types.SimpleNamespace:
-        self.inject_calls += 1
-        inject_error = self.inject_error
-        if isinstance(inject_error, list):
-            inject_error = inject_error.pop(0) if inject_error else None
-        if inject_error is not None:
-            raise inject_error
-        return types.SimpleNamespace(pid=self.pid, skipped=self.skipped)
 
 
 class FakeKeyboardModule:
@@ -235,6 +199,7 @@ class FakeRecordingRecorder:
         chests_per_minute=None,
         game_time_seconds=None,
         mob_kills=None,
+        kps_at_capture=None,
         player_level=None,
         map_seed=None,
         stage_ptr=0,
@@ -260,6 +225,7 @@ class FakeRecordingRecorder:
             chests_per_minute=chests_per_minute,
             game_time_seconds=game_time_seconds,
             mob_kills=mob_kills,
+            kps_at_capture=kps_at_capture,
             player_level=player_level,
             map_seed=map_seed,
             stage_ptr=stage_ptr,
@@ -287,6 +253,7 @@ class FakeRecordingRecorder:
                 "chests_per_minute": chests_per_minute,
                 "game_time_seconds": game_time_seconds,
                 "mob_kills": mob_kills,
+                "kps_at_capture": kps_at_capture,
                 "player_level": player_level,
                 "map_seed": map_seed,
                 "stage_ptr": stage_ptr,
@@ -524,11 +491,6 @@ class GuiRunControlTests(unittest.TestCase):
             "SHOW_OBS_REMINDER_ON_START_SCANNER": gui.config.SHOW_OBS_REMINDER_ON_START_SCANNER,
             "MAP_LOAD_DELAY": gui.config.MAP_LOAD_DELAY,
             "RESET_HOLD_DURATION": gui.config.RESET_HOLD_DURATION,
-            "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY": gui.config.TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY,
-            "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY": gui.config.TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY,
-            "TOGGLE_PARTICLES_OPACITY_HOTKEY": gui.config.TOGGLE_PARTICLES_OPACITY_HOTKEY,
-            "NATIVE_HOOK_ENABLED": gui.config.NATIVE_HOOK_ENABLED,
-            "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED": gui.config.NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED,
             "TOTAL_REROLLS": gui.config.TOTAL_REROLLS,
             "ACTIVE_TEMPLATES": deepcopy(gui.config.ACTIVE_TEMPLATES),
             "EVALUATION_MODE": gui.config.EVALUATION_MODE,
@@ -589,6 +551,7 @@ class GuiRunControlTests(unittest.TestCase):
             twitch_cmd_chaos_cb=FakeCheckbox(True),
             twitch_cmd_stages_cb=FakeCheckbox(True),
             twitch_cmd_powerups_cb=FakeCheckbox(True),
+            twitch_cmd_kps_cb=FakeCheckbox(True),
             twitch_cmd_scanner_cb=FakeCheckbox(True),
             twitch_cmd_chests_cb=FakeCheckbox(True),
             twitch_cmd_presets_cb=FakeCheckbox(True),
@@ -644,7 +607,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertNotIn("Status:", formatted)
         self.assertIn("Connected", formatted)
 
-    def test_settings_save_updates_native_hook_enabled_and_applies_run_control_mode(self) -> None:
+    def test_settings_save_updates_community_settings_and_applies_run_control_mode(self) -> None:
         master = FakeSettingsMaster()
         master.player_stats_auto_recording_suppressed = True
         destroyed: list[bool] = []
@@ -652,16 +615,11 @@ class GuiRunControlTests(unittest.TestCase):
             hotkey_entry=FakeEntry("f7"),
             reset_hotkey_entry=FakeEntry("r"),
             record_hotkey_entry=FakeEntry("f8"),
-            toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
-            toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
-            toggle_particles_opacity_hotkey_entry=FakeEntry("f7"),
             auto_start_recording_var=FakeVar(True),
             show_obs_reminder_on_start_scanner_var=FakeVar(True),
             map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
             record_interval_entry=FakeEntry("60"),
-            native_hook_enabled_var=FakeVar(False),
-            native_hook_hotkeys_enabled_var=FakeVar(False),
             master=master,
             destroy=lambda: destroyed.append(True),
         )
@@ -670,126 +628,11 @@ class GuiRunControlTests(unittest.TestCase):
             with patch.object(gui.config, "update_game_reset_time") as update_game_reset_time:
                 gui.SettingsDialog.save(dialog)
 
-        self.assertFalse(gui.config.NATIVE_HOOK_ENABLED)
         self.assertTrue(gui.config.AUTO_START_RECORDING)
         self.assertTrue(gui.config.SHOW_OBS_REMINDER_ON_START_SCANNER)
         self.assertFalse(master.player_stats_auto_recording_suppressed)
-        self.assertFalse(gui.config.user_config["NATIVE_HOOK_ENABLED"])
-        self.assertFalse(gui.config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"])
         self.assertTrue(gui.config.user_config["AUTO_START_RECORDING"])
         self.assertTrue(gui.config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
-        self.assertIn("apply_run_control_mode", master.events)
-        self.assertTrue(save_config.called)
-        self.assertTrue(update_game_reset_time.called)
-        self.assertEqual(destroyed, [True])
-
-    def test_native_hook_toggle_prompts_for_confirmation_on_enable(self) -> None:
-        dialog = types.SimpleNamespace(
-            native_hook_enabled_var=FakeVar(True),
-            _native_hook_toggle_guard=False,
-        )
-
-        with patch.object(gui.SettingsDialog, "prompt_native_hook_enable_confirmation", return_value=True) as prompt:
-            gui.SettingsDialog.on_native_hook_toggle(dialog)
-
-        prompt.assert_called_once_with(dialog)
-        self.assertTrue(dialog.native_hook_enabled_var.get())
-
-    def test_native_hook_toggle_reverts_checkbox_when_confirmation_is_cancelled(self) -> None:
-        dialog = types.SimpleNamespace(
-            native_hook_enabled_var=FakeVar(True),
-            _native_hook_toggle_guard=False,
-        )
-
-        with patch.object(gui.SettingsDialog, "prompt_native_hook_enable_confirmation", return_value=False) as prompt:
-            gui.SettingsDialog.on_native_hook_toggle(dialog)
-
-        prompt.assert_called_once_with(dialog)
-        self.assertFalse(dialog.native_hook_enabled_var.get())
-        self.assertFalse(dialog._native_hook_toggle_guard)
-
-    def test_native_hook_toggle_does_not_prompt_when_disabling(self) -> None:
-        dialog = types.SimpleNamespace(
-            native_hook_enabled_var=FakeVar(False),
-            _native_hook_toggle_guard=False,
-        )
-
-        with patch.object(gui.SettingsDialog, "prompt_native_hook_enable_confirmation") as prompt:
-            gui.SettingsDialog.on_native_hook_toggle(dialog)
-
-        prompt.assert_not_called()
-        self.assertFalse(dialog.native_hook_enabled_var.get())
-
-    def test_native_hook_hotkeys_toggle_prompts_for_confirmation_on_enable(self) -> None:
-        dialog = types.SimpleNamespace(
-            native_hook_hotkeys_enabled_var=FakeVar(True),
-            _native_hook_hotkeys_toggle_guard=False,
-        )
-
-        with patch.object(gui.SettingsDialog, "prompt_native_hook_hotkeys_enable_confirmation", return_value=True) as prompt:
-            gui.SettingsDialog.on_native_hook_hotkeys_toggle(dialog)
-
-        prompt.assert_called_once_with(dialog)
-        self.assertTrue(dialog.native_hook_hotkeys_enabled_var.get())
-
-    def test_native_hook_hotkeys_toggle_reverts_checkbox_when_confirmation_is_cancelled(self) -> None:
-        dialog = types.SimpleNamespace(
-            native_hook_hotkeys_enabled_var=FakeVar(True),
-            _native_hook_hotkeys_toggle_guard=False,
-        )
-
-        with patch.object(gui.SettingsDialog, "prompt_native_hook_hotkeys_enable_confirmation", return_value=False) as prompt:
-            gui.SettingsDialog.on_native_hook_hotkeys_toggle(dialog)
-
-        prompt.assert_called_once_with(dialog)
-        self.assertFalse(dialog.native_hook_hotkeys_enabled_var.get())
-        self.assertFalse(dialog._native_hook_hotkeys_toggle_guard)
-
-    def test_native_hook_hotkeys_toggle_does_not_prompt_when_disabling(self) -> None:
-        dialog = types.SimpleNamespace(
-            native_hook_hotkeys_enabled_var=FakeVar(False),
-            _native_hook_hotkeys_toggle_guard=False,
-        )
-
-        with patch.object(gui.SettingsDialog, "prompt_native_hook_hotkeys_enable_confirmation") as prompt:
-            gui.SettingsDialog.on_native_hook_hotkeys_toggle(dialog)
-
-        prompt.assert_not_called()
-        self.assertFalse(dialog.native_hook_hotkeys_enabled_var.get())
-
-    def test_settings_save_persists_confirmed_native_hook_enable(self) -> None:
-        master = FakeSettingsMaster()
-        destroyed: list[bool] = []
-        dialog = types.SimpleNamespace(
-            hotkey_entry=FakeEntry("f7"),
-            reset_hotkey_entry=FakeEntry("r"),
-            record_hotkey_entry=FakeEntry("f8"),
-            toggle_skip_chest_animation_hotkey_entry=FakeEntry("f11"),
-            toggle_auto_select_upgrades_hotkey_entry=FakeEntry("f10"),
-            toggle_particles_opacity_hotkey_entry=FakeEntry("f7"),
-            auto_start_recording_var=FakeVar(False),
-            show_obs_reminder_on_start_scanner_var=FakeVar(False),
-            map_load_delay_entry=FakeEntry("0.5"),
-            reset_hold_duration_entry=FakeEntry("0.25"),
-            record_interval_entry=FakeEntry("60"),
-            native_hook_enabled_var=FakeVar(True),
-            native_hook_hotkeys_enabled_var=FakeVar(True),
-            master=master,
-            destroy=lambda: destroyed.append(True),
-        )
-
-        with patch.object(gui.config, "save_config") as save_config:
-            with patch.object(gui.config, "update_game_reset_time") as update_game_reset_time:
-                gui.SettingsDialog.save(dialog)
-
-        self.assertTrue(gui.config.NATIVE_HOOK_ENABLED)
-        self.assertFalse(gui.config.AUTO_START_RECORDING)
-        self.assertFalse(gui.config.SHOW_OBS_REMINDER_ON_START_SCANNER)
-        self.assertTrue(gui.config.user_config["NATIVE_HOOK_ENABLED"])
-        self.assertTrue(gui.config.NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED)
-        self.assertTrue(gui.config.user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"])
-        self.assertFalse(gui.config.user_config["AUTO_START_RECORDING"])
-        self.assertFalse(gui.config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         self.assertTrue(update_game_reset_time.called)
@@ -889,177 +732,25 @@ class GuiRunControlTests(unittest.TestCase):
             gui.config.DEFAULT_TWITCH_BOT["commands_announcement_interval_minutes"],
         )
 
-    def test_apply_run_control_mode_detaches_hook_and_switches_to_keyboard_provider(self) -> None:
-        loader = FakeDetachLoader()
-        logs: list[tuple[str, str | None]] = []
+    def test_apply_run_control_mode_enables_keyboard_provider(self) -> None:
         app = object.__new__(gui.MegabonkApp)
-        app.native_hook_loader = loader
-        app.native_hook_thread = object()
-        app.native_hook_generation = 1
         app.run_control_provider = object()
-        app._native_hook_admin_warning_logged = True
-        app.log = lambda message, tag=None: logs.append((message, tag))
 
-        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", False):
-            gui.MegabonkApp.apply_run_control_mode(app)
-
-        self.assertEqual(loader.uninitialize_calls, 1)
-        self.assertIsNone(app.native_hook_loader)
-        self.assertIsNone(app.native_hook_thread)
-        self.assertEqual(app.native_hook_generation, 2)
-        self.assertIsInstance(app.run_control_provider, KeyboardRunControlProvider)
-        self.assertIn(("[+] Game restart helper disconnected.", "success"), logs)
-
-    def test_apply_run_control_mode_enables_hook_provider_and_starts_worker(self) -> None:
-        fake_loader = object()
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.native_hook_loader = None
-        app.native_hook_thread = None
-        app.native_hook_generation = 0
-        app.run_control_provider = object()
-        app._native_hook_admin_warning_logged = False
-        app.native_hook_loop = lambda *_args: None
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: True
-
-        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
-            with patch.object(gui, "NativeHookLoader", return_value=fake_loader):
-                with patch.object(gui.threading, "Thread", FakeThread):
-                    gui.MegabonkApp.apply_run_control_mode(app)
-
-        self.assertIs(app.native_hook_loader, fake_loader)
-        self.assertIsInstance(app.run_control_provider, HookRunControlProvider)
-        self.assertEqual(app.native_hook_generation, 1)
-        self.assertTrue(app.native_hook_thread.started)
-        self.assertIn(("[*] Game restart helper enabled.", None), logs)
-
-    def test_check_admin_rights_logs_hook_warning_when_hook_mode_is_enabled_without_admin(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: False
-        app._native_hook_admin_warning_logged = False
-
-        with patch.object(gui.os, "name", "nt"):
-            with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
-                gui.MegabonkApp.check_admin_rights(app)
-
-        self.assertIn(
-            ("[*] Game restart helper may need Administrator privileges; trying anyway.", "warning"),
-            logs,
-        )
-        self.assertNotIn(("⚠️ WARNING: Script is not running as Administrator!", "warning"), logs)
-        self.assertNotIn(("⚠️ Hotkeys may not work while the game window is active.", "warning"), logs)
-
-    def test_check_admin_rights_logs_keyboard_warnings_when_hook_mode_is_disabled(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: False
-
-        with patch.object(gui.os, "name", "nt"):
-            with patch.object(gui.config, "NATIVE_HOOK_ENABLED", False):
-                gui.MegabonkApp.check_admin_rights(app)
-
-        self.assertNotIn(
-            ("[*] Game restart helper may need Administrator privileges; trying anyway.", "warning"),
-            logs,
-        )
-        self.assertIn(("⚠️ WARNING: Script is not running as Administrator!", "warning"), logs)
-        self.assertIn(("⚠️ Hotkeys may not work while the game window is active.", "warning"), logs)
-
-    def test_enable_hook_run_control_logs_hook_warning_without_admin(self) -> None:
-        fake_loader = object()
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.native_hook_loader = None
-        app.native_hook_thread = None
-        app.native_hook_generation = 0
-        app.run_control_provider = object()
-        app._native_hook_admin_warning_logged = False
-        app.native_hook_loop = lambda *_args: None
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: False
-
-        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
-            with patch.object(gui, "NativeHookLoader", return_value=fake_loader):
-                with patch.object(gui.threading, "Thread", FakeThread):
-                    gui.MegabonkApp.enable_hook_run_control(app)
-
-        self.assertIn(
-            ("[*] Game restart helper may need Administrator privileges; trying anyway.", "warning"),
-            logs,
-        )
-
-    def test_startup_admin_warning_is_not_duplicated_by_hook_enable(self) -> None:
-        fake_loader = object()
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.native_hook_loader = None
-        app.native_hook_thread = None
-        app.native_hook_generation = 0
-        app.run_control_provider = object()
-        app._native_hook_admin_warning_logged = False
-        app.native_hook_loop = lambda *_args: None
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: False
-
-        with patch.object(gui.os, "name", "nt"):
-            with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
-                gui.MegabonkApp.check_admin_rights(app)
-                with patch.object(gui, "NativeHookLoader", return_value=fake_loader):
-                    with patch.object(gui.threading, "Thread", FakeThread):
-                        gui.MegabonkApp.enable_hook_run_control(app)
-
-        hook_warning = ("[*] Game restart helper may need Administrator privileges; trying anyway.", "warning")
-        self.assertEqual(logs.count(hook_warning), 1)
-
-    def test_keyboard_mode_resets_hook_admin_warning_for_later_hook_enable(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app._native_hook_admin_warning_logged = True
-        app.log = lambda message, tag=None: logs.append((message, tag))
-
-        gui.MegabonkApp.enable_keyboard_run_control(app)
-
-        self.assertFalse(app._native_hook_admin_warning_logged)
-
-    def test_enable_hook_run_control_falls_back_to_keyboard_and_shows_dialog_when_dll_is_blocked(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        dialogs: list[str] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.native_hook_loader = None
-        app.native_hook_thread = None
-        app.native_hook_generation = 0
-        app.run_control_provider = object()
-        app._native_hook_admin_warning_logged = False
-        app._native_hook_error_dialog_visible = False
-        app.native_hook_loop = lambda *_args: None
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: True
-        app.after_idle = lambda callback: callback()
-        app.show_native_hook_error_dialog = lambda exc: dialogs.append(str(exc))
-
-        error = gui.HookDllAccessError("blocked")
-
-        with patch.object(gui, "NativeHookLoader", side_effect=error):
-            gui.MegabonkApp.enable_hook_run_control(app)
+        gui.MegabonkApp.apply_run_control_mode(app)
 
         self.assertIsInstance(app.run_control_provider, KeyboardRunControlProvider)
-        self.assertEqual(dialogs, ["blocked"])
-        self.assertIn(
-            ("[WAIT] Native helper is unavailable. Switching to keyboard restart.", "warning"),
-            logs,
-        )
 
-    def test_hook_mode_bypasses_game_window_focus_wait(self) -> None:
+    def test_check_admin_rights_logs_keyboard_warnings_without_admin(self) -> None:
+        logs: list[tuple[str, str | None]] = []
         app = object.__new__(gui.MegabonkApp)
-        app.run_control_provider = HookRunControlProvider(object(), map_load_delay=0)
-        app.is_game_window_active = lambda _process_name: self.fail("hook mode should not check focus")
+        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.is_running_as_admin = lambda: False
 
-        self.assertTrue(gui.MegabonkApp.wait_for_game_window_focus(app, "Megabonk.exe"))
+        with patch.object(gui.os, "name", "nt"):
+            gui.MegabonkApp.check_admin_rights(app)
 
+        self.assertTrue(any("WARNING: Script is not running as Administrator" in message for message, _tag in logs))
+        self.assertTrue(any("Hotkeys may not work while the game window is active" in message for message, _tag in logs))
     def test_game_window_focus_falls_back_to_title_when_attached_pid_differs(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.get_game_process_id = lambda: 1234
@@ -1109,20 +800,6 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(sleeps, [0.3])
         self.assertIn(("[WAIT] Game window is not active. Auto-reroll paused...", "warning"), logs)
         self.assertIn(("[+] Game window active again. Auto-reroll resumed.", "success"), logs)
-
-    def test_confirmed_target_in_hook_mode_brings_game_forward_and_closes_menu(self) -> None:
-        fake_keyboard = FakeKeyboardModule()
-        app = object.__new__(gui.MegabonkApp)
-        app.run_control_provider = HookRunControlProvider(object(), map_load_delay=0)
-        app.bring_game_window_to_front_calls: list[str] = []
-        app.bring_game_window_to_front = app.bring_game_window_to_front_calls.append
-        app.wait_for_game_window_focus = lambda _process_name: self.fail("hook mode should not wait for focus")
-
-        with patch.object(gui, "keyboard", fake_keyboard):
-            self.assertTrue(gui.MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
-
-        self.assertEqual(app.bring_game_window_to_front_calls, ["Megabonk.exe"])
-        self.assertEqual(fake_keyboard.press_and_release_calls, ["esc"])
 
     def test_confirmed_target_in_keyboard_mode_keeps_focus_check_and_esc(self) -> None:
         fake_keyboard = FakeKeyboardModule()
@@ -1357,72 +1034,18 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app.scan_event.is_set())
         self.assertIn(("[*] Scan paused. Press the scan hotkey again to resume.", None), logs)
 
-    def test_toggle_game_setting_logs_new_enabled_state(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.native_hook_loader = types.SimpleNamespace(toggle_skip_chest_animation=lambda: True)
-        app.log = lambda message, tag=None: logs.append((message, tag))
-
-        with patch.object(gui.config, "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED", True):
-            with patch.object(app.native_hook_loader, "toggle_skip_chest_animation", return_value=True) as toggle_setting:
-                changed = gui.MegabonkApp.toggle_game_setting(app, "skip_chest_animation", "Skip Chest Animation")
-
-        self.assertTrue(changed)
-        toggle_setting.assert_called_once_with()
-        self.assertIn(("[+] Skip Chest Animation: ON", "success"), logs)
-
-    def test_toggle_game_setting_supports_particles_opacity(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.native_hook_loader = types.SimpleNamespace(toggle_particles_opacity=lambda: True)
-        app.log = lambda message, tag=None: logs.append((message, tag))
-
-        with patch.object(gui.config, "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED", True):
-            with patch.object(app.native_hook_loader, "toggle_particles_opacity", return_value=False) as toggle_setting:
-                changed = gui.MegabonkApp.toggle_game_setting(app, "particle_opacity", "Particles Opacity")
-
-        self.assertTrue(changed)
-        toggle_setting.assert_called_once_with()
-        self.assertIn(("[+] Particles Opacity: OFF", "success"), logs)
-
-    def test_toggle_game_setting_does_not_load_hook_when_hook_hotkeys_are_disabled(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.native_hook_loader = types.SimpleNamespace(toggle_skip_chest_animation=lambda: True)
-        app.log = lambda message, tag=None: logs.append((message, tag))
-
-        with patch.object(gui.config, "NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED", False):
-            with patch.object(app.native_hook_loader, "toggle_skip_chest_animation") as toggle_setting:
-                changed = gui.MegabonkApp.toggle_game_setting(app, "skip_chest_animation", "Skip Chest Animation")
-
-        self.assertFalse(changed)
-        toggle_setting.assert_not_called()
-        self.assertIn(
-            (
-                "[WAIT] Skip Chest Animation hotkey is disabled because hook-based game-setting hotkeys are off in Settings.",
-                "warning",
-            ),
-            logs,
-        )
-
-    def test_setup_hotkeys_registers_game_setting_hotkeys(self) -> None:
+    def test_setup_hotkeys_registers_supported_hotkeys(self) -> None:
         fake_keyboard = FakeKeyboardModule()
         logs: list[tuple[str, str | None]] = []
         app = object.__new__(gui.MegabonkApp)
         app.log = lambda message, tag=None: logs.append((message, tag))
         app.hotkey_toggle_scanning = lambda: None
         app.hotkey_toggle_player_stats_recording = lambda: None
-        app.hotkey_toggle_skip_chest_animation = lambda: None
-        app.hotkey_toggle_auto_select_upgrades = lambda: None
-        app.hotkey_toggle_particles_opacity = lambda: None
 
         with patch.object(gui, "keyboard", fake_keyboard):
             with patch.object(gui.config, "HOTKEY", "f6"):
                 with patch.object(gui.config, "PLAYER_STATS_RECORD_HOTKEY", "f8"):
-                    with patch.object(gui.config, "TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11"):
-                        with patch.object(gui.config, "TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10"):
-                            with patch.object(gui.config, "TOGGLE_PARTICLES_OPACITY_HOTKEY", "f7"):
-                                gui.MegabonkApp.setup_hotkeys(app)
+                    gui.MegabonkApp.setup_hotkeys(app)
 
         self.assertEqual(fake_keyboard.unhook_all_calls, 0)
         self.assertEqual(len(fake_keyboard.hook_calls), 1)
@@ -1438,9 +1061,6 @@ class GuiRunControlTests(unittest.TestCase):
         app.get_game_process_id = lambda: 1234
         app.hotkey_toggle_scanning = lambda: scan_toggles.append("scan")
         app.hotkey_toggle_player_stats_recording = lambda: None
-        app.hotkey_toggle_skip_chest_animation = lambda: None
-        app.hotkey_toggle_auto_select_upgrades = lambda: None
-        app.hotkey_toggle_particles_opacity = lambda: None
         fake_gui = SimpleNamespace(
             GetForegroundWindow=lambda: 111,
             GetWindowText=lambda _window: "Megabonk",
@@ -4092,158 +3712,36 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(gui.MegabonkApp._split_item_stack_suffix("Wrench x2"), ("Wrench", " x2"))
         self.assertEqual(gui.MegabonkApp._split_item_stack_suffix("Ghost"), ("Ghost", ""))
 
-    def test_on_closing_detaches_native_hooks_and_invalidates_worker(self) -> None:
-        loader = FakeDetachLoader()
-        logs: list[tuple[str, str | None]] = []
+    def test_on_closing_stops_supported_runtime_resources(self) -> None:
         destroyed: list[bool] = []
+        closed: list[str] = []
         app = object.__new__(gui.MegabonkApp)
         app.client = None
         app.stop_event = gui.threading.Event()
         app.scan_event = gui.threading.Event()
-        app.native_hook_loader = loader
-        app.native_hook_thread = object()
-        app.native_hook_generation = 7
-        app.log = lambda message, tag=None: logs.append((message, tag))
+        app.log = lambda _message, tag=None: None
         app.destroy = lambda: destroyed.append(True)
+        app._is_shutting_down = False
+        app._cancel_right_tab_transition = lambda: closed.append("transition")
+        app.close_client = lambda: closed.append("client")
+        app.close_player_stats_client = lambda: closed.append("player_stats")
+        app.close_player_stats_game_data_client = lambda: closed.append("player_stats_game_data")
+        app.close_overlay_server = lambda: closed.append("overlay")
+        app.stop_twitch_bot = lambda: closed.append("twitch")
+        app.twitch_auth_thread = None
+        app.player_stats_vod_recorder = None
+        app._hotkey_manager = None
 
         with patch.object(gui, "keyboard", None):
             gui.MegabonkApp.on_closing(app)
 
-        self.assertEqual(loader.uninitialize_calls, 1)
         self.assertTrue(app.stop_event.is_set())
         self.assertTrue(app.scan_event.is_set())
-        self.assertIsNone(app.native_hook_loader)
-        self.assertIsNone(app.native_hook_thread)
-        self.assertEqual(app.native_hook_generation, 8)
         self.assertEqual(destroyed, [True])
-        self.assertIn(("[+] Game restart helper disconnected.", "success"), logs)
-
-    def test_on_closing_continues_when_native_hook_detach_fails(self) -> None:
-        loader = FakeDetachLoader(error=gui.HookLoadError("remote status 17"))
-        logs: list[tuple[str, str | None]] = []
-        destroyed: list[bool] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.client = None
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
-        app.native_hook_loader = loader
-        app.native_hook_thread = object()
-        app.native_hook_generation = 2
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.destroy = lambda: destroyed.append(True)
-
-        with patch.object(gui, "keyboard", None):
-            gui.MegabonkApp.on_closing(app)
-
-        self.assertEqual(loader.uninitialize_calls, 1)
-        self.assertIsNone(app.native_hook_loader)
-        self.assertIsNone(app.native_hook_thread)
-        self.assertEqual(app.native_hook_generation, 3)
-        self.assertEqual(destroyed, [True])
-        self.assertIn(
-            ("[WAIT] Could not disconnect restart helper during shutdown. Details: remote status 17", "warning"),
-            logs,
+        self.assertEqual(
+            closed,
+            ["transition", "client", "player_stats", "player_stats_game_data", "overlay", "twitch"],
         )
-
-    def test_on_closing_continues_when_game_process_is_gone(self) -> None:
-        loader = FakeDetachLoader(error=gui.HookProcessNotFoundError("Waiting for process 'Megabonk.exe'."))
-        logs: list[tuple[str, str | None]] = []
-        destroyed: list[bool] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.client = None
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
-        app.native_hook_loader = loader
-        app.native_hook_thread = object()
-        app.native_hook_generation = 4
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.destroy = lambda: destroyed.append(True)
-
-        with patch.object(gui, "keyboard", None):
-            gui.MegabonkApp.on_closing(app)
-
-        self.assertEqual(loader.uninitialize_calls, 1)
-        self.assertIsNone(app.native_hook_loader)
-        self.assertIsNone(app.native_hook_thread)
-        self.assertEqual(app.native_hook_generation, 5)
-        self.assertEqual(destroyed, [True])
-        self.assertIn(
-            (
-                "[WAIT] Game is already closed; restart helper shutdown skipped.",
-                "warning",
-            ),
-            logs,
-        )
-
-    def test_native_hook_loop_attempts_injection_without_admin(self) -> None:
-        loader = FakeHookLoopLoader()
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.stop_event = types.SimpleNamespace(is_set=lambda: False, wait=lambda _seconds: None)
-        app.native_hook_generation = 1
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: False
-
-        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
-            gui.MegabonkApp.native_hook_loop(app, loader, 1)
-
-        self.assertEqual(loader.inject_calls, 1)
-        self.assertIn(("[+] Game restart helper connected successfully.", "success"), logs)
-
-    def test_native_hook_loop_logs_injection_failure_without_admin(self) -> None:
-        loader = FakeHookLoopLoader(inject_error=gui.HookLoadError("OpenProcess(1234) failed"))
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.stop_event = types.SimpleNamespace(is_set=lambda: False, wait=lambda _seconds: None)
-        app.native_hook_generation = 1
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: False
-
-        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
-            gui.MegabonkApp.native_hook_loop(app, loader, 1)
-
-        self.assertEqual(loader.inject_calls, 1)
-        self.assertIn(
-            ("[-] Could not connect game restart helper. Details: OpenProcess(1234) failed", "error"),
-            logs,
-        )
-        self.assertNotIn(("[+] Game restart helper connected successfully.", "success"), logs)
-
-    def test_native_hook_loop_retries_when_game_runtime_is_not_ready(self) -> None:
-        loader = FakeHookLoopLoader(
-            inject_error=[gui.HookProcessNotReadyError("runtime not ready"), None],
-        )
-        waits: list[float] = []
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.stop_event = types.SimpleNamespace(is_set=lambda: False, wait=lambda seconds: waits.append(seconds))
-        app.native_hook_generation = 1
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: True
-
-        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
-            gui.MegabonkApp.native_hook_loop(app, loader, 1)
-
-        self.assertEqual(loader.inject_calls, 2)
-        self.assertEqual(waits, [1.0])
-        self.assertIn(("[WAIT] Game is starting up. Restart helper will connect automatically.", None), logs)
-        self.assertIn(("[+] Game restart helper connected successfully.", "success"), logs)
-
-    def test_native_hook_loop_logs_success_for_admin_injection(self) -> None:
-        loader = FakeHookLoopLoader(pid=6728)
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
-        app.stop_event = types.SimpleNamespace(is_set=lambda: False, wait=lambda _seconds: None)
-        app.native_hook_generation = 1
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: True
-
-        with patch.object(gui.config, "NATIVE_HOOK_ENABLED", True):
-            gui.MegabonkApp.native_hook_loop(app, loader, 1)
-        self.assertEqual(loader.inject_calls, 1)
-        self.assertIn(("[+] Game restart helper connected successfully.", "success"), logs)
-
-
     def test_refresh_live_player_stats_now_parses_single_key(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)

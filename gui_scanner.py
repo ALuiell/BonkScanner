@@ -15,7 +15,6 @@ import updater
 from game_data import GameDataClient
 from gui_shared import _clear_layout, _set_text
 from gui_styles import COLOR_MAP, _button_state_stylesheet
-from hook_loader import HookLoadError, HookProcessNotFoundError
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from run_control import RunControlError
 from runtime_stats import adapt_map_stats
@@ -467,25 +466,6 @@ class ScannerMixin:
                 player_stats_vod_recorder.stop()
             else:
                 player_stats_vod_recorder.close()
-        hook_loader = self.native_hook_loader
-        if hook_loader is not None:
-            self.native_hook_generation += 1
-            self.native_hook_loader = None
-            self.native_hook_thread = None
-            try:
-                hook_loader.uninitialize()
-                self.log("[+] Game restart helper disconnected.", tag="success")
-            except HookProcessNotFoundError:
-                self.log("[WAIT] Game is already closed; restart helper shutdown skipped.", tag="warning")
-            except HookLoadError as exc:
-                self.log(f"[WAIT] Could not disconnect restart helper during shutdown. Details: {exc}", tag="warning")
-            except Exception as exc:
-                self.log(f"[WAIT] Unexpected restart helper shutdown error. Details: {exc}", tag="warning")
-            finally:
-                try:
-                    hook_loader.cleanup_cached_dll()
-                except Exception as exc:
-                    self.log(f"[WAIT] Could not clean up cached restart helper DLL. Details: {exc}", tag="warning")
         hotkey_manager = getattr(self, "_hotkey_manager", None)
         if hotkey_manager is not None:
             try:

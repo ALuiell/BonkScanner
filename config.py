@@ -266,28 +266,6 @@ def update_game_setting(name: str, value) -> bool:
         return False
 
 
-def toggle_game_setting(name: str) -> bool | None:
-    current_value = get_game_setting(name)
-    if current_value is None:
-        return None
-
-    enabled = bool(current_value)
-    toggled = not enabled
-
-    if isinstance(current_value, bool):
-        stored_value = toggled
-    elif isinstance(current_value, int):
-        stored_value = 1 if toggled else 0
-    elif isinstance(current_value, float):
-        stored_value = 1.0 if toggled else 0.0
-    else:
-        stored_value = 1 if toggled else 0
-
-    if not update_game_setting(name, stored_value):
-        return None
-    return toggled
-
-
 def get_game_reset_time() -> float | None:
     try:
         data = load_game_config()
@@ -642,12 +620,7 @@ AUTO_START_RECORDING = bool(user_config.get("AUTO_START_RECORDING", False))
 SHOW_OBS_REMINDER_ON_START_SCANNER = bool(user_config.get("SHOW_OBS_REMINDER_ON_START_SCANNER", False))
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
-TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY = user_config.get("TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", "f11")
-TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY = user_config.get("TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", "f10")
-TOGGLE_PARTICLES_OPACITY_HOTKEY = user_config.get("TOGGLE_PARTICLES_OPACITY_HOTKEY", "f7")
 PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
-NATIVE_HOOK_ENABLED = user_config.get("NATIVE_HOOK_ENABLED", False)
-NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED = user_config.get("NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED", False)
 TOTAL_REROLLS = coerce_nonnegative_int(user_config.get("TOTAL_REROLLS", 0))
 
 # Load ignored updates
@@ -716,12 +689,7 @@ user_config["AUTO_START_RECORDING"] = AUTO_START_RECORDING
 user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = SHOW_OBS_REMINDER_ON_START_SCANNER
 user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY
-user_config["TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY"] = TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY
-user_config["TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY"] = TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY
-user_config["TOGGLE_PARTICLES_OPACITY_HOTKEY"] = TOGGLE_PARTICLES_OPACITY_HOTKEY
 user_config["PROCESS_NAME"] = PROCESS_NAME
-user_config["NATIVE_HOOK_ENABLED"] = NATIVE_HOOK_ENABLED
-user_config["NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED"] = NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED
 user_config["TOTAL_REROLLS"] = TOTAL_REROLLS
 user_config["TEMPLATES"] = TEMPLATES
 user_config["ACTIVE_TEMPLATES"] = ACTIVE_TEMPLATES
@@ -731,7 +699,12 @@ user_config["SCORES_SYSTEM"] = SCORES_SYSTEM
 user_config["OVERLAY"] = OVERLAY
 user_config["SESSION_TRACKED_ITEMS"] = SESSION_TRACKED_ITEMS
 user_config["TWITCH_BOT"] = TWITCH_BOT
+user_config.pop("NATIVE_HOOK_ENABLED", None)
+user_config.pop("NATIVE_HOOK_GAME_SETTING_HOTKEYS_ENABLED", None)
 user_config.pop("NATIVE_HOOK_DLL_PATH", None)
+user_config.pop("TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", None)
+user_config.pop("TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", None)
+user_config.pop("TOGGLE_PARTICLES_OPACITY_HOTKEY", None)
 
 
 # If the config.json file did not exist initially (or did not contain TEMPLATES),

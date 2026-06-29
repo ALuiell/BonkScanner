@@ -11,7 +11,6 @@ Use it when:
 - the game updates and memory reads start returning zeros, garbage, or stale values
 - the UI stops updating correctly
 - reroll automation still runs but evaluates wrong data
-- native hook injection or hook readiness breaks
 
 This guide is not meant to replace detailed reverse reports.
 It exists to help quickly:
@@ -108,8 +107,6 @@ Most fragile pieces:
 
 Code:
 
-- `hook_loader.py`
-- `native/BonkHook/*`
 - `run_control.py`
 
 Symptoms:
@@ -180,7 +177,7 @@ Check:
 - item object count field
 - item class metadata and ASCII class name
 
-### Step 5. Check native hook targets
+### Step 5. Check memory-read targets
 
 Reason:
 

@@ -154,30 +154,19 @@ Twitch Bot
 🚩 Stage 1 completed! Kills: 1,042 | Time: 05:00. Moving to Stage 2! 🚩
 
 
-Hotkeys і ігрові toggles
-------------------------
+Hotkeys
+-------
 У `Settings` доступні:
 - `Scan Hotkey`
 - `Reset Hotkey`
 - `Record Hotkey`
 - `Auto-start recording` - автоматично запускає запис player stats, коли застосунок визначає, що run уже триває.
-- `Toggle Chest Skip Hotkey`
-- `Toggle Auto Level-Up Hotkey`
-- `Toggle Particles Opacity Hotkey`
+- `Show OBS reminder on Start Scanner`
 
 Важливо:
+- `Reset Hotkey` - це шлях рестарту через community-метод. BonkScanner використовує цю клавішу для перезапуску runs.
 - Деякі hotkeys на Windows можуть вимагати запуск із правами Administrator.
-- Ігрові toggles можуть застосуватися одразу, навіть якщо ігрове меню налаштувань візуально оновиться лише після повторного відкриття.
-- Підтримувані ігрові toggles застосовуються live через застосунок, коли доступний потрібний hook path.
-- Якщо hotkey не спрацьовує, спочатку перевірте, що гра відкрита і BonkScanner вже нормально підключився.
-
-Native Hook
------------
-- `Use native hook restart` вмикає альтернативний шлях рестарту.
-- Цей режим може бути зручнішим під час alt-tab або роботи у фоні.
-- Native hook attach відбувається лише після того, як гра дійшла до безпечного ініціалізованого стану.
-- Якщо native hook поки не чіпляється, дайте грі дійти до стабільного меню або run-стану й спробуйте ще раз.
-- У будь-який момент можна повернутися до звичайного keyboard restart через `Settings`.
+- Якщо hotkey не спрацьовує, спочатку перевірте, що гра відкрита, за потреби у фокусі, а BonkScanner уже нормально підключився.
 
 Налаштування й оновлення
 ------------------------
@@ -185,13 +174,9 @@ Native Hook
 - `Scan Hotkey` - запускає або ставить на паузу scan loop, поки застосунок працює.
 - `Reset Hotkey` - hotkey звичайного keyboard restart режиму.
 - `Record Hotkey` - запускає або зупиняє запис live stats.
-- `Toggle Chest Skip Hotkey` - перемикає підтримуване ігрове налаштування пропуску анімації скрині.
-- `Toggle Auto Level-Up Hotkey` - перемикає підтримуване ігрове налаштування авто level-up.
-- `Toggle Particles Opacity Hotkey` - перемикає підтримуване ігрове налаштування прозорості/видимості частинок.
 - `Min Reroll Delay (s)` - мінімальна затримка перед перевіркою наступного результату реролу.
 - `Reset Hold Duration (s)` - час утримання клавіші рестарту в застосунку. Це налаштування також синхронізує ігрове значення `quick_reset_time`. Якщо ви його змінили, перезапустіть гру, щоб новий час рестарту повністю застосувався всередині самої гри.
 - `Snapshot Interval (s)` - як часто запис зберігає новий снапшот.
-- `Use native hook restart` - вмикає альтернативний шлях рестарту.
 - `Check for Updates` - перевіряє наявність нової packaged build, коли доступний вбудований updater.
 
 Додатково:

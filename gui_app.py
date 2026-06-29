@@ -309,13 +309,8 @@ class MegabonkApp(
         self.compare_runs_chaos_enabled = compare_sections["chaos"]
         self.compare_runs_item_details_expanded = False
         self.compare_runs_syncing = False
-        self.native_hook_loader = None
-        self.native_hook_thread = None
-        self.native_hook_generation = 0
         self.run_control_provider = None
         self._hotkey_manager = None
-        self._native_hook_admin_warning_logged = False
-        self._native_hook_error_dialog_visible = False
         self.checkboxes = {}
         self.scores_checkboxes = {}
         self.animation_active = False

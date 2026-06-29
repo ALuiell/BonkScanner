@@ -10,7 +10,7 @@ This page outlines common troubleshooting procedures for debugging BonkScanner's
 If the scanner loop skips matching maps or loops endlessly:
 * **Stability Grace Period**: Ensure that `GameDataClient` is waiting until `is_generating` returns `False`. If the scanner evaluates during the loading screen, stats will read as empty ($0$), triggering a restart.
 * **Active Filter Refresh**: Verify whether the user updated templates or scores *during* the scan session. Check that the UI correctly synchronized settings without resetting active session stats.
-* **Restart Mode Bitness**: If using Native Hook restart, ensure the game is the x64 version. If using Keyboard mode, verify that the game window has input focus.
+* **Restart Focus**: Keyboard restart depends on the configured reset hotkey and the game window having input focus when the reroll action is sent.
 
 ### 2. Live Stats Panels are Blank
 If all labels in the Player Stats UI remain as `--` or default values:
@@ -61,4 +61,4 @@ Developers can build on the current architecture with these recommended features
 ## Navigation
 
 - Back to Home: [Home Wiki](./Home.md)
-- Back to Hooks: [Settings & Hooks Wiki](./Settings_and_Hooks.md)
+- Back to Scanner Flow: [Scanner & Evaluation Wiki](./Scanner_and_Evaluation.md)

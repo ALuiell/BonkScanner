@@ -35,7 +35,6 @@ Best candidate design:
   - mark settings as dirty
 - Save later using one of these triggers:
   - debounce timer after the last hotkey change
-  - `RequestRestartRun`
   - `Uninitialize`
 - Whichever trigger happens first performs one save for the latest state.
 
@@ -70,7 +69,6 @@ Current branch notes:
   - gate idle live-stats polling by visible tab or active recording
   - immediate refresh when the user opens the live stats tab
 - Still open:
-  - deferred native hook `SaveConfig()` instead of same-frame save
   - `ProcessMemory` module base caching
   - reduced VOD flush frequency and batched/final flush behavior
   - reduced config write frequency for reroll/session counters
@@ -89,10 +87,8 @@ Current assessment:
 - Average FPS impact is likely low in idle / connected states.
 - Frametime / micro-stutter risk is mostly low, with a few moderate-risk burst
   paths.
-- The riskiest areas are native hook live-setting saves, synchronous disk writes,
 - repeated external memory reads, and global hotkey backend behavior.
 
-Native hook priorities:
 
 - Keep the current immediate runtime apply path through
   `CurrentSettings.BetterUpdateCfSettings(...)`.
@@ -156,7 +152,6 @@ Hotkey / input priorities:
 
 Implementation order:
 
-- Phase 1: defer native hook `SaveConfig()` and keep runtime setting apply
   immediate.
 - Phase 2: cache module bases and add passive item count caps.
 - Phase 3: split / batch player stats and passive item reads.
