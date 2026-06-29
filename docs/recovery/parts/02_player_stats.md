@@ -4,9 +4,9 @@
 This component reads the active player's stats (e.g. Max HP, Damage, Crit Chance, Luck, XP Gain, etc.) from the in-game player stats tab. It resolves the primary `PlayerStatsNew` static instance, traverses to the stats context entries, and extracts values for predefined stat IDs.
 
 - **Target Files**:
-  - Code: [player_stats.py](file:///f:/Python/MegabonkReroll/player_stats.py)
-  - UI Overlay: [gui_player_stats.py](file:///f:/Python/MegabonkReroll/gui_player_stats.py)
-  - Unit Tests: [tests/test_player_stats.py](file:///f:/Python/MegabonkReroll/tests/test_player_stats.py)
+  - Code: `src/player_stats.py`
+  - UI Overlay: `src/gui_player_stats.py`
+  - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
 
@@ -87,7 +87,7 @@ Search for `PlayerStatsNew` or the class that controls it (e.g. `PlayerStatsClie
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
 ```python
 class PlayerStatsClient:
     TYPE_INFO_OFFSET = 0x02F6A4B8
@@ -106,6 +106,6 @@ class PlayerStatsClient:
 ## Verification Steps
 1. Run pytest:
    ```powershell
-   pytest tests/test_player_stats.py
+   pytest src/tests/test_player_stats.py
    ```
 2. Launch the overlay and verify that "Live Stats" tab outputs matches the values in the in-game stats UI.

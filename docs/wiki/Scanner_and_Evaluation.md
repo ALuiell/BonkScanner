@@ -6,7 +6,7 @@ This page details the implementation of the Map Scanner Loop and the two evaluat
 
 ## The Scanner Worker Loop
 
-The core scanning process runs on a background `QThread` called `ScannerWorker` (defined in [gui_scanner.py](../../gui_scanner.py)). Keeping this in a separate thread prevents the GUI from freezing during continuous memory operations and key emulation.
+The core scanning process runs on a background `QThread` called `ScannerWorker` (defined in [gui_scanner.py](../../src/gui_scanner.py)). Keeping this in a separate thread prevents the GUI from freezing during continuous memory operations and key emulation.
 
 ### Polling State Machine
 
@@ -54,7 +54,7 @@ stateDiagram-v2
 
 ## 1. Templates Mode (Rule-Based Matching)
 
-In Templates mode, maps are matched against strict logical thresholds. The evaluation is handled by `find_matching_template` in [logic.py](../../logic.py).
+In Templates mode, maps are matched against strict logical thresholds. The evaluation is handled by `find_matching_template` in [logic.py](../../src/logic.py).
 
 ### Matching Algorithm
 - All templates configured in `config.json` are loaded.
@@ -71,7 +71,7 @@ In Templates mode, maps are matched against strict logical thresholds. The evalu
 
 ## 2. Scores Mode (Weighted Evaluation)
 
-Scores mode ranks maps using weights and multipliers to determine which "tier" a generated map belongs to. It is computed in `calculate_score` and `evaluate_map_by_scores` in [logic.py](../../logic.py).
+Scores mode ranks maps using weights and multipliers to determine which "tier" a generated map belongs to. It is computed in `calculate_score` and `evaluate_map_by_scores` in [logic.py](../../src/logic.py).
 
 ### Microwave Normalization
 Microwave values in the game memory can occasionally be null or overflow. The value is normalized before scoring:

@@ -42,7 +42,7 @@ If one continuous run generates multiple `.jsonl` files, or if two separate runs
 
 ### 5. OBS Overlay Doesn't Load
 * **Port Collision**: Run `netstat -ano | findstr 17845` in PowerShell to verify if another application is binding to the overlay port.
-* **Asset Integrity**: Ensure the folder [media/overlay/](../../media/overlay/) exists and is populated with `index.html`, CSS, and JS scripts.
+* **Asset Integrity**: Ensure the folder [src/media/overlay/](../../src/media/overlay/) exists and is populated with `index.html`, CSS, and JS scripts.
 
 ---
 

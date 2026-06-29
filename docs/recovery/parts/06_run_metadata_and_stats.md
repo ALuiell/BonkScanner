@@ -9,8 +9,8 @@ This component reads overall run metadata and analytics from memory, including:
 - Banished Items and Tomes (by decoding the `RunUnlockables` hashsets)
 
 - **Target Files**:
-  - Code: [player_stats.py](file:///f:/Python/MegabonkReroll/player_stats.py)
-  - Unit Tests: [tests/test_player_stats.py](file:///f:/Python/MegabonkReroll/tests/test_player_stats.py)
+  - Code: `src/player_stats.py`
+  - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
 
@@ -138,7 +138,7 @@ Search for these classes in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
 ```python
 class PlayerStatsClient:
     RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398
@@ -176,6 +176,6 @@ class PlayerStatsClient:
 ## Verification Steps
 1. Run pytest:
    ```powershell
-   pytest tests/test_player_stats.py -k "timer or kills or level or banish"
+   pytest src/tests/test_player_stats.py -k "timer or kills or level or banish"
    ```
 2. Verify that in-game timers, mob kills, and damage sources updates match the HUD/overlay panel live outputs.

@@ -259,9 +259,9 @@ Code anchors:
 - `player_stats.py`
 - `gui_dialogs.py`
 - `gui_twitch.py`
-- `tests/test_twitch_bot.py`
-- `tests/test_live_run_tracker.py`
-- `tests/test_player_stats.py`
+- `src/tests/test_twitch_bot.py`
+- `src/tests/test_live_run_tracker.py`
+- `src/tests/test_player_stats.py`
 
 ---
 
@@ -292,8 +292,8 @@ Code anchors:
 - `gui_run_control.py`
 - `gui_dialogs.py`
 - `config.py`
-- `tests/test_hotkey_manager.py`
-- `tests/test_gui_run_control.py`
+- `src/tests/test_hotkey_manager.py`
+- `src/tests/test_gui_run_control.py`
 
 ---
 
@@ -322,7 +322,7 @@ Archive note:
 
 Status: `[Done]`
 
-- Implemented in [game_data.py](file:///f:/Python/MegabonkReroll/game_data.py) and [gui_player_stats.py](file:///f:/Python/MegabonkReroll/gui_player_stats.py).
+- Implemented in `src/game_data.py` and `src/gui_player_stats.py`.
 - Resolves the issue where stats recording auto-stop could silently fail and keep recording stale snapshots from a dead run context.
 
 Goal:

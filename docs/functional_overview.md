@@ -37,7 +37,7 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
 
 ## Main Files
 
-- `main.py` starts the desktop app.
+- `src/main.py` starts the desktop app.
 - `gui.py` is the compatibility facade for imports/tests; `gui_app.py`,
   `gui_layout.py`, `gui_scanner.py`, `gui_run_control.py`,
   `gui_player_stats.py`, `gui_templates.py`, `gui_dialogs.py`,

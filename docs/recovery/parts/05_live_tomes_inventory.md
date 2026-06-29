@@ -4,8 +4,8 @@
 This component tracks the active run's collected tomes (e.g. Damage Tome, Agility Tome, Cooldown Tome, Chaos Tome) and their current levels. It resolves the `TomeInventory` from player inventory, queries the levels dictionary (tome ID to level), and queries the upgrades dictionary (tome ID to effective stat modifier).
 
 - **Target Files**:
-  - Code: [player_stats.py](file:///f:/Python/MegabonkReroll/player_stats.py)
-  - Unit Tests: [tests/test_player_stats.py](file:///f:/Python/MegabonkReroll/tests/test_player_stats.py)
+  - Code: `src/player_stats.py`
+  - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
 
@@ -77,7 +77,7 @@ Search for these classes in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
 ```python
 class PlayerStatsClient:
     PLAYER_INVENTORY_OFFSET = 0x28
@@ -101,6 +101,6 @@ class PlayerStatsClient:
 ## Verification Steps
 1. Run pytest:
    ```powershell
-   pytest tests/test_player_stats.py -k "tome"
+   pytest src/tests/test_player_stats.py -k "tome"
    ```
 2. Verify in the overlay interface under "Live Stats" that active tomes are listed with correct level counts and effective values.

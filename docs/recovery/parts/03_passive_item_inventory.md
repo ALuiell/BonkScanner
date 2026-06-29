@@ -4,8 +4,8 @@
 This component tracks the player's current passive item inventory (e.g. Wrench, Clover, Oats) and their stack counts. It uses a primary dictionary path through `inventoryContainer`, falling back to `playerInventory.ItemInventory` if the primary dictionary is empty. It parses class names to build display names.
 
 - **Target Files**:
-  - Code: [player_stats.py](file:///f:/Python/MegabonkReroll/player_stats.py)
-  - Unit Tests: [tests/test_player_stats.py](file:///f:/Python/MegabonkReroll/tests/test_player_stats.py)
+  - Code: `src/player_stats.py`
+  - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
 
@@ -67,7 +67,7 @@ Search for these classes in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
 ```python
 class PlayerStatsClient:
     INVENTORY_CONTAINER_OFFSET = 0xA0
@@ -93,6 +93,6 @@ class PlayerStatsClient:
 ## Verification Steps
 1. Run pytest:
    ```powershell
-   pytest tests/test_player_stats.py -k "passive"
+   pytest src/tests/test_player_stats.py -k "passive"
    ```
 2. Verify in the overlay interface under "Live Stats" that picked up items are shown with correct counts (e.g., `Wrench x2`).

@@ -39,17 +39,17 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [SETUP] Installing dependencies from requirements.txt...
-"%PYTHON_EXE%" -m pip install -r requirements.txt
+echo [SETUP] Installing dependencies from src\requirements.txt...
+"%PYTHON_EXE%" -m pip install -r src\requirements.txt
 if errorlevel 1 (
-    echo [ERROR] Failed to install dependencies from requirements.txt.
+    echo [ERROR] Failed to install dependencies from src\requirements.txt.
     pause
     exit /b 1
 )
 
 echo [DONE] Virtual environment is ready.
 echo [DONE] To run the app later, use:
-echo        %PYTHON_EXE% main.py
+echo        %PYTHON_EXE% src\main.py
 echo [DONE] Or activate the environment and run:
 echo        .\%VENV_DIR%\Scripts\Activate.ps1
 

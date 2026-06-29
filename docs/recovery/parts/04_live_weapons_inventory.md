@@ -4,8 +4,8 @@
 This component reads the active run's weapons, their levels, and their stats. It parses the weapons dictionary, gets the level, extracts the weapon configuration, and parses the weapon stats dictionary. It also decodes the upgrade stat modifiers to distinguish between the weapon's base stats and stats upgraded by the weapon's level-up pool.
 
 - **Target Files**:
-  - Code: [player_stats.py](file:///f:/Python/MegabonkReroll/player_stats.py)
-  - Unit Tests: [tests/test_player_stats.py](file:///f:/Python/MegabonkReroll/tests/test_player_stats.py)
+  - Code: `src/player_stats.py`
+  - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
 
@@ -94,7 +94,7 @@ Search for these classes and structures in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
 ```python
 class PlayerStatsClient:
     PLAYER_INVENTORY_OFFSET = 0x28
@@ -122,6 +122,6 @@ class PlayerStatsClient:
 ## Verification Steps
 1. Run pytest:
    ```powershell
-   pytest tests/test_player_stats.py -k "weapon"
+   pytest src/tests/test_player_stats.py -k "weapon"
    ```
 2. Verify in the overlay interface under "Live Stats" that active weapons appear with correct names (e.g. "Fire Staff"), levels, and stat matrices.

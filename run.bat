@@ -11,7 +11,7 @@ if not exist "%PYTHON_EXE%" (
     exit /b 1
 )
 
-start "" "%PYTHON_EXE%" main.py
+start "" "%PYTHON_EXE%" src\main.py
 if errorlevel 1 (
     echo [ERROR] BonkScanner exited with an error.
     pause
