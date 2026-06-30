@@ -348,15 +348,20 @@ class ScannerMixin:
                 break
 
             try:
+                focus_was_active = self.is_game_window_active(process_name)
                 if not self.wait_for_game_window_focus(process_name):
                     continue
+                if not focus_was_active:
+                    is_first_scan = True
+                    last_state = None
+                    last_stats = None
 
                 try:
                     raw_stats = self.client.wait_for_map_ready(
                         previous_state=last_state,
                         previous_stats=last_stats,
                         require_change=not is_first_scan,
-                        abort_condition=lambda: self.stop_event.is_set() or not self.scan_event.is_set(),
+                        abort_condition=lambda: self.stop_event.is_set() or not self.scan_event.is_set() or not self.is_game_window_active(process_name),
                         timeout=10.0,
                     )
                 except InterruptedError:
@@ -415,10 +420,10 @@ class ScannerMixin:
                 if self.reroll_map():
                     last_reroll_time = time.monotonic()
 
-            except TimeoutError as exc:
-                self.log(f"[-] Map took too long to load: {exc}", tag="warning")
+            except TimeoutError:
+                self.log("[-] Map took too long to load.", tag="warning")
                 self.log("[*] Restarting run to recover...", tag="warning")
-                if self.reroll_map():
+                if self.wait_for_game_window_focus(process_name) and self.reroll_map():
                     last_reroll_time = time.monotonic()
                 last_state = None
                 last_stats = None
