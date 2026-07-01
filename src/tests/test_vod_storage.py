@@ -154,6 +154,10 @@ class VodStorageTests(unittest.TestCase):
                 chests_per_minute=1.23,
                 game_time_seconds=21.52338219,
                 mob_kills=37,
+                kps_at_capture=150,
+                minute_avg_kps_at_capture=243,
+                five_minute_avg_kps_at_capture=221,
+                run_avg_kps_at_capture=138,
                 player_level=2,
                 chests_opened=37,
                 chests_total=46,
@@ -179,6 +183,10 @@ class VodStorageTests(unittest.TestCase):
                 chests_per_minute=2.34,
                 game_time_seconds=81.75,
                 mob_kills=12,
+                kps_at_capture=160,
+                minute_avg_kps_at_capture=250,
+                five_minute_avg_kps_at_capture=225,
+                run_avg_kps_at_capture=140,
                 player_level=4,
             )
             recorder.stop()
@@ -209,6 +217,10 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].chests_per_minute, 1.23)
             self.assertAlmostEqual(loaded.snapshots[0].game_time_seconds, 21.52338219)
             self.assertEqual(loaded.snapshots[0].mob_kills, 37)
+            self.assertEqual(loaded.snapshots[0].kps_at_capture, 150)
+            self.assertEqual(loaded.snapshots[0].minute_avg_kps_at_capture, 243)
+            self.assertEqual(loaded.snapshots[0].five_minute_avg_kps_at_capture, 221)
+            self.assertEqual(loaded.snapshots[0].run_avg_kps_at_capture, 138)
             self.assertEqual(loaded.snapshots[0].player_level, 2)
             self.assertEqual(loaded.snapshots[0].chests_opened, 37)
             self.assertEqual(loaded.snapshots[0].chests_total, 46)
@@ -227,6 +239,10 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[1].chests_per_minute, 2.34)
             self.assertAlmostEqual(loaded.snapshots[1].game_time_seconds, 81.75)
             self.assertEqual(loaded.snapshots[1].mob_kills, 12)
+            self.assertEqual(loaded.snapshots[1].kps_at_capture, 160)
+            self.assertEqual(loaded.snapshots[1].minute_avg_kps_at_capture, 250)
+            self.assertEqual(loaded.snapshots[1].five_minute_avg_kps_at_capture, 225)
+            self.assertEqual(loaded.snapshots[1].run_avg_kps_at_capture, 140)
             self.assertEqual(loaded.snapshots[1].player_level, 4)
             self.assertEqual(loaded.snapshots[1].time_label, "01:00")
 

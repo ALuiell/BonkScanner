@@ -40,8 +40,8 @@ SUMMARY_LABEL_PADDING_STYLESHEET = "padding-left: 4px;"
 LIVE_STATS_CARD_COLUMNS = 3
 LIVE_STATS_VALUE_WIDTH = 64
 RECORDINGS_STATS_CARD_COLUMNS = 3
-RECORDINGS_LIST_MIN_WIDTH = 150
-RECORDINGS_LIST_MAX_WIDTH = 240
+RECORDINGS_LIST_MIN_WIDTH = 190
+RECORDINGS_LIST_MAX_WIDTH = 280
 STAGE_SUMMARY_COLUMN_BASELINES = {
     "stage": "Stage",
     "time": "59:59",
@@ -55,6 +55,7 @@ RUN_SUMMARY_LABEL_BASELINES = {
     "powerups_duration": "Powerups: 999.9s | Clock: 999.9s",
     "in_game_time": "In-Game Time: 99:59:59",
     "mob_kills": "Mob Kills: 999,999",
+    "kps_averages": "KPS Avg: 60s 999/s | 5m 999/s",
     "level": "Level: 999",
 }
 POWERUPS_CARD_LINE_BASELINE = "Stonks: 99:59 -> +99:59 (999.99s)"
@@ -112,10 +113,14 @@ def _apply_run_summary_baselines(chests_per_minute_label, *labels) -> None:
     if len(labels) == 3:
         powerups_duration_label = None
         in_game_time_label, mob_kills_label, level_label = labels
+        kps_averages_label = None
     elif len(labels) == 4:
-        powerups_duration_label, in_game_time_label, mob_kills_label, level_label = labels
+        powerups_duration_label = None
+        in_game_time_label, mob_kills_label, kps_averages_label, level_label = labels
+    elif len(labels) == 5:
+        powerups_duration_label, in_game_time_label, mob_kills_label, kps_averages_label, level_label = labels
     else:
-        raise TypeError("_apply_run_summary_baselines() expects 4 or 5 labels")
+        raise TypeError("_apply_run_summary_baselines() expects 4, 5, or 6 labels")
     _reserve_label_baseline_width(
         chests_per_minute_label,
         RUN_SUMMARY_LABEL_BASELINES["chests_per_minute"],
@@ -133,6 +138,11 @@ def _apply_run_summary_baselines(chests_per_minute_label, *labels) -> None:
         mob_kills_label,
         RUN_SUMMARY_LABEL_BASELINES["mob_kills"],
     )
+    if kps_averages_label is not None:
+        _reserve_label_baseline_width(
+            kps_averages_label,
+            RUN_SUMMARY_LABEL_BASELINES["kps_averages"],
+        )
     _reserve_label_baseline_width(
         level_label,
         RUN_SUMMARY_LABEL_BASELINES["level"],
@@ -423,18 +433,22 @@ class GuiLayoutMixin:
         chest_rate_layout.addWidget(self.player_stats_in_game_time_label)
         self.player_stats_mob_kills_label = QLabel("Mob Kills: --")
         chest_rate_layout.addWidget(self.player_stats_mob_kills_label)
+        self.player_stats_kps_averages_label = QLabel("KPS Avg: --")
+        chest_rate_layout.addWidget(self.player_stats_kps_averages_label)
         self.player_stats_level_label = QLabel("Level: --")
         chest_rate_layout.addWidget(self.player_stats_level_label)
         _apply_summary_label_padding(
             self.player_stats_chests_per_minute_label,
             self.player_stats_in_game_time_label,
             self.player_stats_mob_kills_label,
+            self.player_stats_kps_averages_label,
             self.player_stats_level_label,
         )
         _apply_run_summary_baselines(
             self.player_stats_chests_per_minute_label,
             self.player_stats_in_game_time_label,
             self.player_stats_mob_kills_label,
+            self.player_stats_kps_averages_label,
             self.player_stats_level_label,
         )
         live_summary_grid.addWidget(chest_rate_group, 0, 0)
@@ -592,12 +606,16 @@ class GuiLayoutMixin:
 
     def _build_recordings_tab(self):
         self.tab_vods = QWidget()
-        vods_layout = QHBoxLayout(self.tab_vods)
-        self.vods_list_frame = QListWidget()
-        self.vods_list_frame.setMinimumWidth(RECORDINGS_LIST_MIN_WIDTH)
-        self.vods_list_frame.setMaximumWidth(RECORDINGS_LIST_MAX_WIDTH)
-        self.vods_list_frame.currentItemChanged.connect(self._on_vod_selection_changed)
-        vods_layout.addWidget(self.vods_list_frame, 0)
+        vods_layout = QVBoxLayout(self.tab_vods)
+        selected_row = QHBoxLayout()
+        self.vods_select_btn = QPushButton("Select Recordings")
+        self.vods_select_btn.setProperty("class", "CompareRunsGhostButton")
+        self.vods_select_btn.clicked.connect(self.toggle_recordings_chooser)
+        selected_row.addStretch(1)
+        selected_row.addWidget(self.vods_select_btn)
+        vods_layout.addLayout(selected_row)
+
+        vods_body_layout = QHBoxLayout()
         vods_detail = QWidget()
         vods_detail_layout = QVBoxLayout(vods_detail)
         self.vods_status_label = QLabel("Select a recording")
@@ -676,18 +694,22 @@ class GuiLayoutMixin:
         vod_chest_rate_layout.addWidget(self.vods_in_game_time_label)
         self.vods_mob_kills_label = QLabel("Mob Kills: --")
         vod_chest_rate_layout.addWidget(self.vods_mob_kills_label)
+        self.vods_kps_averages_label = QLabel("KPS Avg: --")
+        vod_chest_rate_layout.addWidget(self.vods_kps_averages_label)
         self.vods_level_label = QLabel("Level: --")
         vod_chest_rate_layout.addWidget(self.vods_level_label)
         _apply_summary_label_padding(
             self.vods_chests_per_minute_label,
             self.vods_in_game_time_label,
             self.vods_mob_kills_label,
+            self.vods_kps_averages_label,
             self.vods_level_label,
         )
         _apply_run_summary_baselines(
             self.vods_chests_per_minute_label,
             self.vods_in_game_time_label,
             self.vods_mob_kills_label,
+            self.vods_kps_averages_label,
             self.vods_level_label,
         )
         vod_summary_grid.addWidget(vod_chest_rate_group, 0, 0)
@@ -864,7 +886,19 @@ class GuiLayoutMixin:
         vod_chaos_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
         vods_detail_layout.addWidget(self.vods_detail_tabs, 1)
-        vods_layout.addWidget(vods_detail, 1)
+        self.vods_chooser_group = QGroupBox("Select Recordings")
+        self.vods_chooser_group.setVisible(False)
+        self.vods_chooser_group.setMinimumWidth(RECORDINGS_LIST_MIN_WIDTH)
+        self.vods_chooser_group.setMaximumWidth(RECORDINGS_LIST_MAX_WIDTH + 40)
+        chooser_layout = QVBoxLayout(self.vods_chooser_group)
+        self.vods_list_frame = QListWidget()
+        self.vods_list_frame.setMinimumWidth(RECORDINGS_LIST_MIN_WIDTH)
+        self.vods_list_frame.setMaximumWidth(RECORDINGS_LIST_MAX_WIDTH)
+        self.vods_list_frame.currentItemChanged.connect(self._on_vod_selection_changed)
+        chooser_layout.addWidget(self.vods_list_frame)
+        vods_body_layout.addWidget(self.vods_chooser_group, 0)
+        vods_body_layout.addWidget(vods_detail, 1)
+        vods_layout.addLayout(vods_body_layout, 1)
         self.tabview.addTab(self.tab_vods, "Recordings")
 
     def _build_compare_runs_tab(self):
@@ -1142,6 +1176,8 @@ class GuiLayoutMixin:
         self._show_right_tab_transition_cover()
         if self._is_recordings_tab_active():
             self.refresh_vods_list()
+            if hasattr(self, "ensure_recordings_chooser_for_empty_selection"):
+                self.ensure_recordings_chooser_for_empty_selection()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
             if hasattr(self, "ensure_compare_runs_chooser_for_empty_selection"):
@@ -1151,6 +1187,8 @@ class GuiLayoutMixin:
     def _refresh_right_tab_after_switch(self):
         if self._is_recordings_tab_active():
             self.refresh_vods_list()
+            if hasattr(self, "ensure_recordings_chooser_for_empty_selection"):
+                self.ensure_recordings_chooser_for_empty_selection()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
             if hasattr(self, "ensure_compare_runs_chooser_for_empty_selection"):

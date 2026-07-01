@@ -897,7 +897,14 @@ class TwitchBotWorker(QThread):
             minute_text = "--" if minute_avg is None else f"{minute_avg:,}/s"
             ten_minute_text = "--" if ten_minute_avg is None else f"{ten_minute_avg:,}/s"
             run_text = "--" if run_avg is None else f"{run_avg:,}/s"
-            msg = f"KPS: {kps:,}/s | 60s Avg: {minute_text} | 5m Avg: {ten_minute_text} | Run Avg: {run_text}"
+            msg = self._format_template(
+                "kps",
+                "KPS: {kps} | 60s Avg: {minute_avg} | 5m Avg: {five_minute_avg} | Run Avg: {run_avg}",
+                kps=f"{kps:,}/s",
+                minute_avg=minute_text,
+                five_minute_avg=ten_minute_text,
+                run_avg=run_text,
+            )
         self._send_chat(channel, msg)
 
     def _handle_commands(self, channel: str):

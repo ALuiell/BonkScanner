@@ -287,6 +287,7 @@ class PlayerStatsMixin:
         self._apply_live_powerups_card(None)
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
         _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
+        _set_text(getattr(self, "player_stats_kps_averages_label", None), "KPS Avg: --")
         _set_text(self.player_stats_level_label, "Level: --")
         self._set_chests_card_values(
             getattr(self, "player_stats_chests_card_values", None),
@@ -714,6 +715,10 @@ class PlayerStatsMixin:
             and runtime_state.mode is RuntimeGameMode.IN_GAME
         )
         if can_capture_recording and self.player_stats_vod_recorder.should_capture():
+            current_ui_kps_reader = getattr(self.live_run_tracker, "current_ui_kps", None)
+            current_minute_kps_reader = getattr(self.live_run_tracker, "current_minute_avg_kps", None)
+            current_five_minute_kps_reader = getattr(self.live_run_tracker, "current_five_minute_avg_kps", None)
+            current_run_kps_reader = getattr(self.live_run_tracker, "current_run_avg_kps", None)
             snapshot = self.player_stats_vod_recorder.capture(
                 stats,
                 effective_items,
@@ -725,7 +730,16 @@ class PlayerStatsMixin:
                 chests_per_minute=chests_per_minute,
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
-                kps_at_capture=self.live_run_tracker.current_ui_kps(),
+                kps_at_capture=current_ui_kps_reader() if callable(current_ui_kps_reader) else None,
+                minute_avg_kps_at_capture=(
+                    current_minute_kps_reader() if callable(current_minute_kps_reader) else None
+                ),
+                five_minute_avg_kps_at_capture=(
+                    current_five_minute_kps_reader() if callable(current_five_minute_kps_reader) else None
+                ),
+                run_avg_kps_at_capture=(
+                    current_run_kps_reader() if callable(current_run_kps_reader) else None
+                ),
                 player_level=player_level,
                 map_seed=map_seed,
                 stage_ptr=stage_ptr,
@@ -757,6 +771,10 @@ class PlayerStatsMixin:
             return True
 
         if is_live_tab_active:
+            current_ui_kps_reader = getattr(self.live_run_tracker, "current_ui_kps", None)
+            current_minute_kps_reader = getattr(self.live_run_tracker, "current_minute_avg_kps", None)
+            current_five_minute_kps_reader = getattr(self.live_run_tracker, "current_five_minute_avg_kps", None)
+            current_run_kps_reader = getattr(self.live_run_tracker, "current_run_avg_kps", None)
             if self.player_stats_vod_recorder.is_recording:
                 if runtime_state is not None and runtime_state.mode is RuntimeGameMode.PAUSED_IN_GAME:
                     status_text_val = "Live player stats (recording paused)"
@@ -783,7 +801,13 @@ class PlayerStatsMixin:
                 items_text=items_text,
                 game_time_seconds=run_timer_seconds,
                 mob_kills=mob_kills,
-                kps=self.live_run_tracker.current_ui_kps(),
+                kps=current_ui_kps_reader() if callable(current_ui_kps_reader) else None,
+                minute_avg_kps=(
+                    current_minute_kps_reader() if callable(current_minute_kps_reader) else None
+                ),
+                five_minute_avg_kps=(
+                    current_five_minute_kps_reader() if callable(current_five_minute_kps_reader) else None
+                ),
                 player_level=player_level,
                 stage_summary_rows=live_stage_summary_rows,
             )
@@ -808,6 +832,8 @@ class PlayerStatsMixin:
         game_time_seconds: float | None = None,
         mob_kills: int | None = None,
         kps: int | None = None,
+        minute_avg_kps: int | None = None,
+        five_minute_avg_kps: int | None = None,
         player_level: int | None = None,
         new_items_text: str | None = None,
         stage_summary_rows: list[dict[str, str]] | None = None,
@@ -837,6 +863,10 @@ class PlayerStatsMixin:
         _set_text(
             self.player_stats_mob_kills_label,
             self.format_mob_kills(mob_kills, kps),
+        )
+        _set_text(
+            getattr(self, "player_stats_kps_averages_label", None),
+            self.format_kps_averages(minute_avg_kps, five_minute_avg_kps),
         )
         _set_text(
             self.player_stats_level_label,
@@ -892,6 +922,8 @@ class PlayerStatsMixin:
             game_time_seconds=snapshot.game_time_seconds,
             mob_kills=getattr(snapshot, "mob_kills", None),
             kps=getattr(snapshot, "kps_at_capture", None),
+            minute_avg_kps=getattr(snapshot, "minute_avg_kps_at_capture", None),
+            five_minute_avg_kps=getattr(snapshot, "five_minute_avg_kps_at_capture", None),
             player_level=getattr(snapshot, "player_level", None),
             new_items_text=self.format_snapshot_item_gains_preview(
                 self._previous_player_stats_snapshot(snapshot),
@@ -1360,6 +1392,33 @@ class PlayerStatsMixin:
         self.vods_list_frame.blockSignals(False)
         self.vods_list_signature = signature
 
+    def toggle_recordings_chooser(self):
+        next_expanded = not bool(getattr(self, "recordings_chooser_expanded", False))
+        self.set_recordings_chooser_expanded(next_expanded, guided=False)
+
+    def ensure_recordings_chooser_for_empty_selection(self) -> None:
+        if not self._is_recordings_tab_active():
+            return
+        if self.loaded_vod is not None:
+            return
+        if bool(getattr(self, "recordings_chooser_expanded", False)):
+            return
+        self.set_recordings_chooser_expanded(True, guided=True)
+
+    def set_recordings_chooser_expanded(self, expanded: bool, *, guided: bool) -> None:
+        self.recordings_chooser_expanded = bool(expanded)
+        self.recordings_guided_selection_active = bool(expanded and guided)
+        self._refresh_recordings_chooser()
+
+    def _refresh_recordings_chooser(self) -> None:
+        expanded = bool(getattr(self, "recordings_chooser_expanded", False))
+        chooser = getattr(self, "vods_chooser_group", None)
+        button = getattr(self, "vods_select_btn", None)
+        if chooser is not None:
+            chooser.setVisible(expanded)
+        if button is not None:
+            button.setText("Hide Recordings" if expanded else "Select Recordings")
+
     def _on_vod_selection_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None):
         if current is None:
             return
@@ -1385,6 +1444,10 @@ class PlayerStatsMixin:
         _set_text_input(self.vods_name_entry, self.loaded_vod.metadata.name)
         self.refresh_loaded_vod_ui()
         self.refresh_vods_list()
+        if bool(getattr(self, "recordings_chooser_expanded", False)) and bool(
+            getattr(self, "recordings_guided_selection_active", False)
+        ):
+            self.set_recordings_chooser_expanded(False, guided=False)
 
     def refresh_loaded_vod_ui(self, *, update_slider: bool = True):
         if self.loaded_vod is None:
@@ -1413,6 +1476,7 @@ class PlayerStatsMixin:
             _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
             _set_text(self.vods_in_game_time_label, "In-Game Time: --")
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
+            _set_text(getattr(self, "vods_kps_averages_label", None), "KPS Avg: --")
             _set_text(self.vods_level_label, "Level: --")
             self._set_chests_card_values(
                 getattr(self, "vods_chests_card_values", None),
@@ -1465,7 +1529,17 @@ class PlayerStatsMixin:
         )
         _set_text(
             self.vods_mob_kills_label,
-            self.format_mob_kills(getattr(snapshot, "mob_kills", None)),
+            self.format_mob_kills(
+                getattr(snapshot, "mob_kills", None),
+                getattr(snapshot, "kps_at_capture", None),
+            ),
+        )
+        _set_text(
+            getattr(self, "vods_kps_averages_label", None),
+            self.format_kps_averages(
+                getattr(snapshot, "minute_avg_kps_at_capture", None),
+                getattr(snapshot, "five_minute_avg_kps_at_capture", None),
+            ),
         )
         _set_text(
             self.vods_level_label,
@@ -2131,6 +2205,7 @@ class PlayerStatsMixin:
         _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
+        _set_text(getattr(self, "vods_kps_averages_label", None), "KPS Avg: --")
         _set_text(self.vods_level_label, "Level: --")
         self._set_chests_card_values(
             getattr(self, "vods_chests_card_values", None),
@@ -2783,6 +2858,22 @@ class PlayerStatsMixin:
         if kps is not None:
             return f"Mob Kills: {formatted_value} ({PlayerStatsMixin.format_count(kps)}/s)"
         return f"Mob Kills: {formatted_value}"
+
+    @staticmethod
+    def format_kps_averages(
+        minute_avg_kps: int | None,
+        five_minute_avg_kps: int | None,
+    ) -> str:
+        values = []
+        for label, value in (
+            ("60s", minute_avg_kps),
+            ("5m", five_minute_avg_kps),
+        ):
+            if value is None:
+                values.append(f"{label} --")
+            else:
+                values.append(f"{label} {PlayerStatsMixin.format_count(value)}/s")
+        return f"KPS Avg: {' | '.join(values)}"
 
     @staticmethod
     def format_count(value: int | float) -> str:

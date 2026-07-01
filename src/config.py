@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import shutil
 import colorama
 import threading
 
@@ -158,6 +159,7 @@ DEFAULT_TWITCH_BOT = {
         "chaos": "Chaos Tome Lv{level}: {chaos}",
         "stages": "{stages}",
         "powerups": "Powerups: {powerups} (PM {pm})",
+        "kps": "KPS: {kps} | 60s Avg: {minute_avg} | 5m Avg: {five_minute_avg} | Run Avg: {run_avg}",
         "scanner": "Download it here: {github_url} | Support the creator here: {patreon_url} | Try !bonkhelp.",
         "chests": "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
         "bonkhelp": "Available commands: {commands_list}",
@@ -313,7 +315,76 @@ def save_config(cfg_dict):
         except Exception:
             pass
 
+
+def get_local_appdata_dir() -> str | None:
+    local_appdata = os.environ.get("LOCALAPPDATA", "").strip()
+    if not local_appdata:
+        user_profile = os.environ.get("USERPROFILE", "").strip()
+        if user_profile:
+            local_appdata = os.path.join(user_profile, "AppData", "Local")
+    return local_appdata or None
+
+
+def get_legacy_native_hook_root() -> str | None:
+    local_appdata = get_local_appdata_dir()
+    if not local_appdata:
+        return None
+    return os.path.join(local_appdata, "BonkScanner")
+
+
+def _is_path_within(parent_path: str, child_path: str) -> bool:
+    try:
+        parent_real = os.path.realpath(parent_path)
+        child_real = os.path.realpath(child_path)
+        return os.path.commonpath([parent_real, child_real]) == parent_real
+    except Exception:
+        return False
+
+
+def _collect_legacy_native_hook_directories(saved_dll_path: str | None = None) -> list[str]:
+    root_dir = get_legacy_native_hook_root()
+    if not root_dir:
+        return []
+
+    candidates: list[str] = [os.path.join(root_dir, "native-hook")]
+    if saved_dll_path:
+        dll_dir = os.path.dirname(saved_dll_path)
+        if dll_dir and _is_path_within(root_dir, dll_dir):
+            candidates.append(dll_dir)
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized_candidate = os.path.normcase(os.path.normpath(candidate))
+        if normalized_candidate not in seen:
+            seen.add(normalized_candidate)
+            normalized.append(candidate)
+    return normalized
+
+
+def cleanup_legacy_native_hook_cache(saved_dll_path: str | None = None) -> None:
+    root_dir = get_legacy_native_hook_root()
+    if not root_dir:
+        return
+
+    for directory in _collect_legacy_native_hook_directories(saved_dll_path):
+        if not os.path.isdir(directory):
+            continue
+        if not _is_path_within(root_dir, directory):
+            continue
+        try:
+            shutil.rmtree(directory)
+        except Exception:
+            continue
+
+    try:
+        if os.path.isdir(root_dir) and not os.listdir(root_dir):
+            os.rmdir(root_dir)
+    except Exception:
+        pass
+
 user_config = load_config()
+cleanup_legacy_native_hook_cache(user_config.get("NATIVE_HOOK_DLL_PATH"))
 
 def coerce_nonnegative_int(value, default=0):
     try:

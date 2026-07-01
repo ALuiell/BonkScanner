@@ -691,6 +691,29 @@ class TestTwitchBotWorker(unittest.TestCase):
             "KPS: 150/s | 60s Avg: 243/s | 5m Avg: 221/s | Run Avg: 138/s",
         )
 
+    def test_handle_kps_uses_custom_template(self):
+        from config import TWITCH_BOT
+
+        old_templates = TWITCH_BOT.get("templates")
+        TWITCH_BOT["templates"] = dict(old_templates or {})
+        TWITCH_BOT["templates"]["kps"] = "KPS now {kps} | short {minute_avg} | mid {five_minute_avg} | full {run_avg}"
+
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.status.return_value = "live"
+        self.run_tracker.current_ui_kps.return_value = 150
+        self.run_tracker.current_minute_avg_kps.return_value = 243
+        self.run_tracker.current_five_minute_avg_kps.return_value = 221
+        self.run_tracker.current_run_avg_kps.return_value = 138
+
+        self.bot._handle_kps("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "KPS now 150/s | short 243/s | mid 221/s | full 138/s",
+        )
+
+        TWITCH_BOT["templates"] = old_templates
+
     def test_handle_disabled_without_cached_data(self):
         self.bot._send_chat = MagicMock()
         self.run_tracker.get_disabled_items.return_value = DisabledItemsReadResult(

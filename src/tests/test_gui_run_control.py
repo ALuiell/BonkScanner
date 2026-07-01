@@ -202,6 +202,9 @@ class FakeRecordingRecorder:
         game_time_seconds=None,
         mob_kills=None,
         kps_at_capture=None,
+        minute_avg_kps_at_capture=None,
+        five_minute_avg_kps_at_capture=None,
+        run_avg_kps_at_capture=None,
         player_level=None,
         map_seed=None,
         stage_ptr=0,
@@ -228,6 +231,9 @@ class FakeRecordingRecorder:
             game_time_seconds=game_time_seconds,
             mob_kills=mob_kills,
             kps_at_capture=kps_at_capture,
+            minute_avg_kps_at_capture=minute_avg_kps_at_capture,
+            five_minute_avg_kps_at_capture=five_minute_avg_kps_at_capture,
+            run_avg_kps_at_capture=run_avg_kps_at_capture,
             player_level=player_level,
             map_seed=map_seed,
             stage_ptr=stage_ptr,
@@ -256,6 +262,9 @@ class FakeRecordingRecorder:
                 "game_time_seconds": game_time_seconds,
                 "mob_kills": mob_kills,
                 "kps_at_capture": kps_at_capture,
+                "minute_avg_kps_at_capture": minute_avg_kps_at_capture,
+                "five_minute_avg_kps_at_capture": five_minute_avg_kps_at_capture,
+                "run_avg_kps_at_capture": run_avg_kps_at_capture,
                 "player_level": player_level,
                 "map_seed": map_seed,
                 "stage_ptr": stage_ptr,
@@ -2856,6 +2865,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_in_game_time_label = FakeLabel()
         app.vods_chests_per_minute_label = FakeLabel()
         app.vods_mob_kills_label = FakeLabel()
+        app.vods_kps_averages_label = FakeLabel()
         app.vods_level_label = FakeLabel()
         app.vods_new_items_label = FakeLabel()
         app.vods_banishes_label = FakeLabel()
@@ -2883,6 +2893,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.vods_status_label.text(), "Legacy run | 1/1 at 00:00 | In-Game Time: --")
         self.assertEqual(app.vods_in_game_time_label.text(), "In-Game Time: --")
         self.assertEqual(app.vods_mob_kills_label.text(), "Mob Kills: --")
+        self.assertEqual(app.vods_kps_averages_label.text(), "KPS Avg: 60s -- | 5m --")
         self.assertEqual(app.vods_level_label.text(), "Level: --")
         self.assertEqual(app.vods_new_items_label.text(), "No previous snapshot")
         self.assertEqual(app.vods_banishes_label.text(), "No banishes yet")
@@ -2896,6 +2907,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_in_game_time_label = FakeLabel()
         app.vods_chests_per_minute_label = FakeLabel()
         app.vods_mob_kills_label = FakeLabel()
+        app.vods_kps_averages_label = FakeLabel()
         app.vods_level_label = FakeLabel()
         app.vods_new_items_label = FakeLabel()
         app.vods_banishes_label = FakeLabel()
@@ -2924,6 +2936,10 @@ class GuiRunControlTests(unittest.TestCase):
             chests_per_minute=1.23,
             game_time_seconds=60.0,
             mob_kills=10,
+            kps_at_capture=150,
+            minute_avg_kps_at_capture=243,
+            five_minute_avg_kps_at_capture=221,
+            run_avg_kps_at_capture=138,
             player_level=2,
             time_label="01:00",
         )
@@ -2935,6 +2951,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(len(damage_calls), 1)
         self.assertEqual(damage_calls[0][1], "vod")
         self.assertEqual(damage_calls[0][0][0].source_name, "Katana")
+        self.assertEqual(app.vods_mob_kills_label.text(), "Mob Kills: 10 (150/s)")
+        self.assertEqual(app.vods_kps_averages_label.text(), "KPS Avg: 60s 243/s | 5m 221/s")
 
     def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
         self.assertEqual(gui.MegabonkApp.format_in_game_time(None), "In-Game Time: --")
@@ -2945,6 +2963,16 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(gui.MegabonkApp.format_mob_kills(None), "Mob Kills: --")
         self.assertEqual(gui.MegabonkApp.format_mob_kills(42), "Mob Kills: 42")
         self.assertEqual(gui.MegabonkApp.format_mob_kills(1291146), "Mob Kills: 1,291,146")
+
+    def test_format_kps_averages_formats_missing_and_positive_values(self) -> None:
+        self.assertEqual(
+            gui.MegabonkApp.format_kps_averages(None, None),
+            "KPS Avg: 60s -- | 5m --",
+        )
+        self.assertEqual(
+            gui.MegabonkApp.format_kps_averages(243, 221),
+            "KPS Avg: 60s 243/s | 5m 221/s",
+        )
 
     def test_format_player_level_formats_missing_and_positive_values(self) -> None:
         self.assertEqual(gui.MegabonkApp.format_player_level(None), "Level: --")

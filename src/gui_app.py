@@ -53,8 +53,8 @@ class MegabonkApp(
         self._close_in_progress = False
 
         self.setWindowTitle(f"BonkScanner v{updater.CURRENT_VERSION}")
-        self.resize(1280, 760)
-        self.setMinimumSize(1080, 640)
+        self.resize(1320, 830)
+        self.setMinimumSize(1120, 710)
         icon_path = resource_path("media/bonkscanner_icon.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
@@ -125,6 +125,8 @@ class MegabonkApp(
         self.player_stats_damage_sources_layout = None
         self.player_stats_damage_source_signature = None
         self.vods_list_frame = None
+        self.vods_chooser_group = None
+        self.vods_select_btn = None
         self.vods_status_label = None
         self.vods_name_entry = None
         self.vods_rename_btn = None
@@ -169,6 +171,8 @@ class MegabonkApp(
         self.vods_damage_sources_status_label = None
         self.vods_damage_sources_layout = None
         self.vods_damage_source_signature = None
+        self.recordings_chooser_expanded = False
+        self.recordings_guided_selection_active = False
         self.compare_run_a_list_frame = None
         self.compare_run_b_list_frame = None
         self.compare_runs_chooser_group = None

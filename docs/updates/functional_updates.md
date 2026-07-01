@@ -266,3 +266,67 @@ Implementation details:
   - The `_handle_kps(self, channel: str)` callback will invoke `self.run_tracker.current_kps()` and output exclusively the KPS metric (e.g., `@User, 150 kills/sec.`) to keep chat noise minimal.
   - If KPS is not available yet because the run has just started or live reads are not ready, the command should return a short unavailable/warming-up response rather than a misleading `0 kills/sec`.
   - The command will be automatically appended to the output of the `!bonkhelp` message.
+
+#### 7. `!chaos` / `!chaostome` Roll Frequency Statistics
+
+Status: `[Open]`
+
+Goal:
+
+- Extend the existing Chaos Tome tracking so chat can see not only the accumulated total bonuses, but also which Chaos stats have rolled most often and least often.
+- Reuse the current per-stat roll counters already maintained by Chaos Tome tracking rather than introducing a second counting system.
+- Keep the feature focused on the existing `!chaos` / `!chaostome` command output first, with optional UI exposure later if it proves useful.
+
+Planned implementation notes:
+
+- `LiveRunTracker` already stores the number of tracked rolls per Chaos stat, so the new work should mainly expose and format that data instead of re-detecting rolls.
+- Add a structured helper that returns Chaos stat totals together with their roll counts, sorted in the same in-game order already used by the current Chaos summary.
+- Decide and document the shipped scope for the frequency window:
+  - either current run only;
+  - or current BonkScanner session while the app stays open.
+- If both views are valuable, keep the user-facing command compact and choose one default output, while leaving room for a second variant or suffix later.
+- Example direction:
+  - total view: `Chaos Tome Lv37: DMG +84% | Luck +21% | XP +30%`
+  - frequency view: `Most rolled: DMG x5 | Luck x3 | XP x2`
+- If the command tries to show both totals and frequency data in one message, it must still stay short enough for Twitch chat limits.
+
+Open product decision:
+
+- Confirm whether the first shipped version should report Chaos roll frequency for:
+  - the current run only;
+  - the whole app session;
+  - or both, with one of them clearly marked as the default/stat-friendly view.
+
+### Help & Documentation
+
+#### 1. Contextual Help Buttons With Deep Links
+
+Status: `[Open]`
+
+Goal:
+
+- Add more visible `Help` buttons near the relevant UI areas so users can open documentation from the exact place where they need it.
+- Make each help button jump directly to the matching documentation section instead of only opening the generic top of the help window.
+- Example target behavior: pressing `Help` from the `OBS Overlay` tab should open the help dialog directly on the `OBS Overlay` explanation.
+
+Planned implementation notes:
+
+- Keep the existing help dialog, but add support for opening a specific section/anchor inside the loaded help content.
+- Add tab-level help entry points for the main workflow areas, especially:
+  - `Templates`
+  - `Scores`
+  - `Session Stats`
+  - `Live Stats`
+  - `Recordings`
+  - `Compare Runs`
+  - `OBS Overlay`
+  - `Twitch Bot`
+- Add additional in-tab help buttons where a tab contains multiple non-obvious sub-areas or nested tabs.
+- Ensure nested areas can still point to the most relevant parent documentation section even if there is not yet a one-to-one subsection for every control.
+- Keep the three bundled help files (`ENG`, `UA`, `RU`) aligned so deep-link targets exist consistently across languages.
+
+Why this helps:
+
+- Users will not need to manually search the help text every time they forget what a tab does.
+- Feature discovery should improve, especially for `OBS Overlay`, `Recordings`, `Compare Runs`, and Twitch bot setup.
+- This should reduce repetitive support questions about the purpose of specific tabs, controls, and nested views.

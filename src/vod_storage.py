@@ -50,6 +50,9 @@ class VodSnapshot:
     game_time_seconds: float | None = None
     mob_kills: int | None = None
     kps_at_capture: int | None = None
+    minute_avg_kps_at_capture: int | None = None
+    five_minute_avg_kps_at_capture: int | None = None
+    run_avg_kps_at_capture: int | None = None
     player_level: int | None = None
     map_seed: int | None = None
     stage_ptr: int = 0
@@ -201,6 +204,9 @@ class VodRecorder:
         game_time_seconds: float | None = None,
         mob_kills: int | None = None,
         kps_at_capture: int | None = None,
+        minute_avg_kps_at_capture: int | None = None,
+        five_minute_avg_kps_at_capture: int | None = None,
+        run_avg_kps_at_capture: int | None = None,
         player_level: int | None = None,
         map_seed: int | None = None,
         stage_ptr: int = 0,
@@ -236,6 +242,9 @@ class VodRecorder:
             game_time_seconds=game_time_seconds,
             mob_kills=mob_kills,
             kps_at_capture=kps_at_capture,
+            minute_avg_kps_at_capture=minute_avg_kps_at_capture,
+            five_minute_avg_kps_at_capture=five_minute_avg_kps_at_capture,
+            run_avg_kps_at_capture=run_avg_kps_at_capture,
             player_level=player_level,
             map_seed=map_seed,
             stage_ptr=stage_ptr,
@@ -511,6 +520,12 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         record["mob_kills"] = snapshot.mob_kills
     if snapshot.kps_at_capture is not None:
         record["kps_at_capture"] = snapshot.kps_at_capture
+    if snapshot.minute_avg_kps_at_capture is not None:
+        record["minute_avg_kps_at_capture"] = snapshot.minute_avg_kps_at_capture
+    if snapshot.five_minute_avg_kps_at_capture is not None:
+        record["five_minute_avg_kps_at_capture"] = snapshot.five_minute_avg_kps_at_capture
+    if snapshot.run_avg_kps_at_capture is not None:
+        record["run_avg_kps_at_capture"] = snapshot.run_avg_kps_at_capture
     if snapshot.player_level is not None:
         record["player_level"] = snapshot.player_level
     if snapshot.map_seed is not None:
@@ -565,6 +580,9 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
         ),
         mob_kills=_coerce_optional_int(record.get("mob_kills", record.get("mobs_alive"))),
         kps_at_capture=_coerce_optional_int(record.get("kps_at_capture")),
+        minute_avg_kps_at_capture=_coerce_optional_int(record.get("minute_avg_kps_at_capture")),
+        five_minute_avg_kps_at_capture=_coerce_optional_int(record.get("five_minute_avg_kps_at_capture")),
+        run_avg_kps_at_capture=_coerce_optional_int(record.get("run_avg_kps_at_capture")),
         player_level=_coerce_optional_int(record.get("player_level")),
         map_seed=_coerce_optional_int(record.get("map_seed", record.get("run_seed"))),
         stage_ptr=_coerce_int(record.get("stage_ptr")),
