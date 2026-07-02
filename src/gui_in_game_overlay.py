@@ -141,15 +141,17 @@ class InGameWidgetSettingsDialog(QDialog):
         super().__init__(parent)
         self.parent_mixin = parent_mixin
         self.setWindowTitle("In-Game Widgets Configuration")
-        self.resize(500, 300)
-        self.setMinimumSize(400, 250)
+        self.resize(600, 650)
+        self.setMinimumSize(500, 450)
         
         main_layout = QVBoxLayout(self)
         
-        self.tabs = QTabWidget()
-        main_layout.addWidget(self.tabs)
+        # Scroll area for vertical groups
+        scroll, scroll_content, scroll_layout = _make_scroll_section()
+        scroll_layout.setSpacing(16)
+        main_layout.addWidget(scroll)
         
-        self._init_tabs()
+        self._init_settings_layout(scroll_layout)
         
         # Close button
         btn_layout = QHBoxLayout()
@@ -159,10 +161,11 @@ class InGameWidgetSettingsDialog(QDialog):
         btn_layout.addWidget(close_btn)
         main_layout.addLayout(btn_layout)
 
-    def _init_tabs(self):
-        # 1. Scanner Tab
-        scanner_tab = QWidget()
-        scanner_layout = QVBoxLayout(scanner_tab)
+    def _init_settings_layout(self, layout):
+        # 1. Scanner Group
+        scanner_group = QGroupBox("Scanner Status Settings")
+        scanner_layout = QVBoxLayout(scanner_group)
+        scanner_layout.setContentsMargins(16, 12, 16, 12)
         
         scale_layout = QHBoxLayout()
         scale_layout.addWidget(QLabel("Scale:"))
@@ -174,12 +177,12 @@ class InGameWidgetSettingsDialog(QDialog):
         scale_layout.addWidget(self.scanner_scale_spin)
         scale_layout.addStretch(1)
         scanner_layout.addLayout(scale_layout)
-        scanner_layout.addStretch(1)
-        self.tabs.addTab(scanner_tab, "Scanner")
+        layout.addWidget(scanner_group)
 
-        # 2. Recording Tab
-        recording_tab = QWidget()
-        recording_layout = QVBoxLayout(recording_tab)
+        # 2. Recording Group
+        recording_group = QGroupBox("Recording Status Settings")
+        recording_layout = QVBoxLayout(recording_group)
+        recording_layout.setContentsMargins(16, 12, 16, 12)
         
         scale_layout = QHBoxLayout()
         scale_layout.addWidget(QLabel("Scale:"))
@@ -191,12 +194,12 @@ class InGameWidgetSettingsDialog(QDialog):
         scale_layout.addWidget(self.recording_scale_spin)
         scale_layout.addStretch(1)
         recording_layout.addLayout(scale_layout)
-        recording_layout.addStretch(1)
-        self.tabs.addTab(recording_tab, "Recording")
+        layout.addWidget(recording_group)
 
-        # 3. KPS Tab
-        kps_tab = QWidget()
-        kps_layout = QVBoxLayout(kps_tab)
+        # 3. KPS Group
+        kps_group = QGroupBox("KPS Settings")
+        kps_layout = QVBoxLayout(kps_group)
+        kps_layout.setContentsMargins(16, 12, 16, 12)
         
         scale_layout = QHBoxLayout()
         scale_layout.addWidget(QLabel("Scale:"))
@@ -236,12 +239,12 @@ class InGameWidgetSettingsDialog(QDialog):
         metrics_layout.addWidget(self.kps_run_cb)
         
         kps_layout.addWidget(metrics_group)
-        kps_layout.addStretch(1)
-        self.tabs.addTab(kps_tab, "KPS")
+        layout.addWidget(kps_group)
 
-        # 4. Powerups Tab
-        powerups_tab = QWidget()
-        powerups_layout = QVBoxLayout(powerups_tab)
+        # 4. Powerups Group
+        powerups_group = QGroupBox("Active Powerups Settings")
+        powerups_layout = QVBoxLayout(powerups_group)
+        powerups_layout.setContentsMargins(16, 12, 16, 12)
         
         scale_layout = QHBoxLayout()
         scale_layout.addWidget(QLabel("Scale:"))
@@ -253,8 +256,9 @@ class InGameWidgetSettingsDialog(QDialog):
         scale_layout.addWidget(self.powerups_scale_spin)
         scale_layout.addStretch(1)
         powerups_layout.addLayout(scale_layout)
-        powerups_layout.addStretch(1)
-        self.tabs.addTab(powerups_tab, "Powerups")
+        layout.addWidget(powerups_group)
+        
+        layout.addStretch(1)
 
     def _save_settings(self, *_):
         widgets = config.IN_GAME_OVERLAY["widgets"]
