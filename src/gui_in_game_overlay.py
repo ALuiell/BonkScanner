@@ -44,10 +44,9 @@ class DraggableOverlayWidget(QWidget):
 
     def update_scale(self, scale: float):
         base_size = 16
-        font = self.label.font()
-        font.setPixelSize(int(base_size * scale))
-        font.setWeight(QFont.Bold)
-        self.label.setFont(font)
+        px_size = int(base_size * scale)
+        self.label.setStyleSheet(f"font-size: {px_size}px; font-weight: bold; background: transparent; border: none;")
+        self.label.adjustSize()
         self.adjustSize()
 
     def set_edit_mode(self, enabled: bool):
