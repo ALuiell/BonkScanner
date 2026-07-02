@@ -1463,3 +1463,6 @@ class GuiLayoutMixin:
         # Add stretch and add to tabview
         twitch_layout.addStretch(1)
         self.tabview.addTab(self.tab_twitch, "Twitch Bot")
+
+        self._build_in_game_overlay_tab()
+        self.tabview.addTab(self.tab_in_game_overlay, "In-Game Overlay")

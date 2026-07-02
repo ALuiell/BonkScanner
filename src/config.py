@@ -94,6 +94,18 @@ DEFAULT_OVERLAY = {
     },
 }
 
+DEFAULT_IN_GAME_OVERLAY = {
+    "enabled": False,
+    "scale": 1.0,
+    "widgets": {
+        "scanner": {"enabled": True, "x": 10, "y": 10},
+        "recording": {"enabled": True, "x": 150, "y": 10},
+        "kps": {"enabled": True, "x": 10, "y": 40, "mode": "instant"},
+        "powerups": {"enabled": True, "x": 10, "y": 70},
+    }
+}
+
+
 DEFAULT_SESSION_TRACKED_ITEMS = {
     "tracked_items": [
         {
@@ -477,6 +489,27 @@ def normalize_overlay_config(value):
         overlay["style"] = dict(DEFAULT_OVERLAY["style"])
     return overlay
 
+def normalize_in_game_overlay_config(value):
+    overlay = _merge_dict_defaults(value, DEFAULT_IN_GAME_OVERLAY)
+    overlay["enabled"] = bool(overlay.get("enabled", False))
+    overlay["scale"] = max(0.5, min(float(overlay.get("scale", 1.0)), 3.0))
+    
+    widgets = overlay.get("widgets", {})
+    if not isinstance(widgets, dict):
+        widgets = {}
+    
+    for key, default_widget in DEFAULT_IN_GAME_OVERLAY["widgets"].items():
+        if key not in widgets or not isinstance(widgets[key], dict):
+            widgets[key] = dict(default_widget)
+        else:
+            widgets[key] = _merge_dict_defaults(widgets[key], default_widget)
+            widgets[key]["enabled"] = bool(widgets[key].get("enabled", True))
+            widgets[key]["x"] = coerce_nonnegative_int(widgets[key].get("x"), default_widget["x"])
+            widgets[key]["y"] = coerce_nonnegative_int(widgets[key].get("y"), default_widget["y"])
+    
+    overlay["widgets"] = widgets
+    return overlay
+
 
 def normalize_tracked_items_source(value, *, default="custom"):
     source = str(value or default).strip().lower()
@@ -716,6 +749,7 @@ SCORES_SYSTEM = user_config.get("SCORES_SYSTEM", DEFAULT_SCORES_SYSTEM)
 if not SCORES_SYSTEM:
     SCORES_SYSTEM = DEFAULT_SCORES_SYSTEM
 OVERLAY = normalize_overlay_config(user_config.get("OVERLAY"))
+IN_GAME_OVERLAY = normalize_in_game_overlay_config(user_config.get("IN_GAME_OVERLAY"))
 SESSION_TRACKED_ITEMS = normalize_session_tracked_items_config(user_config.get("SESSION_TRACKED_ITEMS"))
 TWITCH_BOT = normalize_twitch_bot_config(user_config.get("TWITCH_BOT"))
 
@@ -770,6 +804,7 @@ user_config["SKIPPED_UPDATE_VERSION"] = SKIPPED_UPDATE_VERSION
 user_config["EVALUATION_MODE"] = EVALUATION_MODE
 user_config["SCORES_SYSTEM"] = SCORES_SYSTEM
 user_config["OVERLAY"] = OVERLAY
+user_config["IN_GAME_OVERLAY"] = IN_GAME_OVERLAY
 user_config["SESSION_TRACKED_ITEMS"] = SESSION_TRACKED_ITEMS
 user_config["TWITCH_BOT"] = TWITCH_BOT
 user_config.pop("NATIVE_HOOK_ENABLED", None)

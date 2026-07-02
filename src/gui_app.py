@@ -11,6 +11,7 @@ import config
 import updater
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
+from gui_in_game_overlay import InGameOverlayMixin
 from gui_player_stats import PlayerStatsMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
@@ -26,6 +27,7 @@ class MegabonkApp(
     RunControlMixin,
     TemplatesMixin,
     OverlayMixin,
+    InGameOverlayMixin,
     PlayerStatsMixin,
     ScannerMixin,
     TwitchBotMixin,
