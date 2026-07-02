@@ -530,6 +530,7 @@ class InGameOverlayMixin:
         general_layout.addWidget(self.igo_auto_start_cb)
         
         self.igo_toggle_btn = QPushButton("Start Overlay")
+        self.igo_toggle_btn.setObjectName("SuccessButton")
         self.igo_toggle_btn.setMinimumHeight(36)
         btn_font = self.igo_toggle_btn.font()
         btn_font.setBold(True)
@@ -612,11 +613,16 @@ class InGameOverlayMixin:
         if is_running:
             self.igo_status_label.setText("<span style='color: #4fd67a; font-weight: bold;'>Running</span>")
             self.igo_toggle_btn.setText("Stop Overlay")
+            self.igo_toggle_btn.setObjectName("DangerButton")
             self.igo_toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
         else:
             self.igo_status_label.setText("<span style='color: #f08b72; font-weight: bold;'>Stopped</span>")
             self.igo_toggle_btn.setText("Start Overlay")
+            self.igo_toggle_btn.setObjectName("SuccessButton")
             self.igo_toggle_btn.setStyleSheet("")
+            
+        self.igo_toggle_btn.style().unpolish(self.igo_toggle_btn)
+        self.igo_toggle_btn.style().polish(self.igo_toggle_btn)
 
     def _on_igo_settings_changed(self, *_):
         cfg = config.IN_GAME_OVERLAY
