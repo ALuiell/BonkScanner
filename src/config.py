@@ -97,12 +97,12 @@ DEFAULT_OVERLAY = {
 
 DEFAULT_IN_GAME_OVERLAY = {
     "enabled": False,
-    "scale": 1.0,
+    "auto_start": False,
     "widgets": {
-        "scanner": {"enabled": True, "x": 10, "y": 10},
-        "recording": {"enabled": True, "x": 150, "y": 10},
-        "kps": {"enabled": True, "x": 10, "y": 40, "mode": "instant"},
-        "powerups": {"enabled": True, "x": 10, "y": 70},
+        "scanner": {"enabled": True, "x": 10, "y": 10, "scale": 1.0},
+        "recording": {"enabled": True, "x": 150, "y": 10, "scale": 1.0},
+        "kps": {"enabled": True, "x": 10, "y": 40, "scale": 1.0, "metrics": ["instant"]},
+        "powerups": {"enabled": True, "x": 10, "y": 70, "scale": 1.0},
     }
 }
 
@@ -493,7 +493,7 @@ def normalize_overlay_config(value):
 def normalize_in_game_overlay_config(value):
     overlay = _merge_dict_defaults(value, DEFAULT_IN_GAME_OVERLAY)
     overlay["enabled"] = bool(overlay.get("enabled", False))
-    overlay["scale"] = max(0.5, min(float(overlay.get("scale", 1.0)), 3.0))
+    overlay["auto_start"] = bool(overlay.get("auto_start", False))
     
     widgets = overlay.get("widgets", {})
     if not isinstance(widgets, dict):
@@ -507,6 +507,27 @@ def normalize_in_game_overlay_config(value):
             widgets[key]["enabled"] = bool(widgets[key].get("enabled", True))
             widgets[key]["x"] = coerce_nonnegative_int(widgets[key].get("x"), default_widget["x"])
             widgets[key]["y"] = coerce_nonnegative_int(widgets[key].get("y"), default_widget["y"])
+            widgets[key]["scale"] = max(0.5, min(float(widgets[key].get("scale", default_widget["scale"])), 3.0))
+            
+            if key == "kps":
+                metrics_val = widgets[key].get("metrics")
+                if not isinstance(metrics_val, list):
+                    metrics_val = [metrics_val] if metrics_val else []
+                # Support migrating legacy mode to metrics list
+                if not metrics_val and "mode" in widgets[key]:
+                    legacy_mode = widgets[key]["mode"]
+                    if legacy_mode == "instant":
+                        metrics_val = ["instant"]
+                    elif legacy_mode == "60s":
+                        metrics_val = ["60s"]
+                    elif legacy_mode == "5m":
+                        metrics_val = ["5m"]
+                    elif legacy_mode == "run":
+                        metrics_val = ["run"]
+                
+                # Filter valid metrics
+                valid_metrics = [m for m in metrics_val if m in {"instant", "60s", "5m", "run"}]
+                widgets[key]["metrics"] = valid_metrics or ["instant"]
     
     overlay["widgets"] = widgets
     return overlay
