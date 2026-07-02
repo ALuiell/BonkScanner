@@ -614,7 +614,7 @@ class InGameOverlayMixin:
             self.igo_toggle_btn.setText("Stop Overlay")
             self.igo_toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
         else:
-            self.igo_status_label.setText("<span style='color: #ef4444; font-weight: bold;'>Stopped</span>")
+            self.igo_status_label.setText("<span style='color: #f08b72; font-weight: bold;'>Stopped</span>")
             self.igo_toggle_btn.setText("Start Overlay")
             self.igo_toggle_btn.setStyleSheet("")
 
