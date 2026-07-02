@@ -66,12 +66,16 @@ class RunControlMixin:
                     allowed_game_keys=getattr(config, "HOTKEY_GAME_KEY_WHITELIST", ()),
                     is_game_window_active=lambda: self.is_game_window_active(config.PROCESS_NAME),
                 )
-                manager.start(
-                    (
-                        HotkeyBinding(config.HOTKEY, self.hotkey_toggle_scanning),
-                        HotkeyBinding(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording),
-                    )
-                )
+                bindings = [
+                    HotkeyBinding(config.HOTKEY, self.hotkey_toggle_scanning),
+                    HotkeyBinding(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording),
+                ]
+                if hasattr(self, "hotkey_toggle_in_game_overlay_edit"):
+                    bindings.append(HotkeyBinding(
+                        getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9"),
+                        self.hotkey_toggle_in_game_overlay_edit
+                    ))
+                manager.start(tuple(bindings))
                 self._hotkey_manager = manager
             except Exception as exc:
                 self.log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, Signal, Slot
-from PySide6.QtGui import QMouseEvent, QPainter, QColor, QFont
+from PySide6.QtGui import QMouseEvent, QPainter, QColor, QFont, QKeyEvent
 from PySide6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout,
     QGroupBox, QCheckBox, QDoubleSpinBox, QPushButton, QDialog, QTabWidget
@@ -81,8 +82,9 @@ class DraggableOverlayWidget(QWidget):
 
 
 class InGameOverlayWindow(QWidget):
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent_mixin: InGameOverlayMixin, parent: QWidget | None = None):
         super().__init__(parent)
+        self.parent_mixin = parent_mixin
         self.edit_mode = False
         
         self.setWindowFlags(
@@ -102,6 +104,8 @@ class InGameOverlayWindow(QWidget):
         
         for w in self.widgets.values():
             w.moved.connect(self.on_widget_moved)
+            
+        self.save_btn = None
 
     def showEvent(self, event):
         screen = self.screen()
@@ -129,7 +133,51 @@ class InGameOverlayWindow(QWidget):
         for w in self.widgets.values():
             w.set_edit_mode(enabled)
             
+        if enabled:
+            if not self.save_btn:
+                self.save_btn = QPushButton("Save Layout & Exit Edit Mode", self)
+                self.save_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: #22c55e;
+                        color: white;
+                        font-weight: bold;
+                        font-size: 16px;
+                        padding: 8px 16px;
+                        border-radius: 5px;
+                        border: 1px solid #15803d;
+                    }
+                    QPushButton:hover {
+                        background-color: #15803d;
+                    }
+                """)
+                self.save_btn.clicked.connect(self._on_save_clicked)
+            
+            self.save_btn.show()
+            self._position_save_btn()
+        else:
+            if self.save_btn:
+                self.save_btn.hide()
+                
         self.show()
+
+    def _position_save_btn(self):
+        if self.save_btn:
+            screen_geom = self.screen().geometry()
+            w = 280
+            h = 40
+            self.save_btn.resize(w, h)
+            self.save_btn.move((screen_geom.width() - w) // 2, screen_geom.height() - h - 60)
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if self.edit_mode and event.key() == Qt.Key_Escape:
+            self._on_save_clicked()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+    def _on_save_clicked(self):
+        if self.parent_mixin and hasattr(self.parent_mixin, "_toggle_igo_edit_mode"):
+            self.parent_mixin._toggle_igo_edit_mode()
 
     def on_widget_moved(self, widget_id: str, x: int, y: int):
         config.IN_GAME_OVERLAY["widgets"][widget_id]["x"] = x
@@ -301,7 +349,7 @@ class InGameOverlayMixin:
         self.after_idle(self._init_in_game_overlay)
 
     def _init_in_game_overlay(self):
-        self.in_game_overlay_window = InGameOverlayWindow()
+        self.in_game_overlay_window = InGameOverlayWindow(self)
         
         # If enabled AND auto_start is true, show it on startup
         if config.IN_GAME_OVERLAY["enabled"] and config.IN_GAME_OVERLAY.get("auto_start", False):
@@ -343,9 +391,29 @@ class InGameOverlayMixin:
                     
         self._overlay_fast_tick()
         self._overlay_slow_tick()
+        self._update_igo_status_ui()
+
+    def hotkey_toggle_in_game_overlay_edit(self):
+        self.after(0, self._toggle_igo_edit_mode)
 
     def _overlay_fast_tick(self):
-        if not self.in_game_overlay_window or not self.in_game_overlay_window.isVisible():
+        if not self.in_game_overlay_window:
+            return
+            
+        # Hide if tabbed out (not active game window), but keep visible during edit mode
+        if self.in_game_overlay_window.edit_mode:
+            if not self.in_game_overlay_window.isVisible():
+                self.in_game_overlay_window.show()
+        else:
+            is_game_active = self.is_game_window_active(config.PROCESS_NAME)
+            if is_game_active:
+                if not self.in_game_overlay_window.isVisible():
+                    self.in_game_overlay_window.show()
+            else:
+                if self.in_game_overlay_window.isVisible():
+                    self.in_game_overlay_window.hide()
+                    
+        if not self.in_game_overlay_window.isVisible():
             return
             
         widgets = self.in_game_overlay_window.widgets
@@ -445,16 +513,28 @@ class InGameOverlayMixin:
         general_layout.setContentsMargins(16, 12, 16, 12)
         general_layout.setSpacing(10)
         
-        self.igo_enable_cb = QCheckBox("Enable In-Game Overlay")
-        self.igo_enable_cb.setChecked(config.IN_GAME_OVERLAY.get("enabled", False))
-        self.igo_enable_cb.stateChanged.connect(self._on_igo_settings_changed)
-        general_layout.addWidget(self.igo_enable_cb)
+        status_row = QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.addWidget(QLabel("Overlay Status:"))
+        self.igo_status_label = QLabel()
+        self.igo_status_label.setTextFormat(Qt.RichText)
+        status_row.addWidget(self.igo_status_label)
+        status_row.addStretch(1)
+        general_layout.addLayout(status_row)
         
         self.igo_auto_start_cb = QCheckBox("Auto-start overlay")
         self.igo_auto_start_cb.setChecked(config.IN_GAME_OVERLAY.get("auto_start", False))
         self.igo_auto_start_cb.setToolTip("Start the transparent overlay automatically when the application starts.")
         self.igo_auto_start_cb.stateChanged.connect(self._on_igo_settings_changed)
         general_layout.addWidget(self.igo_auto_start_cb)
+        
+        self.igo_toggle_btn = QPushButton("Start Overlay")
+        self.igo_toggle_btn.setMinimumHeight(36)
+        btn_font = self.igo_toggle_btn.font()
+        btn_font.setBold(True)
+        self.igo_toggle_btn.setFont(btn_font)
+        self.igo_toggle_btn.clicked.connect(self._toggle_in_game_overlay)
+        general_layout.addWidget(self.igo_toggle_btn)
         
         self.igo_edit_btn = QPushButton("Edit Layout")
         self.igo_edit_btn.setMinimumHeight(36)
@@ -510,10 +590,38 @@ class InGameOverlayMixin:
         grid_layout.addWidget(general_group, 0, 0, Qt.AlignTop)
         grid_layout.addWidget(widgets_group, 0, 1, Qt.AlignTop)
         grid_layout.setRowStretch(1, 1)
+        
+        self._update_igo_status_ui()
+
+    def _toggle_in_game_overlay(self):
+        cfg = config.IN_GAME_OVERLAY
+        cfg["enabled"] = not cfg["enabled"]
+        
+        self.apply_in_game_overlay_settings()
+        
+        if hasattr(self, 'save_config'):
+            self.save_config()
+
+    def _update_igo_status_ui(self):
+        if not hasattr(self, "igo_status_label") or self.igo_status_label is None:
+            return
+            
+        is_running = bool(self.in_game_overlay_window and self.in_game_overlay_window.isVisible())
+        
+        if is_running:
+            self.igo_status_label.setText("<span style='color: #4fd67a; font-weight: bold;'>Running</span>")
+            self.igo_toggle_btn.setText("Stop Overlay")
+            self.igo_toggle_btn.setObjectName("DangerButton")
+        else:
+            self.igo_status_label.setText("<span style='color: #ef4444; font-weight: bold;'>Stopped</span>")
+            self.igo_toggle_btn.setText("Start Overlay")
+            self.igo_toggle_btn.setObjectName("SuccessButton")
+            
+        self.igo_toggle_btn.style().unpolish(self.igo_toggle_btn)
+        self.igo_toggle_btn.style().polish(self.igo_toggle_btn)
 
     def _on_igo_settings_changed(self, *_):
         cfg = config.IN_GAME_OVERLAY
-        cfg["enabled"] = self.igo_enable_cb.isChecked()
         cfg["auto_start"] = self.igo_auto_start_cb.isChecked()
         
         cfg["widgets"]["scanner"]["enabled"] = self.igo_scanner_cb.isChecked()
@@ -545,6 +653,8 @@ class InGameOverlayMixin:
             self.apply_in_game_overlay_settings() # Save and hide if disabled
             if hasattr(self, 'save_config'):
                 self.save_config()
+        
+        self._update_igo_status_ui()
 
     def _open_igo_widget_settings_dialog(self):
         dialog = InGameWidgetSettingsDialog(self, self.tab_in_game_overlay)
