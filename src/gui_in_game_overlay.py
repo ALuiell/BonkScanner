@@ -282,8 +282,7 @@ class InGameWidgetSettingsDialog(QDialog):
 
 
 class InGameOverlayMixin:
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def initialize_in_game_overlay_runtime(self) -> None:
         self.in_game_overlay_window = None
         
         self.overlay_fast_timer = QTimer()
