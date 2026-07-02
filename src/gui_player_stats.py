@@ -99,7 +99,6 @@ def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
     _set_text(widget, text)
 
 class PlayerStatsMixin:
-
     def _is_player_stats_recording_armed(self) -> bool:
         auto_recording_enabled = bool(getattr(config, "AUTO_START_RECORDING", False))
         auto_recording_suppressed = bool(
@@ -195,16 +194,29 @@ class PlayerStatsMixin:
                 except Exception:
                     pass
 
-            try:
-                run_timer_seconds = client.get_run_timer()
-                mob_kills = client.get_killed_mobs()
-                self.live_run_tracker.track_kills(run_timer_seconds, mob_kills)
-                _set_text(
-                    self.player_stats_mob_kills_label,
-                    self.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps())
-                )
-            except Exception:
-                pass
+            if self._should_refresh_fast_kps(now):
+                try:
+                    run_timer_seconds = client.get_run_timer()
+                    previous_game_time = getattr(self, "_last_fast_kps_game_time_seconds", None)
+                    if (
+                        run_timer_seconds is not None
+                        and previous_game_time is not None
+                        and abs(float(run_timer_seconds) - float(previous_game_time)) < 0.001
+                    ):
+                        pass
+                    else:
+                        mob_kills = client.get_killed_mobs()
+                        self.live_run_tracker.track_kills(run_timer_seconds, mob_kills)
+                        self._last_fast_kps_game_time_seconds = run_timer_seconds
+                        if self._is_live_stats_tab_active():
+                            _set_text(
+                                self.player_stats_mob_kills_label,
+                                self.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps())
+                            )
+                        if self.overlay_should_refresh_live_stats() and self._overlay_kps_widget_enabled():
+                            self.update_overlay_state_from_tracker()
+                except Exception:
+                    pass
 
             chaos_level, permanent_modifiers = client.get_chaos_tracking_state(
                 owner_stats
@@ -240,6 +252,35 @@ class PlayerStatsMixin:
                 return bool(is_twitch_bot_active() and commands_cfg.get("powerups", True))
             except Exception:
                 return False
+        return False
+
+    def _should_refresh_fast_kps(self, _now: float | None = None) -> bool:
+        is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
+        if callable(is_live_stats_tab_active):
+            try:
+                if is_live_stats_tab_active():
+                    return True
+            except Exception:
+                pass
+        if self.overlay_should_refresh_live_stats() and self._overlay_kps_widget_enabled():
+            return True
+        is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
+        commands_cfg = config.TWITCH_BOT.get("commands", {})
+        if callable(is_twitch_bot_active):
+            try:
+                return bool(is_twitch_bot_active() and commands_cfg.get("kps", True))
+            except Exception:
+                return False
+        return False
+
+    @staticmethod
+    def _overlay_kps_widget_enabled() -> bool:
+        overlay = getattr(config, "OVERLAY", {}) or {}
+        for widget in overlay.get("widgets", ()) or ():
+            if not isinstance(widget, dict):
+                continue
+            if str(widget.get("id") or "") == "kps":
+                return bool(widget.get("enabled", False))
         return False
 
     def _refresh_live_powerups_label(self) -> None:

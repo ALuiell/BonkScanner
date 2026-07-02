@@ -125,6 +125,65 @@ body {
   width: calc(100vw - (16px * var(--scale)));
 }
 
+.kps-widget .panel-title {
+  margin-bottom: calc(5px * var(--scale));
+  color: var(--hud-yellow);
+}
+
+.kps-widget {
+  width: 100%;
+  max-width: 100%;
+  padding: calc(4px * var(--scale)) calc(6px * var(--scale));
+}
+
+.kps-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(4px * var(--scale));
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.kps-metric {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(4px * var(--scale));
+  min-width: 0;
+  flex: 1 1 calc(90px * var(--scale));
+  min-height: calc(24px * var(--scale));
+  padding: calc(2px * var(--scale)) calc(6px * var(--scale));
+  border-radius: calc(6px * var(--scale));
+  background: rgba(0, 0, 0, 0.22);
+  color: var(--hud-white);
+  font-size: calc(10.75px * var(--scale));
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-align: left;
+  overflow: hidden;
+}
+
+.kps-metric strong {
+  color: var(--hud-cyan);
+  font-weight: 900;
+  min-width: calc(34px * var(--scale));
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.kps-metric span,
+.kps-metric strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kps-metric span {
+  flex: 0 0 auto;
+}
+
 
 
 .stage-summary-widget {
@@ -542,6 +601,10 @@ body:has(#edit-mode-banner) .overlay-shell.absolute-layout {
   overflow: hidden;
 }
 
+.overlay-shell.absolute-layout .widget-wrapper[data-id="kps"].draggable {
+  padding: calc(3px * var(--scale));
+}
+
 .overlay-shell.absolute-layout .widget-wrapper.draggable:hover {
   border-color: var(--accent);
   box-shadow: 0 0 12px rgba(246, 196, 83, 0.45);
@@ -661,6 +724,10 @@ body:has(#edit-mode-banner) .overlay-shell.absolute-layout {
    ========================================== */
 .widget-wrapper.draggable {
   padding-top: calc(26px * var(--scale)) !important;
+}
+
+.widget-wrapper.draggable[data-id="kps"] {
+  padding-top: calc(3px * var(--scale)) !important;
 }
 
 .widget-toolbar {
