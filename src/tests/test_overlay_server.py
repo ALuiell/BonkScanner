@@ -56,7 +56,7 @@ class OverlayServerTests(unittest.TestCase):
             server = LocalOverlayServer(port=free_port(), asset_dir=asset_dir)
             server.start()
             try:
-                with urlopen(f"http://127.0.0.1:{server.port}/overlay/stats", timeout=2) as response:
+                with urlopen(f"http://127.0.0.1:{server.port}/overlay/kps", timeout=2) as response:
                     self.assertEqual(response.status, 200)
                     self.assertEqual(response.read().decode("utf-8"), "<html>overlay</html>")
             finally:

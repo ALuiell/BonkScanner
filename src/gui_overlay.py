@@ -60,8 +60,16 @@ OVERLAY_WIDGET_LABELS = {
     "stage_summary": "Stage summary",
     "tracked_items": "Tracked items",
     "stats": "Stats",
+    "kps": "KPS",
     "banishes": "Banishes",
 }
+
+OVERLAY_KPS_METRIC_LABELS = (
+    ("current", "Current KPS"),
+    ("minute_avg", "60s Avg"),
+    ("five_minute_avg", "5m Avg"),
+    ("run_avg", "Run Avg"),
+)
 
 class OverlayMixin:
     def initialize_overlay_runtime(self) -> None:
@@ -316,6 +324,31 @@ class OverlayMixin:
         self.overlay_banishes_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         banishes_layout.addWidget(self.overlay_banishes_header_checkbox)
         basic_layout.addWidget(banishes_group)
+
+        kps_group = QGroupBox("KPS")
+        kps_layout = QVBoxLayout(kps_group)
+        kps_layout.addWidget(QLabel("Configure the compact KPS overlay widget."))
+        kps_widget_cfg = self._overlay_widget_config_by_id().get("kps", {})
+        self.overlay_kps_bg_checkbox = QCheckBox("Show background")
+        self.overlay_kps_bg_checkbox.setChecked(float(kps_widget_cfg.get("background_opacity", 0)) > 0)
+        self.overlay_kps_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        kps_layout.addWidget(self.overlay_kps_bg_checkbox)
+
+        self.overlay_kps_header_checkbox = QCheckBox("Show header")
+        self.overlay_kps_header_checkbox.setChecked(bool(kps_widget_cfg.get("show_header", False)))
+        self.overlay_kps_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        kps_layout.addWidget(self.overlay_kps_header_checkbox)
+
+        kps_layout.addSpacing(12)
+        self.overlay_kps_metric_checkboxes = {}
+        selected_kps_metrics = set(self._overlay_selected_kps_metric_ids())
+        for metric_id, metric_label in self._overlay_all_kps_metric_labels():
+            checkbox = QCheckBox(metric_label)
+            checkbox.setChecked(metric_id in selected_kps_metrics)
+            checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+            self.overlay_kps_metric_checkboxes[metric_id] = checkbox
+            kps_layout.addWidget(checkbox)
+        basic_layout.addWidget(kps_group)
         basic_layout.addStretch(1)
 
         stats_group = CollapsibleSection("Stats", expanded=True)
@@ -486,6 +519,9 @@ class OverlayMixin:
         self.overlay_stats_header_checkbox = None
         self.overlay_stats_reset_btn = None
         self.overlay_stage_summary_bg_checkbox = None
+        self.overlay_kps_bg_checkbox = None
+        self.overlay_kps_header_checkbox = None
+        self.overlay_kps_metric_checkboxes = None
         self.overlay_banishes_bg_checkbox = None
         self.overlay_banishes_header_checkbox = None
         self.overlay_item_search_entry = None
@@ -499,6 +535,7 @@ class OverlayMixin:
         self.overlay_use_session_tracked_items_cb = None
         self.overlay_tracked_items_source_label = None
         self.overlay_custom_tracked_items_widget = None
+
     def toggle_overlay_server(self) -> None:
         server = getattr(self, "overlay_server", None)
         should_start = not bool(server is not None and server.is_running)
@@ -571,6 +608,19 @@ class OverlayMixin:
                 if widget_id == "stage_summary" and getattr(self, "overlay_stage_summary_bg_checkbox", None) is not None:
                     widget = dict(widget)
                     widget["background_opacity"] = 0.4 if self.overlay_stage_summary_bg_checkbox.isChecked() else 0.0
+                if widget_id == "kps":
+                    widget = dict(widget)
+                    if getattr(self, "overlay_kps_metric_checkboxes", None):
+                        selected_kps_metrics = [
+                            metric_id
+                            for metric_id, checkbox in self.overlay_kps_metric_checkboxes.items()
+                            if checkbox.isChecked()
+                        ]
+                        widget["selected_kps_metrics"] = selected_kps_metrics or ["current"]
+                    if getattr(self, "overlay_kps_bg_checkbox", None) is not None:
+                        widget["background_opacity"] = 0.4 if self.overlay_kps_bg_checkbox.isChecked() else 0.0
+                    if getattr(self, "overlay_kps_header_checkbox", None) is not None:
+                        widget["show_header"] = bool(self.overlay_kps_header_checkbox.isChecked())
                 if widget_id == "banishes":
                     widget = dict(widget)
                     if getattr(self, "overlay_banishes_bg_checkbox", None) is not None:
@@ -1215,6 +1265,29 @@ class OverlayMixin:
             if str(label) in allowed
         )
         return selected or cls._overlay_default_stat_labels()
+
+    @staticmethod
+    def _overlay_default_kps_metric_ids() -> tuple[str, ...]:
+        return tuple(metric_id for metric_id, _label in OVERLAY_KPS_METRIC_LABELS)
+
+    @staticmethod
+    def _overlay_all_kps_metric_labels() -> tuple[tuple[str, str], ...]:
+        return OVERLAY_KPS_METRIC_LABELS
+
+    @classmethod
+    def _overlay_selected_kps_metric_ids(cls) -> tuple[str, ...]:
+        widget_config = {}
+        for widget in config.OVERLAY.get("widgets", []):
+            if isinstance(widget, dict) and widget.get("id") == "kps":
+                widget_config = widget
+                break
+        allowed = {metric_id for metric_id, _label in cls._overlay_all_kps_metric_labels()}
+        selected = tuple(
+            str(metric_id)
+            for metric_id in widget_config.get("selected_kps_metrics", ())
+            if str(metric_id) in allowed
+        )
+        return selected or cls._overlay_default_kps_metric_ids()
 
     @staticmethod
     def _tracked_item_rules_from_config(overlay_config: dict[str, Any]) -> tuple[TrackedItemRule, ...]:

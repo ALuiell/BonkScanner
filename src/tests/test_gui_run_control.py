@@ -2303,20 +2303,24 @@ class GuiRunControlTests(unittest.TestCase):
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
         app.player_stats_recording_seed = 111
         app.player_stats_game_data_client = FakeSeedStateClient([None, None])
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
 
         def failing_read_player_stats_only() -> tuple[dict[str, object], int]:
             raise gui.ProcessNotFoundError("game closed")
 
         app.read_player_stats_only = failing_read_player_stats_only
 
-        with patch.object(gui.time, "monotonic", return_value=100.0):
+        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
+             patch.object(gui.time, "monotonic", return_value=100.0):
             gui.MegabonkApp.update_player_stats_timer(app)
 
-        with patch.object(
-            gui.time,
-            "monotonic",
-            return_value=100.0 + gui.PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
-        ):
+        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
+             patch.object(
+                gui.time,
+                "monotonic",
+                return_value=100.0 + gui.PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
+            ):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
@@ -2340,12 +2344,14 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder.is_recording = False
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
         read_calls: list[str] = []
         app.read_player_stats_only = lambda: read_calls.append("stats") or ({}, 0x1234)
 
-        gui.MegabonkApp.update_player_stats_timer(app)
+        with patch.object(gui.config, "AUTO_START_RECORDING", False):
+            gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(read_calls, [])
         self.assertEqual(len(app.after_calls), 1)
@@ -2372,6 +2378,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
+        app.player_stats_recording_armed = False
+        app.player_stats_auto_recording_suppressed = True
         app.player_stats_status_label = FakeLabel()
         stat_label = FakeLabel()
         app.player_stats_rows = {"Damage": stat_label}
@@ -2414,7 +2422,8 @@ class GuiRunControlTests(unittest.TestCase):
             current_ui_kps=lambda: None,
         )
         app.overlay_state_store = None
-        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        with patch.object(gui.config, "AUTO_START_RECORDING", False):
+            result = gui.MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
         self.assertEqual(app.player_stats_status_label.text(), "Live player stats")
@@ -2457,6 +2466,134 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(expected_reads, [0x1234, 0x1234])
         self.assertEqual(tracked, [(7, 3), (7, 3)])
+
+    def test_chaos_refresh_throttles_fast_kps_reads_to_one_second(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        run_timer_reads: list[int] = []
+        mob_kill_reads: list[int] = []
+        tracked_kills: list[tuple[float, int]] = []
+        overlay_updates: list[str] = []
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: True
+        app._is_twitch_bot_active = lambda: False
+        app.player_stats_mob_kills_label = FakeLabel()
+        app.format_mob_kills = lambda kills, kps=None: f"{kills}/{kps}"
+        app.update_overlay_state_from_tracker = lambda: overlay_updates.append("overlay")
+
+        client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_expected_chest_inputs=lambda owner_stats: (7, 3),
+            get_run_timer=MagicMock(side_effect=lambda: run_timer_reads.append(1) or next(run_timer_values)),
+            get_killed_mobs=lambda: mob_kill_reads.append(1) or 37,
+            get_chaos_tracking_state=lambda owner_stats: (None, {}),
+        )
+        run_timer_values = iter((21.5, 21.5, 22.5))
+        app._get_player_stats_client = lambda: client
+        app.live_run_tracker = SimpleNamespace(
+            track_expected_key_procs=lambda bought, keys: None,
+            update_chaos_tome=lambda **kwargs: None,
+            track_kills=lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills)),
+            current_ui_kps=lambda: 123,
+        )
+
+        with patch.object(
+            gui.config,
+            "OVERLAY",
+            {"widgets": [{"id": "kps", "enabled": True}]},
+        ), patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+
+        self.assertEqual(run_timer_reads, [1, 1, 1])
+        self.assertEqual(mob_kill_reads, [1, 1])
+        self.assertEqual(tracked_kills, [(21.5, 37), (22.5, 37)])
+        self.assertEqual(overlay_updates, ["overlay", "overlay"])
+
+    def test_chaos_refresh_skips_fast_kps_reads_when_overlay_kps_widget_is_disabled(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        run_timer_reads: list[int] = []
+        mob_kill_reads: list[int] = []
+        tracked_kills: list[tuple[float, int]] = []
+        overlay_updates: list[str] = []
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: True
+        app._is_twitch_bot_active = lambda: False
+        app.player_stats_mob_kills_label = FakeLabel()
+        app.format_mob_kills = lambda kills, kps=None: f"{kills}/{kps}"
+        app.update_overlay_state_from_tracker = lambda: overlay_updates.append("overlay")
+
+        client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_expected_chest_inputs=lambda owner_stats: (7, 3),
+            get_run_timer=lambda: run_timer_reads.append(1) or 21.5,
+            get_killed_mobs=lambda: mob_kill_reads.append(1) or 37,
+            get_chaos_tracking_state=lambda owner_stats: (None, {}),
+        )
+        app._get_player_stats_client = lambda: client
+        app.live_run_tracker = SimpleNamespace(
+            track_expected_key_procs=lambda bought, keys: None,
+            update_chaos_tome=lambda **kwargs: None,
+            track_kills=lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills)),
+            current_ui_kps=lambda: 123,
+        )
+
+        with patch.object(
+            gui.config,
+            "OVERLAY",
+            {"widgets": [{"id": "kps", "enabled": False}]},
+        ), patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+
+        self.assertEqual(run_timer_reads, [])
+        self.assertEqual(mob_kill_reads, [])
+        self.assertEqual(tracked_kills, [])
+        self.assertEqual(overlay_updates, [])
+
+    def test_chaos_refresh_skips_fast_kps_kill_reads_when_game_timer_does_not_advance(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        run_timer_reads: list[int] = []
+        mob_kill_reads: list[int] = []
+        tracked_kills: list[tuple[float, int]] = []
+        overlay_updates: list[str] = []
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: True
+        app._is_twitch_bot_active = lambda: False
+        app.player_stats_mob_kills_label = FakeLabel()
+        app.format_mob_kills = lambda kills, kps=None: f"{kills}/{kps}"
+        app.update_overlay_state_from_tracker = lambda: overlay_updates.append("overlay")
+
+        run_timer_values = iter((21.5, 21.5, 21.5))
+        client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_expected_chest_inputs=lambda owner_stats: (7, 3),
+            get_run_timer=MagicMock(side_effect=lambda: run_timer_reads.append(1) or next(run_timer_values)),
+            get_killed_mobs=lambda: mob_kill_reads.append(1) or 37,
+            get_chaos_tracking_state=lambda owner_stats: (None, {}),
+        )
+        app._get_player_stats_client = lambda: client
+        app.live_run_tracker = SimpleNamespace(
+            track_expected_key_procs=lambda bought, keys: None,
+            update_chaos_tome=lambda **kwargs: None,
+            track_kills=lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills)),
+            current_ui_kps=lambda: 123,
+        )
+
+        with patch.object(
+            gui.config,
+            "OVERLAY",
+            {"widgets": [{"id": "kps", "enabled": True}]},
+        ), patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+
+        self.assertEqual(run_timer_reads, [1, 1, 1])
+        self.assertEqual(mob_kill_reads, [1])
+        self.assertEqual(tracked_kills, [(21.5, 37)])
+        self.assertEqual(overlay_updates, ["overlay"])
 
     def test_refresh_live_player_stats_now_captures_while_hidden_recording(self) -> None:
         app = self.build_recording_app()
@@ -2696,7 +2833,8 @@ class GuiRunControlTests(unittest.TestCase):
 
         app.read_passive_items_only = fail_items
 
-        gui.MegabonkApp.toggle_player_stats_recording(app)
+        with patch.object(gui.config, "AUTO_START_RECORDING", False):
+            gui.MegabonkApp.toggle_player_stats_recording(app)
 
         self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["items"], ())
@@ -2745,6 +2883,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_selected_snapshot_index = 0
         app.player_stats_recording_seed = 111
         app.player_stats_recording_seed_missing_since = 200.0
+        app.player_stats_recording_armed = False
+        app.player_stats_auto_recording_suppressed = True
         app.player_stats_status_label = FakeLabel()
         stat_label = FakeLabel()
         app.player_stats_rows = {"Damage": stat_label}
@@ -2782,7 +2922,8 @@ class GuiRunControlTests(unittest.TestCase):
             current_ui_kps=lambda: None,
         )
         app.overlay_state_store = None
-        gui.MegabonkApp._stop_player_stats_recording(app)
+        with patch.object(gui.config, "AUTO_START_RECORDING", False):
+            gui.MegabonkApp._stop_player_stats_recording(app)
 
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertEqual(app.player_stats_status_label.text(), "Live player stats")

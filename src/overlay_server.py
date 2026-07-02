@@ -17,6 +17,7 @@ WIDGET_ROUTE_NAMES = {
     "stage_summary",
     "tracked_items",
     "stats",
+    "kps",
     "banishes",
 }
 

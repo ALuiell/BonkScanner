@@ -297,6 +297,57 @@ Open product decision:
   - the whole app session;
   - or both, with one of them clearly marked as the default/stat-friendly view.
 
+#### 8. Split Live Refresh Into Slow And Fast Tracker Lanes
+
+Status: `[Open]`
+
+Goal:
+
+- Try a cleaner live-refresh structure where the heavy full `Live Stats` snapshot remains slow, while selected realtime features update through lighter fast lanes.
+- Reuse the fact that `LiveRunTracker` already acts as the natural fast-state layer for run-local realtime data.
+- Treat this as an architectural experiment/prototype first; the exact structure, ownership boundaries, and intervals will likely be refined later.
+
+Current motivation:
+
+- Some features need very different refresh cadences:
+  - full `Live Stats` / broad player snapshot data is acceptable on a slow interval such as `10s`
+  - `KPS` should feel live, closer to `1s`
+  - other highly reactive systems such as Chaos / powerup-style trackers may need `250-500ms`
+- A single shared refresh loop makes it too easy to either over-poll heavy data or under-refresh lightweight realtime metrics.
+- Much of the required fast data is already being accumulated in `LiveRunTracker`, so the missing piece is mainly refresh orchestration rather than a brand-new state system.
+
+Proposed direction to try:
+
+- Keep a **slow lane** for the full expensive player snapshot:
+  - broad stat reads
+  - item / weapon / tome inventory reads
+  - banishes and other slower overlay/Twitch consumers
+- Keep one or more **fast lanes** for lightweight realtime reads:
+  - `KPS` / kill-rate support
+  - Chaos-related tracking
+  - other future overlay/Twitch metrics that only need a small subset of memory reads
+- Feed all of those lanes into shared state builders, with `LiveRunTracker` remaining the main fast runtime store for current-run data.
+- Let overlay/Twitch/UI read merged state without needing to know which refresh lane produced a given field.
+
+Early architectural shape:
+
+- `game readers` grouped by cadence instead of one large universal refresh path
+- `LiveRunTracker` as the realtime run-state store
+- a slower snapshot path for full player-state reads
+- overlay/Twitch/UI consuming a merged state contract
+
+Why this should help:
+
+- allows `KPS`-style widgets to update quickly without forcing all other overlay widgets onto the same fast cadence
+- reduces pressure to keep adding one-off exceptions into the main live-stats loop
+- makes future fast features easier to add because the infrastructure already expects mixed refresh rates
+- keeps the distinction between "fast run telemetry" and "slow heavy snapshot data" explicit
+
+Important note:
+
+- This entry is intentionally a planning/prototype item, not a finalized design.
+- The exact lane boundaries, naming, ownership of reads, and state-merging approach should be revisited after the first implementation pass.
+
 ### Help & Documentation
 
 #### 1. Contextual Help Buttons With Deep Links

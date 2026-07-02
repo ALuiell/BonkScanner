@@ -78,6 +78,8 @@ function renderWidget(widget, state) {
       return panel("Tracked Items", renderTrackedItems(state), "wide item-widget", widget);
     case "stats":
       return panel("Stats", renderStats(state, widget), "wide stats-widget", widget);
+    case "kps":
+      return panel("KPS", renderKps(state, widget), "kps-widget", widget);
     case "stage_summary":
       return panel("Stage Summary", renderStageSummary(state), "wide stage-summary-widget", widget);
     case "banishes":
@@ -109,6 +111,34 @@ function renderStats(state, widget) {
   const style = `--stat-label-width: calc(${labelWidth}px * var(--scale));`;
   const body = rows.map((row) => `<div class="stat-row"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value || "--")}</strong></div>`).join("");
   return `<div class="stats-list" style="${style}">${body}</div>`;
+}
+
+function formatRate(value) {
+  if (value === null || value === undefined) {
+    return "--";
+  }
+  return `${formatNumber(value)}/s`;
+}
+
+function renderKps(state, widget) {
+  const kps = state.kps || {};
+  const allMetrics = [
+    { label: "KPS", value: formatRate(kps.current) },
+    { label: "60s", value: formatRate(kps.minute_avg) },
+    { label: "5m", value: formatRate(kps.five_minute_avg) },
+    { label: "Run", value: formatRate(kps.run_avg) },
+  ];
+  const enabledMetricIds = Array.isArray(widget?.selected_kps_metrics) && widget.selected_kps_metrics.length
+    ? new Set(widget.selected_kps_metrics)
+    : new Set(["current", "minute_avg", "five_minute_avg", "run_avg"]);
+  const metricIds = ["current", "minute_avg", "five_minute_avg", "run_avg"];
+  const metrics = allMetrics.filter((_metric, index) => enabledMetricIds.has(metricIds[index]));
+  return `<div class="kps-strip">${metrics.map((metric) => `
+    <span class="kps-metric">
+      <span>${escapeHtml(metric.label)}</span>
+      <strong>${escapeHtml(metric.value)}</strong>
+    </span>
+  `).join("")}</div>`;
 }
 
 function renderStageSummary(state) {
@@ -172,6 +202,7 @@ const DEFAULT_COORDINATES = {
   stage_summary: { x: 20, y: 80 },
   tracked_items: { x: 20, y: 280 },
   stats: { x: 1600, y: 80 },
+  kps: { x: 1600, y: 320 },
   banishes: { x: 1600, y: 400 }
 };
 
@@ -204,6 +235,18 @@ function getOverlayStateForRendering(state) {
       { label: "Luck", value: "82" },
       { label: "XP Gain", value: "+25%" }
     ];
+  }
+  if (
+    !renderedState.kps
+    || Object.keys(renderedState.kps).length === 0
+    || Object.values(renderedState.kps).every((value) => value === null || value === undefined)
+  ) {
+    renderedState.kps = {
+      current: 150,
+      minute_avg: 243,
+      five_minute_avg: 221,
+      run_avg: 138,
+    };
   }
   if (!renderedState.banishes || !renderedState.banishes.length) {
     renderedState.banishes = ["Garlic", "Bible", "Cross"];

@@ -179,6 +179,77 @@ class OverlayStateTests(unittest.TestCase):
 
         self.assertEqual(state["banishes"], ["Clover", "Golden Tome"])
 
+    def test_overlay_state_includes_kps_metrics(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 123.0)
+        tracker.track_kills(1.0, 100)
+        tracker.track_kills(2.0, 150)
+        tracker.track_kills(60.0, 400)
+        tracker.track_kills(120.0, 700)
+
+        state = build_overlay_state(
+            tracker,
+            {
+                "widgets": [
+                    {
+                        "id": "kps",
+                        "enabled": True,
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(
+            state["kps"],
+            {
+                "current": 50,
+                "minute_avg": 5,
+                "five_minute_avg": 5,
+                "run_avg": 6,
+            },
+        )
+
+    def test_overlay_state_includes_selected_kps_widget_metrics(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 123.0)
+
+        state = build_overlay_state(
+            tracker,
+            {
+                "widgets": [
+                    {
+                        "id": "kps",
+                        "enabled": True,
+                        "selected_kps_metrics": ["minute_avg", "run_avg"],
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(
+            state["widgets"]["kps"]["selected_kps_metrics"],
+            ("minute_avg", "run_avg"),
+        )
+
+    def test_overlay_state_kps_widget_metrics_fallback_to_default_when_empty(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 123.0)
+
+        state = build_overlay_state(
+            tracker,
+            {
+                "widgets": [
+                    {
+                        "id": "kps",
+                        "enabled": True,
+                        "selected_kps_metrics": [],
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(
+            state["widgets"]["kps"]["selected_kps_metrics"],
+            ("current", "minute_avg", "five_minute_avg", "run_avg"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

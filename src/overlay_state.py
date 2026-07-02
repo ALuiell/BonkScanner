@@ -9,6 +9,7 @@ from live_run_tracker import LiveRunTracker
 
 
 DEFAULT_STATS_WIDGET_LABELS = ("Damage", "Attack Speed", "Luck", "XP Gain")
+DEFAULT_KPS_WIDGET_METRIC_IDS = ("current", "minute_avg", "five_minute_avg", "run_avg")
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class OverlayState:
     widgets: dict[str, Any]
     tracked_items: list[dict[str, Any]]
     stage_summary: list[dict[str, Any]]
+    kps: dict[str, int | None]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -38,6 +40,7 @@ class OverlayState:
             "widgets": self.widgets,
             "tracked_items": self.tracked_items,
             "stage_summary": self.stage_summary,
+            "kps": self.kps,
         }
 
 
@@ -58,6 +61,7 @@ def build_overlay_state(tracker: LiveRunTracker, overlay_config: dict[str, Any] 
         widgets=widgets,
         tracked_items=_overlay_tracked_item_rows(tracker_state.tracked_items, overlay_config),
         stage_summary=_overlay_stage_summary_rows(tracker_state.stage_summary),
+        kps=_overlay_kps_metrics(tracker),
     )
     data = state.to_dict()
     data["template"] = str(overlay_config.get("template") or "compact")
@@ -85,6 +89,7 @@ def _widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
             "order": _coerce_int(raw_widget.get("order"), default=(index + 1) * 10),
             "max_rows": _coerce_int(raw_widget.get("max_rows"), default=40),
             "selected_stats": _selected_stat_labels(raw_widget.get("selected_stats")),
+            "selected_kps_metrics": _selected_kps_metric_ids(raw_widget.get("selected_kps_metrics")),
             "background_opacity": _coerce_bounded_float(raw_widget.get("background_opacity"), default=0.0),
             "show_header": bool(raw_widget.get("show_header", True)),
             "x": _coerce_optional_int(raw_widget.get("x")),
@@ -174,6 +179,15 @@ def _snapshot_banishes(snapshot: Any, widgets: dict[str, Any]) -> list[str]:
     return [str(item) for item in tuple(getattr(snapshot, "banishes", ()) or ())[:max_rows]]
 
 
+def _overlay_kps_metrics(tracker: LiveRunTracker) -> dict[str, int | None]:
+    return {
+        "current": _coerce_optional_int(tracker.current_ui_kps()),
+        "minute_avg": _coerce_optional_int(tracker.current_minute_avg_kps()),
+        "five_minute_avg": _coerce_optional_int(tracker.current_five_minute_avg_kps()),
+        "run_avg": _coerce_optional_int(tracker.current_run_avg_kps()),
+    }
+
+
 def _format_timer(seconds: float | None) -> str:
     if seconds is None:
         return "--"
@@ -218,3 +232,16 @@ def _selected_stat_labels(value: Any) -> tuple[str, ...]:
         if labels:
             return labels
     return DEFAULT_STATS_WIDGET_LABELS
+
+
+def _selected_kps_metric_ids(value: Any) -> tuple[str, ...]:
+    allowed = set(DEFAULT_KPS_WIDGET_METRIC_IDS)
+    if isinstance(value, (list, tuple)):
+        metric_ids = tuple(
+            str(metric_id).strip()
+            for metric_id in value
+            if str(metric_id).strip() in allowed
+        )
+        if metric_ids:
+            return metric_ids
+    return DEFAULT_KPS_WIDGET_METRIC_IDS
