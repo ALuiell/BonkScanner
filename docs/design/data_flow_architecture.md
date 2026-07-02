@@ -78,19 +78,17 @@ For each feature, the data begins its journey here.
 
 ## 3. Updaters / Refresh Loops
 
-This section defines the active logic that pulls from data sources and pushes to state stores.
+This section defines the active logic that pulls from data sources and pushes to state stores. (See *Activation / Gating Rules* for trigger conditions).
 
 - **Slow Full Live Stats Refresh**
   - **Code location:** `src/gui_player_stats.py` (`update_player_stats_timer`)
   - **Updates:** Full live snapshot including items, weapons, banishes, and general player stats.
   - **Cadence:** Every 10 seconds (`PLAYER_STATS_REFRESH_MS`).
-  - **Triggers:** Active when the Live Stats tab is open, recording is armed, or overlay/Twitch bot is active.
   - **Destination:** Emits full live snapshots, updates LiveRunTracker with stage transitions and item updates.
 - **Fast KPS, Chaos, and Powerup Refresh**
   - **Code location:** `src/gui_player_stats.py` (`update_chaos_tome_tracker_timer`, `refresh_chaos_tome_tracker_now`)
   - **Updates:** Kills, run timer, Chaos Tome modifiers, Powerup snapshots, Chest counters.
   - **Cadence:** Every 500 ms (`CHAOS_TOME_TRACKER_INTERVAL_MS`).
-  - **Triggers:** Active under same conditions as the slow refresh.
   - **Destination:** Directly pushes data into `LiveRunTracker`.
 - **Overlay State Updates**
   - **Code location:** `src/gui_overlay.py` (`update_overlay_state_from_tracker`)
@@ -106,7 +104,22 @@ This section defines the active logic that pulls from data sources and pushes to
   - **Updates:** Pulls stats directly from the state stores to respond to chat.
   - **Cadence:** Asynchronous socket loop, on-demand.
 
-## 4. State Stores / Source of Truth
+## 4. Activation / Gating Rules
+
+Refresh loops do not always pull data just because their timers are running. To save resources, they are guarded by specific consumers.
+
+- **Slow Loop Activation:** The slow 10s timer actively pulls from memory if **any** of the following is true:
+  - The "Live Stats" tab is visually active.
+  - VOD Recording is actively armed or running.
+  - OBS Overlay is enabled and running.
+  - Twitch Bot is active.
+- **Fast Loop Activation:** The 500ms timer runs under the same conditions as the slow loop.
+- **KPS Consumer Gating (Inside the Fast Loop):** Even when the fast loop fires, the expensive memory reads for `run_timer` and `mob_kills` are skipped unless a consumer explicitly needs them. They ONLY advance if:
+  - The "Live Stats" tab is visually active, OR
+  - The specific KPS widget in the OBS overlay is enabled, OR
+  - The Twitch bot is active AND the `!kps` command is enabled.
+
+## 5. State Stores / Source of Truth
 
 This describes where the most authoritative version of the data lives.
 
@@ -123,7 +136,7 @@ This describes where the most authoritative version of the data lives.
   - **What it stores:** Serialized historical snapshots of runs on disk.
   - **Source of truth for:** The "Compare Runs" tab and the "VODs" list.
 
-## 5. Data Consumers
+## 6. Data Consumers
 
 This defines who is reading the data at the end of the pipeline.
 
@@ -132,7 +145,7 @@ This defines who is reading the data at the end of the pipeline.
   - **Cadence:** Updated directly by the GUI loops (500ms / 10s).
 - **OBS Overlay / Widgets** (`src/overlay_server.py`)
   - **Reads:** `OverlayStateStore` (via HTTP endpoints).
-  - **Cadence:** Clients poll the HTTP server or connect via server-side events.
+  - **Cadence:** Clients poll the HTTP server via GET requests to `/api/overlay-state` (no WebSockets or Server-Sent Events).
 - **Twitch Bot** (`src/twitch_bot.py`)
   - **Reads:** Primarily `LiveRunTracker` and `config.TWITCH_BOT`.
   - **Cadence:** On-demand when a user types a command in chat.
@@ -140,34 +153,42 @@ This defines who is reading the data at the end of the pipeline.
   - **Reads:** `VodRecorder` snapshots.
   - **Cadence:** Interactive user inspection.
 
-## 6. Metric / Feature Tracking Matrix
+## 7. Metric / Feature Tracking Matrix
 
-| Metric / Feature | Raw Source | Updater / Refresh Path | Refresh Interval | State Owner | Consumers |
-|------------------|------------|------------------------|------------------|-------------|-----------|
-| KPS | Game memory (kills, timer) | Fast KPS refresh | 500 ms | LiveRunTracker | Live Stats, Overlay, Twitch bot |
-| Mob kills | Game memory | Fast KPS refresh | 500 ms | LiveRunTracker | Live Stats, Overlay, VOD |
-| Run timer | Game memory | Fast KPS refresh | 500 ms | LiveRunTracker | Live Stats, Overlay, VOD, Twitch bot |
-| Player stats | Game memory | Slow full refresh | 10 s | Full live snapshot | Live Stats, Overlay, VOD |
-| Tracked items | Game memory | Slow full refresh | 10 s | LiveRunTracker / Snapshot | Live Stats, Overlay |
-| Stage summary | Derived from items/timer | Slow full refresh | 10 s | Full live snapshot | Live Stats, Compare Runs |
-| Banishes | Game memory | Slow full refresh | 10 s | Full live snapshot | Live Stats |
-| Chaos tome | Game memory | Fast Chaos refresh | 500 ms | LiveRunTracker | Live Stats, Overlay, Twitch bot |
-| Powerups | Game memory | Fast Powerup refresh | 500 ms | LiveRunTracker | Live Stats |
-| Chest counters | Game memory | Fast Chest refresh | 500 ms | LiveRunTracker | Live Stats |
-| VOD snapshot data | In-memory snapshots | VodRecorder interval | ~30 s | VodRecorder | VOD list, Compare Runs |
-| Overlay widget data | LiveRunTracker + config | Overlay state builder | ~500 ms | OverlayStateStore | OBS overlay / Widgets |
+| Metric / Feature | Raw Source | Updater / Refresh Path | Transport Poll Interval | Data Freshness | State Owner | Consumers |
+|------------------|------------|------------------------|-------------------------|----------------|-------------|-----------|
+| KPS | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, Twitch bot |
+| Mob kills | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, VOD (stale if KPS path gated) |
+| Run timer | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, VOD, Twitch bot (stale if KPS path gated) |
+| Player stats | Game memory | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats, Overlay, VOD |
+| Tracked items | Game memory | Slow full refresh | 10 s | 10 s | LiveRunTracker | Live Stats, Overlay |
+| Stage summary | Derived | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats, Compare Runs |
+| Banishes | Game memory | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats |
+| Chaos tome | Game memory | Fast Chaos refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, Twitch bot |
+| Powerups | Game memory | Fast Powerup refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats |
+| Chest counters | Game memory | Fast Chest refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats |
+| VOD snapshot data| In-memory | VodRecorder interval | ~30 s | 30 s | VodRecorder | VOD list, Compare Runs |
+| Overlay widget data | LiveRunTracker | Overlay state builder | ~500 ms (HTTP GET) | Mixed (500ms - 10s depending on field) | OverlayStateStore | OBS overlay / Widgets |
 
-## 7. Current Architectural Observations
+## 8. Current Architectural Observations
 
 - **Clear Fast/Slow Separation:** The architecture successfully splits heavy memory reads (Items/Weapons) into a 10s slow lane and fast-moving metrics (KPS/Timer/Kills) into a 500ms fast lane. This minimizes game-process read overhead.
 - **LiveRunTracker Evolution:** `LiveRunTracker` is naturally evolving into the primary state owner for all runtime derived logic.
 - **Blurred Boundaries:** The boundary between what lives strictly in the "Slow Full Snapshot" lane versus what is aggregated into `LiveRunTracker` can occasionally be blurred (e.g., Tracked Items, Stage Summary).
 - **Needs Confirmation:** Whether the Twitch Bot needs to pull any data from the slow lane, or if it naturally gets all required data by reading strictly from `LiveRunTracker` snapshots.
 
-## 8. Suggested Future Maintenance Rule
+## 9. Known Gaps / Current Exceptions
+
+Note that this document outlines the target mental model, but reality contains some pragmatic exceptions:
+
+- **VOD Snapshot Stale KPS:** Because VOD recording triggers on a 30s interval but does NOT ungate the fast 500ms KPS memory reads, the VOD snapshots will record stale (or `None`) values for `mob_kills` and `run_timer` if the user is passively recording without having Live Stats, the Twitch bot, or the KPS overlay widget active.
+- **Mixed Freshness in Overlay:** The OBS clients poll the `/api/overlay-state` endpoint every 500ms. However, only the KPS/Chaos widgets actually contain 500ms-fresh data. The player stats (Luck, Damage) and Items widgets only change their underlying values every 10 seconds due to the slow refresh path.
+
+## 10. Suggested Future Maintenance Rule
 
 When adding a new realtime feature, developers should immediately define:
 - **Raw source:** Is it derived logic or direct memory read?
 - **Updater cadence:** Can it be updated every 10s (slow lane) or does it need 500ms updates (fast lane)?
+- **Gating logic:** Does it need a specific consumer to be active before reading from memory?
 - **State owner:** Should it be tracked in `LiveRunTracker` (accumulated state) or just read statelessly into the live snapshot?
 - **Consumers:** Will this be used by OBS, Twitch Bot, or just the local UI?
