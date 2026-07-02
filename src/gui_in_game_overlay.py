@@ -294,7 +294,7 @@ class InGameOverlayMixin:
         self.overlay_slow_timer.setInterval(10000)
         
         # Setup ui after app is ready
-        UiInvoker.invoke(self._init_in_game_overlay)
+        self.after_idle(self._init_in_game_overlay)
 
     def _init_in_game_overlay(self):
         self.in_game_overlay_window = InGameOverlayWindow()
