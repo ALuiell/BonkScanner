@@ -46,6 +46,10 @@ class DraggableOverlayWidget(QWidget):
         base_size = 16
         px_size = int(base_size * scale)
         self.label.setStyleSheet(f"font-size: {px_size}px; font-weight: bold; background: transparent; border: none;")
+        # Force QLabel to re-parse and lay out rich text with the new stylesheet font-size
+        txt = self.label.text()
+        self.label.setText("")
+        self.label.setText(txt)
         self.label.adjustSize()
         self.adjustSize()
 
