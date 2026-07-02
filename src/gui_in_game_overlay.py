@@ -608,7 +608,7 @@ class InGameOverlayMixin:
         if not hasattr(self, "igo_status_label") or self.igo_status_label is None:
             return
             
-        is_running = bool(self.in_game_overlay_window and self.in_game_overlay_window.isVisible())
+        is_running = bool(config.IN_GAME_OVERLAY.get("enabled", False))
         
         if is_running:
             self.igo_status_label.setText("<span style='color: #4fd67a; font-weight: bold;'>Running</span>")
