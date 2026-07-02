@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 import config
 from gui_shared import UiInvoker, _make_scroll_section
+from gui_styles import _button_state_stylesheet
 
 
 class DraggableOverlayWidget(QWidget):
@@ -611,14 +612,11 @@ class InGameOverlayMixin:
         if is_running:
             self.igo_status_label.setText("<span style='color: #4fd67a; font-weight: bold;'>Running</span>")
             self.igo_toggle_btn.setText("Stop Overlay")
-            self.igo_toggle_btn.setObjectName("DangerButton")
+            self.igo_toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
         else:
             self.igo_status_label.setText("<span style='color: #ef4444; font-weight: bold;'>Stopped</span>")
             self.igo_toggle_btn.setText("Start Overlay")
-            self.igo_toggle_btn.setObjectName("SuccessButton")
-            
-        self.igo_toggle_btn.style().unpolish(self.igo_toggle_btn)
-        self.igo_toggle_btn.style().polish(self.igo_toggle_btn)
+            self.igo_toggle_btn.setStyleSheet("")
 
     def _on_igo_settings_changed(self, *_):
         cfg = config.IN_GAME_OVERLAY
