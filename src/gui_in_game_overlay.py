@@ -407,7 +407,7 @@ class InGameOverlayMixin:
         
         # Update Scanner
         if cfg["widgets"]["scanner"]["enabled"]:
-            is_active = getattr(self.logic, "scanner_active", False)
+            is_active = bool(getattr(self, "scanner_thread", None) and self.scanner_thread.is_alive())
             color = "#22c55e" if is_active else "#ef4444"
             status = "🟢" if is_active else "🔴"
             text = f"<span style='color: {color}; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;'>Scanner {status}</span>"
@@ -415,7 +415,7 @@ class InGameOverlayMixin:
             
         # Update Recording
         if cfg["widgets"]["recording"]["enabled"]:
-            is_rec = getattr(self.vod_recorder, "is_recording", False)
+            is_rec = bool(getattr(self, "player_stats_vod_recorder", None) and self.player_stats_vod_recorder.is_recording)
             color = "#ef4444" if is_rec else "#9ca3af"
             status = "🔴" if is_rec else "⚪"
             text = f"<span style='color: {color}; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;'>REC {status}</span>"
