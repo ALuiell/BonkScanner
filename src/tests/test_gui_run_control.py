@@ -249,9 +249,11 @@ class FakeRecordingRecorder:
         player_level=None,
         map_seed=None,
         stage_ptr=0,
+        stage_index=None,
         stage_time_seconds=None,
         chests_opened=None,
         chests_total=None,
+        pots_total=None,
         paid_chests=None,
         key_procs=None,
         free_chests=None,
@@ -278,9 +280,11 @@ class FakeRecordingRecorder:
             player_level=player_level,
             map_seed=map_seed,
             stage_ptr=stage_ptr,
+            stage_index=stage_index,
             stage_time_seconds=stage_time_seconds,
             chests_opened=chests_opened,
             chests_total=chests_total,
+            pots_total=pots_total,
             paid_chests=paid_chests,
             key_procs=key_procs,
             free_chests=free_chests,
@@ -309,9 +313,11 @@ class FakeRecordingRecorder:
                 "player_level": player_level,
                 "map_seed": map_seed,
                 "stage_ptr": stage_ptr,
+                "stage_index": stage_index,
                 "stage_time_seconds": stage_time_seconds,
                 "chests_opened": chests_opened,
                 "chests_total": chests_total,
+                "pots_total": pots_total,
                 "paid_chests": paid_chests,
                 "key_procs": key_procs,
                 "free_chests": free_chests,
@@ -2713,9 +2719,16 @@ class GuiRunControlTests(unittest.TestCase):
             get_live_tomes=lambda owner_stats=None: (tome,),
             get_live_banishes=lambda: ("Clover", "Golden Tome"),
             get_run_timer=lambda: 21.5,
+            get_stage_timer_context=lambda: (9.0, 2, None),
             get_stage_timer=lambda: 9.0,
             get_killed_mobs=lambda: 37,
             get_player_level=lambda owner_stats=None: 2,
+        )
+        app.player_stats_game_data_client = SimpleNamespace(
+            get_map_activity_values=lambda: {
+                "Chests": SimpleNamespace(current=4, max=15),
+                "Pots": SimpleNamespace(current=0, max=5),
+            }
         )
         timeline_calls: list[str] = []
         snapshot_calls: list[str] = []
@@ -2734,6 +2747,9 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["game_time_seconds"], 21.5)
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["mob_kills"], 37)
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["player_level"], 2)
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["stage_index"], 2)
+        self.assertIsNotNone(app.player_stats_vod_recorder.capture_calls[0]["chests_total"])
+        self.assertIsNotNone(app.player_stats_vod_recorder.capture_calls[0]["pots_total"])
         self.assertEqual(snapshot_calls, [])
         self.assertEqual(timeline_calls, ["timeline"])
 

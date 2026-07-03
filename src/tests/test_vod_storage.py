@@ -159,8 +159,12 @@ class VodStorageTests(unittest.TestCase):
                 five_minute_avg_kps_at_capture=221,
                 run_avg_kps_at_capture=138,
                 player_level=2,
+                map_seed=12345,
+                stage_ptr=0x3000,
+                stage_index=2,
                 chests_opened=37,
                 chests_total=46,
+                pots_total=55,
                 paid_chests=16,
                 key_procs=19,
                 free_chests=2,
@@ -222,8 +226,12 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].five_minute_avg_kps_at_capture, 221)
             self.assertEqual(loaded.snapshots[0].run_avg_kps_at_capture, 138)
             self.assertEqual(loaded.snapshots[0].player_level, 2)
+            self.assertEqual(loaded.snapshots[0].map_seed, 12345)
+            self.assertEqual(loaded.snapshots[0].stage_ptr, 0x3000)
+            self.assertEqual(loaded.snapshots[0].stage_index, 2)
             self.assertEqual(loaded.snapshots[0].chests_opened, 37)
             self.assertEqual(loaded.snapshots[0].chests_total, 46)
+            self.assertEqual(loaded.snapshots[0].pots_total, 55)
             self.assertEqual(loaded.snapshots[0].paid_chests, 16)
             self.assertEqual(loaded.snapshots[0].key_procs, 19)
             self.assertEqual(loaded.snapshots[0].free_chests, 2)

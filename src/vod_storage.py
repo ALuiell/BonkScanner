@@ -22,7 +22,7 @@ from player_stats import (
 )
 
 
-VOD_FORMAT_VERSION = 5
+VOD_FORMAT_VERSION = 6
 RECORDINGS_DIR = Path(config.application_path) / "stats_recordings"
 LEGACY_VODS_DIR = Path(config.application_path) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -56,9 +56,11 @@ class VodSnapshot:
     player_level: int | None = None
     map_seed: int | None = None
     stage_ptr: int = 0
+    stage_index: int | None = None
     stage_time_seconds: float | None = None
     chests_opened: int | None = None
     chests_total: int | None = None
+    pots_total: int | None = None
     paid_chests: int | None = None
     key_procs: int | None = None
     free_chests: int | None = None
@@ -210,9 +212,11 @@ class VodRecorder:
         player_level: int | None = None,
         map_seed: int | None = None,
         stage_ptr: int = 0,
+        stage_index: int | None = None,
         stage_time_seconds: float | None = None,
         chests_opened: int | None = None,
         chests_total: int | None = None,
+        pots_total: int | None = None,
         paid_chests: int | None = None,
         key_procs: int | None = None,
         free_chests: int | None = None,
@@ -248,9 +252,11 @@ class VodRecorder:
             player_level=player_level,
             map_seed=map_seed,
             stage_ptr=stage_ptr,
+            stage_index=stage_index,
             stage_time_seconds=stage_time_seconds,
             chests_opened=chests_opened,
             chests_total=chests_total,
+            pots_total=pots_total,
             paid_chests=paid_chests,
             key_procs=key_procs,
             free_chests=free_chests,
@@ -532,12 +538,16 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         record["map_seed"] = snapshot.map_seed
     if snapshot.stage_ptr:
         record["stage_ptr"] = snapshot.stage_ptr
+    if snapshot.stage_index is not None:
+        record["stage_index"] = snapshot.stage_index
     if snapshot.stage_time_seconds is not None:
         record["stage_time_seconds"] = snapshot.stage_time_seconds
     if snapshot.chests_opened is not None:
         record["chests_opened"] = snapshot.chests_opened
     if snapshot.chests_total is not None:
         record["chests_total"] = snapshot.chests_total
+    if snapshot.pots_total is not None:
+        record["pots_total"] = snapshot.pots_total
     if snapshot.paid_chests is not None:
         record["paid_chests"] = snapshot.paid_chests
     if snapshot.key_procs is not None:
@@ -586,9 +596,11 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
         player_level=_coerce_optional_int(record.get("player_level")),
         map_seed=_coerce_optional_int(record.get("map_seed", record.get("run_seed"))),
         stage_ptr=_coerce_int(record.get("stage_ptr")),
+        stage_index=_coerce_optional_int(record.get("stage_index")),
         stage_time_seconds=_coerce_optional_float(record.get("stage_time_seconds")),
         chests_opened=_coerce_optional_int(record.get("chests_opened")),
         chests_total=_coerce_optional_int(record.get("chests_total")),
+        pots_total=_coerce_optional_int(record.get("pots_total")),
         paid_chests=_coerce_optional_int(record.get("paid_chests")),
         key_procs=_coerce_optional_int(record.get("key_procs")),
         free_chests=_coerce_optional_int(record.get("free_chests")),
