@@ -122,25 +122,20 @@ class RunControlMixin:
         return isinstance(self.run_control_provider, KeyboardRunControlProvider)
 
     def is_game_window_active(self, process_name: str) -> bool:
+        del process_name
         if win32gui is None or win32process is None:
             return True
         foreground_window = win32gui.GetForegroundWindow()
         if not foreground_window:
             return False
         game_process_id = self.get_game_process_id()
-        if game_process_id is not None:
-            try:
-                _, foreground_process_id = win32process.GetWindowThreadProcessId(foreground_window)
-                if int(foreground_process_id) == game_process_id:
-                    return True
-            except Exception:
-                pass
+        if game_process_id is None:
+            return False
         try:
-            foreground_title = win32gui.GetWindowText(foreground_window) or ""
+            _, foreground_process_id = win32process.GetWindowThreadProcessId(foreground_window)
         except Exception:
             return False
-        expected_title = os.path.splitext(process_name)[0]
-        return bool(expected_title and expected_title.lower() in foreground_title.lower())
+        return int(foreground_process_id) == game_process_id
 
     def wait_for_game_window_focus(self, process_name: str) -> bool:
         if self.is_game_window_active(process_name):
@@ -232,12 +227,11 @@ class RunControlMixin:
             return False
 
     def find_game_window(self, process_name: str) -> int | None:
+        del process_name
         game_process_id = self.get_game_process_id()
         if game_process_id is not None:
-            window = self.find_game_window_by_pid(game_process_id)
-            if window:
-                return window
-        return self.find_game_window_by_title(process_name)
+            return self.find_game_window_by_pid(game_process_id)
+        return None
 
     def find_game_window_by_pid(self, process_id: int) -> int | None:
         found_window = None
@@ -251,30 +245,6 @@ class RunControlMixin:
             except Exception:
                 return
             if int(window_process_id) == process_id:
-                found_window = window
-
-        try:
-            win32gui.EnumWindows(enum_callback, None)
-        except Exception as exc:
-            self.log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
-        return found_window
-
-    def find_game_window_by_title(self, process_name: str) -> int | None:
-        expected_title = os.path.splitext(process_name)[0]
-        if not expected_title:
-            return None
-
-        found_window = None
-
-        def enum_callback(window, _extra):
-            nonlocal found_window
-            if found_window is not None or not self.is_visible_window(window):
-                return
-            try:
-                window_title = win32gui.GetWindowText(window) or ""
-            except Exception:
-                return
-            if expected_title.lower() in window_title.lower():
                 found_window = window
 
         try:

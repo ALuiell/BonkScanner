@@ -54,5 +54,25 @@ class LegacyNativeHookCleanupTests(unittest.TestCase):
             self.assertFalse(os.path.exists(root_dir))
 
 
+class InGameOverlayConfigTests(unittest.TestCase):
+    def test_invalid_scale_falls_back_to_widget_default(self) -> None:
+        normalized = config.normalize_in_game_overlay_config(
+            {
+                "widgets": {
+                    "scanner": {"scale": "not-a-number"},
+                    "recording": {"scale": "inf"},
+                    "kps": {"scale": ""},
+                    "powerups": {"scale": None},
+                }
+            }
+        )
+
+        defaults = config.DEFAULT_IN_GAME_OVERLAY["widgets"]
+        self.assertEqual(normalized["widgets"]["scanner"]["scale"], defaults["scanner"]["scale"])
+        self.assertEqual(normalized["widgets"]["recording"]["scale"], defaults["recording"]["scale"])
+        self.assertEqual(normalized["widgets"]["kps"]["scale"], defaults["kps"]["scale"])
+        self.assertEqual(normalized["widgets"]["powerups"]["scale"], defaults["powerups"]["scale"])
+
+
 if __name__ == "__main__":
     unittest.main()

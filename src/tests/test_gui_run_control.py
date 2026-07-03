@@ -10,8 +10,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import gui
+import gui_in_game_overlay
 from game_data import RuntimeGameMode, RuntimeGameState
 from run_control import KeyboardRunControlProvider
+from PySide6.QtCore import QRect
 
 
 class FakeEntry:
@@ -115,6 +117,45 @@ class FakeLabel:
 
     def text(self) -> str:
         return self.value
+
+
+class FakeOverlayTimer:
+    def __init__(self) -> None:
+        self.start_calls = 0
+        self.stop_calls = 0
+
+    def start(self) -> None:
+        self.start_calls += 1
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+
+
+class FakeInGameOverlayWindow:
+    def __init__(self, *, visible: bool = False, edit_mode: bool = False) -> None:
+        self._visible = visible
+        self.edit_mode = edit_mode
+        self.widgets = {}
+        self.show_calls = 0
+        self.hide_calls = 0
+        self.sync_calls = 0
+
+    def isVisible(self) -> bool:
+        return self._visible
+
+    def show(self) -> None:
+        self._visible = True
+        self.show_calls += 1
+
+    def hide(self) -> None:
+        self._visible = False
+        self.hide_calls += 1
+
+    def sync_geometry_to_target(self) -> None:
+        self.sync_calls += 1
+
+    def screen(self):
+        return None
 
 
 class FakeTabWidget:
@@ -762,27 +803,25 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertTrue(any("WARNING: Script is not running as Administrator" in message for message, _tag in logs))
         self.assertTrue(any("Hotkeys may not work while the game window is active" in message for message, _tag in logs))
-    def test_game_window_focus_falls_back_to_title_when_attached_pid_differs(self) -> None:
+    def test_game_window_focus_requires_foreground_pid_match(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.get_game_process_id = lambda: 1234
         fake_gui = SimpleNamespace(
             GetForegroundWindow=lambda: 111,
-            GetWindowText=lambda _window: "Megabonk",
         )
         fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
 
         with patch.object(gui, "win32gui", fake_gui):
             with patch.object(gui, "win32process", fake_process):
-                self.assertTrue(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
+                self.assertFalse(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
 
-    def test_game_window_focus_rejects_unrelated_title_when_attached_pid_differs(self) -> None:
+    def test_game_window_focus_returns_false_without_game_pid(self) -> None:
         app = object.__new__(gui.MegabonkApp)
-        app.get_game_process_id = lambda: 1234
+        app.get_game_process_id = lambda: None
         fake_gui = SimpleNamespace(
             GetForegroundWindow=lambda: 111,
-            GetWindowText=lambda _window: "BonkScanner",
         )
-        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
+        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 1234))
 
         with patch.object(gui, "win32gui", fake_gui):
             with patch.object(gui, "win32process", fake_process):
@@ -1064,7 +1103,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIsNotNone(app._hotkey_manager)
         self.assertEqual(logs, [])
 
-    def test_hotkey_with_held_game_key_uses_title_fallback_for_active_window(self) -> None:
+    def test_hotkey_with_held_game_key_requires_matching_foreground_pid(self) -> None:
         fake_keyboard = FakeKeyboardModule()
         scan_toggles: list[str] = []
         app = object.__new__(gui.MegabonkApp)
@@ -1074,7 +1113,6 @@ class GuiRunControlTests(unittest.TestCase):
         app.hotkey_toggle_player_stats_recording = lambda: None
         fake_gui = SimpleNamespace(
             GetForegroundWindow=lambda: 111,
-            GetWindowText=lambda _window: "Megabonk",
         )
         fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
 
@@ -1089,7 +1127,13 @@ class GuiRunControlTests(unittest.TestCase):
                             hook(SimpleNamespace(scan_code=fake_keyboard.key_to_scan_codes("w")[0], event_type="down"))
                             hook(SimpleNamespace(scan_code=fake_keyboard.key_to_scan_codes("f6")[0], event_type="down"))
 
-        self.assertEqual(scan_toggles, ["scan"])
+        self.assertEqual(scan_toggles, [])
+
+    def test_find_game_window_returns_none_without_game_pid(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.get_game_process_id = lambda: None
+
+        self.assertIsNone(gui.MegabonkApp.find_game_window(app, "Megabonk.exe"))
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:
         loaded_vod = types.SimpleNamespace(
@@ -3995,6 +4039,98 @@ class GuiRunControlTests(unittest.TestCase):
         text = gui.MegabonkApp.format_session_tracked_items_for_stats_tab(app)
 
         self.assertEqual(text, "Kevin + Electric Plug T1: 2 (50.00%)")
+
+    def test_apply_in_game_overlay_settings_stops_without_restarting_overlay(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        app.overlay_fast_timer = FakeOverlayTimer()
+        app.overlay_slow_timer = FakeOverlayTimer()
+        status_updates: list[str] = []
+        app._update_igo_status_ui = lambda: status_updates.append("status")
+        app._overlay_fast_tick = lambda: status_updates.append("fast")
+        app._overlay_slow_tick = lambda: status_updates.append("slow")
+
+        overlay_cfg = {"enabled": False, "widgets": {}}
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp.apply_in_game_overlay_settings(app)
+
+        self.assertEqual(app.in_game_overlay_window.hide_calls, 1)
+        self.assertEqual(app.overlay_fast_timer.stop_calls, 1)
+        self.assertEqual(app.overlay_slow_timer.stop_calls, 1)
+        self.assertEqual(status_updates, ["status"])
+
+    def test_overlay_fast_tick_hides_disabled_overlay_even_if_game_is_active(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        app.is_game_window_active = lambda _process_name: True
+        app.live_run_tracker = SimpleNamespace()
+
+        overlay_cfg = {
+            "enabled": False,
+            "widgets": {
+                "kps": {"enabled": False},
+                "powerups": {"enabled": False},
+            },
+        }
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp._overlay_fast_tick(app)
+
+        self.assertEqual(app.in_game_overlay_window.hide_calls, 1)
+        self.assertFalse(app.in_game_overlay_window.isVisible())
+
+    def test_overlay_fast_tick_syncs_geometry_before_showing_game_overlay(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
+        app.is_game_window_active = lambda _process_name: True
+        app.live_run_tracker = SimpleNamespace()
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "kps": {"enabled": False},
+                "powerups": {"enabled": False},
+            },
+        }
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp._overlay_fast_tick(app)
+
+        self.assertEqual(app.in_game_overlay_window.sync_calls, 1)
+        self.assertEqual(app.in_game_overlay_window.show_calls, 1)
+
+    def test_in_game_overlay_target_geometry_uses_game_window_rect(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.find_game_window = lambda _process_name: 321
+        app.in_game_overlay_window = FakeInGameOverlayWindow()
+
+        fake_win32gui = SimpleNamespace(GetWindowRect=lambda _window: (100, 200, 740, 680))
+        with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui):
+            rect = gui.MegabonkApp._in_game_overlay_target_geometry(app)
+
+        self.assertIsInstance(rect, QRect)
+        self.assertEqual(rect, QRect(100, 200, 640, 480))
+
+    def test_in_game_overlay_powerups_html_uses_run_timer_when_available(self) -> None:
+        snapshot = SimpleNamespace(
+            active=(
+                SimpleNamespace(
+                    name="Shield",
+                    remaining_seconds=15.0,
+                    pickup_offset_seconds=-5.0,
+                    expiration_offset_seconds=15.0,
+                    pickup_ui="01:45",
+                    expires_ui="01:25",
+                ),
+            ),
+            powerup_multiplier_display="1x",
+        )
+
+        html = gui_in_game_overlay.InGameOverlayMixin._build_powerups_overlay_html(
+            snapshot,
+            current_run_time_seconds=80.0,
+        )
+
+        self.assertIn("01:15 -&gt; 01:35", html.replace("→", "-&gt;"))
+        self.assertIn("Shield:", html)
 
 
 if __name__ == "__main__":

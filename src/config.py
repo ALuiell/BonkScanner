@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import math
 import shutil
 import colorama
 import threading
@@ -407,6 +408,16 @@ def coerce_nonnegative_int(value, default=0):
     return max(parsed, 0)
 
 
+def coerce_float(value, default=0.0):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(parsed):
+        return default
+    return parsed
+
+
 def normalize_hotkey_game_key_whitelist(value) -> list[str]:
     if isinstance(value, str):
         value = value.split(",")
@@ -507,7 +518,13 @@ def normalize_in_game_overlay_config(value):
             widgets[key]["enabled"] = bool(widgets[key].get("enabled", True))
             widgets[key]["x"] = coerce_nonnegative_int(widgets[key].get("x"), default_widget["x"])
             widgets[key]["y"] = coerce_nonnegative_int(widgets[key].get("y"), default_widget["y"])
-            widgets[key]["scale"] = max(0.5, min(float(widgets[key].get("scale", default_widget["scale"])), 3.0))
+            widgets[key]["scale"] = max(
+                0.5,
+                min(
+                    coerce_float(widgets[key].get("scale"), default_widget["scale"]),
+                    3.0,
+                ),
+            )
             
             if key == "kps":
                 metrics_val = widgets[key].get("metrics")

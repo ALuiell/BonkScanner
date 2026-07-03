@@ -141,6 +141,8 @@ class PowerupEffectState:
     name: str
     pickup_ui: str | None
     expires_ui: str | None
+    pickup_offset_seconds: float
+    expiration_offset_seconds: float
     remaining_seconds: float
     duration_seconds: float
     stage_index: int | None
@@ -749,6 +751,8 @@ class LiveRunTracker:
                             if ui_context.timer_limit is not None
                             else None
                         ),
+                        pickup_offset_seconds=pickup_time - float(my_time),
+                        expiration_offset_seconds=expiration_time - float(my_time),
                         remaining_seconds=remaining,
                         duration_seconds=duration,
                         stage_index=stage_index,
