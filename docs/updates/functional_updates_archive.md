@@ -4,6 +4,36 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Completed / Done Items (Archived 2026-07-03)
+
+### In-Game Overlay
+
+#### 1. Split `src/gui_in_game_overlay.py` Into Focused Modules
+
+Status: `[Done]`
+
+Goal:
+
+- Reduce the maintenance cost of the in-game overlay code by separating UI window logic, settings UI, and HTML/render helpers into smaller focused modules.
+- Keep the shipped overlay behavior unchanged while making future fixes and feature work less risky.
+
+Implemented scope:
+
+- `src/gui_in_game_overlay.py` now acts as the thin coordinator/mixin entry point.
+- Overlay widgets were moved into `src/gui_in_game_overlay_window.py`:
+  - `InGameOverlayWindow`
+  - `DraggableOverlayWidget`
+- The settings dialog was moved into `src/gui_in_game_overlay_settings.py`:
+  - `InGameWidgetSettingsDialog`
+- HTML/string formatting helpers were moved into `src/gui_in_game_overlay_render.py`.
+- Existing config keys, signal wiring, and overlay refresh cadence were preserved.
+
+Archive note:
+
+- Removed from the active `functional_updates.md` list after the split was completed.
+
+---
+
 ## Archived & Shelved Items (Archived 2026-06-23)
 
 ### Stage Summary Must Anchor To Raw Stage Index And Treat Boss As Virtual Stage

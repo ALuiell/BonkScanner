@@ -1,668 +1,245 @@
 from __future__ import annotations
 
-import json
-import os
-from typing import Any
-
-from PySide6.QtCore import Qt, QTimer, QPoint, QRect, Signal, Slot
-from PySide6.QtGui import QMouseEvent, QPainter, QColor, QFont, QKeyEvent
-from PySide6.QtWidgets import (
-    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QGroupBox, QCheckBox, QDoubleSpinBox, QPushButton, QDialog, QTabWidget
-)
+from PySide6.QtCore import QRect, QTimer
+from PySide6.QtWidgets import QApplication
 
 import config
-from gui_shared import UiInvoker, _make_scroll_section
-from gui_styles import _button_state_stylesheet
+from gui_in_game_overlay_render import (
+    build_kps_overlay_html,
+    build_powerups_overlay_html,
+    build_status_indicator_html,
+)
+from gui_in_game_overlay_settings import (
+    InGameWidgetSettingsDialog,
+    build_in_game_overlay_tab,
+    update_in_game_overlay_status_ui,
+)
+from gui_in_game_overlay_window import InGameOverlayWindow
 
-
-class DraggableOverlayWidget(QWidget):
-    moved = Signal(str, int, int)
-
-    def __init__(self, widget_id: str, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.widget_id = widget_id
-        self._dragging = False
-        self._drag_start_pos = QPoint()
-        self.edit_mode = False
-        self.setMouseTracking(True)
-        
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(5, 5, 5, 5)
-        self.layout.setSpacing(2)
-
-        self.label = QLabel()
-        self.label.setTextFormat(Qt.RichText)
-        self.label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self.layout.addWidget(self.label)
-        
-        # Apply initial settings
-        widget_cfg = config.IN_GAME_OVERLAY["widgets"][self.widget_id]
-        self.update_scale(widget_cfg.get("scale", 1.0))
-        self.move(widget_cfg["x"], widget_cfg["y"])
-        self.setVisible(widget_cfg["enabled"])
-
-    def update_scale(self, scale: float):
-        base_size = 16
-        px_size = int(base_size * scale)
-        self.label.setStyleSheet(f"font-size: {px_size}px; font-weight: bold; background: transparent; border: none;")
-        # Force QLabel to re-parse and lay out rich text with the new stylesheet font-size
-        txt = self.label.text()
-        self.label.setText("")
-        self.label.setText(txt)
-        self.label.adjustSize()
-        self.adjustSize()
-
-    def set_edit_mode(self, enabled: bool):
-        self.edit_mode = enabled
-        if enabled:
-            self.setStyleSheet("background-color: rgba(0, 0, 0, 150); border: 1px dashed rgba(255, 255, 255, 100);")
-        else:
-            self.setStyleSheet("background-color: transparent; border: none;")
-
-    def mousePressEvent(self, event: QMouseEvent):
-        if self.edit_mode and event.button() == Qt.LeftButton:
-            self._dragging = True
-            self._drag_start_pos = event.pos()
-            self.raise_()
-            event.accept()
-
-    def mouseMoveEvent(self, event: QMouseEvent):
-        if self.edit_mode and self._dragging:
-            new_pos = self.mapToParent(event.pos() - self._drag_start_pos)
-            self.move(new_pos)
-            event.accept()
-
-    def mouseReleaseEvent(self, event: QMouseEvent):
-        if self.edit_mode and event.button() == Qt.LeftButton:
-            self._dragging = False
-            self.moved.emit(self.widget_id, self.x(), self.y())
-            event.accept()
-
-    def set_text(self, text: str):
-        if self.label.text() != text:
-            self.label.setText(text)
-            self.adjustSize()
-
-
-class InGameOverlayWindow(QWidget):
-    def __init__(self, parent_mixin: InGameOverlayMixin, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.parent_mixin = parent_mixin
-        self.edit_mode = False
-        
-        self.setWindowFlags(
-            Qt.FramelessWindowHint |
-            Qt.WindowStaysOnTopHint |
-            Qt.Tool |
-            Qt.WindowTransparentForInput
-        )
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        
-        self.widgets: dict[str, DraggableOverlayWidget] = {}
-        
-        self.widgets["scanner"] = DraggableOverlayWidget("scanner", self)
-        self.widgets["recording"] = DraggableOverlayWidget("recording", self)
-        self.widgets["kps"] = DraggableOverlayWidget("kps", self)
-        self.widgets["powerups"] = DraggableOverlayWidget("powerups", self)
-        
-        for w in self.widgets.values():
-            w.moved.connect(self.on_widget_moved)
-            
-        self.save_btn = None
-
-    def showEvent(self, event):
-        screen = self.screen()
-        if screen:
-            self.setGeometry(screen.geometry())
-        super().showEvent(event)
-
-    def paintEvent(self, event):
-        if self.edit_mode:
-            painter = QPainter(self)
-            painter.fillRect(self.rect(), QColor(0, 0, 0, 50))
-        super().paintEvent(event)
-
-    def toggle_edit_mode(self, enabled: bool):
-        self.edit_mode = enabled
-        
-        # To change WindowTransparentForInput, we need to hide, change flags, and show again
-        self.hide()
-        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-        if not enabled:
-            flags |= Qt.WindowTransparentForInput
-            
-        self.setWindowFlags(flags)
-        
-        for w in self.widgets.values():
-            w.set_edit_mode(enabled)
-            
-        if enabled:
-            if not self.save_btn:
-                self.save_btn = QPushButton("Save Layout & Exit Edit Mode", self)
-                self.save_btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: #22c55e;
-                        color: white;
-                        font-weight: bold;
-                        font-size: 16px;
-                        padding: 8px 16px;
-                        border-radius: 5px;
-                        border: 1px solid #15803d;
-                    }
-                    QPushButton:hover {
-                        background-color: #15803d;
-                    }
-                """)
-                self.save_btn.clicked.connect(self._on_save_clicked)
-            
-            self.save_btn.show()
-            self._position_save_btn()
-        else:
-            if self.save_btn:
-                self.save_btn.hide()
-                
-        self.show()
-
-    def _position_save_btn(self):
-        if self.save_btn:
-            screen_geom = self.screen().geometry()
-            w = 280
-            h = 40
-            self.save_btn.resize(w, h)
-            self.save_btn.move((screen_geom.width() - w) // 2, screen_geom.height() - h - 60)
-
-    def keyPressEvent(self, event: QKeyEvent):
-        if self.edit_mode and event.key() == Qt.Key_Escape:
-            self._on_save_clicked()
-            event.accept()
-        else:
-            super().keyPressEvent(event)
-
-    def _on_save_clicked(self):
-        if self.parent_mixin and hasattr(self.parent_mixin, "_toggle_igo_edit_mode"):
-            self.parent_mixin._toggle_igo_edit_mode()
-
-    def on_widget_moved(self, widget_id: str, x: int, y: int):
-        config.IN_GAME_OVERLAY["widgets"][widget_id]["x"] = x
-        config.IN_GAME_OVERLAY["widgets"][widget_id]["y"] = y
-
-
-class InGameWidgetSettingsDialog(QDialog):
-    def __init__(self, parent_mixin: InGameOverlayMixin, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.parent_mixin = parent_mixin
-        self.setWindowTitle("In-Game Widgets Configuration")
-        self.resize(600, 650)
-        self.setMinimumSize(500, 450)
-        
-        main_layout = QVBoxLayout(self)
-        
-        # Scroll area for vertical groups
-        scroll, scroll_content, scroll_layout = _make_scroll_section()
-        scroll_layout.setSpacing(16)
-        main_layout.addWidget(scroll)
-        
-        self._init_settings_layout(scroll_layout)
-        
-        # Close button
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch(1)
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.accept)
-        btn_layout.addWidget(close_btn)
-        main_layout.addLayout(btn_layout)
-
-    def _init_settings_layout(self, layout):
-        # 1. Scanner Group
-        scanner_group = QGroupBox("Scanner Status Settings")
-        scanner_layout = QVBoxLayout(scanner_group)
-        scanner_layout.setContentsMargins(16, 12, 16, 12)
-        
-        scale_layout = QHBoxLayout()
-        scale_layout.addWidget(QLabel("Scale:"))
-        self.scanner_scale_spin = QDoubleSpinBox()
-        self.scanner_scale_spin.setRange(0.5, 3.0)
-        self.scanner_scale_spin.setSingleStep(0.1)
-        self.scanner_scale_spin.setValue(config.IN_GAME_OVERLAY["widgets"]["scanner"].get("scale", 1.0))
-        self.scanner_scale_spin.valueChanged.connect(self._save_settings)
-        scale_layout.addWidget(self.scanner_scale_spin)
-        scale_layout.addStretch(1)
-        scanner_layout.addLayout(scale_layout)
-        layout.addWidget(scanner_group)
-
-        # 2. Recording Group
-        recording_group = QGroupBox("Recording Status Settings")
-        recording_layout = QVBoxLayout(recording_group)
-        recording_layout.setContentsMargins(16, 12, 16, 12)
-        
-        scale_layout = QHBoxLayout()
-        scale_layout.addWidget(QLabel("Scale:"))
-        self.recording_scale_spin = QDoubleSpinBox()
-        self.recording_scale_spin.setRange(0.5, 3.0)
-        self.recording_scale_spin.setSingleStep(0.1)
-        self.recording_scale_spin.setValue(config.IN_GAME_OVERLAY["widgets"]["recording"].get("scale", 1.0))
-        self.recording_scale_spin.valueChanged.connect(self._save_settings)
-        scale_layout.addWidget(self.recording_scale_spin)
-        scale_layout.addStretch(1)
-        recording_layout.addLayout(scale_layout)
-        layout.addWidget(recording_group)
-
-        # 3. KPS Group
-        kps_group = QGroupBox("KPS Settings")
-        kps_layout = QVBoxLayout(kps_group)
-        kps_layout.setContentsMargins(16, 12, 16, 12)
-        
-        scale_layout = QHBoxLayout()
-        scale_layout.addWidget(QLabel("Scale:"))
-        self.kps_scale_spin = QDoubleSpinBox()
-        self.kps_scale_spin.setRange(0.5, 3.0)
-        self.kps_scale_spin.setSingleStep(0.1)
-        self.kps_scale_spin.setValue(config.IN_GAME_OVERLAY["widgets"]["kps"].get("scale", 1.0))
-        self.kps_scale_spin.valueChanged.connect(self._save_settings)
-        scale_layout.addWidget(self.kps_scale_spin)
-        scale_layout.addStretch(1)
-        kps_layout.addLayout(scale_layout)
-        
-        metrics_group = QGroupBox("Metrics Displayed")
-        metrics_layout = QHBoxLayout(metrics_group)
-        metrics_layout.setSpacing(10)
-        
-        selected_metrics = set(config.IN_GAME_OVERLAY["widgets"]["kps"].get("metrics", ["instant"]))
-        
-        self.kps_instant_cb = QCheckBox("KPS")
-        self.kps_instant_cb.setChecked("instant" in selected_metrics)
-        self.kps_instant_cb.stateChanged.connect(self._save_settings)
-        metrics_layout.addWidget(self.kps_instant_cb)
-        
-        self.kps_60s_cb = QCheckBox("60s")
-        self.kps_60s_cb.setChecked("60s" in selected_metrics)
-        self.kps_60s_cb.stateChanged.connect(self._save_settings)
-        metrics_layout.addWidget(self.kps_60s_cb)
-        
-        self.kps_5m_cb = QCheckBox("5m")
-        self.kps_5m_cb.setChecked("5m" in selected_metrics)
-        self.kps_5m_cb.stateChanged.connect(self._save_settings)
-        metrics_layout.addWidget(self.kps_5m_cb)
-        
-        self.kps_run_cb = QCheckBox("Run")
-        self.kps_run_cb.setChecked("run" in selected_metrics)
-        self.kps_run_cb.stateChanged.connect(self._save_settings)
-        metrics_layout.addWidget(self.kps_run_cb)
-        
-        kps_layout.addWidget(metrics_group)
-        layout.addWidget(kps_group)
-
-        # 4. Powerups Group
-        powerups_group = QGroupBox("Active Powerups Settings")
-        powerups_layout = QVBoxLayout(powerups_group)
-        powerups_layout.setContentsMargins(16, 12, 16, 12)
-        
-        scale_layout = QHBoxLayout()
-        scale_layout.addWidget(QLabel("Scale:"))
-        self.powerups_scale_spin = QDoubleSpinBox()
-        self.powerups_scale_spin.setRange(0.5, 3.0)
-        self.powerups_scale_spin.setSingleStep(0.1)
-        self.powerups_scale_spin.setValue(config.IN_GAME_OVERLAY["widgets"]["powerups"].get("scale", 1.0))
-        self.powerups_scale_spin.valueChanged.connect(self._save_settings)
-        scale_layout.addWidget(self.powerups_scale_spin)
-        scale_layout.addStretch(1)
-        powerups_layout.addLayout(scale_layout)
-        layout.addWidget(powerups_group)
-        
-        layout.addStretch(1)
-
-    def _save_settings(self, *_):
-        widgets = config.IN_GAME_OVERLAY["widgets"]
-        
-        widgets["scanner"]["scale"] = self.scanner_scale_spin.value()
-        widgets["recording"]["scale"] = self.recording_scale_spin.value()
-        widgets["kps"]["scale"] = self.kps_scale_spin.value()
-        widgets["powerups"]["scale"] = self.powerups_scale_spin.value()
-        
-        metrics = []
-        if self.kps_instant_cb.isChecked():
-            metrics.append("instant")
-        if self.kps_60s_cb.isChecked():
-            metrics.append("60s")
-        if self.kps_5m_cb.isChecked():
-            metrics.append("5m")
-        if self.kps_run_cb.isChecked():
-            metrics.append("run")
-        widgets["kps"]["metrics"] = metrics or ["instant"]
-        
-        self.parent_mixin.apply_in_game_overlay_settings()
-        
-        if hasattr(self.parent_mixin, "save_config"):
-            self.parent_mixin.save_config()
+try:
+    from gui_run_control import win32gui
+except Exception:
+    win32gui = None
 
 
 class InGameOverlayMixin:
     def initialize_in_game_overlay_runtime(self) -> None:
         self.in_game_overlay_window = None
-        
+
         self.overlay_fast_timer = QTimer()
         self.overlay_fast_timer.timeout.connect(self._overlay_fast_tick)
         self.overlay_fast_timer.setInterval(500)
-        
+
         self.overlay_slow_timer = QTimer()
         self.overlay_slow_timer.timeout.connect(self._overlay_slow_tick)
         self.overlay_slow_timer.setInterval(10000)
-        
-        # Setup ui after app is ready
+
         self.after_idle(self._init_in_game_overlay)
 
-    def _init_in_game_overlay(self):
+    def _init_in_game_overlay(self) -> None:
         self.in_game_overlay_window = InGameOverlayWindow(self)
-        
-        # If enabled AND auto_start is true, show it on startup
+
+        if not config.IN_GAME_OVERLAY.get("auto_start", False):
+            config.IN_GAME_OVERLAY["enabled"] = False
+
         if config.IN_GAME_OVERLAY["enabled"] and config.IN_GAME_OVERLAY.get("auto_start", False):
             self.start_in_game_overlay()
 
-    def start_in_game_overlay(self):
+        self._update_igo_status_ui()
+
+    def start_in_game_overlay(self) -> None:
         if not self.in_game_overlay_window:
             return
+        self.in_game_overlay_window.sync_geometry_to_target()
         self.in_game_overlay_window.show()
         self.overlay_fast_timer.start()
         self.overlay_slow_timer.start()
         self._overlay_fast_tick()
         self._overlay_slow_tick()
 
-    def stop_in_game_overlay(self):
+    def stop_in_game_overlay(self) -> None:
         if self.in_game_overlay_window:
             self.in_game_overlay_window.hide()
         self.overlay_fast_timer.stop()
         self.overlay_slow_timer.stop()
 
-    def apply_in_game_overlay_settings(self):
+    def apply_in_game_overlay_settings(self) -> None:
         cfg = config.IN_GAME_OVERLAY
         if not self.in_game_overlay_window:
             return
-            
+
         if cfg["enabled"]:
             if not self.in_game_overlay_window.isVisible():
                 self.start_in_game_overlay()
         else:
             self.stop_in_game_overlay()
-            
-        for wid, w_cfg in cfg["widgets"].items():
-            widget = self.in_game_overlay_window.widgets.get(wid)
-            if widget:
-                widget.setVisible(w_cfg["enabled"])
-                widget.update_scale(w_cfg.get("scale", 1.0))
-                if not self.in_game_overlay_window.edit_mode:
-                    widget.move(w_cfg["x"], w_cfg["y"])
-                    
+            self._update_igo_status_ui()
+            return
+
+        for widget_id, widget_cfg in cfg["widgets"].items():
+            widget = self.in_game_overlay_window.widgets.get(widget_id)
+            if widget is None:
+                continue
+            if widget_id == "powerups":
+                if not widget_cfg["enabled"]:
+                    widget.setVisible(False)
+            else:
+                widget.setVisible(widget_cfg["enabled"])
+            widget.update_scale(widget_cfg.get("scale", 1.0))
+            if not self.in_game_overlay_window.edit_mode:
+                widget.move(widget_cfg["x"], widget_cfg["y"])
+
         self._overlay_fast_tick()
         self._overlay_slow_tick()
         self._update_igo_status_ui()
 
-    def hotkey_toggle_in_game_overlay_edit(self):
+    def _in_game_overlay_target_geometry(self) -> QRect | None:
+        if win32gui is not None and hasattr(self, "find_game_window"):
+            try:
+                game_window = self.find_game_window(config.PROCESS_NAME)
+            except Exception:
+                game_window = None
+            if game_window:
+                try:
+                    left, top, right, bottom = win32gui.GetWindowRect(game_window)
+                except Exception:
+                    game_window = None
+                else:
+                    width = max(0, int(right) - int(left))
+                    height = max(0, int(bottom) - int(top))
+                    if width > 0 and height > 0:
+                        return QRect(int(left), int(top), width, height)
+
+        overlay_window = getattr(self, "in_game_overlay_window", None)
+        screen = overlay_window.screen() if overlay_window is not None else None
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        return screen.geometry() if screen is not None else None
+
+    def hotkey_toggle_in_game_overlay_edit(self) -> None:
         self.after(0, self._toggle_igo_edit_mode)
 
-    def _overlay_fast_tick(self):
+    def _overlay_fast_tick(self) -> None:
         if not self.in_game_overlay_window:
             return
-            
-        # Hide if tabbed out (not active game window), but keep visible during edit mode
+
+        cfg = config.IN_GAME_OVERLAY
+        if not cfg.get("enabled", False) and not self.in_game_overlay_window.edit_mode:
+            if self.in_game_overlay_window.isVisible():
+                self.in_game_overlay_window.hide()
+            return
+
         if self.in_game_overlay_window.edit_mode:
+            self.in_game_overlay_window.sync_geometry_to_target()
             if not self.in_game_overlay_window.isVisible():
                 self.in_game_overlay_window.show()
         else:
             is_game_active = self.is_game_window_active(config.PROCESS_NAME)
             if is_game_active:
+                self.in_game_overlay_window.sync_geometry_to_target()
                 if not self.in_game_overlay_window.isVisible():
                     self.in_game_overlay_window.show()
-            else:
-                if self.in_game_overlay_window.isVisible():
-                    self.in_game_overlay_window.hide()
-                    
+            elif self.in_game_overlay_window.isVisible():
+                self.in_game_overlay_window.hide()
+
         if not self.in_game_overlay_window.isVisible():
             return
-            
+
         widgets = self.in_game_overlay_window.widgets
-        cfg = config.IN_GAME_OVERLAY
-        
-        # Update KPS
         if cfg["widgets"]["kps"]["enabled"]:
             metrics_cfg = cfg["widgets"]["kps"].get("metrics", ["instant"])
-            
-            kps_vals = []
-            
-            # Map values
-            for m in metrics_cfg:
-                if m == "instant":
-                    val = getattr(self.live_run_tracker, "current_ui_kps", lambda: None)()
-                    lbl = "KPS"
-                elif m == "60s":
-                    val = getattr(self.live_run_tracker, "current_minute_avg_kps", lambda: None)()
-                    lbl = "60s"
-                elif m == "5m":
-                    val = getattr(self.live_run_tracker, "current_five_minute_avg_kps", lambda: None)()
-                    lbl = "5m"
-                elif m == "run":
-                    val = getattr(self.live_run_tracker, "current_run_avg_kps", lambda: None)()
-                    lbl = "Run"
-                else:
-                    continue
-                
-                val_str = f"{val}" if val is not None else "--"
-                kps_vals.append(f"{lbl} {val_str}")
-            
-            # Join with double spaces to look like a horizontal strip
-            strip_text = "  ".join(kps_vals)
-            
-            text = f"<span style='color: white; -webkit-text-stroke: 1px black; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;'>⚔️ {strip_text}</span>"
-            widgets["kps"].set_text(text)
+            widgets["kps"].set_text(build_kps_overlay_html(self.live_run_tracker, metrics_cfg))
 
-        # Update Powerups
         if cfg["widgets"]["powerups"]["enabled"]:
-            snapshot = getattr(self.live_run_tracker, "powerups_snapshot", lambda: None)()
-            if snapshot and snapshot.active:
-                lines = []
-                for p in snapshot.active:
-                    name = p.name
-                    time_left = max(0, p.remaining_seconds)
-                    lines.append(f"{name}: {time_left:.1f}s")
-                content = "<br>".join(lines)
-                text = f"<span style='color: #a855f7; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;'>⭐ Powerups:<br>{content}</span>"
+            snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+            snapshot = snapshot_reader() if callable(snapshot_reader) else None
+            latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
+            latest_snapshot = latest_snapshot_reader() if callable(latest_snapshot_reader) else None
+            current_run_time_seconds = getattr(latest_snapshot, "game_time_seconds", None)
+            html = self._build_powerups_overlay_html(
+                snapshot,
+                edit_mode=self.in_game_overlay_window.edit_mode,
+                current_run_time_seconds=current_run_time_seconds,
+            )
+            if html:
+                widgets["powerups"].set_text(html)
+                widgets["powerups"].setVisible(True)
             else:
-                text = "<span style='color: #a855f7; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;'>⭐ Powerups: None</span>"
-            widgets["powerups"].set_text(text)
+                widgets["powerups"].setVisible(False)
 
-    def _overlay_slow_tick(self):
+    @staticmethod
+    def _build_powerups_overlay_html(
+        snapshot,
+        *,
+        edit_mode: bool = False,
+        current_run_time_seconds: float | None = None,
+    ) -> str:
+        return build_powerups_overlay_html(
+            snapshot,
+            edit_mode=edit_mode,
+            current_run_time_seconds=current_run_time_seconds,
+        )
+
+    def _overlay_slow_tick(self) -> None:
         if not self.in_game_overlay_window or not self.in_game_overlay_window.isVisible():
             return
-            
+
         widgets = self.in_game_overlay_window.widgets
         cfg = config.IN_GAME_OVERLAY
-        
-        # Update Scanner
+
         if cfg["widgets"]["scanner"]["enabled"]:
             is_active = bool(getattr(self, "scanner_thread", None) and self.scanner_thread.is_alive())
-            color = "#22c55e" if is_active else "#ef4444"
-            status = "🟢" if is_active else "🔴"
-            text = f"<span style='color: {color}; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;'>Scanner {status}</span>"
-            widgets["scanner"].set_text(text)
-            
-        # Update Recording
+            widgets["scanner"].set_text(build_status_indicator_html("Scanner", is_active))
+
         if cfg["widgets"]["recording"]["enabled"]:
-            is_rec = bool(getattr(self, "player_stats_vod_recorder", None) and self.player_stats_vod_recorder.is_recording)
-            color = "#ef4444" if is_rec else "#9ca3af"
-            status = "🔴" if is_rec else "⚪"
-            text = f"<span style='color: {color}; text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;'>REC {status}</span>"
-            widgets["recording"].set_text(text)
+            is_recording = bool(
+                getattr(self, "player_stats_vod_recorder", None)
+                and self.player_stats_vod_recorder.is_recording
+            )
+            widgets["recording"].set_text(build_status_indicator_html("REC", is_recording))
 
     def _build_in_game_overlay_tab(self) -> None:
-        self.tab_in_game_overlay = QWidget()
-        tab_layout = QVBoxLayout(self.tab_in_game_overlay)
-        tab_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Create scroll area (matches OBS tab structure)
-        scroll, scroll_content, layout = _make_scroll_section()
-        layout.setSpacing(10)
-        tab_layout.addWidget(scroll)
-        
-        grid_layout = QGridLayout()
-        grid_layout.setSpacing(16)
-        grid_layout.setContentsMargins(8, 8, 8, 8)
-        layout.addLayout(grid_layout)
-        
-        grid_layout.setColumnStretch(0, 1)
-        grid_layout.setColumnStretch(1, 2)
-        
-        # 1. General Settings Card (Left Column)
-        general_group = QGroupBox("General Settings")
-        general_layout = QVBoxLayout(general_group)
-        general_layout.setContentsMargins(16, 12, 16, 12)
-        general_layout.setSpacing(10)
-        
-        status_row = QHBoxLayout()
-        status_row.setContentsMargins(0, 0, 0, 0)
-        status_row.addWidget(QLabel("Overlay Status:"))
-        self.igo_status_label = QLabel()
-        self.igo_status_label.setTextFormat(Qt.RichText)
-        status_row.addWidget(self.igo_status_label)
-        status_row.addStretch(1)
-        general_layout.addLayout(status_row)
-        
-        self.igo_auto_start_cb = QCheckBox("Auto-start overlay")
-        self.igo_auto_start_cb.setChecked(config.IN_GAME_OVERLAY.get("auto_start", False))
-        self.igo_auto_start_cb.setToolTip("Start the transparent overlay automatically when the application starts.")
-        self.igo_auto_start_cb.stateChanged.connect(self._on_igo_settings_changed)
-        general_layout.addWidget(self.igo_auto_start_cb)
-        
-        self.igo_toggle_btn = QPushButton("Start Overlay")
-        self.igo_toggle_btn.setObjectName("SuccessButton")
-        self.igo_toggle_btn.setMinimumHeight(36)
-        btn_font = self.igo_toggle_btn.font()
-        btn_font.setBold(True)
-        self.igo_toggle_btn.setFont(btn_font)
-        self.igo_toggle_btn.clicked.connect(self._toggle_in_game_overlay)
-        general_layout.addWidget(self.igo_toggle_btn)
-        
-        self.igo_edit_btn = QPushButton("Edit Layout")
-        self.igo_edit_btn.setMinimumHeight(36)
-        self.igo_edit_btn.clicked.connect(self._toggle_igo_edit_mode)
-        general_layout.addWidget(self.igo_edit_btn)
-        
-        # 2. Active Widgets Card (Right Column)
-        widgets_group = QGroupBox("Active Widgets")
-        widgets_layout = QVBoxLayout(widgets_group)
-        widgets_layout.setContentsMargins(16, 12, 16, 12)
-        widgets_layout.setSpacing(10)
-        
-        widgets_header_layout = QHBoxLayout()
-        widgets_header_layout.setContentsMargins(4, 0, 0, 0)
-        widgets_header_lbl = QLabel("Active Overlay Widgets:")
-        widgets_header_lbl.setStyleSheet("font-weight: bold;")
-        
-        self.igo_widget_settings_btn = QPushButton("Widget Settings")
-        self.igo_widget_settings_btn.clicked.connect(self._open_igo_widget_settings_dialog)
-        
-        widgets_header_layout.addWidget(widgets_header_lbl)
-        widgets_header_layout.addStretch(1)
-        widgets_header_layout.addWidget(self.igo_widget_settings_btn)
-        widgets_layout.addLayout(widgets_header_layout)
-        
-        # 2x2 grid for widgets checkboxes
-        widgets_grid = QGridLayout()
-        widgets_grid.setSpacing(10)
-        
-        self.igo_scanner_cb = QCheckBox("Scanner Status")
-        self.igo_scanner_cb.setChecked(config.IN_GAME_OVERLAY["widgets"]["scanner"]["enabled"])
-        self.igo_scanner_cb.stateChanged.connect(self._on_igo_settings_changed)
-        widgets_grid.addWidget(self.igo_scanner_cb, 0, 0)
-        
-        self.igo_recording_cb = QCheckBox("Recording Status")
-        self.igo_recording_cb.setChecked(config.IN_GAME_OVERLAY["widgets"]["recording"]["enabled"])
-        self.igo_recording_cb.stateChanged.connect(self._on_igo_settings_changed)
-        widgets_grid.addWidget(self.igo_recording_cb, 0, 1)
-        
-        self.igo_kps_cb = QCheckBox("KPS")
-        self.igo_kps_cb.setChecked(config.IN_GAME_OVERLAY["widgets"]["kps"]["enabled"])
-        self.igo_kps_cb.stateChanged.connect(self._on_igo_settings_changed)
-        widgets_grid.addWidget(self.igo_kps_cb, 1, 0)
-        
-        self.igo_powerups_cb = QCheckBox("Active Powerups (Buffs)")
-        self.igo_powerups_cb.setChecked(config.IN_GAME_OVERLAY["widgets"]["powerups"]["enabled"])
-        self.igo_powerups_cb.stateChanged.connect(self._on_igo_settings_changed)
-        widgets_grid.addWidget(self.igo_powerups_cb, 1, 1)
-        
-        widgets_layout.addLayout(widgets_grid)
-        
-        # Add cards to layout
-        grid_layout.addWidget(general_group, 0, 0, Qt.AlignTop)
-        grid_layout.addWidget(widgets_group, 0, 1, Qt.AlignTop)
-        grid_layout.setRowStretch(1, 1)
-        
-        self._update_igo_status_ui()
+        build_in_game_overlay_tab(self)
 
-    def _toggle_in_game_overlay(self):
+    def _toggle_in_game_overlay(self) -> None:
         cfg = config.IN_GAME_OVERLAY
         cfg["enabled"] = not cfg["enabled"]
-        
         self.apply_in_game_overlay_settings()
-        
-        if hasattr(self, 'save_config'):
-            self.save_config()
+        config.save_config(config.user_config)
 
-    def _update_igo_status_ui(self):
-        if not hasattr(self, "igo_status_label") or self.igo_status_label is None:
-            return
-            
-        is_running = bool(config.IN_GAME_OVERLAY.get("enabled", False))
-        
-        if is_running:
-            self.igo_status_label.setText("<span style='color: #4fd67a; font-weight: bold;'>Running</span>")
-            self.igo_toggle_btn.setText("Stop Overlay")
-            self.igo_toggle_btn.setObjectName("DangerButton")
-            self.igo_toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
-        else:
-            self.igo_status_label.setText("<span style='color: #f08b72; font-weight: bold;'>Stopped</span>")
-            self.igo_toggle_btn.setText("Start Overlay")
-            self.igo_toggle_btn.setObjectName("SuccessButton")
-            self.igo_toggle_btn.setStyleSheet("")
-            
-        self.igo_toggle_btn.style().unpolish(self.igo_toggle_btn)
-        self.igo_toggle_btn.style().polish(self.igo_toggle_btn)
+    def _update_igo_status_ui(self) -> None:
+        update_in_game_overlay_status_ui(self)
 
-    def _on_igo_settings_changed(self, *_):
+    def _on_igo_settings_changed(self, *_args) -> None:
         cfg = config.IN_GAME_OVERLAY
         cfg["auto_start"] = self.igo_auto_start_cb.isChecked()
-        
         cfg["widgets"]["scanner"]["enabled"] = self.igo_scanner_cb.isChecked()
         cfg["widgets"]["recording"]["enabled"] = self.igo_recording_cb.isChecked()
         cfg["widgets"]["kps"]["enabled"] = self.igo_kps_cb.isChecked()
         cfg["widgets"]["powerups"]["enabled"] = self.igo_powerups_cb.isChecked()
-        
         self.apply_in_game_overlay_settings()
-        
-        if hasattr(self, 'save_config'):
-            self.save_config()
+        config.save_config(config.user_config)
 
-    def _toggle_igo_edit_mode(self):
+    def _toggle_igo_edit_mode(self) -> None:
         if not self.in_game_overlay_window:
             return
-            
-        is_edit = not self.in_game_overlay_window.edit_mode
-        self.in_game_overlay_window.toggle_edit_mode(is_edit)
-        
-        if is_edit:
+
+        is_edit_mode = not self.in_game_overlay_window.edit_mode
+        self.in_game_overlay_window.toggle_edit_mode(is_edit_mode)
+
+        if is_edit_mode:
             self.igo_edit_btn.setText("Save Layout")
             self.igo_edit_btn.setStyleSheet("background-color: #22c55e; color: white;")
-            # Force enable so user can see what they are moving
             if not self.in_game_overlay_window.isVisible():
                 self.in_game_overlay_window.show()
         else:
             self.igo_edit_btn.setText("Edit Layout")
             self.igo_edit_btn.setStyleSheet("")
-            self.apply_in_game_overlay_settings() # Save and hide if disabled
-            if hasattr(self, 'save_config'):
-                self.save_config()
-        
+            self.apply_in_game_overlay_settings()
+            config.save_config(config.user_config)
+
         self._update_igo_status_ui()
 
-    def _open_igo_widget_settings_dialog(self):
+    def _open_igo_widget_settings_dialog(self) -> None:
         dialog = InGameWidgetSettingsDialog(self, self.tab_in_game_overlay)
         dialog.exec()
