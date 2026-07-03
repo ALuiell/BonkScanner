@@ -2394,7 +2394,11 @@ class GuiRunControlTests(unittest.TestCase):
         read_calls: list[str] = []
         app.read_player_stats_only = lambda: read_calls.append("stats") or ({}, 0x1234)
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", False):
+        with patch.object(gui.config, "AUTO_START_RECORDING", False), patch.object(
+            gui.config,
+            "IN_GAME_OVERLAY",
+            {"enabled": False, "widgets": {}},
+        ):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(read_calls, [])
@@ -2412,6 +2416,38 @@ class GuiRunControlTests(unittest.TestCase):
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 
         with patch.object(gui.config, "AUTO_START_RECORDING", True):
+            gui.MegabonkApp.update_player_stats_timer(app)
+
+        self.assertEqual(refresh_calls, ["refresh"])
+        self.assertEqual(len(app.after_calls), 1)
+
+    def test_update_player_stats_timer_refreshes_hidden_live_stats_for_in_game_overlay(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.player_stats_vod_recorder.is_recording = False
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
+        app.after_calls = []
+        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        app._sync_player_stats_recording_run_state = lambda: None
+        refresh_calls: list[str] = []
+        app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
+
+        with patch.object(gui.config, "AUTO_START_RECORDING", False), patch.object(
+            gui.config,
+            "IN_GAME_OVERLAY",
+            {
+                "enabled": True,
+                "widgets": {
+                    "scanner": {"enabled": False},
+                    "recording": {"enabled": False},
+                    "kps": {"enabled": False},
+                    "powerups": {"enabled": False},
+                    "luck_rarity": {"enabled": True},
+                },
+            },
+        ):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(refresh_calls, ["refresh"])
@@ -2586,6 +2622,10 @@ class GuiRunControlTests(unittest.TestCase):
             gui.config,
             "OVERLAY",
             {"widgets": [{"id": "kps", "enabled": False}]},
+        ), patch.object(
+            gui.config,
+            "IN_GAME_OVERLAY",
+            {"enabled": False, "widgets": {}},
         ), patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
             self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
             self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
@@ -2595,6 +2635,45 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(mob_kill_reads, [])
         self.assertEqual(tracked_kills, [])
         self.assertEqual(overlay_updates, [])
+
+    def test_in_game_overlay_kps_widget_enables_fast_kps_refresh_without_obs_overlay(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
+
+        with patch.object(
+            gui.config,
+            "IN_GAME_OVERLAY",
+            {
+                "enabled": True,
+                "widgets": {
+                    "kps": {"enabled": True},
+                    "powerups": {"enabled": False},
+                    "luck_rarity": {"enabled": False},
+                },
+            },
+        ):
+            self.assertTrue(gui.MegabonkApp._should_refresh_fast_kps(app))
+
+    def test_in_game_overlay_powerups_widget_enables_powerup_refresh_without_obs_overlay(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app._is_live_stats_tab_active = lambda: False
+        app._is_twitch_bot_active = lambda: False
+
+        with patch.object(
+            gui.config,
+            "IN_GAME_OVERLAY",
+            {
+                "enabled": True,
+                "widgets": {
+                    "kps": {"enabled": False},
+                    "powerups": {"enabled": True},
+                    "luck_rarity": {"enabled": False},
+                },
+            },
+        ):
+            self.assertTrue(gui.MegabonkApp._should_refresh_powerup_tracker(app))
 
     def test_chaos_refresh_skips_fast_kps_kill_reads_when_game_timer_does_not_advance(self) -> None:
         app = object.__new__(gui.MegabonkApp)

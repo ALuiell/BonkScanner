@@ -104,7 +104,7 @@ DEFAULT_IN_GAME_OVERLAY = {
         "recording": {"enabled": True, "x": 150, "y": 10, "scale": 1.0},
         "kps": {"enabled": True, "x": 10, "y": 40, "scale": 1.0, "metrics": ["instant"]},
         "powerups": {"enabled": True, "x": 10, "y": 70, "scale": 1.0},
-        "luck_rarity": {"enabled": True, "x": 10, "y": 100, "scale": 1.0},
+        "luck_rarity": {"enabled": True, "x": 10, "y": 100, "scale": 1.0, "show_bar": True},
     }
 }
 
@@ -526,6 +526,8 @@ def normalize_in_game_overlay_config(value):
                     3.0,
                 ),
             )
+            if key == "luck_rarity":
+                widgets[key]["show_bar"] = bool(widgets[key].get("show_bar", default_widget.get("show_bar", True)))
             
             if key == "kps":
                 metrics_val = widgets[key].get("metrics")

@@ -119,6 +119,7 @@ class PlayerStatsMixin:
             or self._is_player_stats_recording_armed()
             or bool(getattr(config, "AUTO_START_RECORDING", False))
             or self.overlay_should_refresh_live_stats()
+            or self._in_game_overlay_should_refresh_live_stats()
             or self._is_twitch_bot_active()
         )
         if should_refresh:
@@ -141,6 +142,7 @@ class PlayerStatsMixin:
             or self._is_player_stats_recording_armed()
             or bool(getattr(config, "AUTO_START_RECORDING", False))
             or self.overlay_should_refresh_live_stats()
+            or self._in_game_overlay_should_refresh_fast_data()
             or self._is_twitch_bot_active()
         )
         if should_refresh:
@@ -249,10 +251,11 @@ class PlayerStatsMixin:
         commands_cfg = config.TWITCH_BOT.get("commands", {})
         if callable(is_twitch_bot_active):
             try:
-                return bool(is_twitch_bot_active() and commands_cfg.get("powerups", True))
+                if is_twitch_bot_active() and commands_cfg.get("powerups", True):
+                    return True
             except Exception:
-                return False
-        return False
+                pass
+        return self._in_game_overlay_powerups_widget_enabled()
 
     def _should_refresh_fast_kps(self, _now: float | None = None) -> bool:
         is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
@@ -264,6 +267,8 @@ class PlayerStatsMixin:
                 pass
         if self.overlay_should_refresh_live_stats() and self._overlay_kps_widget_enabled():
             return True
+        if self._in_game_overlay_kps_widget_enabled():
+            return True
         is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
         commands_cfg = config.TWITCH_BOT.get("commands", {})
         if callable(is_twitch_bot_active):
@@ -272,6 +277,35 @@ class PlayerStatsMixin:
             except Exception:
                 return False
         return False
+
+    @staticmethod
+    def _in_game_overlay_widget_enabled(widget_id: str) -> bool:
+        overlay = getattr(config, "IN_GAME_OVERLAY", {}) or {}
+        if not overlay.get("enabled", False):
+            return False
+        widgets = overlay.get("widgets", {})
+        if not isinstance(widgets, dict):
+            return False
+        widget_cfg = widgets.get(widget_id, {})
+        return isinstance(widget_cfg, dict) and bool(widget_cfg.get("enabled", False))
+
+    def _in_game_overlay_should_refresh_live_stats(self) -> bool:
+        return any(
+            self._in_game_overlay_widget_enabled(widget_id)
+            for widget_id in ("luck_rarity", "powerups", "kps")
+        )
+
+    def _in_game_overlay_should_refresh_fast_data(self) -> bool:
+        return any(
+            self._in_game_overlay_widget_enabled(widget_id)
+            for widget_id in ("powerups", "kps")
+        )
+
+    def _in_game_overlay_powerups_widget_enabled(self) -> bool:
+        return self._in_game_overlay_widget_enabled("powerups")
+
+    def _in_game_overlay_kps_widget_enabled(self) -> bool:
+        return self._in_game_overlay_widget_enabled("kps")
 
     @staticmethod
     def _overlay_kps_widget_enabled() -> bool:

@@ -88,13 +88,17 @@ class InGameWidgetSettingsDialog(QDialog):
             widget_id="powerups",
             parent=self,
         )
-        _add_scale_group(
-            layout,
-            title="Luck Rarity Settings",
-            attr_name="luck_rarity_scale_spin",
-            widget_id="luck_rarity",
-            parent=self,
+        luck_rarity_group = QGroupBox("Luck Rarity Settings")
+        luck_rarity_layout = QVBoxLayout(luck_rarity_group)
+        luck_rarity_layout.setContentsMargins(16, 12, 16, 12)
+        _add_scale_row(luck_rarity_layout, self, "luck_rarity_scale_spin", "luck_rarity")
+        self.luck_rarity_show_bar_cb = _build_checkbox(
+            "Show rarity bar",
+            bool(config.IN_GAME_OVERLAY["widgets"]["luck_rarity"].get("show_bar", True)),
+            self._save_settings,
         )
+        luck_rarity_layout.addWidget(self.luck_rarity_show_bar_cb)
+        layout.addWidget(luck_rarity_group)
         layout.addStretch(1)
 
     def _save_settings(self, *_args) -> None:
@@ -104,6 +108,7 @@ class InGameWidgetSettingsDialog(QDialog):
         widgets["kps"]["scale"] = self.kps_scale_spin.value()
         widgets["powerups"]["scale"] = self.powerups_scale_spin.value()
         widgets["luck_rarity"]["scale"] = self.luck_rarity_scale_spin.value()
+        widgets["luck_rarity"]["show_bar"] = self.luck_rarity_show_bar_cb.isChecked()
 
         metrics = []
         if self.kps_instant_cb.isChecked():

@@ -9,6 +9,7 @@ from gui_in_game_overlay_render import (
     build_luck_rarity_overlay_html,
     build_powerups_overlay_html,
     build_status_indicator_html,
+    calculate_luck_rarity_probabilities,
 )
 from gui_in_game_overlay_settings import (
     InGameWidgetSettingsDialog,
@@ -87,6 +88,8 @@ class InGameOverlayMixin:
             else:
                 widget.setVisible(widget_cfg["enabled"])
             widget.update_scale(widget_cfg.get("scale", 1.0))
+            if widget_id == "luck_rarity" and hasattr(widget, "set_show_bar"):
+                widget.set_show_bar(widget_cfg.get("show_bar", True))
             if not self.in_game_overlay_window.edit_mode:
                 widget.move(widget_cfg["x"], widget_cfg["y"])
 
@@ -206,7 +209,19 @@ class InGameOverlayMixin:
         if cfg["widgets"]["luck_rarity"]["enabled"]:
             latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
             latest_snapshot = latest_snapshot_reader() if callable(latest_snapshot_reader) else None
-            widgets["luck_rarity"].set_text(self._build_luck_rarity_overlay_html(latest_snapshot))
+            luck_stat = None
+            if latest_snapshot is not None and isinstance(getattr(latest_snapshot, "stats", None), dict):
+                luck_stat = latest_snapshot.stats.get("Luck")
+            luck_value = getattr(luck_stat, "value", None)
+            probabilities = calculate_luck_rarity_probabilities(luck_value)
+            widget = widgets["luck_rarity"]
+            if hasattr(widget, "set_probabilities"):
+                widget.set_probabilities(
+                    probabilities,
+                    show_bar=cfg["widgets"]["luck_rarity"].get("show_bar", True),
+                )
+            else:
+                widget.set_text(self._build_luck_rarity_overlay_html(latest_snapshot))
 
     def _build_in_game_overlay_tab(self) -> None:
         build_in_game_overlay_tab(self)

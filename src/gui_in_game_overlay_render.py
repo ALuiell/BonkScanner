@@ -70,7 +70,13 @@ def build_luck_rarity_overlay_html(snapshot: Any) -> str:
     stats = getattr(snapshot, "stats", None)
     luck_stat = stats.get("Luck") if isinstance(stats, dict) else None
     luck_value = getattr(luck_stat, "value", None)
-    probabilities = _calculate_luck_rarity_probabilities(luck_value)
+    probabilities = calculate_luck_rarity_probabilities(luck_value)
+    return build_luck_rarity_overlay_html_for_probabilities(probabilities)
+
+
+def build_luck_rarity_overlay_html_for_probabilities(
+    probabilities: dict[str, float | None],
+) -> str:
 
     sep = f"<span style='color: #94a3b8; text-shadow: {TEXT_SHADOW};'> | </span>"
     spans: list[str] = []
@@ -78,9 +84,7 @@ def build_luck_rarity_overlay_html(snapshot: Any) -> str:
         color = ITEM_RARITY_COLOR_MAP.get(rarity, FALLBACK_COLOR)
         probability = probabilities.get(rarity)
         value_text = "--" if probability is None else f"{probability:.2f}%"
-        spans.append(
-            f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>{value_text}</span>"
-        )
+        spans.append(f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>{value_text}</span>")
     return sep.join(spans)
 
 
@@ -158,7 +162,7 @@ def _resolve_powerup_ui_times(
     return pickup_ui, expires_ui
 
 
-def _calculate_luck_rarity_probabilities(luck_value: float | None) -> dict[str, float | None]:
+def calculate_luck_rarity_probabilities(luck_value: float | None) -> dict[str, float | None]:
     if luck_value is None:
         return {rarity: None for rarity in LUCK_RARITY_ORDER}
     try:
