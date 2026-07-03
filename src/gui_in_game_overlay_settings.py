@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
     QDoubleSpinBox,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -87,6 +88,13 @@ class InGameWidgetSettingsDialog(QDialog):
             widget_id="powerups",
             parent=self,
         )
+        _add_scale_group(
+            layout,
+            title="Luck Rarity Settings",
+            attr_name="luck_rarity_scale_spin",
+            widget_id="luck_rarity",
+            parent=self,
+        )
         layout.addStretch(1)
 
     def _save_settings(self, *_args) -> None:
@@ -95,6 +103,7 @@ class InGameWidgetSettingsDialog(QDialog):
         widgets["recording"]["scale"] = self.recording_scale_spin.value()
         widgets["kps"]["scale"] = self.kps_scale_spin.value()
         widgets["powerups"]["scale"] = self.powerups_scale_spin.value()
+        widgets["luck_rarity"]["scale"] = self.luck_rarity_scale_spin.value()
 
         metrics = []
         if self.kps_instant_cb.isChecked():
@@ -211,11 +220,52 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
         parent_mixin._on_igo_settings_changed,
     )
     widgets_grid.addWidget(parent_mixin.igo_powerups_cb, 1, 1)
+
+    parent_mixin.igo_luck_rarity_cb = _build_checkbox(
+        "Luck Rarity %",
+        config.IN_GAME_OVERLAY["widgets"]["luck_rarity"]["enabled"],
+        parent_mixin._on_igo_settings_changed,
+    )
+    widgets_grid.addWidget(parent_mixin.igo_luck_rarity_cb, 2, 0)
     widgets_layout.addLayout(widgets_grid)
 
     grid_layout.addWidget(general_group, 0, 0, Qt.AlignTop)
     grid_layout.addWidget(widgets_group, 0, 1, Qt.AlignTop)
-    grid_layout.setRowStretch(1, 1)
+
+    layout_info_card = QFrame()
+    layout_info_card.setStyleSheet("""
+        QFrame {
+            background: #111A2E;
+            border: 1px solid #1D4ED8;
+            border-left: 4px solid #3B82F6;
+            border-radius: 8px;
+            margin-top: 8px;
+        }
+        QLabel {
+            background: transparent;
+            border: none;
+        }
+    """)
+    layout_info_layout = QVBoxLayout(layout_info_card)
+    layout_info_layout.setContentsMargins(12, 12, 12, 12)
+    hotkey_text = str(getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9") or "f9").upper()
+    layout_info_label = QLabel(
+        "<span style='font-size:10.5pt; font-weight:bold; color:#ffd23f;'>"
+        "💡 In-Game Overlay Layout Mode</span><br>"
+        "<span style='font-size:9.5pt; color:#ffffff;'>"
+        f"To see how the overlay is placed over the game, press the overlay hotkey <b>{hotkey_text}</b> "
+        "(default: <b>F9</b>) or click <b>Edit Layout</b>. "
+        "Layout mode shows the live overlay on top of the game window so you can drag widgets into place, "
+        "preview their real positions, and then press <b>Save Layout</b>, <b>Esc</b>, or <b>F9</b> again to exit and save. "
+        "Use <b>Widget Settings</b> to change widget scale."
+        "</span>"
+    )
+    layout_info_label.setTextFormat(Qt.RichText)
+    layout_info_label.setWordWrap(True)
+    layout_info_layout.addWidget(layout_info_label)
+
+    grid_layout.addWidget(layout_info_card, 1, 0, 1, 2)
+    grid_layout.setRowStretch(2, 1)
 
     update_in_game_overlay_status_ui(parent_mixin)
 

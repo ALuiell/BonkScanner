@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from math import isfinite, log
 from typing import Any
 
 import run_summary
+from gui_styles import ITEM_RARITY_COLOR_MAP
 
 TEXT_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
 POWERUP_COLORS: dict[str, str] = {
@@ -15,6 +17,19 @@ POWERUP_COLORS: dict[str, str] = {
 CRITICAL_COLOR = "#ff4444"
 HEADER_COLOR = "#ffffff"
 FALLBACK_COLOR = "#d8b4fe"
+LUCK_RARITY_BASE_WEIGHTS: dict[str, float] = {
+    "COMMON": 70.0,
+    "UNCOMMON": 15.0,
+    "RARE": 6.0,
+    "LEGENDARY": 1.5,
+}
+LUCK_RARITY_ORDER: tuple[str, ...] = ("LEGENDARY", "RARE", "UNCOMMON", "COMMON")
+_LUCK_RARITY_EXPONENTS: dict[str, int] = {
+    "COMMON": 3,
+    "UNCOMMON": 2,
+    "RARE": 1,
+    "LEGENDARY": 0,
+}
 
 _KPS_METRICS: dict[str, tuple[str, str]] = {
     "instant": ("current_ui_kps", "KPS"),
@@ -49,6 +64,24 @@ def build_status_indicator_html(label: str, is_active: bool) -> str:
         f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>"
         f"{label} &#9679;</span>"
     )
+
+
+def build_luck_rarity_overlay_html(snapshot: Any) -> str:
+    stats = getattr(snapshot, "stats", None)
+    luck_stat = stats.get("Luck") if isinstance(stats, dict) else None
+    luck_value = getattr(luck_stat, "value", None)
+    probabilities = _calculate_luck_rarity_probabilities(luck_value)
+
+    sep = f"<span style='color: #94a3b8; text-shadow: {TEXT_SHADOW};'> | </span>"
+    spans: list[str] = []
+    for rarity in LUCK_RARITY_ORDER:
+        color = ITEM_RARITY_COLOR_MAP.get(rarity, FALLBACK_COLOR)
+        probability = probabilities.get(rarity)
+        value_text = "--" if probability is None else f"{probability:.2f}%"
+        spans.append(
+            f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>{value_text}</span>"
+        )
+    return sep.join(spans)
 
 
 def build_powerups_overlay_html(
@@ -123,3 +156,31 @@ def _resolve_powerup_ui_times(
         expires_ui = getattr(effect, "expires_ui", None)
 
     return pickup_ui, expires_ui
+
+
+def _calculate_luck_rarity_probabilities(luck_value: float | None) -> dict[str, float | None]:
+    if luck_value is None:
+        return {rarity: None for rarity in LUCK_RARITY_ORDER}
+    try:
+        luck_value = float(luck_value)
+    except (TypeError, ValueError):
+        return {rarity: None for rarity in LUCK_RARITY_ORDER}
+    if not isfinite(luck_value):
+        return {rarity: None for rarity in LUCK_RARITY_ORDER}
+
+    adjusted_luck = max(luck_value, -0.999999999)
+    strength = log(adjusted_luck + 1.0) * 1.5
+
+    weights: dict[str, float] = {}
+    for rarity, base_weight in LUCK_RARITY_BASE_WEIGHTS.items():
+        exponent = _LUCK_RARITY_EXPONENTS[rarity] * strength
+        weights[rarity] = base_weight * (1.5 ** (-exponent))
+
+    total_weight = sum(weights.values())
+    if total_weight <= 0 or not isfinite(total_weight):
+        return {rarity: None for rarity in LUCK_RARITY_ORDER}
+
+    return {
+        rarity: (weights[rarity] / total_weight) * 100.0
+        for rarity in LUCK_RARITY_ORDER
+    }

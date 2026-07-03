@@ -4133,5 +4133,58 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("Shield:", html)
 
 
+    def test_in_game_overlay_luck_rarity_html_formats_game_rarity_order(self) -> None:
+        snapshot = SimpleNamespace(
+            stats={
+                "Luck": SimpleNamespace(value=0.5, display_value="50%"),
+            },
+        )
+
+        html = gui_in_game_overlay.InGameOverlayMixin._build_luck_rarity_overlay_html(snapshot)
+
+        self.assertIn("#FACC15", html)
+        self.assertIn("#E879F9", html)
+        self.assertIn("#60A5FA", html)
+        self.assertIn("#22C55E", html)
+        self.assertIn("3.08%", html)
+        self.assertIn("9.62%", html)
+        self.assertIn("18.79%", html)
+        self.assertIn("68.52%", html)
+
+    def test_overlay_slow_tick_updates_luck_rarity_widget_from_latest_snapshot(self) -> None:
+        widget = SimpleNamespace(set_text=MagicMock())
+        app = object.__new__(gui.MegabonkApp)
+        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        app.in_game_overlay_window.widgets = {
+            "scanner": SimpleNamespace(set_text=MagicMock()),
+            "recording": SimpleNamespace(set_text=MagicMock()),
+            "luck_rarity": widget,
+        }
+        app.live_run_tracker = SimpleNamespace(
+            latest_snapshot=lambda: SimpleNamespace(
+                stats={"Luck": SimpleNamespace(value=1.0, display_value="100%")}
+            )
+        )
+        app.scanner_thread = None
+        app.player_stats_vod_recorder = None
+
+        overlay_cfg = {
+            "widgets": {
+                "scanner": {"enabled": False},
+                "recording": {"enabled": False},
+                "luck_rarity": {"enabled": True},
+            },
+        }
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp._overlay_slow_tick(app)
+
+        widget.set_text.assert_called_once()
+        rendered_html = widget.set_text.call_args.args[0]
+        self.assertIn("4.74%", rendered_html)
+        self.assertIn("12.43%", rendered_html)
+        self.assertIn("20.39%", rendered_html)
+        self.assertIn("62.43%", rendered_html)
+
+
 if __name__ == "__main__":
     unittest.main()

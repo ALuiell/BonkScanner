@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication
 import config
 from gui_in_game_overlay_render import (
     build_kps_overlay_html,
+    build_luck_rarity_overlay_html,
     build_powerups_overlay_html,
     build_status_indicator_html,
 )
@@ -180,6 +181,10 @@ class InGameOverlayMixin:
             current_run_time_seconds=current_run_time_seconds,
         )
 
+    @staticmethod
+    def _build_luck_rarity_overlay_html(snapshot) -> str:
+        return build_luck_rarity_overlay_html(snapshot)
+
     def _overlay_slow_tick(self) -> None:
         if not self.in_game_overlay_window or not self.in_game_overlay_window.isVisible():
             return
@@ -197,6 +202,11 @@ class InGameOverlayMixin:
                 and self.player_stats_vod_recorder.is_recording
             )
             widgets["recording"].set_text(build_status_indicator_html("REC", is_recording))
+
+        if cfg["widgets"]["luck_rarity"]["enabled"]:
+            latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
+            latest_snapshot = latest_snapshot_reader() if callable(latest_snapshot_reader) else None
+            widgets["luck_rarity"].set_text(self._build_luck_rarity_overlay_html(latest_snapshot))
 
     def _build_in_game_overlay_tab(self) -> None:
         build_in_game_overlay_tab(self)
@@ -217,6 +227,7 @@ class InGameOverlayMixin:
         cfg["widgets"]["recording"]["enabled"] = self.igo_recording_cb.isChecked()
         cfg["widgets"]["kps"]["enabled"] = self.igo_kps_cb.isChecked()
         cfg["widgets"]["powerups"]["enabled"] = self.igo_powerups_cb.isChecked()
+        cfg["widgets"]["luck_rarity"]["enabled"] = self.igo_luck_rarity_cb.isChecked()
         self.apply_in_game_overlay_settings()
         config.save_config(config.user_config)
 

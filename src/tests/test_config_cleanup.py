@@ -63,6 +63,7 @@ class InGameOverlayConfigTests(unittest.TestCase):
                     "recording": {"scale": "inf"},
                     "kps": {"scale": ""},
                     "powerups": {"scale": None},
+                    "luck_rarity": {"scale": object()},
                 }
             }
         )
@@ -72,6 +73,7 @@ class InGameOverlayConfigTests(unittest.TestCase):
         self.assertEqual(normalized["widgets"]["recording"]["scale"], defaults["recording"]["scale"])
         self.assertEqual(normalized["widgets"]["kps"]["scale"], defaults["kps"]["scale"])
         self.assertEqual(normalized["widgets"]["powerups"]["scale"], defaults["powerups"]["scale"])
+        self.assertEqual(normalized["widgets"]["luck_rarity"]["scale"], defaults["luck_rarity"]["scale"])
 
 
 if __name__ == "__main__":

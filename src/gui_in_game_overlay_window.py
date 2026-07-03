@@ -97,7 +97,7 @@ class InGameOverlayWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.widgets: dict[str, DraggableOverlayWidget] = {}
-        for widget_id in ("scanner", "recording", "kps", "powerups"):
+        for widget_id in ("scanner", "recording", "kps", "powerups", "luck_rarity"):
             widget = DraggableOverlayWidget(widget_id, self)
             widget.moved.connect(self.on_widget_moved)
             self.widgets[widget_id] = widget

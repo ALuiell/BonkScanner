@@ -104,6 +104,7 @@ DEFAULT_IN_GAME_OVERLAY = {
         "recording": {"enabled": True, "x": 150, "y": 10, "scale": 1.0},
         "kps": {"enabled": True, "x": 10, "y": 40, "scale": 1.0, "metrics": ["instant"]},
         "powerups": {"enabled": True, "x": 10, "y": 70, "scale": 1.0},
+        "luck_rarity": {"enabled": True, "x": 10, "y": 100, "scale": 1.0},
     }
 }
 
