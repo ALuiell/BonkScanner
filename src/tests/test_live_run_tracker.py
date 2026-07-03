@@ -1230,6 +1230,43 @@ class LiveRunTrackerTests(unittest.TestCase):
             "Powerups: Shield 01:45 -> 01:25 (15s left) | Durations: standard 45s, clock 36s (PM 3x)",
         )
 
+    def test_powerups_summary_ignores_stale_added_time_from_previous_timer_epoch(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=1000.0,
+                stage_index=0,
+                chests_total=69,
+                pots_total=None,
+            ),
+        )
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=771.0,
+                stage_index=0,
+                stage_time_seconds=600.0,
+                final_swarm_timer_seconds=170.0,
+                crypt_timer_seconds=39.0,
+                powerup_multiplier=3.0,
+                powerup_multiplier_display="3x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=600.0,
+                        expiration_time=1045.0,
+                    ),
+                ),
+            ),
+            map_context=self.graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield +02:50 -> +03:35 (45s left) | Durations: standard 45s, clock 36s (PM 3x)",
+        )
+
     def test_powerups_summary_skips_malformed_effects(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_powerups(

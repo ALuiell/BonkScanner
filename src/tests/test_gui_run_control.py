@@ -2725,6 +2725,10 @@ class GuiRunControlTests(unittest.TestCase):
             get_player_level=lambda owner_stats=None: 2,
         )
         app.player_stats_game_data_client = SimpleNamespace(
+            get_map_generation_state=lambda: SimpleNamespace(
+                map_seed=None,
+                current_stage_ptr=0,
+            ),
             get_map_activity_values=lambda: {
                 "Chests": SimpleNamespace(current=4, max=15),
                 "Pots": SimpleNamespace(current=0, max=5),

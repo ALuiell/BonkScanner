@@ -709,12 +709,6 @@ class LiveRunTracker:
                     base_duration = 12.0 if effect_id == 4 else 15.0
                     duration = base_duration * powerup_multiplier
                     pickup_time = expiration_time - duration
-                    if (
-                        isfinite(added_time)
-                        and added_time <= expiration_time
-                        and added_time <= float(my_time)
-                    ):
-                        pickup_time = added_time
                     ui_context = self._resolve_powerup_ui_context_unlocked(
                         my_time=float(my_time),
                         pickup_time=pickup_time,
@@ -723,6 +717,22 @@ class LiveRunTracker:
                         final_swarm_timer=final_swarm_timer,
                         crypt_timer=crypt_timer,
                     )
+                    if (
+                        isfinite(added_time)
+                        and added_time <= expiration_time
+                        and added_time <= float(my_time)
+                    ):
+                        added_time_ui_context = self._resolve_powerup_ui_context_unlocked(
+                            my_time=float(my_time),
+                            pickup_time=added_time,
+                            stage_timer=float(stage_timer),
+                            stage_time=float(stage_time),
+                            final_swarm_timer=final_swarm_timer,
+                            crypt_timer=crypt_timer,
+                        )
+                        if added_time_ui_context == ui_context:
+                            pickup_time = added_time
+                            ui_context = added_time_ui_context
                     raw_pickup = ui_context.timer_value + (pickup_time - float(my_time))
                     raw_expiration = ui_context.timer_value + (
                         expiration_time - float(my_time)
