@@ -52,8 +52,6 @@ class InGameOverlayMixin:
     def start_in_game_overlay(self) -> None:
         if not self.in_game_overlay_window:
             return
-        self.in_game_overlay_window.sync_geometry_to_target()
-        self.in_game_overlay_window.show()
         self.overlay_fast_timer.start()
         self.overlay_slow_timer.start()
         self._overlay_fast_tick()
@@ -115,6 +113,9 @@ class InGameOverlayMixin:
                         return QRect(int(left), int(top), width, height)
 
         overlay_window = getattr(self, "in_game_overlay_window", None)
+        if overlay_window is None or not getattr(overlay_window, "edit_mode", False):
+            return None
+
         screen = overlay_window.screen() if overlay_window is not None else None
         if screen is None:
             screen = QApplication.primaryScreen()
@@ -157,13 +158,9 @@ class InGameOverlayMixin:
         if cfg["widgets"]["powerups"]["enabled"]:
             snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
             snapshot = snapshot_reader() if callable(snapshot_reader) else None
-            latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
-            latest_snapshot = latest_snapshot_reader() if callable(latest_snapshot_reader) else None
-            current_run_time_seconds = getattr(latest_snapshot, "game_time_seconds", None)
             html = self._build_powerups_overlay_html(
                 snapshot,
                 edit_mode=self.in_game_overlay_window.edit_mode,
-                current_run_time_seconds=current_run_time_seconds,
             )
             if html:
                 widgets["powerups"].set_text(html)

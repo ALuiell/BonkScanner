@@ -827,6 +827,23 @@ class GuiRunControlTests(unittest.TestCase):
             with patch.object(gui, "win32process", fake_process):
                 self.assertFalse(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
 
+    def test_game_window_focus_can_match_foreground_window_without_scanner_pid(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app._process_id_matches_name = lambda process_id, process_name: (
+            process_id == 1234 and process_name == "Megabonk.exe"
+        )
+        app.find_game_window_by_pid = lambda process_id, process_name=None: (
+            111 if process_id == 1234 and process_name == "Megabonk.exe" else None
+        )
+        fake_gui = SimpleNamespace(
+            GetForegroundWindow=lambda: 111,
+        )
+        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 1234))
+
+        with patch.object(gui, "win32gui", fake_gui):
+            with patch.object(gui, "win32process", fake_process):
+                self.assertTrue(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
+
     def test_keyboard_mode_still_waits_when_game_window_is_not_active(self) -> None:
         logs: list[tuple[str, str | None]] = []
         sleeps: list[float] = []
@@ -1129,11 +1146,49 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(scan_toggles, [])
 
-    def test_find_game_window_returns_none_without_game_pid(self) -> None:
+    def test_find_game_window_falls_back_to_name_lookup_without_scanner_pid(self) -> None:
         app = object.__new__(gui.MegabonkApp)
-        app.get_game_process_id = lambda: None
+        app.find_game_window_by_name = lambda process_name: 222 if process_name == "Megabonk.exe" else None
 
-        self.assertIsNone(gui.MegabonkApp.find_game_window(app, "Megabonk.exe"))
+        self.assertEqual(gui.MegabonkApp.find_game_window(app, "Megabonk.exe"), 222)
+
+    def test_find_game_window_by_name_prefers_largest_matching_main_window(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.log = lambda _message, tag=None: None
+        app._process_id_matches_name = lambda process_id, process_name: (
+            process_name == "megabonk.exe" and process_id in {2001, 2002}
+        )
+
+        windows = [11, 22, 33]
+        rects = {
+            11: (0, 0, 200, 120),
+            22: (0, 0, 1280, 720),
+            33: (0, 0, 900, 600),
+        }
+        titles = {
+            11: "Megabonk Helper",
+            22: "Megabonk",
+            33: "Settings",
+        }
+        process_by_window = {
+            11: (10, 2001),
+            22: (10, 2001),
+            33: (10, 2002),
+        }
+        fake_gui = SimpleNamespace(
+            EnumWindows=lambda callback, extra: [callback(window, extra) for window in windows],
+            IsWindowVisible=lambda _window: True,
+            GetWindowRect=lambda window: rects[window],
+            GetWindowText=lambda window: titles[window],
+            GetParent=lambda _window: 0,
+            GetWindow=lambda _window, _flag: 0,
+            GetWindowLong=lambda _window, _index: 0,
+        )
+        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda window: process_by_window[window])
+
+        with patch.object(gui, "win32gui", fake_gui):
+            with patch.object(gui, "win32process", fake_process):
+                self.assertEqual(gui.MegabonkApp.find_game_window_by_name(app, "Megabonk.exe"), 22)
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:
         loaded_vod = types.SimpleNamespace(
@@ -2394,11 +2449,7 @@ class GuiRunControlTests(unittest.TestCase):
         read_calls: list[str] = []
         app.read_player_stats_only = lambda: read_calls.append("stats") or ({}, 0x1234)
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), patch.object(
-            gui.config,
-            "IN_GAME_OVERLAY",
-            {"enabled": False, "widgets": {}},
-        ):
+        with patch.object(gui.config, "AUTO_START_RECORDING", False):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(read_calls, [])
@@ -2416,38 +2467,6 @@ class GuiRunControlTests(unittest.TestCase):
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 
         with patch.object(gui.config, "AUTO_START_RECORDING", True):
-            gui.MegabonkApp.update_player_stats_timer(app)
-
-        self.assertEqual(refresh_calls, ["refresh"])
-        self.assertEqual(len(app.after_calls), 1)
-
-    def test_update_player_stats_timer_refreshes_hidden_live_stats_for_in_game_overlay(self) -> None:
-        app = self.build_recording_app()
-        app._is_shutting_down = False
-        app.player_stats_vod_recorder.is_recording = False
-        app._is_live_stats_tab_active = lambda: False
-        app.overlay_should_refresh_live_stats = lambda: False
-        app._is_twitch_bot_active = lambda: False
-        app.after_calls = []
-        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        app._sync_player_stats_recording_run_state = lambda: None
-        refresh_calls: list[str] = []
-        app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
-
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), patch.object(
-            gui.config,
-            "IN_GAME_OVERLAY",
-            {
-                "enabled": True,
-                "widgets": {
-                    "scanner": {"enabled": False},
-                    "recording": {"enabled": False},
-                    "kps": {"enabled": False},
-                    "powerups": {"enabled": False},
-                    "luck_rarity": {"enabled": True},
-                },
-            },
-        ):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(refresh_calls, ["refresh"])
@@ -2622,10 +2641,6 @@ class GuiRunControlTests(unittest.TestCase):
             gui.config,
             "OVERLAY",
             {"widgets": [{"id": "kps", "enabled": False}]},
-        ), patch.object(
-            gui.config,
-            "IN_GAME_OVERLAY",
-            {"enabled": False, "widgets": {}},
         ), patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
             self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
             self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
@@ -2635,45 +2650,6 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(mob_kill_reads, [])
         self.assertEqual(tracked_kills, [])
         self.assertEqual(overlay_updates, [])
-
-    def test_in_game_overlay_kps_widget_enables_fast_kps_refresh_without_obs_overlay(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
-        app._is_live_stats_tab_active = lambda: False
-        app.overlay_should_refresh_live_stats = lambda: False
-        app._is_twitch_bot_active = lambda: False
-
-        with patch.object(
-            gui.config,
-            "IN_GAME_OVERLAY",
-            {
-                "enabled": True,
-                "widgets": {
-                    "kps": {"enabled": True},
-                    "powerups": {"enabled": False},
-                    "luck_rarity": {"enabled": False},
-                },
-            },
-        ):
-            self.assertTrue(gui.MegabonkApp._should_refresh_fast_kps(app))
-
-    def test_in_game_overlay_powerups_widget_enables_powerup_refresh_without_obs_overlay(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
-        app._is_live_stats_tab_active = lambda: False
-        app._is_twitch_bot_active = lambda: False
-
-        with patch.object(
-            gui.config,
-            "IN_GAME_OVERLAY",
-            {
-                "enabled": True,
-                "widgets": {
-                    "kps": {"enabled": False},
-                    "powerups": {"enabled": True},
-                    "luck_rarity": {"enabled": False},
-                },
-            },
-        ):
-            self.assertTrue(gui.MegabonkApp._should_refresh_powerup_tracker(app))
 
     def test_chaos_refresh_skips_fast_kps_kill_reads_when_game_timer_does_not_advance(self) -> None:
         app = object.__new__(gui.MegabonkApp)
@@ -4188,7 +4164,17 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIsInstance(rect, QRect)
         self.assertEqual(rect, QRect(100, 200, 640, 480))
 
-    def test_in_game_overlay_powerups_html_uses_run_timer_when_available(self) -> None:
+    def test_in_game_overlay_target_geometry_returns_none_without_game_window_outside_edit_mode(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.find_game_window = lambda _process_name: None
+        app.in_game_overlay_window = FakeInGameOverlayWindow(edit_mode=False)
+
+        with patch.object(gui_in_game_overlay, "win32gui", SimpleNamespace()):
+            rect = gui.MegabonkApp._in_game_overlay_target_geometry(app)
+
+        self.assertIsNone(rect)
+
+    def test_in_game_overlay_powerups_html_uses_tracker_stage_times(self) -> None:
         snapshot = SimpleNamespace(
             active=(
                 SimpleNamespace(
@@ -4208,7 +4194,7 @@ class GuiRunControlTests(unittest.TestCase):
             current_run_time_seconds=80.0,
         )
 
-        self.assertIn("01:15 -&gt; 01:35", html.replace("→", "-&gt;"))
+        self.assertIn("01:45 -&gt; 01:25", html.replace("→", "-&gt;"))
         self.assertIn("Shield:", html)
 
 

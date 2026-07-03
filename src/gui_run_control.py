@@ -22,6 +22,12 @@ except ImportError:
     keyboard = None
 
 
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+GWL_EXSTYLE = -20
+WS_EX_TOOLWINDOW = 0x00000080
+GW_OWNER = 4
+
+
 class RunControlMixin:
 
     def initialize_run_control(self):
@@ -108,9 +114,16 @@ class RunControlMixin:
         self.after(0, self.toggle_player_stats_recording)
 
     def get_game_process_id(self) -> int | None:
-        if self.client is None:
+        process_id = self._attached_game_process_id()
+        if process_id is not None:
+            return process_id
+        return self.find_game_process_id(config.PROCESS_NAME)
+
+    def _attached_game_process_id(self) -> int | None:
+        client = getattr(self, "client", None)
+        if client is None:
             return None
-        memory = getattr(self.client, "memory", None)
+        memory = getattr(client, "memory", None)
         pymem_client = getattr(memory, "_pm", None)
         process_id = getattr(pymem_client, "process_id", None)
         try:
@@ -122,20 +135,32 @@ class RunControlMixin:
         return isinstance(self.run_control_provider, KeyboardRunControlProvider)
 
     def is_game_window_active(self, process_name: str) -> bool:
-        del process_name
         if win32gui is None or win32process is None:
             return True
         foreground_window = win32gui.GetForegroundWindow()
         if not foreground_window:
             return False
-        game_process_id = self.get_game_process_id()
-        if game_process_id is None:
-            return False
         try:
             _, foreground_process_id = win32process.GetWindowThreadProcessId(foreground_window)
         except Exception:
             return False
-        return int(foreground_process_id) == game_process_id
+        try:
+            foreground_process_id = int(foreground_process_id)
+        except (TypeError, ValueError):
+            return False
+        if foreground_process_id <= 0:
+            return False
+
+        attached_process_id = self._attached_game_process_id()
+        if attached_process_id is not None:
+            return (
+                foreground_process_id == attached_process_id
+                and self.find_game_window_by_pid(attached_process_id, process_name=process_name) is not None
+            )
+
+        if not self._process_id_matches_name(foreground_process_id, process_name):
+            return False
+        return self.find_game_window_by_pid(foreground_process_id, process_name=process_name) is not None
 
     def wait_for_game_window_focus(self, process_name: str) -> bool:
         if self.is_game_window_active(process_name):
@@ -226,32 +251,216 @@ class RunControlMixin:
         except Exception:
             return False
 
-    def find_game_window(self, process_name: str) -> int | None:
-        del process_name
-        game_process_id = self.get_game_process_id()
-        if game_process_id is not None:
-            return self.find_game_window_by_pid(game_process_id)
-        return None
+    @staticmethod
+    def _normalize_process_name(process_name: str) -> str:
+        return os.path.basename(str(process_name or "")).strip().lower()
 
-    def find_game_window_by_pid(self, process_id: int) -> int | None:
-        found_window = None
+    @staticmethod
+    def _window_process_id(window: int) -> int | None:
+        if win32process is None:
+            return None
+        try:
+            _, process_id = win32process.GetWindowThreadProcessId(window)
+        except Exception:
+            return None
+        try:
+            process_id = int(process_id)
+        except (TypeError, ValueError):
+            return None
+        return process_id if process_id > 0 else None
+
+    @staticmethod
+    def _process_image_name(process_id: int) -> str | None:
+        if os.name != "nt":
+            return None
+        try:
+            process_id = int(process_id)
+        except (TypeError, ValueError):
+            return None
+        if process_id <= 0:
+            return None
+
+        kernel32 = getattr(ctypes, "windll", None)
+        kernel32 = getattr(kernel32, "kernel32", None)
+        if kernel32 is None:
+            return None
+
+        open_process = getattr(kernel32, "OpenProcess", None)
+        query_full_process_image_name = getattr(kernel32, "QueryFullProcessImageNameW", None)
+        close_handle = getattr(kernel32, "CloseHandle", None)
+        if open_process is None or query_full_process_image_name is None or close_handle is None:
+            return None
+
+        process_handle = open_process(PROCESS_QUERY_LIMITED_INFORMATION, False, process_id)
+        if not process_handle:
+            return None
+
+        try:
+            buffer_size = wintypes.DWORD(32768)
+            buffer = ctypes.create_unicode_buffer(buffer_size.value)
+            if not query_full_process_image_name(process_handle, 0, buffer, ctypes.byref(buffer_size)):
+                return None
+            return os.path.basename(buffer.value).strip().lower() or None
+        except Exception:
+            return None
+        finally:
+            try:
+                close_handle(process_handle)
+            except Exception:
+                pass
+
+    def _process_id_matches_name(self, process_id: int, process_name: str) -> bool:
+        normalized_process_name = self._normalize_process_name(process_name)
+        if not normalized_process_name:
+            return False
+        image_name = self._process_image_name(process_id)
+        return bool(image_name and image_name == normalized_process_name)
+
+    @staticmethod
+    def _window_rect(window: int) -> tuple[int, int, int, int] | None:
+        if win32gui is None or not hasattr(win32gui, "GetWindowRect"):
+            return None
+        try:
+            left, top, right, bottom = win32gui.GetWindowRect(window)
+        except Exception:
+            return None
+        try:
+            return int(left), int(top), int(right), int(bottom)
+        except (TypeError, ValueError):
+            return None
+
+    def _window_selection_score(self, window: int, *, process_name: str | None = None) -> tuple[int, int, int] | None:
+        rect = self._window_rect(window)
+        if rect is None:
+            return None
+        left, top, right, bottom = rect
+        width = max(0, right - left)
+        height = max(0, bottom - top)
+        if width <= 0 or height <= 0:
+            return None
+
+        title = ""
+        if win32gui is not None and hasattr(win32gui, "GetWindowText"):
+            try:
+                title = str(win32gui.GetWindowText(window) or "").strip()
+            except Exception:
+                title = ""
+
+        process_stem = os.path.splitext(self._normalize_process_name(process_name or ""))[0]
+        title_lower = title.lower()
+        title_matches_process = bool(process_stem and process_stem in title_lower)
+        area = width * height
+        return (
+            1 if title_matches_process else 0,
+            1 if title else 0,
+            area,
+        )
+
+    def _is_strict_window_candidate(self, window: int) -> bool:
+        rect = self._window_rect(window)
+        if rect is None:
+            return False
+        left, top, right, bottom = rect
+        width = max(0, right - left)
+        height = max(0, bottom - top)
+        if width < 320 or height < 180:
+            return False
+
+        if win32gui is not None:
+            if hasattr(win32gui, "GetParent"):
+                try:
+                    if win32gui.GetParent(window):
+                        return False
+                except Exception:
+                    pass
+            if hasattr(win32gui, "GetWindow"):
+                try:
+                    if win32gui.GetWindow(window, GW_OWNER):
+                        return False
+                except Exception:
+                    pass
+            if hasattr(win32gui, "GetWindowLong"):
+                try:
+                    ex_style = int(win32gui.GetWindowLong(window, GWL_EXSTYLE))
+                except Exception:
+                    ex_style = 0
+                if ex_style & WS_EX_TOOLWINDOW:
+                    return False
+        return True
+
+    def find_game_process_id(self, process_name: str) -> int | None:
+        window = self.find_game_window(process_name)
+        if not window:
+            return None
+        return self._window_process_id(window)
+
+    def find_game_window(self, process_name: str) -> int | None:
+        attached_process_id = self._attached_game_process_id()
+        if attached_process_id is not None:
+            found_window = self.find_game_window_by_pid(attached_process_id, process_name=process_name)
+            if found_window is not None:
+                return found_window
+        return self.find_game_window_by_name(process_name)
+
+    def find_game_window_by_name(self, process_name: str) -> int | None:
+        if win32gui is None or win32process is None:
+            return None
+        normalized_process_name = self._normalize_process_name(process_name)
+        if not normalized_process_name:
+            return None
+
+        strict_candidates: list[tuple[tuple[int, int, int], int]] = []
+        relaxed_candidates: list[tuple[tuple[int, int, int], int]] = []
 
         def enum_callback(window, _extra):
-            nonlocal found_window
-            if found_window is not None or not self.is_visible_window(window):
+            if not self.is_visible_window(window):
                 return
-            try:
-                _, window_process_id = win32process.GetWindowThreadProcessId(window)
-            except Exception:
+            window_process_id = self._window_process_id(window)
+            if window_process_id is None or not self._process_id_matches_name(window_process_id, normalized_process_name):
                 return
-            if int(window_process_id) == process_id:
-                found_window = window
+            score = self._window_selection_score(window, process_name=normalized_process_name)
+            if score is None:
+                return
+            relaxed_candidates.append((score, window))
+            if self._is_strict_window_candidate(window):
+                strict_candidates.append((score, window))
 
         try:
             win32gui.EnumWindows(enum_callback, None)
         except Exception as exc:
             self.log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
-        return found_window
+        candidates = strict_candidates or relaxed_candidates
+        if not candidates:
+            return None
+        return max(candidates, key=lambda entry: entry[0])[1]
+
+    def find_game_window_by_pid(self, process_id: int, *, process_name: str | None = None) -> int | None:
+        if win32gui is None or win32process is None:
+            return None
+        strict_candidates: list[tuple[tuple[int, int, int], int]] = []
+        relaxed_candidates: list[tuple[tuple[int, int, int], int]] = []
+
+        def enum_callback(window, _extra):
+            if not self.is_visible_window(window):
+                return
+            window_process_id = self._window_process_id(window)
+            if window_process_id != process_id:
+                return
+            score = self._window_selection_score(window, process_name=process_name)
+            if score is None:
+                return
+            relaxed_candidates.append((score, window))
+            if self._is_strict_window_candidate(window):
+                strict_candidates.append((score, window))
+
+        try:
+            win32gui.EnumWindows(enum_callback, None)
+        except Exception as exc:
+            self.log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
+        candidates = strict_candidates or relaxed_candidates
+        if not candidates:
+            return None
+        return max(candidates, key=lambda entry: entry[0])[1]
 
     def handle_confirmed_target_window(self, process_name: str) -> bool:
         if keyboard:
