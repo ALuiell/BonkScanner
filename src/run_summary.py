@@ -313,19 +313,19 @@ def looks_like_stage_four_from_map_activity(snapshot) -> bool:
     raw_stage_number = raw_stage_index_to_stage_number(getattr(snapshot, "stage_index", None))
     if raw_stage_number != 3:
         return False
-    chest_total = _coerce_positive_int(getattr(snapshot, "chests_total", None))
+    chest_total = _coerce_non_negative_int(getattr(snapshot, "chests_total", None))
     if chest_total is not None and chest_total < 46:
         return True
-    pots_total = _coerce_positive_int(getattr(snapshot, "pots_total", None))
+    pots_total = _coerce_non_negative_int(getattr(snapshot, "pots_total", None))
     return pots_total is not None and pots_total < 55
 
 
-def _coerce_positive_int(value) -> int | None:
+def _coerce_non_negative_int(value) -> int | None:
     try:
         parsed = int(value)
     except (TypeError, ValueError):
         return None
-    return parsed if parsed > 0 else None
+    return parsed if parsed >= 0 else None
 
 
 def is_stage_transition_boundary_snapshot(snapshot) -> bool:

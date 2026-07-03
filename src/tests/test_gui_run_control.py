@@ -2378,6 +2378,38 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(rows[3]["kills"], "600")
         self.assertEqual(rows[3]["time"], "01:00")
 
+    def test_build_stage_summary_attach_on_stage_four_uses_zero_chest_total_marker(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=240.0,
+                stage_time_seconds=80.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                stage_index=2,
+                chests_total=0,
+                mob_kills=2_000,
+                items=(),
+            ),
+            SimpleNamespace(
+                game_time_seconds=300.0,
+                stage_time_seconds=140.0,
+                stage_ptr=0x3000,
+                map_seed=33,
+                stage_index=2,
+                chests_total=0,
+                mob_kills=2_600,
+                items=(),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["kills"], "--")
+        self.assertEqual(rows[1]["kills"], "--")
+        self.assertEqual(rows[2]["kills"], "--")
+        self.assertEqual(rows[3]["kills"], "600")
+        self.assertEqual(rows[3]["time"], "01:00")
+
     def test_item_total_count_includes_stacks_and_duplicate_entries(self) -> None:
         total = gui.MegabonkApp._item_total_count(
             ("Wrench x3", "Anvil x2", "Anvil x1", "Moldy Cheese")

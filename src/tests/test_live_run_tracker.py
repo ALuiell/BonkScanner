@@ -948,6 +948,24 @@ class LiveRunTrackerTests(unittest.TestCase):
         _, stage_index = tracker.run_identity()
         self.assertEqual(stage_index, 4)
 
+    def test_run_identity_promotes_raw_stage_three_attach_to_stage_four_from_zero_chest_total(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        tracker.update(
+            snapshot(
+                time_seconds=240.0,
+                map_seed=100,
+                stage_ptr=3000,
+                stage_index=2,
+                stage_time_seconds=80.0,
+                mob_kills=2_000,
+                chests_total=0,
+            ),
+        )
+
+        _, stage_index = tracker.run_identity()
+        self.assertEqual(stage_index, 4)
+
     def test_stage_summary_starts_at_stage_four_when_attach_snapshot_has_collapsed_pots_total(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(
