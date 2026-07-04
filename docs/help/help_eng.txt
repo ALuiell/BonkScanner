@@ -39,6 +39,7 @@ Right side:
 - `Compare Runs` - side-by-side comparison of two saved runs with synced in-game time and a central difference panel.
 - `OBS Overlay` - local browser-source overlay for stream layouts.
 - `Twitch Bot` - built-in Twitch bot for chat integration.
+- `In-Game Overlay` - transparent in-game window overlay.
 
 Reroll and Restart
 ------------------
@@ -62,7 +63,9 @@ The `Live Stats` tab shows:
 Additional tabs inside `Live Stats`:
 - `Stats` - main character stats;
 - `Weapons` - current weapons, their levels, and upgraded weapon stats;
-- `Tomes` - current tomes, their levels, and active effects.
+- `Tomes` - current tomes, their levels, and active effects;
+- `Chaos` - Chaos Tome level, total stat rolls, and individual roll counters;
+- `Damage Sources` - detailed statistics for each damage source/weapon.
 
 The `Powerups` card tracks active powerups (Rage, Shield, Stonks, Clock) and shows their pickup and expiration timestamps.
 
@@ -76,7 +79,7 @@ Recording and Recordings
 
 Inside `Recordings`, you can:
 - scrub the timeline;
-- inspect stats, items, weapons, tomes, stage summary, and banishes by snapshot;
+- inspect stats, items, weapons, tomes, chaos, damage sources, stage summary, and banishes by snapshot;
 - set a compare start and compare a later snapshot against it;
 - review compare details such as gained, broken, and lost items between two snapshots;
 - rename a recording;
@@ -108,15 +111,33 @@ OBS Overlay
 - **Fixed Canvas Size**: When absolute positioning is active, the overlay uses a customizable canvas size (default: 1920x1080). Make sure to set the identical Width and Height values in your OBS Browser Source settings.
 - A port is the local number the browser source uses to reach the overlay server. If another app already uses that port, choose a different one and update the OBS Browser Source URL.
 - Recording is not required. The overlay uses live stats reads and can work while `.jsonl` recording is off.
-- Widget selection controls what appears on stream. The default focuses on `Stage Summary`, `Tracked Items`, `Stats`, and `Banishes`.
+- Widget selection controls what appears on stream. Available widgets are `Stage Summary`, `Tracked Items`, `Stats`, `KPS`, and `Banishes`.
+- **KPS Widget Settings**: For the KPS overlay widget, you can toggle its background opacity, headers, and customize the metrics shown (Current KPS, 60s Avg, 5m Avg, and Run Avg).
 - Tracked items count selected item gains, such as first-map item luck. Search for an item, choose whether it should count `Map 1 only`, then add it to the tracked list.
 - The Tracked Items widget uses its own custom list by default. Enable `Use Session Stats tracked items` to show the same counters as `Session Stats` without deleting the custom overlay list.
 - The overlay page is transparent, so OBS should show only the compact text/widgets over the game instead of a large solid background.
 - **Widget Scaling**: In Layout Editor mode, hover over any widget to reveal a scale toolbar. Use `+` / `-` buttons or type a custom percentage (e.g. `125`) directly to zoom individual widgets.
 - **Widget Resizing**: Drag the bottom-right corner of any widget in Layout Editor to stretch its width and height. Stats and Banishes automatically reflow into multiple columns when widened.
 - **Game Preview Background**: Layout Editor shows an actual game screenshot as background so you can align widgets precisely with the in-game HUD.
-- **Widget-Specific URLs**: Each widget can be added as a separate OBS Browser Source using its own URL (e.g. `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, `/overlay/stage_summary`).
+- **Widget-Specific URLs**: Each widget can be added as a separate OBS Browser Source using its own URL (e.g. `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, `/overlay/stage_summary`, `/overlay/kps`).
 - **Important: OBS Cache**: After updating BonkScanner or changing layout, right-click your Browser Source in OBS → Properties → click `Refresh cache of current page` → OK. Without this, OBS may show the old layout.
+
+
+In-Game Overlay
+---------------
+- `In-Game Overlay` creates a transparent, floating window displayed directly on top of the game window.
+- It displays live information during gameplay without needing a second monitor or an OBS Browser Source.
+- Turn on `In-Game Overlay` in the settings tab, or enable `Auto-start overlay` to launch it automatically.
+- **Layout Editor**: Press `F9` (default hotkey) or click `Edit Layout` in the app UI to toggle Layout Mode.
+- In Layout Mode, you can drag widgets directly on top of the game window to align them. Press `Save Layout`, `Esc`, or `F9` again to exit and save.
+- Widget scales (from `0.5` to `3.0`) can be adjusted in the `Widget Settings` dialog.
+- Available overlay widgets:
+  - `Scanner Status` — shows if the scanner is currently active.
+  - `Recording Status` — shows if player stats recording is currently running.
+  - `KPS` — shows kills per second metrics (with customizable sub-metrics like instant, 60s, 5m, or run averages).
+  - `Active Powerups (Buffs)` — displays active powerups (Rage, Shield, Stonks, Clock) and their timers.
+  - `Luck Rarity %` — shows the probability of item rarity rolls based on current Luck, with an optional progress bar.
+- Note: The overlay will automatically hide when the game window loses focus, and reappear when it is focused.
 
 
 Twitch Bot
@@ -143,6 +164,7 @@ Available chat commands:
 - `!weapons` — your weapons and only their active/upgraded stats.
 - `!tomes` — your tomes with their stat values (Chaos Tome shows level only).
 - `!chaos` / `!chaostome` — displays tracked Chaos Tome level and stat roll totals.
+- `!kps` — displays current kills per second (KPS) and short/long averages (60s, 5m, run averages).
 - `!stages` — detailed stage summary of kills and elapsed time for stages 1-4.
 - `!powerups` — displays active powerups (Rage, Shield, Stonks, Clock) with their pickup and expiration timestamps.
 - `!chests` / `!chest` — displays the number of chests opened per stage, keys count, and free chest openings (Free chest includes naturally free chests + chests opened for free using keys).
@@ -161,7 +183,9 @@ Hotkeys
 - `Scan Hotkey`
 - `Reset Hotkey`
 - `Record Hotkey`
+- `In-Game Overlay Edit Hotkey`
 - `Auto-start recording` - automatically starts player-stats recording when a live run is detected.
+- `Auto-start overlay` - automatically starts the transparent overlay when a live run is detected.
 - `Show OBS reminder on Start Scanner`
 
 Important:
@@ -175,6 +199,7 @@ Main settings:
 - `Scan Hotkey` - starts or pauses the scan loop while the app is running.
 - `Reset Hotkey` - keyboard restart hotkey.
 - `Record Hotkey` - starts or stops live stats recording.
+- `In-Game Overlay Edit Hotkey` - enters or exits overlay Layout Mode.
 - `Min Reroll Delay (s)` - minimum delay before the app evaluates the next reroll result.
 - `Reset Hold Duration (s)` - keyboard reset hold time in the app. This setting also syncs the game's `quick_reset_time` value. If you change it, restart the game so the in-game restart timing fully picks up the new value.
 - `Snapshot Interval (s)` - how often recording saves a new snapshot.
