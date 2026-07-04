@@ -2,6 +2,7 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
+from dataclasses import dataclass
 import requests
 import webbrowser
 import secrets
@@ -12,6 +13,75 @@ from PySide6.QtCore import QObject, QThread, Signal
 TWITCH_CLIENT_ID = "4tvblbz0dp1v9pgufiz3oaqg8vxphl"
 OAUTH_PORT = 17846
 REDIRECT_URI = f"http://localhost:{OAUTH_PORT}/auth/twitch/callback"
+TWITCH_VALIDATE_URL = "https://id.twitch.tv/oauth2/validate"
+TWITCH_REVOKE_URL = "https://id.twitch.tv/oauth2/revoke"
+
+
+@dataclass(slots=True)
+class TwitchTokenValidationResult:
+    valid: bool
+    login: str = ""
+    user_id: str = ""
+    expires_in: int | None = None
+    error_message: str = ""
+    transient_error: bool = False
+
+
+def validate_twitch_access_token(access_token: str, timeout: float = 5.0) -> TwitchTokenValidationResult:
+    if not access_token:
+        return TwitchTokenValidationResult(valid=False, error_message="Missing token.")
+
+    try:
+        resp = requests.get(
+            TWITCH_VALIDATE_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        return TwitchTokenValidationResult(
+            valid=False,
+            error_message=f"Token validation failed: {exc}",
+            transient_error=True,
+        )
+
+    if resp.status_code == 200:
+        data = resp.json()
+        return TwitchTokenValidationResult(
+            valid=True,
+            login=str(data.get("login") or "").strip().lower(),
+            user_id=str(data.get("user_id") or "").strip(),
+            expires_in=data.get("expires_in"),
+        )
+
+    if resp.status_code == 401:
+        return TwitchTokenValidationResult(valid=False, error_message="Token is no longer valid.")
+
+    return TwitchTokenValidationResult(
+        valid=False,
+        error_message=f"Unexpected Twitch validation response: {resp.status_code}",
+        transient_error=True,
+    )
+
+
+def revoke_twitch_access_token(access_token: str, timeout: float = 5.0) -> tuple[bool, str]:
+    if not access_token:
+        return True, ""
+
+    try:
+        resp = requests.post(
+            TWITCH_REVOKE_URL,
+            data={"client_id": TWITCH_CLIENT_ID, "token": access_token},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        return False, str(exc)
+
+    if resp.status_code == 200:
+        return True, ""
+    if resp.status_code == 400:
+        return True, "Token already invalid."
+    return False, f"Twitch revoke failed with status {resp.status_code}."
 
 
 AUTH_HTML = """

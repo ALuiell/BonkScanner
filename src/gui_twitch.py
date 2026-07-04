@@ -1,5 +1,6 @@
 import config
-from twitch_auth import TwitchAuthThread
+from PySide6.QtCore import QTimer
+from twitch_auth import TwitchAuthThread, revoke_twitch_access_token, validate_twitch_access_token
 from twitch_bot import TwitchBotWorker
 from twitch_credentials import delete_twitch_oauth_token, get_twitch_oauth_token, set_twitch_oauth_token
 from gui_styles import _button_state_stylesheet
@@ -8,6 +9,9 @@ class TwitchBotMixin:
     def setup_twitch_bot_ui(self):
         self.twitch_auth_thread = None
         self.twitch_bot_worker = None
+        self.twitch_token_validation_timer = QTimer(self.window)
+        self.twitch_token_validation_timer.setInterval(60 * 60 * 1000)
+        self.twitch_token_validation_timer.timeout.connect(self.validate_twitch_session)
 
         self.twitch_connect_btn.clicked.connect(self.start_twitch_auth)
         self.twitch_bot_toggle_btn.clicked.connect(self.toggle_twitch_bot)
@@ -20,11 +24,14 @@ class TwitchBotMixin:
 
         # Restore UI state if already configured
         if config.TWITCH_BOT.get("username") and token:
-            self.twitch_auth_status_label.setText(f"Connected as <span style='color: #4fd67a; font-weight: bold;'>{config.TWITCH_BOT['username']}</span>")
-            self.twitch_connect_btn.setVisible(False)
-            self.twitch_disconnect_btn.setVisible(True)
-            if config.TWITCH_BOT.get("auto_connect", False):
-                self.start_twitch_bot()
+            self._set_twitch_connected_ui(config.TWITCH_BOT["username"])
+            if self.validate_twitch_session(log_on_success=False):
+                if config.TWITCH_BOT.get("auto_connect", False):
+                    self.start_twitch_bot()
+        else:
+            self.twitch_auth_status_label.setText("<span style='color: #f08b72; font-weight: bold;'>Not connected</span>")
+            self.twitch_connect_btn.setVisible(True)
+            self.twitch_disconnect_btn.setVisible(False)
 
         self.twitch_tier_combo.currentTextChanged.connect(self.save_twitch_settings)
         self.twitch_target_channel_entry.editingFinished.connect(self.save_twitch_settings)
@@ -105,42 +112,39 @@ class TwitchBotMixin:
             self.log(f"Twitch credential storage error: {exc}", tag="error")
             return
 
+        validation = validate_twitch_access_token(token)
+        if not validation.valid:
+            delete_twitch_oauth_token()
+            self.twitch_connect_btn.setEnabled(True)
+            self._set_twitch_disconnected_ui()
+            self.log(
+                validation.error_message or "Twitch token failed validation after authorization.",
+                tag="error",
+            )
+            return
+
+        username = validation.login or username
         self.twitch_connect_btn.setEnabled(True)
-        self.twitch_connect_btn.setVisible(False)
-        self.twitch_disconnect_btn.setVisible(True)
-        self.twitch_auth_status_label.setText(f"Connected as <span style='color: #4fd67a; font-weight: bold;'>{username}</span>")
         config.TWITCH_BOT["username"] = username
-        if getattr(self, "twitch_target_channel_entry", None) is not None:
-            self.twitch_target_channel_entry.setPlaceholderText(username)
         config.save_config(config.user_config)
+        self._set_twitch_connected_ui(username)
+        self.twitch_token_validation_timer.start()
         self.log(f"Twitch bot authenticated as {username}", tag="success")
         if config.TWITCH_BOT.get("auto_connect", False):
             self.start_twitch_bot()
 
     def disconnect_twitch(self):
-        import urllib.request
-        import urllib.parse
-        from twitch_auth import TWITCH_CLIENT_ID
-
         token = get_twitch_oauth_token()
-        
+
         self.stop_twitch_bot()
-        config.TWITCH_BOT["username"] = ""
-        config.save_config(config.user_config)
-        
         delete_twitch_oauth_token()
-        
+        self._clear_twitch_session_state()
+
         if token:
-            try:
-                data = urllib.parse.urlencode({"client_id": TWITCH_CLIENT_ID, "token": token}).encode("utf-8")
-                req = urllib.request.Request("https://id.twitch.tv/oauth2/revoke", data=data)
-                urllib.request.urlopen(req, timeout=5)
-            except Exception:
-                pass
-        
-        self.twitch_auth_status_label.setText("<span style='color: #f08b72; font-weight: bold;'>Not connected</span>")
-        self.twitch_connect_btn.setVisible(True)
-        self.twitch_disconnect_btn.setVisible(False)
+            revoked, message = revoke_twitch_access_token(token)
+            if not revoked and message:
+                self.log(f"Twitch token revoke warning: {message}", tag="warning")
+        self._set_twitch_disconnected_ui()
 
     def on_twitch_auth_error(self, err):
         self.twitch_connect_btn.setEnabled(True)
@@ -156,6 +160,10 @@ class TwitchBotMixin:
     def start_twitch_bot(self):
         if not get_twitch_oauth_token():
             self.log("Cannot start Twitch Bot: Not connected.", tag="error")
+            return
+
+        if not self.validate_twitch_session(log_on_success=False):
+            self.log("Cannot start Twitch Bot: Stored Twitch token is invalid.", tag="error")
             return
 
         if self.twitch_bot_worker and self.twitch_bot_worker.isRunning():
@@ -205,6 +213,58 @@ class TwitchBotMixin:
         self.twitch_bot_toggle_btn.setStyleSheet("")
         if "error" not in self.twitch_bot_status_label.text().lower():
             self._update_twitch_bot_status_ui("Stopped")
+
+    def validate_twitch_session(self, *, log_on_success: bool = True) -> bool:
+        token = get_twitch_oauth_token()
+        if not token:
+            self.twitch_token_validation_timer.stop()
+            return False
+
+        validation = validate_twitch_access_token(token)
+        if validation.valid:
+            username = validation.login or str(config.TWITCH_BOT.get("username") or "").strip().lower()
+            if username and username != config.TWITCH_BOT.get("username"):
+                config.TWITCH_BOT["username"] = username
+                config.save_config(config.user_config)
+            if username:
+                self._set_twitch_connected_ui(username)
+            self.twitch_token_validation_timer.start()
+            if log_on_success:
+                self.log("Twitch token validated.", tag="success")
+            return True
+
+        if validation.transient_error:
+            self.twitch_token_validation_timer.start()
+            self.log(validation.error_message, tag="warning")
+            return False
+
+        delete_twitch_oauth_token()
+        self.stop_twitch_bot()
+        self._clear_twitch_session_state()
+        self._set_twitch_disconnected_ui()
+        self.log(validation.error_message or "Stored Twitch token is invalid.", tag="warning")
+        return False
+
+    def _clear_twitch_session_state(self) -> None:
+        self.twitch_token_validation_timer.stop()
+        config.TWITCH_BOT["username"] = ""
+        config.save_config(config.user_config)
+
+    def _set_twitch_connected_ui(self, username: str) -> None:
+        self.twitch_auth_status_label.setText(
+            f"Connected as <span style='color: #4fd67a; font-weight: bold;'>{username}</span>"
+        )
+        self.twitch_connect_btn.setVisible(False)
+        self.twitch_disconnect_btn.setVisible(True)
+        if getattr(self, "twitch_target_channel_entry", None) is not None:
+            self.twitch_target_channel_entry.setPlaceholderText(username)
+
+    def _set_twitch_disconnected_ui(self) -> None:
+        self.twitch_auth_status_label.setText(
+            "<span style='color: #f08b72; font-weight: bold;'>Not connected</span>"
+        )
+        self.twitch_connect_btn.setVisible(True)
+        self.twitch_disconnect_btn.setVisible(False)
 
     def _is_twitch_bot_active(self) -> bool:
         worker = getattr(self, "twitch_bot_worker", None)

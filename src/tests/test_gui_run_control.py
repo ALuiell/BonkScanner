@@ -643,17 +643,72 @@ class GuiRunControlTests(unittest.TestCase):
             twitch_disconnect_btn=MagicMock(),
             twitch_auth_status_label=MagicMock(),
             twitch_target_channel_entry=MagicMock(),
+            twitch_token_validation_timer=MagicMock(),
             log=MagicMock(),
             start_twitch_bot=MagicMock(),
         )
+        app._set_twitch_connected_ui = lambda username: gui.MegabonkApp._set_twitch_connected_ui(app, username)
+        app._set_twitch_disconnected_ui = lambda: gui.MegabonkApp._set_twitch_disconnected_ui(app)
 
         with patch.dict(gui.config.TWITCH_BOT, {"auto_connect": True}), patch(
             "gui_twitch.set_twitch_oauth_token"
-        ), patch.object(gui.config, "save_config"):
+        ), patch("gui_twitch.validate_twitch_access_token", return_value=types.SimpleNamespace(valid=True, login="bonk")), patch.object(gui.config, "save_config"):
             gui.MegabonkApp.on_twitch_auth_success(app, "bonk", "token")
 
             self.assertEqual(gui.config.TWITCH_BOT["username"], "bonk")
             app.start_twitch_bot.assert_called_once_with()
+            app.twitch_token_validation_timer.start.assert_called_once_with()
+
+    def test_validate_twitch_session_clears_invalid_token(self) -> None:
+        app = types.SimpleNamespace(
+            twitch_connect_btn=MagicMock(),
+            twitch_disconnect_btn=MagicMock(),
+            twitch_auth_status_label=MagicMock(),
+            twitch_target_channel_entry=MagicMock(),
+            twitch_token_validation_timer=MagicMock(),
+            stop_twitch_bot=MagicMock(),
+            log=MagicMock(),
+        )
+        app._clear_twitch_session_state = lambda: gui.MegabonkApp._clear_twitch_session_state(app)
+        app._set_twitch_disconnected_ui = lambda: gui.MegabonkApp._set_twitch_disconnected_ui(app)
+
+        with patch.dict(gui.config.TWITCH_BOT, {"username": "bonk"}), patch(
+            "gui_twitch.get_twitch_oauth_token", return_value="token"
+        ), patch(
+            "gui_twitch.validate_twitch_access_token",
+            return_value=types.SimpleNamespace(valid=False, transient_error=False, error_message="Token is no longer valid."),
+        ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch.object(gui.config, "save_config"):
+            valid = gui.MegabonkApp.validate_twitch_session(app, log_on_success=False)
+
+        self.assertFalse(valid)
+        self.assertEqual(gui.config.TWITCH_BOT["username"], "")
+        delete_token.assert_called_once_with()
+        app.stop_twitch_bot.assert_called_once_with()
+        app.twitch_connect_btn.setVisible.assert_called_with(True)
+
+    def test_disconnect_twitch_logs_revoke_warning_without_restoring_token(self) -> None:
+        app = types.SimpleNamespace(
+            twitch_connect_btn=MagicMock(),
+            twitch_disconnect_btn=MagicMock(),
+            twitch_auth_status_label=MagicMock(),
+            twitch_token_validation_timer=MagicMock(),
+            stop_twitch_bot=MagicMock(),
+            log=MagicMock(),
+        )
+        app._clear_twitch_session_state = lambda: gui.MegabonkApp._clear_twitch_session_state(app)
+        app._set_twitch_disconnected_ui = lambda: gui.MegabonkApp._set_twitch_disconnected_ui(app)
+
+        with patch.dict(gui.config.TWITCH_BOT, {"username": "bonk"}), patch(
+            "gui_twitch.get_twitch_oauth_token", return_value="token"
+        ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch(
+            "gui_twitch.revoke_twitch_access_token", return_value=(False, "timeout")
+        ), patch.object(gui.config, "save_config"):
+            gui.MegabonkApp.disconnect_twitch(app)
+
+        self.assertEqual(gui.config.TWITCH_BOT["username"], "")
+        delete_token.assert_called_once_with()
+        app.stop_twitch_bot.assert_called_once_with()
+        app.log.assert_called_with("Twitch token revoke warning: timeout", tag="warning")
 
     def test_twitch_bot_status_value_does_not_repeat_status_label(self) -> None:
         status_label = MagicMock()
