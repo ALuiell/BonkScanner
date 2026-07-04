@@ -645,19 +645,73 @@ class GuiRunControlTests(unittest.TestCase):
             twitch_target_channel_entry=MagicMock(),
             twitch_token_validation_timer=MagicMock(),
             log=MagicMock(),
-            start_twitch_bot=MagicMock(),
+            validate_twitch_session_async=MagicMock(return_value=True),
         )
         app._set_twitch_connected_ui = lambda username: gui.MegabonkApp._set_twitch_connected_ui(app, username)
         app._set_twitch_disconnected_ui = lambda: gui.MegabonkApp._set_twitch_disconnected_ui(app)
 
         with patch.dict(gui.config.TWITCH_BOT, {"auto_connect": True}), patch(
             "gui_twitch.set_twitch_oauth_token"
-        ), patch("gui_twitch.validate_twitch_access_token", return_value=types.SimpleNamespace(valid=True, login="bonk")), patch.object(gui.config, "save_config"):
+        ), patch.object(gui.config, "save_config"):
             gui.MegabonkApp.on_twitch_auth_success(app, "bonk", "token")
 
+            app.validate_twitch_session_async.assert_called_once_with(
+                log_on_success=False,
+                start_bot_on_success=True,
+                fallback_username="bonk",
+                context="auth",
+            )
+
+    def test_twitch_validation_success_starts_bot_when_requested(self) -> None:
+        app = types.SimpleNamespace(
+            twitch_connect_btn=MagicMock(),
+            twitch_disconnect_btn=MagicMock(),
+            twitch_auth_status_label=MagicMock(),
+            twitch_target_channel_entry=MagicMock(),
+            twitch_token_validation_timer=MagicMock(),
+            _twitch_start_bot_after_validation=False,
+            _start_twitch_bot_worker=MagicMock(),
+            log=MagicMock(),
+        )
+        app._set_twitch_connected_ui = lambda username: gui.MegabonkApp._set_twitch_connected_ui(app, username)
+
+        with patch.dict(gui.config.TWITCH_BOT, {"username": "", "auto_connect": True}), patch(
+            "gui_twitch.get_twitch_oauth_token", return_value="token"
+        ), patch.object(gui.config, "save_config"):
+            gui.MegabonkApp._on_twitch_token_validation_finished(
+                app,
+                "token",
+                types.SimpleNamespace(valid=True, login="bonk"),
+                False,
+                True,
+                "fallback",
+                "auth",
+            )
             self.assertEqual(gui.config.TWITCH_BOT["username"], "bonk")
-            app.start_twitch_bot.assert_called_once_with()
-            app.twitch_token_validation_timer.start.assert_called_once_with()
+
+        app.twitch_token_validation_timer.start.assert_called_once_with()
+        app._start_twitch_bot_worker.assert_called_once_with()
+
+    def test_stale_twitch_validation_does_not_keep_pending_bot_start(self) -> None:
+        app = types.SimpleNamespace(
+            twitch_connect_btn=MagicMock(),
+            _twitch_start_bot_after_validation=True,
+            _start_twitch_bot_worker=MagicMock(),
+        )
+
+        with patch("gui_twitch.get_twitch_oauth_token", return_value="new-token"):
+            gui.MegabonkApp._on_twitch_token_validation_finished(
+                app,
+                "old-token",
+                types.SimpleNamespace(valid=True, login="bonk"),
+                False,
+                True,
+                "fallback",
+                "start_bot",
+            )
+
+        self.assertFalse(app._twitch_start_bot_after_validation)
+        app._start_twitch_bot_worker.assert_not_called()
 
     def test_validate_twitch_session_clears_invalid_token(self) -> None:
         app = types.SimpleNamespace(
@@ -693,6 +747,7 @@ class GuiRunControlTests(unittest.TestCase):
             twitch_auth_status_label=MagicMock(),
             twitch_token_validation_timer=MagicMock(),
             stop_twitch_bot=MagicMock(),
+            _start_twitch_token_revoke=MagicMock(),
             log=MagicMock(),
         )
         app._clear_twitch_session_state = lambda: gui.MegabonkApp._clear_twitch_session_state(app)
@@ -700,14 +755,14 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch.dict(gui.config.TWITCH_BOT, {"username": "bonk"}), patch(
             "gui_twitch.get_twitch_oauth_token", return_value="token"
-        ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch(
-            "gui_twitch.revoke_twitch_access_token", return_value=(False, "timeout")
-        ), patch.object(gui.config, "save_config"):
+        ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch.object(gui.config, "save_config"):
             gui.MegabonkApp.disconnect_twitch(app)
+            gui.MegabonkApp._on_twitch_token_revoke_finished(app, False, "timeout")
 
         self.assertEqual(gui.config.TWITCH_BOT["username"], "")
         delete_token.assert_called_once_with()
         app.stop_twitch_bot.assert_called_once_with()
+        app._start_twitch_token_revoke.assert_called_once_with("token")
         app.log.assert_called_with("Twitch token revoke warning: timeout", tag="warning")
 
     def test_twitch_bot_status_value_does_not_repeat_status_label(self) -> None:

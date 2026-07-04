@@ -1,17 +1,65 @@
 import config
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QThread, QTimer, Signal
 from twitch_auth import TwitchAuthThread, revoke_twitch_access_token, validate_twitch_access_token
 from twitch_bot import TwitchBotWorker
 from twitch_credentials import delete_twitch_oauth_token, get_twitch_oauth_token, set_twitch_oauth_token
 from gui_styles import _button_state_stylesheet
 
+
+class TwitchTokenValidationWorker(QThread):
+    validation_finished = Signal(str, object, bool, bool, str, str)
+
+    def __init__(
+        self,
+        token: str,
+        *,
+        context: str,
+        log_on_success: bool,
+        start_bot_on_success: bool,
+        fallback_username: str = "",
+        parent=None,
+    ):
+        super().__init__(parent)
+        self.token = token
+        self.context = context
+        self.log_on_success = log_on_success
+        self.start_bot_on_success = start_bot_on_success
+        self.fallback_username = fallback_username
+
+    def run(self) -> None:
+        validation = validate_twitch_access_token(self.token)
+        self.validation_finished.emit(
+            self.token,
+            validation,
+            self.log_on_success,
+            self.start_bot_on_success,
+            self.fallback_username,
+            self.context,
+        )
+
+
+class TwitchTokenRevokeWorker(QThread):
+    revoke_finished = Signal(bool, str)
+
+    def __init__(self, token: str, parent=None):
+        super().__init__(parent)
+        self.token = token
+
+    def run(self) -> None:
+        revoked, message = revoke_twitch_access_token(self.token)
+        self.revoke_finished.emit(revoked, message)
+
+
 class TwitchBotMixin:
     def setup_twitch_bot_ui(self):
         self.twitch_auth_thread = None
         self.twitch_bot_worker = None
+        self.twitch_token_validation_worker = None
+        self.twitch_token_revoke_worker = None
+        self._twitch_start_bot_after_validation = False
         self.twitch_token_validation_timer = QTimer(self.window)
         self.twitch_token_validation_timer.setInterval(60 * 60 * 1000)
-        self.twitch_token_validation_timer.timeout.connect(self.validate_twitch_session)
+        self.twitch_token_validation_timer.timeout.connect(self.validate_twitch_session_async)
 
         self.twitch_connect_btn.clicked.connect(self.start_twitch_auth)
         self.twitch_bot_toggle_btn.clicked.connect(self.toggle_twitch_bot)
@@ -25,9 +73,11 @@ class TwitchBotMixin:
         # Restore UI state if already configured
         if config.TWITCH_BOT.get("username") and token:
             self._set_twitch_connected_ui(config.TWITCH_BOT["username"])
-            if self.validate_twitch_session(log_on_success=False):
-                if config.TWITCH_BOT.get("auto_connect", False):
-                    self.start_twitch_bot()
+            self.validate_twitch_session_async(
+                log_on_success=False,
+                start_bot_on_success=config.TWITCH_BOT.get("auto_connect", False),
+                context="startup",
+            )
         else:
             self.twitch_auth_status_label.setText("<span style='color: #f08b72; font-weight: bold;'>Not connected</span>")
             self.twitch_connect_btn.setVisible(True)
@@ -112,26 +162,13 @@ class TwitchBotMixin:
             self.log(f"Twitch credential storage error: {exc}", tag="error")
             return
 
-        validation = validate_twitch_access_token(token)
-        if not validation.valid:
-            delete_twitch_oauth_token()
-            self.twitch_connect_btn.setEnabled(True)
-            self._set_twitch_disconnected_ui()
-            self.log(
-                validation.error_message or "Twitch token failed validation after authorization.",
-                tag="error",
-            )
-            return
-
-        username = validation.login or username
-        self.twitch_connect_btn.setEnabled(True)
-        config.TWITCH_BOT["username"] = username
-        config.save_config(config.user_config)
-        self._set_twitch_connected_ui(username)
-        self.twitch_token_validation_timer.start()
-        self.log(f"Twitch bot authenticated as {username}", tag="success")
-        if config.TWITCH_BOT.get("auto_connect", False):
-            self.start_twitch_bot()
+        self.twitch_auth_status_label.setText("<span style='color: #ffd23f; font-weight: bold;'>Validating token...</span>")
+        self.validate_twitch_session_async(
+            log_on_success=False,
+            start_bot_on_success=config.TWITCH_BOT.get("auto_connect", False),
+            fallback_username=username,
+            context="auth",
+        )
 
     def disconnect_twitch(self):
         token = get_twitch_oauth_token()
@@ -141,9 +178,7 @@ class TwitchBotMixin:
         self._clear_twitch_session_state()
 
         if token:
-            revoked, message = revoke_twitch_access_token(token)
-            if not revoked and message:
-                self.log(f"Twitch token revoke warning: {message}", tag="warning")
+            self._start_twitch_token_revoke(token)
         self._set_twitch_disconnected_ui()
 
     def on_twitch_auth_error(self, err):
@@ -162,10 +197,16 @@ class TwitchBotMixin:
             self.log("Cannot start Twitch Bot: Not connected.", tag="error")
             return
 
-        if not self.validate_twitch_session(log_on_success=False):
-            self.log("Cannot start Twitch Bot: Stored Twitch token is invalid.", tag="error")
+        if self.validate_twitch_session_async(
+            log_on_success=False,
+            start_bot_on_success=True,
+            context="start_bot",
+        ):
             return
 
+        self.log("Cannot start Twitch Bot: Stored Twitch token is invalid.", tag="error")
+
+    def _start_twitch_bot_worker(self):
         if self.twitch_bot_worker and self.twitch_bot_worker.isRunning():
             return
 
@@ -244,6 +285,116 @@ class TwitchBotMixin:
         self._set_twitch_disconnected_ui()
         self.log(validation.error_message or "Stored Twitch token is invalid.", tag="warning")
         return False
+
+    def validate_twitch_session_async(
+        self,
+        *,
+        log_on_success: bool = True,
+        start_bot_on_success: bool = False,
+        fallback_username: str = "",
+        context: str = "periodic",
+    ) -> bool:
+        token = get_twitch_oauth_token()
+        if not token:
+            self.twitch_token_validation_timer.stop()
+            return False
+
+        worker = getattr(self, "twitch_token_validation_worker", None)
+        if worker is not None and worker.isRunning():
+            if start_bot_on_success:
+                self._twitch_start_bot_after_validation = True
+            return True
+
+        self._twitch_start_bot_after_validation = bool(start_bot_on_success)
+        worker = TwitchTokenValidationWorker(
+            token,
+            context=context,
+            log_on_success=log_on_success,
+            start_bot_on_success=start_bot_on_success,
+            fallback_username=fallback_username,
+            parent=self.window,
+        )
+        worker.validation_finished.connect(self._on_twitch_token_validation_finished)
+        worker.finished.connect(self._on_twitch_token_validation_worker_finished)
+        worker.finished.connect(worker.deleteLater)
+        self.twitch_token_validation_worker = worker
+        worker.start()
+        return True
+
+    def _on_twitch_token_validation_worker_finished(self) -> None:
+        self.twitch_token_validation_worker = None
+
+    def _on_twitch_token_validation_finished(
+        self,
+        token: str,
+        validation,
+        log_on_success: bool,
+        start_bot_on_success: bool,
+        fallback_username: str,
+        context: str,
+    ) -> None:
+        current_token = get_twitch_oauth_token()
+        if current_token != token:
+            self._twitch_start_bot_after_validation = False
+            self.twitch_connect_btn.setEnabled(True)
+            return
+
+        should_start_bot = bool(start_bot_on_success or getattr(self, "_twitch_start_bot_after_validation", False))
+        self._twitch_start_bot_after_validation = False
+
+        if validation.valid:
+            username = (
+                getattr(validation, "login", "")
+                or fallback_username
+                or str(config.TWITCH_BOT.get("username") or "").strip().lower()
+            )
+            if username and username != config.TWITCH_BOT.get("username"):
+                config.TWITCH_BOT["username"] = username
+                config.save_config(config.user_config)
+            if username:
+                self._set_twitch_connected_ui(username)
+            self.twitch_connect_btn.setEnabled(True)
+            self.twitch_token_validation_timer.start()
+            if context == "auth":
+                self.log(f"Twitch bot authenticated as {username}", tag="success")
+            elif log_on_success:
+                self.log("Twitch token validated.", tag="success")
+            if should_start_bot:
+                self._start_twitch_bot_worker()
+            return
+
+        self.twitch_connect_btn.setEnabled(True)
+        if getattr(validation, "transient_error", False) and context != "auth":
+            self.twitch_token_validation_timer.start()
+            self.log(validation.error_message, tag="warning")
+            if should_start_bot:
+                self.log("Cannot start Twitch Bot: Twitch token validation failed.", tag="error")
+            return
+
+        delete_twitch_oauth_token()
+        self.stop_twitch_bot()
+        self._clear_twitch_session_state()
+        self._set_twitch_disconnected_ui()
+        message = getattr(validation, "error_message", "") or "Stored Twitch token is invalid."
+        self.log(message, tag="error" if context == "auth" else "warning")
+
+    def _start_twitch_token_revoke(self, token: str) -> None:
+        worker = getattr(self, "twitch_token_revoke_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        worker = TwitchTokenRevokeWorker(token, parent=self.window)
+        worker.revoke_finished.connect(self._on_twitch_token_revoke_finished)
+        worker.finished.connect(self._on_twitch_token_revoke_worker_finished)
+        worker.finished.connect(worker.deleteLater)
+        self.twitch_token_revoke_worker = worker
+        worker.start()
+
+    def _on_twitch_token_revoke_finished(self, revoked: bool, message: str) -> None:
+        if not revoked and message:
+            self.log(f"Twitch token revoke warning: {message}", tag="warning")
+
+    def _on_twitch_token_revoke_worker_finished(self) -> None:
+        self.twitch_token_revoke_worker = None
 
     def _clear_twitch_session_state(self) -> None:
         self.twitch_token_validation_timer.stop()
