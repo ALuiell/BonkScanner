@@ -54,8 +54,9 @@ class InGameOverlayMixin:
             return
         self.overlay_fast_timer.start()
         self.overlay_slow_timer.start()
-        self._overlay_fast_tick()
-        self._overlay_slow_tick()
+        became_visible = self._overlay_fast_tick()
+        if not became_visible:
+            self._overlay_slow_tick()
 
     def stop_in_game_overlay(self) -> None:
         if self.in_game_overlay_window:
@@ -126,15 +127,16 @@ class InGameOverlayMixin:
     def hotkey_toggle_in_game_overlay_edit(self) -> None:
         self.after(0, self._toggle_igo_edit_mode)
 
-    def _overlay_fast_tick(self) -> None:
+    def _overlay_fast_tick(self) -> bool:
         if not self.in_game_overlay_window:
-            return
+            return False
 
         cfg = config.IN_GAME_OVERLAY
+        was_visible = self.in_game_overlay_window.isVisible()
         if not cfg.get("enabled", False) and not self.in_game_overlay_window.edit_mode:
             if self.in_game_overlay_window.isVisible():
                 self.in_game_overlay_window.hide()
-            return
+            return False
 
         if self.in_game_overlay_window.edit_mode:
             self.in_game_overlay_window.sync_geometry_to_target()
@@ -150,7 +152,7 @@ class InGameOverlayMixin:
                 self.in_game_overlay_window.hide()
 
         if not self.in_game_overlay_window.isVisible():
-            return
+            return False
 
         widgets = self.in_game_overlay_window.widgets
         if cfg["widgets"]["kps"]["enabled"]:
@@ -169,6 +171,11 @@ class InGameOverlayMixin:
                 widgets["powerups"].setVisible(True)
             else:
                 widgets["powerups"].setVisible(False)
+
+        became_visible = not was_visible and self.in_game_overlay_window.isVisible()
+        if became_visible:
+            self._refresh_in_game_overlay_slow_widgets()
+        return became_visible
 
     @staticmethod
     def _build_powerups_overlay_html(
@@ -191,21 +198,28 @@ class InGameOverlayMixin:
         if not self.in_game_overlay_window or not self.in_game_overlay_window.isVisible():
             return
 
+        self._refresh_in_game_overlay_slow_widgets()
+
+    def _refresh_in_game_overlay_slow_widgets(self) -> None:
+        if not self.in_game_overlay_window:
+            return
+
         widgets = self.in_game_overlay_window.widgets
         cfg = config.IN_GAME_OVERLAY
+        widget_cfg = cfg.get("widgets", {})
 
-        if cfg["widgets"]["scanner"]["enabled"]:
+        if widget_cfg.get("scanner", {}).get("enabled", False):
             is_active = bool(getattr(self, "scanner_thread", None) and self.scanner_thread.is_alive())
             widgets["scanner"].set_text(build_status_indicator_html("Scanner", is_active))
 
-        if cfg["widgets"]["recording"]["enabled"]:
+        if widget_cfg.get("recording", {}).get("enabled", False):
             is_recording = bool(
                 getattr(self, "player_stats_vod_recorder", None)
                 and self.player_stats_vod_recorder.is_recording
             )
             widgets["recording"].set_text(build_status_indicator_html("REC", is_recording))
 
-        if cfg["widgets"]["luck_rarity"]["enabled"]:
+        if widget_cfg.get("luck_rarity", {}).get("enabled", False):
             latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
             latest_snapshot = latest_snapshot_reader() if callable(latest_snapshot_reader) else None
             luck_stat = None
@@ -217,7 +231,7 @@ class InGameOverlayMixin:
             if hasattr(widget, "set_probabilities"):
                 widget.set_probabilities(
                     probabilities,
-                    show_bar=cfg["widgets"]["luck_rarity"].get("show_bar", True),
+                    show_bar=widget_cfg.get("luck_rarity", {}).get("show_bar", True),
                 )
             else:
                 widget.set_text(self._build_luck_rarity_overlay_html(latest_snapshot))

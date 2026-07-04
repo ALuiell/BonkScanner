@@ -2,8 +2,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QKeyEvent, QMouseEvent, QPainter, QPainterPath, QPen, QScreen
+from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import (
+    QColor,
+    QKeyEvent,
+    QMouseEvent,
+    QMoveEvent,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QResizeEvent,
+    QScreen,
+)
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 import config
@@ -235,7 +245,19 @@ class InGameOverlayWindow(QWidget):
 
     def showEvent(self, event) -> None:
         self.sync_geometry_to_target()
+        if self.edit_mode:
+            QTimer.singleShot(0, self._position_save_btn)
         super().showEvent(event)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if self.edit_mode:
+            self._position_save_btn()
+
+    def moveEvent(self, event: QMoveEvent) -> None:
+        super().moveEvent(event)
+        if self.edit_mode:
+            self._position_save_btn()
 
     def sync_geometry_to_target(self) -> None:
         geometry = None
@@ -244,6 +266,8 @@ class InGameOverlayWindow(QWidget):
             geometry = parent_mixin._in_game_overlay_target_geometry()
         if geometry is not None and geometry.isValid() and geometry != self.geometry():
             self.setGeometry(geometry)
+        if self.edit_mode:
+            self._position_save_btn()
 
     def paintEvent(self, event) -> None:
         if self.edit_mode:
@@ -265,7 +289,7 @@ class InGameOverlayWindow(QWidget):
 
         if enabled:
             if self.save_btn is None:
-                self.save_btn = QPushButton("Save Layout & Exit Edit Mode", self)
+                self.save_btn = QPushButton("Save Layout & Exit", self)
                 self.save_btn.setStyleSheet(
                     """
                     QPushButton {
@@ -293,18 +317,50 @@ class InGameOverlayWindow(QWidget):
     def _position_save_btn(self) -> None:
         if self.save_btn is None:
             return
+        target_rect = self._visible_local_rect()
+        width = 280
+        height = 40
+        self.save_btn.resize(width, height)
+        x = target_rect.left() + (target_rect.width() - width) // 2
+        if target_rect.width() >= width:
+            x = min(max(target_rect.left(), x), target_rect.right() + 1 - width)
+        else:
+            x = target_rect.left()
+        y = target_rect.bottom() + 1 - height - 60
+        if target_rect.height() >= height + 48:
+            y = min(max(target_rect.top() + 24, y), target_rect.bottom() + 1 - height - 24)
+        else:
+            y = target_rect.top()
+        self.save_btn.move(x, y)
+        self.save_btn.raise_()
+
+    def _visible_local_rect(self) -> QRect:
         target_rect = self.rect()
         if target_rect.width() <= 0 or target_rect.height() <= 0:
             screen: QScreen | None = self.screen()
             if screen is None:
                 screen = QApplication.primaryScreen()
-            target_rect = screen.geometry() if screen else QRect(0, 0, 0, 0)
-        width = 280
-        height = 40
-        self.save_btn.resize(width, height)
-        self.save_btn.move(
-            max(0, (target_rect.width() - width) // 2),
-            max(0, target_rect.height() - height - 60),
+            return screen.availableGeometry() if screen else QRect(0, 0, 0, 0)
+
+        screen: QScreen | None = self.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return target_rect
+
+        screen_rect = screen.availableGeometry()
+        window_top_left = self.geometry().topLeft()
+        visible_left = max(0, screen_rect.left() - window_top_left.x())
+        visible_top = max(0, screen_rect.top() - window_top_left.y())
+        visible_right = min(target_rect.width(), screen_rect.right() + 1 - window_top_left.x())
+        visible_bottom = min(target_rect.height(), screen_rect.bottom() + 1 - window_top_left.y())
+        if visible_right <= visible_left or visible_bottom <= visible_top:
+            return target_rect
+        return QRect(
+            visible_left,
+            visible_top,
+            visible_right - visible_left,
+            visible_bottom - visible_top,
         )
 
     def keyPressEvent(self, event: QKeyEvent) -> None:

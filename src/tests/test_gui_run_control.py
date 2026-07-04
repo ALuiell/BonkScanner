@@ -4442,6 +4442,38 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.in_game_overlay_window.sync_calls, 1)
         self.assertEqual(app.in_game_overlay_window.show_calls, 1)
 
+    def test_overlay_fast_tick_refreshes_slow_widgets_when_overlay_becomes_visible(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
+        scanner_widget = SimpleNamespace(set_text=MagicMock())
+        app.in_game_overlay_window.widgets = {
+            "scanner": scanner_widget,
+            "recording": SimpleNamespace(set_text=MagicMock()),
+            "luck_rarity": SimpleNamespace(set_text=MagicMock()),
+            "kps": SimpleNamespace(set_text=MagicMock()),
+            "powerups": SimpleNamespace(set_text=MagicMock(), setVisible=MagicMock()),
+        }
+        app.is_game_window_active = lambda _process_name: True
+        app.live_run_tracker = SimpleNamespace()
+        app.scanner_thread = FakeAliveThread()
+        app.player_stats_vod_recorder = None
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "scanner": {"enabled": True},
+                "recording": {"enabled": False},
+                "luck_rarity": {"enabled": False},
+                "kps": {"enabled": False},
+                "powerups": {"enabled": False},
+            },
+        }
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            became_visible = gui.MegabonkApp._overlay_fast_tick(app)
+
+        self.assertTrue(became_visible)
+        scanner_widget.set_text.assert_called_once()
+
     def test_in_game_overlay_target_geometry_uses_game_window_rect(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.find_game_window = lambda _process_name: 321
