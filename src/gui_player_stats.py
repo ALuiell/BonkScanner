@@ -108,6 +108,26 @@ class PlayerStatsMixin:
             auto_recording_enabled and not auto_recording_suppressed
         )
 
+    @staticmethod
+    def _in_game_overlay_widget_enabled(widget_id: str) -> bool:
+        overlay = getattr(config, "IN_GAME_OVERLAY", {}) or {}
+        if not overlay.get("enabled", False):
+            return False
+        widgets = overlay.get("widgets", {}) or {}
+        if not isinstance(widgets, dict):
+            return False
+        widget_cfg = widgets.get(widget_id, {})
+        return isinstance(widget_cfg, dict) and bool(widget_cfg.get("enabled", False))
+
+    def _in_game_overlay_requires_player_stats_refresh(self) -> bool:
+        return self._in_game_overlay_widget_enabled("luck_rarity")
+
+    def _in_game_overlay_requires_tracker_refresh(self) -> bool:
+        return (
+            self._in_game_overlay_widget_enabled("powerups")
+            or self._in_game_overlay_widget_enabled("kps")
+        )
+
     def update_player_stats_timer(self):
         if self._is_shutting_down:
             return
@@ -119,6 +139,7 @@ class PlayerStatsMixin:
             or self._is_player_stats_recording_armed()
             or bool(getattr(config, "AUTO_START_RECORDING", False))
             or self.overlay_should_refresh_live_stats()
+            or self._in_game_overlay_requires_player_stats_refresh()
             or self._is_twitch_bot_active()
         )
         if should_refresh:
@@ -141,6 +162,7 @@ class PlayerStatsMixin:
             or self._is_player_stats_recording_armed()
             or bool(getattr(config, "AUTO_START_RECORDING", False))
             or self.overlay_should_refresh_live_stats()
+            or self._in_game_overlay_requires_tracker_refresh()
             or self._is_twitch_bot_active()
         )
         if should_refresh:
@@ -245,6 +267,8 @@ class PlayerStatsMixin:
                     return True
             except Exception:
                 pass
+        if self._in_game_overlay_widget_enabled("powerups"):
+            return True
         is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
         commands_cfg = config.TWITCH_BOT.get("commands", {})
         if callable(is_twitch_bot_active):
@@ -262,6 +286,8 @@ class PlayerStatsMixin:
                     return True
             except Exception:
                 pass
+        if self._in_game_overlay_widget_enabled("kps"):
+            return True
         if self.overlay_should_refresh_live_stats() and self._overlay_kps_widget_enabled():
             return True
         is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
