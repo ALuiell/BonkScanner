@@ -460,6 +460,8 @@ class ScannerMixin:
         self.close_player_stats_game_data_client()
         if hasattr(self, "close_overlay_server"):
             self.close_overlay_server()
+        if hasattr(self, "stop_in_game_overlay"):
+            self.stop_in_game_overlay()
         if hasattr(self, "stop_twitch_bot"):
             self.stop_twitch_bot()
         if getattr(self, "twitch_auth_thread", None) is not None:

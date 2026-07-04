@@ -2487,7 +2487,8 @@ class GuiRunControlTests(unittest.TestCase):
         read_calls: list[str] = []
         app.read_player_stats_only = lambda: read_calls.append("stats") or ({}, 0x1234)
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", False):
+        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
+             patch.object(gui.config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(read_calls, [])
@@ -2837,6 +2838,10 @@ class GuiRunControlTests(unittest.TestCase):
             gui.config,
             "OVERLAY",
             {"widgets": [{"id": "kps", "enabled": False}]},
+        ), patch.object(
+            gui.config,
+            "IN_GAME_OVERLAY",
+            {"enabled": False, "widgets": {}},
         ), patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
             self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
             self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
@@ -4207,6 +4212,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.close_player_stats_client = lambda: closed.append("player_stats")
         app.close_player_stats_game_data_client = lambda: closed.append("player_stats_game_data")
         app.close_overlay_server = lambda: closed.append("overlay")
+        app.stop_in_game_overlay = lambda: closed.append("in_game_overlay")
         app.stop_twitch_bot = lambda: closed.append("twitch")
         app.twitch_auth_thread = None
         app.player_stats_vod_recorder = None
@@ -4220,7 +4226,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(destroyed, [True])
         self.assertEqual(
             closed,
-            ["transition", "client", "player_stats", "player_stats_game_data", "overlay", "twitch"],
+            ["transition", "client", "player_stats", "player_stats_game_data", "overlay", "in_game_overlay", "twitch"],
         )
     def test_refresh_live_player_stats_now_parses_single_key(self) -> None:
         app = object.__new__(gui.MegabonkApp)
@@ -4323,6 +4329,25 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.overlay_fast_timer.stop_calls, 1)
         self.assertEqual(app.overlay_slow_timer.stop_calls, 1)
         self.assertEqual(status_updates, ["status"])
+
+    def test_apply_in_game_overlay_settings_restarts_runtime_when_edit_mode_left_window_visible(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True, edit_mode=True)
+        app.in_game_overlay_window.widgets = {}
+        app.overlay_fast_timer = FakeOverlayTimer()
+        app.overlay_slow_timer = FakeOverlayTimer()
+        status_updates: list[str] = []
+        app._update_igo_status_ui = lambda: status_updates.append("status")
+        app._overlay_fast_tick = lambda: status_updates.append("fast")
+        app._overlay_slow_tick = lambda: status_updates.append("slow")
+
+        overlay_cfg = {"enabled": True, "widgets": {}}
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp.apply_in_game_overlay_settings(app)
+
+        self.assertEqual(app.overlay_fast_timer.start_calls, 1)
+        self.assertEqual(app.overlay_slow_timer.start_calls, 1)
+        self.assertEqual(status_updates, ["fast", "slow", "fast", "slow", "status"])
 
     def test_overlay_fast_tick_hides_disabled_overlay_even_if_game_is_active(self) -> None:
         app = object.__new__(gui.MegabonkApp)

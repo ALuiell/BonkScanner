@@ -69,8 +69,10 @@ class InGameOverlayMixin:
             return
 
         if cfg["enabled"]:
-            if not self.in_game_overlay_window.isVisible():
-                self.start_in_game_overlay()
+            # The window can already be visible from edit mode while the periodic
+            # overlay timers are still stopped, so visibility is not a reliable
+            # proxy for an active runtime.
+            self.start_in_game_overlay()
         else:
             self.stop_in_game_overlay()
             self._update_igo_status_ui()
