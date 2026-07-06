@@ -39,6 +39,38 @@ Goal:
 - Catch the file lock exception (e.g., `WinError 32` / `PermissionError`) raised when attempting to delete the active recording file, or implement a check to explicitly skip the active run's file during iteration.
 - Ensure all other short recordings are successfully deleted even if the active run is encountered and skipped.
 
+#### 8. Automated IL2CPP Offset Validator and Handoff Reporter
+
+Status: `[Open]`
+
+Goal:
+
+- Implement a diagnostic Python utility `tools/offset_finder.py` that verifies memory offsets against a fresh IL2CPP `dump.cs` after a game update and generates a Markdown handoff report for manual follow-up.
+- Reduce repetitive VS Code and Cheat Engine audit work by comparing expected classes and fields against the dump-derived metadata without attempting to automatically rewrite the production code.
+
+Planned future work:
+
+- **Expectations Config**:
+  - Store the expected runtime offsets in a dedicated config file instead of deriving expectations from ad-hoc scans of the Python source.
+  - For each tracked entry, record the code constant id, target class name, field name, offset kind, current expected offset, source file, and optional notes.
+  - Cover the classes and fields that the application relies on, such as `MapController.currentStage`, `PlayerInventory.statusEffects`, and `StatusEffect.expirationTime`.
+- **IL2CPP Dump Parsing**:
+  - Load the `dump.cs` file produced by the IL2CPP Dumper and extract class definitions, static fields, instance fields, and their hexadecimal offsets.
+  - Prefer a small structured parser around the `dump.cs` layout instead of relying on one large fragile regular expression.
+- **Verification and Audit Output**:
+  - Compare the parsed offsets against the expectations config and report whether each entry is `matched`, `shifted`, `missing`, or `ambiguous`.
+  - Include the old and newly observed offsets for shifted entries, and clearly flag entries that require manual review due to field removal, renaming, or multiple candidates.
+  - Keep the tool strictly diagnostic for the first version; it should not patch `src/game_data.py`, `src/player_stats.py`, or other source files in-place.
+- **Handoff Reporting**:
+  - Generate a Markdown report summarizing all checked entries, including sections for matched offsets, shifted offsets, missing fields, ambiguous matches, and suggested manual code updates.
+  - Match the report structure and wording expectations of `docs/recovery/HANDOFF_TEMPLATE.md` so the output can be reused directly for manual verification in Cheat Engine and for updating the recovery guides.
+
+Scope guardrails:
+
+- Treat this utility as a metadata validator and handoff generator, not as a full runtime recovery tool.
+- Do not treat a `dump.cs` match as proof that the full live memory path still works at runtime; dictionary layouts, object roots, and runtime behavior may still require manual verification.
+- Defer any future auto-patching work unless the project later adopts explicit, tightly controlled source annotations for safe one-to-one offset replacement.
+
 ### Twitch Commands
 
 #### 1. Twitch Commons

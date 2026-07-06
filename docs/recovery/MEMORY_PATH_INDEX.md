@@ -19,17 +19,20 @@ Update this file whenever a path is meaningfully changed or newly confirmed.
 
 | Feature | Code | Stable Root / Path Summary | Source Of Truth | Confidence | Last Verified |
 | --- | --- | --- | --- | --- | --- |
-| Map stats / interactables | `src/game_data.py`, `src/runtime_stats.py`, `src/logic.py` | `GameAssembly.dll + 0x2FB5E68` to interactables static path; related readiness controllers at `0x2F58E08` and `0x2F59000` | `src/game_data.py`, future dedicated report if refreshed | medium | 2026-05-11 |
-| Player stats tab | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | `GameAssembly.dll + 0x2F6A4B8` -> `class_ptr` -> `+0xB8` -> `root` -> `+0x40` -> `PlayerStatsNew` -> `+0x10` -> stats context -> `+0x18` -> entries | `docs/recovery/reports/2026-05-11-player-stats-tab-memory-path.md` | high | 2026-05-11 |
-| Passive item inventory | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | same root to `PlayerStatsNew`; primary `+0xA0` -> inventory object -> `+0x50` passive item dictionary; fallback `+0x28` -> `PlayerInventory` -> `+0x20` `ItemInventory` -> `+0x10` item dictionary | `docs/recovery/reports/2026-05-11-item-inventory-addresses.md` | high | 2026-05-21 |
-| Static item catalog / item rarities / item names | future `src/player_stats.py`, `src/gui_player_stats.py`, metadata helpers | `GameAssembly.dll + 0x2F85790` -> `DataManager.Instance` -> `+0xB8 itemData` -> `ItemData +0x54 eItem` and `+0x60 rarity`; enum names from known `EItem`; UI names from Unity Localization string tables | `docs/recovery/reports/2026-06-09-item-name-mapping.md` | high | 2026-06-09 |
-| Live weapon inventory / upgraded weapon stats | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | same root to `PlayerStatsNew`, then `+0x28` -> `PlayerInventory` -> `+0x28` -> `WeaponInventory` -> `+0x18` weapons dictionary; each `WeaponBase +0x20` level, `+0x28` full stats, `+0x18 -> WeaponData +0xD8 -> UpgradeData +0x18` upgrade stat pool | `docs/recovery/reports/2026-05-19-live-weapon-stats-and-upgrades.md` | high | 2026-05-19 |
-| Live tome inventory / effective tome upgrades | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | same root to `PlayerStatsNew`, then `+0x28` -> `PlayerInventory` -> `+0x48` -> `TomeInventory`; `+0x18` `tomeLevels` dictionary and `+0x28` `tomeUpgrade` dictionary | `docs/recovery/reports/2026-05-22-live-tomes.md` | high | 2026-05-22 |
-| Current run time | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | `GameAssembly.dll + 0x2F62398` -> `class_ptr` -> `+0xB8` -> `MyTime` static fields -> `+0x20` -> `runTimer` float seconds | `docs/recovery/reports/2026-05-18-current-run-time.md` | high | 2026-05-18 |
-| Run kill counter | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | `GameAssembly.dll + 0x2F7A170` -> `RunStats` static fields -> `+0x0` stats dictionary -> key `kills` -> inline `float` at dictionary entry `+0x10`; stable root is the dictionary, final leaf requires key scan | `docs/recovery/reports/2026-05-20-run-kills-counter-path-details.md` | high | 2026-05-20 |
-| Live run banishes (items + tomes) | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | `GameAssembly.dll + 0x2F7A210` -> `RunUnlockables` static fields; `+0x0` `banishedItems` `HashSet<ItemData>` and `+0x8` `banishedUpgradables` `HashSet<UnlockableBase>` | `docs/recovery/reports/2026-05-22-item-bans-runtime-path.md` | high | 2026-05-22 |
-| Disabled items pool | `src/player_stats.py`, future config / overlay | `GameAssembly.dll + 0x02F7A210` -> `RunUnlockables` static fields -> `+0x10` `availableItems` dictionary; compare with `DataManager.Instance.unsortedItems` (`0x2F85790` +0x8 +0x60) | `docs/recovery/reports/2026-06-09-disabled-items-detection.md` | high | 2026-06-09 |
-| Live player level | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | `GameAssembly.dll + 0x2F6A4B8` -> `class_ptr` -> `+0xB8` -> `root` -> `+0x40` -> `PlayerStatsNew` -> `+0x28` -> `PlayerInventory` -> `+0x30` -> `PlayerXp` -> `+0x14` -> `level` int | `docs/recovery/reports/2026-05-20-live-player-level.md` | high | 2026-05-20 |
+| Map stats / interactables | `src/game_data.py`, `src/runtime_stats.py`, `src/logic.py` | `GameAssembly.dll + 0x2FB5E68` to interactables static path; related readiness controllers at `0x2F58E08` and `0x2F59000` | [01_map_generation_and_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/01_map_generation_and_stats.md) | medium | 2026-05-11 |
+| Player stats tab | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | `GameAssembly.dll + 0x2F6A4B8` -> `class_ptr` -> `+0xB8` -> `root` -> `+0x40` -> `PlayerStatsNew` -> `+0x10` -> stats context -> `+0x18` -> entries | [02_player_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/02_player_stats.md), [reports/2026-05-11-player-stats-tab-memory-path.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-05-11-player-stats-tab-memory-path.md) | high | 2026-05-11 |
+| Passive item inventory | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | same root to `PlayerStatsNew`; primary `+0xA0` -> inventory object -> `+0x50` passive item dictionary; fallback `+0x28` -> `PlayerInventory` -> `+0x20` `ItemInventory` -> `+0x10` item dictionary | [03_passive_item_inventory.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/03_passive_item_inventory.md), [reports/2026-05-11-item-inventory-addresses.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-05-11-item-inventory-addresses.md) | high | 2026-05-21 |
+| Static item catalog / item rarities / item names | future `src/player_stats.py`, `src/gui_player_stats.py`, metadata helpers | `GameAssembly.dll + 0x2F85790` -> `DataManager.Instance` -> `+0xB8 itemData` -> `ItemData +0x54 eItem` and `+0x60 rarity`; enum names from known `EItem`; UI names from Unity Localization string tables | [reports/2026-06-09-item-name-mapping.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-06-09-item-name-mapping.md) | high | 2026-06-09 |
+| Live weapon inventory / upgraded weapon stats | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | same root to `PlayerStatsNew`, then `+0x28` -> `PlayerInventory` -> `+0x28` -> `WeaponInventory` -> `+0x18` weapons dictionary; each `WeaponBase +0x20` level, `+0x28` full stats, `+0x18 -> WeaponData +0xD8 -> UpgradeData +0x18` upgrade stat pool | [04_live_weapons_inventory.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/04_live_weapons_inventory.md), [reports/2026-05-19-live-weapon-stats-and-upgrades.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-05-19-live-weapon-stats-and-upgrades.md) | high | 2026-05-19 |
+| Live tome inventory / effective tome upgrades | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | same root to `PlayerStatsNew`, then `+0x28` -> `PlayerInventory` -> `+0x48` -> `TomeInventory`; `+0x18` `tomeLevels` dictionary and `+0x28` `tomeUpgrade` dictionary | [05_live_tomes_inventory.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/05_live_tomes_inventory.md), [reports/2026-05-22-live-tomes.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-05-22-live-tomes.md) | high | 2026-05-22 |
+| Current run time | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | `GameAssembly.dll + 0x2F62398` -> `class_ptr` -> `+0xB8` -> `MyTime` static fields -> `+0x20` -> `runTimer` float seconds | [06_run_metadata_and_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/06_run_metadata_and_stats.md), [reports/2026-05-18-current-run-time.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-05-18-current-run-time.md) | high | 2026-05-18 |
+| Run kill counter | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | `GameAssembly.dll + 0x2F7A170` -> `RunStats` static fields -> `+0x0` stats dictionary -> key `kills` -> inline `float` at dictionary entry `+0x10`; stable root is the dictionary, final leaf requires key scan | [06_run_metadata_and_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/06_run_metadata_and_stats.md), [reports/2026-05-20-run-kills-counter-path-details.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-05-20-run-kills-counter-path-details.md) | high | 2026-05-20 |
+| Live run banishes (items + tomes) | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | `GameAssembly.dll + 0x2F7A210` -> `RunUnlockables` static fields; `+0x0` `banishedItems` `HashSet<ItemData>` and `+0x8` `banishedUpgradables` `HashSet<UnlockableBase>` | [06_run_metadata_and_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/06_run_metadata_and_stats.md), [reports/2026-05-22-item-bans-runtime-path.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-05-22-item-bans-runtime-path.md) | high | 2026-05-22 |
+| Disabled items pool | `src/player_stats.py`, future config / overlay | `GameAssembly.dll + 0x02F7A210` -> `RunUnlockables` static fields -> `+0x10` `availableItems` dictionary; compare with `DataManager.Instance.unsortedItems` (`0x2F85790` +0x8 +0x60) | [09_disabled_items_pool.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/09_disabled_items_pool.md), [reports/2026-06-09-disabled-items-detection.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-06-09-disabled-items-detection.md) | high | 2026-07-06 |
+| Live player level | `src/player_stats.py`, `src/gui_player_stats.py`, `src/vod_storage.py` | `GameAssembly.dll + 0x2F6A4B8` -> `class_ptr` -> `+0xB8` -> `root` -> `+0x40` -> `PlayerStatsNew` -> `+0x28` -> `PlayerInventory` -> `+0x30` -> `PlayerXp` -> `+0x14` -> `level` int | [06_run_metadata_and_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/06_run_metadata_and_stats.md), [reports/2026-05-20-live-player-level.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-05-20-live-player-level.md) | high | 2026-05-20 |
+| Player status effects / active buffs | `src/player_stats.py`, `src/gui_player_stats.py` | `owner_stats` -> `+0x28` `PlayerInventory` -> `+0x38` `PlayerStatusEffects` -> `+0x10` `statusEffects` dictionary; read keys (`EStatusEffect` enum) and objects (expiration float at `+0x20`) | [08_player_status_effects.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/08_player_status_effects.md), [reports/2026-06-20-player-status-effects-and-buffs.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-06-20-player-status-effects-and-buffs.md) | high | 2026-07-06 |
+| Chest counters and free openings | `src/player_stats.py`, `src/gui_player_stats.py` | `GameAssembly.dll + 0x02F5E0B0` -> `MoneyUtility` -> `+0xB8` -> static fields -> `+0x48` -> `chestsPurchased` int; track gold at `PlayerInventory + 0x70` for free openings; item keys at passive dictionary | [10_chests_purchased_and_counters.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/10_chests_purchased_and_counters.md), [reports/2026-06-10-chests-and-keys-detection.md](file:///F:/Python/MegabonkReroll/docs/recovery/reports/2026-06-10-chests-and-keys-detection.md) | high | 2026-07-06 |
+| Chaos Tome tracking / permanent stat modifiers | `src/player_stats.py`, `src/live_run_tracker.py` | `owner_stats` -> `+0x50` `StatInventory` -> `+0x10` `permanentChanges` dictionary -> list of `StatModifier` elements; tome levels dictionary at `TomeInventory +0x18` | [07_chaos_tome_tracking.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/07_chaos_tome_tracking.md) | high | 2026-07-06 |
 
 ## Notes Per Feature
 
@@ -167,6 +170,42 @@ What "healthy" looks like:
 - passive item banish appears in `banishedItems`
 - tome banish appears in `banishedUpgradables`
 - live UI and recordings preserve banishes in stable appearance order
+
+### Player status effects / active buffs
+
+Risk:
+
+- status effects dictionary entries are cleaned up dynamically; checking expired values or traversing uninitialized status effects memory can return stale or corrupted slots
+- status effect IDs or timers might shift offset inside `StatusEffect` class
+
+What "healthy" looks like:
+
+- active powerups (Haste, Rage, Shield) show up on the HUD overlay when picked up
+- the expiration time decreases matching the game run time and disappears immediately upon expiration
+
+### Chest counters and free openings
+
+Risk:
+
+- chest price increases can mismatch piecewise-linear formula due to copy-paste bugs in new game versions
+- key stack proc rate calculation might shift from hyperbolic stacking model
+
+What "healthy" looks like:
+
+- chests bought and chests purchased counters update dynamically upon opening chests
+- opening a chest with a key proc doesn't subtract gold, and is successfully registered as a free opening
+
+### Chaos Tome tracking
+
+Risk:
+
+- permanent changes dictionary requires scanning list elements per stat; dictionary structure shifts or modifier offset changes can break list traversal
+- resolving random rolls requires precise delta matching against baseline values; changes to baseline increments can throw off the count of rolls
+
+What "healthy" looks like:
+
+- Chaos Tome upgrades appear with accurate delta values and count of rolls on level-up
+- no false rolls are detected when leveling up other standard stats
 
 ### Native hook
 

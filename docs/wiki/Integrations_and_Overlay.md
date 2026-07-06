@@ -82,4 +82,5 @@ Expires: 0
 
 - Back to Home: [Home Wiki](./Home.md)
 - Back to Recordings: [Recordings & VODs Wiki](./Recordings_and_VODs.md)
+- Learn about In-Game Desktop Overlay: [In-Game Overlay Wiki](./In_Game_Overlay.md)
 - Next up: [Troubleshooting & Diagnostics Wiki](./Troubleshooting_and_Diagnostics.md)
