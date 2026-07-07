@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from math import isfinite, log
 from typing import Any
 
@@ -37,6 +38,9 @@ _KPS_METRICS: dict[str, tuple[str, str]] = {
     "5m": ("current_five_minute_avg_kps", "5m"),
     "run": ("current_run_avg_kps", "Run"),
 }
+_STATS_LABEL_MIN_WIDTH_PX = 40
+_STATS_LABEL_WIDTH_PER_CHAR_PX = 9
+_XP_GAIN_CAP = 10.0
 
 
 def build_kps_overlay_html(run_tracker: Any, metrics_cfg: list[str] | tuple[str, ...]) -> str:
@@ -162,21 +166,22 @@ def calculate_luck_rarity_probabilities(luck_value: float | None) -> dict[str, f
     }
 
 
-def build_stats_overlay_html(
-    snapshot: Any,
+def _format_stats_display_value(label: str, display_value: Any, raw_value: float | None) -> str:
+    if label == "XP Gain" and raw_value is not None and raw_value >= _XP_GAIN_CAP:
+        return "10x"
+    return str(display_value if display_value not in (None, "") else "--")
+
+
+def _build_in_game_stats_rows(
+    stats: dict[str, Any],
     selected_stats: list[str],
+    *,
     stage_index: int,
     stage_timer_seconds: float,
     stage_time_seconds: float,
     is_graveyard: bool,
-) -> str:
-    if snapshot is None:
-        return ""
-    stats = getattr(snapshot, "stats", {}) or {}
-    if not isinstance(stats, dict):
-        return ""
-
-    lines = []
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
     for label in selected_stats:
         stat = stats.get(label)
         if stat is None:
@@ -210,17 +215,75 @@ def build_stats_overlay_html(
                     if raw_val >= cap:
                         color = "#ff4d4d"  # Red
             elif label == "XP Gain":
-                cap = 10.0
                 cap_suffix = " / 10x"
-                if raw_val >= cap:
+                if raw_val >= _XP_GAIN_CAP:
                     color = "#ff4d4d"  # Red
 
-        lines.append(
-            f"<span style='color: #ffffff; text-shadow: {TEXT_SHADOW};'>{abbreviate_stat_label(label)}: </span>"
-            f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>{display_val}{cap_suffix}</span>"
+        rows.append(
+            {
+                "label": label,
+                "display_label": abbreviate_stat_label(label),
+                "display_value": _format_stats_display_value(label, display_val, raw_val),
+                "color": color,
+                "cap_suffix": cap_suffix,
+            }
+        )
+    return rows
+
+
+def _calculate_stats_label_width_px(rows: list[dict[str, str]]) -> int:
+    if not rows:
+        return _STATS_LABEL_MIN_WIDTH_PX
+    max_len = max(len(str(row.get("display_label") or "")) for row in rows)
+    return max(_STATS_LABEL_MIN_WIDTH_PX, (max_len + 1) * _STATS_LABEL_WIDTH_PER_CHAR_PX)
+
+
+def build_stats_overlay_html(
+    snapshot: Any,
+    selected_stats: list[str],
+    stage_index: int,
+    stage_timer_seconds: float,
+    stage_time_seconds: float,
+    is_graveyard: bool,
+) -> str:
+    if snapshot is None:
+        return ""
+    stats = getattr(snapshot, "stats", {}) or {}
+    if not isinstance(stats, dict):
+        return ""
+    rows = _build_in_game_stats_rows(
+        stats,
+        selected_stats,
+        stage_index=stage_index,
+        stage_timer_seconds=stage_timer_seconds,
+        stage_time_seconds=stage_time_seconds,
+        is_graveyard=is_graveyard,
+    )
+    if not rows:
+        return ""
+
+    label_width_px = _calculate_stats_label_width_px(rows)
+    html_rows = []
+    for row in rows:
+        display_label = escape(str(row["display_label"]))
+        display_value = escape(str(row["display_value"]))
+        cap_suffix = escape(str(row["cap_suffix"]))
+        color = escape(str(row["color"]))
+        html_rows.append(
+            "<tr>"
+            f"<td width='{label_width_px}' style='width: {label_width_px}px; padding: 0 10px 1px 0; "
+            f"color: #ffffff; text-shadow: {TEXT_SHADOW}; white-space: nowrap;'>{display_label}:</td>"
+            f"<td style='padding: 0 0 1px 0; color: {color}; text-shadow: {TEXT_SHADOW}; "
+            f"white-space: nowrap;'>{display_value}{cap_suffix}</td>"
+            "</tr>"
         )
 
-    return "<br>".join(lines)
+    return (
+        "<table cellspacing='0' cellpadding='0' "
+        "style='border-collapse: collapse; border-spacing: 0;'>"
+        f"{''.join(html_rows)}"
+        "</table>"
+    )
 
 
 def build_event_timer_overlay_html(

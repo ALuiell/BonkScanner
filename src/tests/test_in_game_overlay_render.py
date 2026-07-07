@@ -31,8 +31,30 @@ class InGameOverlayRenderTests(unittest.TestCase):
 
         self.assertIn("DMG:", html)
         self.assertIn("PDC:", html)
+        self.assertIn("<table", html)
         self.assertNotIn("Damage:", html)
         self.assertNotIn("Powerup Drop Chance:", html)
+
+    def test_stats_overlay_aligns_values_by_longest_displayed_label(self) -> None:
+        snapshot = SimpleNamespace(
+            stats={
+                "Damage": SimpleNamespace(value=1.5, display_value="150%"),
+                "Projectile Speed": SimpleNamespace(value=1.2, display_value="1.2x"),
+            },
+        )
+
+        html = build_stats_overlay_html(
+            snapshot,
+            ["Damage", "Projectile Speed"],
+            0,
+            0.0,
+            600.0,
+            False,
+        )
+
+        self.assertIn("width='90'", html)
+        self.assertIn("DMG:", html)
+        self.assertIn("ProjSpeed:", html)
 
     def test_stats_overlay_uses_post_two_minute_difficulty_cap(self) -> None:
         snapshot = SimpleNamespace(
@@ -62,6 +84,26 @@ class InGameOverlayRenderTests(unittest.TestCase):
         self.assertIn("#16e7ff", early_html)
         self.assertIn("500% / 495%", late_html)
         self.assertIn("#ff4d4d", late_html)
+
+    def test_stats_overlay_clamps_xp_gain_to_cap(self) -> None:
+        snapshot = SimpleNamespace(
+            stats={
+                "XP Gain": SimpleNamespace(value=12.5, display_value="12.5x"),
+            },
+        )
+
+        html = build_stats_overlay_html(
+            snapshot,
+            ["XP Gain"],
+            0,
+            0.0,
+            600.0,
+            False,
+        )
+
+        self.assertIn("10x / 10x", html)
+        self.assertIn("#ff4d4d", html)
+        self.assertNotIn("12.5x", html)
 
     def test_event_timer_uses_remaining_stage_time_for_warning(self) -> None:
         html = build_event_timer_overlay_html(
