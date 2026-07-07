@@ -18,6 +18,7 @@ from stat_label_abbreviations import abbreviate_stat_label
 
 POWERUP_MAP_CONTEXT_TTL_SECONDS = 15.0
 FAST_STAGE_TIMER_TTL_SECONDS = 2.0
+POWERUPS_SNAPSHOT_TTL_SECONDS = 1.5
 
 
 def with_lock(method):
@@ -171,6 +172,7 @@ class PowerupsSnapshot:
     clock_duration_seconds: float | None = None
     stage_index: int | None = None
     stage_time_seconds: float | None = None
+    captured_at: float = 0.0
     available: bool = False
 
 
@@ -659,6 +661,16 @@ class LiveRunTracker:
             return None
         return context
 
+    def _fresh_powerups_snapshot_unlocked(self) -> PowerupsSnapshot:
+        snapshot = self._powerups_snapshot
+        if not snapshot.available:
+            return snapshot
+        if snapshot.captured_at <= 0:
+            return PowerupsSnapshot()
+        if self.clock() - snapshot.captured_at > POWERUPS_SNAPSHOT_TTL_SECONDS:
+            return PowerupsSnapshot()
+        return snapshot
+
     @with_lock
     def has_active_run(self) -> bool:
         latest = self._latest_snapshot_unlocked()
@@ -887,6 +899,7 @@ class LiveRunTracker:
             clock_duration_seconds=clock_duration,
             stage_index=stage_index,
             stage_time_seconds=stage_time,
+            captured_at=self.clock(),
             available=True,
         )
 
@@ -896,11 +909,11 @@ class LiveRunTracker:
 
     @with_lock
     def powerups_snapshot(self) -> PowerupsSnapshot:
-        return self._powerups_snapshot
+        return self._fresh_powerups_snapshot_unlocked()
 
     @with_lock
     def format_powerups_summary(self, *, include_left_word: bool = True) -> str:
-        snapshot = self._powerups_snapshot
+        snapshot = self._fresh_powerups_snapshot_unlocked()
         if not snapshot.available:
             return "Powerups: --"
         powerups_text = self._format_powerups_text_unlocked(
@@ -913,7 +926,7 @@ class LiveRunTracker:
 
     @with_lock
     def powerups_summary_text(self, *, include_left_word: bool = True) -> str:
-        snapshot = self._powerups_snapshot
+        snapshot = self._fresh_powerups_snapshot_unlocked()
         if not snapshot.available:
             return "--"
         return self._format_powerups_text_unlocked(

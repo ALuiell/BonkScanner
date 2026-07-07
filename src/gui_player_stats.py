@@ -197,9 +197,6 @@ class PlayerStatsMixin:
                     self.live_run_tracker.update_powerups(powerups_snapshot)
                     self._refresh_live_powerups_label()
                 except Exception:
-                    clear_powerups = getattr(self.live_run_tracker, "clear_powerups", None)
-                    if callable(clear_powerups):
-                        clear_powerups()
                     self._refresh_live_powerups_label()
 
             now = time.monotonic()

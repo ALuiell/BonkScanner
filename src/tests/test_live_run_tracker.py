@@ -1194,6 +1194,63 @@ class LiveRunTrackerTests(unittest.TestCase):
             "Powerups: none active | Durations: standard 22s, clock 18s (PM 1.5x)",
         )
 
+    def test_powerups_snapshot_stays_available_within_ttl_after_last_good_read(self) -> None:
+        current_time = 1000.0
+        tracker = LiveRunTracker(clock=lambda: current_time)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=440.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=1.5,
+                powerup_multiplier_display="1.5x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=4,
+                        name="Clock",
+                        added_time=1004.0,
+                        expiration_time=1018.0,
+                    ),
+                ),
+            ),
+            map_context=self.non_graveyard_context(),
+        )
+
+        current_time = 1001.0
+
+        snapshot = tracker.powerups_snapshot()
+        self.assertTrue(snapshot.available)
+        self.assertEqual([effect.name for effect in snapshot.active], ["Clock"])
+
+    def test_powerups_snapshot_expires_after_ttl_without_new_reads(self) -> None:
+        current_time = 1000.0
+        tracker = LiveRunTracker(clock=lambda: current_time)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=440.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=1.5,
+                powerup_multiplier_display="1.5x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=4,
+                        name="Clock",
+                        added_time=1004.0,
+                        expiration_time=1018.0,
+                    ),
+                ),
+            ),
+            map_context=self.non_graveyard_context(),
+        )
+
+        current_time = 1001.6
+
+        self.assertFalse(tracker.powerups_snapshot().available)
+        self.assertEqual(tracker.format_powerups_summary(), "Powerups: --")
+
     def test_powerups_summary_formats_overtime(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_powerups(
