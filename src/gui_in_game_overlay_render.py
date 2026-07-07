@@ -159,3 +159,122 @@ def calculate_luck_rarity_probabilities(luck_value: float | None) -> dict[str, f
         rarity: (weights[rarity] / total_weight) * 100.0
         for rarity in LUCK_RARITY_ORDER
     }
+
+
+def build_stats_overlay_html(
+    snapshot: Any,
+    selected_stats: list[str],
+    stage_index: int,
+    stage_timer_seconds: float,
+    stage_time_seconds: float,
+    is_graveyard: bool,
+) -> str:
+    if snapshot is None:
+        return ""
+    stats = getattr(snapshot, "stats", {}) or {}
+    if not isinstance(stats, dict):
+        return ""
+
+    lines = []
+    for label in selected_stats:
+        stat = stats.get(label)
+        if stat is None:
+            continue
+
+        display_val = getattr(stat, "display_value", "--")
+        raw_val = getattr(stat, "value", None)
+        try:
+            raw_val = float(raw_val) if raw_val is not None else None
+        except (TypeError, ValueError):
+            raw_val = None
+
+        color = "#16e7ff"  # Cyan by default
+        cap_suffix = ""
+
+        if not is_graveyard and raw_val is not None:
+            if label == "Difficulty":
+                is_after_2m_ghosts = stage_timer_seconds >= (stage_time_seconds + 120.0)
+
+                cap = None
+                if stage_index == 0:
+                    cap = 4.95 if is_after_2m_ghosts else 5.71
+                elif stage_index == 1:
+                    cap = 4.38 if is_after_2m_ghosts else 5.14
+                elif stage_index == 2:
+                    cap = 3.81 if is_after_2m_ghosts else 4.57
+
+                if cap is not None:
+                    cap_pct = int(round(cap * 100))
+                    cap_suffix = f" / {cap_pct}%"
+                    if raw_val >= cap:
+                        color = "#ff4d4d"  # Red
+            elif label == "XP Gain":
+                cap = 10.0
+                cap_suffix = " / 10x"
+                if raw_val >= cap:
+                    color = "#ff4d4d"  # Red
+
+        lines.append(
+            f"<span style='color: #ffffff; text-shadow: {TEXT_SHADOW};'>{label}: </span>"
+            f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>{display_val}{cap_suffix}</span>"
+        )
+
+    return "<br>".join(lines)
+
+
+def build_event_timer_overlay_html(
+    stage_index: int,
+    stage_timer_seconds: float,
+    stage_time_seconds: float,
+    is_graveyard: bool,
+    warning_seconds: int = 15,
+) -> str:
+    if is_graveyard:
+        return ""
+    if stage_index not in (0, 1, 2):
+        return ""
+
+    remaining_time = stage_time_seconds - stage_timer_seconds
+    if remaining_time <= 0:
+        return ""
+
+    if stage_index in (0, 1):
+        events = [
+            ("boss", 420.0, 0.0),
+            ("wave", 360.0, 30.0),
+            ("wave", 180.0, 30.0),
+            ("boss", 120.0, 0.0),
+        ]
+    else:  # stage_index == 2
+        events = [
+            ("boss", 390.0, 0.0),
+            ("wave", 330.0, 30.0),
+            ("wave", 240.0, 30.0),
+            ("boss", 180.0, 0.0),
+        ]
+
+    # Check active waves first
+    for ev_type, start_rem, duration in events:
+        if duration > 0.0:
+            end_rem = start_rem - duration
+            if end_rem <= remaining_time <= start_rem:
+                wave_rem = remaining_time - end_rem
+                secs = int(round(wave_rem))
+                return f"<span style='color: #ff4d4d; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>Wave active: {secs}s</span>"
+
+    # Check upcoming warnings next
+    upcoming_events = []
+    for ev_type, start_rem, duration in events:
+        if remaining_time > start_rem:
+            diff = remaining_time - start_rem
+            if diff <= warning_seconds:
+                upcoming_events.append((diff, ev_type))
+
+    if upcoming_events:
+        upcoming_events.sort()
+        diff, ev_type = upcoming_events[0]
+        secs = int(round(diff))
+        label = "Boss" if ev_type == "boss" else "Wave"
+        return f"<span style='color: #ff9f1c; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>{label} in {secs}s</span>"
+
+    return ""

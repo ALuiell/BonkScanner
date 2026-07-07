@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -27,14 +29,32 @@ class InGameWidgetSettingsDialog(QDialog):
         super().__init__(parent)
         self.parent_mixin = parent_mixin
         self.setWindowTitle("In-Game Widgets Configuration")
-        self.resize(600, 650)
-        self.setMinimumSize(500, 450)
+        self.resize(600, 680)
+        self.setMinimumSize(500, 480)
 
         main_layout = QVBoxLayout(self)
-        scroll, _scroll_content, scroll_layout = _make_scroll_section()
-        scroll_layout.setSpacing(16)
-        main_layout.addWidget(scroll)
-        self._init_settings_layout(scroll_layout)
+        
+        self.tabs = QTabWidget()
+        main_layout.addWidget(self.tabs, 1)
+        
+        # Basic tab
+        self.basic_tab = QWidget()
+        basic_layout = QVBoxLayout(self.basic_tab)
+        basic_scroll, _basic_content, basic_scroll_layout = _make_scroll_section()
+        basic_scroll_layout.setSpacing(16)
+        basic_layout.addWidget(basic_scroll)
+        self.tabs.addTab(self.basic_tab, "Basic Settings")
+        
+        # Advanced tab
+        self.advanced_tab = QWidget()
+        advanced_layout = QVBoxLayout(self.advanced_tab)
+        advanced_scroll, _advanced_content, advanced_scroll_layout = _make_scroll_section()
+        advanced_scroll_layout.setSpacing(16)
+        advanced_layout.addWidget(advanced_scroll)
+        self.tabs.addTab(self.advanced_tab, "Advanced Settings")
+        
+        self._init_basic_layout(basic_scroll_layout)
+        self._init_advanced_layout(advanced_scroll_layout)
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch(1)
@@ -43,7 +63,7 @@ class InGameWidgetSettingsDialog(QDialog):
         btn_layout.addWidget(close_btn)
         main_layout.addLayout(btn_layout)
 
-    def _init_settings_layout(self, layout) -> None:
+    def _init_basic_layout(self, layout) -> None:
         _add_scale_group(
             layout,
             title="Scanner Status Settings",
@@ -99,6 +119,51 @@ class InGameWidgetSettingsDialog(QDialog):
         )
         luck_rarity_layout.addWidget(self.luck_rarity_show_bar_cb)
         layout.addWidget(luck_rarity_group)
+
+        event_timer_group = QGroupBox("Event Timer Settings")
+        event_timer_layout = QVBoxLayout(event_timer_group)
+        event_timer_layout.setContentsMargins(16, 12, 16, 12)
+        _add_scale_row(event_timer_layout, self, "event_timer_scale_spin", "event_timer")
+        
+        warn_layout = QHBoxLayout()
+        warn_layout.addWidget(QLabel("Warning threshold (seconds):"))
+        self.event_timer_warning_spin = QSpinBox()
+        self.event_timer_warning_spin.setRange(1, 300)
+        self.event_timer_warning_spin.setValue(config.IN_GAME_OVERLAY["widgets"]["event_timer"].get("warning_seconds", 15))
+        self.event_timer_warning_spin.valueChanged.connect(self._save_settings)
+        warn_layout.addWidget(self.event_timer_warning_spin)
+        warn_layout.addStretch(1)
+        event_timer_layout.addLayout(warn_layout)
+        layout.addWidget(event_timer_group)
+        layout.addStretch(1)
+
+    def _init_advanced_layout(self, layout) -> None:
+        stats_group = QGroupBox("Stats Widget Settings")
+        stats_layout = QVBoxLayout(stats_group)
+        stats_layout.setContentsMargins(16, 12, 16, 12)
+        
+        _add_scale_row(stats_layout, self, "stats_scale_spin", "stats")
+        stats_layout.addSpacing(8)
+        
+        stats_layout.addWidget(QLabel("Select stats to display in the In-Game Stats widget:"))
+        
+        grid_widget = QWidget()
+        grid_layout = QGridLayout(grid_widget)
+        grid_layout.setSpacing(10)
+        grid_layout.setContentsMargins(0, 8, 0, 8)
+        
+        selected_stats = set(config.IN_GAME_OVERLAY["widgets"]["stats"].get("selected_stats", ["Damage", "Difficulty", "XP Gain", "Luck"]))
+        
+        self.stats_checkboxes = {}
+        for index, label in enumerate(config.ALL_STAT_LABELS):
+            cb = QCheckBox(label)
+            cb.setChecked(label in selected_stats)
+            cb.stateChanged.connect(self._save_settings)
+            self.stats_checkboxes[label] = cb
+            grid_layout.addWidget(cb, index // 2, index % 2)
+            
+        stats_layout.addWidget(grid_widget)
+        layout.addWidget(stats_group)
         layout.addStretch(1)
 
     def _save_settings(self, *_args) -> None:
@@ -109,6 +174,15 @@ class InGameWidgetSettingsDialog(QDialog):
         widgets["powerups"]["scale"] = self.powerups_scale_spin.value()
         widgets["luck_rarity"]["scale"] = self.luck_rarity_scale_spin.value()
         widgets["luck_rarity"]["show_bar"] = self.luck_rarity_show_bar_cb.isChecked()
+        widgets["event_timer"]["scale"] = self.event_timer_scale_spin.value()
+        widgets["event_timer"]["warning_seconds"] = self.event_timer_warning_spin.value()
+        widgets["stats"]["scale"] = self.stats_scale_spin.value()
+        
+        selected_stats = []
+        for label in config.ALL_STAT_LABELS:
+            if label in self.stats_checkboxes and self.stats_checkboxes[label].isChecked():
+                selected_stats.append(label)
+        widgets["stats"]["selected_stats"] = selected_stats or ["Damage", "Difficulty", "XP Gain", "Luck"]
 
         metrics = []
         if self.kps_instant_cb.isChecked():
@@ -232,6 +306,20 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
         parent_mixin._on_igo_settings_changed,
     )
     widgets_grid.addWidget(parent_mixin.igo_luck_rarity_cb, 2, 0)
+
+    parent_mixin.igo_stats_cb = _build_checkbox(
+        "Stats",
+        config.IN_GAME_OVERLAY["widgets"]["stats"]["enabled"],
+        parent_mixin._on_igo_settings_changed,
+    )
+    widgets_grid.addWidget(parent_mixin.igo_stats_cb, 2, 1)
+
+    parent_mixin.igo_event_timer_cb = _build_checkbox(
+        "Event Timer",
+        config.IN_GAME_OVERLAY["widgets"]["event_timer"]["enabled"],
+        parent_mixin._on_igo_settings_changed,
+    )
+    widgets_grid.addWidget(parent_mixin.igo_event_timer_cb, 3, 0)
     widgets_layout.addLayout(widgets_grid)
 
     grid_layout.addWidget(general_group, 0, 0, Qt.AlignTop)

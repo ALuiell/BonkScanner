@@ -105,6 +105,8 @@ DEFAULT_IN_GAME_OVERLAY = {
         "kps": {"enabled": True, "x": 10, "y": 40, "scale": 1.0, "metrics": ["instant"]},
         "powerups": {"enabled": True, "x": 10, "y": 70, "scale": 1.0},
         "luck_rarity": {"enabled": True, "x": 10, "y": 100, "scale": 1.0, "show_bar": True},
+        "stats": {"enabled": False, "x": 10, "y": 130, "scale": 1.0, "selected_stats": ["Damage", "Difficulty", "XP Gain", "Luck"]},
+        "event_timer": {"enabled": False, "x": 10, "y": 160, "scale": 1.0, "warning_seconds": 15},
     }
 }
 
@@ -528,6 +530,25 @@ def normalize_in_game_overlay_config(value):
             )
             if key == "luck_rarity":
                 widgets[key]["show_bar"] = bool(widgets[key].get("show_bar", default_widget.get("show_bar", True)))
+            
+            if key == "stats":
+                selected_stats_val = widgets[key].get("selected_stats")
+                if not isinstance(selected_stats_val, list):
+                    selected_stats_val = list(selected_stats_val) if isinstance(selected_stats_val, (tuple, set)) else []
+                valid_stats = [s for s in selected_stats_val if s in ALL_STAT_LABELS]
+                widgets[key]["selected_stats"] = valid_stats or ["Damage", "Difficulty", "XP Gain", "Luck"]
+            
+            if key == "event_timer":
+                widgets[key]["warning_seconds"] = max(
+                    1,
+                    min(
+                        coerce_nonnegative_int(
+                            widgets[key].get("warning_seconds"),
+                            default_widget.get("warning_seconds", 15)
+                        ),
+                        300
+                    )
+                )
             
             if key == "kps":
                 metrics_val = widgets[key].get("metrics")

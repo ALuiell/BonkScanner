@@ -348,6 +348,59 @@ Important note:
 - This entry is intentionally a planning/prototype item, not a finalized design.
 - The exact lane boundaries, naming, ownership of reads, and state-merging approach should be revisited after the first implementation pass.
 
+### In-Game Overlay
+
+#### 1. In-Game Stats Widget
+
+Status: `[Open]`
+
+Goal:
+- Add a custom `stats` widget to the transparent In-Game Overlay.
+- Treat it as the in-game counterpart / alternative to the existing `stats` widget from the OBS Overlay rather than as a one-off fixed 2-stat label.
+- Keep the usual stats-widget behavior/configurability where practical, but extend it with in-game-overlay-specific logic such as cap calculation and cap-aware coloring.
+- Default stats tracked: `XP Gain` and `Difficulty`.
+- Map-specific rules for Forest / Desert:
+  - Apply dynamic difficulty caps per stage and elapsed stage time:
+    - **Stage 1**: `571%` (<2 min) / `495%` (>=2 min)
+    - **Stage 2**: `514%` (<2 min) / `438%` (>=2 min)
+    - **Stage 3**: `457%` (<2 min) / `381%` (>=2 min)
+  - Apply a fixed `XP Gain` cap at `10.0x`.
+  - Display format: `Stat Name: Current / Cap` (e.g., `Difficulty: 450% / 495%`).
+  - Apply 2-tier color coding for values: Cyan (`#16e7ff`) below cap, Red (`#ff4d4d`) at or above cap.
+- Map-specific rules for Graveyard:
+  - Display stats in default style (Label in White `#ffffff`, Value in Cyan `#16e7ff`) without caps.
+  - Display format: `Stat Name: Current` (e.g., `Difficulty: 380%`).
+
+#### 2. In-Game Event Timer Widget
+
+Status: `[Open]`
+
+Goal:
+- Add a single-line countdown/warning timer widget to track waves and boss spawns on Forest/Desert maps.
+- Make the warning lead time user-configurable, with a default of `15s`.
+- Timings are calculated based on the remaining stage time (`stage_time_seconds - stage_timer_seconds`):
+  - **Stage 1 & Stage 2**:
+    - **7:00** remaining: Boss spawn (Warning countdown starting at the configured threshold before spawn in Orange `#ff9f1c`).
+    - **6:00** remaining: Mob wave (lasts 30s, Warning starting at the configured threshold before spawn in Orange, Wave active countdown in Red `#ff4d4d` from 6:00 to 5:30).
+    - **3:00** remaining: Mob wave (lasts 30s, Warning starting at the configured threshold before spawn in Orange, Wave active countdown in Red from 3:00 to 2:30).
+    - **2:00** remaining: Boss spawn (Warning countdown starting at the configured threshold before spawn in Orange).
+  - **Stage 3**:
+    - **6:30** remaining: Boss spawn (Warning countdown starting at the configured threshold before spawn in Orange).
+    - **5:30** remaining: Mob wave (lasts 30s, Warning starting at the configured threshold before spawn in Orange, Wave active countdown in Red from 5:30 to 5:00).
+    - **4:00** remaining: Mob wave (lasts 30s, Warning starting at the configured threshold before spawn in Orange, Wave active countdown in Red from 4:00 to 3:30).
+    - **3:00** remaining: Boss spawn (Warning countdown starting at the configured threshold before spawn in Orange).
+- Hide or keep empty when no events are active or starting within 30s.
+- Return empty on Graveyard map.
+
+Implementation notes for both In-Game Overlay widgets:
+
+- Do not introduce a second map-family detector just for the overlay.
+- Determine map family by reusing the existing `powerups` activity-count logic that already distinguishes the Graveyard family from Forest / Desert.
+- Overlay widgets should consume that existing resolved map-family result instead of re-deriving it independently.
+- Stage-specific rules in this section use human stage numbering (`Stage 1`, `Stage 2`, `Stage 3`), not the raw in-memory zero-based stage index.
+- The event timer widget should refresh on a fast lane cadence (`~500ms` to `1s`), not the slow full live-stats refresh path, so 30-second warnings and active countdowns remain accurate.
+- For timing accuracy, the event timer widget should reuse the same runtime stage-time path used by `powerups` rather than introducing a separate timing interpretation path just for the overlay.
+
 ### Help & Documentation
 
 #### 1. Contextual Help Buttons With Deep Links

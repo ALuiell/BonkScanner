@@ -43,7 +43,9 @@ class LiveRunSnapshot:
     damage_sources_available: bool = False
     chests_per_minute: float | None = None
     game_time_seconds: float | None = None
+    stage_timer_seconds: float | None = None
     stage_time_seconds: float | None = None
+    stage_duration_seconds: float | None = None
     mob_kills: int | None = None
     player_level: int | None = None
     map_seed: int | None = None
@@ -622,6 +624,10 @@ class LiveRunTracker:
     @with_lock
     def latest_snapshot(self) -> LiveRunSnapshot | None:
         return self._latest_snapshot_unlocked()
+
+    @with_lock
+    def powerup_map_context(self) -> PowerupMapContext | None:
+        return self._fresh_powerup_map_context_unlocked()
 
     def _latest_snapshot_unlocked(self) -> LiveRunSnapshot | None:
         return self.snapshots[-1] if self.snapshots else None

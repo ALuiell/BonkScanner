@@ -1454,6 +1454,20 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertFalse(PowerupMapContext.from_activity_max({"Chests": 46}).is_graveyard)
         self.assertFalse(PowerupMapContext.from_activity_max({"Pots": 55}).is_graveyard)
 
+    def test_powerup_map_context_accessor_respects_ttl(self) -> None:
+        now = 1000.0
+        tracker = LiveRunTracker(clock=lambda: now)
+        context = PowerupMapContext.from_activity_max(
+            {"Chests": 69},
+            captured_at=now,
+        )
+        tracker.update_powerup_map_context(context)
+
+        self.assertIsNotNone(tracker.powerup_map_context())
+
+        now += 16.0
+        self.assertIsNone(tracker.powerup_map_context())
+
 
 if __name__ == "__main__":
     unittest.main()

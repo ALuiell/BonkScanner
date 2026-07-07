@@ -20,6 +20,8 @@ def _test_overlay_config() -> dict:
             "kps": {"enabled": True, "x": 0, "y": 0, "scale": 1.0},
             "powerups": {"enabled": True, "x": 0, "y": 0, "scale": 1.0},
             "luck_rarity": {"enabled": True, "x": 0, "y": 0, "scale": 1.0, "show_bar": True},
+            "stats": {"enabled": True, "x": 0, "y": 0, "scale": 1.0, "selected_stats": ["Damage", "Difficulty", "XP Gain", "Luck"]},
+            "event_timer": {"enabled": True, "x": 0, "y": 0, "scale": 1.0, "warning_seconds": 15},
         }
     }
 

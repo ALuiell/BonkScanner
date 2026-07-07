@@ -408,6 +408,7 @@ class PlayerStatsMixin:
         run_timer_seconds = None
         stage_timer_seconds = None
         stage_index = None
+        stage_duration_seconds = None
         try:
             client = self._get_player_stats_client()
             run_timer_seconds = client.get_run_timer()
@@ -418,13 +419,17 @@ class PlayerStatsMixin:
 
         try:
             client = self._get_player_stats_client()
-            stage_timer_seconds, stage_index, _ = client.get_stage_timer_context()
+            stage_timer_seconds, stage_index, stage_duration_seconds = (
+                client.get_stage_timer_context()
+            )
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             stage_timer_seconds = None
             stage_index = None
+            stage_duration_seconds = None
         except Exception:
             stage_timer_seconds = None
             stage_index = None
+            stage_duration_seconds = None
 
         # 2. Read map seed and stage ptr
         map_seed = None
@@ -582,6 +587,7 @@ class PlayerStatsMixin:
             damage_sources_available,
             run_timer_seconds,
             stage_timer_seconds,
+            stage_duration_seconds,
             mob_kills,
             player_level,
             map_seed,
@@ -613,6 +619,7 @@ class PlayerStatsMixin:
                 damage_sources_available,
                 run_timer_seconds,
                 stage_timer_seconds,
+                stage_duration_seconds,
                 mob_kills,
                 player_level,
                 map_seed,
@@ -706,7 +713,9 @@ class PlayerStatsMixin:
             damage_sources_available=damage_sources_available,
             chests_per_minute=chests_per_minute,
             game_time_seconds=run_timer_seconds,
+            stage_timer_seconds=stage_timer_seconds,
             stage_time_seconds=stage_timer_seconds,
+            stage_duration_seconds=stage_duration_seconds,
             mob_kills=mob_kills,
             player_level=player_level,
             map_seed=map_seed,
