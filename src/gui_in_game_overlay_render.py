@@ -172,6 +172,12 @@ def _format_stats_display_value(label: str, display_value: Any, raw_value: float
     return str(display_value if display_value not in (None, "") else "--")
 
 
+def _format_event_clock(remaining_seconds: float) -> str:
+    total_seconds = max(0, int(round(float(remaining_seconds))))
+    minutes, seconds = divmod(total_seconds, 60)
+    return f"{minutes}:{seconds:02d}"
+
+
 def _build_in_game_stats_rows(
     stats: dict[str, Any],
     selected_stats: list[str],
@@ -292,53 +298,77 @@ def build_event_timer_overlay_html(
     stage_time_seconds: float,
     is_graveyard: bool,
     warning_seconds: int = 15,
+    graveyard_main_map_events_active: bool = False,
+    edit_mode: bool = False,
 ) -> str:
+    preview_html = (
+        f"<span style='color: {HEADER_COLOR}; opacity: 0.5; "
+        f"text-shadow: {TEXT_SHADOW};'>Event Timer (preview)</span>"
+    )
     if is_graveyard:
-        return ""
-    if stage_index not in (0, 1, 2):
-        return ""
+        if not graveyard_main_map_events_active:
+            return preview_html if edit_mode else ""
+        if stage_time_seconds < 900.0:
+            return preview_html if edit_mode else ""
+        events = [
+            ("boss", 780.0, 0.0),
+            ("wave", 720.0, 30.0),
+            ("boss", 540.0, 0.0),
+            ("wave", 480.0, 30.0),
+            ("boss", 360.0, 0.0),
+            ("wave", 300.0, 30.0),
+            ("boss", 180.0, 0.0),
+            ("wave", 120.0, 30.0),
+        ]
+    else:
+        if stage_index not in (0, 1, 2):
+            return preview_html if edit_mode else ""
+        if stage_index in (0, 1):
+            events = [
+                ("boss", 420.0, 0.0),
+                ("wave", 360.0, 30.0),
+                ("wave", 180.0, 30.0),
+                ("boss", 120.0, 0.0),
+            ]
+        else:  # stage_index == 2
+            events = [
+                ("boss", 390.0, 0.0),
+                ("wave", 330.0, 30.0),
+                ("wave", 240.0, 30.0),
+                ("boss", 180.0, 0.0),
+            ]
 
     remaining_time = stage_time_seconds - stage_timer_seconds
     if remaining_time <= 0:
-        return ""
-
-    if stage_index in (0, 1):
-        events = [
-            ("boss", 420.0, 0.0),
-            ("wave", 360.0, 30.0),
-            ("wave", 180.0, 30.0),
-            ("boss", 120.0, 0.0),
-        ]
-    else:  # stage_index == 2
-        events = [
-            ("boss", 390.0, 0.0),
-            ("wave", 330.0, 30.0),
-            ("wave", 240.0, 30.0),
-            ("boss", 180.0, 0.0),
-        ]
+        return preview_html if edit_mode else ""
 
     # Check active waves first
     for ev_type, start_rem, duration in events:
         if duration > 0.0:
             end_rem = start_rem - duration
             if end_rem <= remaining_time <= start_rem:
-                wave_rem = remaining_time - end_rem
-                secs = int(round(wave_rem))
-                return f"<span style='color: #ff4d4d; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>Wave active: {secs}s</span>"
+                return (
+                    f"<span style='color: #ff4d4d; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>"
+                    f"Wave Active: {int(duration)}s</span>"
+                )
 
     # Check upcoming warnings next
     upcoming_events = []
     for ev_type, start_rem, duration in events:
         if remaining_time > start_rem:
             diff = remaining_time - start_rem
-            if diff <= warning_seconds:
-                upcoming_events.append((diff, ev_type))
+            threshold_seconds = max(int(warning_seconds), int(duration)) if duration > 0.0 else int(warning_seconds)
+            if diff <= threshold_seconds:
+                upcoming_events.append((diff, ev_type, start_rem))
 
     if upcoming_events:
         upcoming_events.sort()
-        diff, ev_type = upcoming_events[0]
-        secs = int(round(diff))
+        _diff, ev_type, start_rem = upcoming_events[0]
         label = "Boss" if ev_type == "boss" else "Wave"
-        return f"<span style='color: #ff9f1c; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>{label} in {secs}s</span>"
+        event_time = _format_event_clock(start_rem)
+        return (
+            f"<span style='color: #ff9f1c; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>"
+            f"{label} at {event_time}</span>"
+        )
 
-    return ""
+    return preview_html if edit_mode else ""

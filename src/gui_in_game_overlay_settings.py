@@ -29,8 +29,8 @@ class InGameWidgetSettingsDialog(QDialog):
         super().__init__(parent)
         self.parent_mixin = parent_mixin
         self.setWindowTitle("In-Game Widgets Configuration")
-        self.resize(600, 680)
-        self.setMinimumSize(500, 480)
+        self.resize(700, 760)
+        self.setMinimumSize(640, 680)
 
         main_layout = QVBoxLayout(self)
         
@@ -160,11 +160,28 @@ class InGameWidgetSettingsDialog(QDialog):
             cb.setChecked(label in selected_stats)
             cb.stateChanged.connect(self._save_settings)
             self.stats_checkboxes[label] = cb
-            grid_layout.addWidget(cb, index // 2, index % 2)
+            grid_layout.addWidget(cb, index // 4, index % 4)
             
         stats_layout.addWidget(grid_widget)
+        stats_layout.addSpacing(12)
+
+        reset_btn_layout = QHBoxLayout()
+        self.stats_reset_btn = QPushButton("Reset to Default Stats")
+        self.stats_reset_btn.clicked.connect(self._reset_stats_to_default)
+        reset_btn_layout.addWidget(self.stats_reset_btn)
+        reset_btn_layout.addStretch(1)
+        stats_layout.addLayout(reset_btn_layout)
+
         layout.addWidget(stats_group)
         layout.addStretch(1)
+
+    def _reset_stats_to_default(self) -> None:
+        default_stats = set(config.DEFAULT_IN_GAME_OVERLAY["widgets"]["stats"]["selected_stats"])
+        for label, cb in self.stats_checkboxes.items():
+            cb.blockSignals(True)
+            cb.setChecked(label in default_stats)
+            cb.blockSignals(False)
+        self._save_settings()
 
     def _save_settings(self, *_args) -> None:
         widgets = config.IN_GAME_OVERLAY["widgets"]

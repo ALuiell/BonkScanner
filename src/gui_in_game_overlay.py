@@ -189,6 +189,33 @@ class InGameOverlayMixin:
                 or 0.0
             )
 
+        event_stage_index = stage_index
+        event_stage_time_seconds = stage_time_seconds
+        event_stage_timer_seconds = stage_timer_seconds
+        fast_stage_context_reader = getattr(self.live_run_tracker, "fast_stage_timer_context", None)
+        fast_stage_context = (
+            fast_stage_context_reader() if callable(fast_stage_context_reader) else None
+        )
+        if fast_stage_context is not None:
+            if getattr(fast_stage_context, "stage_index", None) is not None:
+                event_stage_index = int(fast_stage_context.stage_index)
+            event_stage_time_seconds = float(
+                getattr(
+                    fast_stage_context,
+                    "stage_duration_seconds",
+                    event_stage_time_seconds,
+                )
+                or 0.0
+            )
+            event_stage_timer_seconds = float(
+                getattr(
+                    fast_stage_context,
+                    "stage_timer_seconds",
+                    event_stage_timer_seconds,
+                )
+                or 0.0
+            )
+
         if cfg["widgets"].get("stats", {}).get("enabled", False):
             selected_stats = cfg["widgets"]["stats"].get("selected_stats", ["Damage", "Difficulty", "XP Gain", "Luck"])
             html = build_stats_overlay_html(
@@ -203,12 +230,19 @@ class InGameOverlayMixin:
 
         if cfg["widgets"].get("event_timer", {}).get("enabled", False):
             warning_seconds = cfg["widgets"]["event_timer"].get("warning_seconds", 15)
+            graveyard_events_active = False
+            active_reader = getattr(self.live_run_tracker, "graveyard_main_map_events_active", None)
+            if callable(active_reader):
+                graveyard_events_active = active_reader()
+
             html = build_event_timer_overlay_html(
-                stage_index,
-                stage_timer_seconds,
-                stage_time_seconds,
+                event_stage_index,
+                event_stage_timer_seconds,
+                event_stage_time_seconds,
                 is_graveyard,
                 warning_seconds,
+                graveyard_main_map_events_active=graveyard_events_active,
+                edit_mode=self.in_game_overlay_window.edit_mode,
             )
             widgets["event_timer"].set_text(html)
 
