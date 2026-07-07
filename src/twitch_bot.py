@@ -7,6 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from math import isfinite
 from PySide6.QtCore import QThread, Signal
 import config
+from stat_label_abbreviations import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
 from twitch_credentials import get_twitch_oauth_token
 
 
@@ -310,48 +311,15 @@ class TwitchBotWorker(QThread):
         for name in s:
             stats_data[name] = self._stat_val(s, name)
 
-        stat_abbrevs = {
-            "Max HP": "HP",
-            "HP Regen": "Regen",
-            "Overheal": "Overheal",
-            "Shield": "Shield",
-            "Armor": "Armor",
-            "Evasion": "Evasion",
-            "Lifesteal": "Lifesteal",
-            "Thorns": "Thorns",
-            "Damage": "DMG",
-            "Crit Chance": "Crit",
-            "Crit Damage": "CritDMG",
-            "Attack Speed": "AS",
-            "Projectile Count": "Proj",
-            "Projectile Bounces": "Bounces",
-            "Size": "Size",
-            "Projectile Speed": "ProjSpeed",
-            "Duration": "Dur",
-            "Damage to Elites": "EliteDMG",
-            "Knockback": "KB",
-            "Movement Speed": "MS",
-            "Extra Jumps": "Jumps",
-            "Jump Height": "JumpHeight",
-            "Luck": "Luck",
-            "Difficulty": "Diff",
-            "Pickup Range": "Pickup",
-            "XP Gain": "XP",
-            "Gold Gain": "Gold",
-            "Elite Spawn Increase": "ESI",
-            "Powerup Multiplier": "PM",
-            "Powerup Drop Chance": "PDC",
-        }
-
         # Populate short abbreviations in stats_data
-        for name, abbrev in stat_abbrevs.items():
+        for name, abbrev in STAT_LABEL_ABBREVIATIONS.items():
             stats_data[abbrev] = stats_data.get(name, "--")
 
         selected = config.TWITCH_BOT.get("selected_stats", [])
         if not selected:
             selected = ["Damage", "XP Gain", "Luck", "Difficulty", "Powerup Drop Chance", "Elite Spawn Increase", "Powerup Multiplier", "Size"]
 
-        parts = [f"{stat_abbrevs.get(name, name)}: {stats_data.get(name, '--')}" for name in selected]
+        parts = [f"{abbreviate_stat_label(name)}: {stats_data.get(name, '--')}" for name in selected]
         stats_data["stats"] = " | ".join(parts)
 
         msg = self._format_template(

@@ -12,6 +12,28 @@ from gui_in_game_overlay_render import (
 
 
 class InGameOverlayRenderTests(unittest.TestCase):
+    def test_stats_overlay_uses_shared_stat_abbreviations(self) -> None:
+        snapshot = SimpleNamespace(
+            stats={
+                "Damage": SimpleNamespace(value=1.5, display_value="150%"),
+                "Powerup Drop Chance": SimpleNamespace(value=0.2, display_value="+20%"),
+            },
+        )
+
+        html = build_stats_overlay_html(
+            snapshot,
+            ["Damage", "Powerup Drop Chance"],
+            0,
+            0.0,
+            600.0,
+            False,
+        )
+
+        self.assertIn("DMG:", html)
+        self.assertIn("PDC:", html)
+        self.assertNotIn("Damage:", html)
+        self.assertNotIn("Powerup Drop Chance:", html)
+
     def test_stats_overlay_uses_post_two_minute_difficulty_cap(self) -> None:
         snapshot = SimpleNamespace(
             stats={

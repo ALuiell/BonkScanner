@@ -4,6 +4,7 @@ from math import isfinite, log
 from typing import Any
 
 from gui_styles import ITEM_RARITY_COLOR_MAP
+from stat_label_abbreviations import abbreviate_stat_label
 
 TEXT_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
 POWERUP_COLORS: dict[str, str] = {
@@ -215,7 +216,7 @@ def build_stats_overlay_html(
                     color = "#ff4d4d"  # Red
 
         lines.append(
-            f"<span style='color: #ffffff; text-shadow: {TEXT_SHADOW};'>{label}: </span>"
+            f"<span style='color: #ffffff; text-shadow: {TEXT_SHADOW};'>{abbreviate_stat_label(label)}: </span>"
             f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>{display_val}{cap_suffix}</span>"
         )
 

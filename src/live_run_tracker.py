@@ -14,6 +14,7 @@ from functools import wraps
 import run_summary
 from gui_styles import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
 from player_stats import DisabledItemsReadResult, DisabledItemsReadStatus
+from stat_label_abbreviations import abbreviate_stat_label
 
 POWERUP_MAP_CONTEXT_TTL_SECONDS = 15.0
 
@@ -250,40 +251,6 @@ CHAOS_TOME_GAME_STAT_ORDER: dict[int, int] = {
     )
 }
 
-STAT_LABEL_ABBREVIATIONS: dict[str, str] = {
-    "Max HP": "HP",
-    "HP Regen": "Regen",
-    "Overheal": "Overheal",
-    "Shield": "Shield",
-    "Armor": "Armor",
-    "Evasion": "Evasion",
-    "Lifesteal": "Lifesteal",
-    "Thorns": "Thorns",
-    "Damage": "DMG",
-    "Crit Chance": "Crit",
-    "Crit Damage": "CritDMG",
-    "Attack Speed": "AS",
-    "Projectile Count": "Proj",
-    "Projectile Bounces": "Bounces",
-    "Size": "Size",
-    "Projectile Speed": "ProjSpeed",
-    "Duration": "Dur",
-    "Damage to Elites": "EliteDMG",
-    "Knockback": "KB",
-    "Movement Speed": "MS",
-    "Extra Jumps": "Jumps",
-    "Jump Height": "JumpHeight",
-    "Luck": "Luck",
-    "Difficulty": "Diff",
-    "Pickup Range": "Pickup",
-    "XP Gain": "XP",
-    "Gold Gain": "Gold",
-    "Elite Spawn Increase": "ESI",
-    "Powerup Multiplier": "PM",
-    "Powerup Drop Chance": "PDC",
-}
-
-
 def chaos_tome_stat_sort_key(total: Any) -> tuple[int, str]:
     stat_id = int(getattr(total, "stat_id", -1))
     return (CHAOS_TOME_GAME_STAT_ORDER.get(stat_id, 999), str(getattr(total, "label", "")).lower())
@@ -495,7 +462,7 @@ class LiveRunTracker:
         )
         parts: list[str] = []
         for total in totals:
-            label = STAT_LABEL_ABBREVIATIONS.get(total.label, total.label)
+            label = abbreviate_stat_label(total.label)
             parts.append(f"{label} {total.display_delta}")
         return parts
 
