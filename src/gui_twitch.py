@@ -1,6 +1,11 @@
 import config
 from PySide6.QtCore import QThread, QTimer, Signal
-from twitch_auth import TwitchAuthThread, revoke_twitch_access_token, validate_twitch_access_token
+from twitch_auth import (
+    TwitchAuthThread,
+    TwitchTokenValidationResult,
+    revoke_twitch_access_token,
+    validate_twitch_access_token,
+)
 from twitch_bot import TwitchBotWorker
 from twitch_credentials import delete_twitch_oauth_token, get_twitch_oauth_token, set_twitch_oauth_token
 from gui_styles import _button_state_stylesheet
@@ -27,7 +32,14 @@ class TwitchTokenValidationWorker(QThread):
         self.fallback_username = fallback_username
 
     def run(self) -> None:
-        validation = validate_twitch_access_token(self.token)
+        try:
+            validation = validate_twitch_access_token(self.token)
+        except Exception as exc:
+            validation = TwitchTokenValidationResult(
+                valid=False,
+                error_message=f"Token validation failed: {exc}",
+                transient_error=True,
+            )
         self.validation_finished.emit(
             self.token,
             validation,
@@ -46,7 +58,10 @@ class TwitchTokenRevokeWorker(QThread):
         self.token = token
 
     def run(self) -> None:
-        revoked, message = revoke_twitch_access_token(self.token)
+        try:
+            revoked, message = revoke_twitch_access_token(self.token)
+        except Exception as exc:
+            revoked, message = False, f"Token revoke failed: {exc}"
         self.revoke_finished.emit(revoked, message)
 
 
@@ -59,7 +74,12 @@ class TwitchBotMixin:
         self._twitch_start_bot_after_validation = False
         self.twitch_token_validation_timer = QTimer(self.window)
         self.twitch_token_validation_timer.setInterval(60 * 60 * 1000)
-        self.twitch_token_validation_timer.timeout.connect(self.validate_twitch_session_async)
+        self.twitch_token_validation_timer.timeout.connect(
+            lambda: self.validate_twitch_session_async(
+                log_on_success=False,
+                context="periodic",
+            )
+        )
 
         self.twitch_connect_btn.clicked.connect(self.start_twitch_auth)
         self.twitch_bot_toggle_btn.clicked.connect(self.toggle_twitch_bot)

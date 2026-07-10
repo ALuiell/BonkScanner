@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import requests
 import webbrowser
 import secrets
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QThread, Signal
 
 # Replace with the actual Twitch Application Client ID from the Developer Console.
 # The app must have http://localhost:17846/auth/twitch/callback as a registered Redirect URI.
@@ -45,12 +45,45 @@ def validate_twitch_access_token(access_token: str, timeout: float = 5.0) -> Twi
         )
 
     if resp.status_code == 200:
-        data = resp.json()
+        try:
+            data = resp.json()
+        except (TypeError, ValueError) as exc:
+            return TwitchTokenValidationResult(
+                valid=False,
+                error_message=f"Invalid Twitch validation response: {exc}",
+                transient_error=True,
+            )
+
+        if not isinstance(data, dict):
+            return TwitchTokenValidationResult(
+                valid=False,
+                error_message="Invalid Twitch validation response format.",
+                transient_error=True,
+            )
+
+        login = str(data.get("login") or "").strip().lower()
+        user_id = str(data.get("user_id") or "").strip()
+        if not login or not user_id:
+            return TwitchTokenValidationResult(
+                valid=False,
+                error_message="Incomplete Twitch validation response.",
+                transient_error=True,
+            )
+
+        expires_in = data.get("expires_in")
+        if isinstance(expires_in, bool):
+            expires_in = None
+        elif expires_in is not None:
+            try:
+                expires_in = int(expires_in)
+            except (TypeError, ValueError):
+                expires_in = None
+
         return TwitchTokenValidationResult(
             valid=True,
-            login=str(data.get("login") or "").strip().lower(),
-            user_id=str(data.get("user_id") or "").strip(),
-            expires_in=data.get("expires_in"),
+            login=login,
+            user_id=user_id,
+            expires_in=expires_in,
         )
 
     if resp.status_code == 401:
@@ -130,12 +163,22 @@ class OAuthRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/auth/twitch/token":
-            if self.headers.get("Content-Type") != "application/json":
+            content_type = self.headers.get("Content-Type", "")
+            if content_type.split(";", 1)[0].strip().lower() != "application/json":
                 self.send_response(400)
                 self.end_headers()
                 return
 
-            content_length = int(self.headers.get("Content-Length", 0))
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+            except (TypeError, ValueError):
+                self.send_response(400)
+                self.end_headers()
+                return
+            if content_length < 0:
+                self.send_response(400)
+                self.end_headers()
+                return
             if content_length > 4096:
                 self.send_response(400)
                 self.end_headers()
