@@ -9,6 +9,10 @@ from PySide6.QtCore import QThread, Signal
 import config
 from stat_label_abbreviations import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
 from twitch_credentials import get_twitch_oauth_token
+from player_stats import format_chaos_tome_stat_delta
+from live_run_tracker import RuntimeStateSnapshot
+from types import SimpleNamespace
+from twitch_projection import format_kps, truncate_chat_message
 
 
 class SafeFormatter(string.Formatter):
@@ -54,6 +58,40 @@ class TwitchBotWorker(QThread):
         self.last_command_times: dict[str, float] = {}
         self.last_global_command_time: float = 0.0
 
+    def _runtime_snapshot(self):
+        runtime_reader = getattr(self.run_tracker, "runtime_snapshot", None)
+        runtime = runtime_reader() if callable(runtime_reader) else None
+        if isinstance(runtime, RuntimeStateSnapshot):
+            return runtime
+        # Compatibility adapter for extensions still exposing the legacy API.
+        # The application tracker always takes the snapshot path above.
+        latest = self.run_tracker.latest_snapshot()
+        chaos_level = self.run_tracker.chaos_tome_level()
+        chaos_parts = self.run_tracker.chaos_tome_summary_parts()
+        chaos = None if chaos_level is None else SimpleNamespace(
+            level=chaos_level,
+            stats=(),
+            legacy_parts=chaos_parts,
+        )
+        return SimpleNamespace(
+            latest_snapshot=latest,
+            status=self.run_tracker.status(),
+            run_id=self.run_tracker.run_identity()[0],
+            current_stage_index=self.run_tracker.run_identity()[1],
+            stage_summary=self.run_tracker.stage_summary_rows(),
+            chest_stats=self.run_tracker.get_chest_stats(),
+            kps={
+                "current": self.run_tracker.current_ui_kps(),
+                "minute_avg": self.run_tracker.current_minute_avg_kps(),
+                "five_minute_avg": self.run_tracker.current_five_minute_avg_kps(),
+                "run_avg": self.run_tracker.current_run_avg_kps(),
+            },
+            chaos_tome=chaos,
+            powerups=self.run_tracker.powerups_snapshot(),
+            legacy_powerups_summary=self.run_tracker.powerups_summary_text(include_left_word=True),
+            legacy_disabled=self.run_tracker.get_disabled_items(),
+        )
+
     def run(self):
         self.running = True
         bot_cfg = config.TWITCH_BOT
@@ -91,7 +129,8 @@ class TwitchBotWorker(QThread):
                 )
 
                 buffer = ""
-                self._last_run_id, self._last_stage_index = self.run_tracker.run_identity()
+                runtime = self._runtime_snapshot()
+                self._last_run_id, self._last_stage_index = runtime.run_id, runtime.current_stage_index
 
                 while self.running:
                     self._check_stage_transitions(target_channel)
@@ -301,7 +340,7 @@ class TwitchBotWorker(QThread):
                 return f"Formatting error in '{template_key}' template: {e}"
 
     def _handle_stats(self, channel: str):
-        snap = self.run_tracker.latest_snapshot()
+        snap = self._runtime_snapshot().latest_snapshot
         if not snap:
             self._send_chat(channel, "No active run detected.")
             return
@@ -332,7 +371,7 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, msg)
 
     def _handle_bans(self, channel: str):
-        snap = self.run_tracker.latest_snapshot()
+        snap = self._runtime_snapshot().latest_snapshot
         if not snap or not snap.banishes:
             self._send_chat(channel, "No banished items.")
             return
@@ -363,12 +402,19 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_disabled(self, channel: str):
-        result = self.run_tracker.get_disabled_items()
-        if not result.available:
+        runtime = self._runtime_snapshot()
+        snap = runtime.latest_snapshot
+        legacy_disabled = getattr(runtime, "legacy_disabled", None)
+        if legacy_disabled is not None:
+            if not legacy_disabled.available:
+                self._send_chat(channel, "Disabled items data is not available yet.")
+                return
+            disabled_in_game = legacy_disabled.items
+        elif not snap or not snap.disabled_items_available:
             self._send_chat(channel, "Disabled items data is not available yet.")
             return
-
-        disabled_in_game = result.items
+        else:
+            disabled_in_game = snap.disabled_items
         highlighted = config.TWITCH_BOT.get("highlighted_disabled_items", [])
 
         if highlighted:
@@ -396,7 +442,7 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_items(self, channel: str):
-        snap = self.run_tracker.latest_snapshot()
+        snap = self._runtime_snapshot().latest_snapshot
         if not snap or not snap.items:
             self._send_chat(channel, "No items found in current run.")
             return
@@ -500,7 +546,7 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_weapons(self, channel: str):
-        snap = self.run_tracker.latest_snapshot()
+        snap = self._runtime_snapshot().latest_snapshot
         if not snap or not snap.weapons:
             self._send_chat(channel, "No weapons found.")
             return
@@ -524,7 +570,7 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_tomes(self, channel: str):
-        snap = self.run_tracker.latest_snapshot()
+        snap = self._runtime_snapshot().latest_snapshot
         if not snap or not snap.tomes:
             self._send_chat(channel, "No tomes found.")
             return
@@ -547,21 +593,25 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_chaos(self, channel: str):
-        chaos_level = self.run_tracker.chaos_tome_level()
-        if chaos_level is None:
+        chaos = self._runtime_snapshot().chaos_tome
+        if chaos is None:
             self._send_chat(channel, "No Chaos Tome detected yet.")
             return
 
-        parts = self.run_tracker.chaos_tome_summary_parts()
+        parts = list(getattr(chaos, "legacy_parts", ())) or [
+            f"{abbreviate_stat_label(stat.label)} "
+            f"{format_chaos_tome_stat_delta(stat.label, stat.value, stat.value_format)}"
+            for stat in chaos.stats
+        ]
         if not parts:
-            self._send_chat(channel, f"Chaos Tome Lv{chaos_level}: no rolls tracked yet.")
+            self._send_chat(channel, f"Chaos Tome Lv{chaos.level}: no rolls tracked yet.")
             return
 
         chaos_text = " | ".join(_round_chaos_summary_part(part) for part in parts)
         text = self._format_template(
             "chaos",
             "Chaos Tome Lv{level}: {chaos}",
-            level=chaos_level,
+            level=chaos.level,
             chaos=chaos_text,
         )
         if len(text) > 450:
@@ -569,7 +619,7 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_stages(self, channel: str):
-        rows = self.run_tracker.stage_summary_rows()
+        rows = self._runtime_snapshot().stage_summary
         if not rows:
             self._send_chat(channel, "No stage data available.")
             return
@@ -600,40 +650,26 @@ class TwitchBotWorker(QThread):
         return str(int(round(value)))
 
     def _handle_powerups(self, channel: str):
-        snap = self.run_tracker.latest_snapshot()
+        runtime = self._runtime_snapshot()
+        snap = runtime.latest_snapshot
         if not snap:
             self._send_chat(channel, "No active run detected.")
             return
 
-        powerups_snapshot = getattr(self.run_tracker, "powerups_snapshot", None)
-        format_powerups_summary = getattr(self.run_tracker, "format_powerups_summary", None)
-        powerups_summary_text = getattr(self.run_tracker, "powerups_summary_text", None)
-        if callable(powerups_snapshot) and callable(format_powerups_summary):
-            try:
-                snapshot = powerups_snapshot()
-                if getattr(snapshot, "available", False) is True:
-                    if callable(powerups_summary_text):
-                        powerups_text = powerups_summary_text(include_left_word=True)
-                        text = self._format_template(
-                            "powerups",
-                            "Powerups: {powerups} (PM {pm})",
-                            powerups=powerups_text,
-                            standard_duration=self._format_seconds(
-                                getattr(snapshot, "standard_duration_seconds", 0.0) or 0.0
-                            ),
-                            clock_duration=self._format_seconds(
-                                getattr(snapshot, "clock_duration_seconds", 0.0) or 0.0
-                            ),
-                            pm=getattr(snapshot, "powerup_multiplier_display", "--"),
-                        )
-                    else:
-                        text = format_powerups_summary(include_left_word=True)
-                    if len(text) > 450:
-                        text = text[:447] + "..."
-                    self._send_chat(channel, text)
-                    return
-            except Exception:
-                pass
+        powerups = runtime.powerups
+        if powerups.available is True:
+            active = getattr(runtime, "legacy_powerups_summary", None) or (
+                ", ".join(effect.name for effect in powerups.active) or "none active"
+            )
+            text = self._format_template(
+                "powerups", "Powerups: {powerups} (PM {pm})",
+                powerups=active,
+                standard_duration=self._format_seconds(powerups.standard_duration_seconds or 0.0),
+                clock_duration=self._format_seconds(powerups.clock_duration_seconds or 0.0),
+                pm=powerups.powerup_multiplier_display,
+            )
+            self._send_chat(channel, text[:447] + "..." if len(text) > 450 else text)
+            return
 
         stat = snap.stats.get("Powerup Multiplier") if getattr(snap, "stats", None) else None
         try:
@@ -675,15 +711,14 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_chests(self, channel: str):
-        has_active_run = getattr(self.run_tracker, "has_active_run", None)
-        is_active = has_active_run() if callable(has_active_run) else bool(self.run_tracker.latest_snapshot())
+        runtime = self._runtime_snapshot()
+        is_active = bool(runtime.latest_snapshot)
         if not is_active:
             self._send_chat(channel, "No active run detected.")
             return
 
-        get_chest_stats = getattr(self.run_tracker, "get_chest_stats", None)
-        if callable(get_chest_stats):
-            stats = get_chest_stats()
+        if runtime.latest_snapshot is not None:
+            stats = runtime.chest_stats
             keys_count = stats.keys_count
             paid_opens = stats.paid
             key_procs = stats.key_procs
@@ -699,15 +734,6 @@ class TwitchBotWorker(QThread):
                 if stats.expected_available
                 else "--"
             )
-        else:
-            chests_opened, chests_total, keys_count, key_procs, chests_by_stage, total_by_stage = self.run_tracker.get_chests_and_keys()
-            paid_opens = max(0, chests_opened - key_procs)
-            free_chests = 0
-            total_opened = sum(chests_by_stage.values()) if chests_by_stage else chests_opened
-            total_opened_is_minimum = False
-            total_chests = sum(total_by_stage.values()) if total_by_stage else chests_total
-            normal_opened = paid_opens + key_procs
-            expected_procs = "--"
 
         stage_parts = []
         for stage, count in sorted(chests_by_stage.items()):
@@ -843,37 +869,8 @@ class TwitchBotWorker(QThread):
         return enabled_cmds
 
     def _handle_kps(self, channel: str):
-        tracker_status = getattr(self.run_tracker, "status", None)
-        if callable(tracker_status):
-            try:
-                if tracker_status() == "no_game":
-                    self._send_chat(
-                        channel,
-                        "Kills Per Second is not available because no run is active.",
-                    )
-                    return
-            except Exception:
-                pass
-
-        kps = self.run_tracker.current_ui_kps()
-        minute_avg = self.run_tracker.current_minute_avg_kps()
-        ten_minute_avg = self.run_tracker.current_five_minute_avg_kps()
-        run_avg = self.run_tracker.current_run_avg_kps()
-        if kps is None:
-            msg = "Not enough data yet to calculate Kills Per Second."
-        else:
-            minute_text = "--" if minute_avg is None else f"{minute_avg:,}/s"
-            ten_minute_text = "--" if ten_minute_avg is None else f"{ten_minute_avg:,}/s"
-            run_text = "--" if run_avg is None else f"{run_avg:,}/s"
-            msg = self._format_template(
-                "kps",
-                "KPS: {kps} | 60s Avg: {minute_avg} | 5m Avg: {five_minute_avg} | Run Avg: {run_avg}",
-                kps=f"{kps:,}/s",
-                minute_avg=minute_text,
-                five_minute_avg=ten_minute_text,
-                run_avg=run_text,
-            )
-        self._send_chat(channel, msg)
+        runtime = self._runtime_snapshot()
+        self._send_chat(channel, truncate_chat_message(format_kps(runtime, self._format_template)))
 
     def _handle_commands(self, channel: str):
         enabled_cmds = self._enabled_command_names()
@@ -925,15 +922,10 @@ class TwitchBotWorker(QThread):
         if not config.TWITCH_BOT.get("stage_announcements", True):
             return
 
-        runtime_snapshot_reader = getattr(self.run_tracker, "runtime_snapshot", None)
-        runtime = runtime_snapshot_reader() if callable(runtime_snapshot_reader) else None
-        if runtime is not None:
-            run_id = runtime.run_id
-            stage_index = runtime.current_stage_index
-            rows = runtime.stage_summary
-        else:
-            run_id, stage_index = self.run_tracker.run_identity()
-            rows = None
+        runtime = self._runtime_snapshot()
+        run_id = runtime.run_id
+        stage_index = runtime.current_stage_index
+        rows = runtime.stage_summary
 
         if run_id != self._last_run_id:
             self._last_run_id = run_id
@@ -944,8 +936,6 @@ class TwitchBotWorker(QThread):
             prev_stage = self._last_stage_index
             self._last_stage_index = stage_index
 
-            if rows is None:
-                rows = self.run_tracker.stage_summary_rows()
             prev_row = None
             for row in rows:
                 if row.get("label") == f"Stage {prev_stage}":

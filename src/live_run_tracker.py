@@ -142,6 +142,11 @@ class RuntimeStateSnapshot:
     chest_stats: ChestStatsSnapshot
     kps: dict[str, int | None]
     feature_status: dict[str, FeatureStatus]
+    chaos_tome: Any | None
+    powerups: PowerupsSnapshot
+    powerup_map_context: PowerupMapContext | None
+    fast_stage_timer: FastStageTimerContext | None
+    graveyard_main_map_events_active: bool
 
 
 @dataclass(frozen=True)
@@ -610,6 +615,7 @@ class LiveRunTracker:
     def runtime_snapshot(self) -> RuntimeStateSnapshot:
         """Return one immutable boundary object for consumer projections."""
         now = self.clock()
+        map_context = self._fresh_powerup_map_context_unlocked()
         return RuntimeStateSnapshot(
             status=self._status_unlocked(now),
             lifecycle=self._lifecycle,
@@ -627,6 +633,16 @@ class LiveRunTracker:
                 "run_avg": self._current_run_avg_kps_unlocked(),
             },
             feature_status=self._feature_status_snapshot_unlocked(now),
+            chaos_tome=self.chaos_tome_snapshot(),
+            powerups=self._fresh_powerups_snapshot_unlocked(),
+            powerup_map_context=copy.deepcopy(map_context),
+            fast_stage_timer=copy.deepcopy(self._fresh_fast_stage_timer_context_unlocked()),
+            graveyard_main_map_events_active=(
+                bool(map_context and map_context.is_graveyard)
+                and self._graveyard_crypt_entries == 1
+                and not self._graveyard_in_crypt
+                and not self._graveyard_final_swarm_active
+            ),
         )
 
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:
