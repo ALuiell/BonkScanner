@@ -1,5 +1,51 @@
 # BonkScanner Data Flow Architecture
 
+## Current Architecture
+
+This section is authoritative. The historical sections below are retained for
+feature references and will be consolidated later.
+
+```mermaid
+flowchart LR
+    Memory[Game memory] --> Coordinator[RefreshCoordinator]
+    Config[Consumer config] --> Coordinator
+    Coordinator --> Slow[full_player_snapshot 10 s]
+    Coordinator --> Combat[combat_metrics 500 ms]
+    Coordinator --> Powerups[powerups 500 ms]
+    Coordinator --> Chests[expected_chest_inputs 500 ms]
+    Coordinator --> Event[event_timer 500 ms]
+    Coordinator --> Chaos[chaos_tome 500 ms]
+    Slow --> Tracker[LiveRunTracker feature states]
+    Combat --> Tracker
+    Powerups --> Tracker
+    Chests --> Tracker
+    Event --> Tracker
+    Chaos --> Tracker
+    Tracker --> Snapshot[RuntimeStateSnapshot]
+    Snapshot --> OBS[OBS projection / OverlayStateStore]
+    Snapshot --> InGame[In-game projection]
+    Snapshot --> Twitch[Twitch projection]
+    Snapshot --> VOD[VOD projection]
+```
+
+- `RefreshCoordinator` runs on the GUI owner thread and creates one shared
+  `RefreshTickContext` per tick. Owner-dependent fast tasks resolve
+  `owner_stats` at most once in that tick.
+- Tasks are demand-gated: OBS requires a running local server and an enabled
+  widget; in-game overlay requires an enabled runtime widget; Twitch requires
+  a connected bot and enabled command; VOD requires recording.
+- `LiveRunTracker` is the single runtime source of truth. Its private state is
+  grouped into run, combat, chest, Chaos Tome, powerup, tracked-item and
+  availability feature states.
+- `RuntimeStateSnapshot` is the only production read boundary for OBS,
+  in-game overlay and Twitch. Consumers do not read game memory or mutate
+  tracker state.
+- The slow task preserves the existing 10-second full player snapshot and
+  stage-summary cadence. Actual chest bought/purchased counters stay on that
+  slow path; VOD capture keeps its existing effective 10-second minimum.
+- `GAME_OVER` marks a completed run and preserves its last local snapshot
+  until a confirmed new run starts.
+
 ## 1. Introduction
 
 - **Why this document exists:** To provide a structural overview of the data pipelines in the BonkScanner / MegabonkReroll project. It helps developers understand where data originates, how often it is updated, where the state is stored, and who consumes it.

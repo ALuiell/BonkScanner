@@ -4657,7 +4657,16 @@ class GuiRunControlTests(unittest.TestCase):
         app = object.__new__(gui.MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
         app.is_game_window_active = lambda _process_name: True
-        app.live_run_tracker = SimpleNamespace()
+        app.live_run_tracker = SimpleNamespace(
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=None,
+                kps={},
+                powerups=SimpleNamespace(),
+                powerup_map_context=None,
+                fast_stage_timer=None,
+                graveyard_main_map_events_active=False,
+            )
+        )
 
         overlay_cfg = {
             "enabled": False,
@@ -4676,7 +4685,16 @@ class GuiRunControlTests(unittest.TestCase):
         app = object.__new__(gui.MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
         app.is_game_window_active = lambda _process_name: True
-        app.live_run_tracker = SimpleNamespace()
+        app.live_run_tracker = SimpleNamespace(
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=None,
+                kps={},
+                powerups=SimpleNamespace(),
+                powerup_map_context=None,
+                fast_stage_timer=None,
+                graveyard_main_map_events_active=False,
+            )
+        )
 
         overlay_cfg = {
             "enabled": True,
@@ -4703,7 +4721,16 @@ class GuiRunControlTests(unittest.TestCase):
             "powerups": SimpleNamespace(set_text=MagicMock(), setVisible=MagicMock()),
         }
         app.is_game_window_active = lambda _process_name: True
-        app.live_run_tracker = SimpleNamespace()
+        app.live_run_tracker = SimpleNamespace(
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=None,
+                kps={},
+                powerups=SimpleNamespace(),
+                powerup_map_context=None,
+                fast_stage_timer=None,
+                graveyard_main_map_events_active=False,
+            )
+        )
         app.scanner_thread = FakeAliveThread()
         app.player_stats_vod_recorder = None
 
@@ -4829,18 +4856,22 @@ class GuiRunControlTests(unittest.TestCase):
             "event_timer": widget,
         }
         app.live_run_tracker = SimpleNamespace(
-            latest_snapshot=lambda: SimpleNamespace(
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=SimpleNamespace(
                 stage_index=0,
                 stage_duration_seconds=480.0,
                 stage_timer_seconds=25.0,
             ),
-            powerup_map_context=lambda: SimpleNamespace(is_graveyard=False),
-            fast_stage_timer_context=lambda: SimpleNamespace(
+            kps={},
+            powerups=SimpleNamespace(),
+            powerup_map_context=SimpleNamespace(is_graveyard=False),
+            fast_stage_timer=SimpleNamespace(
                 stage_index=2,
                 stage_duration_seconds=420.0,
                 stage_timer_seconds=25.0,
             ),
-            graveyard_main_map_events_active=lambda: False,
+            graveyard_main_map_events_active=False,
+            )
         )
         app.is_game_window_active = lambda _process_name: True
         app._refresh_in_game_overlay_slow_widgets = lambda: None
@@ -4869,10 +4900,14 @@ class GuiRunControlTests(unittest.TestCase):
             "event_timer": widget,
         }
         app.live_run_tracker = SimpleNamespace(
-            latest_snapshot=lambda: None,
-            powerup_map_context=lambda: None,
-            fast_stage_timer_context=lambda: None,
-            graveyard_main_map_events_active=lambda: False,
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=None,
+                kps={},
+                powerups=SimpleNamespace(),
+                powerup_map_context=None,
+                fast_stage_timer=None,
+                graveyard_main_map_events_active=False,
+            )
         )
         app._refresh_in_game_overlay_slow_widgets = lambda: None
 

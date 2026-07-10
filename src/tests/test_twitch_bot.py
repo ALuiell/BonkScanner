@@ -60,6 +60,23 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.assertTrue(len(args) <= 512)
         self.assertTrue(args.endswith(b"\r\n"))
 
+    def test_stats_uses_runtime_snapshot_without_legacy_getters(self):
+        tracker = SimpleNamespace(
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=SimpleNamespace(
+                    stats={"Damage": SimpleNamespace(display_value="150%")},
+                ),
+            ),
+            latest_snapshot=lambda: (_ for _ in ()).throw(AssertionError("legacy getter")),
+        )
+        bot = TwitchBotWorker(tracker)
+        bot._send_chat = MagicMock()
+
+        bot._handle_stats("channel")
+
+        bot._send_chat.assert_called_once()
+        self.assertIn("150%", bot._send_chat.call_args.args[1])
+
     def test_access_tier_mods_vips(self):
         from config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
