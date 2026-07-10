@@ -67,7 +67,7 @@ from player_stats import (
     WeaponSnapshot,
     calculate_chests_per_minute,
 )
-from refresh_coordinator import RefreshCoordinator, RefreshTask
+from refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from vod_storage import delete_vod, delete_vods_below_snapshot_count, list_vods, load_vod, rename_vod
 from vod_projection import build_vod_capture_kwargs
 
@@ -128,13 +128,6 @@ class PlayerStatsMixin:
             or self._in_game_overlay_widget_enabled("event_timer")
         )
 
-    def _in_game_overlay_requires_tracker_refresh(self) -> bool:
-        return (
-            self._in_game_overlay_widget_enabled("powerups")
-            or self._in_game_overlay_widget_enabled("kps")
-            or self._in_game_overlay_widget_enabled("event_timer")
-        )
-
     def update_player_stats_timer(self):
         if self._is_shutting_down:
             return
@@ -155,7 +148,7 @@ class PlayerStatsMixin:
             or self.player_stats_vod_recorder.is_recording
             or self._is_player_stats_recording_armed()
             or bool(getattr(config, "AUTO_START_RECORDING", False))
-            or self.overlay_should_refresh_live_stats()
+            or self._overlay_requires_player_snapshot()
             or self._in_game_overlay_requires_player_stats_refresh()
             or self._is_twitch_bot_active()
         )
@@ -170,17 +163,6 @@ class PlayerStatsMixin:
             self.update_chaos_tome_tracker_timer,
         )
 
-    def _fast_tracker_refresh_required(self) -> bool:
-        return not bool(getattr(self, "_player_stats_completed_run", False)) and (
-            self._is_live_stats_tab_active()
-            or self.player_stats_vod_recorder.is_recording
-            or self._is_player_stats_recording_armed()
-            or bool(getattr(config, "AUTO_START_RECORDING", False))
-            or self.overlay_should_refresh_live_stats()
-            or self._in_game_overlay_requires_tracker_refresh()
-            or self._is_twitch_bot_active()
-        )
-
     def _ensure_refresh_coordinator(self) -> RefreshCoordinator:
         coordinator = getattr(self, "_refresh_coordinator", None)
         if coordinator is not None:
@@ -191,7 +173,7 @@ class PlayerStatsMixin:
                 task_id="full_player_snapshot",
                 interval_ms=PLAYER_STATS_REFRESH_MS,
                 required=self._player_stats_refresh_required,
-                run=lambda: self.refresh_live_player_stats_now(
+                run=lambda _context: self.refresh_live_player_stats_now(
                     status_text=getattr(
                         self,
                         "_player_stats_refresh_status_text",
@@ -202,118 +184,159 @@ class PlayerStatsMixin:
         )
         coordinator.register(
             RefreshTask(
-                task_id="fast_tracker",
+                task_id="combat_metrics",
                 interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
-                required=self._fast_tracker_refresh_required,
-                run=self.refresh_chaos_tome_tracker_now,
+                required=self._should_refresh_fast_kps,
+                run=self._refresh_combat_metrics_task,
+            )
+        )
+        coordinator.register(
+            RefreshTask(
+                task_id="powerups",
+                interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
+                required=self._should_refresh_powerup_tracker,
+                run=self._refresh_powerups_task,
+            )
+        )
+        coordinator.register(
+            RefreshTask(
+                task_id="expected_chest_inputs",
+                interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
+                required=self._should_refresh_expected_chest_inputs,
+                run=self._refresh_expected_chest_inputs_task,
+            )
+        )
+        coordinator.register(
+            RefreshTask(
+                task_id="event_timer",
+                interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
+                required=self._should_refresh_fast_stage_timer,
+                run=self._refresh_event_timer_task,
+            )
+        )
+        coordinator.register(
+            RefreshTask(
+                task_id="chaos_tome",
+                interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
+                required=self._should_refresh_chaos_tome,
+                run=self._refresh_chaos_tome_task,
             )
         )
         self._refresh_coordinator = coordinator
         return coordinator
 
-    def refresh_chaos_tome_tracker_now(self) -> bool:
+    def _fast_task_client(self, context: RefreshTickContext) -> PlayerStatsClient:
+        return context.get_or_create("player_stats_client", self._get_player_stats_client)
+
+    def _fast_task_owner_stats(self, context: RefreshTickContext) -> int:
+        return context.get_or_create(
+            "owner_stats",
+            lambda: self._fast_task_client(context).resolve_owner_stats(),
+        )
+
+    def _mark_fast_feature_available(self, feature: str) -> None:
+        marker = getattr(self.live_run_tracker, "mark_feature_available", None)
+        if callable(marker):
+            marker(feature)
+
+    def _mark_fast_feature_failed(self, feature: str, error: Exception) -> None:
+        marker = getattr(self.live_run_tracker, "mark_feature_failed", None)
+        if callable(marker):
+            marker(feature, error)
+
+    def _refresh_powerups_task(self, context: RefreshTickContext) -> bool:
         try:
-            client = self._get_player_stats_client()
-            owner_stats = client.resolve_owner_stats()
-            should_refresh_powerups = False
-            should_refresh_powerup_tracker = getattr(
-                self,
-                "_should_refresh_powerup_tracker",
-                None,
+            snapshot = self._fast_task_client(context).get_powerup_tracking_snapshot(
+                self._fast_task_owner_stats(context)
             )
-            if callable(should_refresh_powerup_tracker):
-                should_refresh_powerups = should_refresh_powerup_tracker()
+            self.live_run_tracker.update_powerups(snapshot)
+            self._refresh_live_powerups_label()
+            return True
+        except Exception as exc:
+            self._mark_fast_feature_failed("powerups", exc)
+            self._refresh_live_powerups_label()
+            return False
 
-            if should_refresh_powerups:
-                try:
-                    powerups_snapshot = client.get_powerup_tracking_snapshot(owner_stats)
-                    self.live_run_tracker.update_powerups(powerups_snapshot)
-                    self._refresh_live_powerups_label()
-                except Exception:
-                    self._refresh_live_powerups_label()
-
-            now = time.monotonic()
-            last_chest_refresh = getattr(
-                self,
-                "_last_chest_expected_refresh_at",
-                None,
+    def _refresh_expected_chest_inputs_task(self, context: RefreshTickContext) -> bool:
+        try:
+            chests_bought, keys_count = self._fast_task_client(context).get_expected_chest_inputs(
+                self._fast_task_owner_stats(context)
             )
-            if last_chest_refresh is None or now - last_chest_refresh >= 0.5:
-                self._last_chest_expected_refresh_at = now
-                try:
-                    chests_bought, keys_count = client.get_expected_chest_inputs(
-                        owner_stats
-                    )
-                    self.live_run_tracker.track_expected_key_procs(
-                        chests_bought,
-                        keys_count,
-                    )
-                except Exception:
-                    pass
+            self.live_run_tracker.track_expected_key_procs(chests_bought, keys_count)
+            self._mark_fast_feature_available("expected_chests")
+            return True
+        except Exception as exc:
+            self._mark_fast_feature_failed("expected_chests", exc)
+            return False
 
-            if self._should_refresh_fast_kps(now):
-                try:
-                    run_timer_seconds = client.get_run_timer()
-                    previous_game_time = getattr(self, "_last_fast_kps_game_time_seconds", None)
-                    if (
-                        run_timer_seconds is not None
-                        and previous_game_time is not None
-                        and abs(float(run_timer_seconds) - float(previous_game_time)) < 0.001
-                    ):
-                        pass
-                    else:
-                        mob_kills = client.get_killed_mobs()
-                        self.live_run_tracker.track_kills(run_timer_seconds, mob_kills)
-                        self._last_fast_kps_game_time_seconds = run_timer_seconds
-                        if self._is_live_stats_tab_active():
-                            _set_text(
-                                self.player_stats_mob_kills_label,
-                                self.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps())
-                            )
-                        if self.overlay_should_refresh_live_stats() and self._overlay_kps_widget_enabled():
-                            self.update_overlay_state_from_tracker()
-                except Exception:
-                    pass
-
-            if self._should_refresh_fast_stage_timer():
-                update_fast_stage_timer = getattr(self.live_run_tracker, "update_fast_stage_timer", None)
-                if callable(update_fast_stage_timer):
-                    try:
-                        stage_timer_seconds, stage_index, stage_duration_seconds = (
-                            client.get_stage_timer_context()
-                        )
-                        update_fast_stage_timer(
-                            stage_timer_seconds=stage_timer_seconds,
-                            stage_index=stage_index,
-                            stage_duration_seconds=stage_duration_seconds,
-                        )
-                    except Exception:
-                        update_fast_stage_timer(
-                            stage_timer_seconds=None,
-                            stage_index=None,
-                            stage_duration_seconds=None,
-                        )
-
-            chaos_level, permanent_modifiers = client.get_chaos_tracking_state(
-                owner_stats
-            )
-            if chaos_level is None:
-                self.live_run_tracker.update_chaos_tome(
-                    chaos_level=None,
-                    permanent_modifiers={},
-                )
+    def _refresh_combat_metrics_task(self, context: RefreshTickContext) -> bool:
+        try:
+            client = self._fast_task_client(context)
+            run_timer_seconds = client.get_run_timer()
+            self._mark_fast_feature_available("combat")
+            previous_game_time = getattr(self, "_last_fast_kps_game_time_seconds", None)
+            if (
+                run_timer_seconds is not None
+                and previous_game_time is not None
+                and abs(float(run_timer_seconds) - float(previous_game_time)) < 0.001
+            ):
                 return True
+            mob_kills = client.get_killed_mobs()
+            self.live_run_tracker.track_kills(run_timer_seconds, mob_kills)
+            self._last_fast_kps_game_time_seconds = run_timer_seconds
+            if self._is_live_stats_tab_active():
+                _set_text(
+                    self.player_stats_mob_kills_label,
+                    self.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps()),
+                )
+            if self._overlay_widget_refresh_active("kps"):
+                self.update_overlay_state_from_tracker()
+            return True
+        except Exception as exc:
+            self._mark_fast_feature_failed("combat", exc)
+            return False
+
+    def _refresh_event_timer_task(self, context: RefreshTickContext) -> bool:
+        update_fast_stage_timer = getattr(self.live_run_tracker, "update_fast_stage_timer", None)
+        if not callable(update_fast_stage_timer):
+            return True
+        try:
+            stage_timer_seconds, stage_index, stage_duration_seconds = (
+                self._fast_task_client(context).get_stage_timer_context()
+            )
+            update_fast_stage_timer(
+                stage_timer_seconds=stage_timer_seconds,
+                stage_index=stage_index,
+                stage_duration_seconds=stage_duration_seconds,
+            )
+            self._mark_fast_feature_available("stage_timer")
+            return True
+        except Exception as exc:
+            update_fast_stage_timer(
+                stage_timer_seconds=None,
+                stage_index=None,
+                stage_duration_seconds=None,
+            )
+            self._mark_fast_feature_failed("stage_timer", exc)
+            return False
+
+    def _refresh_chaos_tome_task(self, context: RefreshTickContext) -> bool:
+        try:
+            chaos_level, permanent_modifiers = self._fast_task_client(
+                context
+            ).get_chaos_tracking_state(self._fast_task_owner_stats(context))
             self.live_run_tracker.update_chaos_tome(
                 chaos_level=chaos_level,
-                permanent_modifiers=permanent_modifiers,
+                permanent_modifiers=permanent_modifiers if chaos_level is not None else {},
             )
             return True
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            return False
-        except Exception:
+        except Exception as exc:
+            self._mark_fast_feature_failed("chaos_tome", exc)
             return False
 
     def _should_refresh_powerup_tracker(self) -> bool:
+        if bool(getattr(self, "_player_stats_completed_run", False)):
+            return False
         is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
         if callable(is_live_stats_tab_active):
             try:
@@ -336,6 +359,8 @@ class PlayerStatsMixin:
         return False
 
     def _should_refresh_fast_kps(self, _now: float | None = None) -> bool:
+        if bool(getattr(self, "_player_stats_completed_run", False)):
+            return False
         is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
         if callable(is_live_stats_tab_active):
             try:
@@ -343,9 +368,11 @@ class PlayerStatsMixin:
                     return True
             except Exception:
                 pass
+        if self._is_vod_recording():
+            return True
         if self._in_game_overlay_widget_enabled("kps"):
             return True
-        if self.overlay_should_refresh_live_stats() and self._overlay_kps_widget_enabled():
+        if self._overlay_widget_refresh_active("kps"):
             return True
         is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
         commands_cfg = config.TWITCH_BOT.get("commands", {})
@@ -356,18 +383,60 @@ class PlayerStatsMixin:
                 return False
         return False
 
-    def _should_refresh_fast_stage_timer(self) -> bool:
-        return self._in_game_overlay_widget_enabled("event_timer")
+    def _should_refresh_expected_chest_inputs(self) -> bool:
+        if bool(getattr(self, "_player_stats_completed_run", False)):
+            return False
+        if self._is_live_stats_tab_active() or self._is_vod_recording():
+            return True
+        return self._twitch_command_refresh_active("chests")
 
-    @staticmethod
-    def _overlay_kps_widget_enabled() -> bool:
+    def _should_refresh_chaos_tome(self) -> bool:
+        if bool(getattr(self, "_player_stats_completed_run", False)):
+            return False
+        if self._is_live_stats_tab_active() or self._is_vod_recording():
+            return True
+        return self._twitch_command_refresh_active("chaos")
+
+    def _twitch_command_refresh_active(self, command: str) -> bool:
+        is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
+        if not callable(is_twitch_bot_active):
+            return False
+        try:
+            if not is_twitch_bot_active():
+                return False
+        except Exception:
+            return False
+        commands = config.TWITCH_BOT.get("commands", {})
+        default = config.DEFAULT_TWITCH_BOT["commands"].get(command, False)
+        return bool(commands.get(command, default))
+
+    def _is_vod_recording(self) -> bool:
+        recorder = getattr(self, "player_stats_vod_recorder", None)
+        return bool(recorder is not None and getattr(recorder, "is_recording", False))
+
+    def _should_refresh_fast_stage_timer(self) -> bool:
+        return (
+            not bool(getattr(self, "_player_stats_completed_run", False))
+            and self._in_game_overlay_widget_enabled("event_timer")
+        )
+
+    def _overlay_widget_refresh_active(self, widget_id: str) -> bool:
+        server = getattr(self, "overlay_server", None)
+        if server is None or not bool(getattr(server, "is_running", False)):
+            return False
         overlay = getattr(config, "OVERLAY", {}) or {}
-        for widget in overlay.get("widgets", ()) or ():
-            if not isinstance(widget, dict):
-                continue
-            if str(widget.get("id") or "") == "kps":
-                return bool(widget.get("enabled", False))
-        return False
+        return any(
+            isinstance(widget, dict)
+            and str(widget.get("id") or "") == widget_id
+            and bool(widget.get("enabled", False))
+            for widget in overlay.get("widgets", ()) or ()
+        )
+
+    def _overlay_requires_player_snapshot(self) -> bool:
+        return any(
+            self._overlay_widget_refresh_active(widget_id)
+            for widget_id in ("stage_summary", "tracked_items", "stats", "banishes")
+        )
 
     def _refresh_live_powerups_label(self) -> None:
         self._apply_live_powerups_card(None)
@@ -4977,7 +5046,6 @@ class PlayerStatsMixin:
             self.player_stats_client = None
         self.player_stats_last_seed = None
         self.player_stats_last_run_timer = None
-        self._last_chest_expected_refresh_at = None
 
     def close_player_stats_game_data_client(self):
         game_data_client = self.__dict__.get("player_stats_game_data_client")

@@ -392,3 +392,14 @@ snapshot; it must not duplicate memory reads solely to write a recording.
   diagnostics; the existing 500 ms and 10 s UI timers now tick it.
 - Added OBS and VOD snapshot projections; Twitch stage announcements and
   in-game KPS use the snapshot boundary when available.
+
+### 2026-07-10 Fast Task Migration
+
+- Replaced the shared fast refresh callback with independent 500 ms tasks for
+  combat metrics, powerups, expected chest inputs, event timer, and Chaos Tome.
+- Added a per-tick lazy context that resolves shared `owner_stats` once for all
+  due owner-dependent tasks.
+- Made OBS KPS demand require both a running local server and an enabled KPS
+  widget; unrelated fast tasks no longer run solely because OBS is configured.
+- Isolated task failures through per-feature status updates while retaining the
+  last successful runtime value.

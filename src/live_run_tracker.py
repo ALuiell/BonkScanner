@@ -335,6 +335,8 @@ class LiveRunTracker:
                 "world",
                 "powerups",
                 "chaos_tome",
+                "expected_chests",
+                "stage_timer",
             )
         }
         self._previous_item_counts: dict[str, int] | None = None

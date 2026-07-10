@@ -8,7 +8,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import time
-from typing import Callable
+from typing import Any, Callable
+
+
+class RefreshTickContext:
+    """Per-tick lazy cache shared by all due refresh tasks."""
+
+    def __init__(self) -> None:
+        self._values: dict[str, Any] = {}
+        self._errors: dict[str, Exception] = {}
+
+    def get_or_create(self, key: str, factory: Callable[[], Any]) -> Any:
+        if key in self._values:
+            return self._values[key]
+        if key in self._errors:
+            raise self._errors[key]
+        try:
+            value = factory()
+        except Exception as exc:
+            self._errors[key] = exc
+            raise
+        self._values[key] = value
+        return value
 
 
 @dataclass(frozen=True)
@@ -27,7 +48,7 @@ class RefreshTask:
     task_id: str
     interval_ms: int
     required: Callable[[], bool]
-    run: Callable[[], bool | None]
+    run: Callable[[RefreshTickContext], bool | None]
     last_started_at: float | None = None
     last_succeeded_at: float | None = None
     last_error: str | None = None
@@ -52,13 +73,14 @@ class RefreshCoordinator:
 
     def tick(self) -> tuple[str, ...]:
         now = self._clock()
+        context = RefreshTickContext()
         ran: list[str] = []
         for task in self._tasks.values():
             if not task.required() or not self._is_due(task, now):
                 continue
             task.last_started_at = now
             try:
-                succeeded = task.run()
+                succeeded = task.run(context)
             except Exception as exc:  # Diagnostics must not stop other tasks.
                 task.failure_count += 1
                 task.last_error = f"{type(exc).__name__}: {exc}"
