@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from math import isfinite
 import time
@@ -250,6 +250,85 @@ class PowerupMapContext:
         )
 
 
+@dataclass
+class _RunState:
+    run_id: str | None = None
+    lifecycle: RunLifecycle = RunLifecycle.WAITING
+    snapshots: deque[LiveRunSnapshot] = field(default_factory=deque)
+    current_stage_index: int = 1
+    last_update_at: float | None = None
+    last_failed_at: float | None = None
+    last_no_game_at: float | None = None
+    cached_stage_summary: list[dict[str, Any]] | None = None
+    disabled_items_cache: tuple[str, ...] | None = None
+
+
+@dataclass
+class _CombatState:
+    recent_kills_history: deque[tuple[float, int]] = field(default_factory=deque)
+    ui_kps_baseline: tuple[float, int] | None = None
+    ui_kps_value: int | None = None
+
+
+@dataclass
+class _ChestState:
+    chests_opened: int = 0
+    chests_total: int = 46
+    keys_count: int = 0
+    paid_chest_opens: int = 0
+    key_chest_procs: int = 0
+    free_chest_opens: int | None = None
+    chest_counters_available: bool = False
+    chest_history_incomplete: bool = False
+    total_opened_minimum: int | None = None
+    total_opened_is_minimum: bool = False
+    expected_key_procs: float = 0.0
+    expected_tracked_opens: int = 0
+    expected_chests_bought: int | None = None
+    expected_keys_count: int | None = None
+    expected_available: bool = False
+    expected_detected_run_reset: bool = False
+    stage_ptrs_seen: list[int] = field(default_factory=list)
+    stage_numbers_by_ptr: dict[int, int] = field(default_factory=dict)
+    chests_opened_by_stage: dict[int, int] = field(default_factory=dict)
+    chests_total_by_stage: dict[int, int] = field(default_factory=dict)
+
+
+@dataclass
+class _ChaosTomeState:
+    chaos_tome_level: int | None = None
+    chaos_modifier_baselines: dict[int, tuple[float, ...]] = field(default_factory=dict)
+    chaos_totals: dict[int, ChaosTomeStatTotal] = field(default_factory=dict)
+    chaos_ambiguous_rolls: int = 0
+    chaos_available_rolls: int = 0
+    chaos_unbudgeted_candidates: dict[tuple[int, int], tuple[float, int]] = field(default_factory=dict)
+
+
+@dataclass
+class _PowerupState:
+    powerups_snapshot: PowerupsSnapshot = field(default_factory=PowerupsSnapshot)
+    powerup_map_context: PowerupMapContext = field(default_factory=PowerupMapContext)
+    fast_stage_timer_context: FastStageTimerContext = field(default_factory=FastStageTimerContext)
+    graveyard_crypt_entries: int = 0
+    graveyard_in_crypt: bool = False
+    graveyard_crypt_timer_seen: bool = False
+    graveyard_final_swarm_active: bool = False
+
+
+@dataclass
+class _TrackedItemState:
+    tracked_item_rules: tuple[TrackedItemRule, ...] = ()
+    previous_item_counts: dict[str, int] | None = None
+    tracked_events: list[TrackedItemEvent] = field(default_factory=list)
+    tracked_counts: dict[str, int] = field(default_factory=dict)
+    combo_run_counts: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass
+class _AvailabilityState:
+    feature_status: dict[str, FeatureStatus] = field(default_factory=dict)
+
+
 DEFAULT_TRACKED_ITEM_RULES: tuple[TrackedItemRule, ...] = (
     TrackedItemRule(
         id="anvils_map_1",
@@ -311,6 +390,57 @@ def chaos_tome_stat_sort_key(total: Any) -> tuple[int, str]:
 
 
 class LiveRunTracker:
+    _STATE_FIELDS = {
+        **{name: "_run_state" for name in (
+            "run_id", "_lifecycle", "snapshots", "current_stage_index",
+            "_last_update_at", "_last_failed_at", "_last_no_game_at",
+            "_cached_stage_summary", "_disabled_items_cache",
+        )},
+        **{name: "_combat_state" for name in (
+            "_recent_kills_history", "_ui_kps_baseline", "_ui_kps_value",
+        )},
+        **{name: "_chest_state" for name in (
+            "_chests_opened", "_chests_total", "_keys_count", "_paid_chest_opens",
+            "_key_chest_procs", "_free_chest_opens", "_chest_counters_available",
+            "_chest_history_incomplete", "_total_opened_minimum", "_total_opened_is_minimum",
+            "_expected_key_procs", "_expected_tracked_opens", "_expected_chests_bought",
+            "_expected_keys_count", "_expected_available", "_expected_detected_run_reset",
+            "_stage_ptrs_seen", "_stage_numbers_by_ptr", "_chests_opened_by_stage",
+            "_chests_total_by_stage",
+        )},
+        **{name: "_chaos_state" for name in (
+            "_chaos_tome_level", "_chaos_modifier_baselines", "_chaos_totals",
+            "_chaos_ambiguous_rolls", "_chaos_available_rolls", "_chaos_unbudgeted_candidates",
+        )},
+        **{name: "_powerup_state" for name in (
+            "_powerups_snapshot", "_powerup_map_context", "_fast_stage_timer_context",
+            "_graveyard_crypt_entries", "_graveyard_in_crypt", "_graveyard_crypt_timer_seen",
+            "_graveyard_final_swarm_active",
+        )},
+        **{name: "_tracked_item_state" for name in (
+            "tracked_item_rules", "_previous_item_counts", "_tracked_events",
+            "_tracked_counts", "_combo_run_counts",
+        )},
+        "_feature_status": "_availability_state",
+    }
+
+    def __getattr__(self, name: str):
+        state_name = self._STATE_FIELDS.get(name)
+        if state_name is not None:
+            state = object.__getattribute__(self, state_name)
+            attr_name = name if name == "tracked_item_rules" else name.lstrip("_")
+            return getattr(state, attr_name)
+        raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        state_name = self._STATE_FIELDS.get(name)
+        if state_name is not None and state_name in self.__dict__:
+            state = self.__dict__[state_name]
+            attr_name = name if name == "tracked_item_rules" else name.lstrip("_")
+            setattr(state, attr_name, value)
+            return
+        object.__setattr__(self, name, value)
+
     def __init__(
         self,
         *,
@@ -319,18 +449,16 @@ class LiveRunTracker:
         stale_after_seconds: float = 5.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self.tracked_item_rules = tuple(tracked_item_rules)
         self.max_snapshots = max(1, int(max_snapshots))
         self.stale_after_seconds = max(0.1, float(stale_after_seconds))
         self.clock = clock
-        self.run_id: str | None = None
-        self._lifecycle = RunLifecycle.WAITING
-        self.snapshots: deque[LiveRunSnapshot] = deque(maxlen=self.max_snapshots)
-        self.current_stage_index = 1
-        self._last_update_at: float | None = None
-        self._last_failed_at: float | None = None
-        self._last_no_game_at: float | None = None
-        self._feature_status: dict[str, FeatureStatus] = {
+        self._run_state = _RunState(snapshots=deque(maxlen=self.max_snapshots))
+        self._combat_state = _CombatState()
+        self._chest_state = _ChestState()
+        self._chaos_state = _ChaosTomeState()
+        self._powerup_state = _PowerupState()
+        self._tracked_item_state = _TrackedItemState()
+        self._availability_state = _AvailabilityState(feature_status={
             name: FeatureStatus(FeatureAvailability.NEVER_LOADED)
             for name in (
                 "run",
@@ -343,49 +471,10 @@ class LiveRunTracker:
                 "expected_chests",
                 "stage_timer",
             )
-        }
-        self._previous_item_counts: dict[str, int] | None = None
-        self._tracked_events: list[TrackedItemEvent] = []
-        self._tracked_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
-        self._combo_run_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
-        self._chaos_tome_level: int | None = None
-        self._chaos_modifier_baselines: dict[int, tuple[float, ...]] = {}
-        self._chaos_totals: dict[int, ChaosTomeStatTotal] = {}
-        self._chaos_ambiguous_rolls = 0
-        self._chaos_available_rolls = 0
-        self._chaos_unbudgeted_candidates: dict[tuple[int, int], tuple[float, int]] = {}
-        self._cached_stage_summary: list[dict[str, Any]] | None = None
-        self._chests_opened = 0
-        self._chests_total = 46
-        self._keys_count = 0
-        self._paid_chest_opens = 0
-        self._key_chest_procs = 0
-        self._free_chest_opens: int | None = None
-        self._chest_counters_available = False
-        self._chest_history_incomplete = False
-        self._total_opened_minimum: int | None = None
-        self._total_opened_is_minimum = False
-        self._expected_key_procs = 0.0
-        self._expected_tracked_opens = 0
-        self._expected_chests_bought: int | None = None
-        self._expected_keys_count: int | None = None
-        self._expected_available = False
-        self._expected_detected_run_reset = False
-        self._stage_ptrs_seen = []
-        self._stage_numbers_by_ptr: dict[int, int] = {}
-        self._chests_opened_by_stage = {}
-        self._chests_total_by_stage = {}
-        self._disabled_items_cache: tuple[str, ...] | None = None
-        self._powerups_snapshot = PowerupsSnapshot()
-        self._powerup_map_context = PowerupMapContext()
-        self._fast_stage_timer_context = FastStageTimerContext()
-        self._recent_kills_history: deque[tuple[float, int]] = deque()
-        self._ui_kps_baseline: tuple[float, int] | None = None
-        self._ui_kps_value: int | None = None
-        self._graveyard_crypt_entries = 0
-        self._graveyard_in_crypt = False
-        self._graveyard_crypt_timer_seen = False
-        self._graveyard_final_swarm_active = False
+        })
+        self.tracked_item_rules = tuple(tracked_item_rules)
+        self._tracked_counts = {rule.id: 0 for rule in self.tracked_item_rules}
+        self._combo_run_counts = {rule.id: 0 for rule in self.tracked_item_rules}
         self._lock = threading.RLock()
 
     @with_lock
