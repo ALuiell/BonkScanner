@@ -39,6 +39,69 @@ Goal:
 - Catch the file lock exception (e.g., `WinError 32` / `PermissionError`) raised when attempting to delete the active recording file, or implement a check to explicitly skip the active run's file during iteration.
 - Ensure all other short recordings are successfully deleted even if the active run is encountered and skipped.
 
+#### 8. Harden The Live Powerup Read Pipeline
+
+Status: `[Open]`
+
+Goal:
+
+- Make the full live-data path resilient to transient or incomplete memory reads:
+  `memory read -> validation -> normalized snapshot -> Live Stats / OBS overlay /
+  Twitch bot / in-game overlay`.
+- Prevent a partially read powerup state from replacing the last known-good state
+  and making an active `Clock` or `TimeFreeze` effect disappear from every consumer.
+
+Current mitigation:
+
+- Commit `f8b2fcb` keeps the last valid powerup snapshot for `1.5s` when the fast
+  refresh path raises a read exception.
+- This protects against hard read failures, but it does not protect against a
+  successful-looking incomplete read. For example, `get_active_status_effects()`
+  can return an empty tuple after a pointer, dictionary, count, or entry read is
+  unavailable, and a failed `Powerup Multiplier` refresh can return `None`.
+- `LiveRunTracker.update_powerups()` currently accepts those values and writes a
+  fresh `available=True` snapshot with no active effects, so the TTL cannot help.
+
+Refactor requirements:
+
+- Separate raw memory reads from interpretation and consumer-facing state.
+- Return an explicit read result for each data group, including at least:
+  - `available` / `unavailable`
+  - `complete` / `partial`
+  - a machine-readable failure reason
+  - capture timestamp and source/read lane
+- Treat `effects=()` as authoritative only when the status-effect dictionary was
+  read and validated completely. An empty result caused by a failed or suspicious
+  read must not clear the previous active-effects snapshot.
+- Treat `powerup_multiplier=None` as a failed dependency for powerup analysis, not
+  as proof that no powerups are active. Preserve the last known-good analyzed
+  state until a valid replacement arrives or an explicit run reset is detected.
+- Keep the source effect model accurate: normal Clock uses the PM-scaled duration,
+  while Za Warudo produces the same `TimeFreeze` / `effect_id == 4` status effect
+  with a fixed `15.0s` duration. The shared effect ID is an attribution ambiguity,
+  not by itself a reason to reject or hide the active effect.
+- Ensure all consumers read the same normalized snapshot and do not independently
+  reinterpret raw memory values or failure states.
+- Add bounded diagnostics for rejected snapshots, especially:
+  `status_effects_unavailable`, `status_effects_partial`,
+  `powerup_multiplier_unavailable`, `effect_4_missing`, and invalid time fields.
+- Add tests for hard read errors, successful-but-empty reads, partial effect lists,
+  multiplier read failures, recovery after several failed polls, and explicit run
+  resets. Tests should verify that all consumers observe the same last-known-good
+  state.
+
+Implementation guidance:
+
+- Keep the current TTL fallback as a compatibility safety net during the refactor,
+  but move freshness and validity decisions into the shared snapshot layer rather
+  than individual UI refresh handlers.
+- Do not add a separate high-frequency inventory scan only to distinguish Clock
+  from Za Warudo. Attribution can remain ambiguous in the active-effect snapshot
+  and be resolved later from slower item snapshots where required.
+- Do not treat Alt+Tab or a single `ReadProcessMemory` failure as a Clock-specific
+  diagnosis. Log the failed read category first; the same pipeline should support
+  all powerups and all consumers.
+
 ### Twitch Commands
 
 #### 1. Twitch Commons
