@@ -103,24 +103,76 @@ Most fragile pieces:
 - class metadata string pointers
 - stack/count field
 
-### 4. Native hook / restart flow
+### 4. Player status effects and active buffs
+
+Code:
+
+- `src/player_stats.py`
+- `src/gui_player_stats.py`
+
+Symptoms:
+
+- active buffs (Rage, Haste, Shield) never appear on the overlay
+- expiration timer remains static or has stale values
+
+Most fragile pieces:
+
+- `PLAYER_STATUS_EFFECTS_OFFSET` (offset `0x38` of `PlayerInventory`)
+- status effects dictionary layout and `StatusEffect` class fields (offsets `0x10`, `0x20`, `0x24`)
+
+### 5. Chest counters and free openings
+
+Code:
+
+- `src/player_stats.py`
+- `src/gui_player_stats.py`
+
+Symptoms:
+
+- chests purchased and chests bought remain at zero
+- free openings are not registered or subtract gold from UI counters
+- key stacking proc calculations show wrong percentages
+
+Most fragile pieces:
+
+- `MONEY_UTILITY_TYPE_INFO_OFFSET` (offset `0x02F5E0B0`)
+- `MONEY_UTILITY_CHESTS_PURCHASED_OFFSET` (offset `0x48`)
+- key stack and current chance offsets in `ItemKey` (`0x30`, `0x34`)
+
+### 6. Chaos Tome tracking
+
+Code:
+
+- `src/player_stats.py`
+- `src/live_run_tracker.py`
+
+Symptoms:
+
+- Chaos Tome upgrades or level up rolls are missing from UI
+- wrong rolls are attributed to Chaos Tome upgrades
+
+Most fragile pieces:
+
+- `STAT_INVENTORY_OFFSET` (offset `0x50` of `PlayerStatsNew`)
+- `STAT_INVENTORY_PERMANENT_CHANGES_OFFSET` (offset `0x10` of `StatInventory`)
+- `permanentChanges` dictionary layout and `StatModifier` offsets
+
+### 7. Keyboard restart control
 
 Code:
 
 - `src/run_control.py`
+- `src/gui_run_control.py`
 
 Symptoms:
 
-- hook never becomes ready
-- injection fails after the game starts
-- restart flow no longer works
-- snapshot readiness waits forever
+- restart hotkey hold does not register
+- restart fails to press correct key combinations
 
 Most fragile pieces:
 
-- hook target addresses in `GameAssembly.dll`
-- exported hook lifecycle behavior
-- runtime-safe injection timing
+- hotkey bindings and hold duration config
+- keyboard simulation helper library compatibility
 
 ## Recommended Triage Order After A Game Update
 
@@ -177,18 +229,38 @@ Check:
 - item object count field
 - item class metadata and ASCII class name
 
-### Step 5. Check memory-read targets
+### Step 5. Check status effects and active buffs path
 
-Reason:
-
-- hooks are usually more brittle than plain readers
-- there is no point debugging hook targets before stable read paths are confirmed
+Only do this after player inventory is verified.
 
 Check:
 
-- hook target addresses
-- runtime readiness assumptions
-- export invocation behavior
+- `PlayerInventory + 0x38`
+- `statusEffects` dictionary at `+0x10`
+- individual entries and key matching
+
+### Step 6. Check chest counters and MoneyUtility offsets
+
+Check:
+
+- `MONEY_UTILITY_TYPE_INFO_OFFSET`
+- `chestsPurchased` at `static_fields + 0x48`
+- `ItemKey` proc probability field `currentChance` at `+0x34`
+
+### Step 7. Check Chaos Tome tracking and permanent changes dictionary
+
+Check:
+
+- `StatInventory` at `PlayerStatsNew + 0x50`
+- `permanentChanges` dictionary at `+0x10`
+- array size and `StatModifier` elements
+
+### Step 8. Check keyboard restart control config
+
+Check:
+
+- hotkey assignments in UI settings
+- layout delays and hold durations in `src/run_control.py`
 
 ## Common Failure Patterns
 
@@ -273,9 +345,17 @@ Even better:
 
 At the time of writing, these are the most useful references:
 
-- `docs/recovery/reports/2026-05-11-player-stats-tab-memory-path.md`
-- `docs/recovery/reports/2026-05-11-item-inventory-addresses.md`
-- `docs/recovery/memory-and-hooks-reference.md`
+- [MEMORY_PATH_INDEX.md](file:///F:/Python/MegabonkReroll/docs/recovery/MEMORY_PATH_INDEX.md)
+- [01_map_generation_and_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/01_map_generation_and_stats.md)
+- [02_player_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/02_player_stats.md)
+- [03_passive_item_inventory.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/03_passive_item_inventory.md)
+- [04_live_weapons_inventory.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/04_live_weapons_inventory.md)
+- [05_live_tomes_inventory.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/05_live_tomes_inventory.md)
+- [06_run_metadata_and_stats.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/06_run_metadata_and_stats.md)
+- [07_chaos_tome_tracking.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/07_chaos_tome_tracking.md)
+- [08_player_status_effects.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/08_player_status_effects.md)
+- [09_disabled_items_pool.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/09_disabled_items_pool.md)
+- [10_chests_purchased_and_counters.md](file:///F:/Python/MegabonkReroll/docs/recovery/parts/10_chests_purchased_and_counters.md)
 
 ## Recovery Output Checklist
 

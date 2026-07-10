@@ -84,6 +84,13 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/gui_dialogs.py](../../src/gui_dialogs.py) | Custom prompt dialogs, scoring rules adjustments, and details widgets. |
 | [src/gui_shared.py](../../src/gui_shared.py) | Base classes, utility widgets, and common state-sharing interfaces for the GUI components. |
 | [src/gui_styles.py](../../src/gui_styles.py) | Central styling stylesheets, color constants, tier badges, and theme parameters. |
+| [src/gui_overlay.py](../../src/gui_overlay.py) | Settings panel layout and button callbacks for the OBS HTTP server overlay. |
+| [src/gui_in_game_overlay.py](../../src/gui_in_game_overlay.py) | Controls the QTimer ticks and lifecycle management of the inside-game overlay. |
+| [src/gui_in_game_overlay_window.py](../../src/gui_in_game_overlay_window.py) | Translucent, click-through widget canvas for desktop overlay drawing. |
+| [src/gui_in_game_overlay_render.py](../../src/gui_in_game_overlay_render.py) | Rich HTML layouts generator for the KPS, powerups, and indicator widgets. |
+| [src/gui_in_game_overlay_settings.py](../../src/gui_in_game_overlay_settings.py) | Settings tab layout and scaling configuration dialogs for inside-game widgets. |
+| [src/gui_twitch.py](../../src/gui_twitch.py) | Chatbot activation, channel configuration, and console messaging GUI widgets. |
+| [src/ui.py](../../src/ui.py) | Reusable PySide6 custom layouts and scroll section container templates. |
 | **Logic & Evaluators** | |
 | [src/logic.py](../../src/logic.py) | Functional core that evaluates map stats against rules (Templates) and computes map scores (Scores). |
 | [src/runtime_stats.py](../../src/runtime_stats.py) | Standardizes raw map details into structures suitable for matching logic. |
@@ -94,10 +101,14 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/player_stats.py](../../src/player_stats.py) | Decodes complex player statistics, inventory dictionaries, tome modifications, and passive item arrays. |
 | [src/item_metadata.py](../../src/item_metadata.py) | Normalization tables mapping raw item hashes or names to readable titles and rarity. |
 | [src/run_control.py](../../src/run_control.py) | Keyboard automation engine for issuing restart macro keystrokes to the game process. |
+| [src/hotkey_manager.py](../../src/hotkey_manager.py) | Low-level system keyboard hook manager mapping global keystrokes to restart commands. |
 | **Integrations & Recording** | |
 | [src/vod_storage.py](../../src/vod_storage.py) | Serializes and deserializes snapshot data to `.jsonl` run records. |
 | [src/twitch_bot.py](../../src/twitch_bot.py) | Handles Twitch channel connection, IRC message handling, and command processing. |
+| [src/twitch_auth.py](../../src/twitch_auth.py) | Client library for Twitch OAuth token generation and authorization scopes. |
+| [src/twitch_credentials.py](../../src/twitch_credentials.py) | Encrypted storage, file paths, and local settings manager for Twitch credentials. |
 | [src/overlay_server.py](../../src/overlay_server.py) | Lightweight server hosting CSS/JS web widgets for OBS Studio overlays. |
+| [src/overlay_state.py](../../src/overlay_state.py) | Thread-safe data structure storing overlay state broadcast snapshots. |
 
 ---
 
@@ -108,4 +119,5 @@ Here is how the responsibilities are distributed across the project's codebase:
 - Learn about stage transitions: [Stage Summary Transitions Wiki](./Stage_Summary_Transitions.md)
 - Learn about VODs and recording formats: [Recordings & VODs Wiki](./Recordings_and_VODs.md)
 - Learn about integrations and overlays: [Integrations & Overlays Wiki](./Integrations_and_Overlay.md)
+- Learn about in-game desktop overlays: [In-Game Overlay Wiki](./In_Game_Overlay.md)
 - Learn about troubleshooting and debugging: [Troubleshooting & Diagnostics Wiki](./Troubleshooting_and_Diagnostics.md)
