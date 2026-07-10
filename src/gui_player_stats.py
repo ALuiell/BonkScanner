@@ -120,12 +120,17 @@ class PlayerStatsMixin:
         return isinstance(widget_cfg, dict) and bool(widget_cfg.get("enabled", False))
 
     def _in_game_overlay_requires_player_stats_refresh(self) -> bool:
-        return self._in_game_overlay_widget_enabled("luck_rarity")
+        return (
+            self._in_game_overlay_widget_enabled("luck_rarity")
+            or self._in_game_overlay_widget_enabled("stats")
+            or self._in_game_overlay_widget_enabled("event_timer")
+        )
 
     def _in_game_overlay_requires_tracker_refresh(self) -> bool:
         return (
             self._in_game_overlay_widget_enabled("powerups")
             or self._in_game_overlay_widget_enabled("kps")
+            or self._in_game_overlay_widget_enabled("event_timer")
         )
 
     def update_player_stats_timer(self):
@@ -192,9 +197,6 @@ class PlayerStatsMixin:
                     self.live_run_tracker.update_powerups(powerups_snapshot)
                     self._refresh_live_powerups_label()
                 except Exception:
-                    clear_powerups = getattr(self.live_run_tracker, "clear_powerups", None)
-                    if callable(clear_powerups):
-                        clear_powerups()
                     self._refresh_live_powerups_label()
 
             now = time.monotonic()
@@ -240,6 +242,25 @@ class PlayerStatsMixin:
                 except Exception:
                     pass
 
+            if self._should_refresh_fast_stage_timer():
+                update_fast_stage_timer = getattr(self.live_run_tracker, "update_fast_stage_timer", None)
+                if callable(update_fast_stage_timer):
+                    try:
+                        stage_timer_seconds, stage_index, stage_duration_seconds = (
+                            client.get_stage_timer_context()
+                        )
+                        update_fast_stage_timer(
+                            stage_timer_seconds=stage_timer_seconds,
+                            stage_index=stage_index,
+                            stage_duration_seconds=stage_duration_seconds,
+                        )
+                    except Exception:
+                        update_fast_stage_timer(
+                            stage_timer_seconds=None,
+                            stage_index=None,
+                            stage_duration_seconds=None,
+                        )
+
             chaos_level, permanent_modifiers = client.get_chaos_tracking_state(
                 owner_stats
             )
@@ -267,7 +288,10 @@ class PlayerStatsMixin:
                     return True
             except Exception:
                 pass
-        if self._in_game_overlay_widget_enabled("powerups"):
+        if (
+            self._in_game_overlay_widget_enabled("powerups")
+            or self._in_game_overlay_widget_enabled("event_timer")
+        ):
             return True
         is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
         commands_cfg = config.TWITCH_BOT.get("commands", {})
@@ -298,6 +322,9 @@ class PlayerStatsMixin:
             except Exception:
                 return False
         return False
+
+    def _should_refresh_fast_stage_timer(self) -> bool:
+        return self._in_game_overlay_widget_enabled("event_timer")
 
     @staticmethod
     def _overlay_kps_widget_enabled() -> bool:
@@ -408,6 +435,7 @@ class PlayerStatsMixin:
         run_timer_seconds = None
         stage_timer_seconds = None
         stage_index = None
+        stage_duration_seconds = None
         try:
             client = self._get_player_stats_client()
             run_timer_seconds = client.get_run_timer()
@@ -418,13 +446,17 @@ class PlayerStatsMixin:
 
         try:
             client = self._get_player_stats_client()
-            stage_timer_seconds, stage_index, _ = client.get_stage_timer_context()
+            stage_timer_seconds, stage_index, stage_duration_seconds = (
+                client.get_stage_timer_context()
+            )
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             stage_timer_seconds = None
             stage_index = None
+            stage_duration_seconds = None
         except Exception:
             stage_timer_seconds = None
             stage_index = None
+            stage_duration_seconds = None
 
         # 2. Read map seed and stage ptr
         map_seed = None
@@ -582,6 +614,7 @@ class PlayerStatsMixin:
             damage_sources_available,
             run_timer_seconds,
             stage_timer_seconds,
+            stage_duration_seconds,
             mob_kills,
             player_level,
             map_seed,
@@ -613,6 +646,7 @@ class PlayerStatsMixin:
                 damage_sources_available,
                 run_timer_seconds,
                 stage_timer_seconds,
+                stage_duration_seconds,
                 mob_kills,
                 player_level,
                 map_seed,
@@ -706,7 +740,9 @@ class PlayerStatsMixin:
             damage_sources_available=damage_sources_available,
             chests_per_minute=chests_per_minute,
             game_time_seconds=run_timer_seconds,
+            stage_timer_seconds=stage_timer_seconds,
             stage_time_seconds=stage_timer_seconds,
+            stage_duration_seconds=stage_duration_seconds,
             mob_kills=mob_kills,
             player_level=player_level,
             map_seed=map_seed,

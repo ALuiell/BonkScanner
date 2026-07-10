@@ -80,18 +80,33 @@ Please fill in the data for each of the 3 maps below, including memory addresses
 * **Stage Ptr**: `0x20f411fe000`
 * **Interactables (Baseline)**: 55 Pots, 46 Chests, 15 Charge Shrines, 8 Greed Shrines.
 * **Timer Behavior**: Base duration is **10 minutes**. Ticks normally from `0.0`. Upon stage completion/transition, `Stage Time` forcefully jumps forward (to ~590s) to artificially trigger the Ghost Phase.
+* **Miniboss & Swarm Timeline (Remaining Time)**:
+  * **7:00 remaining**: 1st Miniboss spawns
+  * **6:00 remaining**: 1st Mob Swarm (lasts 30 seconds)
+  * **3:00 remaining**: 2nd Mob Swarm (lasts 30 seconds)
+  * **2:00 remaining**: 2nd Miniboss spawns
 
 #### Stage 2
 * **Stage Index**: 1
 * **Stage Ptr**: `0x20f412a8ea0` (Changed from Stage 1)
 * **Interactables Shift**: Dictionary limits change dynamically (e.g. Microwaves `1 -> 2`, Boss Curses `1 -> 4`, Challenges `2 -> 7`).
 * **Timer Behavior**: Base duration is **9 minutes**. Resets to `0.0` at start. Another massive jump forward (to ~530s) occurs at the end of the stage.
+* **Miniboss & Swarm Timeline (Remaining Time)**:
+  * **7:00 remaining**: 1st Miniboss spawns
+  * **6:00 remaining**: 1st Mob Swarm (lasts 30 seconds)
+  * **3:00 remaining**: 2nd Mob Swarm (lasts 30 seconds)
+  * **2:00 remaining**: 2nd Miniboss spawns
 
 #### Stage 3
 * **Stage Index**: 2
 * **Stage Ptr**: `0x20f412a8d80` (Changed from Stage 2)
 * **Interactables Shift**: Dictionary updates again (Magnet Shrines `1 -> 4`, Shady Guy `1 -> 2`). Midway through the stage (or just before transition), `Pots` max drops from 55 to 39, and `Chests` max from 46 to 35.
 * **Timer Behavior**: Base duration is **8 minutes**. Resets to `0.0` upon entering.
+* **Miniboss & Swarm Timeline (Remaining Time)**:
+  * **6:30 remaining**: 1st Miniboss spawns
+  * **5:30 remaining**: 1st Mob Swarm (lasts 30 seconds)
+  * **4:00 remaining**: 2nd Mob Swarm (lasts 30 seconds)
+  * **3:00 remaining**: 2nd Miniboss spawns
 
 #### Stage 4 (Boss Room)
 * **Stage Index**: For BonkScanner's current tracking model, this should be treated as a **virtual Stage 4 layered on top of raw Stage 3 behavior**. The live tracker currently does **not** consume a distinct raw `stage_index=3` here; it promotes Stage 3 to Stage 4 via heuristics.
@@ -117,18 +132,33 @@ Please fill in the data for each of the 3 maps below, including memory addresses
 * **Stage Ptr**: `0x20f411fe480`
 * **Interactables (Baseline)**: 55 Pots, 46 Chests, 15 Charge Shrines, 8 Greed Shrines.
 * **Timer Behavior**: Base duration is **10 minutes**. Upon completion, timer artificially jumps to ~590s (triggering Ghost Phase).
+* **Miniboss & Swarm Timeline (Remaining Time)**:
+  * **7:00 remaining**: 1st Miniboss spawns
+  * **6:00 remaining**: 1st Mob Swarm (lasts 30 seconds)
+  * **3:00 remaining**: 2nd Mob Swarm (lasts 30 seconds)
+  * **2:00 remaining**: 2nd Miniboss spawns
 
 #### Stage 2
 * **Stage Index**: 1
 * **Stage Ptr**: `0x20f411fe360` (Changed from Stage 1)
 * **Interactables Shift**: Minor dictionary reshuffles.
 * **Timer Behavior**: Base duration is **9 minutes**. Timer resets to `0.0`. Upon completion, timer jumps to ~530s.
+* **Miniboss & Swarm Timeline (Remaining Time)**:
+  * **7:00 remaining**: 1st Miniboss spawns
+  * **6:00 remaining**: 1st Mob Swarm (lasts 30 seconds)
+  * **3:00 remaining**: 2nd Mob Swarm (lasts 30 seconds)
+  * **2:00 remaining**: 2nd Miniboss spawns
 
 #### Stage 3
 * **Stage Index**: 2
 * **Stage Ptr**: `0x20f411fe240` (Changed from Stage 2)
 * **Interactables Shift**: Dictionary reshuffles dynamically upon entry.
 * **Timer Behavior**: Base duration is presumably **8 minutes**. Timer resets to `0.0` at start. Notably, there was *no* artificial jump at the end of this stage in the log; it simply reset to `0.0` for the Boss Room.
+* **Miniboss & Swarm Timeline (Remaining Time)**:
+  * **6:30 remaining**: 1st Miniboss spawns
+  * **5:30 remaining**: 1st Mob Swarm (lasts 30 seconds)
+  * **4:00 remaining**: 2nd Mob Swarm (lasts 30 seconds)
+  * **3:00 remaining**: 2nd Miniboss spawns
 
 #### Stage 4 (Boss Room)
 * **Stage Index**: For BonkScanner's current tracking model, this should be treated as a **virtual Stage 4 layered on top of raw Stage 3 behavior**. The live tracker currently does **not** consume a distinct raw `stage_index=3` here; it promotes Stage 3 to Stage 4 via heuristics.

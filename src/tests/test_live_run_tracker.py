@@ -1194,6 +1194,63 @@ class LiveRunTrackerTests(unittest.TestCase):
             "Powerups: none active | Durations: standard 22s, clock 18s (PM 1.5x)",
         )
 
+    def test_powerups_snapshot_stays_available_within_ttl_after_last_good_read(self) -> None:
+        current_time = 1000.0
+        tracker = LiveRunTracker(clock=lambda: current_time)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=440.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=1.5,
+                powerup_multiplier_display="1.5x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=4,
+                        name="Clock",
+                        added_time=1004.0,
+                        expiration_time=1018.0,
+                    ),
+                ),
+            ),
+            map_context=self.non_graveyard_context(),
+        )
+
+        current_time = 1001.0
+
+        snapshot = tracker.powerups_snapshot()
+        self.assertTrue(snapshot.available)
+        self.assertEqual([effect.name for effect in snapshot.active], ["Clock"])
+
+    def test_powerups_snapshot_expires_after_ttl_without_new_reads(self) -> None:
+        current_time = 1000.0
+        tracker = LiveRunTracker(clock=lambda: current_time)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=440.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=1.5,
+                powerup_multiplier_display="1.5x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=4,
+                        name="Clock",
+                        added_time=1004.0,
+                        expiration_time=1018.0,
+                    ),
+                ),
+            ),
+            map_context=self.non_graveyard_context(),
+        )
+
+        current_time = 1001.6
+
+        self.assertFalse(tracker.powerups_snapshot().available)
+        self.assertEqual(tracker.format_powerups_summary(), "Powerups: --")
+
     def test_powerups_summary_formats_overtime(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_powerups(
@@ -1453,6 +1510,136 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertTrue(PowerupMapContext.from_activity_max({"Chests": 69}).is_graveyard)
         self.assertFalse(PowerupMapContext.from_activity_max({"Chests": 46}).is_graveyard)
         self.assertFalse(PowerupMapContext.from_activity_max({"Pots": 55}).is_graveyard)
+
+    def test_powerup_map_context_accessor_respects_ttl(self) -> None:
+        now = 1000.0
+        tracker = LiveRunTracker(clock=lambda: now)
+        context = PowerupMapContext.from_activity_max(
+            {"Chests": 69},
+            captured_at=now,
+        )
+        tracker.update_powerup_map_context(context)
+
+        self.assertIsNotNone(tracker.powerup_map_context())
+
+        now += 16.0
+        self.assertIsNone(tracker.powerup_map_context())
+
+
+    def test_graveyard_event_timer_state_transitions(self) -> None:
+        tracker = LiveRunTracker()
+        
+        # 1. Non-graveyard map
+        context_forest = PowerupMapContext.from_activity_max({"Chests": 46})
+        snap = SimpleNamespace(
+            powerup_multiplier=1.0,
+            my_time_seconds=10.0,
+            stage_timer_seconds=10.0,
+            stage_time_seconds=600.0,
+            stage_index=0,
+            crypt_timer_seconds=None,
+            final_swarm_timer_seconds=None,
+            effects=[],
+        )
+        tracker.update(LiveRunSnapshot(captured_at=10.0, stats={}, map_seed=123, chests_total=46, stage_index=0))
+        tracker.update_powerups(snap, map_context=context_forest)
+        self.assertFalse(tracker.graveyard_main_map_events_active())
+        
+        # 2. Graveyard map
+        context_gy = PowerupMapContext.from_activity_max({"Chests": 69})
+        tracker.update_powerup_map_context(context_gy)
+        
+        # Initial outdoor room (before Crypt 1 entry)
+        snap.crypt_timer_seconds = 0.0
+        snap.final_swarm_timer_seconds = 0.0
+        tracker.update_powerups(snap)
+        self.assertFalse(tracker.graveyard_main_map_events_active())
+        
+        # Enter Crypt 1
+        snap.crypt_timer_seconds = 10.0
+        tracker.update_powerups(snap)
+        self.assertFalse(tracker.graveyard_main_map_events_active())
+        self.assertEqual(tracker._graveyard_crypt_entries, 1)
+        
+        # Stay in Crypt 1
+        snap.crypt_timer_seconds = 15.0
+        tracker.update_powerups(snap)
+        self.assertFalse(tracker.graveyard_main_map_events_active())
+        self.assertEqual(tracker._graveyard_crypt_entries, 1)
+        
+        # Exit Crypt 1 to Main Map
+        snap.crypt_timer_seconds = 0.0
+        tracker.update_powerups(snap)
+        self.assertTrue(tracker.graveyard_main_map_events_active())
+        self.assertEqual(tracker._graveyard_crypt_entries, 1)
+        
+        # Enter Crypt 2
+        snap.crypt_timer_seconds = 5.0
+        tracker.update_powerups(snap)
+        self.assertFalse(tracker.graveyard_main_map_events_active())
+        self.assertEqual(tracker._graveyard_crypt_entries, 2)
+        
+        # Exit Crypt 2 to Main Map (events stay inactive since entries == 2)
+        snap.crypt_timer_seconds = 0.0
+        tracker.update_powerups(snap)
+        self.assertFalse(tracker.graveyard_main_map_events_active())
+        self.assertEqual(tracker._graveyard_crypt_entries, 2)
+        
+        # Final Swarm active
+        snap.final_swarm_timer_seconds = 5.0
+        tracker.update_powerups(snap)
+        self.assertFalse(tracker.graveyard_main_map_events_active())
+        
+        # Reset tracker resets state
+        tracker._reset_for_new_run()
+        self.assertFalse(tracker.graveyard_main_map_events_active())
+        self.assertEqual(tracker._graveyard_crypt_entries, 0)
+
+    def test_graveyard_event_timer_state_ignores_transient_missing_crypt_timer(self) -> None:
+        tracker = LiveRunTracker()
+        context_gy = PowerupMapContext.from_activity_max({"Chests": 69})
+        snap = SimpleNamespace(
+            powerup_multiplier=1.0,
+            my_time_seconds=10.0,
+            stage_timer_seconds=10.0,
+            stage_time_seconds=960.0,
+            stage_index=0,
+            crypt_timer_seconds=10.0,
+            final_swarm_timer_seconds=0.0,
+            effects=[],
+        )
+
+        tracker.update_powerups(snap, map_context=context_gy)
+        self.assertEqual(tracker._graveyard_crypt_entries, 1)
+
+        snap.crypt_timer_seconds = None
+        tracker.update_powerups(snap)
+        self.assertEqual(tracker._graveyard_crypt_entries, 1)
+        self.assertFalse(tracker.graveyard_main_map_events_active())
+
+        snap.crypt_timer_seconds = 15.0
+        tracker.update_powerups(snap)
+        self.assertEqual(tracker._graveyard_crypt_entries, 1)
+        self.assertFalse(tracker.graveyard_main_map_events_active())
+
+    def test_graveyard_event_timer_state_supports_mid_run_attach_on_main_map(self) -> None:
+        tracker = LiveRunTracker()
+        context_gy = PowerupMapContext.from_activity_max({"Chests": 69})
+        snap = SimpleNamespace(
+            powerup_multiplier=1.0,
+            my_time_seconds=250.0,
+            stage_timer_seconds=250.0,
+            stage_time_seconds=960.0,
+            stage_index=0,
+            crypt_timer_seconds=0.0,
+            final_swarm_timer_seconds=0.0,
+            effects=[],
+        )
+
+        tracker.update_powerups(snap, map_context=context_gy)
+
+        self.assertTrue(tracker.graveyard_main_map_events_active())
+        self.assertEqual(tracker._graveyard_crypt_entries, 1)
 
 
 if __name__ == "__main__":

@@ -2647,6 +2647,58 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(refresh_calls, ["refresh"])
         self.assertEqual(len(app.after_calls), 1)
 
+    def test_update_player_stats_timer_refreshes_hidden_live_stats_when_in_game_overlay_stats_enabled(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.player_stats_vod_recorder.is_recording = False
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
+        app.after_calls = []
+        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        app._sync_player_stats_recording_run_state = lambda: None
+        refresh_calls: list[str] = []
+        app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "stats": {"enabled": True},
+            },
+        }
+        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
+             patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp.update_player_stats_timer(app)
+
+        self.assertEqual(refresh_calls, ["refresh"])
+        self.assertEqual(len(app.after_calls), 1)
+
+    def test_update_player_stats_timer_refreshes_hidden_live_stats_when_in_game_overlay_event_timer_enabled(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.player_stats_vod_recorder.is_recording = False
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
+        app.after_calls = []
+        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        app._sync_player_stats_recording_run_state = lambda: None
+        refresh_calls: list[str] = []
+        app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "event_timer": {"enabled": True},
+            },
+        }
+        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
+             patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp.update_player_stats_timer(app)
+
+        self.assertEqual(refresh_calls, ["refresh"])
+        self.assertEqual(len(app.after_calls), 1)
+
     def test_update_chaos_tome_tracker_timer_refreshes_when_in_game_overlay_powerups_enabled(self) -> None:
         app = self.build_recording_app()
         app._is_shutting_down = False
@@ -2698,6 +2750,48 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(refresh_calls, ["refresh"])
         self.assertEqual(len(app.after_calls), 1)
+
+    def test_update_chaos_tome_tracker_timer_refreshes_when_in_game_overlay_event_timer_enabled(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.player_stats_vod_recorder.is_recording = False
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
+        app.after_calls = []
+        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        refresh_calls: list[str] = []
+        app.refresh_chaos_tome_tracker_now = lambda: refresh_calls.append("refresh")
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "powerups": {"enabled": False},
+                "kps": {"enabled": False},
+                "event_timer": {"enabled": True},
+            },
+        }
+        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
+             patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp.update_chaos_tome_tracker_timer(app)
+
+        self.assertEqual(refresh_calls, ["refresh"])
+        self.assertEqual(len(app.after_calls), 1)
+
+    def test_should_refresh_powerup_tracker_when_event_timer_enabled(self) -> None:
+        app = self.build_recording_app()
+        app._is_live_stats_tab_active = lambda: False
+        app._is_twitch_bot_active = lambda: False
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "powerups": {"enabled": False},
+                "event_timer": {"enabled": True},
+            },
+        }
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            self.assertTrue(gui.MegabonkApp._should_refresh_powerup_tracker(app))
 
     def test_refresh_live_player_stats_now_keeps_stats_when_items_fail(self) -> None:
         app = object.__new__(gui.MegabonkApp)
@@ -2803,6 +2897,55 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(powerup_reads, [0x1234])
         self.assertEqual(powerup_updates, [powerup_snapshot])
         self.assertEqual(refreshed, ["label"])
+
+    def test_refresh_chaos_tome_tracker_updates_fast_stage_timer_when_event_timer_enabled(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
+        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
+        powerup_snapshot = SimpleNamespace(active=["Rage"])
+        fast_stage_updates: list[dict[str, object]] = []
+        client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_powerup_tracking_snapshot=lambda owner_stats: powerup_snapshot,
+            get_expected_chest_inputs=lambda owner_stats: (7, 3),
+            get_stage_timer_context=lambda: (25.0, 2, 420.0),
+            get_chaos_tracking_state=lambda owner_stats: (None, {}),
+        )
+        app._get_player_stats_client = lambda: client
+        app._refresh_live_powerups_label = lambda: None
+        app.live_run_tracker = SimpleNamespace(
+            update_powerups=lambda snapshot: None,
+            clear_powerups=lambda: None,
+            track_expected_key_procs=lambda bought, keys: None,
+            update_chaos_tome=lambda **kwargs: None,
+            current_ui_kps=lambda: None,
+            update_fast_stage_timer=lambda **kwargs: fast_stage_updates.append(kwargs),
+        )
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "powerups": {"enabled": False},
+                "kps": {"enabled": False},
+                "event_timer": {"enabled": True},
+            },
+        }
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg), \
+             patch.object(gui.time, "monotonic", return_value=100.0):
+            self.assertTrue(gui.MegabonkApp.refresh_chaos_tome_tracker_now(app))
+
+        self.assertEqual(
+            fast_stage_updates,
+            [
+                {
+                    "stage_timer_seconds": 25.0,
+                    "stage_index": 2,
+                    "stage_duration_seconds": 420.0,
+                }
+            ],
+        )
 
     def test_refresh_chaos_tome_tracker_updates_kps_when_in_game_overlay_window_is_not_visible(self) -> None:
         app = object.__new__(gui.MegabonkApp)
@@ -4626,6 +4769,77 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("12.43%", rendered_html)
         self.assertIn("20.39%", rendered_html)
         self.assertIn("62.43%", rendered_html)
+
+    def test_overlay_fast_tick_uses_fast_stage_timer_context_for_event_timer(self) -> None:
+        widget = SimpleNamespace(set_text=MagicMock())
+        app = object.__new__(gui.MegabonkApp)
+        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        app.in_game_overlay_window.widgets = {
+            "event_timer": widget,
+        }
+        app.live_run_tracker = SimpleNamespace(
+            latest_snapshot=lambda: SimpleNamespace(
+                stage_index=0,
+                stage_duration_seconds=480.0,
+                stage_timer_seconds=25.0,
+            ),
+            powerup_map_context=lambda: SimpleNamespace(is_graveyard=False),
+            fast_stage_timer_context=lambda: SimpleNamespace(
+                stage_index=2,
+                stage_duration_seconds=420.0,
+                stage_timer_seconds=25.0,
+            ),
+            graveyard_main_map_events_active=lambda: False,
+        )
+        app.is_game_window_active = lambda _process_name: True
+        app._refresh_in_game_overlay_slow_widgets = lambda: None
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "kps": {"enabled": False},
+                "stats": {"enabled": False},
+                "event_timer": {"enabled": True, "warning_seconds": 15},
+                "powerups": {"enabled": False},
+            },
+        }
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp._overlay_fast_tick(app)
+
+        widget.set_text.assert_called_once()
+        rendered_html = widget.set_text.call_args.args[0]
+        self.assertIn("Boss at 6:30", rendered_html)
+
+    def test_overlay_fast_tick_shows_event_timer_preview_in_edit_mode(self) -> None:
+        widget = SimpleNamespace(set_text=MagicMock())
+        app = object.__new__(gui.MegabonkApp)
+        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True, edit_mode=True)
+        app.in_game_overlay_window.widgets = {
+            "event_timer": widget,
+        }
+        app.live_run_tracker = SimpleNamespace(
+            latest_snapshot=lambda: None,
+            powerup_map_context=lambda: None,
+            fast_stage_timer_context=lambda: None,
+            graveyard_main_map_events_active=lambda: False,
+        )
+        app._refresh_in_game_overlay_slow_widgets = lambda: None
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "kps": {"enabled": False},
+                "stats": {"enabled": False},
+                "event_timer": {"enabled": True, "warning_seconds": 15},
+                "powerups": {"enabled": False},
+            },
+        }
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp._overlay_fast_tick(app)
+
+        widget.set_text.assert_called_once()
+        rendered_html = widget.set_text.call_args.args[0]
+        self.assertIn("Event Timer (preview)", rendered_html)
 
 
 if __name__ == "__main__":

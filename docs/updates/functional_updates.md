@@ -39,7 +39,70 @@ Goal:
 - Catch the file lock exception (e.g., `WinError 32` / `PermissionError`) raised when attempting to delete the active recording file, or implement a check to explicitly skip the active run's file during iteration.
 - Ensure all other short recordings are successfully deleted even if the active run is encountered and skipped.
 
-#### 8. Automated IL2CPP Offset Validator and Handoff Reporter
+#### 8. Harden The Live Powerup Read Pipeline
+
+Status: `[Open]`
+
+Goal:
+
+- Make the full live-data path resilient to transient or incomplete memory reads:
+  `memory read -> validation -> normalized snapshot -> Live Stats / OBS overlay /
+  Twitch bot / in-game overlay`.
+- Prevent a partially read powerup state from replacing the last known-good state
+  and making an active `Clock` or `TimeFreeze` effect disappear from every consumer.
+
+Current mitigation:
+
+- Commit `f8b2fcb` keeps the last valid powerup snapshot for `1.5s` when the fast
+  refresh path raises a read exception.
+- This protects against hard read failures, but it does not protect against a
+  successful-looking incomplete read. For example, `get_active_status_effects()`
+  can return an empty tuple after a pointer, dictionary, count, or entry read is
+  unavailable, and a failed `Powerup Multiplier` refresh can return `None`.
+- `LiveRunTracker.update_powerups()` currently accepts those values and writes a
+  fresh `available=True` snapshot with no active effects, so the TTL cannot help.
+
+Refactor requirements:
+
+- Separate raw memory reads from interpretation and consumer-facing state.
+- Return an explicit read result for each data group, including at least:
+  - `available` / `unavailable`
+  - `complete` / `partial`
+  - a machine-readable failure reason
+  - capture timestamp and source/read lane
+- Treat `effects=()` as authoritative only when the status-effect dictionary was
+  read and validated completely. An empty result caused by a failed or suspicious
+  read must not clear the previous active-effects snapshot.
+- Treat `powerup_multiplier=None` as a failed dependency for powerup analysis, not
+  as proof that no powerups are active. Preserve the last known-good analyzed
+  state until a valid replacement arrives or an explicit run reset is detected.
+- Keep the source effect model accurate: normal Clock uses the PM-scaled duration,
+  while Za Warudo produces the same `TimeFreeze` / `effect_id == 4` status effect
+  with a fixed `15.0s` duration. The shared effect ID is an attribution ambiguity,
+  not by itself a reason to reject or hide the active effect.
+- Ensure all consumers read the same normalized snapshot and do not independently
+  reinterpret raw memory values or failure states.
+- Add bounded diagnostics for rejected snapshots, especially:
+  `status_effects_unavailable`, `status_effects_partial`,
+  `powerup_multiplier_unavailable`, `effect_4_missing`, and invalid time fields.
+- Add tests for hard read errors, successful-but-empty reads, partial effect lists,
+  multiplier read failures, recovery after several failed polls, and explicit run
+  resets. Tests should verify that all consumers observe the same last-known-good
+  state.
+
+Implementation guidance:
+
+- Keep the current TTL fallback as a compatibility safety net during the refactor,
+  but move freshness and validity decisions into the shared snapshot layer rather
+  than individual UI refresh handlers.
+- Do not add a separate high-frequency inventory scan only to distinguish Clock
+  from Za Warudo. Attribution can remain ambiguous in the active-effect snapshot
+  and be resolved later from slower item snapshots where required.
+- Do not treat Alt+Tab or a single `ReadProcessMemory` failure as a Clock-specific
+  diagnosis. Log the failed read category first; the same pipeline should support
+  all powerups and all consumers.
+
+#### 9. Automated IL2CPP Offset Validator and Handoff Reporter
 
 Status: `[Open]`
 
@@ -379,6 +442,59 @@ Important note:
 
 - This entry is intentionally a planning/prototype item, not a finalized design.
 - The exact lane boundaries, naming, ownership of reads, and state-merging approach should be revisited after the first implementation pass.
+
+### In-Game Overlay
+
+#### 1. In-Game Stats Widget
+
+Status: `[Open]`
+
+Goal:
+- Add a custom `stats` widget to the transparent In-Game Overlay.
+- Treat it as the in-game counterpart / alternative to the existing `stats` widget from the OBS Overlay rather than as a one-off fixed 2-stat label.
+- Keep the usual stats-widget behavior/configurability where practical, but extend it with in-game-overlay-specific logic such as cap calculation and cap-aware coloring.
+- Default stats tracked: `XP Gain` and `Difficulty`.
+- Map-specific rules for Forest / Desert:
+  - Apply dynamic difficulty caps per stage and elapsed stage time:
+    - **Stage 1**: `571%` (<2 min) / `495%` (>=2 min)
+    - **Stage 2**: `514%` (<2 min) / `438%` (>=2 min)
+    - **Stage 3**: `457%` (<2 min) / `381%` (>=2 min)
+  - Apply a fixed `XP Gain` cap at `10.0x`.
+  - Display format: `Stat Name: Current / Cap` (e.g., `Difficulty: 450% / 495%`).
+  - Apply 2-tier color coding for values: Cyan (`#16e7ff`) below cap, Red (`#ff4d4d`) at or above cap.
+- Map-specific rules for Graveyard:
+  - Display stats in default style (Label in White `#ffffff`, Value in Cyan `#16e7ff`) without caps.
+  - Display format: `Stat Name: Current` (e.g., `Difficulty: 380%`).
+
+#### 2. In-Game Event Timer Widget
+
+Status: `[Open]`
+
+Goal:
+- Add a single-line countdown/warning timer widget to track waves and boss spawns on Forest/Desert maps.
+- Make the warning lead time user-configurable, with a default of `15s`.
+- Timings are calculated based on the remaining stage time (`stage_time_seconds - stage_timer_seconds`):
+  - **Stage 1 & Stage 2**:
+    - **7:00** remaining: Boss spawn (Warning countdown starting at the configured threshold before spawn in Orange `#ff9f1c`).
+    - **6:00** remaining: Mob wave (lasts 30s, Warning starting at the configured threshold before spawn in Orange, Wave active countdown in Red `#ff4d4d` from 6:00 to 5:30).
+    - **3:00** remaining: Mob wave (lasts 30s, Warning starting at the configured threshold before spawn in Orange, Wave active countdown in Red from 3:00 to 2:30).
+    - **2:00** remaining: Boss spawn (Warning countdown starting at the configured threshold before spawn in Orange).
+  - **Stage 3**:
+    - **6:30** remaining: Boss spawn (Warning countdown starting at the configured threshold before spawn in Orange).
+    - **5:30** remaining: Mob wave (lasts 30s, Warning starting at the configured threshold before spawn in Orange, Wave active countdown in Red from 5:30 to 5:00).
+    - **4:00** remaining: Mob wave (lasts 30s, Warning starting at the configured threshold before spawn in Orange, Wave active countdown in Red from 4:00 to 3:30).
+    - **3:00** remaining: Boss spawn (Warning countdown starting at the configured threshold before spawn in Orange).
+- Hide or keep empty when no events are active or starting within 30s.
+- Return empty on Graveyard map.
+
+Implementation notes for both In-Game Overlay widgets:
+
+- Do not introduce a second map-family detector just for the overlay.
+- Determine map family by reusing the existing `powerups` activity-count logic that already distinguishes the Graveyard family from Forest / Desert.
+- Overlay widgets should consume that existing resolved map-family result instead of re-deriving it independently.
+- Stage-specific rules in this section use human stage numbering (`Stage 1`, `Stage 2`, `Stage 3`), not the raw in-memory zero-based stage index.
+- The event timer widget should refresh on a fast lane cadence (`~500ms` to `1s`), not the slow full live-stats refresh path, so 30-second warnings and active countdowns remain accurate.
+- For timing accuracy, the event timer widget should reuse the same runtime stage-time path used by `powerups` rather than introducing a separate timing interpretation path just for the overlay.
 
 ### Help & Documentation
 

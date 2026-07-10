@@ -5,9 +5,11 @@ from PySide6.QtWidgets import QApplication
 
 import config
 from gui_in_game_overlay_render import (
+    build_event_timer_overlay_html,
     build_kps_overlay_html,
     build_luck_rarity_overlay_html,
     build_powerups_overlay_html,
+    build_stats_overlay_html,
     build_status_indicator_html,
     calculate_luck_rarity_probabilities,
 )
@@ -159,6 +161,91 @@ class InGameOverlayMixin:
             metrics_cfg = cfg["widgets"]["kps"].get("metrics", ["instant"])
             widgets["kps"].set_text(build_kps_overlay_html(self.live_run_tracker, metrics_cfg))
 
+        # Retrieve snapshot and powerups map context to determine stage metadata
+        latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
+        latest_snapshot = latest_snapshot_reader() if callable(latest_snapshot_reader) else None
+
+        is_graveyard = False
+        map_context_reader = getattr(self.live_run_tracker, "powerup_map_context", None)
+        map_context = map_context_reader() if callable(map_context_reader) else None
+        if map_context is not None:
+            is_graveyard = map_context.is_graveyard
+
+        stage_index = 0
+        stage_time_seconds = 0.0
+        stage_timer_seconds = 0.0
+        if latest_snapshot is not None:
+            if getattr(latest_snapshot, "stage_index", None) is not None:
+                stage_index = int(latest_snapshot.stage_index)
+            stage_time_seconds = float(
+                getattr(latest_snapshot, "stage_duration_seconds", 0.0) or 0.0
+            )
+            stage_timer_seconds = float(
+                getattr(
+                    latest_snapshot,
+                    "stage_timer_seconds",
+                    getattr(latest_snapshot, "stage_time_seconds", 0.0),
+                )
+                or 0.0
+            )
+
+        event_stage_index = stage_index
+        event_stage_time_seconds = stage_time_seconds
+        event_stage_timer_seconds = stage_timer_seconds
+        fast_stage_context_reader = getattr(self.live_run_tracker, "fast_stage_timer_context", None)
+        fast_stage_context = (
+            fast_stage_context_reader() if callable(fast_stage_context_reader) else None
+        )
+        if fast_stage_context is not None:
+            if getattr(fast_stage_context, "stage_index", None) is not None:
+                event_stage_index = int(fast_stage_context.stage_index)
+            event_stage_time_seconds = float(
+                getattr(
+                    fast_stage_context,
+                    "stage_duration_seconds",
+                    event_stage_time_seconds,
+                )
+                or 0.0
+            )
+            event_stage_timer_seconds = float(
+                getattr(
+                    fast_stage_context,
+                    "stage_timer_seconds",
+                    event_stage_timer_seconds,
+                )
+                or 0.0
+            )
+
+        if cfg["widgets"].get("stats", {}).get("enabled", False):
+            selected_stats = cfg["widgets"]["stats"].get("selected_stats", ["Damage", "Difficulty", "XP Gain", "Luck"])
+            html = build_stats_overlay_html(
+                latest_snapshot,
+                selected_stats,
+                stage_index,
+                stage_timer_seconds,
+                stage_time_seconds,
+                is_graveyard,
+            )
+            widgets["stats"].set_text(html)
+
+        if cfg["widgets"].get("event_timer", {}).get("enabled", False):
+            warning_seconds = cfg["widgets"]["event_timer"].get("warning_seconds", 15)
+            graveyard_events_active = False
+            active_reader = getattr(self.live_run_tracker, "graveyard_main_map_events_active", None)
+            if callable(active_reader):
+                graveyard_events_active = active_reader()
+
+            html = build_event_timer_overlay_html(
+                event_stage_index,
+                event_stage_timer_seconds,
+                event_stage_time_seconds,
+                is_graveyard,
+                warning_seconds,
+                graveyard_main_map_events_active=graveyard_events_active,
+                edit_mode=self.in_game_overlay_window.edit_mode,
+            )
+            widgets["event_timer"].set_text(html)
+
         if cfg["widgets"]["powerups"]["enabled"]:
             snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
             snapshot = snapshot_reader() if callable(snapshot_reader) else None
@@ -256,6 +343,8 @@ class InGameOverlayMixin:
         cfg["widgets"]["kps"]["enabled"] = self.igo_kps_cb.isChecked()
         cfg["widgets"]["powerups"]["enabled"] = self.igo_powerups_cb.isChecked()
         cfg["widgets"]["luck_rarity"]["enabled"] = self.igo_luck_rarity_cb.isChecked()
+        cfg["widgets"]["stats"]["enabled"] = self.igo_stats_cb.isChecked()
+        cfg["widgets"]["event_timer"]["enabled"] = self.igo_event_timer_cb.isChecked()
         self.apply_in_game_overlay_settings()
         config.save_config(config.user_config)
 

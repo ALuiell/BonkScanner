@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from html import escape
 from math import isfinite, log
 from typing import Any
 
 from gui_styles import ITEM_RARITY_COLOR_MAP
+from stat_label_abbreviations import abbreviate_stat_label
 
 TEXT_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
 POWERUP_COLORS: dict[str, str] = {
@@ -36,6 +38,9 @@ _KPS_METRICS: dict[str, tuple[str, str]] = {
     "5m": ("current_five_minute_avg_kps", "5m"),
     "run": ("current_run_avg_kps", "Run"),
 }
+_STATS_LABEL_MIN_WIDTH_PX = 40
+_STATS_LABEL_WIDTH_PER_CHAR_PX = 9
+_XP_GAIN_CAP = 10.0
 
 
 def build_kps_overlay_html(run_tracker: Any, metrics_cfg: list[str] | tuple[str, ...]) -> str:
@@ -159,3 +164,211 @@ def calculate_luck_rarity_probabilities(luck_value: float | None) -> dict[str, f
         rarity: (weights[rarity] / total_weight) * 100.0
         for rarity in LUCK_RARITY_ORDER
     }
+
+
+def _format_stats_display_value(label: str, display_value: Any, raw_value: float | None) -> str:
+    if label == "XP Gain" and raw_value is not None and raw_value >= _XP_GAIN_CAP:
+        return "10x"
+    return str(display_value if display_value not in (None, "") else "--")
+
+
+def _format_event_clock(remaining_seconds: float) -> str:
+    total_seconds = max(0, int(round(float(remaining_seconds))))
+    minutes, seconds = divmod(total_seconds, 60)
+    return f"{minutes}:{seconds:02d}"
+
+
+def _build_in_game_stats_rows(
+    stats: dict[str, Any],
+    selected_stats: list[str],
+    *,
+    stage_index: int,
+    stage_timer_seconds: float,
+    stage_time_seconds: float,
+    is_graveyard: bool,
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for label in selected_stats:
+        stat = stats.get(label)
+        if stat is None:
+            continue
+
+        display_val = getattr(stat, "display_value", "--")
+        raw_val = getattr(stat, "value", None)
+        try:
+            raw_val = float(raw_val) if raw_val is not None else None
+        except (TypeError, ValueError):
+            raw_val = None
+
+        color = "#16e7ff"  # Cyan by default
+        cap_suffix = ""
+
+        if not is_graveyard and raw_val is not None:
+            if label == "Difficulty":
+                is_after_2m_ghosts = stage_timer_seconds >= (stage_time_seconds + 120.0)
+
+                cap = None
+                if stage_index == 0:
+                    cap = 4.95 if is_after_2m_ghosts else 5.71
+                elif stage_index == 1:
+                    cap = 4.38 if is_after_2m_ghosts else 5.14
+                elif stage_index == 2:
+                    cap = 3.81 if is_after_2m_ghosts else 4.57
+
+                if cap is not None:
+                    cap_pct = int(round(cap * 100))
+                    cap_suffix = f" / {cap_pct}%"
+                    if raw_val >= cap:
+                        color = "#ff4d4d"  # Red
+            elif label == "XP Gain":
+                cap_suffix = " / 10x"
+                if raw_val >= _XP_GAIN_CAP:
+                    color = "#ff4d4d"  # Red
+
+        rows.append(
+            {
+                "label": label,
+                "display_label": abbreviate_stat_label(label),
+                "display_value": _format_stats_display_value(label, display_val, raw_val),
+                "color": color,
+                "cap_suffix": cap_suffix,
+            }
+        )
+    return rows
+
+
+def _calculate_stats_label_width_px(rows: list[dict[str, str]]) -> int:
+    if not rows:
+        return _STATS_LABEL_MIN_WIDTH_PX
+    max_len = max(len(str(row.get("display_label") or "")) for row in rows)
+    return max(_STATS_LABEL_MIN_WIDTH_PX, (max_len + 1) * _STATS_LABEL_WIDTH_PER_CHAR_PX)
+
+
+def build_stats_overlay_html(
+    snapshot: Any,
+    selected_stats: list[str],
+    stage_index: int,
+    stage_timer_seconds: float,
+    stage_time_seconds: float,
+    is_graveyard: bool,
+) -> str:
+    if snapshot is None:
+        return ""
+    stats = getattr(snapshot, "stats", {}) or {}
+    if not isinstance(stats, dict):
+        return ""
+    rows = _build_in_game_stats_rows(
+        stats,
+        selected_stats,
+        stage_index=stage_index,
+        stage_timer_seconds=stage_timer_seconds,
+        stage_time_seconds=stage_time_seconds,
+        is_graveyard=is_graveyard,
+    )
+    if not rows:
+        return ""
+
+    label_width_px = _calculate_stats_label_width_px(rows)
+    html_rows = []
+    for row in rows:
+        display_label = escape(str(row["display_label"]))
+        display_value = escape(str(row["display_value"]))
+        cap_suffix = escape(str(row["cap_suffix"]))
+        color = escape(str(row["color"]))
+        html_rows.append(
+            "<tr>"
+            f"<td width='{label_width_px}' style='width: {label_width_px}px; padding: 0 10px 1px 0; "
+            f"color: #ffffff; text-shadow: {TEXT_SHADOW}; white-space: nowrap;'>{display_label}:</td>"
+            f"<td style='padding: 0 0 1px 0; color: {color}; text-shadow: {TEXT_SHADOW}; "
+            f"white-space: nowrap;'>{display_value}{cap_suffix}</td>"
+            "</tr>"
+        )
+
+    return (
+        "<table cellspacing='0' cellpadding='0' "
+        "style='border-collapse: collapse; border-spacing: 0;'>"
+        f"{''.join(html_rows)}"
+        "</table>"
+    )
+
+
+def build_event_timer_overlay_html(
+    stage_index: int,
+    stage_timer_seconds: float,
+    stage_time_seconds: float,
+    is_graveyard: bool,
+    warning_seconds: int = 15,
+    graveyard_main_map_events_active: bool = False,
+    edit_mode: bool = False,
+) -> str:
+    preview_html = (
+        f"<span style='color: {HEADER_COLOR}; opacity: 0.5; "
+        f"text-shadow: {TEXT_SHADOW};'>Event Timer (preview)</span>"
+    )
+    if is_graveyard:
+        if not graveyard_main_map_events_active:
+            return preview_html if edit_mode else ""
+        if stage_time_seconds < 900.0:
+            return preview_html if edit_mode else ""
+        events = [
+            ("boss", 780.0, 0.0),
+            ("wave", 720.0, 30.0),
+            ("boss", 540.0, 0.0),
+            ("wave", 480.0, 30.0),
+            ("boss", 360.0, 0.0),
+            ("wave", 300.0, 30.0),
+            ("boss", 180.0, 0.0),
+            ("wave", 120.0, 30.0),
+        ]
+    else:
+        if stage_index not in (0, 1, 2):
+            return preview_html if edit_mode else ""
+        if stage_index in (0, 1):
+            events = [
+                ("boss", 420.0, 0.0),
+                ("wave", 360.0, 30.0),
+                ("wave", 180.0, 30.0),
+                ("boss", 120.0, 0.0),
+            ]
+        else:  # stage_index == 2
+            events = [
+                ("boss", 390.0, 0.0),
+                ("wave", 330.0, 30.0),
+                ("wave", 240.0, 30.0),
+                ("boss", 180.0, 0.0),
+            ]
+
+    remaining_time = stage_time_seconds - stage_timer_seconds
+    if remaining_time <= 0:
+        return preview_html if edit_mode else ""
+
+    # Check active waves first
+    for ev_type, start_rem, duration in events:
+        if duration > 0.0:
+            end_rem = start_rem - duration
+            if end_rem <= remaining_time <= start_rem:
+                return (
+                    f"<span style='color: #ff4d4d; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>"
+                    f"Wave Active: {int(duration)}s</span>"
+                )
+
+    # Check upcoming warnings next
+    upcoming_events = []
+    for ev_type, start_rem, duration in events:
+        if remaining_time > start_rem:
+            diff = remaining_time - start_rem
+            threshold_seconds = max(int(warning_seconds), int(duration)) if duration > 0.0 else int(warning_seconds)
+            if diff <= threshold_seconds:
+                upcoming_events.append((diff, ev_type, start_rem))
+
+    if upcoming_events:
+        upcoming_events.sort()
+        _diff, ev_type, start_rem = upcoming_events[0]
+        label = "Boss" if ev_type == "boss" else "Wave"
+        event_time = _format_event_clock(start_rem)
+        return (
+            f"<span style='color: #ff9f1c; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>"
+            f"{label} at {event_time}</span>"
+        )
+
+    return preview_html if edit_mode else ""

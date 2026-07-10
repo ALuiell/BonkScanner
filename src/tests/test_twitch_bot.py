@@ -244,6 +244,32 @@ class TestTwitchBotWorker(unittest.TestCase):
             "Chaos Tome Lv99: Pickup +24.5",
         )
 
+    def test_handle_stats_uses_shared_stat_abbreviations(self):
+        from config import TWITCH_BOT
+
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.latest_snapshot.return_value = SimpleNamespace(
+            stats={
+                "Damage": SimpleNamespace(display_value="150%"),
+                "Powerup Drop Chance": SimpleNamespace(display_value="+20%"),
+            }
+        )
+        old_selected_stats = TWITCH_BOT.get("selected_stats")
+        old_templates = TWITCH_BOT.get("templates")
+        TWITCH_BOT["selected_stats"] = ["Damage", "Powerup Drop Chance"]
+        TWITCH_BOT["templates"] = dict(TWITCH_BOT.get("templates", {}))
+        TWITCH_BOT["templates"]["stats"] = "{stats}"
+        try:
+            self.bot._handle_stats("channel")
+        finally:
+            TWITCH_BOT["selected_stats"] = old_selected_stats
+            TWITCH_BOT["templates"] = old_templates
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "DMG: 150% | PDC: +20%",
+        )
+
     def test_powerups_command_routes_through_chat_handler(self):
         from config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")

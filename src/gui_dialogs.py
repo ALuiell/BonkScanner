@@ -62,6 +62,7 @@ from PySide6.QtWidgets import (
 from item_metadata import available_item_display_names, preferred_item_display_name
 from player_stats import PLAYER_STAT_GROUPS
 from gui_overlay import OverlayMixin
+from stat_label_abbreviations import abbreviate_stat_label
 
 import config
 import updater
@@ -1532,40 +1533,8 @@ class TwitchCommandSettingsDialog(QDialog):
     def on_stat_toggled(self):
         if getattr(self, "_init_guard", False):
             return
-        stat_abbrevs = {
-            "Max HP": "HP",
-            "HP Regen": "Regen",
-            "Overheal": "Overheal",
-            "Shield": "Shield",
-            "Armor": "Armor",
-            "Evasion": "Evasion",
-            "Lifesteal": "Lifesteal",
-            "Thorns": "Thorns",
-            "Damage": "DMG",
-            "Crit Chance": "Crit",
-            "Crit Damage": "CritDMG",
-            "Attack Speed": "AS",
-            "Projectile Count": "Proj",
-            "Projectile Bounces": "Bounces",
-            "Size": "Size",
-            "Projectile Speed": "ProjSpeed",
-            "Duration": "Dur",
-            "Damage to Elites": "EliteDMG",
-            "Knockback": "KB",
-            "Movement Speed": "MS",
-            "Extra Jumps": "Jumps",
-            "Jump Height": "JumpHeight",
-            "Luck": "Luck",
-            "Difficulty": "Diff",
-            "Pickup Range": "Pickup",
-            "XP Gain": "XP",
-            "Gold Gain": "Gold",
-            "Elite Spawn Increase": "ESI",
-            "Powerup Multiplier": "PM",
-            "Powerup Drop Chance": "PDC",
-        }
         selected = [label for label, cb in self.stat_checkboxes.items() if cb.isChecked()]
-        parts = [f"{stat_abbrevs.get(name, name)}: {{{name}}}" for name in selected]
+        parts = [f"{abbreviate_stat_label(name)}: {{{name}}}" for name in selected]
         new_tpl = "Live Stats: " + " | ".join(parts)
         self.stats_tpl_entry.setText(new_tpl)
 

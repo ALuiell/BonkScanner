@@ -47,10 +47,13 @@ class DraggableOverlayWidget(QWidget):
         self.label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self._widget_layout.addWidget(self.label)
 
-        widget_cfg = config.IN_GAME_OVERLAY["widgets"][self.widget_id]
+        widget_cfg = config.IN_GAME_OVERLAY["widgets"].get(
+            self.widget_id,
+            {"enabled": False, "x": 0, "y": 0, "scale": 1.0}
+        )
         self.update_scale(widget_cfg.get("scale", 1.0))
-        self.move(widget_cfg["x"], widget_cfg["y"])
-        self.setVisible(widget_cfg["enabled"])
+        self.move(widget_cfg.get("x", 0), widget_cfg.get("y", 0))
+        self.setVisible(widget_cfg.get("enabled", False))
 
     def update_scale(self, scale: float) -> None:
         px_size = int(16 * scale)
@@ -232,7 +235,7 @@ class InGameOverlayWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.widgets: dict[str, DraggableOverlayWidget] = {}
-        for widget_id in ("scanner", "recording", "kps", "powerups", "luck_rarity"):
+        for widget_id in ("scanner", "recording", "kps", "powerups", "luck_rarity", "stats", "event_timer"):
             widget = (
                 LuckRarityOverlayWidget(widget_id, self)
                 if widget_id == "luck_rarity"
