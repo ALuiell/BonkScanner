@@ -5,7 +5,7 @@ from typing import Any
 
 import run_summary
 from gui_styles import COLOR_MAP, ITEM_RARITY_COLOR_MAP
-from live_run_tracker import LiveRunTracker
+from live_run_tracker import LiveRunTracker, RuntimeStateSnapshot
 
 
 DEFAULT_STATS_WIDGET_LABELS = ("Damage", "Attack Speed", "Luck", "XP Gain")
@@ -45,23 +45,30 @@ class OverlayState:
 
 
 def build_overlay_state(tracker: LiveRunTracker, overlay_config: dict[str, Any] | None = None) -> dict[str, Any]:
+    return build_overlay_state_from_snapshot(tracker.runtime_snapshot(), overlay_config)
+
+
+def build_overlay_state_from_snapshot(
+    runtime: RuntimeStateSnapshot,
+    overlay_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Project a runtime snapshot into the stable OBS HTTP payload."""
     overlay_config = overlay_config or {}
-    tracker_state = tracker.state_snapshot()
-    snapshot = tracker_state.latest_snapshot
+    snapshot = runtime.latest_snapshot
     widgets = _widget_config_by_id(overlay_config)
     state = OverlayState(
-        status=tracker_state.status,
-        updated_at=tracker_state.updated_at,
-        run_id=tracker_state.run_id,
-        current_stage=tracker_state.current_stage_index,
+        status=runtime.status,
+        updated_at=runtime.updated_at,
+        run_id=runtime.run_id,
+        current_stage=runtime.current_stage_index,
         run_timer_label=_format_timer(getattr(snapshot, "game_time_seconds", None)),
         mob_kills=_coerce_optional_int(getattr(snapshot, "mob_kills", None)),
         player_level=_coerce_optional_int(getattr(snapshot, "player_level", None)),
         chests_per_minute=_coerce_optional_float(getattr(snapshot, "chests_per_minute", None)),
         widgets=widgets,
-        tracked_items=_overlay_tracked_item_rows(tracker_state.tracked_items, overlay_config),
-        stage_summary=_overlay_stage_summary_rows(tracker_state.stage_summary),
-        kps=_overlay_kps_metrics(tracker),
+        tracked_items=_overlay_tracked_item_rows(list(runtime.tracked_items), overlay_config),
+        stage_summary=_overlay_stage_summary_rows(list(runtime.stage_summary)),
+        kps=dict(runtime.kps),
     )
     data = state.to_dict()
     data["template"] = str(overlay_config.get("template") or "compact")

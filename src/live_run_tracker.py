@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+from enum import Enum
 from math import isfinite
 import time
 from typing import Any, Callable, Iterable
@@ -104,6 +105,43 @@ class LiveRunTrackerState:
     latest_snapshot: LiveRunSnapshot | None
     tracked_items: list[dict[str, Any]]
     stage_summary: list[dict[str, Any]]
+
+
+class FeatureAvailability(str, Enum):
+    NEVER_LOADED = "never_loaded"
+    FRESH = "fresh"
+    STALE = "stale"
+    UNAVAILABLE = "unavailable"
+
+
+class RunLifecycle(str, Enum):
+    WAITING = "waiting"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+
+
+@dataclass(frozen=True)
+class FeatureStatus:
+    availability: FeatureAvailability
+    last_success_at: float | None = None
+    last_error: str | None = None
+    failure_count: int = 0
+
+
+@dataclass(frozen=True)
+class RuntimeStateSnapshot:
+    """Coherent, read-only runtime view for projections and worker threads."""
+    status: str
+    lifecycle: RunLifecycle
+    updated_at: float
+    run_id: str | None
+    current_stage_index: int
+    latest_snapshot: LiveRunSnapshot | None
+    tracked_items: tuple[dict[str, Any], ...]
+    stage_summary: tuple[dict[str, Any], ...]
+    chest_stats: ChestStatsSnapshot
+    kps: dict[str, int | None]
+    feature_status: dict[str, FeatureStatus]
 
 
 @dataclass(frozen=True)
@@ -281,11 +319,24 @@ class LiveRunTracker:
         self.stale_after_seconds = max(0.1, float(stale_after_seconds))
         self.clock = clock
         self.run_id: str | None = None
+        self._lifecycle = RunLifecycle.WAITING
         self.snapshots: deque[LiveRunSnapshot] = deque(maxlen=self.max_snapshots)
         self.current_stage_index = 1
         self._last_update_at: float | None = None
         self._last_failed_at: float | None = None
         self._last_no_game_at: float | None = None
+        self._feature_status: dict[str, FeatureStatus] = {
+            name: FeatureStatus(FeatureAvailability.NEVER_LOADED)
+            for name in (
+                "run",
+                "player",
+                "combat",
+                "progression",
+                "world",
+                "powerups",
+                "chaos_tome",
+            )
+        }
         self._previous_item_counts: dict[str, int] | None = None
         self._tracked_events: list[TrackedItemEvent] = []
         self._tracked_counts: dict[str, int] = {rule.id: 0 for rule in self.tracked_item_rules}
@@ -337,6 +388,12 @@ class LiveRunTracker:
         self._last_update_at = now
         self._last_failed_at = None
         self._last_no_game_at = None
+        self._lifecycle = RunLifecycle.ACTIVE
+        self._mark_feature_success_unlocked("run", now)
+        self._mark_feature_success_unlocked("player", now)
+        self._mark_feature_success_unlocked("combat", now)
+        self._mark_feature_success_unlocked("progression", now)
+        self._mark_feature_success_unlocked("world", now)
         reset_for_snapshot = False
         if not self._is_active_snapshot(snapshot):
             if not self.snapshots:
@@ -376,11 +433,26 @@ class LiveRunTracker:
     def mark_read_failed(self, *, no_game: bool = False) -> None:
         now = self.clock()
         self._last_failed_at = now
+        self._mark_feature_failure_unlocked("run", now, "game memory read failed")
         if no_game:
             self._last_no_game_at = now
             self._recent_kills_history.clear()
             self._fast_stage_timer_context = FastStageTimerContext()
             self._reset_ui_kps_unlocked()
+
+    @with_lock
+    def mark_run_completed(self) -> None:
+        """Freeze the last active run for local post-run inspection."""
+        if self.snapshots:
+            self._lifecycle = RunLifecycle.COMPLETED
+
+    @with_lock
+    def mark_feature_failed(self, feature: str, error: Exception | str | None = None) -> None:
+        self._mark_feature_failure_unlocked(feature, self.clock(), str(error or "read failed"))
+
+    @with_lock
+    def mark_feature_available(self, feature: str) -> None:
+        self._mark_feature_success_unlocked(feature, self.clock())
 
     @with_lock
     def set_tracked_item_rules(self, rules: Iterable[TrackedItemRule]) -> None:
@@ -440,6 +512,7 @@ class LiveRunTracker:
         chaos_level: int | None,
         permanent_modifiers: dict[int, tuple[Any, ...]],
     ) -> None:
+        self._mark_feature_success_unlocked("chaos_tome", self.clock())
         if chaos_level is None:
             # TomeInventory may be unavailable while the game mutates its
             # dictionaries. A missing read is not evidence that the tome was
@@ -531,6 +604,29 @@ class LiveRunTracker:
             stage_summary=self._stage_summary_rows_unlocked(),
         )
 
+    @with_lock
+    def runtime_snapshot(self) -> RuntimeStateSnapshot:
+        """Return one immutable boundary object for consumer projections."""
+        now = self.clock()
+        return RuntimeStateSnapshot(
+            status=self._status_unlocked(now),
+            lifecycle=self._lifecycle,
+            updated_at=now,
+            run_id=self.run_id,
+            current_stage_index=self.current_stage_index,
+            latest_snapshot=copy.deepcopy(self._latest_snapshot_unlocked()),
+            tracked_items=tuple(self._tracked_item_rows_unlocked()),
+            stage_summary=tuple(self._stage_summary_rows_unlocked()),
+            chest_stats=self._get_chest_stats_unlocked(),
+            kps={
+                "current": self._ui_kps_value,
+                "minute_avg": self._average_kps_for_window_unlocked(60.0),
+                "five_minute_avg": self._average_kps_for_window_unlocked(300.0),
+                "run_avg": self._current_run_avg_kps_unlocked(),
+            },
+            feature_status=self._feature_status_snapshot_unlocked(now),
+        )
+
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:
         if self._cached_stage_summary is None:
             self._cached_stage_summary = run_summary.build_stage_summary(tuple(self.snapshots))
@@ -556,6 +652,7 @@ class LiveRunTracker:
     def track_kills(self, game_time_seconds: float | None, current_kills: int | None) -> None:
         if game_time_seconds is None or current_kills is None:
             return
+        self._mark_feature_success_unlocked("combat", self.clock())
 
         if self._recent_kills_history:
             last_time, last_kills = self._recent_kills_history[-1]
@@ -592,6 +689,9 @@ class LiveRunTracker:
 
     @with_lock
     def current_run_avg_kps(self) -> int | None:
+        return self._current_run_avg_kps_unlocked()
+
+    def _current_run_avg_kps_unlocked(self) -> int | None:
         if not self._recent_kills_history:
             return None
 
@@ -624,6 +724,7 @@ class LiveRunTracker:
         if stage_timer_seconds is None:
             self._fast_stage_timer_context = FastStageTimerContext()
             return
+        self._mark_feature_success_unlocked("progression", self.clock())
         self._fast_stage_timer_context = FastStageTimerContext(
             captured_at=self.clock(),
             stage_timer_seconds=float(stage_timer_seconds),
@@ -714,6 +815,7 @@ class LiveRunTracker:
         *,
         map_context: PowerupMapContext | None = None,
     ) -> None:
+        self._mark_feature_success_unlocked("powerups", self.clock())
         if map_context is not None:
             if map_context.captured_at <= 0:
                 map_context = PowerupMapContext(
@@ -973,6 +1075,7 @@ class LiveRunTracker:
 
     @with_lock
     def update_chests_and_keys(self, chests_opened: int, chests_total: int, keys_count: int) -> None:
+        self._mark_feature_success_unlocked("progression", self.clock())
         self._chests_opened = chests_opened
         self._chests_total = chests_total
         self._keys_count = keys_count
@@ -1022,6 +1125,7 @@ class LiveRunTracker:
 
     @with_lock
     def update_chest_counters(self, chests_bought: int, chests_purchased: int) -> bool:
+        self._mark_feature_success_unlocked("progression", self.clock())
         chests_bought = int(chests_bought)
         chests_purchased = int(chests_purchased)
         known_total = sum(max(0, value) for value in self._chests_opened_by_stage.values())
@@ -1221,8 +1325,49 @@ class LiveRunTracker:
             return "stale"
         return "live"
 
+    def _mark_feature_success_unlocked(self, feature: str, now: float) -> None:
+        previous = self._feature_status.get(feature, FeatureStatus(FeatureAvailability.NEVER_LOADED))
+        self._feature_status[feature] = FeatureStatus(
+            availability=FeatureAvailability.FRESH,
+            last_success_at=now,
+            failure_count=previous.failure_count,
+        )
+
+    def _feature_status_snapshot_unlocked(self, now: float) -> dict[str, FeatureStatus]:
+        statuses: dict[str, FeatureStatus] = {}
+        for feature, status in self._feature_status.items():
+            availability = status.availability
+            if (
+                availability is FeatureAvailability.FRESH
+                and status.last_success_at is not None
+                and now - status.last_success_at > self.stale_after_seconds
+            ):
+                availability = FeatureAvailability.STALE
+            statuses[feature] = FeatureStatus(
+                availability=availability,
+                last_success_at=status.last_success_at,
+                last_error=status.last_error,
+                failure_count=status.failure_count,
+            )
+        return statuses
+
+    def _mark_feature_failure_unlocked(self, feature: str, now: float, error: str) -> None:
+        previous = self._feature_status.get(feature, FeatureStatus(FeatureAvailability.NEVER_LOADED))
+        availability = (
+            FeatureAvailability.STALE
+            if previous.last_success_at is not None
+            else FeatureAvailability.UNAVAILABLE
+        )
+        self._feature_status[feature] = FeatureStatus(
+            availability=availability,
+            last_success_at=previous.last_success_at,
+            last_error=error,
+            failure_count=previous.failure_count + 1,
+        )
+
     def _reset_for_new_run(self) -> None:
         self.run_id = uuid4().hex
+        self._lifecycle = RunLifecycle.ACTIVE
         self.snapshots.clear()
         self._recent_kills_history.clear()
         self._reset_ui_kps_unlocked()

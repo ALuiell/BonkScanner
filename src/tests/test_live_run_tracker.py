@@ -6,6 +6,7 @@ import unittest
 from types import SimpleNamespace
 
 from live_run_tracker import (
+    FeatureAvailability,
     LiveRunSnapshot,
     LiveRunTracker,
     PowerupMapContext,
@@ -186,6 +187,29 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(tracker.status(), "live")
         now[0] = 1007.0
         self.assertEqual(tracker.status(), "stale")
+
+    def test_runtime_snapshot_is_coherent_and_records_feature_status(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0, mob_kills=10))
+
+        runtime = tracker.runtime_snapshot()
+
+        self.assertEqual(runtime.current_stage_index, 1)
+        self.assertEqual(runtime.latest_snapshot.mob_kills, 10)
+        self.assertEqual(runtime.feature_status["player"].availability, FeatureAvailability.FRESH)
+        self.assertEqual(runtime.feature_status["combat"].availability, FeatureAvailability.FRESH)
+
+    def test_completed_run_keeps_latest_snapshot_until_next_run(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=20.0, map_seed=1))
+        completed_snapshot = tracker.latest_snapshot()
+        tracker.mark_run_completed()
+
+        self.assertEqual(tracker.runtime_snapshot().lifecycle.value, "completed")
+        self.assertEqual(tracker.latest_snapshot(), completed_snapshot)
+
+        tracker.update(snapshot(time_seconds=1.0, map_seed=2))
+        self.assertEqual(tracker.runtime_snapshot().lifecycle.value, "active")
 
     def test_current_kps_clears_when_game_disappears(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)

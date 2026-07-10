@@ -925,7 +925,15 @@ class TwitchBotWorker(QThread):
         if not config.TWITCH_BOT.get("stage_announcements", True):
             return
 
-        run_id, stage_index = self.run_tracker.run_identity()
+        runtime_snapshot_reader = getattr(self.run_tracker, "runtime_snapshot", None)
+        runtime = runtime_snapshot_reader() if callable(runtime_snapshot_reader) else None
+        if runtime is not None:
+            run_id = runtime.run_id
+            stage_index = runtime.current_stage_index
+            rows = runtime.stage_summary
+        else:
+            run_id, stage_index = self.run_tracker.run_identity()
+            rows = None
 
         if run_id != self._last_run_id:
             self._last_run_id = run_id
@@ -936,7 +944,8 @@ class TwitchBotWorker(QThread):
             prev_stage = self._last_stage_index
             self._last_stage_index = stage_index
 
-            rows = self.run_tracker.stage_summary_rows()
+            if rows is None:
+                rows = self.run_tracker.stage_summary_rows()
             prev_row = None
             for row in rows:
                 if row.get("label") == f"Stage {prev_stage}":

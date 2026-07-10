@@ -7,6 +7,7 @@ import config
 from gui_in_game_overlay_render import (
     build_event_timer_overlay_html,
     build_kps_overlay_html,
+    build_kps_overlay_html_from_values,
     build_luck_rarity_overlay_html,
     build_powerups_overlay_html,
     build_stats_overlay_html,
@@ -157,13 +158,26 @@ class InGameOverlayMixin:
             return False
 
         widgets = self.in_game_overlay_window.widgets
+        runtime_snapshot_reader = getattr(self.live_run_tracker, "runtime_snapshot", None)
+        runtime_snapshot = (
+            runtime_snapshot_reader() if callable(runtime_snapshot_reader) else None
+        )
         if cfg["widgets"]["kps"]["enabled"]:
             metrics_cfg = cfg["widgets"]["kps"].get("metrics", ["instant"])
-            widgets["kps"].set_text(build_kps_overlay_html(self.live_run_tracker, metrics_cfg))
+            if runtime_snapshot is not None:
+                widgets["kps"].set_text(
+                    build_kps_overlay_html_from_values(runtime_snapshot.kps, metrics_cfg)
+                )
+            else:
+                widgets["kps"].set_text(build_kps_overlay_html(self.live_run_tracker, metrics_cfg))
 
         # Retrieve snapshot and powerups map context to determine stage metadata
         latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
-        latest_snapshot = latest_snapshot_reader() if callable(latest_snapshot_reader) else None
+        latest_snapshot = (
+            runtime_snapshot.latest_snapshot
+            if runtime_snapshot is not None
+            else (latest_snapshot_reader() if callable(latest_snapshot_reader) else None)
+        )
 
         is_graveyard = False
         map_context_reader = getattr(self.live_run_tracker, "powerup_map_context", None)

@@ -424,6 +424,21 @@ class FakeForegroundProcess:
 
 
 class GuiRunControlTests(unittest.TestCase):
+    def test_completed_run_blocks_all_refresh_demands(self) -> None:
+        app = SimpleNamespace(
+            _player_stats_completed_run=True,
+            _is_live_stats_tab_active=lambda: True,
+            player_stats_vod_recorder=SimpleNamespace(is_recording=True),
+            _is_player_stats_recording_armed=lambda: True,
+            overlay_should_refresh_live_stats=lambda: True,
+            _in_game_overlay_requires_player_stats_refresh=lambda: True,
+            _in_game_overlay_requires_tracker_refresh=lambda: True,
+            _is_twitch_bot_active=lambda: True,
+        )
+
+        self.assertFalse(gui.MegabonkApp._player_stats_refresh_required(app))
+        self.assertFalse(gui.MegabonkApp._fast_tracker_refresh_required(app))
+
     def test_formats_full_chests_card(self) -> None:
         self.assertEqual(
             gui.MegabonkApp.chests_card_values(

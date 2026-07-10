@@ -67,7 +67,9 @@ from player_stats import (
     WeaponSnapshot,
     calculate_chests_per_minute,
 )
+from refresh_coordinator import RefreshCoordinator, RefreshTask
 from vod_storage import delete_vod, delete_vods_below_snapshot_count, list_vods, load_vod, rename_vod
+from vod_projection import build_vod_capture_kwargs
 
 COMPARE_RUN_STAT_LABELS = (
     "Damage",
@@ -138,7 +140,17 @@ class PlayerStatsMixin:
             return
 
         recording_state_action = self._sync_player_stats_recording_run_state()
-        should_refresh = (
+        self._player_stats_refresh_status_text = (
+            "Live player stats"
+            if recording_state_action != "stopped"
+            else "Live player stats (recording auto-stopped after run end)"
+        )
+        self._ensure_refresh_coordinator().tick()
+
+        self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
+
+    def _player_stats_refresh_required(self) -> bool:
+        return not bool(getattr(self, "_player_stats_completed_run", False)) and (
             self._is_live_stats_tab_active()
             or self.player_stats_vod_recorder.is_recording
             or self._is_player_stats_recording_armed()
@@ -147,21 +159,19 @@ class PlayerStatsMixin:
             or self._in_game_overlay_requires_player_stats_refresh()
             or self._is_twitch_bot_active()
         )
-        if should_refresh:
-            status_text = (
-                "Live player stats"
-                if recording_state_action != "stopped"
-                else "Live player stats (recording auto-stopped after run end)"
-            )
-            self.refresh_live_player_stats_now(status_text=status_text)
-
-        self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
 
     def update_chaos_tome_tracker_timer(self):
         if self._is_shutting_down:
             return
 
-        should_refresh = (
+        self._ensure_refresh_coordinator().tick()
+        self.after(
+            int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500)),
+            self.update_chaos_tome_tracker_timer,
+        )
+
+    def _fast_tracker_refresh_required(self) -> bool:
+        return not bool(getattr(self, "_player_stats_completed_run", False)) and (
             self._is_live_stats_tab_active()
             or self.player_stats_vod_recorder.is_recording
             or self._is_player_stats_recording_armed()
@@ -170,13 +180,36 @@ class PlayerStatsMixin:
             or self._in_game_overlay_requires_tracker_refresh()
             or self._is_twitch_bot_active()
         )
-        if should_refresh:
-            self.refresh_chaos_tome_tracker_now()
 
-        self.after(
-            int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500)),
-            self.update_chaos_tome_tracker_timer,
+    def _ensure_refresh_coordinator(self) -> RefreshCoordinator:
+        coordinator = getattr(self, "_refresh_coordinator", None)
+        if coordinator is not None:
+            return coordinator
+        coordinator = RefreshCoordinator()
+        coordinator.register(
+            RefreshTask(
+                task_id="full_player_snapshot",
+                interval_ms=PLAYER_STATS_REFRESH_MS,
+                required=self._player_stats_refresh_required,
+                run=lambda: self.refresh_live_player_stats_now(
+                    status_text=getattr(
+                        self,
+                        "_player_stats_refresh_status_text",
+                        "Live player stats",
+                    )
+                ),
+            )
         )
+        coordinator.register(
+            RefreshTask(
+                task_id="fast_tracker",
+                interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
+                required=self._fast_tracker_refresh_required,
+                run=self.refresh_chaos_tome_tracker_now,
+            )
+        )
+        self._refresh_coordinator = coordinator
+        return coordinator
 
     def refresh_chaos_tome_tracker_now(self) -> bool:
         try:
@@ -818,55 +851,36 @@ class PlayerStatsMixin:
             and runtime_state.mode is RuntimeGameMode.IN_GAME
         )
         if can_capture_recording and self.player_stats_vod_recorder.should_capture():
-            current_ui_kps_reader = getattr(self.live_run_tracker, "current_ui_kps", None)
-            current_minute_kps_reader = getattr(self.live_run_tracker, "current_minute_avg_kps", None)
-            current_five_minute_kps_reader = getattr(self.live_run_tracker, "current_five_minute_avg_kps", None)
-            current_run_kps_reader = getattr(self.live_run_tracker, "current_run_avg_kps", None)
-            snapshot = self.player_stats_vod_recorder.capture(
-                stats,
-                effective_items,
-                weapons if weapons_available else (),
-                tomes if tomes_available else (),
-                banishes if banishes_available else (),
-                damage_sources if damage_sources_available else (),
-                chaos_tome=chaos_tome_snapshot,
-                chests_per_minute=chests_per_minute,
-                game_time_seconds=run_timer_seconds,
-                mob_kills=mob_kills,
-                kps_at_capture=current_ui_kps_reader() if callable(current_ui_kps_reader) else None,
-                minute_avg_kps_at_capture=(
-                    current_minute_kps_reader() if callable(current_minute_kps_reader) else None
-                ),
-                five_minute_avg_kps_at_capture=(
-                    current_five_minute_kps_reader() if callable(current_five_minute_kps_reader) else None
-                ),
-                run_avg_kps_at_capture=(
-                    current_run_kps_reader() if callable(current_run_kps_reader) else None
-                ),
-                player_level=player_level,
-                map_seed=map_seed,
-                stage_ptr=stage_ptr,
-                stage_index=stage_index,
-                stage_time_seconds=stage_timer_seconds,
-                chests_opened=(chest_stats_snapshot.total_opened if chest_stats_snapshot else None),
-                chests_total=map_chests_total,
-                pots_total=map_pots_total,
-                paid_chests=(chest_stats_snapshot.paid if chest_stats_snapshot else None),
-                key_procs=(chest_stats_snapshot.key_procs if chest_stats_snapshot else None),
-                free_chests=(chest_stats_snapshot.free_chests if chest_stats_snapshot else None),
-                keys_count=(chest_stats_snapshot.keys_count if chest_stats_snapshot else None),
-                expected_key_procs=(
-                    chest_stats_snapshot.expected_key_procs
-                    if chest_stats_snapshot and chest_stats_snapshot.expected_available
-                    else None
-                ),
-                chests_opened_by_stage=(
-                    chest_stats_snapshot.opened_by_stage if chest_stats_snapshot else None
-                ),
-                chests_total_by_stage=(
-                    chest_stats_snapshot.total_by_stage if chest_stats_snapshot else None
-                ),
-            )
+            runtime_snapshot_reader = getattr(self.live_run_tracker, "runtime_snapshot", None)
+            if callable(runtime_snapshot_reader):
+                capture_kwargs = build_vod_capture_kwargs(
+                    runtime_snapshot_reader(),
+                    chaos_tome=chaos_tome_snapshot,
+                )
+            else:
+                # Compatibility for lightweight integrations that still expose
+                # the pre-snapshot tracker API.
+                capture_kwargs = self._legacy_vod_capture_kwargs(
+                    stats=stats,
+                    items=effective_items,
+                    weapons=weapons if weapons_available else (),
+                    tomes=tomes if tomes_available else (),
+                    banishes=banishes if banishes_available else (),
+                    damage_sources=damage_sources if damage_sources_available else (),
+                    chaos_tome=chaos_tome_snapshot,
+                    chests_per_minute=chests_per_minute,
+                    game_time_seconds=run_timer_seconds,
+                    mob_kills=mob_kills,
+                    player_level=player_level,
+                    map_seed=map_seed,
+                    stage_ptr=stage_ptr,
+                    stage_index=stage_index,
+                    stage_time_seconds=stage_timer_seconds,
+                    chests_total=map_chests_total,
+                    pots_total=map_pots_total,
+                    chest_stats=chest_stats_snapshot,
+                )
+            snapshot = self.player_stats_vod_recorder.capture(**capture_kwargs)
             self.player_stats_vod_snapshots.append(snapshot)
             self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
             self.refresh_player_stats_timeline_ui()
@@ -917,6 +931,35 @@ class PlayerStatsMixin:
                 stage_summary_rows=live_stage_summary_rows,
             )
         return True
+
+    def _legacy_vod_capture_kwargs(self, **values) -> dict:
+        """Temporary adapter for extensions which have not adopted snapshots."""
+        tracker = self.live_run_tracker
+        kps_readers = {
+            "kps_at_capture": "current_ui_kps",
+            "minute_avg_kps_at_capture": "current_minute_avg_kps",
+            "five_minute_avg_kps_at_capture": "current_five_minute_avg_kps",
+            "run_avg_kps_at_capture": "current_run_avg_kps",
+        }
+        for target, name in kps_readers.items():
+            reader = getattr(tracker, name, None)
+            values[target] = reader() if callable(reader) else None
+        chest_stats = values.pop("chest_stats", None)
+        values.update(
+            chests_opened=(chest_stats.total_opened if chest_stats else None),
+            paid_chests=(chest_stats.paid if chest_stats else None),
+            key_procs=(chest_stats.key_procs if chest_stats else None),
+            free_chests=(chest_stats.free_chests if chest_stats else None),
+            keys_count=(chest_stats.keys_count if chest_stats else None),
+            expected_key_procs=(
+                chest_stats.expected_key_procs
+                if chest_stats and chest_stats.expected_available
+                else None
+            ),
+            chests_opened_by_stage=(chest_stats.opened_by_stage if chest_stats else None),
+            chests_total_by_stage=(chest_stats.total_by_stage if chest_stats else None),
+        )
+        return values
 
     def display_player_stats(
         self,
@@ -1213,7 +1256,13 @@ class PlayerStatsMixin:
 
     def _sync_player_stats_recording_run_state(self) -> str | None:
         runtime_state = self._runtime_game_state_or_unknown()
+        if runtime_state.mode is RuntimeGameMode.GAME_OVER:
+            self._player_stats_completed_run = True
+            mark_completed = getattr(self.live_run_tracker, "mark_run_completed", None)
+            if callable(mark_completed):
+                mark_completed()
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
+            self._player_stats_completed_run = False
             self.player_stats_recording_waiting_mode = None
             if self._is_player_stats_recording_armed() and not self.player_stats_vod_recorder.is_recording:
                 current_state = self._read_player_stats_recording_state_safe()
