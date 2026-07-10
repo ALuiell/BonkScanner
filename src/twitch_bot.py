@@ -10,8 +10,6 @@ import config
 from stat_label_abbreviations import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
 from twitch_credentials import get_twitch_oauth_token
 from player_stats import format_chaos_tome_stat_delta
-from live_run_tracker import RuntimeStateSnapshot
-from types import SimpleNamespace
 from twitch_projection import format_kps, truncate_chat_message
 
 
@@ -59,38 +57,7 @@ class TwitchBotWorker(QThread):
         self.last_global_command_time: float = 0.0
 
     def _runtime_snapshot(self):
-        runtime_reader = getattr(self.run_tracker, "runtime_snapshot", None)
-        runtime = runtime_reader() if callable(runtime_reader) else None
-        if isinstance(runtime, RuntimeStateSnapshot):
-            return runtime
-        # Compatibility adapter for extensions still exposing the legacy API.
-        # The application tracker always takes the snapshot path above.
-        latest = self.run_tracker.latest_snapshot()
-        chaos_level = self.run_tracker.chaos_tome_level()
-        chaos_parts = self.run_tracker.chaos_tome_summary_parts()
-        chaos = None if chaos_level is None else SimpleNamespace(
-            level=chaos_level,
-            stats=(),
-            legacy_parts=chaos_parts,
-        )
-        return SimpleNamespace(
-            latest_snapshot=latest,
-            status=self.run_tracker.status(),
-            run_id=self.run_tracker.run_identity()[0],
-            current_stage_index=self.run_tracker.run_identity()[1],
-            stage_summary=self.run_tracker.stage_summary_rows(),
-            chest_stats=self.run_tracker.get_chest_stats(),
-            kps={
-                "current": self.run_tracker.current_ui_kps(),
-                "minute_avg": self.run_tracker.current_minute_avg_kps(),
-                "five_minute_avg": self.run_tracker.current_five_minute_avg_kps(),
-                "run_avg": self.run_tracker.current_run_avg_kps(),
-            },
-            chaos_tome=chaos,
-            powerups=self.run_tracker.powerups_snapshot(),
-            legacy_powerups_summary=self.run_tracker.powerups_summary_text(include_left_word=True),
-            legacy_disabled=self.run_tracker.get_disabled_items(),
-        )
+        return self.run_tracker.runtime_snapshot()
 
     def run(self):
         self.running = True

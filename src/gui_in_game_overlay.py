@@ -5,7 +5,6 @@ from PySide6.QtWidgets import QApplication
 
 import config
 from in_game_projection import project_in_game_overlay
-from live_run_tracker import RuntimeStateSnapshot
 from gui_in_game_overlay_render import (
     build_event_timer_overlay_html,
     build_kps_overlay_html,
@@ -164,29 +163,23 @@ class InGameOverlayMixin:
         runtime_snapshot = (
             runtime_snapshot_reader() if callable(runtime_snapshot_reader) else None
         )
-        if not isinstance(runtime_snapshot, RuntimeStateSnapshot):
-            runtime_snapshot = None
-        projection = project_in_game_overlay(runtime_snapshot) if runtime_snapshot is not None else None
+        if runtime_snapshot is None:
+            return False
+        projection = project_in_game_overlay(runtime_snapshot)
         if cfg["widgets"]["kps"]["enabled"]:
             metrics_cfg = cfg["widgets"]["kps"].get("metrics", ["instant"])
-            if projection is not None:
-                widgets["kps"].set_text(
-                    build_kps_overlay_html_from_values(projection.kps, metrics_cfg)
-                )
-            else:
-                widgets["kps"].set_text(build_kps_overlay_html(self.live_run_tracker, metrics_cfg))
+            widgets["kps"].set_text(
+                build_kps_overlay_html_from_values(projection.kps, metrics_cfg)
+            )
 
         # Retrieve snapshot and powerups map context to determine stage metadata
         latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
         latest_snapshot = (
             projection.latest_snapshot
-            if projection is not None
-            else (latest_snapshot_reader() if callable(latest_snapshot_reader) else None)
         )
 
         is_graveyard = False
-        if projection is not None:
-            is_graveyard = projection.is_graveyard
+        is_graveyard = projection.is_graveyard
 
         stage_index = 0
         stage_time_seconds = 0.0
@@ -209,13 +202,7 @@ class InGameOverlayMixin:
         event_stage_index = stage_index
         event_stage_time_seconds = stage_time_seconds
         event_stage_timer_seconds = stage_timer_seconds
-        if projection is not None:
-            fast_stage_context = projection.fast_stage_timer
-        else:
-            fast_stage_context_reader = getattr(self.live_run_tracker, "fast_stage_timer_context", None)
-            fast_stage_context = (
-                fast_stage_context_reader() if callable(fast_stage_context_reader) else None
-            )
+        fast_stage_context = projection.fast_stage_timer
         if fast_stage_context is not None:
             if getattr(fast_stage_context, "stage_index", None) is not None:
                 event_stage_index = int(fast_stage_context.stage_index)
@@ -251,11 +238,7 @@ class InGameOverlayMixin:
         if cfg["widgets"].get("event_timer", {}).get("enabled", False):
             warning_seconds = cfg["widgets"]["event_timer"].get("warning_seconds", 15)
             graveyard_events_active = False
-            if projection is not None:
-                graveyard_events_active = projection.graveyard_main_map_events_active
-            else:
-                active_reader = getattr(self.live_run_tracker, "graveyard_main_map_events_active", None)
-                graveyard_events_active = active_reader() if callable(active_reader) else False
+            graveyard_events_active = projection.graveyard_main_map_events_active
 
             html = build_event_timer_overlay_html(
                 event_stage_index,
@@ -269,11 +252,7 @@ class InGameOverlayMixin:
             widgets["event_timer"].set_text(html)
 
         if cfg["widgets"]["powerups"]["enabled"]:
-            if projection is not None:
-                snapshot = projection.powerups
-            else:
-                snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
-                snapshot = snapshot_reader() if callable(snapshot_reader) else None
+            snapshot = projection.powerups
             html = self._build_powerups_overlay_html(
                 snapshot,
                 edit_mode=self.in_game_overlay_window.edit_mode,

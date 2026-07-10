@@ -17,6 +17,35 @@ from player_stats import DisabledItemsReadResult, DisabledItemsReadStatus
 class TestTwitchBotWorker(unittest.TestCase):
     def setUp(self):
         self.run_tracker = MagicMock()
+        def runtime_snapshot():
+            latest = self.run_tracker.latest_snapshot()
+            chaos_level = self.run_tracker.chaos_tome_level()
+            chaos_parts = self.run_tracker.chaos_tome_summary_parts()
+            chaos = None if chaos_level is None else SimpleNamespace(
+                level=chaos_level,
+                stats=(),
+                legacy_parts=chaos_parts,
+            )
+            disabled = self.run_tracker.get_disabled_items()
+            return SimpleNamespace(
+                latest_snapshot=latest,
+                status=self.run_tracker.status(),
+                run_id=self.run_tracker.run_identity()[0],
+                current_stage_index=self.run_tracker.run_identity()[1],
+                stage_summary=self.run_tracker.stage_summary_rows(),
+                chest_stats=self.run_tracker.get_chest_stats(),
+                kps={
+                    "current": self.run_tracker.current_ui_kps(),
+                    "minute_avg": self.run_tracker.current_minute_avg_kps(),
+                    "five_minute_avg": self.run_tracker.current_five_minute_avg_kps(),
+                    "run_avg": self.run_tracker.current_run_avg_kps(),
+                },
+                chaos_tome=chaos,
+                powerups=self.run_tracker.powerups_snapshot(),
+                legacy_disabled=disabled,
+                legacy_powerups_summary=self.run_tracker.powerups_summary_text(include_left_word=True),
+            )
+        self.run_tracker.runtime_snapshot.side_effect = runtime_snapshot
         self.bot = TwitchBotWorker(self.run_tracker)
 
     def test_byte_truncation(self):
