@@ -839,6 +839,58 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual([effect.name for effect in first], ["Shield"])
         self.assertEqual(second, ())
 
+    def test_get_active_status_effects_rescans_when_unsupported_slot_becomes_clock(self) -> None:
+        memory = self.build_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x26000000
+        status_effects = 0x26000100
+        status_dict = 0x26000200
+        status_entries = 0x26000300
+        invulnerability_effect = 0x26000400
+        clock_effect = 0x26000500
+        entry = status_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+
+        memory.pointers.update(
+            {
+                owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
+                player_inventory + PlayerStatsClient.PLAYER_STATUS_EFFECTS_OFFSET: status_effects,
+                status_effects + PlayerStatsClient.PLAYER_STATUS_EFFECTS_DICT_OFFSET: status_dict,
+                status_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: status_entries,
+                entry + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET: invulnerability_effect,
+            }
+        )
+        memory.ints.update(
+            {
+                status_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 3,
+                status_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 2,
+                status_entries + PlayerStatsClient.ARRAY_LENGTH_OFFSET: 3,
+                entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 5,
+                entry + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: 5,
+                invulnerability_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 5,
+                clock_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 4,
+            }
+        )
+        memory.floats.update(
+            {
+                invulnerability_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET: 100.0,
+                invulnerability_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET: 100.5,
+                clock_effect + PlayerStatsClient.STATUS_EFFECT_ADDED_OFFSET: 100.6,
+                clock_effect + PlayerStatsClient.STATUS_EFFECT_EXPIRATION_OFFSET: 115.6,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(client.get_active_status_effects(owner_stats), ())
+
+        memory.ints[entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET] = 4
+        memory.ints[entry + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET] = 4
+        memory.pointers[entry + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET] = clock_effect
+
+        effects = client.get_active_status_effects(owner_stats)
+
+        self.assertEqual([effect.name for effect in effects], ["Clock"])
+        self.assertEqual(effects[0].expiration_time, 115.6)
+
     def test_read_current_stage_time_clears_stale_timeline_when_current_stage_is_missing(self) -> None:
         memory = self.build_memory()
         base = memory.module_base

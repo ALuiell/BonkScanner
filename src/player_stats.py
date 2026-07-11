@@ -1512,7 +1512,16 @@ class PlayerStatsClient:
             self._cached_status_effects_count = count
             self._cached_status_effects_capacity = capacity
             self._cached_status_effects_version = version
-            self._cached_status_effect_value_addresses = self._scan_status_effect_value_addresses(entries, capacity)
+
+        # Unity can reuse a Dictionary entry for another EStatusEffect without
+        # changing count, capacity, or version (for example Invulnerability 5
+        # becoming TimeFreeze 4 after a death). Refresh the key-to-value map on
+        # every fast poll so a supported effect cannot stay invisible behind a
+        # stale slot cache.
+        self._cached_status_effect_value_addresses = self._scan_status_effect_value_addresses(
+            entries,
+            capacity,
+        )
 
         effects: list[StatusEffectSnapshot] = []
         for effect_id, value_address in tuple(self._cached_status_effect_value_addresses.items()):
