@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QApplication
