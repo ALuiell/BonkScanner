@@ -53,14 +53,15 @@ class InGameOverlayMixin:
 
         self._update_igo_status_ui()
 
-    def start_in_game_overlay(self) -> None:
+    def start_in_game_overlay(self, *, initial_refresh: bool = True) -> None:
         if not self.in_game_overlay_window:
             return
         self.overlay_fast_timer.start()
         self.overlay_slow_timer.start()
-        became_visible = self._overlay_fast_tick()
-        if not became_visible:
-            self._overlay_slow_tick()
+        if initial_refresh:
+            became_visible = self._overlay_fast_tick()
+            if not became_visible:
+                self._overlay_slow_tick()
 
     def stop_in_game_overlay(self) -> None:
         if self.in_game_overlay_window:
@@ -77,7 +78,7 @@ class InGameOverlayMixin:
             # The window can already be visible from edit mode while the periodic
             # overlay timers are still stopped, so visibility is not a reliable
             # proxy for an active runtime.
-            self.start_in_game_overlay()
+            self.start_in_game_overlay(initial_refresh=False)
         else:
             self.stop_in_game_overlay()
             self._update_igo_status_ui()
@@ -265,7 +266,7 @@ class InGameOverlayMixin:
 
         became_visible = not was_visible and self.in_game_overlay_window.isVisible()
         if became_visible:
-            self._refresh_in_game_overlay_slow_widgets()
+            self._refresh_in_game_overlay_slow_widgets(projection)
         return became_visible
 
     @staticmethod
@@ -289,9 +290,19 @@ class InGameOverlayMixin:
         if not self.in_game_overlay_window or not self.in_game_overlay_window.isVisible():
             return
 
-        self._refresh_in_game_overlay_slow_widgets()
+        runtime_snapshot_reader = getattr(self.live_run_tracker, "runtime_snapshot", None)
+        runtime_snapshot = runtime_snapshot_reader() if callable(runtime_snapshot_reader) else None
+        projection = project_in_game_overlay(runtime_snapshot) if runtime_snapshot is not None else None
+        if projection is None:
+            legacy_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
+            latest_snapshot = legacy_reader() if callable(legacy_reader) else None
+            self._refresh_in_game_overlay_slow_widgets(
+                type("LegacyProjection", (), {"latest_snapshot": latest_snapshot})()
+            )
+            return
+        self._refresh_in_game_overlay_slow_widgets(projection)
 
-    def _refresh_in_game_overlay_slow_widgets(self) -> None:
+    def _refresh_in_game_overlay_slow_widgets(self, projection=None) -> None:
         if not self.in_game_overlay_window:
             return
 
@@ -311,8 +322,7 @@ class InGameOverlayMixin:
             widgets["recording"].set_text(build_status_indicator_html("REC", is_recording))
 
         if widget_cfg.get("luck_rarity", {}).get("enabled", False):
-            latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
-            latest_snapshot = latest_snapshot_reader() if callable(latest_snapshot_reader) else None
+            latest_snapshot = getattr(projection, "latest_snapshot", None) if projection is not None else None
             luck_stat = None
             if latest_snapshot is not None and isinstance(getattr(latest_snapshot, "stats", None), dict):
                 luck_stat = latest_snapshot.stats.get("Luck")

@@ -24,13 +24,50 @@ from vod_storage import (
     delete_vod,
     delete_vods_below_snapshot_count,
     list_vods,
+    load_cached_vods,
     load_vod,
     load_vod_metadata,
     rename_vod,
+    refresh_vod_metadata_index,
 )
 
 
 class VodStorageTests(unittest.TestCase):
+    def test_vod_metadata_index_persists_and_drops_deleted_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            import vod_storage
+
+            root = Path(temp_dir) / "recordings"
+            root.mkdir()
+            index_path = Path(temp_dir) / "metadata-index.json"
+            path = root / "indexed-run.jsonl"
+            path.write_text(
+                '{"type":"metadata","version":6,"name":"Indexed run","created_at":"2026-05-10T16:00:00","snapshot_interval_seconds":30}\n'
+                '{"type":"summary","duration_seconds":90,"snapshot_count":3}\n',
+                encoding="utf-8",
+            )
+            old_recordings, old_legacy, old_index = (
+                vod_storage.RECORDINGS_DIR,
+                vod_storage.LEGACY_VODS_DIR,
+                vod_storage._VOD_INDEX_CACHE_PATH,
+            )
+            try:
+                vod_storage.RECORDINGS_DIR = root
+                vod_storage.LEGACY_VODS_DIR = Path(temp_dir) / "missing-legacy"
+                vod_storage._VOD_INDEX_CACHE_PATH = index_path
+                refreshed = refresh_vod_metadata_index()
+                self.assertEqual([vod.name for vod in refreshed], ["Indexed run"])
+                self.assertEqual([vod.name for vod in load_cached_vods()], ["Indexed run"])
+
+                path.unlink()
+                refreshed = refresh_vod_metadata_index()
+                self.assertEqual(refreshed, [])
+                self.assertEqual(load_cached_vods(), [])
+            finally:
+                vod_storage.RECORDINGS_DIR = old_recordings
+                vod_storage.LEGACY_VODS_DIR = old_legacy
+                vod_storage._VOD_INDEX_CACHE_PATH = old_index
+
     def test_recorder_batches_snapshot_flushes_but_flushes_metadata_and_summary(self) -> None:
         class FakeFile:
             def __init__(self) -> None:

@@ -5,6 +5,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import threading
 import time
 from typing import Any
 
@@ -26,6 +27,8 @@ VOD_FORMAT_VERSION = 6
 RECORDINGS_DIR = Path(config.application_path) / "stats_recordings"
 LEGACY_VODS_DIR = Path(config.application_path) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
+_VOD_INDEX_CACHE_PATH = Path(config.application_path) / ".vod_metadata_index.json"
+_VOD_INDEX_LOCK = threading.RLock()
 SNAPSHOT_FLUSH_EVERY = 3
 
 
@@ -101,6 +104,105 @@ class VodMetadata:
 class LoadedVod:
     metadata: VodMetadata
     snapshots: tuple[VodSnapshot, ...]
+
+
+def _metadata_to_index_record(metadata: VodMetadata, *, mtime_ns: int, size: int) -> dict[str, Any]:
+    return {
+        "path": str(metadata.path),
+        "mtime_ns": int(mtime_ns),
+        "size": int(size),
+        "metadata": {
+            "name": metadata.name,
+            "created_at": metadata.created_at,
+            "interval_seconds": metadata.interval_seconds,
+            "duration_seconds": metadata.duration_seconds,
+            "snapshot_count": metadata.snapshot_count,
+            "run_seed": metadata.run_seed,
+        },
+    }
+
+
+def _metadata_from_index_record(record: dict[str, Any]) -> tuple[Path, int, int, VodMetadata]:
+    path = Path(str(record["path"])).resolve()
+    raw = record["metadata"]
+    metadata = VodMetadata(
+        path=path,
+        name=str(raw.get("name") or path.stem),
+        created_at=str(raw.get("created_at") or ""),
+        interval_seconds=int(raw.get("interval_seconds") or 0),
+        duration_seconds=int(raw.get("duration_seconds") or 0),
+        snapshot_count=int(raw.get("snapshot_count") or 0),
+        run_seed=raw.get("run_seed"),
+    )
+    return path, int(record.get("mtime_ns") or 0), int(record.get("size") or 0), metadata
+
+
+def load_cached_vods() -> list[VodMetadata]:
+    """Return the last valid metadata index without scanning recording payloads."""
+    with _VOD_INDEX_LOCK:
+        try:
+            payload = json.loads(_VOD_INDEX_CACHE_PATH.read_text(encoding="utf-8"))
+            records = payload.get("records", [])
+            result = []
+            for record in records:
+                try:
+                    path, _mtime_ns, _size, metadata = _metadata_from_index_record(record)
+                except (TypeError, ValueError, KeyError):
+                    continue
+                if path.exists():
+                    result.append(metadata)
+            return sorted(result, key=lambda vod: vod.created_at, reverse=True)
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return []
+
+
+def refresh_vod_metadata_index() -> list[VodMetadata]:
+    """Refresh changed metadata entries and persist the lightweight VOD index."""
+    roots = [RECORDINGS_DIR, LEGACY_VODS_DIR]
+    with _VOD_INDEX_LOCK:
+        previous: dict[Path, tuple[int, int, VodMetadata]] = {}
+        try:
+            payload = json.loads(_VOD_INDEX_CACHE_PATH.read_text(encoding="utf-8"))
+            for record in payload.get("records", []):
+                try:
+                    path, mtime_ns, size, metadata = _metadata_from_index_record(record)
+                    previous[path] = (mtime_ns, size, metadata)
+                except (TypeError, ValueError, KeyError):
+                    continue
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
+
+        current: dict[Path, tuple[int, int, VodMetadata]] = {}
+        for root in roots:
+            if root is None or not root.exists():
+                continue
+            for path in root.glob("*.jsonl"):
+                resolved_path = path.resolve()
+                if resolved_path in current:
+                    continue
+                try:
+                    stat = path.stat()
+                    cached = previous.get(resolved_path)
+                    if cached is not None and cached[:2] == (stat.st_mtime_ns, stat.st_size):
+                        current[resolved_path] = cached
+                        continue
+                    metadata = load_vod_metadata(path)
+                    current[resolved_path] = (stat.st_mtime_ns, stat.st_size, metadata)
+                except (OSError, ValueError, json.JSONDecodeError):
+                    if resolved_path in previous:
+                        current[resolved_path] = previous[resolved_path]
+
+        records = [
+            _metadata_to_index_record(metadata, mtime_ns=mtime_ns, size=size)
+            for mtime_ns, size, metadata in current.values()
+        ]
+        try:
+            temp_path = _VOD_INDEX_CACHE_PATH.with_suffix(".tmp")
+            temp_path.write_text(json.dumps({"version": 1, "records": records}, ensure_ascii=False), encoding="utf-8")
+            os.replace(temp_path, _VOD_INDEX_CACHE_PATH)
+        except OSError:
+            pass
+        return sorted((entry[2] for entry in current.values()), key=lambda vod: vod.created_at, reverse=True)
 
 
 class VodRecorder:

@@ -19,7 +19,7 @@ from gui_shared import UiInvoker, _AppWindow, resource_path
 from gui_styles import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC, build_qt_app_stylesheet
 from gui_templates import TemplatesMixin
 from gui_twitch import TwitchBotMixin
-from vod_storage import VodRecorder
+from vod_storage import VodRecorder, load_cached_vods
 
 
 class MegabonkApp(
@@ -326,11 +326,25 @@ class MegabonkApp(
         self.scan_event = threading.Event()
         self.session_start_time = None
         self.session_rerolls = 0
+        self._total_rerolls_dirty = False
+        self._total_rerolls_last_flush = time.monotonic()
+        self._total_rerolls_lock = threading.Lock()
         self.best_map_stats = None
         self.best_map_score = -1
         self.worst_map_stats = None
         self.worst_map_score = float("inf")
         self.template_stats = {}
+        self._twitch_session_snapshot = {
+            "rerolls": 0,
+            "seeds_found": 0,
+            "tracked_rows": (),
+        }
+        self._twitch_session_snapshot_lock = threading.Lock()
+        self._vod_metadata_index = tuple(load_cached_vods())
+        self._vod_metadata_refresh_running = False
+        self._vod_metadata_refresh_generation = 0
+        self._vod_load_generation = 0
+        self._compare_run_load_generations = {}
         self.vods_list_signature = None
 
         self.setup_ui()

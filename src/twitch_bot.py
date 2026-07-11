@@ -1,5 +1,6 @@
 import socket
 import ssl
+import threading
 import time
 import re
 import string
@@ -48,6 +49,7 @@ class TwitchBotWorker(QThread):
         self.run_tracker = run_tracker
         self.session_stats_provider = session_stats_provider
         self.running = False
+        self._stop_event = threading.Event()
         self.sock = None
         self.last_command_time = 0
         self._last_run_id = None
@@ -61,6 +63,7 @@ class TwitchBotWorker(QThread):
 
     def run(self):
         self.running = True
+        self._stop_event.clear()
         bot_cfg = config.TWITCH_BOT
         username = str(bot_cfg.get("username") or "").strip().lstrip("#").lower()
         target_channel = self._target_channel(bot_cfg)
@@ -141,7 +144,7 @@ class TwitchBotWorker(QThread):
             if self.running:
                 self.log_message.emit("Reconnecting in 2 seconds...")
                 self.status_updated.emit("Reconnecting...")
-                time.sleep(2)
+                self._stop_event.wait(2)
 
     @staticmethod
     def _target_channel(bot_cfg: dict) -> str:
@@ -151,6 +154,7 @@ class TwitchBotWorker(QThread):
 
     def stop(self):
         self.running = False
+        self._stop_event.set()
         if self.sock:
             try:
                 self.sock.shutdown(socket.SHUT_RDWR)

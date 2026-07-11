@@ -204,8 +204,8 @@ This defines who is reading the data at the end of the pipeline.
 | Metric / Feature | Raw Source | Updater / Refresh Path | Transport Poll Interval | Data Freshness | State Owner | Consumers |
 |------------------|------------|------------------------|-------------------------|----------------|-------------|-----------|
 | KPS | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, Twitch bot |
-| Mob kills | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, VOD (stale if KPS path gated) |
-| Run timer | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, VOD, Twitch bot (stale if KPS path gated) |
+| Mob kills | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, VOD |
+| Run timer | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, VOD, Twitch bot |
 | Player stats | Game memory | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats, Overlay, VOD |
 | Tracked items | Game memory | Slow full refresh | 10 s | 10 s | LiveRunTracker | Live Stats, Overlay |
 | Stage summary | Derived | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats, Compare Runs |
@@ -227,7 +227,7 @@ This defines who is reading the data at the end of the pipeline.
 
 Note that this document outlines the target mental model, but reality contains some pragmatic exceptions:
 
-- **VOD Snapshot Stale KPS:** Because VOD recording triggers on a 30s interval but does NOT ungate the fast 500ms KPS memory reads, the VOD snapshots will record stale (or `None`) values for `mob_kills` and `run_timer` if the user is passively recording without having Live Stats, the Twitch bot, or the KPS overlay widget active.
+- **VOD Fast KPS Lane:** Active VOD recording explicitly enables the fast KPS refresh lane, so recorded `mob_kills` and `run_timer` values remain available even when Live Stats, Twitch, and the KPS overlay are inactive.
 - **Mixed Freshness in Overlay:** The OBS clients poll the `/api/overlay-state` endpoint every 500ms. However, only the KPS/Chaos widgets actually contain 500ms-fresh data. The player stats (Luck, Damage) and Items widgets only change their underlying values every 10 seconds due to the slow refresh path.
 
 ## 10. Suggested Future Maintenance Rule

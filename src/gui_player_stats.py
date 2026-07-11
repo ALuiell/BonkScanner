@@ -4,6 +4,7 @@ import datetime
 import html
 from math import isfinite
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -68,7 +69,14 @@ from player_stats import (
     calculate_chests_per_minute,
 )
 from refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
-from vod_storage import delete_vod, delete_vods_below_snapshot_count, list_vods, load_vod, rename_vod
+from vod_storage import (
+    delete_vod,
+    delete_vods_below_snapshot_count,
+    load_cached_vods,
+    load_vod,
+    refresh_vod_metadata_index,
+    rename_vod,
+)
 from vod_projection import build_vod_capture_kwargs
 
 COMPARE_RUN_STAT_LABELS = (
@@ -1583,12 +1591,13 @@ class PlayerStatsMixin:
         if self.vods_list_frame is None:
             return
 
-        vods = list_vods()
+        vods = list(getattr(self, "_vod_metadata_index", ()))
         selected_path = self.loaded_vod.metadata.path if self.loaded_vod is not None else None
         signature = (
             str(selected_path) if selected_path is not None else "",
             tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
         )
+        self._ensure_vod_metadata_refresh()
         if self.vods_list_signature == signature:
             return
 
@@ -1614,6 +1623,44 @@ class PlayerStatsMixin:
             self.vods_list_frame.setCurrentRow(selected_row)
         self.vods_list_frame.blockSignals(False)
         self.vods_list_signature = signature
+
+    def _ensure_vod_metadata_refresh(self) -> None:
+        if getattr(self, "_vod_metadata_refresh_running", False):
+            return
+        self._vod_metadata_refresh_running = True
+        generation = int(getattr(self, "_vod_metadata_refresh_generation", 0)) + 1
+        self._vod_metadata_refresh_generation = generation
+
+        def refresh() -> None:
+            try:
+                vods = refresh_vod_metadata_index()
+                error = None
+            except Exception as exc:
+                vods = []
+                error = exc
+
+            def apply_result() -> None:
+                if generation != getattr(self, "_vod_metadata_refresh_generation", 0):
+                    return
+                self._vod_metadata_refresh_running = True
+                if error is not None:
+                    self._vod_metadata_refresh_running = False
+                    _set_text(getattr(self, "vods_status_label", None), f"Could not refresh recordings: {error}")
+                    return
+                self._vod_metadata_index = tuple(vods)
+                self.vods_list_signature = None
+                self.compare_runs_list_signature = None
+                self.refresh_vods_list()
+                self.refresh_compare_runs_list()
+                self._vod_metadata_refresh_running = False
+
+            after = getattr(self, "after", None)
+            if callable(after) and getattr(self, "_invoker", None) is not None:
+                after(0, apply_result)
+            else:
+                apply_result()
+
+        threading.Thread(target=refresh, name="vod-metadata-index", daemon=True).start()
 
     def toggle_recordings_chooser(self):
         next_expanded = not bool(getattr(self, "recordings_chooser_expanded", False))
@@ -1651,26 +1698,49 @@ class PlayerStatsMixin:
 
     def load_selected_vod(self, path):
         path = Path(path)
-        try:
-            self.loaded_vod = load_vod(path)
-        except Exception as exc:
-            self.loaded_vod = None
-            self.loaded_vod_snapshot_index = None
-            self.loaded_vod_compare_start_index = None
-            _set_text(self.vods_status_label, f"Could not load recording: {exc}")
-            return
+        generation = int(getattr(self, "_vod_load_generation", 0)) + 1
+        self._vod_load_generation = generation
+        _set_text(getattr(self, "vods_status_label", None), "Loading recording…")
 
-        self.loaded_vod_snapshot_index = 0 if self.loaded_vod.snapshots else None
-        self.loaded_vod_compare_start_index = None
-        self.vods_compare_details_expanded = False
-        _clear_text_input(self.vods_name_entry)
-        _set_text_input(self.vods_name_entry, self.loaded_vod.metadata.name)
-        self.refresh_loaded_vod_ui()
-        self.refresh_vods_list()
-        if bool(getattr(self, "recordings_chooser_expanded", False)) and bool(
-            getattr(self, "recordings_guided_selection_active", False)
-        ):
-            self.set_recordings_chooser_expanded(False, guided=False)
+        def finish(loaded_vod, error) -> None:
+            if generation != getattr(self, "_vod_load_generation", 0):
+                return
+            if error is not None:
+                self.loaded_vod = None
+                self.loaded_vod_snapshot_index = None
+                self.loaded_vod_compare_start_index = None
+                _set_text(self.vods_status_label, f"Could not load recording: {error}")
+                return
+            self.loaded_vod = loaded_vod
+            self.loaded_vod_snapshot_index = 0 if loaded_vod.snapshots else None
+            self.loaded_vod_compare_start_index = None
+            self.vods_compare_details_expanded = False
+            _clear_text_input(self.vods_name_entry)
+            _set_text_input(self.vods_name_entry, loaded_vod.metadata.name)
+            self.refresh_loaded_vod_ui()
+            self.refresh_vods_list()
+            if bool(getattr(self, "recordings_chooser_expanded", False)) and bool(
+                getattr(self, "recordings_guided_selection_active", False)
+            ):
+                self.set_recordings_chooser_expanded(False, guided=False)
+
+        def load() -> None:
+            try:
+                loaded = load_vod(path)
+                error = None
+            except Exception as exc:
+                loaded = None
+                error = exc
+            after = getattr(self, "after", None)
+            if callable(after) and getattr(self, "_invoker", None) is not None:
+                after(0, lambda: finish(loaded, error))
+            else:
+                finish(loaded, error)
+
+        if callable(getattr(self, "after", None)) and getattr(self, "_invoker", None) is not None:
+            threading.Thread(target=load, name="vod-loader", daemon=True).start()
+        else:
+            load()
 
     def refresh_loaded_vod_ui(self, *, update_slider: bool = True):
         if self.loaded_vod is None:
@@ -1834,7 +1904,7 @@ class PlayerStatsMixin:
         if list_a is None or list_b is None:
             return
 
-        vods = list_vods()
+        vods = list(getattr(self, "_vod_metadata_index", ()))
         selected_a = self.compare_run_a_vod.metadata.path if self.compare_run_a_vod is not None else None
         selected_b = self.compare_run_b_vod.metadata.path if self.compare_run_b_vod is not None else None
         signature = (
@@ -1842,6 +1912,19 @@ class PlayerStatsMixin:
             str(selected_b) if selected_b is not None else "",
             tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
         )
+        available_paths = {vod.path for vod in vods}
+        if selected_a is not None and selected_a not in available_paths:
+            self._set_compare_run_error("a", "Selected recording is no longer available")
+            selected_a = None
+        if selected_b is not None and selected_b not in available_paths:
+            self._set_compare_run_error("b", "Selected recording is no longer available")
+            selected_b = None
+        signature = (
+            str(selected_a) if selected_a is not None else "",
+            str(selected_b) if selected_b is not None else "",
+            tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
+        )
+        self._ensure_vod_metadata_refresh()
         if self.compare_runs_list_signature == signature:
             return
 
@@ -1880,17 +1963,42 @@ class PlayerStatsMixin:
             self.load_compare_run(side, path_str)
 
     def load_compare_run(self, side: str, path) -> None:
-        try:
-            loaded_vod = load_vod(Path(path))
-        except Exception as exc:
-            self._set_compare_run_error(side, f"Could not load recording: {exc}")
-            return
+        path = Path(path)
+        generations = getattr(self, "_compare_run_load_generations", {})
+        generation = int(generations.get(side, 0)) + 1
+        generations[side] = generation
+        self._compare_run_load_generations = generations
+        self._set_compare_run_error(side, "Loading recording…")
 
-        self._set_compare_run_vod(side, loaded_vod)
-        self._set_compare_run_index(side, 0 if loaded_vod.snapshots else None)
-        self.refresh_compare_runs_list()
-        self.refresh_compare_runs_ui(changed_side=side)
-        self._auto_close_compare_runs_chooser_if_ready()
+        def finish(loaded_vod, error) -> None:
+            if generation != getattr(self, "_compare_run_load_generations", {}).get(side):
+                return
+            if error is not None:
+                self._set_compare_run_error(side, f"Could not load recording: {error}")
+                return
+            self._set_compare_run_vod(side, loaded_vod)
+            self._set_compare_run_index(side, 0 if loaded_vod.snapshots else None)
+            self.refresh_compare_runs_list()
+            self.refresh_compare_runs_ui(changed_side=side)
+            self._auto_close_compare_runs_chooser_if_ready()
+
+        def load() -> None:
+            try:
+                loaded = load_vod(path)
+                error = None
+            except Exception as exc:
+                loaded = None
+                error = exc
+            after = getattr(self, "after", None)
+            if callable(after) and getattr(self, "_invoker", None) is not None:
+                after(0, lambda: finish(loaded, error))
+            else:
+                finish(loaded, error)
+
+        if callable(getattr(self, "after", None)) and getattr(self, "_invoker", None) is not None:
+            threading.Thread(target=load, name=f"compare-{side}-loader", daemon=True).start()
+        else:
+            load()
 
     def toggle_compare_runs_chooser(self):
         next_expanded = not bool(getattr(self, "compare_runs_chooser_expanded", False))

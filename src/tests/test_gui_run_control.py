@@ -1414,6 +1414,10 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertEqual(app.template_stats["Perfect"]["rerolls_since_last"], 3)
                 self.assertEqual(gui.config.TOTAL_REROLLS, 11)
                 self.assertEqual(gui.config.user_config["TOTAL_REROLLS"], 11)
+                save_config.assert_not_called()
+                self.assertTrue(app._total_rerolls_dirty)
+
+                gui.MegabonkApp._flush_total_rerolls(app, force=True)
                 save_config.assert_called_once_with(gui.config.user_config)
 
     def test_save_checkbox_state_updates_runtime_templates_without_restart(self) -> None:
@@ -4651,7 +4655,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(app.overlay_fast_timer.start_calls, 1)
         self.assertEqual(app.overlay_slow_timer.start_calls, 1)
-        self.assertEqual(status_updates, ["fast", "slow", "fast", "slow", "status"])
+        self.assertEqual(status_updates, ["fast", "slow", "status"])
 
     def test_overlay_fast_tick_hides_disabled_overlay_even_if_game_is_active(self) -> None:
         app = object.__new__(gui.MegabonkApp)

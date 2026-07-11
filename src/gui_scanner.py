@@ -25,6 +25,31 @@ except ImportError:
     keyboard = None
 
 class ScannerMixin:
+    _TOTAL_REROLLS_FLUSH_INTERVAL = 15.0
+
+    def _flush_total_rerolls(self, *, force: bool = False) -> None:
+        lock = getattr(self, "_total_rerolls_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._total_rerolls_lock = lock
+        with lock:
+            if not getattr(self, "_total_rerolls_dirty", False):
+                return
+            now = time.monotonic()
+            if not hasattr(self, "_total_rerolls_last_flush"):
+                self._total_rerolls_last_flush = now
+                if not force:
+                    return
+            if not force and now - getattr(self, "_total_rerolls_last_flush", 0.0) < self._TOTAL_REROLLS_FLUSH_INTERVAL:
+                return
+            try:
+                config.save_config(config.user_config)
+            except Exception as exc:
+                self.log(f"[-] Could not save Total Rerolls: {exc}", tag="warning")
+                return
+            self._total_rerolls_dirty = False
+            self._total_rerolls_last_flush = now
+
     def _scan_abort_requested(self) -> bool:
         return self.stop_event.is_set() or not self.scan_event.is_set()
 
@@ -60,6 +85,8 @@ class ScannerMixin:
 
         if self.player_stats_vod_recorder.is_recording:
             self.refresh_player_stats_timeline_ui(update_slider=False)
+
+        self._flush_total_rerolls()
 
         self.after(1000, self.update_timer)
 
@@ -174,12 +201,15 @@ class ScannerMixin:
         else:
             self.stop_event.set()
             self.scan_event.set()
+            self._flush_total_rerolls(force=True)
             self.is_running = False
             self.is_ready_to_start = False
             self.log("\n[*] Stopping auto-reroll monitor...")
             self.after(500, self.update_status_ui)
 
     def refresh_stats_ui(self):
+        if hasattr(self, "_refresh_twitch_session_snapshot"):
+            self._refresh_twitch_session_snapshot()
         _set_text(self.stats_rerolls_label, f"Session Rerolls: {self.session_rerolls}")
         if hasattr(self, "refresh_session_tracked_item_stats_ui"):
             self.refresh_session_tracked_item_stats_ui()
@@ -228,10 +258,8 @@ class ScannerMixin:
         self.session_rerolls += 1
         config.TOTAL_REROLLS += 1
         config.user_config["TOTAL_REROLLS"] = config.TOTAL_REROLLS
-        try:
-            config.save_config(config.user_config)
-        except Exception as exc:
-            self.log(f"[-] Could not save Total Rerolls: {exc}", tag="warning")
+        self._total_rerolls_dirty = True
+        self._flush_total_rerolls()
 
         for name in list(self.template_stats):
             self.template_stats[name]["rerolls_since_last"] += 1
@@ -443,6 +471,7 @@ class ScannerMixin:
                 time.sleep(1)
 
         self.close_client()
+        self._flush_total_rerolls(force=True)
         self.is_running = False
         self.is_ready_to_start = False
         self.scan_event.clear()
@@ -455,6 +484,7 @@ class ScannerMixin:
         self._cancel_right_tab_transition()
         self.stop_event.set()
         self.scan_event.set()
+        self._flush_total_rerolls(force=True)
         self.close_client()
         self.close_player_stats_client()
         self.close_player_stats_game_data_client()

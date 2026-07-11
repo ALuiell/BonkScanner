@@ -1043,12 +1043,13 @@ class OverlayMixin:
         return " | ".join(parts)
 
     def format_twitch_session_summary(self) -> str:
-        rerolls = max(0, int(getattr(self, "session_rerolls", 0) or 0))
-        seeds_found = self.session_found_seed_count()
+        snapshot = self.get_twitch_session_snapshot()
+        rerolls = max(0, int(snapshot.get("rerolls", 0) or 0))
+        seeds_found = max(0, int(snapshot.get("seeds_found", 0) or 0))
         seed_rate = f"{(seeds_found / rerolls * 100.0) if rerolls > 0 else 0.0:.2f}"
 
         tracked_parts = []
-        for row in self.twitch_tracked_item_stat_rows():
+        for row in snapshot.get("tracked_rows", ()):
             percent = row.get("percent")
             if percent is None:
                 tracked_parts.append(f"{row['label']} {row['count']}")
@@ -1065,6 +1066,29 @@ class OverlayMixin:
             return tpl.format(resets=rerolls, seeds=seeds_found, seed_rate=seed_rate, items=items_str)
         except Exception:
             return f"{rerolls} resets, {seeds_found} seeds found ({seed_rate}%) | Tracked Items: {items_str}"
+
+    def _refresh_twitch_session_snapshot(self) -> None:
+        rows = tuple(dict(row) for row in self.twitch_tracked_item_stat_rows())
+        snapshot = {
+            "rerolls": max(0, int(getattr(self, "session_rerolls", 0) or 0)),
+            "seeds_found": max(0, int(self.session_found_seed_count())),
+            "tracked_rows": rows,
+        }
+        lock = getattr(self, "_twitch_session_snapshot_lock", None)
+        if lock is None:
+            self._twitch_session_snapshot = snapshot
+            return
+        with lock:
+            self._twitch_session_snapshot = snapshot
+
+    def get_twitch_session_snapshot(self) -> dict[str, Any]:
+        lock = getattr(self, "_twitch_session_snapshot_lock", None)
+        if lock is None:
+            return dict(getattr(self, "_twitch_session_snapshot", {}))
+        with lock:
+            snapshot = dict(self._twitch_session_snapshot)
+            snapshot["tracked_rows"] = tuple(dict(row) for row in snapshot.get("tracked_rows", ()))
+            return snapshot
 
     @staticmethod
     def _session_tracked_item_command_label(row: dict[str, Any]) -> str:
@@ -1202,7 +1226,8 @@ class OverlayMixin:
         if self.overlay_state_store is None:
             return
         self.overlay_state_store.set_state(build_overlay_state(self.live_run_tracker, self._effective_overlay_config()))
-        if getattr(self, "tab_overlay", None) is not None:
+        tab_active = getattr(self, "_is_overlay_tab_active", lambda: True)
+        if getattr(self, "tab_overlay", None) is not None and tab_active():
             self.refresh_overlay_ui()
 
     def mark_overlay_read_failed(self, *, no_game: bool = False) -> None:
