@@ -55,7 +55,7 @@ RUN_SUMMARY_LABEL_BASELINES = {
     "powerups_duration": "Powerups: 999.9s | Clock: 999.9s",
     "in_game_time": "In-Game Time: 99:59:59",
     "mob_kills": "Mob Kills: 999,999",
-    "kps_averages": "KPS Avg: 60s 999/s | 5m 999/s",
+    "kps_averages": "KPS: 60s 999/s | 5m 999/s",
     "level": "Level: 999",
 }
 POWERUPS_CARD_LINE_BASELINE = "Stonks: 99:59 -> +99:59 (999.99s)"
@@ -433,7 +433,7 @@ class GuiLayoutMixin:
         chest_rate_layout.addWidget(self.player_stats_in_game_time_label)
         self.player_stats_mob_kills_label = QLabel("Mob Kills: --")
         chest_rate_layout.addWidget(self.player_stats_mob_kills_label)
-        self.player_stats_kps_averages_label = QLabel("KPS Avg: --")
+        self.player_stats_kps_averages_label = QLabel("KPS: --")
         chest_rate_layout.addWidget(self.player_stats_kps_averages_label)
         self.player_stats_level_label = QLabel("Level: --")
         chest_rate_layout.addWidget(self.player_stats_level_label)
@@ -694,7 +694,7 @@ class GuiLayoutMixin:
         vod_chest_rate_layout.addWidget(self.vods_in_game_time_label)
         self.vods_mob_kills_label = QLabel("Mob Kills: --")
         vod_chest_rate_layout.addWidget(self.vods_mob_kills_label)
-        self.vods_kps_averages_label = QLabel("KPS Avg: --")
+        self.vods_kps_averages_label = QLabel("KPS: --")
         vod_chest_rate_layout.addWidget(self.vods_kps_averages_label)
         self.vods_level_label = QLabel("Level: --")
         vod_chest_rate_layout.addWidget(self.vods_level_label)

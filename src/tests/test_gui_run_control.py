@@ -443,6 +443,80 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(gui.MegabonkApp._should_refresh_expected_chest_inputs(app))
         self.assertFalse(gui.MegabonkApp._should_refresh_chaos_tome(app))
 
+    def test_core_run_demand_keeps_snapshot_and_expected_chests_active(self) -> None:
+        app = SimpleNamespace(
+            _core_runtime_game_state=RuntimeGameState(mode=RuntimeGameMode.PAUSED_IN_GAME),
+            _player_stats_completed_run=True,
+            _is_live_stats_tab_active=lambda: False,
+            player_stats_vod_recorder=SimpleNamespace(is_recording=False),
+            _is_player_stats_recording_armed=lambda: False,
+            overlay_should_refresh_live_stats=lambda: False,
+            _in_game_overlay_requires_player_stats_refresh=lambda: False,
+            _is_twitch_bot_active=lambda: False,
+            _twitch_command_refresh_active=lambda _command: False,
+        )
+        app._core_run_active = lambda: gui.MegabonkApp._core_run_active(app)
+        app._player_stats_refresh_required = lambda: gui.MegabonkApp._player_stats_refresh_required(app)
+
+        self.assertTrue(gui.MegabonkApp._should_refresh_full_player_snapshot(app))
+        self.assertTrue(gui.MegabonkApp._should_refresh_expected_chest_inputs(app))
+
+    def test_core_lifecycle_probe_is_cached_and_marks_game_over_once(self) -> None:
+        app = SimpleNamespace(
+            _player_stats_completed_run=True,
+            live_run_tracker=SimpleNamespace(mark_run_completed=MagicMock()),
+        )
+        states = iter(
+            (
+                RuntimeGameState(mode=RuntimeGameMode.IN_GAME),
+                RuntimeGameState(mode=RuntimeGameMode.GAME_OVER),
+            )
+        )
+        reads: list[str] = []
+
+        def read_activity_state():
+            reads.append("read")
+            return next(states)
+
+        app.read_player_stats_runtime_activity_state = read_activity_state
+        app.close_player_stats_game_data_client = lambda: None
+        app._read_player_stats_runtime_activity_state_safe = (
+            lambda: gui.MegabonkApp._read_player_stats_runtime_activity_state_safe(app)
+        )
+
+        with patch.object(gui.time, "monotonic", side_effect=(10.0, 10.5, 11.0)):
+            self.assertEqual(
+                gui.MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
+                RuntimeGameMode.IN_GAME,
+            )
+            self.assertFalse(app._player_stats_completed_run)
+            self.assertEqual(
+                gui.MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
+                RuntimeGameMode.IN_GAME,
+            )
+            self.assertEqual(
+                gui.MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
+                RuntimeGameMode.GAME_OVER,
+            )
+
+        self.assertEqual(reads, ["read", "read"])
+        self.assertTrue(app._player_stats_completed_run)
+        app.live_run_tracker.mark_run_completed.assert_called_once_with()
+
+    def test_refresh_uses_fresh_core_lifecycle_state_for_vod_gate(self) -> None:
+        app = SimpleNamespace(
+            _core_runtime_game_state=RuntimeGameState(mode=RuntimeGameMode.PAUSED_IN_GAME),
+            _core_runtime_game_state_checked_at=10.0,
+            _runtime_game_state_or_unknown=lambda: (_ for _ in ()).throw(
+                AssertionError("VOD refresh should use the cached lifecycle state")
+            ),
+        )
+
+        with patch.object(gui.time, "monotonic", return_value=10.5):
+            state = gui.MegabonkApp._runtime_state_for_refresh(app)
+
+        self.assertEqual(state.mode, RuntimeGameMode.PAUSED_IN_GAME)
+
     def test_formats_full_chests_card(self) -> None:
         self.assertEqual(
             gui.MegabonkApp.chests_card_values(
@@ -752,9 +826,9 @@ class GuiRunControlTests(unittest.TestCase):
             return_value=types.SimpleNamespace(valid=False, transient_error=False, error_message="Token is no longer valid."),
         ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch.object(gui.config, "save_config"):
             valid = gui.MegabonkApp.validate_twitch_session(app, log_on_success=False)
+            self.assertEqual(gui.config.TWITCH_BOT["username"], "")
 
         self.assertFalse(valid)
-        self.assertEqual(gui.config.TWITCH_BOT["username"], "")
         delete_token.assert_called_once_with()
         app.stop_twitch_bot.assert_called_once_with()
         app.twitch_connect_btn.setVisible.assert_called_with(True)
@@ -777,8 +851,8 @@ class GuiRunControlTests(unittest.TestCase):
         ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch.object(gui.config, "save_config"):
             gui.MegabonkApp.disconnect_twitch(app)
             gui.MegabonkApp._on_twitch_token_revoke_finished(app, False, "timeout")
+            self.assertEqual(gui.config.TWITCH_BOT["username"], "")
 
-        self.assertEqual(gui.config.TWITCH_BOT["username"], "")
         delete_token.assert_called_once_with()
         app.stop_twitch_bot.assert_called_once_with()
         app._start_twitch_token_revoke.assert_called_once_with("token")
@@ -2615,6 +2689,9 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
+        app.read_player_stats_runtime_activity_state = lambda: RuntimeGameState(
+            mode=RuntimeGameMode.MAIN_MENU,
+        )
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
         read_calls: list[str] = []
@@ -3656,7 +3733,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.vods_status_label.text(), "Legacy run | 1/1 at 00:00 | In-Game Time: --")
         self.assertEqual(app.vods_in_game_time_label.text(), "In-Game Time: --")
         self.assertEqual(app.vods_mob_kills_label.text(), "Mob Kills: --")
-        self.assertEqual(app.vods_kps_averages_label.text(), "KPS Avg: 60s -- | 5m --")
+        self.assertEqual(app.vods_kps_averages_label.text(), "KPS: 60s -- | 5m --")
         self.assertEqual(app.vods_level_label.text(), "Level: --")
         self.assertEqual(app.vods_new_items_label.text(), "No previous snapshot")
         self.assertEqual(app.vods_banishes_label.text(), "No banishes yet")
@@ -3715,7 +3792,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(damage_calls[0][1], "vod")
         self.assertEqual(damage_calls[0][0][0].source_name, "Katana")
         self.assertEqual(app.vods_mob_kills_label.text(), "Mob Kills: 10 (150/s)")
-        self.assertEqual(app.vods_kps_averages_label.text(), "KPS Avg: 60s 243/s | 5m 221/s")
+        self.assertEqual(app.vods_kps_averages_label.text(), "KPS: 60s 243/s | 5m 221/s")
 
     def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
         self.assertEqual(gui.MegabonkApp.format_in_game_time(None), "In-Game Time: --")
@@ -3730,11 +3807,11 @@ class GuiRunControlTests(unittest.TestCase):
     def test_format_kps_averages_formats_missing_and_positive_values(self) -> None:
         self.assertEqual(
             gui.MegabonkApp.format_kps_averages(None, None),
-            "KPS Avg: 60s -- | 5m --",
+            "KPS: 60s -- | 5m --",
         )
         self.assertEqual(
             gui.MegabonkApp.format_kps_averages(243, 221),
-            "KPS Avg: 60s 243/s | 5m 221/s",
+            "KPS: 60s 243/s | 5m 221/s",
         )
 
     def test_format_player_level_formats_missing_and_positive_values(self) -> None:

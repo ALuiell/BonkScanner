@@ -450,6 +450,29 @@ class GameDataClientTests(unittest.TestCase):
         self.assertFalse(state.is_main_menu)
         self.assertTrue(state.is_paused)
 
+    def test_runtime_activity_state_reuses_static_paths_and_reads_dynamic_flags(self) -> None:
+        memory = build_runtime_state_memory(
+            game_manager_instance=0x40000000,
+            is_playing=True,
+            player_movement_instance=0x50000000,
+        )
+        module_offsets: list[int] = []
+        original_module_offset = memory.module_offset
+
+        def count_module_offset(module_name: str, offset: int) -> int:
+            module_offsets.append(offset)
+            return original_module_offset(module_name, offset)
+
+        memory.module_offset = count_module_offset
+        client = GameDataClient(memory=memory)
+
+        self.assertEqual(client.get_runtime_activity_state().mode, RuntimeGameMode.IN_GAME)
+        self.assertEqual(len(module_offsets), 5)
+
+        memory.bytes[0x40000000 + GameDataClient.GAME_MANAGER_IS_GAME_OVER_OFFSET] = 1
+        self.assertEqual(client.get_runtime_activity_state().mode, RuntimeGameMode.GAME_OVER)
+        self.assertEqual(len(module_offsets), 5)
+
     def test_get_runtime_game_state_leaves_game_over_unknown(self) -> None:
         memory = build_runtime_state_memory(
             game_manager_instance=0x40000000,

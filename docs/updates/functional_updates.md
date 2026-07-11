@@ -529,3 +529,38 @@ Why this helps:
 - Users will not need to manually search the help text every time they forget what a tab does.
 - Feature discovery should improve, especially for `OBS Overlay`, `Recordings`, `Compare Runs`, and Twitch bot setup.
 - This should reduce repetitive support questions about the purpose of specific tabs, controls, and nested views.
+
+### Future Runtime Data Collection Improvements
+
+Status: `[Planned / Requires More Verification]`
+
+The current runtime refresh design should preserve a small set of core run-history reads even when optional consumers are inactive. In particular, the following data should remain available for later Live Stats inspection:
+
+- full player snapshot and actual chest/map counters on the existing `10s` cadence;
+- expected chest inputs on the existing `500ms` cadence;
+- Stage Summary data collected through the normal full player snapshot path.
+
+This avoids losing useful run history merely because Live Stats, OBS, Twitch, and VOD are temporarily disabled. The first manual checks indicate that the current behavior is correct, but the always-on core demand and its exact ownership still need to be implemented and tested separately.
+
+Chaos Tome tracking also requires a follow-up investigation. It may be possible to recover rolls from permanent modifier fingerprints during a later attach or full snapshot, making continuous `500ms` polling unnecessary. Before changing its cadence, add characterization tests for:
+
+- attaching after the Chaos Tome has already reached a higher level;
+- multiple modifiers and stacked/aggregated modifier values;
+- delayed modifier writes after a level-up;
+- transiently missing or failed modifier reads;
+- reset at the start of a new run.
+
+If these cases are reliably reconstructed, Chaos Tome can move from the fast lane to the `10s` core snapshot or to a separate slower core task. Until then, keep the existing `500ms` task and external behavior unchanged.
+
+#### Core Lifecycle Probe
+
+The future core-read implementation should resolve the game lifecycle once per `1s` scheduler cycle and reuse the result for all core task demand predicates. `RuntimeGameState.is_active_run` is the authoritative condition: both `IN_GAME` and `PAUSED_IN_GAME` keep the run active, while `GAME_OVER`, `MAIN_MENU`, and `UNKNOWN` disable core memory reads.
+
+The core demand should enable the following existing tasks without requiring an active consumer:
+
+- `full_player_snapshot` at `10s`;
+- `expected_chest_inputs` at `500ms`.
+
+Consumer demand remains an additional reason to run the existing optional tasks. The lifecycle probe must be performed once per scheduler cycle, not once per task. If the current runtime-state reader traverses deep memory structures, cache stable type-info, static-field, dictionary, and object pointers while continuing to read dynamic flags (`is_playing`, `is_paused`, and `is_game_over`) fresh. Cache entries must be invalidated when the process, relevant object, or run structure changes.
+
+This is a planned change. The current intervals and lazy-demand behavior remain unchanged until the probe and cache behavior are implemented and measured in-game.

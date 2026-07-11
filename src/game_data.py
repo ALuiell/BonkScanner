@@ -184,6 +184,7 @@ class GameDataClient:
         self.module_name = module_name
         self._owns_memory = memory is None
         self.memory: MemoryReader = memory or ProcessMemory(process_name)
+        self._cached_static_fields: dict[int, int] = {}
 
     def close(self) -> None:
         if self._owns_memory and hasattr(self.memory, "close"):
@@ -233,6 +234,95 @@ class GameDataClient:
             current_map_ptr=current_map_ptr,
             current_stage_ptr=current_stage_ptr,
             is_resetting=is_resetting,
+        )
+
+    def get_runtime_activity_state(self) -> RuntimeGameState:
+        """Read only the fields needed to decide whether a run is active.
+
+        The type-info to static-field paths are stable for a client lifetime;
+        object pointers and lifecycle flags remain fresh on every probe.
+        """
+        game_manager_static_fields = self._read_static_fields_cached(
+            self.GAME_MANAGER_TYPE_INFO_OFFSET,
+        )
+        my_time_static_fields = self._read_static_fields_cached(
+            self.MY_TIME_TYPE_INFO_OFFSET,
+        )
+        loading_screen_static_fields = self._read_static_fields_cached(
+            self.LOADING_SCREEN_TYPE_INFO_OFFSET,
+        )
+        player_movement_static_fields = self._read_static_fields_cached(
+            self.PLAYER_MOVEMENT_TYPE_INFO_OFFSET,
+        )
+        music_controller_static_fields = self._read_static_fields_cached(
+            self.MUSIC_CONTROLLER_TYPE_INFO_OFFSET,
+        )
+
+        game_manager_ptr = self._read_ptr_optional(
+            game_manager_static_fields,
+            self.GAME_MANAGER_INSTANCE_OFFSET,
+        )
+        is_playing = self._read_bool(
+            game_manager_ptr,
+            self.GAME_MANAGER_IS_PLAYING_OFFSET,
+        )
+        is_game_over = self._read_bool(
+            game_manager_ptr,
+            self.GAME_MANAGER_IS_GAME_OVER_OFFSET,
+        )
+        is_paused = self._read_bool(
+            my_time_static_fields,
+            self.MY_TIME_PAUSED_OFFSET,
+        )
+        is_loading = self._read_bool(
+            loading_screen_static_fields,
+            self.LOADING_SCREEN_IS_LOADING_OFFSET,
+        )
+        player_movement_ptr = self._read_ptr_optional(
+            player_movement_static_fields,
+            self.PLAYER_MOVEMENT_INSTANCE_OFFSET,
+        )
+        music_controller_ptr = self._read_ptr_optional(
+            music_controller_static_fields,
+            self.MUSIC_CONTROLLER_INSTANCE_OFFSET,
+        )
+        music_menu_track_ptr = self._read_ptr_optional(
+            music_controller_ptr,
+            self.MUSIC_CONTROLLER_MENU_TRACK_OFFSET,
+        )
+        music_current_track_ptr = self._read_ptr_optional(
+            music_controller_ptr,
+            self.MUSIC_CONTROLLER_CURRENT_TRACK_OFFSET,
+        )
+
+        looks_like_manual_menu = (
+            not player_movement_ptr
+            and bool(music_controller_ptr)
+            and bool(music_current_track_ptr)
+            and music_current_track_ptr == music_menu_track_ptr
+        )
+        if game_manager_ptr and is_playing and is_game_over:
+            mode = RuntimeGameMode.GAME_OVER
+        elif looks_like_manual_menu:
+            mode = RuntimeGameMode.MAIN_MENU
+        elif game_manager_ptr and is_playing:
+            mode = RuntimeGameMode.PAUSED_IN_GAME if is_paused else RuntimeGameMode.IN_GAME
+        elif not game_manager_ptr and not is_loading:
+            mode = RuntimeGameMode.MAIN_MENU
+        else:
+            mode = RuntimeGameMode.UNKNOWN
+
+        return RuntimeGameState(
+            mode=mode,
+            game_manager_ptr=game_manager_ptr,
+            is_playing=is_playing,
+            is_game_over=is_game_over,
+            is_paused=is_paused,
+            is_loading=is_loading,
+            player_movement_ptr=player_movement_ptr,
+            music_controller_ptr=music_controller_ptr,
+            music_current_track_ptr=music_current_track_ptr,
+            music_menu_track_ptr=music_menu_track_ptr,
         )
 
     def get_runtime_game_state(self) -> RuntimeGameState:
@@ -544,6 +634,15 @@ class GameDataClient:
             return self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
         except MemoryReadError:
             return 0
+
+    def _read_static_fields_cached(self, type_info_offset: int) -> int:
+        cached = self._cached_static_fields.get(type_info_offset, 0)
+        if cached:
+            return cached
+        static_fields = self._read_static_fields(type_info_offset)
+        if static_fields:
+            self._cached_static_fields[type_info_offset] = static_fields
+        return static_fields
 
     def _read_bool(self, base_address: int, offset: int) -> bool:
         if not base_address:

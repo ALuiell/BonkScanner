@@ -97,6 +97,7 @@ COMPARE_RUN_SECTION_DEFAULTS = {
     "tomes": False,
     "chaos": False,
 }
+CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS = 1.0
 
 
 def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
@@ -141,6 +142,7 @@ class PlayerStatsMixin:
             return
 
         recording_state_action = self._sync_player_stats_recording_run_state()
+        self._refresh_core_run_lifecycle_state()
         self._player_stats_refresh_status_text = (
             "Live player stats"
             if recording_state_action != "stopped"
@@ -165,6 +167,7 @@ class PlayerStatsMixin:
         if self._is_shutting_down:
             return
 
+        self._refresh_core_run_lifecycle_state()
         self._ensure_refresh_coordinator().tick()
         self.after(
             int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500)),
@@ -180,7 +183,7 @@ class PlayerStatsMixin:
             RefreshTask(
                 task_id="full_player_snapshot",
                 interval_ms=PLAYER_STATS_REFRESH_MS,
-                required=self._player_stats_refresh_required,
+                required=self._should_refresh_full_player_snapshot,
                 run=lambda _context: self.refresh_live_player_stats_now(
                     status_text=getattr(
                         self,
@@ -392,11 +395,22 @@ class PlayerStatsMixin:
         return False
 
     def _should_refresh_expected_chest_inputs(self) -> bool:
+        core_run_active = getattr(self, "_core_run_active", None)
+        if callable(core_run_active) and core_run_active():
+            return True
         if bool(getattr(self, "_player_stats_completed_run", False)):
             return False
         if self._is_live_stats_tab_active() or self._is_vod_recording():
             return True
         return self._twitch_command_refresh_active("chests")
+
+    def _should_refresh_full_player_snapshot(self) -> bool:
+        core_run_active = getattr(self, "_core_run_active", None)
+        return bool(callable(core_run_active) and core_run_active()) or self._player_stats_refresh_required()
+
+    def _core_run_active(self) -> bool:
+        state = getattr(self, "_core_runtime_game_state", None)
+        return bool(state is not None and state.is_active_run)
 
     def _should_refresh_chaos_tome(self) -> bool:
         if bool(getattr(self, "_player_stats_completed_run", False)):
@@ -477,6 +491,14 @@ class PlayerStatsMixin:
             self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
         return self.player_stats_game_data_client.get_runtime_game_state()
 
+    def read_player_stats_runtime_activity_state(self):
+        if self.player_stats_game_data_client is None:
+            self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
+        reader = getattr(self.player_stats_game_data_client, "get_runtime_activity_state", None)
+        if callable(reader):
+            return reader()
+        return self.player_stats_game_data_client.get_runtime_game_state()
+
     def read_player_stats_recording_seed(self) -> int | None:
         return self.read_player_stats_recording_state().map_seed
 
@@ -491,7 +513,7 @@ class PlayerStatsMixin:
         self._apply_live_powerups_card(None)
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
         _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
-        _set_text(getattr(self, "player_stats_kps_averages_label", None), "KPS Avg: --")
+        _set_text(getattr(self, "player_stats_kps_averages_label", None), "KPS: --")
         _set_text(self.player_stats_level_label, "Level: --")
         self._set_chests_card_values(
             getattr(self, "player_stats_chests_card_values", None),
@@ -911,7 +933,7 @@ class PlayerStatsMixin:
         chest_stats_snapshot = chest_snapshot_reader() if callable(chest_snapshot_reader) else None
         self.update_overlay_state_from_tracker()
         live_stage_summary_rows = self.live_run_tracker.stage_summary_rows()
-        runtime_state = self._runtime_game_state_or_unknown()
+        runtime_state = self._runtime_state_for_refresh()
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
             self._maybe_auto_start_player_stats_recording(
                 stats=stats,
@@ -1243,11 +1265,57 @@ class PlayerStatsMixin:
             self.close_player_stats_game_data_client()
             return None
 
+    def _read_player_stats_runtime_activity_state_safe(self):
+        try:
+            return self.read_player_stats_runtime_activity_state()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
+            self.close_player_stats_game_data_client()
+            return None
+        except Exception:
+            self.close_player_stats_game_data_client()
+            return None
+
+    def _refresh_core_run_lifecycle_state(self) -> RuntimeGameState:
+        now = time.monotonic()
+        last_checked_at = getattr(self, "_core_runtime_game_state_checked_at", None)
+        cached_state = getattr(self, "_core_runtime_game_state", None)
+        if (
+            cached_state is not None
+            and last_checked_at is not None
+            and now - last_checked_at < CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS
+        ):
+            return cached_state
+
+        state = self._read_player_stats_runtime_activity_state_safe()
+        if state is None:
+            state = RuntimeGameState(mode=RuntimeGameMode.UNKNOWN)
+        self._core_runtime_game_state = state
+        self._core_runtime_game_state_checked_at = now
+
+        if state.is_active_run:
+            self._player_stats_completed_run = False
+        elif state.mode is RuntimeGameMode.GAME_OVER and not bool(
+            getattr(self, "_player_stats_completed_run", False)
+        ):
+            self._player_stats_completed_run = True
+            mark_completed = getattr(self.live_run_tracker, "mark_run_completed", None)
+            if callable(mark_completed):
+                mark_completed()
+        return state
+
     def _runtime_game_state_or_unknown(self):
         state = self._read_player_stats_runtime_game_state_safe()
         if state is None:
             return RuntimeGameState(mode=RuntimeGameMode.UNKNOWN)
         return state
+
+    def _runtime_state_for_refresh(self) -> RuntimeGameState:
+        cached_state = getattr(self, "_core_runtime_game_state", None)
+        checked_at = getattr(self, "_core_runtime_game_state_checked_at", None)
+        if cached_state is not None and checked_at is not None:
+            if time.monotonic() - checked_at <= CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS:
+                return cached_state
+        return self._runtime_game_state_or_unknown()
 
     def _read_player_stats_recording_run_timer_safe(self) -> float | None:
         try:
@@ -1769,7 +1837,7 @@ class PlayerStatsMixin:
             _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
             _set_text(self.vods_in_game_time_label, "In-Game Time: --")
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
-            _set_text(getattr(self, "vods_kps_averages_label", None), "KPS Avg: --")
+            _set_text(getattr(self, "vods_kps_averages_label", None), "KPS: --")
             _set_text(self.vods_level_label, "Level: --")
             self._set_chests_card_values(
                 getattr(self, "vods_chests_card_values", None),
@@ -2536,7 +2604,7 @@ class PlayerStatsMixin:
         _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
-        _set_text(getattr(self, "vods_kps_averages_label", None), "KPS Avg: --")
+        _set_text(getattr(self, "vods_kps_averages_label", None), "KPS: --")
         _set_text(self.vods_level_label, "Level: --")
         self._set_chests_card_values(
             getattr(self, "vods_chests_card_values", None),
@@ -3204,7 +3272,7 @@ class PlayerStatsMixin:
                 values.append(f"{label} --")
             else:
                 values.append(f"{label} {PlayerStatsMixin.format_count(value)}/s")
-        return f"KPS Avg: {' | '.join(values)}"
+        return f"KPS: {' | '.join(values)}"
 
     @staticmethod
     def format_count(value: int | float) -> str:
