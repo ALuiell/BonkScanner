@@ -39,7 +39,6 @@ class VodStorageTests(unittest.TestCase):
 
             root = Path(temp_dir) / "recordings"
             root.mkdir()
-            index_path = Path(temp_dir) / "metadata-index.json"
             path = root / "indexed-run.jsonl"
             path.write_text(
                 '{"type":"metadata","version":6,"name":"Indexed run","created_at":"2026-05-10T16:00:00","snapshot_interval_seconds":30}\n'
@@ -49,15 +48,16 @@ class VodStorageTests(unittest.TestCase):
             old_recordings, old_legacy, old_index = (
                 vod_storage.RECORDINGS_DIR,
                 vod_storage.LEGACY_VODS_DIR,
-                vod_storage._VOD_INDEX_CACHE_PATH,
+                vod_storage.config.user_config.get(vod_storage._VOD_METADATA_INDEX_CONFIG_KEY),
             )
             try:
                 vod_storage.RECORDINGS_DIR = root
                 vod_storage.LEGACY_VODS_DIR = Path(temp_dir) / "missing-legacy"
-                vod_storage._VOD_INDEX_CACHE_PATH = index_path
+                vod_storage.config.user_config.pop(vod_storage._VOD_METADATA_INDEX_CONFIG_KEY, None)
                 refreshed = refresh_vod_metadata_index()
                 self.assertEqual([vod.name for vod in refreshed], ["Indexed run"])
                 self.assertEqual([vod.name for vod in load_cached_vods()], ["Indexed run"])
+                self.assertIn(vod_storage._VOD_METADATA_INDEX_CONFIG_KEY, vod_storage.config.user_config)
 
                 path.unlink()
                 refreshed = refresh_vod_metadata_index()
@@ -66,7 +66,10 @@ class VodStorageTests(unittest.TestCase):
             finally:
                 vod_storage.RECORDINGS_DIR = old_recordings
                 vod_storage.LEGACY_VODS_DIR = old_legacy
-                vod_storage._VOD_INDEX_CACHE_PATH = old_index
+                if old_index is None:
+                    vod_storage.config.user_config.pop(vod_storage._VOD_METADATA_INDEX_CONFIG_KEY, None)
+                else:
+                    vod_storage.config.user_config[vod_storage._VOD_METADATA_INDEX_CONFIG_KEY] = old_index
 
     def test_recorder_batches_snapshot_flushes_but_flushes_metadata_and_summary(self) -> None:
         class FakeFile:

@@ -27,7 +27,7 @@ VOD_FORMAT_VERSION = 6
 RECORDINGS_DIR = Path(config.application_path) / "stats_recordings"
 LEGACY_VODS_DIR = Path(config.application_path) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
-_VOD_INDEX_CACHE_PATH = Path(config.application_path) / ".vod_metadata_index.json"
+_VOD_METADATA_INDEX_CONFIG_KEY = "_VOD_METADATA_INDEX"
 _VOD_INDEX_LOCK = threading.RLock()
 SNAPSHOT_FLUSH_EVERY = 3
 
@@ -137,23 +137,26 @@ def _metadata_from_index_record(record: dict[str, Any]) -> tuple[Path, int, int,
     return path, int(record.get("mtime_ns") or 0), int(record.get("size") or 0), metadata
 
 
+def _load_index_records() -> list[dict[str, Any]]:
+    payload = config.user_config.get(_VOD_METADATA_INDEX_CONFIG_KEY, {})
+    if not isinstance(payload, dict):
+        return []
+    records = payload.get("records", [])
+    return records if isinstance(records, list) else []
+
+
 def load_cached_vods() -> list[VodMetadata]:
     """Return the last valid metadata index without scanning recording payloads."""
     with _VOD_INDEX_LOCK:
-        try:
-            payload = json.loads(_VOD_INDEX_CACHE_PATH.read_text(encoding="utf-8"))
-            records = payload.get("records", [])
-            result = []
-            for record in records:
-                try:
-                    path, _mtime_ns, _size, metadata = _metadata_from_index_record(record)
-                except (TypeError, ValueError, KeyError):
-                    continue
-                if path.exists():
-                    result.append(metadata)
-            return sorted(result, key=lambda vod: vod.created_at, reverse=True)
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            return []
+        result = []
+        for record in _load_index_records():
+            try:
+                path, _mtime_ns, _size, metadata = _metadata_from_index_record(record)
+            except (TypeError, ValueError, KeyError):
+                continue
+            if path.exists():
+                result.append(metadata)
+        return sorted(result, key=lambda vod: vod.created_at, reverse=True)
 
 
 def refresh_vod_metadata_index() -> list[VodMetadata]:
@@ -161,16 +164,12 @@ def refresh_vod_metadata_index() -> list[VodMetadata]:
     roots = [RECORDINGS_DIR, LEGACY_VODS_DIR]
     with _VOD_INDEX_LOCK:
         previous: dict[Path, tuple[int, int, VodMetadata]] = {}
-        try:
-            payload = json.loads(_VOD_INDEX_CACHE_PATH.read_text(encoding="utf-8"))
-            for record in payload.get("records", []):
-                try:
-                    path, mtime_ns, size, metadata = _metadata_from_index_record(record)
-                    previous[path] = (mtime_ns, size, metadata)
-                except (TypeError, ValueError, KeyError):
-                    continue
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
-            pass
+        for record in _load_index_records():
+            try:
+                path, mtime_ns, size, metadata = _metadata_from_index_record(record)
+                previous[path] = (mtime_ns, size, metadata)
+            except (TypeError, ValueError, KeyError):
+                continue
 
         current: dict[Path, tuple[int, int, VodMetadata]] = {}
         for root in roots:
@@ -196,12 +195,8 @@ def refresh_vod_metadata_index() -> list[VodMetadata]:
             _metadata_to_index_record(metadata, mtime_ns=mtime_ns, size=size)
             for mtime_ns, size, metadata in current.values()
         ]
-        try:
-            temp_path = _VOD_INDEX_CACHE_PATH.with_suffix(".tmp")
-            temp_path.write_text(json.dumps({"version": 1, "records": records}, ensure_ascii=False), encoding="utf-8")
-            os.replace(temp_path, _VOD_INDEX_CACHE_PATH)
-        except OSError:
-            pass
+        config.user_config[_VOD_METADATA_INDEX_CONFIG_KEY] = {"version": 1, "records": records}
+        config.save_config(config.user_config)
         return sorted((entry[2] for entry in current.values()), key=lambda vod: vod.created_at, reverse=True)
 
 

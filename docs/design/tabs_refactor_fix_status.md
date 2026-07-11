@@ -5,7 +5,7 @@ Implementation status for the findings recorded in `tabs_refactor_audit.md`.
 ## Completed
 
 - Session reroll persistence now uses a dirty flag, periodic flushing, and forced flushing during scanner/application shutdown.
-- VOD metadata has a persistent lightweight index shared by Recordings and Compare Runs.
+- VOD metadata has a persistent lightweight index under `_VOD_METADATA_INDEX` in the existing `config.json`, shared by Recordings and Compare Runs.
 - Recording lists use cached metadata immediately and refresh changed files in a background thread.
 - Full VOD payload parsing is performed asynchronously after explicit selection.
 - Stale asynchronous VOD results are ignored after a newer selection.
