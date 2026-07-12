@@ -518,12 +518,24 @@ class PlayerStatsClientTests(unittest.TestCase):
             }
         )
 
-        snapshot = PlayerStatsClient(memory=memory).get_powerup_tracking_snapshot()
+        client = PlayerStatsClient(memory=memory)
+        snapshot = client.get_powerup_tracking_snapshot()
 
         self.assertEqual(snapshot.stage_index, 2)
         self.assertEqual(snapshot.stage_time_seconds, 480.0)
         self.assertEqual(snapshot.stage_timer_seconds, 46.5)
         self.assertEqual([effect.name for effect in snapshot.effects], ["Rage", "Clock"])
+        self.assertTrue(snapshot.timing_health.complete)
+
+        with patch.object(
+            client,
+            "_read_current_stage_time",
+            side_effect=MemoryReadError("stage unavailable"),
+        ):
+            snapshot_without_stage = client.get_powerup_tracking_snapshot()
+
+        self.assertIsNone(snapshot_without_stage.stage_time_seconds)
+        self.assertTrue(snapshot_without_stage.timing_health.complete)
 
     def test_get_powerup_tracking_snapshot_caches_powerup_multiplier_until_ttl(self) -> None:
         memory = self.build_memory()

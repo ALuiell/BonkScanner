@@ -1327,7 +1327,7 @@ class LiveRunTrackerTests(unittest.TestCase):
             "status_effects_partial",
         )
 
-    def test_powerups_accept_complete_empty_snapshot_after_partial_rejection(self) -> None:
+    def test_powerups_accept_snapshot_when_multiplier_read_is_unavailable(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         complete_health = SimpleNamespace(available=True, complete=True, failure_reason=None)
         partial_health = SimpleNamespace(
@@ -1357,7 +1357,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker.update_powerups(active_snapshot)
 
         active_snapshot.multiplier_health = partial_health
-        self.assertFalse(tracker.update_powerups(active_snapshot))
+        self.assertTrue(tracker.update_powerups(active_snapshot))
         self.assertEqual([effect.name for effect in tracker.powerups_snapshot().active], ["Clock"])
 
         empty_snapshot = SimpleNamespace(

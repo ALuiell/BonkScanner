@@ -934,7 +934,6 @@ class LiveRunTracker:
         for health_name in (
             "status_effects_health",
             "timing_health",
-            "multiplier_health",
         ):
             health = getattr(snapshot, health_name, None)
             if health is None:

@@ -1467,13 +1467,6 @@ class PlayerStatsClient:
             stage_index, stage_time_seconds = self._read_current_stage_time()
         except MemoryReadError:
             stage_index, stage_time_seconds = None, None
-        if stage_time_seconds is None:
-            timing_health = PowerupReadHealth(
-                available=False,
-                complete=False,
-                failure_reason="powerup_timing_unavailable",
-                captured_at=captured_at,
-            )
 
         status_effects_result = self._read_active_status_effects(
             owner_stats,
