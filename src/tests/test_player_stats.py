@@ -891,6 +891,56 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual([effect.name for effect in effects], ["Clock"])
         self.assertEqual(effects[0].expiration_time, 115.6)
 
+    def test_active_status_effects_reports_unavailable_when_inventory_is_missing(self) -> None:
+        memory = self.build_memory()
+        owner_stats = 0x20000300
+        memory.pointers[owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET] = 0
+        client = PlayerStatsClient(memory=memory)
+
+        result = client._read_active_status_effects(owner_stats)
+
+        self.assertEqual(result.effects, ())
+        self.assertFalse(result.health.available)
+        self.assertFalse(result.health.complete)
+        self.assertEqual(result.health.failure_reason, "status_effects_unavailable")
+
+    def test_active_status_effects_reports_partial_when_effect_object_is_unreadable(self) -> None:
+        memory = self.build_memory()
+        owner_stats = 0x20000300
+        player_inventory = 0x26000000
+        status_effects = 0x26000100
+        status_dict = 0x26000200
+        status_entries = 0x26000300
+        clock_effect = 0x26000400
+        entry = status_entries + PlayerStatsClient.DICT_ENTRY_START_OFFSET
+        memory.pointers.update(
+            {
+                owner_stats + PlayerStatsClient.PLAYER_INVENTORY_OFFSET: player_inventory,
+                player_inventory + PlayerStatsClient.PLAYER_STATUS_EFFECTS_OFFSET: status_effects,
+                status_effects + PlayerStatsClient.PLAYER_STATUS_EFFECTS_DICT_OFFSET: status_dict,
+                status_dict + PlayerStatsClient.DICT_ENTRIES_OFFSET: status_entries,
+                entry + PlayerStatsClient.DICT_ENTRY_VALUE_OFFSET: clock_effect,
+            }
+        )
+        memory.ints.update(
+            {
+                status_dict + PlayerStatsClient.DICT_COUNT_OFFSET: 1,
+                status_dict + PlayerStatsClient.DICT_VERSION_OFFSET: 1,
+                status_entries + PlayerStatsClient.ARRAY_LENGTH_OFFSET: 1,
+                entry + PlayerStatsClient.DICT_ENTRY_HASH_CODE_OFFSET: 4,
+                entry + PlayerStatsClient.DICT_ENTRY_KEY_OFFSET: 4,
+                clock_effect + PlayerStatsClient.STATUS_EFFECT_ESTATUS_OFFSET: 4,
+            }
+        )
+        client = PlayerStatsClient(memory=memory)
+
+        result = client._read_active_status_effects(owner_stats)
+
+        self.assertEqual(result.effects, ())
+        self.assertTrue(result.health.available)
+        self.assertFalse(result.health.complete)
+        self.assertEqual(result.health.failure_reason, "status_effects_partial")
+
     def test_read_current_stage_time_clears_stale_timeline_when_current_stage_is_missing(self) -> None:
         memory = self.build_memory()
         base = memory.module_base

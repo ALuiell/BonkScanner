@@ -921,8 +921,7 @@ class LiveRunTracker:
         snapshot: Any,
         *,
         map_context: PowerupMapContext | None = None,
-    ) -> None:
-        self._mark_feature_success_unlocked("powerups", self.clock())
+    ) -> bool:
         if map_context is not None:
             if map_context.captured_at <= 0:
                 map_context = PowerupMapContext(
@@ -931,6 +930,27 @@ class LiveRunTracker:
                     activity_max=map_context.activity_max,
                 )
             self._powerup_map_context = map_context
+
+        for health_name in (
+            "status_effects_health",
+            "timing_health",
+            "multiplier_health",
+        ):
+            health = getattr(snapshot, health_name, None)
+            if health is None:
+                continue
+            if bool(getattr(health, "available", False)) and bool(
+                getattr(health, "complete", False)
+            ):
+                continue
+            reason = str(
+                getattr(health, "failure_reason", None)
+                or "powerup_snapshot_incomplete"
+            )
+            self._mark_feature_failure_unlocked("powerups", self.clock(), reason)
+            return False
+
+        self._mark_feature_success_unlocked("powerups", self.clock())
 
         # Track graveyard phase states
         fresh_map_context = self._fresh_powerup_map_context_unlocked()
@@ -1111,6 +1131,7 @@ class LiveRunTracker:
             captured_at=self.clock(),
             available=True,
         )
+        return True
 
     @with_lock
     def clear_powerups(self) -> None:

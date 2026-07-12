@@ -260,9 +260,9 @@ class PlayerStatsMixin:
             snapshot = self._fast_task_client(context).get_powerup_tracking_snapshot(
                 self._fast_task_owner_stats(context)
             )
-            self.live_run_tracker.update_powerups(snapshot)
+            accepted = self.live_run_tracker.update_powerups(snapshot)
             self._refresh_live_powerups_label()
-            return True
+            return accepted is not False
         except Exception as exc:
             self._mark_fast_feature_failed("powerups", exc)
             self._refresh_live_powerups_label()

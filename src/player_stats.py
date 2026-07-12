@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from math import isfinite, pi, sqrt
 import time
@@ -122,9 +122,26 @@ class StatusEffectSnapshot:
 
 
 @dataclass(frozen=True)
+class PowerupReadHealth:
+    """Validity of one dependency used to build a powerup snapshot."""
+
+    available: bool = True
+    complete: bool = True
+    failure_reason: str | None = None
+    captured_at: float = 0.0
+    source: str = "fast"
+
+
+@dataclass(frozen=True)
+class StatusEffectsReadResult:
+    effects: tuple[StatusEffectSnapshot, ...] = ()
+    health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
+
+
+@dataclass(frozen=True)
 class PowerupTrackingSnapshot:
-    my_time_seconds: float
-    stage_timer_seconds: float
+    my_time_seconds: float | None
+    stage_timer_seconds: float | None
     stage_index: int | None
     stage_time_seconds: float | None
     powerup_multiplier: float | None
@@ -132,6 +149,9 @@ class PowerupTrackingSnapshot:
     final_swarm_timer_seconds: float | None = None
     crypt_timer_seconds: float | None = None
     effects: tuple[StatusEffectSnapshot, ...] = ()
+    status_effects_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
+    timing_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
+    multiplier_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
 
 
 @dataclass(frozen=True)
@@ -1400,35 +1420,71 @@ class PlayerStatsClient:
         owner_stats: int | None = None,
     ) -> PowerupTrackingSnapshot:
         owner_stats = owner_stats or self._resolve_owner_stats()
-        my_time_static_fields = self._resolve_my_time_static_fields()
+        captured_at = time.monotonic()
+        timing_health = PowerupReadHealth(captured_at=captured_at)
         try:
-            my_time_seconds = self.memory.read_float(
-                my_time_static_fields + self.MY_TIME_TIME_OFFSET
+            my_time_static_fields = self._resolve_my_time_static_fields()
+        except MemoryReadError:
+            my_time_static_fields = 0
+            timing_health = PowerupReadHealth(
+                available=False,
+                complete=False,
+                failure_reason="powerup_timing_unavailable",
+                captured_at=captured_at,
             )
-            stage_timer_seconds = self.memory.read_float(
-                my_time_static_fields + self.STAGE_TIMER_OFFSET
-            )
+        try:
+            if not my_time_static_fields:
+                raise MemoryReadError("MyTime static fields are not initialized.")
+            my_time_seconds = self.memory.read_float(my_time_static_fields + self.MY_TIME_TIME_OFFSET)
+            stage_timer_seconds = self.memory.read_float(my_time_static_fields + self.STAGE_TIMER_OFFSET)
         except MemoryReadError:
             self._clear_my_time_cache()
-            raise
-        try:
-            final_swarm_timer_seconds = self.memory.read_float(
-                my_time_static_fields + self.FINAL_SWARM_TIMER_OFFSET
+            my_time_seconds = None
+            stage_timer_seconds = None
+            timing_health = PowerupReadHealth(
+                available=False,
+                complete=False,
+                failure_reason="powerup_timing_unavailable",
+                captured_at=captured_at,
             )
-        except MemoryReadError:
+        if my_time_static_fields:
+            try:
+                final_swarm_timer_seconds = self.memory.read_float(
+                    my_time_static_fields + self.FINAL_SWARM_TIMER_OFFSET
+                )
+            except MemoryReadError:
+                final_swarm_timer_seconds = None
+            try:
+                crypt_timer_seconds = self.memory.read_float(
+                    my_time_static_fields + self.CRYPT_TIMER_OFFSET
+                )
+            except MemoryReadError:
+                crypt_timer_seconds = None
+        else:
             final_swarm_timer_seconds = None
-        try:
-            crypt_timer_seconds = self.memory.read_float(
-                my_time_static_fields + self.CRYPT_TIMER_OFFSET
-            )
-        except MemoryReadError:
             crypt_timer_seconds = None
-        stage_index, stage_time_seconds = self._read_current_stage_time()
-        effects = self.get_active_status_effects(owner_stats)
+        try:
+            stage_index, stage_time_seconds = self._read_current_stage_time()
+        except MemoryReadError:
+            stage_index, stage_time_seconds = None, None
+        if stage_time_seconds is None:
+            timing_health = PowerupReadHealth(
+                available=False,
+                complete=False,
+                failure_reason="powerup_timing_unavailable",
+                captured_at=captured_at,
+            )
+
+        status_effects_result = self._read_active_status_effects(
+            owner_stats,
+            captured_at=captured_at,
+        )
+        effects = status_effects_result.effects
         active_signature = tuple(
             sorted(
                 effect.effect_id
                 for effect in effects
+                if my_time_seconds is not None
                 if isfinite(effect.expiration_time)
                 and (effect.expiration_time - my_time_seconds) > 0
             )
@@ -1441,8 +1497,17 @@ class PlayerStatsClient:
             self._get_cached_powerup_multiplier(
                 owner_stats,
                 force_refresh=force_multiplier_refresh,
+                now=captured_at,
             )
         )
+        multiplier_health = PowerupReadHealth(captured_at=captured_at)
+        if powerup_multiplier is None or not isfinite(powerup_multiplier):
+            multiplier_health = PowerupReadHealth(
+                available=False,
+                complete=False,
+                failure_reason="powerup_multiplier_unavailable",
+                captured_at=captured_at,
+            )
         self._cached_active_powerup_signature = active_signature
         return PowerupTrackingSnapshot(
             my_time_seconds=my_time_seconds,
@@ -1454,48 +1519,92 @@ class PlayerStatsClient:
             final_swarm_timer_seconds=final_swarm_timer_seconds,
             crypt_timer_seconds=crypt_timer_seconds,
             effects=effects,
+            status_effects_health=status_effects_result.health,
+            timing_health=timing_health,
+            multiplier_health=multiplier_health,
         )
 
     def get_active_status_effects(
         self,
         owner_stats: int | None = None,
     ) -> tuple[StatusEffectSnapshot, ...]:
-        owner_stats = owner_stats or self._resolve_owner_stats()
-        player_inventory = self.memory.read_ptr(
-            owner_stats + self.PLAYER_INVENTORY_OFFSET
-        )
-        if not player_inventory:
-            self._clear_status_effects_cache()
-            return ()
-        status_effects = self.memory.read_ptr(
-            player_inventory + self.PLAYER_STATUS_EFFECTS_OFFSET
-        )
-        if not status_effects:
-            self._clear_status_effects_cache()
-            return ()
-        dictionary_address = self.memory.read_ptr(
-            status_effects + self.PLAYER_STATUS_EFFECTS_DICT_OFFSET
-        )
-        if not dictionary_address:
-            self._clear_status_effects_cache()
-            return ()
+        return self._read_active_status_effects(owner_stats).effects
 
-        entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
-        if not entries:
+    def _read_active_status_effects(
+        self,
+        owner_stats: int | None = None,
+        *,
+        captured_at: float | None = None,
+    ) -> StatusEffectsReadResult:
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        if captured_at is None:
+            captured_at = time.monotonic()
+
+        def unavailable() -> StatusEffectsReadResult:
             self._clear_status_effects_cache()
-            return ()
+            return StatusEffectsReadResult(
+                health=PowerupReadHealth(
+                    available=False,
+                    complete=False,
+                    failure_reason="status_effects_unavailable",
+                    captured_at=captured_at,
+                )
+            )
+
+        def partial() -> StatusEffectsReadResult:
+            self._clear_status_effects_cache()
+            return StatusEffectsReadResult(
+                health=PowerupReadHealth(
+                    available=False,
+                    complete=False,
+                    failure_reason="status_effects_partial",
+                    captured_at=captured_at,
+                )
+            )
+
+        try:
+            player_inventory = self.memory.read_ptr(
+                owner_stats + self.PLAYER_INVENTORY_OFFSET
+            )
+        except MemoryReadError:
+            return unavailable()
+        if not player_inventory:
+            return unavailable()
+        try:
+            status_effects = self.memory.read_ptr(
+                player_inventory + self.PLAYER_STATUS_EFFECTS_OFFSET
+            )
+        except MemoryReadError:
+            return unavailable()
+        if not status_effects:
+            return unavailable()
+        try:
+            dictionary_address = self.memory.read_ptr(
+                status_effects + self.PLAYER_STATUS_EFFECTS_DICT_OFFSET
+            )
+        except MemoryReadError:
+            return unavailable()
+        if not dictionary_address:
+            return unavailable()
+
+        try:
+            entries = self.memory.read_ptr(dictionary_address + self.DICT_ENTRIES_OFFSET)
+        except MemoryReadError:
+            return unavailable()
+        if not entries:
+            return unavailable()
         try:
             count = self.memory.read_i32(dictionary_address + self.DICT_COUNT_OFFSET)
         except MemoryReadError:
-            self._clear_status_effects_cache()
-            return ()
+            return partial()
         if count < 0 or count > 128:
-            self._clear_status_effects_cache()
-            return ()
-        capacity = self.memory.read_i32(entries + self.ARRAY_LENGTH_OFFSET)
+            return partial()
+        try:
+            capacity = self.memory.read_i32(entries + self.ARRAY_LENGTH_OFFSET)
+        except MemoryReadError:
+            return partial()
         if capacity <= 0 or capacity > 128:
-            self._clear_status_effects_cache()
-            return ()
+            return partial()
         try:
             version = self.memory.read_i32(dictionary_address + self.DICT_VERSION_OFFSET)
         except MemoryReadError:
@@ -1518,12 +1627,13 @@ class PlayerStatsClient:
         # becoming TimeFreeze 4 after a death). Refresh the key-to-value map on
         # every fast poll so a supported effect cannot stay invisible behind a
         # stale slot cache.
-        self._cached_status_effect_value_addresses = self._scan_status_effect_value_addresses(
+        self._cached_status_effect_value_addresses, scan_partial = self._scan_status_effect_value_addresses(
             entries,
             capacity,
         )
 
         effects: list[StatusEffectSnapshot] = []
+        entry_partial = scan_partial
         for effect_id, value_address in tuple(self._cached_status_effect_value_addresses.items()):
             try:
                 effect_ptr = self.memory.read_ptr(value_address)
@@ -1539,8 +1649,10 @@ class PlayerStatsClient:
                     effect_ptr + self.STATUS_EFFECT_ADDED_OFFSET
                 )
             except MemoryReadError:
+                entry_partial = True
                 continue
             if object_effect_id not in POWERUP_STATUS_EFFECT_NAMES:
+                entry_partial = True
                 continue
             effects.append(
                 StatusEffectSnapshot(
@@ -1550,7 +1662,18 @@ class PlayerStatsClient:
                     expiration_time=expiration_time,
                 )
             )
-        return tuple(sorted(effects, key=lambda effect: effect.effect_id))
+        health = PowerupReadHealth(captured_at=captured_at)
+        if entry_partial:
+            health = PowerupReadHealth(
+                available=True,
+                complete=False,
+                failure_reason="status_effects_partial",
+                captured_at=captured_at,
+            )
+        return StatusEffectsReadResult(
+            effects=tuple(sorted(effects, key=lambda effect: effect.effect_id)),
+            health=health,
+        )
 
     def get_run_stat_values(self, keys: Iterable[str]) -> dict[str, float]:
         requested = frozenset(str(key) for key in keys)
@@ -1891,8 +2014,9 @@ class PlayerStatsClient:
         owner_stats: int,
         *,
         force_refresh: bool = False,
+        now: float | None = None,
     ) -> tuple[float | None, str]:
-        now = time.monotonic()
+        now = time.monotonic() if now is None else now
         cache_age = now - self._cached_powerup_multiplier_read_at
         if (
             not force_refresh
@@ -1926,8 +2050,13 @@ class PlayerStatsClient:
         self._cached_powerup_multiplier_read_at = now
         return value, display
 
-    def _scan_status_effect_value_addresses(self, entries: int, capacity: int) -> dict[int, int]:
+    def _scan_status_effect_value_addresses(
+        self,
+        entries: int,
+        capacity: int,
+    ) -> tuple[dict[int, int], bool]:
         value_addresses: dict[int, int] = {}
+        partial = False
         for index in range(capacity):
             entry = (
                 entries
@@ -1941,9 +2070,10 @@ class PlayerStatsClient:
                 if effect_id not in POWERUP_STATUS_EFFECT_NAMES:
                     continue
             except MemoryReadError:
+                partial = True
                 continue
             value_addresses[effect_id] = entry + self.DICT_ENTRY_VALUE_OFFSET
-        return value_addresses
+        return value_addresses, partial
 
     def _clear_my_time_cache(self) -> None:
         self._cached_my_time_static_fields = 0

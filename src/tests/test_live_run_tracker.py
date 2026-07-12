@@ -1275,6 +1275,106 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertFalse(tracker.powerups_snapshot().available)
         self.assertEqual(tracker.format_powerups_summary(), "Powerups: --")
 
+    def test_powerups_reject_partial_snapshot_without_clearing_last_good_state(self) -> None:
+        current_time = 1000.0
+        tracker = LiveRunTracker(clock=lambda: current_time)
+        complete_health = SimpleNamespace(available=True, complete=True, failure_reason=None)
+        partial_health = SimpleNamespace(
+            available=True,
+            complete=False,
+            failure_reason="status_effects_partial",
+        )
+        good_snapshot = SimpleNamespace(
+            my_time_seconds=1000.0,
+            stage_timer_seconds=440.0,
+            stage_index=1,
+            stage_time_seconds=540.0,
+            powerup_multiplier=1.5,
+            powerup_multiplier_display="1.5x",
+            effects=(
+                SimpleNamespace(
+                    effect_id=4,
+                    name="Clock",
+                    added_time=1000.0,
+                    expiration_time=1018.0,
+                ),
+            ),
+            status_effects_health=complete_health,
+            timing_health=complete_health,
+            multiplier_health=complete_health,
+        )
+        self.assertTrue(tracker.update_powerups(good_snapshot))
+
+        current_time = 1001.0
+        rejected_snapshot = SimpleNamespace(
+            my_time_seconds=1001.0,
+            stage_timer_seconds=439.0,
+            stage_index=1,
+            stage_time_seconds=540.0,
+            powerup_multiplier=1.5,
+            powerup_multiplier_display="1.5x",
+            effects=(),
+            status_effects_health=partial_health,
+            timing_health=complete_health,
+            multiplier_health=complete_health,
+        )
+        self.assertFalse(tracker.update_powerups(rejected_snapshot))
+
+        retained = tracker.powerups_snapshot()
+        self.assertEqual([effect.name for effect in retained.active], ["Clock"])
+        self.assertEqual(
+            tracker.runtime_snapshot().feature_status["powerups"].last_error,
+            "status_effects_partial",
+        )
+
+    def test_powerups_accept_complete_empty_snapshot_after_partial_rejection(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        complete_health = SimpleNamespace(available=True, complete=True, failure_reason=None)
+        partial_health = SimpleNamespace(
+            available=False,
+            complete=False,
+            failure_reason="powerup_multiplier_unavailable",
+        )
+        active_snapshot = SimpleNamespace(
+            my_time_seconds=1000.0,
+            stage_timer_seconds=440.0,
+            stage_index=1,
+            stage_time_seconds=540.0,
+            powerup_multiplier=1.5,
+            powerup_multiplier_display="1.5x",
+            effects=(
+                SimpleNamespace(
+                    effect_id=4,
+                    name="Clock",
+                    added_time=1000.0,
+                    expiration_time=1018.0,
+                ),
+            ),
+            status_effects_health=complete_health,
+            timing_health=complete_health,
+            multiplier_health=complete_health,
+        )
+        tracker.update_powerups(active_snapshot)
+
+        active_snapshot.multiplier_health = partial_health
+        self.assertFalse(tracker.update_powerups(active_snapshot))
+        self.assertEqual([effect.name for effect in tracker.powerups_snapshot().active], ["Clock"])
+
+        empty_snapshot = SimpleNamespace(
+            my_time_seconds=1002.0,
+            stage_timer_seconds=438.0,
+            stage_index=1,
+            stage_time_seconds=540.0,
+            powerup_multiplier=1.5,
+            powerup_multiplier_display="1.5x",
+            effects=(),
+            status_effects_health=complete_health,
+            timing_health=complete_health,
+            multiplier_health=complete_health,
+        )
+        self.assertTrue(tracker.update_powerups(empty_snapshot))
+        self.assertEqual(tracker.powerups_snapshot().active, ())
+
     def test_powerups_summary_formats_overtime(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_powerups(
