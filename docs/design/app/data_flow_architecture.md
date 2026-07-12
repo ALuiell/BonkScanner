@@ -112,7 +112,7 @@ For each feature, the data begins its journey here.
 - **Config / User Config**
   - **What it is:** Configuration settings read from disk or defined at runtime.
   - **Code location:** `src/config.py` (`OVERLAY`, `TWITCH_BOT`, etc.).
-  - **Data extracted:** Refresh intervals (`PLAYER_STATS_REFRESH_MS`, `CHAOS_TOME_TRACKER_INTERVAL_MS`), overlay tracked item rules, Twitch bot commands.
+  - **Data extracted:** Refresh intervals (`PLAYER_STATS_REFRESH_MS`, `FAST_TRACKER_INTERVAL_MS`), overlay tracked item rules, Twitch bot commands.
 - **Runtime-derived Values**
   - **What it is:** Values calculated dynamically based on raw memory data over time.
   - **Code location:** `src/live_run_tracker.py`, `src/run_summary.py`.
@@ -134,7 +134,7 @@ This section defines the active logic that pulls from data sources and pushes to
 - **Fast KPS, Chaos, and Powerup Refresh**
   - **Code location:** `src/gui_player_stats.py` (`update_chaos_tome_tracker_timer`, `refresh_chaos_tome_tracker_now`)
   - **Updates:** Kills, run timer, Chaos Tome modifiers, Powerup snapshots, Chest counters.
-  - **Cadence:** Every 500 ms (`CHAOS_TOME_TRACKER_INTERVAL_MS`).
+  - **Cadence:** Every 500 ms (`FAST_TRACKER_INTERVAL_MS`).
   - **Destination:** Directly pushes data into `LiveRunTracker`.
 - **Overlay State Updates**
   - **Code location:** `src/gui_overlay.py` (`update_overlay_state_from_tracker`)

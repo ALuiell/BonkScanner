@@ -239,7 +239,7 @@ This is the actual current behavior to preserve during the first migration.
 | Weapons, tomes, banishes, disabled items, damage sources | 10 s | Read only when recording, Live Stats, OBS, or Twitch is active. Disabled items are cached once per run and retried until available. |
 | Map activity totals and full chest state | 10 s | Read by the slow player refresh. |
 | Actual chest counters: bought and purchased | 10 s | Read after the full player snapshot. |
-| Fast refresh scheduler | 500 ms by default | Configurable internally through `CHAOS_TOME_TRACKER_INTERVAL_MS`; current lower bound is 100 ms. |
+| Fast refresh scheduler | 500 ms by default | Configurable internally through `FAST_TRACKER_INTERVAL_MS`; current lower bound is 100 ms. |
 | Owner stats resolution and Chaos Tome state | 500 ms | Runs whenever the fast scheduler itself is active. |
 | Powerup tracking | 500 ms | Only when Live Stats, relevant in-game widget, or enabled Twitch powerup command requires it. |
 | Expected chest inputs | 500 ms | Currently runs whenever the fast scheduler is active, even when no chest-specific consumer is active. This becomes a task-level lazy-gating migration target. |

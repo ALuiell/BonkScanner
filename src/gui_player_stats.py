@@ -170,7 +170,7 @@ class PlayerStatsMixin:
         self._refresh_core_run_lifecycle_state()
         self._ensure_refresh_coordinator().tick()
         self.after(
-            int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500)),
+            int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)),
             self.update_chaos_tome_tracker_timer,
         )
 
@@ -196,7 +196,7 @@ class PlayerStatsMixin:
         coordinator.register(
             RefreshTask(
                 task_id="combat_metrics",
-                interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
+                interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
                 required=self._should_refresh_fast_kps,
                 run=self._refresh_combat_metrics_task,
             )
@@ -204,7 +204,7 @@ class PlayerStatsMixin:
         coordinator.register(
             RefreshTask(
                 task_id="powerups",
-                interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
+                interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
                 required=self._should_refresh_powerup_tracker,
                 run=self._refresh_powerups_task,
             )
@@ -212,7 +212,7 @@ class PlayerStatsMixin:
         coordinator.register(
             RefreshTask(
                 task_id="expected_chest_inputs",
-                interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
+                interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
                 required=self._should_refresh_expected_chest_inputs,
                 run=self._refresh_expected_chest_inputs_task,
             )
@@ -220,7 +220,7 @@ class PlayerStatsMixin:
         coordinator.register(
             RefreshTask(
                 task_id="event_timer",
-                interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
+                interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
                 required=self._should_refresh_fast_stage_timer,
                 run=self._refresh_event_timer_task,
             )
@@ -228,7 +228,7 @@ class PlayerStatsMixin:
         coordinator.register(
             RefreshTask(
                 task_id="chaos_tome",
-                interval_ms=max(100, int(getattr(config, "CHAOS_TOME_TRACKER_INTERVAL_MS", 500))),
+                interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
                 required=self._should_refresh_chaos_tome,
                 run=self._refresh_chaos_tome_task,
             )

@@ -782,10 +782,19 @@ PLAYER_STATS_RECORD_INTERVAL_SECONDS = coerce_nonnegative_int(
     user_config.get("PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
     30,
 ) or 30
-CHAOS_TOME_TRACKER_INTERVAL_MS = max(
-    100,
-    coerce_nonnegative_int(user_config.get("CHAOS_TOME_TRACKER_INTERVAL_MS", 500), 500) or 500,
-)
+def resolve_fast_tracker_interval_ms(config_data: dict) -> int:
+    """Read the renamed fast-refresh interval, accepting the legacy config key."""
+    legacy_value = config_data.get("CHAOS_TOME_TRACKER_INTERVAL_MS", 500)
+    return max(
+        100,
+        coerce_nonnegative_int(
+            config_data.get("FAST_TRACKER_INTERVAL_MS", legacy_value), 500
+        )
+        or 500,
+    )
+
+
+FAST_TRACKER_INTERVAL_MS = resolve_fast_tracker_interval_ms(user_config)
 AUTO_START_RECORDING = bool(user_config.get("AUTO_START_RECORDING", False))
 SHOW_OBS_REMINDER_ON_START_SCANNER = bool(user_config.get("SHOW_OBS_REMINDER_ON_START_SCANNER", False))
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
@@ -856,7 +865,7 @@ user_config["HOTKEY_GAME_KEY_WHITELIST"] = HOTKEY_GAME_KEY_WHITELIST
 user_config["PLAYER_STATS_RECORD_HOTKEY"] = PLAYER_STATS_RECORD_HOTKEY
 user_config["IN_GAME_OVERLAY_EDIT_HOTKEY"] = IN_GAME_OVERLAY_EDIT_HOTKEY
 user_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = PLAYER_STATS_RECORD_INTERVAL_SECONDS
-user_config["CHAOS_TOME_TRACKER_INTERVAL_MS"] = CHAOS_TOME_TRACKER_INTERVAL_MS
+user_config["FAST_TRACKER_INTERVAL_MS"] = FAST_TRACKER_INTERVAL_MS
 user_config["AUTO_START_RECORDING"] = AUTO_START_RECORDING
 user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = SHOW_OBS_REMINDER_ON_START_SCANNER
 user_config["MENU_HOTKEY"] = MENU_HOTKEY
@@ -878,6 +887,7 @@ user_config.pop("NATIVE_HOOK_DLL_PATH", None)
 user_config.pop("TOGGLE_SKIP_CHEST_ANIMATION_HOTKEY", None)
 user_config.pop("TOGGLE_AUTO_SELECT_UPGRADES_HOTKEY", None)
 user_config.pop("TOGGLE_PARTICLES_OPACITY_HOTKEY", None)
+user_config.pop("CHAOS_TOME_TRACKER_INTERVAL_MS", None)
 
 
 # If the config.json file did not exist initially (or did not contain TEMPLATES),

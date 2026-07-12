@@ -77,5 +77,32 @@ class InGameOverlayConfigTests(unittest.TestCase):
         self.assertEqual(normalized["widgets"]["luck_rarity"]["show_bar"], False)
 
 
+class FastTrackerIntervalConfigTests(unittest.TestCase):
+    def test_legacy_chaos_tome_key_is_migrated_to_fast_tracker_interval(self) -> None:
+        self.assertEqual(
+            config.resolve_fast_tracker_interval_ms(
+                {"CHAOS_TOME_TRACKER_INTERVAL_MS": 250}
+            ),
+            250,
+        )
+
+    def test_new_fast_tracker_key_takes_precedence_over_legacy_key(self) -> None:
+        self.assertEqual(
+            config.resolve_fast_tracker_interval_ms(
+                {
+                    "FAST_TRACKER_INTERVAL_MS": 300,
+                    "CHAOS_TOME_TRACKER_INTERVAL_MS": 250,
+                }
+            ),
+            300,
+        )
+
+    def test_fast_tracker_interval_preserves_minimum_bound(self) -> None:
+        self.assertEqual(
+            config.resolve_fast_tracker_interval_ms({"FAST_TRACKER_INTERVAL_MS": 1}),
+            100,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
