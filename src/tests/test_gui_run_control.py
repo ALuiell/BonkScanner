@@ -120,6 +120,17 @@ class FakeLabel:
         return self.value
 
 
+class FakeControl:
+    def __init__(self, *, enabled: bool = True) -> None:
+        self.enabled = enabled
+
+    def setEnabled(self, enabled: bool) -> None:
+        self.enabled = bool(enabled)
+
+    def isEnabled(self) -> bool:
+        return self.enabled
+
+
 class FakeOverlayTimer:
     def __init__(self) -> None:
         self.start_calls = 0
@@ -1416,6 +1427,96 @@ class GuiRunControlTests(unittest.TestCase):
 
         load_vod.assert_called_once_with(Path("C:/tmp/run.jsonl"))
         self.assertIs(app.loaded_vod, loaded_vod)
+
+    def test_load_selected_vod_disables_old_recording_actions_until_background_load_finishes(self) -> None:
+        old_vod = types.SimpleNamespace(
+            metadata=types.SimpleNamespace(path=Path("old.jsonl"), name="Old"),
+            snapshots=(object(),),
+        )
+        loaded_vod = types.SimpleNamespace(
+            metadata=types.SimpleNamespace(path=Path("new.jsonl"), name="New"),
+            snapshots=(object(),),
+        )
+        app = object.__new__(gui.MegabonkApp)
+        app.loaded_vod = old_vod
+        app.loaded_vod_snapshot_index = 0
+        app.loaded_vod_compare_start_index = None
+        app.vods_name_entry = FakeEntry("Old")
+        app.vods_name_entry.setEnabled = lambda enabled: setattr(app.vods_name_entry, "enabled", bool(enabled))
+        app.vods_rename_btn = FakeControl()
+        app.vods_cleanup_btn = FakeControl()
+        app.vods_delete_btn = FakeControl()
+        app.vods_slider = FakeControl()
+        app.vods_compare_set_btn = FakeControl()
+        app.vods_compare_clear_btn = FakeControl()
+        app.vods_status_label = FakeLabel()
+        app.refresh_loaded_vod_ui = lambda: None
+        app.refresh_vods_list = lambda: None
+        app.after = lambda _delay, callback: callback()
+        app._invoker = object()
+        threads: list[object] = []
+
+        def make_thread(*, target, name, daemon):
+            del name, daemon
+            thread = types.SimpleNamespace(target=target, start=lambda: None)
+            threads.append(thread)
+            return thread
+
+        with patch.object(gui, "load_vod", return_value=loaded_vod):
+            with patch.object(gui.threading, "Thread", side_effect=make_thread):
+                gui.MegabonkApp.load_selected_vod(app, "C:/tmp/new.jsonl")
+
+                self.assertIsNone(app.loaded_vod)
+                self.assertFalse(app.vods_name_entry.enabled)
+                self.assertFalse(app.vods_rename_btn.isEnabled())
+                self.assertFalse(app.vods_cleanup_btn.isEnabled())
+                self.assertFalse(app.vods_delete_btn.isEnabled())
+                self.assertFalse(app.vods_slider.isEnabled())
+                self.assertFalse(app.vods_compare_set_btn.isEnabled())
+                self.assertFalse(app.vods_compare_clear_btn.isEnabled())
+
+                with patch.object(gui, "rename_vod") as rename_vod:
+                    gui.MegabonkApp.rename_selected_vod(app)
+                rename_vod.assert_not_called()
+
+                threads[0].target()
+
+        self.assertIs(app.loaded_vod, loaded_vod)
+        self.assertTrue(app.vods_name_entry.enabled)
+        self.assertTrue(app.vods_rename_btn.isEnabled())
+        self.assertTrue(app.vods_cleanup_btn.isEnabled())
+        self.assertTrue(app.vods_delete_btn.isEnabled())
+        self.assertTrue(app.vods_slider.isEnabled())
+        self.assertTrue(app.vods_compare_set_btn.isEnabled())
+        self.assertFalse(app.vods_compare_clear_btn.isEnabled())
+
+    def test_load_selected_vod_clears_old_ui_when_load_fails(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.loaded_vod = types.SimpleNamespace(snapshots=(object(),))
+        app.loaded_vod_snapshot_index = 0
+        app.loaded_vod_compare_start_index = None
+        app.vods_name_entry = FakeEntry("Old")
+        app.vods_name_entry.setEnabled = lambda enabled: setattr(app.vods_name_entry, "enabled", bool(enabled))
+        app.vods_rename_btn = FakeControl()
+        app.vods_cleanup_btn = FakeControl()
+        app.vods_delete_btn = FakeControl()
+        app.vods_slider = FakeControl()
+        app.vods_compare_set_btn = FakeControl()
+        app.vods_compare_clear_btn = FakeControl()
+        app.vods_status_label = FakeLabel()
+        app._clear_loaded_vod_selection = MagicMock()
+
+        with patch.object(gui, "load_vod", side_effect=ValueError("broken file")):
+            gui.MegabonkApp.load_selected_vod(app, "C:/tmp/broken.jsonl")
+
+        app._clear_loaded_vod_selection.assert_called_once_with()
+        self.assertIsNone(app.loaded_vod)
+        self.assertEqual(app.vods_status_label.text(), "Could not load recording: broken file")
+        self.assertFalse(app.vods_name_entry.enabled)
+        self.assertFalse(app.vods_rename_btn.isEnabled())
+        self.assertTrue(app.vods_cleanup_btn.isEnabled())
+        self.assertFalse(app.vods_delete_btn.isEnabled())
+        self.assertFalse(app.vods_slider.isEnabled())
 
     def test_edit_template_dialog_opens_template_manager(self) -> None:
         opened: list[object] = []

@@ -1897,20 +1897,40 @@ class PlayerStatsMixin:
         if path_str:
             self.load_selected_vod(path_str)
 
+    def _set_vod_loading_state(self, loading: bool) -> None:
+        self._vod_load_in_progress = bool(loading)
+        has_recording = not loading and self.loaded_vod is not None
+        has_snapshots = bool(has_recording and self.loaded_vod.snapshots)
+        enabled_by_name = {
+            "vods_name_entry": has_recording,
+            "vods_rename_btn": has_recording,
+            "vods_cleanup_btn": not loading,
+            "vods_delete_btn": has_recording,
+            "vods_slider": has_snapshots,
+        }
+        for name, enabled in enabled_by_name.items():
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.setEnabled(enabled)
+        self._refresh_vod_compare_controls()
+
     def load_selected_vod(self, path):
         path = Path(path)
         generation = int(getattr(self, "_vod_load_generation", 0)) + 1
         self._vod_load_generation = generation
+        self.loaded_vod = None
+        self.loaded_vod_snapshot_index = None
+        self.loaded_vod_compare_start_index = None
+        self._set_vod_loading_state(True)
         _set_text(getattr(self, "vods_status_label", None), "Loading recording…")
 
         def finish(loaded_vod, error) -> None:
             if generation != getattr(self, "_vod_load_generation", 0):
                 return
             if error is not None:
-                self.loaded_vod = None
-                self.loaded_vod_snapshot_index = None
-                self.loaded_vod_compare_start_index = None
+                self._clear_loaded_vod_selection()
                 _set_text(self.vods_status_label, f"Could not load recording: {error}")
+                self._set_vod_loading_state(False)
                 return
             self.loaded_vod = loaded_vod
             self.loaded_vod_snapshot_index = 0 if loaded_vod.snapshots else None
@@ -1919,6 +1939,7 @@ class PlayerStatsMixin:
             _clear_text_input(self.vods_name_entry)
             _set_text_input(self.vods_name_entry, loaded_vod.metadata.name)
             self.refresh_loaded_vod_ui()
+            self._set_vod_loading_state(False)
             self.refresh_vods_list()
             if bool(getattr(self, "recordings_chooser_expanded", False)) and bool(
                 getattr(self, "recordings_guided_selection_active", False)
@@ -2666,7 +2687,11 @@ class PlayerStatsMixin:
         return tuple(self.loaded_vod.snapshots[start_index : end_index + 1])
 
     def _refresh_vod_compare_controls(self) -> None:
-        has_snapshots = bool(self.loaded_vod is not None and self.loaded_vod.snapshots)
+        has_snapshots = bool(
+            not getattr(self, "_vod_load_in_progress", False)
+            and self.loaded_vod is not None
+            and self.loaded_vod.snapshots
+        )
         compare_index = getattr(self, "loaded_vod_compare_start_index", None)
         set_btn = getattr(self, "vods_compare_set_btn", None)
         clear_btn = getattr(self, "vods_compare_clear_btn", None)
@@ -2754,6 +2779,8 @@ class PlayerStatsMixin:
         self.display_tome_cards((), scope="vod", status_text="Select a recording")
         self.vods_chaos_signature = None
         self.display_chaos_tome_card(None, scope="vod", status_text="Select a recording")
+        self.vods_damage_source_signature = None
+        self.display_damage_source_rows((), scope="vod", status_text="Select a recording")
 
     def cleanup_recordings_by_snapshot_count(self):
         dialog = CleanupRecordingsDialog(self.window)
