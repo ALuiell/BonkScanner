@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import src
-from PySide6.QtCore import QRect
+from PySide6.QtCore import QPoint, QRect
 from PySide6.QtWidgets import QApplication
 
 import config
@@ -98,6 +98,57 @@ class InGameOverlayWindowTests(unittest.TestCase):
                 visible_rect = window._visible_local_rect()
                 self.assertLessEqual(window.save_btn.y() + window.save_btn.height(), visible_rect.bottom() + 1)
                 self.assertGreaterEqual(window.save_btn.y(), visible_rect.top())
+            finally:
+                window.close()
+
+    def test_sync_geometry_keeps_widgets_inside_smaller_game_window(self) -> None:
+        target_rect = QRect(0, 0, 320, 240)
+        parent_mixin = SimpleNamespace(
+            _in_game_overlay_target_geometry=lambda: target_rect,
+            _toggle_igo_edit_mode=lambda: None,
+        )
+        overlay_config = _test_overlay_config()
+        overlay_config["widgets"]["stats"]["x"] = 1500
+        overlay_config["widgets"]["stats"]["y"] = 900
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config), patch.object(
+            config, "save_config"
+        ) as save_config:
+            window = InGameOverlayWindow(parent_mixin)
+            try:
+                window.sync_geometry_to_target()
+                stats = window.widgets["stats"]
+
+                self.assertGreaterEqual(stats.x(), 0)
+                self.assertGreaterEqual(stats.y(), 0)
+                self.assertLessEqual(stats.x() + stats.width(), window.width())
+                self.assertLessEqual(stats.y() + stats.height(), window.height())
+                self.assertEqual(overlay_config["widgets"]["stats"]["x"], stats.x())
+                self.assertEqual(overlay_config["widgets"]["stats"]["y"], stats.y())
+                save_config.assert_called()
+            finally:
+                window.close()
+
+    def test_drag_position_is_limited_to_overlay_bounds(self) -> None:
+        parent_mixin = SimpleNamespace(
+            _in_game_overlay_target_geometry=lambda: QRect(0, 0, 320, 240),
+            _toggle_igo_edit_mode=lambda: None,
+        )
+
+        with patch.object(config, "IN_GAME_OVERLAY", _test_overlay_config()):
+            window = InGameOverlayWindow(parent_mixin)
+            try:
+                window.sync_geometry_to_target()
+                widget = window.widgets["stats"]
+
+                self.assertEqual(widget._clamp_to_parent(QPoint(-50, -20)), QPoint(0, 0))
+                self.assertEqual(
+                    widget._clamp_to_parent(QPoint(1000, 900)),
+                    QPoint(
+                        max(0, window.width() - widget.width()),
+                        max(0, window.height() - widget.height()),
+                    ),
+                )
             finally:
                 window.close()
 

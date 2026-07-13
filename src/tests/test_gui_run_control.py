@@ -5150,6 +5150,21 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIsInstance(rect, QRect)
         self.assertEqual(rect, QRect(100, 200, 640, 480))
 
+    def test_in_game_overlay_target_geometry_prefers_game_client_area(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.find_game_window = lambda _process_name: 321
+        app.in_game_overlay_window = FakeInGameOverlayWindow()
+
+        fake_win32gui = SimpleNamespace(
+            GetWindowRect=lambda _window: (90, 170, 750, 690),
+            GetClientRect=lambda _window: (0, 0, 640, 480),
+            ClientToScreen=lambda _window, point: (100 + point[0], 200 + point[1]),
+        )
+        with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui):
+            rect = gui.MegabonkApp._in_game_overlay_target_geometry(app)
+
+        self.assertEqual(rect, QRect(100, 200, 640, 480))
+
     def test_in_game_overlay_target_geometry_returns_none_without_game_window_outside_edit_mode(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.find_game_window = lambda _process_name: None

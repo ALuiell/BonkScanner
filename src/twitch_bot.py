@@ -11,7 +11,20 @@ import config
 from stat_label_abbreviations import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
 from twitch_credentials import get_twitch_oauth_token
 from player_stats import format_chaos_tome_stat_delta
-from twitch_projection import format_kps, truncate_chat_message
+from twitch_projection import format_kps, format_powerups, truncate_chat_message
+
+
+COMMAND_COOLDOWN_KEYS = {
+    "!bonkstats": "!stats",
+    "!banishes": "!bans",
+    "!tracked": "!items",
+    "!chaostome": "!chaos",
+    "!chest": "!chests",
+    "!preset": "!presets",
+    "!bonkcmds": "!bonkhelp",
+    "!bonkcommands": "!bonkhelp",
+    "!bhelp": "!bonkhelp",
+}
 
 
 class SafeFormatter(string.Formatter):
@@ -203,8 +216,9 @@ class TwitchBotWorker(QThread):
         command_cooldown = config.TWITCH_BOT.get("cooldown_seconds", 5)
 
         cmd = message.split()[0].lower()
+        cooldown_key = COMMAND_COOLDOWN_KEYS.get(cmd, cmd)
         time_since_global = now - self.last_global_command_time
-        time_since_cmd = now - self.last_command_times.get(cmd, 0.0)
+        time_since_cmd = now - self.last_command_times.get(cooldown_key, 0.0)
 
         if time_since_global < global_cooldown or time_since_cmd < command_cooldown:
             return
@@ -263,7 +277,7 @@ class TwitchBotWorker(QThread):
 
         if handled:
             self.last_global_command_time = now
-            self.last_command_times[cmd] = now
+            self.last_command_times[cooldown_key] = now
 
     def _check_access(self, tags_str: str) -> bool:
         tier = config.TWITCH_BOT.get("access_tier", "Everyone")
@@ -629,12 +643,9 @@ class TwitchBotWorker(QThread):
 
         powerups = runtime.powerups
         if powerups.available is True:
-            active = getattr(runtime, "legacy_powerups_summary", None) or (
-                ", ".join(effect.name for effect in powerups.active) or "none active"
-            )
             text = self._format_template(
                 "powerups", "Powerups: {powerups} (PM {pm})",
-                powerups=active,
+                powerups=format_powerups(powerups),
                 standard_duration=self._format_seconds(powerups.standard_duration_seconds or 0.0),
                 clock_duration=self._format_seconds(powerups.clock_duration_seconds or 0.0),
                 pm=powerups.powerup_multiplier_display,

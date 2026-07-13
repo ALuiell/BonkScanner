@@ -8,6 +8,38 @@ def truncate_chat_message(text: str) -> str:
     return text[:447] + "..." if len(text) > 450 else text
 
 
+def format_powerups(powerups: Any, *, include_left_word: bool = True) -> str:
+    durations_text = None
+    if (
+        powerups.standard_duration_seconds is not None
+        and powerups.clock_duration_seconds is not None
+    ):
+        durations_text = (
+            "Durations: "
+            f"standard {int(round(powerups.standard_duration_seconds))}s, "
+            f"clock {int(round(powerups.clock_duration_seconds))}s"
+        )
+
+    if powerups.active:
+        suffix = " left" if include_left_word else ""
+        parts = []
+        for effect in powerups.active:
+            remaining = f"({int(round(effect.remaining_seconds))}s{suffix})"
+            if effect.pickup_ui is None or effect.expires_ui is None:
+                parts.append(f"{effect.name} {remaining}")
+            else:
+                parts.append(
+                    f"{effect.name} {effect.pickup_ui} -> {effect.expires_ui} {remaining}"
+                )
+        if durations_text is not None:
+            parts.append(durations_text)
+        return " | ".join(parts)
+
+    if durations_text is None:
+        return "none active"
+    return f"none active | {durations_text}"
+
+
 def format_kps(
     runtime: Any,
     format_template: Callable[..., str],

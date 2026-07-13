@@ -85,14 +85,27 @@ class DraggableOverlayWidget(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self.edit_mode and self._dragging:
-            self.move(self.mapToParent(event.pos() - self._drag_start_pos))
+            position = self.mapToParent(event.pos() - self._drag_start_pos)
+            self.move(self._clamp_to_parent(position))
             event.accept()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self.edit_mode and event.button() == Qt.LeftButton:
             self._dragging = False
+            self.move(self._clamp_to_parent(self.pos()))
             self.moved.emit(self.widget_id, self.x(), self.y())
             event.accept()
+
+    def _clamp_to_parent(self, position: QPoint) -> QPoint:
+        parent = self.parentWidget()
+        if parent is None:
+            return position
+        max_x = max(0, parent.width() - self.width())
+        max_y = max(0, parent.height() - self.height())
+        return QPoint(
+            min(max(0, position.x()), max_x),
+            min(max(0, position.y()), max_y),
+        )
 
     def set_text(self, text: str) -> None:
         if self.label.text() != text:
@@ -254,6 +267,7 @@ class InGameOverlayWindow(QWidget):
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
+        self._keep_widgets_inside_bounds()
         if self.edit_mode:
             self._position_save_btn()
 
@@ -269,8 +283,28 @@ class InGameOverlayWindow(QWidget):
             geometry = parent_mixin._in_game_overlay_target_geometry()
         if geometry is not None and geometry.isValid() and geometry != self.geometry():
             self.setGeometry(geometry)
+        self._keep_widgets_inside_bounds()
         if self.edit_mode:
             self._position_save_btn()
+
+    def _keep_widgets_inside_bounds(self) -> None:
+        if self.width() <= 0 or self.height() <= 0:
+            return
+
+        changed = False
+        for widget_id, widget in getattr(self, "widgets", {}).items():
+            position = widget._clamp_to_parent(widget.pos())
+            if position == widget.pos():
+                continue
+            widget.move(position)
+            widget_cfg = config.IN_GAME_OVERLAY.get("widgets", {}).get(widget_id)
+            if isinstance(widget_cfg, dict):
+                widget_cfg["x"] = position.x()
+                widget_cfg["y"] = position.y()
+            changed = True
+
+        if changed:
+            config.save_config(config.user_config)
 
     def paintEvent(self, event) -> None:
         if self.edit_mode:

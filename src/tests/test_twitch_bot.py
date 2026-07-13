@@ -43,7 +43,6 @@ class TestTwitchBotWorker(unittest.TestCase):
                 chaos_tome=chaos,
                 powerups=self.run_tracker.powerups_snapshot(),
                 legacy_disabled=disabled,
-                legacy_powerups_summary=self.run_tracker.powerups_summary_text(include_left_word=True),
             )
         self.run_tracker.runtime_snapshot.side_effect = runtime_snapshot
         self.bot = TwitchBotWorker(self.run_tracker)
@@ -134,6 +133,34 @@ class TestTwitchBotWorker(unittest.TestCase):
             with patch('time.time', return_value=103.0):
                 self.bot._handle_line(line_bans, "channel")
                 self.bot._handle_bans.assert_called_once()
+
+        TWITCH_BOT["access_tier"] = old_tier
+        TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
+        TWITCH_BOT["cooldown_seconds"] = old_cooldown
+        TWITCH_BOT["commands"] = old_commands
+
+    def test_command_aliases_share_the_same_cooldown(self):
+        from config import TWITCH_BOT
+        old_tier = TWITCH_BOT.get("access_tier")
+        old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
+        old_cooldown = TWITCH_BOT.get("cooldown_seconds")
+        old_commands = TWITCH_BOT.get("commands", {})
+
+        TWITCH_BOT["access_tier"] = "Everyone"
+        TWITCH_BOT["global_cooldown_seconds"] = 1
+        TWITCH_BOT["cooldown_seconds"] = 10
+        TWITCH_BOT["commands"] = {"stats": True}
+        self.bot._handle_stats = MagicMock()
+
+        stats_line = ":user!user@host PRIVMSG #channel :!stats"
+        alias_line = ":user!user@host PRIVMSG #channel :!bonkstats"
+        with patch("time.time", return_value=100.0):
+            self.bot._handle_line(stats_line, "channel")
+        with patch("time.time", return_value=102.0):
+            self.bot._handle_line(alias_line, "channel")
+
+        self.bot._handle_stats.assert_called_once_with("channel")
+        self.assertEqual(self.bot.last_command_times, {"!stats": 100.0})
 
         TWITCH_BOT["access_tier"] = old_tier
         TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
@@ -239,16 +266,18 @@ class TestTwitchBotWorker(unittest.TestCase):
             powerup_multiplier_display="5.43x",
             standard_duration_seconds=81.435,
             clock_duration_seconds=65.148,
-        )
-        self.run_tracker.powerups_summary_text.return_value = (
-            "Rage 01:33 -> 00:11 (80s left) | Durations: standard 81s, clock 65s"
+            active=(
+                SimpleNamespace(
+                    name="Rage",
+                    remaining_seconds=80.0,
+                    pickup_ui="01:33",
+                    expires_ui="00:11",
+                ),
+            ),
         )
 
         self.bot._handle_powerups("channel")
 
-        self.run_tracker.powerups_summary_text.assert_called_once_with(
-            include_left_word=True
-        )
         self.bot._send_chat.assert_called_once_with(
             "channel",
             "Powerups: Rage 01:33 -> 00:11 (80s left) | Durations: standard 81s, clock 65s (PM 5.43x)",
@@ -444,7 +473,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_line(line_alias, "channel")
 
         self.bot._handle_chests.assert_called_once_with("channel")
-        self.assertEqual(self.bot.last_command_times["!chest"], 101.0)
+        self.assertEqual(self.bot.last_command_times["!chests"], 101.0)
 
         TWITCH_BOT["access_tier"] = old_tier
         TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
@@ -514,7 +543,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_line(line_alias, "channel")
 
         self.bot._handle_presets.assert_called_once_with("channel")
-        self.assertEqual(self.bot.last_command_times["!preset"], 101.0)
+        self.assertEqual(self.bot.last_command_times["!presets"], 101.0)
 
         TWITCH_BOT["access_tier"] = old_tier
         TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown
@@ -712,7 +741,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_line(line_alias, "channel")
 
         self.bot._handle_commands.assert_called_once_with("channel")
-        self.assertEqual(self.bot.last_command_times["!bonkcmds"], 101.0)
+        self.assertEqual(self.bot.last_command_times["!bonkhelp"], 101.0)
 
         # Test alias !bonkcommands
         self.bot._handle_commands.reset_mock()
@@ -721,7 +750,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_line(line_alias2, "channel")
 
         self.bot._handle_commands.assert_called_once_with("channel")
-        self.assertEqual(self.bot.last_command_times["!bonkcommands"], 102.0)
+        self.assertEqual(self.bot.last_command_times["!bonkhelp"], 102.0)
 
         # Test alias !bhelp
         self.bot._handle_commands.reset_mock()
@@ -730,7 +759,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_line(line_alias3, "channel")
 
         self.bot._handle_commands.assert_called_once_with("channel")
-        self.assertEqual(self.bot.last_command_times["!bhelp"], 103.0)
+        self.assertEqual(self.bot.last_command_times["!bonkhelp"], 103.0)
 
         TWITCH_BOT["access_tier"] = old_tier
         TWITCH_BOT["global_cooldown_seconds"] = old_global_cooldown

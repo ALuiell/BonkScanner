@@ -111,7 +111,20 @@ class InGameOverlayMixin:
                 game_window = None
             if game_window:
                 try:
-                    left, top, right, bottom = win32gui.GetWindowRect(game_window)
+                    get_client_rect = getattr(win32gui, "GetClientRect", None)
+                    client_to_screen = getattr(win32gui, "ClientToScreen", None)
+                    if callable(get_client_rect) and callable(client_to_screen):
+                        client_left, client_top, client_right, client_bottom = get_client_rect(
+                            game_window
+                        )
+                        left, top = client_to_screen(
+                            game_window, (client_left, client_top)
+                        )
+                        right, bottom = client_to_screen(
+                            game_window, (client_right, client_bottom)
+                        )
+                    else:
+                        left, top, right, bottom = win32gui.GetWindowRect(game_window)
                 except Exception:
                     game_window = None
                 else:
