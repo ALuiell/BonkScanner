@@ -2420,6 +2420,11 @@ class PlayerStatsMixin:
             self._set_compare_runs_diff_cards("Both recordings need snapshots")
             self._refresh_compare_runs_item_details_button(False)
             return
+        show_items = bool(getattr(self, "compare_runs_items_enabled", False))
+        show_stage_summary = bool(getattr(self, "compare_runs_stage_summary_enabled", False))
+        show_weapons = bool(getattr(self, "compare_runs_weapons_enabled", False))
+        show_tomes = bool(getattr(self, "compare_runs_tomes_enabled", False))
+        show_chaos = bool(getattr(self, "compare_runs_chaos_enabled", False))
         self._set_compare_runs_diff_cards(
             self.format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b),
             stats_text=self.format_compare_runs_stats_diff(
@@ -2427,31 +2432,46 @@ class PlayerStatsMixin:
                 snapshot_b,
                 stat_labels=self._compare_run_selected_stat_labels(),
             ),
-            items_text=self.format_compare_runs_items_diff(
-                snapshot_a,
-                snapshot_b,
-                details_expanded=bool(getattr(self, "compare_runs_item_details_expanded", False)),
+            items_text=(
+                self.format_compare_runs_items_diff(
+                    snapshot_a,
+                    snapshot_b,
+                    details_expanded=bool(getattr(self, "compare_runs_item_details_expanded", False)),
+                )
+                if show_items
+                else "--"
             ),
-            stage_summary_text=self.format_compare_runs_stage_summary_diff(
-                vod_a,
-                self._compare_run_index("a"),
-                vod_b,
-                self._compare_run_index("b"),
+            stage_summary_text=(
+                self.format_compare_runs_stage_summary_diff(
+                    vod_a,
+                    self._compare_run_index("a"),
+                    vod_b,
+                    self._compare_run_index("b"),
+                )
+                if show_stage_summary
+                else "--"
             ),
-            weapons_text=self.format_compare_runs_weapons_diff(snapshot_a, snapshot_b),
-            tomes_text=self.format_compare_runs_tomes_diff(snapshot_a, snapshot_b),
-            chaos_text=self.format_compare_runs_chaos_diff(snapshot_a, snapshot_b),
-            show_items=bool(getattr(self, "compare_runs_items_enabled", False)),
-            show_stage_summary=bool(getattr(self, "compare_runs_stage_summary_enabled", False)),
-            show_weapons=bool(getattr(self, "compare_runs_weapons_enabled", False)),
-            show_tomes=bool(getattr(self, "compare_runs_tomes_enabled", False)),
-            show_chaos=bool(getattr(self, "compare_runs_chaos_enabled", False)),
+            weapons_text=(
+                self.format_compare_runs_weapons_diff(snapshot_a, snapshot_b) if show_weapons else "--"
+            ),
+            tomes_text=(
+                self.format_compare_runs_tomes_diff(snapshot_a, snapshot_b) if show_tomes else "--"
+            ),
+            chaos_text=(
+                self.format_compare_runs_chaos_diff(snapshot_a, snapshot_b) if show_chaos else "--"
+            ),
+            show_items=show_items,
+            show_stage_summary=show_stage_summary,
+            show_weapons=show_weapons,
+            show_tomes=show_tomes,
+            show_chaos=show_chaos,
         )
-        self._refresh_compare_runs_item_details_button(bool(getattr(self, "compare_runs_items_enabled", False)))
+        self._refresh_compare_runs_item_details_button(show_items)
 
     def _set_compare_run_error(self, side: str, text: str) -> None:
         self._set_compare_run_vod(side, None)
         self._set_compare_run_index(side, None)
+        self._refresh_compare_run_side(side)
         error_html = f'<span style="color:#f08b72;">{text}</span>'
         _set_text(self._compare_run_widget(side, "status_label"), error_html)
         self._refresh_compare_runs_diff()

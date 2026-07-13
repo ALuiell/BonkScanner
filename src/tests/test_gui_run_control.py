@@ -4073,6 +4073,78 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(gui.MegabonkApp._nearest_snapshot_index(snapshots, 43.0), 1)
 
+    def test_compare_run_loading_error_clears_previous_side_content(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.compare_run_a_vod = object()
+        app.compare_run_b_vod = None
+        app.compare_run_a_snapshot_index = 4
+        app.compare_run_b_snapshot_index = None
+        app.compare_run_a_status_label = FakeLabel("Old recording")
+        app.compare_run_a_timeline_label = FakeLabel("Old timeline")
+        app.compare_run_a_summary_label = FakeLabel("Old summary")
+        app.compare_run_a_slider = MagicMock()
+        app._update_items_section = MagicMock()
+        app._set_compare_runs_diff_cards = MagicMock()
+        app._refresh_compare_runs_item_details_button = MagicMock()
+        app._refresh_compare_runs_selected_labels = MagicMock()
+
+        gui.MegabonkApp._set_compare_run_error(app, "a", "Could not load recording")
+
+        self.assertIsNone(app.compare_run_a_vod)
+        self.assertIsNone(app.compare_run_a_snapshot_index)
+        self.assertEqual(app.compare_run_a_timeline_label.text(), "Timeline: --")
+        self.assertEqual(app.compare_run_a_summary_label.text(), "--")
+        self.assertIn("Could not load recording", app.compare_run_a_status_label.text())
+        app._update_items_section.assert_called_once_with("compare_a", items_text="--")
+        app.compare_run_a_slider.setEnabled.assert_called_once_with(False)
+
+    def test_compare_runs_diff_skips_disabled_optional_sections(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        snapshot_a = SimpleNamespace(stats={}, items=())
+        snapshot_b = SimpleNamespace(stats={}, items=())
+        app.compare_run_a_vod = SimpleNamespace(snapshots=(snapshot_a,))
+        app.compare_run_b_vod = SimpleNamespace(snapshots=(snapshot_b,))
+        app.compare_run_a_snapshot_index = 0
+        app.compare_run_b_snapshot_index = 0
+        app.compare_runs_items_enabled = False
+        app.compare_runs_stage_summary_enabled = False
+        app.compare_runs_weapons_enabled = False
+        app.compare_runs_tomes_enabled = False
+        app.compare_runs_chaos_enabled = False
+        app.compare_runs_item_details_expanded = False
+        app.format_compare_runs_overview_diff = MagicMock(return_value="overview")
+        app.format_compare_runs_stats_diff = MagicMock(return_value="stats")
+        app.format_compare_runs_items_diff = MagicMock(return_value="items")
+        app.format_compare_runs_stage_summary_diff = MagicMock(return_value="stages")
+        app.format_compare_runs_weapons_diff = MagicMock(return_value="weapons")
+        app.format_compare_runs_tomes_diff = MagicMock(return_value="tomes")
+        app.format_compare_runs_chaos_diff = MagicMock(return_value="chaos")
+        app._compare_run_selected_stat_labels = MagicMock(return_value=("Damage",))
+        app._set_compare_runs_diff_cards = MagicMock()
+        app._refresh_compare_runs_item_details_button = MagicMock()
+
+        gui.MegabonkApp._refresh_compare_runs_diff(app)
+
+        app.format_compare_runs_items_diff.assert_not_called()
+        app.format_compare_runs_stage_summary_diff.assert_not_called()
+        app.format_compare_runs_weapons_diff.assert_not_called()
+        app.format_compare_runs_tomes_diff.assert_not_called()
+        app.format_compare_runs_chaos_diff.assert_not_called()
+        app._set_compare_runs_diff_cards.assert_called_once_with(
+            "overview",
+            stats_text="stats",
+            items_text="--",
+            stage_summary_text="--",
+            weapons_text="--",
+            tomes_text="--",
+            chaos_text="--",
+            show_items=False,
+            show_stage_summary=False,
+            show_weapons=False,
+            show_tomes=False,
+            show_chaos=False,
+        )
+
     def test_format_compare_runs_diff_shows_core_deltas(self) -> None:
         snapshot_a = SimpleNamespace(
             game_time_seconds=120.0,
