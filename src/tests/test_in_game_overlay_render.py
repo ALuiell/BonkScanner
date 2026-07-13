@@ -116,10 +116,10 @@ class InGameOverlayRenderTests(unittest.TestCase):
 
         self.assertIn("Boss at 7:00", html)
 
-    def test_event_timer_uses_minimum_thirty_second_window_for_waves(self) -> None:
+    def test_event_timer_uses_configured_warning_window_for_waves(self) -> None:
         html = build_event_timer_overlay_html(
             0,
-            220.0,
+            225.0,
             600.0,
             False,
             warning_seconds=15,
@@ -136,7 +136,8 @@ class InGameOverlayRenderTests(unittest.TestCase):
             warning_seconds=15,
         )
 
-        self.assertIn("Wave Active: 30s", html)
+        self.assertIn("Wave Active", html)
+        self.assertNotIn("Wave Active:", html)
 
     def test_event_timer_does_not_use_timeline_marker_as_map_duration_at_game_start(self) -> None:
         # stage_time_seconds is a live timeline marker. At game start it may
@@ -190,7 +191,8 @@ class InGameOverlayRenderTests(unittest.TestCase):
             warning_seconds=15,
             graveyard_main_map_events_active=True,
         )
-        self.assertIn("Wave Active: 30s", html_active)
+        self.assertIn("Wave Active", html_active)
+        self.assertNotIn("Wave Active:", html_active)
 
     def test_event_timer_returns_preview_in_edit_mode_when_inactive(self) -> None:
         html = build_event_timer_overlay_html(
@@ -224,7 +226,8 @@ class InGameOverlayRenderTests(unittest.TestCase):
             warning_seconds=15,
         )
 
-        self.assertIn("Wave Active: 30s", html)
+        self.assertIn("Wave Active", html)
+        self.assertNotIn("Wave Active:", html)
 
 
 if __name__ == "__main__":

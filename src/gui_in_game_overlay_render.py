@@ -334,8 +334,6 @@ def build_event_timer_overlay_html(
     if is_graveyard:
         if not graveyard_main_map_events_active:
             return preview_html if edit_mode else ""
-        if stage_time_seconds < 900.0:
-            return preview_html if edit_mode else ""
         events = [
             ("boss", 780.0, 0.0),
             ("wave", 720.0, 30.0),
@@ -388,7 +386,7 @@ def build_event_timer_overlay_html(
             if end_rem <= remaining_time <= start_rem:
                 return (
                     f"<span style='color: #ff4d4d; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>"
-                    f"Wave Active: {int(duration)}s</span>"
+                    "Wave Active</span>"
                 )
 
     # Check upcoming warnings next
@@ -396,7 +394,7 @@ def build_event_timer_overlay_html(
     for ev_type, start_rem, duration in events:
         if remaining_time > start_rem:
             diff = remaining_time - start_rem
-            threshold_seconds = max(int(warning_seconds), int(duration)) if duration > 0.0 else int(warning_seconds)
+            threshold_seconds = int(warning_seconds)
             if diff <= threshold_seconds:
                 upcoming_events.append((diff, ev_type, start_rem))
 

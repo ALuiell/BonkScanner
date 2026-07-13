@@ -309,10 +309,7 @@ class _PowerupState:
     powerups_snapshot: PowerupsSnapshot = field(default_factory=PowerupsSnapshot)
     powerup_map_context: PowerupMapContext = field(default_factory=PowerupMapContext)
     fast_stage_timer_context: FastStageTimerContext = field(default_factory=FastStageTimerContext)
-    graveyard_crypt_entries: int = 0
-    graveyard_in_crypt: bool = False
-    graveyard_crypt_timer_seen: bool = False
-    graveyard_final_swarm_active: bool = False
+    graveyard_final_swarm_timer_is_zero: bool = False
 
 
 @dataclass
@@ -414,8 +411,7 @@ class LiveRunTracker:
         )},
         **{name: "_powerup_state" for name in (
             "_powerups_snapshot", "_powerup_map_context", "_fast_stage_timer_context",
-            "_graveyard_crypt_entries", "_graveyard_in_crypt", "_graveyard_crypt_timer_seen",
-            "_graveyard_final_swarm_active",
+            "_graveyard_final_swarm_timer_is_zero",
         )},
         **{name: "_tracked_item_state" for name in (
             "tracked_item_rules", "_previous_item_counts", "_tracked_events",
@@ -726,12 +722,7 @@ class LiveRunTracker:
             powerups=self._fresh_powerups_snapshot_unlocked(),
             powerup_map_context=copy.deepcopy(map_context),
             fast_stage_timer=copy.deepcopy(self._fresh_fast_stage_timer_context_unlocked()),
-            graveyard_main_map_events_active=(
-                bool(map_context and map_context.is_graveyard)
-                and self._graveyard_crypt_entries == 1
-                and not self._graveyard_in_crypt
-                and not self._graveyard_final_swarm_active
-            ),
+            graveyard_main_map_events_active=self._graveyard_main_map_events_active_unlocked(),
         )
 
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:
@@ -849,13 +840,17 @@ class LiveRunTracker:
 
     @with_lock
     def graveyard_main_map_events_active(self) -> bool:
+        return self._graveyard_main_map_events_active_unlocked()
+
+    def _graveyard_main_map_events_active_unlocked(self) -> bool:
         map_context = self._fresh_powerup_map_context_unlocked()
-        is_graveyard = bool(map_context and map_context.is_graveyard)
+        if not map_context or not map_context.is_graveyard:
+            return False
+        activities = map_context.activity_max or {}
         return (
-            is_graveyard
-            and self._graveyard_crypt_entries == 1
-            and not self._graveyard_in_crypt
-            and not self._graveyard_final_swarm_active
+            "Crypt Chests" not in activities
+            and "Crypt Pots" not in activities
+            and self._graveyard_final_swarm_timer_is_zero
         )
 
     def _latest_snapshot_unlocked(self) -> LiveRunSnapshot | None:
@@ -951,65 +946,21 @@ class LiveRunTracker:
 
         self._mark_feature_success_unlocked("powerups", self.clock())
 
-        # Track graveyard phase states
+        # Graveyard room transitions replace entries in the activity dictionary.
+        # `crypt_timer` remains non-zero after leaving a crypt, so it cannot
+        # identify the current room.
         fresh_map_context = self._fresh_powerup_map_context_unlocked()
         is_graveyard = bool(fresh_map_context and fresh_map_context.is_graveyard)
 
         if is_graveyard:
-            crypt_timer = getattr(snapshot, "crypt_timer_seconds", None) if snapshot is not None else None
             final_swarm_timer = getattr(snapshot, "final_swarm_timer_seconds", None) if snapshot is not None else None
-            stage_timer = getattr(snapshot, "stage_timer_seconds", None) if snapshot is not None else None
-            stage_time = getattr(snapshot, "stage_time_seconds", None) if snapshot is not None else None
-
             try:
-                crypt_val = float(crypt_timer) if crypt_timer is not None else None
+                swarm_val = float(final_swarm_timer)
             except (TypeError, ValueError):
-                crypt_val = None
-
-            try:
-                swarm_val = float(final_swarm_timer) if final_swarm_timer is not None else 0.0
-            except (TypeError, ValueError):
-                swarm_val = 0.0
-
-            try:
-                stage_timer_val = float(stage_timer) if stage_timer is not None else 0.0
-            except (TypeError, ValueError):
-                stage_timer_val = 0.0
-
-            try:
-                stage_time_val = float(stage_time) if stage_time is not None else 0.0
-            except (TypeError, ValueError):
-                stage_time_val = 0.0
-
-            if crypt_val is None:
-                is_in_crypt = self._graveyard_in_crypt
-            else:
-                is_in_crypt = crypt_val > 0.0
-            is_final_swarm = swarm_val > 0.0
-
-            if not self._graveyard_in_crypt and is_in_crypt:
-                self._graveyard_crypt_entries += 1
-                self._graveyard_crypt_timer_seen = True
-
-            # Best-effort attach fallback: if we first observe an already-running
-            # Graveyard outdoor phase, assume the player has already exited Crypt 1.
-            if (
-                self._graveyard_crypt_entries == 0
-                and not is_in_crypt
-                and not is_final_swarm
-                and not self._graveyard_crypt_timer_seen
-                and stage_time_val >= 900.0
-                and stage_timer_val > 1.0
-            ):
-                self._graveyard_crypt_entries = 1
-
-            self._graveyard_in_crypt = is_in_crypt
-            self._graveyard_final_swarm_active = is_final_swarm
+                swarm_val = float("nan")
+            self._graveyard_final_swarm_timer_is_zero = swarm_val == 0.0
         else:
-            self._graveyard_crypt_entries = 0
-            self._graveyard_in_crypt = False
-            self._graveyard_crypt_timer_seen = False
-            self._graveyard_final_swarm_active = False
+            self._graveyard_final_swarm_timer_is_zero = False
         powerup_multiplier = getattr(snapshot, "powerup_multiplier", None)
         try:
             powerup_multiplier = float(powerup_multiplier)
@@ -1525,20 +1476,14 @@ class LiveRunTracker:
         self._reset_chaos_tracking()
         self._powerups_snapshot = PowerupsSnapshot()
         self._cached_stage_summary = None
-        self._graveyard_crypt_entries = 0
-        self._graveyard_in_crypt = False
-        self._graveyard_crypt_timer_seen = False
-        self._graveyard_final_swarm_active = False
+        self._graveyard_final_swarm_timer_is_zero = False
 
     def _reset_tracking_only(self) -> None:
         self._reset_current_run_item_baseline()
         self._tracked_events = []
         self._tracked_counts = {rule.id: 0 for rule in self.tracked_item_rules}
         self._combo_run_counts = {rule.id: 0 for rule in self.tracked_item_rules}
-        self._graveyard_crypt_entries = 0
-        self._graveyard_in_crypt = False
-        self._graveyard_crypt_timer_seen = False
-        self._graveyard_final_swarm_active = False
+        self._graveyard_final_swarm_timer_is_zero = False
 
     def _reset_current_run_item_baseline(self, *, reset_combo_counts: bool = True) -> None:
         self._previous_item_counts = None
