@@ -107,10 +107,10 @@ If the same stat is rolled multiple times (e.g., two Max Health rolls of the sam
 To reconstruct the roll history:
 1. The tracker client caches a snapshot of all permanent modifiers on every tick.
 2. When a value change is detected, it calculates the difference: $\Delta = \text{value}_{\text{new}} - \text{value}_{\text{old}}$.
-3. $\Delta$ is matched against the list of valid fingerprints for the corresponding `StatID`.
+3. $\Delta$ is matched against individual fingerprints and, when several rolls were already stacked, combinations of valid fingerprints for the corresponding `StatID`.
 
 ### 4.2. Determining the Number of Rolls (N)
-When leveling up a tome multiple levels at once, several rolls of the same rarity can stack simultaneously. The tracker divides the delta by the fingerprint value and rounds to the nearest integer:
+When leveling up a tome multiple levels at once, several rolls can stack simultaneously. For repeated identical fingerprints, the tracker can divide the delta by the fingerprint value and round to the nearest integer:
 
 $$N = \text{round}\left(\frac{|\Delta|}{\text{fingerprint}}\right)$$
 
@@ -118,7 +118,11 @@ If the absolute difference between the actual delta and the theoretical value of
 
 $$|\Delta - (N \times \text{fingerprint})| \le 0.002 \times N$$
 
-Then the change is successfully attributed as $N$ rolls of that specific fingerprint. The epsilon tolerance of `0.002` accounts for floating-point (`float32`) precision drift inside the Unity engine.
+Then the change is successfully attributed as $N$ rolls of that specific fingerprint. If different fingerprints were combined before the first read, the tracker searches for the smallest valid combination within the same per-roll epsilon tolerance. The epsilon tolerance of `0.002` accounts for floating-point (`float32`) precision drift inside the Unity engine.
+
+### 4.3. Late-Attach Limitation
+
+Reconstructing Chaos rolls after BonkScanner starts in the middle of a run is best-effort. Permanent modifiers retain the final stat and value, but not the source or time at which each modifier was added. If a modifier from another source exactly matches a valid Chaos fingerprint, memory can contain more valid candidates than the Chaos Tome level allows. The tracker can still recover the correct total roll count, but it may assign one or more historical rolls to the wrong stat. Continuously tracked results are therefore more reliable than a reconstruction performed after an application restart.
 
 ---
 

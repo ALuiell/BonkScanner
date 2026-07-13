@@ -13,6 +13,7 @@ from live_run_tracker import (
     TrackedItemRule,
 )
 from player_stats import PlayerStatFormat
+from vod_projection import build_vod_capture_kwargs
 
 
 def snapshot(
@@ -54,6 +55,36 @@ class LiveRunTrackerTests(unittest.TestCase):
             {"Chests": 69, "Pumpkin": 105, "Gravestones": 22},
             captured_at=1000.0,
         )
+
+    def test_vod_projection_keeps_last_known_optional_values_after_failed_read(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        weapon = SimpleNamespace(name="Bone")
+        tome = SimpleNamespace(name="Damage")
+        damage = SimpleNamespace(source_name="Bone", damage=123.0)
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=1000.0,
+                stats={},
+                game_time_seconds=10.0,
+                items=("Wrench x2",),
+                items_available=False,
+                weapons=(weapon,),
+                weapons_available=False,
+                tomes=(tome,),
+                tomes_available=False,
+                banishes=("Clover",),
+                damage_sources=(damage,),
+                damage_sources_available=False,
+            )
+        )
+
+        values = build_vod_capture_kwargs(tracker.runtime_snapshot())
+
+        self.assertEqual(values["items"], ("Wrench x2",))
+        self.assertEqual(values["weapons"], (weapon,))
+        self.assertEqual(values["tomes"], (tome,))
+        self.assertEqual(values["banishes"], ("Clover",))
+        self.assertEqual(values["damage_sources"], (damage,))
 
     def test_tracker_counts_anvil_map_one_only_before_stage_transition(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
@@ -686,6 +717,27 @@ class LiveRunTrackerTests(unittest.TestCase):
         )
         self.assertEqual(tracker.chaos_tome_summary_parts(), ["DMG +33.6%"])
 
+    def test_chaos_tracker_recovers_mixed_stacked_rolls_on_late_attach(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        tracker.update_chaos_tome(
+            chaos_level=2,
+            permanent_modifiers={
+                12: (
+                    SimpleNamespace(
+                        stat_id=12,
+                        label="Damage",
+                        value=1.210,  # 0.672 + 0.538
+                        value_format=PlayerStatFormat.MULTIPLIER,
+                    ),
+                ),
+            },
+        )
+
+        chaos = tracker.chaos_tome_snapshot()
+        self.assertEqual(tracker.chaos_tome_summary_parts(), ["DMG +121%"])
+        self.assertEqual(chaos.stats[0].rolls, 2)
+
     def test_chaos_tracker_handles_delayed_memory_writes(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_chaos_tome(chaos_level=1, permanent_modifiers={})
@@ -954,7 +1006,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(rows[2]["kills"], "600")
         self.assertEqual(rows[3]["kills"], "--")
 
-    def test_tracked_stage_three_with_collapsed_map_totals_does_not_promote_to_stage_four(self) -> None:
+    def test_tracked_stage_three_promotes_on_later_collapsed_map_total(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(
             snapshot(
@@ -1004,9 +1056,9 @@ class LiveRunTrackerTests(unittest.TestCase):
         _, stage_index = tracker.run_identity()
         rows = tracker.stage_summary_rows()
 
-        self.assertEqual(stage_index, 3)
-        self.assertEqual(rows[2]["kills"], "100")
-        self.assertEqual(rows[3]["kills"], "--")
+        self.assertEqual(stage_index, 4)
+        self.assertEqual(rows[2]["kills"], "0")
+        self.assertEqual(rows[3]["kills"], "100")
 
     def test_stage_two_to_three_raw_transition_ignores_stage_four_timer_heuristic(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
@@ -1411,7 +1463,7 @@ class LiveRunTrackerTests(unittest.TestCase):
             "status_effects_partial",
         )
 
-    def test_powerups_accept_snapshot_when_multiplier_read_is_unavailable(self) -> None:
+    def test_powerups_reject_snapshot_when_multiplier_read_is_unavailable(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         complete_health = SimpleNamespace(available=True, complete=True, failure_reason=None)
         partial_health = SimpleNamespace(
@@ -1441,7 +1493,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker.update_powerups(active_snapshot)
 
         active_snapshot.multiplier_health = partial_health
-        self.assertTrue(tracker.update_powerups(active_snapshot))
+        self.assertFalse(tracker.update_powerups(active_snapshot))
         self.assertEqual([effect.name for effect in tracker.powerups_snapshot().active], ["Clock"])
 
         empty_snapshot = SimpleNamespace(

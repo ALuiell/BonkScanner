@@ -18,11 +18,13 @@ def build_vod_capture_kwargs(
     chests = runtime.chest_stats
     return {
         "stats": dict(snapshot.stats),
-        "items": snapshot.items if snapshot.items_available else (),
-        "weapons": snapshot.weapons if snapshot.weapons_available else (),
-        "tomes": snapshot.tomes if snapshot.tomes_available else (),
+        # A snapshot may intentionally carry the last known good value while
+        # its availability flag marks the current memory read as failed.
+        "items": snapshot.items,
+        "weapons": snapshot.weapons,
+        "tomes": snapshot.tomes,
         "banishes": snapshot.banishes,
-        "damage_sources": snapshot.damage_sources if snapshot.damage_sources_available else (),
+        "damage_sources": snapshot.damage_sources,
         "chaos_tome": chaos_tome,
         "chests_per_minute": snapshot.chests_per_minute,
         "game_time_seconds": snapshot.game_time_seconds,

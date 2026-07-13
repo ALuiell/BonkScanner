@@ -1073,6 +1073,17 @@ class PlayerStatsClientTests(unittest.TestCase):
         memory.ascii_strings[0x20000B00] = "ItemWrench"
         self.assertEqual(client.get_expected_chest_inputs(0x20000300)[1], 0)
 
+    def test_expected_chest_inputs_reject_transient_key_stack_read_failure(self) -> None:
+        memory = self.build_memory()
+        memory.ascii_strings[0x20000B00] = "ItemKey"
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(client.get_expected_chest_inputs(0x20000300)[1], 2)
+
+        del memory.ints[0x20000900 + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET]
+        with self.assertRaises(MemoryReadError):
+            client.get_expected_chest_inputs(0x20000300)
+
     def test_expected_chest_inputs_find_bought_stat_when_it_appears(self) -> None:
         memory = self.build_memory()
         client = PlayerStatsClient(memory=memory)

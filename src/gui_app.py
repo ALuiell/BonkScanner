@@ -104,6 +104,10 @@ class MegabonkApp(
         self.player_stats_items_current = ()
         self.player_stats_items_text_current = None
         self.player_stats_last_known_items = ()
+        self.player_stats_last_known_weapons = None
+        self.player_stats_last_known_tomes = None
+        self.player_stats_last_known_damage_sources = None
+        self.player_stats_last_known_banishes = None
         self.player_stats_banishes_label = None
         self.player_stats_live_banishes = ()
         self.player_stats_in_game_time_label = None

@@ -64,7 +64,7 @@ Additional tabs inside `Live Stats`:
 - `Stats` - main character stats;
 - `Weapons` - current weapons, their levels, and upgraded weapon stats;
 - `Tomes` - current tomes, their levels, and active effects;
-- `Chaos` - Chaos Tome level, total stat rolls, and individual roll counters;
+- `Chaos` - Chaos Tome level and total stat bonuses recovered from tracked rolls;
 - `Damage Sources` - detailed statistics for each damage source/weapon.
 
 The `Powerups` card tracks active powerups (Rage, Shield, Stonks, Clock) and shows their pickup and expiration timestamps.

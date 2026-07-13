@@ -559,6 +559,10 @@ class PlayerStatsMixin:
             _set_text(label, "--")
         self.player_stats_items_expanded = False
         self.player_stats_last_known_items = ()
+        self.player_stats_last_known_weapons = None
+        self.player_stats_last_known_tomes = None
+        self.player_stats_last_known_damage_sources = None
+        self.player_stats_last_known_banishes = None
         self._update_items_section("live", items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
         self._apply_live_powerups_card(None)
@@ -677,6 +681,11 @@ class PlayerStatsMixin:
 
         if is_new_match:
             self.player_stats_disabled_items_refresh_pending = True
+            self.player_stats_last_known_weapons = None
+            self.player_stats_last_known_tomes = None
+            self.player_stats_last_known_damage_sources = None
+            self.player_stats_last_known_banishes = None
+            self.player_stats_live_banishes = ()
 
         # 4. Read passive items
         try:
@@ -841,26 +850,17 @@ class PlayerStatsMixin:
             ) = self._read_live_player_stats_data()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
             self._record_player_stats_memory_failure(exc)
-            self.player_stats_auto_start_detection_streak = 0
-            self.player_stats_recording_armed = False
-            self.player_stats_recording_waiting_mode = None
-            self.player_stats_auto_recording_suppressed = False
-            if self.player_stats_vod_recorder.is_recording:
-                self._stop_player_stats_recording(refresh_live_stats=False)
-            try:
-                self.mark_overlay_read_failed(no_game=True)
-            except Exception:
-                pass
-            self._reset_live_player_stats_ui(waiting_status_text)
-            return False
-        except Exception as exc:
-            self._record_player_stats_memory_failure(exc)
-            self.player_stats_auto_start_detection_streak = 0
             try:
                 self.mark_overlay_read_failed(no_game=False)
             except Exception:
                 pass
-            self._reset_live_player_stats_ui(f"{unavailable_status_prefix}: {exc}")
+            return False
+        except Exception as exc:
+            self._record_player_stats_memory_failure(exc)
+            try:
+                self.mark_overlay_read_failed(no_game=False)
+            except Exception:
+                pass
             return False
 
         self._record_player_stats_memory_success()
@@ -872,11 +872,72 @@ class PlayerStatsMixin:
             self.player_stats_last_known_items = items
         else:
             effective_items = getattr(self, "player_stats_last_known_items", ())
-        if banishes_available:
-            banishes = self.merge_banish_appearance_order(self.player_stats_live_banishes, banishes)
-            self.player_stats_live_banishes = banishes
+
+        last_known_weapons = getattr(self, "player_stats_last_known_weapons", None)
+        if weapons_available:
+            if weapons or last_known_weapons is None:
+                effective_weapons = weapons
+                self.player_stats_last_known_weapons = weapons
+                effective_weapons_available = True
+            else:
+                effective_weapons = last_known_weapons
+                weapons_available = False
+                effective_weapons_available = True
         else:
-            banishes = self.player_stats_live_banishes
+            effective_weapons = last_known_weapons or ()
+            effective_weapons_available = last_known_weapons is not None
+
+        last_known_tomes = getattr(self, "player_stats_last_known_tomes", None)
+        if tomes_available:
+            if tomes or last_known_tomes is None:
+                effective_tomes = tomes
+                self.player_stats_last_known_tomes = tomes
+                effective_tomes_available = True
+            else:
+                effective_tomes = last_known_tomes
+                tomes_available = False
+                effective_tomes_available = True
+        else:
+            effective_tomes = last_known_tomes or ()
+            effective_tomes_available = last_known_tomes is not None
+
+        last_known_damage_sources = getattr(
+            self,
+            "player_stats_last_known_damage_sources",
+            None,
+        )
+        if damage_sources_available:
+            if damage_sources or last_known_damage_sources is None:
+                effective_damage_sources = damage_sources
+                self.player_stats_last_known_damage_sources = damage_sources
+                effective_damage_sources_available = True
+            else:
+                effective_damage_sources = last_known_damage_sources
+                damage_sources_available = False
+                effective_damage_sources_available = True
+        else:
+            effective_damage_sources = last_known_damage_sources or ()
+            effective_damage_sources_available = last_known_damage_sources is not None
+
+        if banishes_available:
+            last_known_banishes = getattr(self, "player_stats_last_known_banishes", None)
+            if banishes or last_known_banishes is None:
+                banishes = self.merge_banish_appearance_order(
+                    self.player_stats_live_banishes,
+                    banishes,
+                )
+                self.player_stats_live_banishes = banishes
+                self.player_stats_last_known_banishes = banishes
+            else:
+                banishes = last_known_banishes
+                banishes_available = False
+        else:
+            last_known_banishes = getattr(self, "player_stats_last_known_banishes", None)
+            banishes = (
+                last_known_banishes
+                if last_known_banishes is not None
+                else self.player_stats_live_banishes
+            )
         is_live_tab_active = self._is_live_stats_tab_active()
         map_stats = {}
         map_chests_total = None
@@ -923,14 +984,14 @@ class PlayerStatsMixin:
             stats=stats,
             items=effective_items,
             items_available=items_available,
-            weapons=weapons if weapons_available else (),
+            weapons=effective_weapons,
             weapons_available=weapons_available,
-            tomes=tomes if tomes_available else (),
+            tomes=effective_tomes,
             tomes_available=tomes_available,
-            banishes=banishes if banishes_available else (),
+            banishes=banishes,
             disabled_items=disabled_items if disabled_items_available else (),
             disabled_items_available=disabled_items_available,
-            damage_sources=damage_sources if damage_sources_available else (),
+            damage_sources=effective_damage_sources,
             damage_sources_available=damage_sources_available,
             chests_per_minute=chests_per_minute,
             game_time_seconds=run_timer_seconds,
@@ -1024,10 +1085,10 @@ class PlayerStatsMixin:
                 capture_kwargs = self._legacy_vod_capture_kwargs(
                     stats=stats,
                     items=effective_items,
-                    weapons=weapons if weapons_available else (),
-                    tomes=tomes if tomes_available else (),
-                    banishes=banishes if banishes_available else (),
-                    damage_sources=damage_sources if damage_sources_available else (),
+                    weapons=effective_weapons,
+                    tomes=effective_tomes,
+                    banishes=banishes,
+                    damage_sources=effective_damage_sources,
                     chaos_tome=chaos_tome_snapshot,
                     chests_per_minute=chests_per_minute,
                     game_time_seconds=run_timer_seconds,
@@ -1068,14 +1129,14 @@ class PlayerStatsMixin:
             self.display_player_stats(
                 stats,
                 effective_items,
-                weapons=weapons if weapons_available else (),
-                tomes=tomes if tomes_available else (),
+                weapons=effective_weapons,
+                tomes=effective_tomes,
                 chaos_tome=chaos_tome_snapshot,
-                banishes=banishes if banishes_available else (),
-                damage_sources=damage_sources if damage_sources_available else (),
-                weapons_available=weapons_available,
-                tomes_available=tomes_available,
-                damage_sources_available=damage_sources_available,
+                banishes=banishes,
+                damage_sources=effective_damage_sources,
+                weapons_available=effective_weapons_available,
+                tomes_available=effective_tomes_available,
+                damage_sources_available=effective_damage_sources_available,
                 status_text=status_text_val,
                 chests_per_minute=chests_per_minute,
                 items_text=items_text,

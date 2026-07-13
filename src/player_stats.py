@@ -786,7 +786,7 @@ class PlayerStatsClient:
         passive_item_dict = self._resolve_preferred_passive_item_dict(owner_stats)
         if not passive_item_dict:
             self._clear_cached_key_address()
-            return 0
+            raise MemoryReadError("Passive item dictionary is not initialized.")
 
         entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
         version = self.memory.read_i32(passive_item_dict + self.DICT_VERSION_OFFSET)
@@ -810,7 +810,7 @@ class PlayerStatsClient:
             return self._read_stable_item_stack_count(self._cached_key_stack_address)
         except (MemoryReadError, InvalidItemStackCountError):
             self._clear_cached_key_address()
-            return 0
+            raise
 
     def _read_stable_item_stack_count(self, address: int) -> int:
         """Reject torn/stale item reads before they reach live or recorded snapshots."""

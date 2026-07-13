@@ -297,7 +297,10 @@ def resolve_next_stage_index(current_stage_index: int, previous_snapshot, snapsh
     if (
         previous_tracked_stage_index == 3
         and current_stage_index == 3
-        and looks_like_stage_four_transition(previous_snapshot, snapshot)
+        and (
+            looks_like_stage_four_from_map_activity(snapshot)
+            or looks_like_stage_four_transition(previous_snapshot, snapshot)
+        )
     ):
         return 4
     return current_stage_index

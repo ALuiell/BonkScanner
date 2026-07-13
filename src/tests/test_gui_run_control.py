@@ -3006,6 +3006,20 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_new_items_label.text(), "Live snapshot")
         self.assertEqual(app.player_stats_banishes_label.text(), "No banishes yet")
 
+    def test_refresh_live_player_stats_now_keeps_recording_after_primary_read_failure(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True)
+        app.player_stats_status_label.setText("Live player stats (recording)")
+        app._read_live_player_stats_data = lambda: (_ for _ in ()).throw(
+            gui.MemoryReadError("transient player read")
+        )
+
+        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertFalse(result)
+        self.assertTrue(app.player_stats_vod_recorder.is_recording)
+        self.assertEqual(app.player_stats_status_label.text(), "Live player stats (recording)")
+
     def test_refresh_chaos_tome_tracker_updates_powerups_when_in_game_overlay_window_is_not_visible(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app._is_live_stats_tab_active = lambda: False
@@ -3652,6 +3666,13 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app.player_stats_last_known_items = ("Wrench x2", "Clover x1")
+        weapon = SimpleNamespace(weapon_id=1, name="Bone")
+        tome = SimpleNamespace(tome_id=0, name="Damage")
+        damage = SimpleNamespace(source_key="Bone", source_name="Bone", damage=123.0)
+        app.player_stats_last_known_weapons = (weapon,)
+        app.player_stats_last_known_tomes = (tome,)
+        app.player_stats_last_known_damage_sources = (damage,)
+        app.player_stats_last_known_banishes = ("Clover",)
         app._is_live_stats_tab_active = lambda: False
         app.read_player_stats_only = lambda: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
@@ -3663,15 +3684,16 @@ class GuiRunControlTests(unittest.TestCase):
 
         app.read_passive_items_only = fail_items
         app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_stage_timer=lambda: 9.0,
             get_killed_mobs=lambda: 37,
             get_player_level=lambda owner_stats=None: 2,
-            get_live_weapons=lambda owner_stats=None: (),
-            get_live_tomes=lambda owner_stats=None: (),
-            get_live_banishes=lambda: (),
-            get_live_damage_sources=lambda: (),
+            get_live_weapons=lambda *_args, **_kwargs: (),
+            get_live_tomes=lambda *_args, **_kwargs: (),
+            get_live_banishes=lambda *_args, **_kwargs: (),
+            get_live_damage_sources=lambda *_args, **_kwargs: (),
         )
 
         result = gui.MegabonkApp.refresh_live_player_stats_now(app)
@@ -3682,6 +3704,10 @@ class GuiRunControlTests(unittest.TestCase):
             app.player_stats_vod_recorder.capture_calls[0]["items"],
             ("Wrench x2", "Clover x1"),
         )
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["weapons"], (weapon,))
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["tomes"], (tome,))
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["damage_sources"], (damage,))
+        self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["banishes"], ("Clover",))
 
     def test_stop_player_stats_recording_refreshes_live_stats_without_items(self) -> None:
         app = object.__new__(gui.MegabonkApp)

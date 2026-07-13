@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from math import isfinite
+from math import gcd, isfinite
 import time
 from typing import Any, Callable, Iterable
 from uuid import uuid4
@@ -929,6 +929,7 @@ class LiveRunTracker:
         for health_name in (
             "status_effects_health",
             "timing_health",
+            "multiplier_health",
         ):
             health = getattr(snapshot, health_name, None)
             if health is None:
@@ -1557,7 +1558,11 @@ class LiveRunTracker:
             for i in range(min(len(old_values), len(new_values))):
                 delta = new_values[i] - old_values[i]
                 if abs(delta) > 0.001:
-                    matched_rolls = self._looks_like_chaos_value(stat_id, delta)
+                    matched_rolls = self._looks_like_chaos_value(
+                        stat_id,
+                        delta,
+                        max_rolls=max(1, int(self._chaos_tome_level or 1)),
+                    )
                     if matched_rolls > 0:
                         rolls_to_process = min(self._chaos_available_rolls, matched_rolls)
                         if rolls_to_process > 0:
@@ -1580,7 +1585,11 @@ class LiveRunTracker:
             if len(new_values) > len(old_values):
                 for i in range(len(old_values), len(new_values)):
                     val = new_values[i]
-                    matched_rolls = self._looks_like_chaos_value(stat_id, val)
+                    matched_rolls = self._looks_like_chaos_value(
+                        stat_id,
+                        val,
+                        max_rolls=max(1, int(self._chaos_tome_level or 1)),
+                    )
                     if matched_rolls > 0:
                         rolls_to_process = min(self._chaos_available_rolls, matched_rolls)
                         if rolls_to_process > 0:
@@ -1604,7 +1613,12 @@ class LiveRunTracker:
             self._chaos_modifier_baselines[stat_id] = tuple(new_baseline)
 
     @staticmethod
-    def _looks_like_chaos_value(stat_id: int, value: float) -> int:
+    def _looks_like_chaos_value(
+        stat_id: int,
+        value: float,
+        *,
+        max_rolls: int = 1,
+    ) -> int:
         numeric = abs(value)
         if numeric <= 0:
             return 0
@@ -1613,11 +1627,42 @@ class LiveRunTracker:
         if not fingerprints:
             return 0
 
-        # Check if it matches exactly N rolls of any fingerprint
-        for fp in fingerprints:
-            n = round(numeric / fp)
-            if n > 0 and abs(numeric - fp * n) <= 0.002 * n:
-                return n
+        # The game stacks different Chaos rolls for the same stat into one
+        # modifier value. Work in thousandths (the game's own rounding) and
+        # find the smallest valid combination of known fingerprints.
+        target = int(round(numeric * 1000.0))
+        fingerprint_units = tuple(
+            sorted({int(round(float(fp) * 1000.0)) for fp in fingerprints if fp > 0})
+        )
+        if target <= 0 or not fingerprint_units:
+            return 0
+
+        max_rolls = max(1, int(max_rolls))
+        minimum_progress = max(1, min(fingerprint_units) - 2)
+        max_rolls = min(max_rolls, (target // minimum_progress) + 1)
+        scale = 0
+        for fingerprint in fingerprint_units:
+            scale = gcd(scale, fingerprint)
+        scale = max(1, scale)
+        scaled_fingerprints = tuple(fingerprint // scale for fingerprint in fingerprint_units)
+        maximum_sum = (target + (2 * max_rolls)) // scale
+        reachable = 1  # Bit N means that a scaled fingerprint sum of N is reachable.
+        sum_mask = (1 << (maximum_sum + 1)) - 1
+        for roll_count in range(1, max_rolls + 1):
+            next_reachable = 0
+            for fingerprint in scaled_fingerprints:
+                next_reachable |= reachable << fingerprint
+            reachable = next_reachable & sum_mask
+            tolerance = max(2, 2 * roll_count)
+            lower_raw = max(0, target - tolerance)
+            upper_raw = target + tolerance
+            lower = (lower_raw + scale - 1) // scale
+            upper = min(maximum_sum, upper_raw // scale)
+            window_width = upper - lower + 1
+            if window_width > 0 and ((reachable >> lower) & ((1 << window_width) - 1)):
+                return roll_count
+            if not reachable:
+                break
 
         return 0
 
