@@ -77,10 +77,23 @@ class OverlayStateTests(unittest.TestCase):
                 chests_per_minute=2.5,
             )
         )
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=2.0,
+                stats={},
+                items=("Anvil x1",),
+                game_time_seconds=6.0,
+                mob_kills=42,
+                player_level=7,
+                map_seed=1,
+                stage_ptr=10,
+                chests_per_minute=2.5,
+            )
+        )
         state = build_overlay_state(tracker, {"widgets": []})
 
         self.assertEqual(state["status"], "live")
-        self.assertEqual(state["run_timer_label"], "00:05")
+        self.assertEqual(state["run_timer_label"], "00:06")
         self.assertEqual(state["mob_kills"], 42)
         self.assertEqual(state["player_level"], 7)
         self.assertEqual(state["tracked_items"][0]["count"], 1)

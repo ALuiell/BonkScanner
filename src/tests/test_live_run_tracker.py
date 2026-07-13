@@ -92,6 +92,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker.update(snapshot(time_seconds=20.0, items=("Anvil x1",)))
         tracker.update(snapshot(time_seconds=180.0, items=("Anvil x1",), stage_ptr=2000, stage_time_seconds=1.0))
         tracker.update(snapshot(time_seconds=190.0, items=("Anvil x2",), stage_ptr=2000, stage_time_seconds=10.0))
+        tracker.update(snapshot(time_seconds=200.0, items=("Anvil x2",), stage_ptr=2000, stage_time_seconds=20.0))
 
         rows = {row["id"]: row for row in tracker.tracked_item_rows()}
         self.assertEqual(rows["anvils_map_1"]["count"], 1)
@@ -101,16 +102,55 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=1.0, items=("Anvil x1",)))
         tracker.update(snapshot(time_seconds=2.0, items=("Anvil x3",)))
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x3",)))
 
         rows = {row["id"]: row for row in tracker.tracked_item_rows()}
         self.assertEqual(rows["anvils_map_1"]["count"], 3)
         self.assertEqual(rows["anvils_total"]["count"], 3)
 
+    def test_tracker_waits_for_next_snapshot_before_counting_positive_increase(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0, items=("Anvil x1",)))
+        tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1",)))
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x2",)))
+
+        pending_rows = {row["id"]: row for row in tracker.tracked_item_rows()}
+        self.assertEqual(pending_rows["anvils_total"]["count"], 1)
+
+        tracker.update(snapshot(time_seconds=4.0, items=("Anvil x2",)))
+
+        confirmed_rows = {row["id"]: row for row in tracker.tracked_item_rows()}
+        self.assertEqual(confirmed_rows["anvils_total"]["count"], 2)
+
+    def test_tracker_discards_single_snapshot_positive_spike(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0, items=("Anvil x1",)))
+        tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1",)))
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x258",)))
+        tracker.update(snapshot(time_seconds=4.0, items=("Anvil x1",)))
+
+        rows = {row["id"]: row for row in tracker.tracked_item_rows()}
+        self.assertEqual(rows["anvils_total"]["count"], 1)
+
+    def test_tracker_replaces_unconfirmed_initial_spike_with_stable_count(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=1.0, items=("Anvil x258",)))
+        tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1",)))
+
+        pending_rows = {row["id"]: row for row in tracker.tracked_item_rows()}
+        self.assertEqual(pending_rows["anvils_total"]["count"], 0)
+
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x1",)))
+
+        confirmed_rows = {row["id"]: row for row in tracker.tracked_item_rows()}
+        self.assertEqual(confirmed_rows["anvils_total"]["count"], 1)
+
     def test_tracker_does_not_double_count_after_transient_item_drop(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=1.0, items=("Anvil x2",)))
-        tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1",)))
-        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x2",)))
+        tracker.update(snapshot(time_seconds=2.0, items=("Anvil x2",)))
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x1",)))
+        tracker.update(snapshot(time_seconds=4.0, items=("Anvil x2",)))
 
         rows = {row["id"]: row for row in tracker.tracked_item_rows()}
         self.assertEqual(rows["anvils_total"]["count"], 2)
@@ -118,6 +158,7 @@ class LiveRunTrackerTests(unittest.TestCase):
     def test_tracker_counts_late_first_snapshot_for_map_one_counter_while_still_on_first_map(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=30.0, items=("Anvil x2",)))
+        tracker.update(snapshot(time_seconds=31.0, items=("Anvil x2",)))
 
         row = {row["id"]: row for row in tracker.tracked_item_rows()}["anvils_map_1"]
         self.assertEqual(row["count"], 2)
@@ -133,6 +174,14 @@ class LiveRunTrackerTests(unittest.TestCase):
                 stage_time_seconds=5.0,
             )
         )
+        tracker.update(
+            snapshot(
+                time_seconds=121.0,
+                items=("Anvil x2",),
+                stage_ptr=2000,
+                stage_time_seconds=6.0,
+            )
+        )
 
         row = {row["id"]: row for row in tracker.tracked_item_rows()}["anvils_map_1"]
         self.assertEqual(row["count"], 0)
@@ -140,6 +189,7 @@ class LiveRunTrackerTests(unittest.TestCase):
     def test_tracker_accepts_early_first_snapshot_for_map_one_counter(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=5.0, items=("Anvil x2",)))
+        tracker.update(snapshot(time_seconds=6.0, items=("Anvil x2",)))
 
         row = {row["id"]: row for row in tracker.tracked_item_rows()}["anvils_map_1"]
         self.assertEqual(row["count"], 2)
@@ -157,6 +207,7 @@ class LiveRunTrackerTests(unittest.TestCase):
     def test_tracker_keeps_tracked_counts_when_run_time_resets(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1",)))
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x1",)))
         run_id = tracker.run_id
         tracker.update(snapshot(time_seconds=2.0, items=(), map_seed=200))
 
@@ -167,7 +218,9 @@ class LiveRunTrackerTests(unittest.TestCase):
     def test_tracker_counts_new_run_items_into_session_total(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1",), map_seed=100))
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x1",), map_seed=100))
         tracker.update(snapshot(time_seconds=2.0, items=("Anvil x2",), map_seed=200))
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x2",), map_seed=200))
 
         rows = {row["id"]: row for row in tracker.tracked_item_rows()}
         self.assertEqual(rows["anvils_map_1"]["count"], 3)
@@ -176,6 +229,7 @@ class LiveRunTrackerTests(unittest.TestCase):
     def test_tracker_keeps_counts_when_same_rules_are_reapplied(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1",)))
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x1",)))
         tracker.set_tracked_item_rules(tracker.tracked_item_rules)
 
         rows = {row["id"]: row for row in tracker.tracked_item_rows()}
@@ -200,6 +254,7 @@ class LiveRunTrackerTests(unittest.TestCase):
             tracked_item_rules=(anvil_rule, soul_rule),
         )
         tracker.update(snapshot(time_seconds=2.0, items=("Anvil x1", "Soul Harvester x2")))
+        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x1", "Soul Harvester x2")))
 
         tracker.set_tracked_item_rules((soul_rule,))
 
@@ -207,7 +262,8 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertNotIn("anvil_map_1", rows)
         self.assertEqual(rows["soul_harvester_map_1"]["count"], 2)
 
-        tracker.update(snapshot(time_seconds=3.0, items=("Anvil x1", "Soul Harvester x3")))
+        tracker.update(snapshot(time_seconds=4.0, items=("Anvil x1", "Soul Harvester x3")))
+        tracker.update(snapshot(time_seconds=5.0, items=("Anvil x1", "Soul Harvester x3")))
         rows = {row["id"]: row for row in tracker.tracked_item_rows()}
         self.assertEqual(rows["soul_harvester_map_1"]["count"], 3)
 
@@ -330,6 +386,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         )
         tracker.update(snapshot(time_seconds=20.0, items=()))
         tracker.update(snapshot(time_seconds=40.0, items=("Gloves Power x1",)))
+        tracker.update(snapshot(time_seconds=41.0, items=("Gloves Power x1",)))
 
         row = {row["id"]: row for row in tracker.tracked_item_rows()}["glove_power_map_1"]
         self.assertEqual(row["count"], 1)
@@ -360,6 +417,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 )
                 tracker.update(snapshot(time_seconds=20.0, items=()))
                 tracker.update(snapshot(time_seconds=40.0, items=(f"{live_name} x1",)))
+                tracker.update(snapshot(time_seconds=41.0, items=(f"{live_name} x1",)))
 
                 row = {row["id"]: row for row in tracker.tracked_item_rows()}["tracked_item"]
                 self.assertEqual(row["count"], 1)
@@ -428,6 +486,7 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker.update(snapshot(time_seconds=10.0, items=("Kevin x2", "Electric Plug x2"), map_seed=100))
         tracker.update(snapshot(time_seconds=20.0, items=("Kevin x2", "Electric Plug x1"), map_seed=100))
         tracker.update(snapshot(time_seconds=2.0, items=("Kevin x1", "Electric Plug x1"), map_seed=200))
+        tracker.update(snapshot(time_seconds=3.0, items=("Kevin x1", "Electric Plug x1"), map_seed=200))
 
         row = {row["id"]: row for row in tracker.tracked_item_rows()}["kevin_plug_map_1"]
         self.assertEqual(row["count"], 2)

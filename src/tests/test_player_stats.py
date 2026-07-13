@@ -336,6 +336,23 @@ class PlayerStatsClientTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.get_passive_items()
 
+    def test_get_passive_items_rejects_stack_count_that_changes_between_reads(self) -> None:
+        memory = self.build_memory()
+        stack_address = 0x20000900 + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET
+        original_read_i32 = memory.read_i32
+        stack_reads = iter((1, 258))
+
+        def read_i32(address: int) -> int:
+            if address == stack_address:
+                return next(stack_reads)
+            return original_read_i32(address)
+
+        memory.read_i32 = read_i32
+        client = PlayerStatsClient(memory=memory)
+
+        with self.assertRaises(ValueError):
+            client.get_passive_items()
+
     def test_get_passive_items_prefers_item_id_for_crypt_key_over_placeholder_class(self) -> None:
         memory = self.build_memory()
         passive_entries = 0x20000800

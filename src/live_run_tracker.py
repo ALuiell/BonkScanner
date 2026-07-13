@@ -82,6 +82,15 @@ class TrackedItemEvent:
 
 
 @dataclass(frozen=True)
+class _PendingItemIncrease:
+    observed_count: int
+    snapshot: LiveRunSnapshot
+    stage_index: int
+    combo_stage_index: int
+    initial_map_one_only: bool = False
+
+
+@dataclass(frozen=True)
 class ChaosTomeStatTotal:
     stat_id: int
     label: str
@@ -316,6 +325,7 @@ class _PowerupState:
 class _TrackedItemState:
     tracked_item_rules: tuple[TrackedItemRule, ...] = ()
     previous_item_counts: dict[str, int] | None = None
+    pending_item_increases: dict[str, _PendingItemIncrease] = field(default_factory=dict)
     tracked_events: list[TrackedItemEvent] = field(default_factory=list)
     tracked_counts: dict[str, int] = field(default_factory=dict)
     combo_run_counts: dict[str, int] = field(default_factory=dict)
@@ -414,7 +424,7 @@ class LiveRunTracker:
             "_graveyard_final_swarm_timer_is_zero",
         )},
         **{name: "_tracked_item_state" for name in (
-            "tracked_item_rules", "_previous_item_counts", "_tracked_events",
+            "tracked_item_rules", "_previous_item_counts", "_pending_item_increases", "_tracked_events",
             "_tracked_counts", "_combo_run_counts",
         )},
         "_feature_status": "_availability_state",
@@ -1488,6 +1498,7 @@ class LiveRunTracker:
 
     def _reset_current_run_item_baseline(self, *, reset_combo_counts: bool = True) -> None:
         self._previous_item_counts = None
+        self._pending_item_increases = {}
         if reset_combo_counts:
             self._combo_run_counts = {rule.id: 0 for rule in self.tracked_item_rules}
 
@@ -1751,42 +1762,80 @@ class LiveRunTracker:
             return
         current_counts = run_summary.item_counts(snapshot.items)
         if self._previous_item_counts is None:
-            self._previous_item_counts = dict(current_counts)
-            self._process_initial_item_counts(snapshot, current_counts)
-            self._process_combo_item_rules(
-                snapshot=snapshot,
-                current_counts=current_counts,
-                stage_index=self.current_stage_index,
+            self._previous_item_counts = {}
+            self._pending_item_increases = self._initial_item_increase_candidates(
+                snapshot,
+                current_counts,
             )
             return
 
-        for item_name, current_count in current_counts.items():
-            gained_count = max(0, current_count - self._previous_item_counts.get(item_name, 0))
+        confirmed_counts = dict(self._previous_item_counts)
+        confirmed_gain_contexts: dict[str, _PendingItemIncrease] = {}
+        for item_name in set(current_counts) | set(self._pending_item_increases):
+            current_count = max(0, int(current_counts.get(item_name, 0)))
+            confirmed_count = max(0, int(confirmed_counts.get(item_name, 0)))
+            pending = self._pending_item_increases.get(item_name)
+
+            if current_count <= confirmed_count:
+                self._pending_item_increases.pop(item_name, None)
+                continue
+
+            if pending is None:
+                self._pending_item_increases[item_name] = self._item_increase_candidate(
+                    snapshot,
+                    current_count,
+                )
+                continue
+
+            if current_count < pending.observed_count:
+                self._pending_item_increases[item_name] = self._item_increase_candidate(
+                    snapshot,
+                    current_count,
+                    initial_map_one_only=pending.initial_map_one_only,
+                )
+                continue
+
+            gained_count = max(0, pending.observed_count - confirmed_count)
             if gained_count <= 0:
+                self._pending_item_increases.pop(item_name, None)
                 continue
             self._process_item_gain(
                 item_name=item_name,
                 gained_count=gained_count,
-                snapshot=snapshot,
-                stage_index=self.current_stage_index,
+                snapshot=pending.snapshot,
+                stage_index=pending.stage_index,
+                initial_map_one_only=pending.initial_map_one_only,
             )
-        self._previous_item_counts = {
-            item_name: max(current_counts.get(item_name, 0), self._previous_item_counts.get(item_name, 0))
-            for item_name in set(current_counts) | set(self._previous_item_counts)
+            confirmed_counts[item_name] = pending.observed_count
+            confirmed_gain_contexts[item_name] = pending
+            if current_count > pending.observed_count:
+                self._pending_item_increases[item_name] = self._item_increase_candidate(
+                    snapshot,
+                    current_count,
+                )
+            else:
+                self._pending_item_increases.pop(item_name, None)
+
+        self._previous_item_counts = confirmed_counts
+        effective_counts = {
+            item_name: min(
+                max(0, int(current_count)),
+                max(0, int(confirmed_counts.get(item_name, 0))),
+            )
+            for item_name, current_count in current_counts.items()
         }
         self._process_combo_item_rules(
             snapshot=snapshot,
-            current_counts=current_counts,
+            current_counts=effective_counts,
             stage_index=self.current_stage_index,
+            gain_contexts=confirmed_gain_contexts,
         )
 
-    def _process_initial_item_counts(
+    def _initial_item_increase_candidates(
         self,
         snapshot: LiveRunSnapshot,
         counts: dict[str, int],
-    ) -> None:
-        if not counts:
-            return
+    ) -> dict[str, _PendingItemIncrease]:
         is_clearly_early = (
             self.current_stage_index == 1
             and snapshot.game_time_seconds is not None
@@ -1796,16 +1845,39 @@ class LiveRunTracker:
             self.current_stage_index,
             1 if self._snapshot_looks_like_first_stage(snapshot) else 2,
         )
-        for item_name, count in counts.items():
-            if count <= 0:
-                continue
-            self._process_item_gain(
-                item_name=item_name,
-                gained_count=count,
-                snapshot=snapshot,
+        return {
+            item_name: self._item_increase_candidate(
+                snapshot,
+                count,
                 stage_index=initial_stage_index,
+                combo_stage_index=self.current_stage_index,
                 initial_map_one_only=not is_clearly_early,
             )
+            for item_name, count in counts.items()
+            if count > 0
+        }
+
+    def _item_increase_candidate(
+        self,
+        snapshot: LiveRunSnapshot,
+        count: int,
+        *,
+        stage_index: int | None = None,
+        combo_stage_index: int | None = None,
+        initial_map_one_only: bool = False,
+    ) -> _PendingItemIncrease:
+        resolved_stage_index = self.current_stage_index if stage_index is None else int(stage_index)
+        return _PendingItemIncrease(
+            observed_count=max(0, int(count)),
+            snapshot=snapshot,
+            stage_index=resolved_stage_index,
+            combo_stage_index=(
+                resolved_stage_index
+                if combo_stage_index is None
+                else int(combo_stage_index)
+            ),
+            initial_map_one_only=initial_map_one_only,
+        )
 
     def _process_item_gain(
         self,
@@ -1859,6 +1931,7 @@ class LiveRunTracker:
         snapshot: LiveRunSnapshot,
         current_counts: dict[str, int],
         stage_index: int,
+        gain_contexts: dict[str, _PendingItemIncrease] | None = None,
     ) -> None:
         folded_counts = {
             _fold_item_match_name(item_name): max(0, int(count))
@@ -1867,11 +1940,26 @@ class LiveRunTracker:
         for rule in self.tracked_item_rules:
             if len(rule.item_names) <= 1:
                 continue
+            rule_gain_contexts = [
+                context
+                for item_name, context in (gain_contexts or {}).items()
+                if self._rule_matches_item(rule, item_name)
+            ]
+            if rule_gain_contexts:
+                combo_context = max(
+                    rule_gain_contexts,
+                    key=lambda context: context.snapshot.captured_at,
+                )
+                event_snapshot = combo_context.snapshot
+                event_stage_index = combo_context.combo_stage_index
+            else:
+                event_snapshot = snapshot
+                event_stage_index = stage_index
             if self._eligible_count_for_rule(
                 rule,
                 gained_count=1,
-                game_time_seconds=snapshot.game_time_seconds,
-                stage_index=stage_index,
+                game_time_seconds=event_snapshot.game_time_seconds,
+                stage_index=event_stage_index,
             ) <= 0:
                 continue
             combo_count = self._combo_count_for_rule(rule, folded_counts, folded=True)
@@ -1895,10 +1983,10 @@ class LiveRunTracker:
                     rule_id=rule.id,
                     item_name=" + ".join(rule.item_names),
                     gained_count=eligible_count,
-                    game_time_seconds=snapshot.game_time_seconds,
-                    stage_index=stage_index,
-                    map_seed=snapshot.map_seed,
-                    captured_at=snapshot.captured_at,
+                    game_time_seconds=event_snapshot.game_time_seconds,
+                    stage_index=event_stage_index,
+                    map_seed=event_snapshot.map_seed,
+                    captured_at=event_snapshot.captured_at,
                 )
             )
 
