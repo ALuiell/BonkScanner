@@ -1,0 +1,164 @@
+﻿diff --git a/src/gui_in_game_overlay.py b/src/gui_in_game_overlay.py
+index 2e6ac0b..fe5238e 100644
+--- a/src/gui_in_game_overlay.py
++++ b/src/gui_in_game_overlay.py
+@@ -4,9 +4,11 @@ from PySide6.QtCore import QRect, QTimer
+ from PySide6.QtWidgets import QApplication
+ 
+ import config
++from in_game_projection import project_in_game_overlay
+ from gui_in_game_overlay_render import (
+     build_event_timer_overlay_html,
+     build_kps_overlay_html,
++    build_kps_overlay_html_from_values,
+     build_luck_rarity_overlay_html,
+     build_powerups_overlay_html,
+     build_stats_overlay_html,
+@@ -51,14 +53,15 @@ class InGameOverlayMixin:
+ 
+         self._update_igo_status_ui()
+ 
+-    def start_in_game_overlay(self) -> None:
++    def start_in_game_overlay(self, *, initial_refresh: bool = True) -> None:
+         if not self.in_game_overlay_window:
+             return
+         self.overlay_fast_timer.start()
+         self.overlay_slow_timer.start()
+-        became_visible = self._overlay_fast_tick()
+-        if not became_visible:
+-            self._overlay_slow_tick()
++        if initial_refresh:
++            became_visible = self._overlay_fast_tick()
++            if not became_visible:
++                self._overlay_slow_tick()
+ 
+     def stop_in_game_overlay(self) -> None:
+         if self.in_game_overlay_window:
+@@ -75,7 +78,7 @@ class InGameOverlayMixin:
+             # The window can already be visible from edit mode while the periodic
+             # overlay timers are still stopped, so visibility is not a reliable
+             # proxy for an active runtime.
+-            self.start_in_game_overlay()
++            self.start_in_game_overlay(initial_refresh=False)
+         else:
+             self.stop_in_game_overlay()
+             self._update_igo_status_ui()
+@@ -157,19 +160,27 @@ class InGameOverlayMixin:
+             return False
+ 
+         widgets = self.in_game_overlay_window.widgets
++        runtime_snapshot_reader = getattr(self.live_run_tracker, "runtime_snapshot", None)
++        runtime_snapshot = (
++            runtime_snapshot_reader() if callable(runtime_snapshot_reader) else None
++        )
++        if runtime_snapshot is None:
++            return False
++        projection = project_in_game_overlay(runtime_snapshot)
+         if cfg["widgets"]["kps"]["enabled"]:
+             metrics_cfg = cfg["widgets"]["kps"].get("metrics", ["instant"])
+-            widgets["kps"].set_text(build_kps_overlay_html(self.live_run_tracker, metrics_cfg))
++            widgets["kps"].set_text(
++                build_kps_overlay_html_from_values(projection.kps, metrics_cfg)
++            )
+ 
+         # Retrieve snapshot and powerups map context to determine stage metadata
+         latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
+-        latest_snapshot = latest_snapshot_reader() if callable(latest_snapshot_reader) else None
++        latest_snapshot = (
++            projection.latest_snapshot
++        )
+ 
+         is_graveyard = False
+-        map_context_reader = getattr(self.live_run_tracker, "powerup_map_context", None)
+-        map_context = map_context_reader() if callable(map_context_reader) else None
+-        if map_context is not None:
+-            is_graveyard = map_context.is_graveyard
++        is_graveyard = projection.is_graveyard
+ 
+         stage_index = 0
+         stage_time_seconds = 0.0
+@@ -192,21 +203,10 @@ class InGameOverlayMixin:
+         event_stage_index = stage_index
+         event_stage_time_seconds = stage_time_seconds
+         event_stage_timer_seconds = stage_timer_seconds
+-        fast_stage_context_reader = getattr(self.live_run_tracker, "fast_stage_timer_context", None)
+-        fast_stage_context = (
+-            fast_stage_context_reader() if callable(fast_stage_context_reader) else None
+-        )
++        fast_stage_context = projection.fast_stage_timer
+         if fast_stage_context is not None:
+             if getattr(fast_stage_context, "stage_index", None) is not None:
+                 event_stage_index = int(fast_stage_context.stage_index)
+-            event_stage_time_seconds = float(
+-                getattr(
+-                    fast_stage_context,
+-                    "stage_duration_seconds",
+-                    event_stage_time_seconds,
+-                )
+-                or 0.0
+-            )
+             event_stage_timer_seconds = float(
+                 getattr(
+                     fast_stage_context,
+@@ -231,9 +231,7 @@ class InGameOverlayMixin:
+         if cfg["widgets"].get("event_timer", {}).get("enabled", False):
+             warning_seconds = cfg["widgets"]["event_timer"].get("warning_seconds", 15)
+             graveyard_events_active = False
+-            active_reader = getattr(self.live_run_tracker, "graveyard_main_map_events_active", None)
+-            if callable(active_reader):
+-                graveyard_events_active = active_reader()
++            graveyard_events_active = projection.graveyard_main_map_events_active
+ 
+             html = build_event_timer_overlay_html(
+                 event_stage_index,
+@@ -247,8 +245,7 @@ class InGameOverlayMixin:
+             widgets["event_timer"].set_text(html)
+ 
+         if cfg["widgets"]["powerups"]["enabled"]:
+-            snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+-            snapshot = snapshot_reader() if callable(snapshot_reader) else None
++            snapshot = projection.powerups
+             html = self._build_powerups_overlay_html(
+                 snapshot,
+                 edit_mode=self.in_game_overlay_window.edit_mode,
+@@ -261,7 +258,7 @@ class InGameOverlayMixin:
+ 
+         became_visible = not was_visible and self.in_game_overlay_window.isVisible()
+         if became_visible:
+-            self._refresh_in_game_overlay_slow_widgets()
++            self._refresh_in_game_overlay_slow_widgets(projection)
+         return became_visible
+ 
+     @staticmethod
+@@ -285,9 +282,19 @@ class InGameOverlayMixin:
+         if not self.in_game_overlay_window or not self.in_game_overlay_window.isVisible():
+             return
+ 
+-        self._refresh_in_game_overlay_slow_widgets()
++        runtime_snapshot_reader = getattr(self.live_run_tracker, "runtime_snapshot", None)
++        runtime_snapshot = runtime_snapshot_reader() if callable(runtime_snapshot_reader) else None
++        projection = project_in_game_overlay(runtime_snapshot) if runtime_snapshot is not None else None
++        if projection is None:
++            legacy_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
++            latest_snapshot = legacy_reader() if callable(legacy_reader) else None
++            self._refresh_in_game_overlay_slow_widgets(
++                type("LegacyProjection", (), {"latest_snapshot": latest_snapshot})()
++            )
++            return
++        self._refresh_in_game_overlay_slow_widgets(projection)
+ 
+-    def _refresh_in_game_overlay_slow_widgets(self) -> None:
++    def _refresh_in_game_overlay_slow_widgets(self, projection=None) -> None:
+         if not self.in_game_overlay_window:
+             return
+ 
+@@ -307,8 +314,7 @@ class InGameOverlayMixin:
+             widgets["recording"].set_text(build_status_indicator_html("REC", is_recording))
+ 
+         if widget_cfg.get("luck_rarity", {}).get("enabled", False):
+-            latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
+-            latest_snapshot = latest_snapshot_reader() if callable(latest_snapshot_reader) else None
++            latest_snapshot = getattr(projection, "latest_snapshot", None) if projection is not None else None
+             luck_stat = None
+             if latest_snapshot is not None and isinstance(getattr(latest_snapshot, "stats", None), dict):
+                 luck_stat = latest_snapshot.stats.get("Luck")

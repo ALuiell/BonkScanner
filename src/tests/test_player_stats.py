@@ -326,6 +326,16 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertEqual(items, ("Wrench x2",))
 
+    def test_get_passive_items_rejects_implausible_stack_count(self) -> None:
+        memory = self.build_memory()
+        memory.ints[
+            0x20000900 + PlayerStatsClient.ITEM_STACK_COUNT_OFFSET
+        ] = PlayerStatsClient.MAX_PASSIVE_ITEM_STACK_COUNT + 1
+        client = PlayerStatsClient(memory=memory)
+
+        with self.assertRaises(ValueError):
+            client.get_passive_items()
+
     def test_get_passive_items_prefers_item_id_for_crypt_key_over_placeholder_class(self) -> None:
         memory = self.build_memory()
         passive_entries = 0x20000800

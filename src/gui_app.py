@@ -277,6 +277,8 @@ class MegabonkApp(
         self.client = None
         self.player_stats_client = None
         self.player_stats_game_data_client = None
+        self._player_stats_memory_error_streak = 0
+        self._player_stats_game_data_memory_error_streak = 0
         self.player_stats_vod_recorder = VodRecorder(
             interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
         )

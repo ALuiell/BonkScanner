@@ -52,6 +52,10 @@ class DisabledItemsReadStatus(Enum):
     READ_ERROR = "read_error"
 
 
+class InvalidItemStackCountError(ValueError):
+    """Raised when a transient item-object read cannot be trusted."""
+
+
 @dataclass(frozen=True)
 class DisabledItemsReadResult:
     status: DisabledItemsReadStatus
@@ -534,6 +538,7 @@ class PlayerStatsClient:
     STAGE_DATA_TIMELINE_OFFSET = 0xD0
     STAGE_TIMELINE_STAGE_TIME_OFFSET = 0x10
     MAX_PASSIVE_ITEM_DICT_ENTRIES = 512
+    MAX_PASSIVE_ITEM_STACK_COUNT = 1_000_000
     MAX_WEAPON_DICT_ENTRIES = 64
     MAX_WEAPON_STATS_ENTRIES = 128
     MAX_UPGRADE_MODIFIERS = 64
@@ -677,6 +682,7 @@ class PlayerStatsClient:
 
     def get_passive_items(self, owner_stats: int | None = None) -> tuple[str, ...]:
         owner_stats = owner_stats or self._resolve_owner_stats()
+        primary_error: InvalidItemStackCountError | None = None
         try:
             inventory_container = self.memory.read_ptr(owner_stats + self.INVENTORY_CONTAINER_OFFSET)
             passive_item_dict = (
@@ -688,17 +694,30 @@ class PlayerStatsClient:
                 items = self._read_passive_item_dictionary(passive_item_dict)
                 if items:
                     return items
+        except InvalidItemStackCountError as exc:
+            primary_error = exc
         except MemoryReadError:
             pass
 
-        player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
-        item_inventory = self.memory.read_ptr(player_inventory + self.ITEM_INVENTORY_OFFSET) if player_inventory else 0
-        passive_item_dict = (
-            self.memory.read_ptr(item_inventory + self.ITEM_INVENTORY_ITEMS_DICT_OFFSET)
-            if item_inventory
-            else 0
-        )
+        try:
+            player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
+            item_inventory = (
+                self.memory.read_ptr(player_inventory + self.ITEM_INVENTORY_OFFSET)
+                if player_inventory
+                else 0
+            )
+            passive_item_dict = (
+                self.memory.read_ptr(item_inventory + self.ITEM_INVENTORY_ITEMS_DICT_OFFSET)
+                if item_inventory
+                else 0
+            )
+        except MemoryReadError:
+            if primary_error is not None:
+                raise primary_error
+            raise
         if not passive_item_dict:
+            if primary_error is not None:
+                raise primary_error
             return ()
 
         return self._read_passive_item_dictionary(passive_item_dict)
@@ -788,10 +807,20 @@ class PlayerStatsClient:
         if not self._cached_key_stack_address:
             return 0
         try:
-            return max(1, self.memory.read_i32(self._cached_key_stack_address))
-        except MemoryReadError:
+            return self._read_stable_item_stack_count(self._cached_key_stack_address)
+        except (MemoryReadError, InvalidItemStackCountError):
             self._clear_cached_key_address()
             return 0
+
+    def _read_stable_item_stack_count(self, address: int) -> int:
+        """Reject torn/stale item reads before they reach live or recorded snapshots."""
+        first = self.memory.read_i32(address)
+        second = self.memory.read_i32(address)
+        if first != second or not 1 <= first <= self.MAX_PASSIVE_ITEM_STACK_COUNT:
+            raise InvalidItemStackCountError(
+                f"Passive item stack count is unstable or invalid: {first}, {second}"
+            )
+        return first
 
     def _resolve_preferred_passive_item_dict(self, owner_stats: int) -> int:
         try:
@@ -898,7 +927,7 @@ class PlayerStatsClient:
                 if self._format_item_name(raw_name) != target_name:
                     continue
                 try:
-                    stack_count = self.memory.read_i32(
+                    stack_count = self._read_stable_item_stack_count(
                         item_value + self.ITEM_STACK_COUNT_OFFSET
                     )
                 except MemoryReadError:
@@ -945,7 +974,9 @@ class PlayerStatsClient:
                     continue
 
                 try:
-                    stack_count = self.memory.read_i32(item_value + self.ITEM_STACK_COUNT_OFFSET)
+                    stack_count = self._read_stable_item_stack_count(
+                        item_value + self.ITEM_STACK_COUNT_OFFSET
+                    )
                 except MemoryReadError:
                     stack_count = 1
             except MemoryReadError:

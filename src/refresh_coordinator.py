@@ -76,14 +76,18 @@ class RefreshCoordinator:
         context = RefreshTickContext()
         ran: list[str] = []
         for task in self._tasks.values():
-            if not task.required() or not self._is_due(task, now):
+            try:
+                required = bool(task.required())
+            except Exception as exc:
+                self._record_failure(task, exc, prefix="required check failed")
+                continue
+            if not required or not self._is_due(task, now):
                 continue
             task.last_started_at = now
             try:
                 succeeded = task.run(context)
             except Exception as exc:  # Diagnostics must not stop other tasks.
-                task.failure_count += 1
-                task.last_error = f"{type(exc).__name__}: {exc}"
+                self._record_failure(task, exc)
             else:
                 if succeeded is False:
                     task.failure_count += 1
@@ -96,18 +100,39 @@ class RefreshCoordinator:
 
     def diagnostics(self) -> tuple[RefreshTaskDiagnostics, ...]:
         now = self._clock()
-        return tuple(
-            RefreshTaskDiagnostics(
-                task_id=task.task_id,
-                active=bool(task.required()),
-                last_started_at=task.last_started_at,
-                last_succeeded_at=task.last_succeeded_at,
-                last_error=task.last_error,
-                failure_count=task.failure_count,
-                next_due_at=self._next_due_at(task, now),
+        result: list[RefreshTaskDiagnostics] = []
+        for task in self._tasks.values():
+            try:
+                active = bool(task.required())
+            except Exception:
+                active = False
+            result.append(
+                RefreshTaskDiagnostics(
+                    task_id=task.task_id,
+                    active=active,
+                    last_started_at=task.last_started_at,
+                    last_succeeded_at=task.last_succeeded_at,
+                    last_error=task.last_error,
+                    failure_count=task.failure_count,
+                    next_due_at=self._next_due_at(task, now),
+                )
             )
-            for task in self._tasks.values()
-        )
+        return tuple(result)
+
+    @staticmethod
+    def _record_failure(
+        task: RefreshTask,
+        exc: Exception,
+        *,
+        prefix: str | None = None,
+    ) -> None:
+        task.failure_count += 1
+        try:
+            detail = str(exc)
+        except Exception:
+            detail = "<error message unavailable>"
+        message = f"{type(exc).__name__}: {detail}"
+        task.last_error = f"{prefix}: {message}" if prefix else message
 
     @staticmethod
     def _is_due(task: RefreshTask, now: float) -> bool:

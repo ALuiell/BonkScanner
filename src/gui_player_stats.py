@@ -98,6 +98,7 @@ COMPARE_RUN_SECTION_DEFAULTS = {
     "chaos": False,
 }
 CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS = 1.0
+PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD = 3
 
 
 def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
@@ -140,17 +141,18 @@ class PlayerStatsMixin:
     def update_player_stats_timer(self):
         if self._is_shutting_down:
             return
-
-        recording_state_action = self._sync_player_stats_recording_run_state()
-        self._refresh_core_run_lifecycle_state()
-        self._player_stats_refresh_status_text = (
-            "Live player stats"
-            if recording_state_action != "stopped"
-            else "Live player stats (recording auto-stopped after run end)"
-        )
-        self._ensure_refresh_coordinator().tick()
-
-        self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
+        try:
+            recording_state_action = self._sync_player_stats_recording_run_state()
+            self._refresh_core_run_lifecycle_state()
+            self._player_stats_refresh_status_text = (
+                "Live player stats"
+                if recording_state_action != "stopped"
+                else "Live player stats (recording auto-stopped after run end)"
+            )
+            self._ensure_refresh_coordinator().tick()
+        finally:
+            if not self._is_shutting_down:
+                self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
 
     def _player_stats_refresh_required(self) -> bool:
         return not bool(getattr(self, "_player_stats_completed_run", False)) and (
@@ -166,13 +168,15 @@ class PlayerStatsMixin:
     def update_chaos_tome_tracker_timer(self):
         if self._is_shutting_down:
             return
-
-        self._refresh_core_run_lifecycle_state()
-        self._ensure_refresh_coordinator().tick()
-        self.after(
-            int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)),
-            self.update_chaos_tome_tracker_timer,
-        )
+        try:
+            self._refresh_core_run_lifecycle_state()
+            self._ensure_refresh_coordinator().tick()
+        finally:
+            if not self._is_shutting_down:
+                self.after(
+                    int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)),
+                    self.update_chaos_tome_tracker_timer,
+                )
 
     def _ensure_refresh_coordinator(self) -> RefreshCoordinator:
         coordinator = getattr(self, "_refresh_coordinator", None)
@@ -248,22 +252,60 @@ class PlayerStatsMixin:
     def _mark_fast_feature_available(self, feature: str) -> None:
         marker = getattr(self.live_run_tracker, "mark_feature_available", None)
         if callable(marker):
-            marker(feature)
+            try:
+                marker(feature)
+            except Exception:
+                pass
 
     def _mark_fast_feature_failed(self, feature: str, error: Exception) -> None:
         marker = getattr(self.live_run_tracker, "mark_feature_failed", None)
         if callable(marker):
-            marker(feature, error)
+            try:
+                marker(feature, error)
+            except Exception:
+                pass
+
+    def _record_player_stats_memory_success(self) -> None:
+        self._player_stats_memory_error_streak = 0
+
+    def _record_player_stats_memory_failure(self, error: Exception) -> None:
+        if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
+            return
+        streak = int(getattr(self, "_player_stats_memory_error_streak", 0)) + 1
+        self._player_stats_memory_error_streak = streak
+        if streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
+            return
+        try:
+            self.close_player_stats_client()
+        finally:
+            self._player_stats_memory_error_streak = 0
+
+    def _record_player_stats_game_data_memory_success(self) -> None:
+        self._player_stats_game_data_memory_error_streak = 0
+
+    def _record_player_stats_game_data_memory_failure(self, error: Exception) -> None:
+        if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
+            return
+        streak = int(getattr(self, "_player_stats_game_data_memory_error_streak", 0)) + 1
+        self._player_stats_game_data_memory_error_streak = streak
+        if streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
+            return
+        try:
+            self.close_player_stats_game_data_client()
+        finally:
+            self._player_stats_game_data_memory_error_streak = 0
 
     def _refresh_powerups_task(self, context: RefreshTickContext) -> bool:
         try:
             snapshot = self._fast_task_client(context).get_powerup_tracking_snapshot(
                 self._fast_task_owner_stats(context)
             )
+            self._record_player_stats_memory_success()
             accepted = self.live_run_tracker.update_powerups(snapshot)
             self._refresh_live_powerups_label()
             return accepted is not False
         except Exception as exc:
+            self._record_player_stats_memory_failure(exc)
             self._mark_fast_feature_failed("powerups", exc)
             self._refresh_live_powerups_label()
             return False
@@ -273,10 +315,12 @@ class PlayerStatsMixin:
             chests_bought, keys_count = self._fast_task_client(context).get_expected_chest_inputs(
                 self._fast_task_owner_stats(context)
             )
+            self._record_player_stats_memory_success()
             self.live_run_tracker.track_expected_key_procs(chests_bought, keys_count)
             self._mark_fast_feature_available("expected_chests")
             return True
         except Exception as exc:
+            self._record_player_stats_memory_failure(exc)
             self._mark_fast_feature_failed("expected_chests", exc)
             return False
 
@@ -284,6 +328,7 @@ class PlayerStatsMixin:
         try:
             client = self._fast_task_client(context)
             run_timer_seconds = client.get_run_timer()
+            self._record_player_stats_memory_success()
             self._mark_fast_feature_available("combat")
             previous_game_time = getattr(self, "_last_fast_kps_game_time_seconds", None)
             if (
@@ -293,6 +338,7 @@ class PlayerStatsMixin:
             ):
                 return True
             mob_kills = client.get_killed_mobs()
+            self._record_player_stats_memory_success()
             self.live_run_tracker.track_kills(run_timer_seconds, mob_kills)
             self._last_fast_kps_game_time_seconds = run_timer_seconds
             if self._is_live_stats_tab_active():
@@ -304,6 +350,7 @@ class PlayerStatsMixin:
                 self.update_overlay_state_from_tracker()
             return True
         except Exception as exc:
+            self._record_player_stats_memory_failure(exc)
             self._mark_fast_feature_failed("combat", exc)
             return False
 
@@ -315,6 +362,7 @@ class PlayerStatsMixin:
             stage_timer_seconds, stage_index, stage_duration_seconds = (
                 self._fast_task_client(context).get_stage_timer_context()
             )
+            self._record_player_stats_memory_success()
             update_fast_stage_timer(
                 stage_timer_seconds=stage_timer_seconds,
                 stage_index=stage_index,
@@ -323,6 +371,7 @@ class PlayerStatsMixin:
             self._mark_fast_feature_available("stage_timer")
             return True
         except Exception as exc:
+            self._record_player_stats_memory_failure(exc)
             update_fast_stage_timer(
                 stage_timer_seconds=None,
                 stage_index=None,
@@ -336,12 +385,14 @@ class PlayerStatsMixin:
             chaos_level, permanent_modifiers = self._fast_task_client(
                 context
             ).get_chaos_tracking_state(self._fast_task_owner_stats(context))
+            self._record_player_stats_memory_success()
             self.live_run_tracker.update_chaos_tome(
                 chaos_level=chaos_level,
                 permanent_modifiers=permanent_modifiers if chaos_level is not None else {},
             )
             return True
         except Exception as exc:
+            self._record_player_stats_memory_failure(exc)
             self._mark_fast_feature_failed("chaos_tome", exc)
             return False
 
@@ -595,10 +646,11 @@ class PlayerStatsMixin:
         stage_ptr = 0
         try:
             recording_state = self.read_player_stats_recording_state()
+            PlayerStatsMixin._record_player_stats_game_data_memory_success(self)
             map_seed = recording_state.map_seed
             stage_ptr = recording_state.current_stage_ptr
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            self.close_player_stats_game_data_client()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
+            PlayerStatsMixin._record_player_stats_game_data_memory_failure(self, exc)
             map_seed = None
             stage_ptr = 0
         except Exception:
@@ -787,23 +839,31 @@ class PlayerStatsMixin:
                 disabled_items,
                 disabled_items_available,
             ) = self._read_live_player_stats_data()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            self.close_player_stats_client()
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
+            self._record_player_stats_memory_failure(exc)
             self.player_stats_auto_start_detection_streak = 0
             self.player_stats_recording_armed = False
             self.player_stats_recording_waiting_mode = None
             self.player_stats_auto_recording_suppressed = False
             if self.player_stats_vod_recorder.is_recording:
                 self._stop_player_stats_recording(refresh_live_stats=False)
-            self.mark_overlay_read_failed(no_game=True)
+            try:
+                self.mark_overlay_read_failed(no_game=True)
+            except Exception:
+                pass
             self._reset_live_player_stats_ui(waiting_status_text)
             return False
         except Exception as exc:
-            self.close_player_stats_client()
+            self._record_player_stats_memory_failure(exc)
             self.player_stats_auto_start_detection_streak = 0
-            self.mark_overlay_read_failed(no_game=False)
+            try:
+                self.mark_overlay_read_failed(no_game=False)
+            except Exception:
+                pass
             self._reset_live_player_stats_ui(f"{unavailable_status_prefix}: {exc}")
             return False
+
+        self._record_player_stats_memory_success()
 
         chests_per_minute = self.calculate_player_chests_per_minute(stats)
         items_text = None if items_available else "Items unavailable"
@@ -828,6 +888,7 @@ class PlayerStatsMixin:
             map_activity_values = (
                 self.player_stats_game_data_client.get_map_activity_values() or {}
             )
+            PlayerStatsMixin._record_player_stats_game_data_memory_success(self)
             map_activity_max = {
                 label: int(value.max)
                 for label, value in map_activity_values.items()
@@ -843,7 +904,8 @@ class PlayerStatsMixin:
             pots_stat = map_stats.get(MapStat.POTS)
             if pots_stat is not None:
                 map_pots_total = pots_stat.max
-        except Exception:
+        except Exception as exc:
+            PlayerStatsMixin._record_player_stats_game_data_memory_failure(self, exc)
             map_stats = {}
             map_activity_max = {}
         if map_activity_max and hasattr(
@@ -1237,9 +1299,11 @@ class PlayerStatsMixin:
 
     def _read_player_stats_recording_seed_safe(self) -> int | None:
         try:
-            return self.read_player_stats_recording_seed()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            self.close_player_stats_game_data_client()
+            result = self.read_player_stats_recording_seed()
+            PlayerStatsMixin._record_player_stats_game_data_memory_success(self)
+            return result
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
+            PlayerStatsMixin._record_player_stats_game_data_memory_failure(self, exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -1247,9 +1311,11 @@ class PlayerStatsMixin:
 
     def _read_player_stats_recording_state_safe(self):
         try:
-            return self.read_player_stats_recording_state()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            self.close_player_stats_game_data_client()
+            result = self.read_player_stats_recording_state()
+            PlayerStatsMixin._record_player_stats_game_data_memory_success(self)
+            return result
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
+            PlayerStatsMixin._record_player_stats_game_data_memory_failure(self, exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -1257,9 +1323,11 @@ class PlayerStatsMixin:
 
     def _read_player_stats_runtime_game_state_safe(self):
         try:
-            return self.read_player_stats_runtime_game_state()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            self.close_player_stats_game_data_client()
+            result = self.read_player_stats_runtime_game_state()
+            PlayerStatsMixin._record_player_stats_game_data_memory_success(self)
+            return result
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
+            PlayerStatsMixin._record_player_stats_game_data_memory_failure(self, exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -1267,9 +1335,11 @@ class PlayerStatsMixin:
 
     def _read_player_stats_runtime_activity_state_safe(self):
         try:
-            return self.read_player_stats_runtime_activity_state()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            self.close_player_stats_game_data_client()
+            result = self.read_player_stats_runtime_activity_state()
+            PlayerStatsMixin._record_player_stats_game_data_memory_success(self)
+            return result
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
+            PlayerStatsMixin._record_player_stats_game_data_memory_failure(self, exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -1319,9 +1389,11 @@ class PlayerStatsMixin:
 
     def _read_player_stats_recording_run_timer_safe(self) -> float | None:
         try:
-            return self._get_player_stats_client().get_run_timer()
-        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
-            self.close_player_stats_client()
+            result = self._get_player_stats_client().get_run_timer()
+            self._record_player_stats_memory_success()
+            return result
+        except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
+            self._record_player_stats_memory_failure(exc)
             return None
         except Exception:
             self.close_player_stats_client()
@@ -4631,15 +4703,7 @@ class PlayerStatsMixin:
 
     @classmethod
     def _item_counts(cls, items) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for item in items or ():
-            name, suffix = cls._split_item_stack_suffix(str(item))
-            name = cls._normalize_item_name_for_display(name)
-            count = 1
-            if suffix.startswith(" x") and suffix[2:].isdigit():
-                count = int(suffix[2:])
-            counts[name] = counts.get(name, 0) + max(1, count)
-        return counts
+        return run_summary.item_counts(items)
 
     @classmethod
     def build_stage_summary(cls, snapshots) -> list[dict[str, str]]:
@@ -5222,6 +5286,7 @@ class PlayerStatsMixin:
             self.player_stats_client = None
         self.player_stats_last_seed = None
         self.player_stats_last_run_timer = None
+        self._player_stats_memory_error_streak = 0
 
     def close_player_stats_game_data_client(self):
         game_data_client = self.__dict__.get("player_stats_game_data_client")
@@ -5231,3 +5296,4 @@ class PlayerStatsMixin:
             except Exception:
                 pass
             self.player_stats_game_data_client = None
+        self._player_stats_game_data_memory_error_streak = 0

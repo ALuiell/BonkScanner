@@ -954,6 +954,90 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(rows[2]["kills"], "600")
         self.assertEqual(rows[3]["kills"], "--")
 
+    def test_tracked_stage_three_with_collapsed_map_totals_does_not_promote_to_stage_four(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=1.0,
+                map_seed=100,
+                stage_ptr=1000,
+                stage_index=0,
+                stage_time_seconds=1.0,
+                mob_kills=10,
+                chests_total=46,
+            )
+        )
+        tracker.update(
+            snapshot(
+                time_seconds=61.0,
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=1,
+                stage_time_seconds=1.0,
+                mob_kills=100,
+                chests_total=46,
+            )
+        )
+        tracker.update(
+            snapshot(
+                time_seconds=121.0,
+                map_seed=300,
+                stage_ptr=3000,
+                stage_index=2,
+                stage_time_seconds=1.0,
+                mob_kills=200,
+                chests_total=15,
+            )
+        )
+        tracker.update(
+            snapshot(
+                time_seconds=181.0,
+                map_seed=300,
+                stage_ptr=3000,
+                stage_index=2,
+                stage_time_seconds=61.0,
+                mob_kills=300,
+                chests_total=15,
+            )
+        )
+
+        _, stage_index = tracker.run_identity()
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(stage_index, 3)
+        self.assertEqual(rows[2]["kills"], "100")
+        self.assertEqual(rows[3]["kills"], "--")
+
+    def test_stage_two_to_three_raw_transition_ignores_stage_four_timer_heuristic(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=1000.0,
+                map_seed=22,
+                stage_ptr=2000,
+                stage_index=1,
+                stage_time_seconds=500.0,
+                mob_kills=10_000,
+            )
+        )
+        tracker.update(
+            snapshot(
+                time_seconds=1001.0,
+                map_seed=22,
+                stage_ptr=2000,
+                stage_index=2,
+                stage_time_seconds=1.0,
+                mob_kills=10_100,
+            )
+        )
+
+        _, stage_index = tracker.run_identity()
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(stage_index, 3)
+        self.assertEqual(rows[2]["kills"], "0")
+        self.assertEqual(rows[3]["kills"], "--")
+
     def test_run_identity_promotes_raw_stage_three_attach_to_stage_four_from_chest_total(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
 

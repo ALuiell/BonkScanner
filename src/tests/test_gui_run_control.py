@@ -2410,6 +2410,39 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("#FACC15", rows[0]["items"])
         self.assertIn("#22C55E", rows[0]["items"])
 
+    def test_build_stage_summary_ignores_corrupt_item_stack_counts(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=5.0,
+                stage_time_seconds=5.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=10,
+                items=("Wrench x1",),
+            ),
+            SimpleNamespace(
+                game_time_seconds=15.0,
+                stage_time_seconds=15.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=20,
+                items=("Wrench x759271589",),
+            ),
+            SimpleNamespace(
+                game_time_seconds=25.0,
+                stage_time_seconds=25.0,
+                stage_ptr=0x1000,
+                map_seed=11,
+                mob_kills=30,
+                items=("Wrench x2",),
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertEqual(rows[0]["item_rarities"]["COMMON"], 1)
+        self.assertNotIn("759271589", rows[0]["items"])
+
     def test_build_stage_summary_ignores_single_snapshot_item_drop_recoveries(self) -> None:
         snapshots = [
             SimpleNamespace(
@@ -2675,6 +2708,37 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
         self.assertEqual(len(app.after_calls), 2)
+
+    def test_update_player_stats_timer_reschedules_after_exception(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.after_calls = []
+        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        app._sync_player_stats_recording_run_state = lambda: (_ for _ in ()).throw(
+            RuntimeError("lifecycle failed")
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "lifecycle failed"):
+            gui.MegabonkApp.update_player_stats_timer(app)
+
+        self.assertEqual(app.after_calls, [(gui.PLAYER_STATS_REFRESH_MS, app.update_player_stats_timer)])
+
+    def test_chaos_timer_reschedules_after_exception(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.after_calls = []
+        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        app._refresh_core_run_lifecycle_state = lambda: (_ for _ in ()).throw(
+            RuntimeError("chaos lifecycle failed")
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "chaos lifecycle failed"):
+            gui.MegabonkApp.update_chaos_tome_tracker_timer(app)
+
+        self.assertEqual(
+            app.after_calls,
+            [(int(gui.config.FAST_TRACKER_INTERVAL_MS), app.update_chaos_tome_tracker_timer)],
+        )
 
     def test_refresh_right_tab_after_switch_immediately_refreshes_live_stats(self) -> None:
         app = object.__new__(gui.MegabonkApp)
@@ -3122,6 +3186,45 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(expected_updates, [(7, 3)])
         self.assertEqual(chaos_updates, [{"chaos_level": 2, "permanent_modifiers": {1: ()}}])
+
+    def test_repeated_memory_errors_close_cached_player_stats_client(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        closed: list[str] = []
+        app.player_stats_client = SimpleNamespace(close=lambda: closed.append("closed"))
+        app.player_stats_last_seed = 1
+        app.player_stats_last_run_timer = 2.0
+        app.live_run_tracker = SimpleNamespace(
+            mark_feature_failed=lambda *_args: (_ for _ in ()).throw(
+                RuntimeError("feature-state update failed")
+            ),
+        )
+        app.player_stats_client.resolve_owner_stats = lambda: 0x1234
+        app.player_stats_client.get_chaos_tracking_state = (
+            lambda _owner: (_ for _ in ()).throw(gui.MemoryReadError("stale handle"))
+        )
+
+        self.assertFalse(gui.MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
+        self.assertFalse(gui.MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
+        self.assertIsNotNone(app.player_stats_client)
+        self.assertEqual(closed, [])
+
+        self.assertFalse(gui.MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
+        self.assertIsNone(app.player_stats_client)
+        self.assertEqual(closed, ["closed"])
+
+    def test_successful_memory_read_resets_error_streak(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app._player_stats_memory_error_streak = 2
+        app.player_stats_client = SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_chaos_tracking_state=lambda _owner: (2, {}),
+        )
+        app.live_run_tracker = SimpleNamespace(
+            update_chaos_tome=lambda **_kwargs: None,
+        )
+
+        self.assertTrue(gui.MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
+        self.assertEqual(app._player_stats_memory_error_streak, 0)
 
     def test_chaos_refresh_throttles_expected_chest_reads_to_500ms(self) -> None:
         app = object.__new__(gui.MegabonkApp)

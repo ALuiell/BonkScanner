@@ -44,6 +44,25 @@ class RefreshCoordinatorTests(unittest.TestCase):
         self.assertEqual(diagnostics["bad"].failure_count, 1)
         self.assertEqual(diagnostics["good"].failure_count, 0)
 
+    def test_required_failure_does_not_block_other_tasks(self) -> None:
+        coordinator = RefreshCoordinator(clock=lambda: 10.0)
+        coordinator.register(
+            RefreshTask(
+                "bad_required",
+                500,
+                lambda: (_ for _ in ()).throw(RuntimeError("demand failed")),
+                lambda _context: self.fail("task with failed demand must not run"),
+            )
+        )
+        coordinator.register(RefreshTask("good", 500, lambda: True, lambda _context: True))
+
+        self.assertEqual(coordinator.tick(), ("good",))
+        diagnostics = {entry.task_id: entry for entry in coordinator.diagnostics()}
+        self.assertFalse(diagnostics["bad_required"].active)
+        self.assertEqual(diagnostics["bad_required"].failure_count, 1)
+        self.assertIn("required check failed", diagnostics["bad_required"].last_error or "")
+        self.assertTrue(diagnostics["good"].active)
+
     def test_tasks_share_a_tick_context(self) -> None:
         coordinator = RefreshCoordinator(clock=lambda: 10.0)
         factory_calls: list[str] = []

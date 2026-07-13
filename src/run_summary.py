@@ -20,6 +20,9 @@ from item_metadata import (
 )
 
 
+MAX_TRUSTED_ITEM_STACK_COUNT = 1_000_000
+
+
 def default_stage_summary_rows() -> list[dict[str, str]]:
     return [
         {
@@ -61,6 +64,8 @@ def item_counts(items) -> dict[str, int]:
         count = 1
         if suffix.startswith(" x") and suffix[2:].isdigit():
             count = int(suffix[2:])
+        if count > MAX_TRUSTED_ITEM_STACK_COUNT:
+            continue
         counts[name] = counts.get(name, 0) + max(1, count)
     return counts
 
@@ -255,11 +260,15 @@ def reconcile_stage_summary_kills(rows: list[dict[str, str]], snapshots) -> None
 
 
 def resolve_next_stage_index(current_stage_index: int, previous_snapshot, snapshot) -> int:
+    previous_tracked_stage_index = current_stage_index
+    previous_raw_stage_number = raw_stage_index_to_stage_number(
+        getattr(previous_snapshot, "stage_index", None)
+    )
     raw_stage_number = raw_stage_index_to_stage_number(getattr(snapshot, "stage_index", None))
+    if previous_raw_stage_number == 2 and raw_stage_number == 3:
+        return 3
     if current_stage_index < 4 and raw_stage_number is not None:
         current_stage_index = raw_stage_number
-    if current_stage_index == 3 and looks_like_stage_four_from_map_activity(snapshot):
-        return 4
 
     previous_stage_ptr = int(getattr(previous_snapshot, "stage_ptr", 0) or 0)
     current_stage_ptr = int(getattr(snapshot, "stage_ptr", 0) or 0)
@@ -285,7 +294,11 @@ def resolve_next_stage_index(current_stage_index: int, previous_snapshot, snapsh
     ):
         return current_stage_index + 1
 
-    if current_stage_index == 3 and looks_like_stage_four_transition(previous_snapshot, snapshot):
+    if (
+        previous_tracked_stage_index == 3
+        and current_stage_index == 3
+        and looks_like_stage_four_transition(previous_snapshot, snapshot)
+    ):
         return 4
     return current_stage_index
 
