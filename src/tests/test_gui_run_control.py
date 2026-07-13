@@ -1477,6 +1477,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.template_stats = {"Perfect": {"rerolls_since_last": 2, "history": []}}
         app.after = lambda _delay, callback: callback()
         app.log = lambda _message, tag=None: None
+        refreshed_twitch_snapshots = []
+        app._refresh_twitch_session_snapshot = lambda: refreshed_twitch_snapshots.append(
+            app.session_rerolls
+        )
         app.best_map_stats = None
         app.worst_map_stats = None
 
@@ -1490,6 +1494,7 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertEqual(gui.config.user_config["TOTAL_REROLLS"], 11)
                 save_config.assert_not_called()
                 self.assertTrue(app._total_rerolls_dirty)
+                self.assertEqual(refreshed_twitch_snapshots, [4])
 
                 gui.MegabonkApp._flush_total_rerolls(app, force=True)
                 save_config.assert_called_once_with(gui.config.user_config)

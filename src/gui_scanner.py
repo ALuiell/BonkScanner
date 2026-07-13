@@ -264,6 +264,12 @@ class ScannerMixin:
         for name in list(self.template_stats):
             self.template_stats[name]["rerolls_since_last"] += 1
 
+        # The Twitch worker reads this thread-safe snapshot instead of UI
+        # state, so it must be updated independently of the throttled UI
+        # repaint below.
+        if hasattr(self, "_refresh_twitch_session_snapshot"):
+            self._refresh_twitch_session_snapshot()
+
         if self.session_rerolls % 5 == 0:
             self.after(0, self.refresh_stats_ui)
 
