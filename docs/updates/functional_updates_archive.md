@@ -4,6 +4,70 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Completed / Done Items (Archived 2026-07-12)
+
+### Twitch Commands
+
+#### 6. `!kps` (Kills Per Second) Tracker
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- `PlayerStatsClient` caches and validates the `RunStats.stats["kills"]` dictionary entry for lightweight reads.
+- `LiveRunTracker` calculates current KPS from a smoothed ~3-second window based on the in-game timer; resets, backwards time, and paused time do not create false progress.
+- The Live Stats kills label, VOD snapshots, OBS state, and the configurable `!kps` command consume the shared tracker state.
+- `!kps` reports a warming-up/unavailable response instead of a misleading zero before valid samples exist, and is included in `!bonkhelp`.
+
+Archive note:
+
+- Removed from the active list after implementation and automated coverage were completed.
+
+### Runtime Refresh Architecture
+
+#### 8. Split Live Refresh Into Slow And Fast Tracker Lanes
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- The expensive `full_player_snapshot` runs on the slow player-stats cadence.
+- Independent 500ms fast tasks now handle combat metrics/KPS, powerups, expected chest inputs, event timer state, and Chaos Tome tracking.
+- Shared `RefreshTickContext` values avoid duplicate client and owner-stat resolution within a scheduler tick.
+- `LiveRunTracker` remains the shared fast runtime state consumed by UI, overlays, Twitch, and VOD capture.
+
+Archive note:
+
+- The concrete lane design replaced the original planning/prototype entry.
+
+### In-Game Overlay
+
+#### 1. In-Game Stats Widget
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- Configurable in-game `stats` widget with cap-aware formatting and colors.
+- Forest/Desert use dynamic Difficulty caps by stage and elapsed time plus the fixed `XP Gain` 10x cap; capped values are red and uncapped values cyan.
+- Graveyard uses the standard uncapped stat presentation.
+
+#### 2. In-Game Event Timer Widget
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- Configurable single-line warning and active-wave timer driven by the fast stage-timer lane.
+- Covers Forest/Desert boss and wave timings with orange advance warnings and red active-wave state.
+- Includes the later Graveyard event-timing extension, while retaining empty output when no relevant event is imminent.
+
+Archive note:
+
+- Both overlay widgets reuse the existing resolved map-family and runtime stage-time paths.
+
+---
+
 ## Completed / Done Items (Archived 2026-07-03)
 
 ### In-Game Overlay
@@ -199,7 +263,7 @@ Implemented behavior:
 
 Polling and activation rules:
 
-- Powerup tracking runs in the existing fast tracker timer (`CHAOS_TOME_TRACKER_INTERVAL_MS`, currently `500 ms`).
+- Powerup tracking runs in the existing fast tracker timer (`FAST_TRACKER_INTERVAL_MS`, currently `500 ms`).
 - `Powerup Multiplier` uses a short cached value with forced refresh when the
   active powerup set changes, instead of re-reading the full player stats block
   every fast tick.
