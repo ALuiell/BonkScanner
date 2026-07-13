@@ -364,7 +364,20 @@ def build_event_timer_overlay_html(
                 ("boss", 180.0, 0.0),
             ]
 
-    remaining_time = stage_time_seconds - stage_timer_seconds
+    # `stage_timer_seconds` is the elapsed MyTime stage timer.  The value read
+    # from CurrentStage -> Timeline -> stageTime is a live timeline marker, not
+    # the map's total duration, so it must not be used as the countdown base.
+    # Event schedules use the fixed duration of the active map stage.
+    if is_graveyard:
+        event_stage_duration = 960.0
+    elif stage_index in (0, 1):
+        event_stage_duration = 600.0 if stage_index == 0 else 540.0
+    elif stage_index == 2:
+        event_stage_duration = 480.0
+    else:
+        event_stage_duration = 0.0
+
+    remaining_time = event_stage_duration - stage_timer_seconds
     if remaining_time <= 0:
         return preview_html if edit_mode else ""
 

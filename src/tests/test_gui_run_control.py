@@ -2990,7 +2990,7 @@ class GuiRunControlTests(unittest.TestCase):
             resolve_owner_stats=lambda: 0x1234,
             get_powerup_tracking_snapshot=lambda owner_stats: powerup_snapshot,
             get_expected_chest_inputs=lambda owner_stats: (7, 3),
-            get_stage_timer_context=lambda: (25.0, 2, 420.0),
+            get_stage_timer_context=lambda: (25.0, 2, 480.0),
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
         app._get_player_stats_client = lambda: client
@@ -3022,7 +3022,7 @@ class GuiRunControlTests(unittest.TestCase):
                 {
                     "stage_timer_seconds": 25.0,
                     "stage_index": 2,
-                    "stage_duration_seconds": 420.0,
+                    "stage_duration_seconds": 480.0,
                 }
             ],
         )
@@ -4941,15 +4941,15 @@ class GuiRunControlTests(unittest.TestCase):
                 latest_snapshot=SimpleNamespace(
                 stage_index=0,
                 stage_duration_seconds=480.0,
-                stage_timer_seconds=25.0,
+                stage_timer_seconds=85.0,
             ),
             kps={},
             powerups=SimpleNamespace(),
             powerup_map_context=SimpleNamespace(is_graveyard=False),
             fast_stage_timer=SimpleNamespace(
                 stage_index=2,
-                stage_duration_seconds=420.0,
-                stage_timer_seconds=25.0,
+                stage_duration_seconds=480.0,
+                stage_timer_seconds=85.0,
             ),
             graveyard_main_map_events_active=False,
             )
@@ -4972,6 +4972,47 @@ class GuiRunControlTests(unittest.TestCase):
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]
         self.assertIn("Boss at 6:30", rendered_html)
+
+    def test_overlay_fast_tick_preserves_graveyard_stage_duration_for_event_timer(self) -> None:
+        widget = SimpleNamespace(set_text=MagicMock())
+        app = object.__new__(gui.MegabonkApp)
+        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        app.in_game_overlay_window.widgets = {"event_timer": widget}
+        app.live_run_tracker = SimpleNamespace(
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=SimpleNamespace(
+                    stage_index=2,
+                    stage_duration_seconds=960.0,
+                    stage_timer_seconds=175.0,
+                ),
+                kps={},
+                powerups=SimpleNamespace(),
+                powerup_map_context=SimpleNamespace(is_graveyard=True),
+                fast_stage_timer=SimpleNamespace(
+                    stage_index=2,
+                    stage_duration_seconds=480.0,
+                    stage_timer_seconds=175.0,
+                ),
+                graveyard_main_map_events_active=True,
+            )
+        )
+        app.is_game_window_active = lambda _process_name: True
+        app._refresh_in_game_overlay_slow_widgets = lambda: None
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "kps": {"enabled": False},
+                "stats": {"enabled": False},
+                "event_timer": {"enabled": True, "warning_seconds": 15},
+                "powerups": {"enabled": False},
+            },
+        }
+        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            gui.MegabonkApp._overlay_fast_tick(app)
+
+        rendered_html = widget.set_text.call_args.args[0]
+        self.assertIn("Boss at 13:00", rendered_html)
 
     def test_overlay_fast_tick_shows_event_timer_preview_in_edit_mode(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())

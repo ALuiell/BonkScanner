@@ -207,14 +207,6 @@ class InGameOverlayMixin:
         if fast_stage_context is not None:
             if getattr(fast_stage_context, "stage_index", None) is not None:
                 event_stage_index = int(fast_stage_context.stage_index)
-            event_stage_time_seconds = float(
-                getattr(
-                    fast_stage_context,
-                    "stage_duration_seconds",
-                    event_stage_time_seconds,
-                )
-                or 0.0
-            )
             event_stage_timer_seconds = float(
                 getattr(
                     fast_stage_context,

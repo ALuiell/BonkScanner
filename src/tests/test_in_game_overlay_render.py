@@ -138,6 +138,21 @@ class InGameOverlayRenderTests(unittest.TestCase):
 
         self.assertIn("Wave Active: 30s", html)
 
+    def test_event_timer_does_not_use_timeline_marker_as_map_duration_at_game_start(self) -> None:
+        # stage_time_seconds is a live timeline marker. At game start it may
+        # contain a small/current marker, but the stage still has its full
+        # 600-second event schedule ahead of it.
+        html = build_event_timer_overlay_html(
+            0,
+            0.0,
+            30.0,
+            False,
+            warning_seconds=15,
+        )
+
+        self.assertNotIn("Wave Active", html)
+        self.assertNotIn("Boss at", html)
+
     def test_event_timer_graveyard_behavior(self) -> None:
         # 1. When graveyard events are not active: should hide/return empty string
         html = build_event_timer_overlay_html(
@@ -165,7 +180,8 @@ class InGameOverlayRenderTests(unittest.TestCase):
 
         # Test active wave countdown at 250s elapsed (remaining time 710s, wave event at 720s remaining / 12:00 with 30s duration)
         # Wave is active from 720s remaining to 690s remaining.
-        # Remaining wave duration: remaining_time - end_rem = 710 - 690 = 20s.
+        # The overlay intentionally shows the static wave duration so it does
+        # not drift relative to the game's own wave UI.
         html_active = build_event_timer_overlay_html(
             0,
             250.0,
@@ -199,7 +215,7 @@ class InGameOverlayRenderTests(unittest.TestCase):
 
         self.assertIn("Boss at 7:00", html)
 
-    def test_event_timer_rounds_active_wave_up_for_fractional_seconds(self) -> None:
+    def test_event_timer_keeps_active_wave_duration_static_for_fractional_seconds(self) -> None:
         html = build_event_timer_overlay_html(
             0,
             250.4,

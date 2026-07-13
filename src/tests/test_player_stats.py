@@ -449,6 +449,16 @@ class PlayerStatsClientTests(unittest.TestCase):
 
         self.assertAlmostEqual(value, 9.75)
 
+    def test_get_stage_timer_context_uses_my_time_and_fixed_stage_duration(self) -> None:
+        client = PlayerStatsClient(memory=self.build_memory())
+
+        with patch.object(client, "_read_current_stage_time", return_value=(1, 123.0)):
+            stage_timer, stage_index, stage_duration = client.get_stage_timer_context()
+
+        self.assertAlmostEqual(stage_timer, 9.75)
+        self.assertEqual(stage_index, 1)
+        self.assertEqual(stage_duration, 540.0)
+
     def test_get_powerup_tracking_snapshot_reads_status_effects_and_stage_time(self) -> None:
         memory = self.build_memory()
         base = memory.module_base

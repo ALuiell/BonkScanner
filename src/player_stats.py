@@ -1412,8 +1412,16 @@ class PlayerStatsClient:
         stage_timer = self.memory.read_float(
             my_time_static_fields + self.STAGE_TIMER_OFFSET
         )
-        stage_index, stage_time = self._read_current_stage_time()
-        return stage_timer, stage_index, stage_time
+        stage_index, _stage_time_marker = self._read_current_stage_time()
+        # CurrentStage.Timeline.stageTime is an elapsed/position marker used
+        # for transition detection, not the total duration of the event stage.
+        # Keep the fast timer context explicit about the schedule duration.
+        stage_duration = {
+            0: 600.0,
+            1: 540.0,
+            2: 480.0,
+        }.get(stage_index)
+        return stage_timer, stage_index, stage_duration
 
     def get_powerup_tracking_snapshot(
         self,
