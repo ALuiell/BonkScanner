@@ -524,7 +524,9 @@ class PlayerStatsClient:
     PASSIVE_ITEM_DICT_OFFSET = 0x50
     DICT_ENTRIES_OFFSET = 0x18
     DICT_COUNT_OFFSET = 0x20
-    DICT_VERSION_OFFSET = 0x24
+    # Current IL2CPP Dictionary layout stores freeList/freeCount at 0x24/0x28.
+    # The mutation version follows them at 0x2C.
+    DICT_VERSION_OFFSET = 0x2C
     DICT_ENTRY_START_OFFSET = 0x20
     DICT_ENTRY_SIZE = 0x18
     DICT_ENTRY_HASH_CODE_OFFSET = 0x0
@@ -602,14 +604,17 @@ class PlayerStatsClient:
         self.memory: MemoryReader = memory or ProcessMemory(process_name)
         self._cached_chests_bought_dict = 0
         self._cached_chests_bought_entries = 0
+        self._cached_chests_bought_count = -1
         self._cached_chests_bought_version: int | None = None
         self._cached_chests_bought_address = 0
         self._cached_kills_dict = 0
         self._cached_kills_entries = 0
+        self._cached_kills_count = -1
         self._cached_kills_version: int | None = None
         self._cached_kills_address = 0
         self._cached_key_dict = 0
         self._cached_key_entries = 0
+        self._cached_key_dict_count = -1
         self._cached_key_version: int | None = None
         self._cached_key_stack_address = 0
         self._cached_chaos_level_dict = 0
@@ -789,15 +794,18 @@ class PlayerStatsClient:
             raise MemoryReadError("Passive item dictionary is not initialized.")
 
         entries = self.memory.read_ptr(passive_item_dict + self.DICT_ENTRIES_OFFSET)
+        count = self.memory.read_i32(passive_item_dict + self.DICT_COUNT_OFFSET)
         version = self.memory.read_i32(passive_item_dict + self.DICT_VERSION_OFFSET)
         cache_valid = (
             passive_item_dict == self._cached_key_dict
             and entries == self._cached_key_entries
+            and count == self._cached_key_dict_count
             and version == self._cached_key_version
         )
         if not cache_valid:
             self._cached_key_dict = passive_item_dict
             self._cached_key_entries = entries
+            self._cached_key_dict_count = count
             self._cached_key_version = version
             self._cached_key_stack_address = self._find_passive_item_stack_address(
                 passive_item_dict,
@@ -893,6 +901,7 @@ class PlayerStatsClient:
     def _clear_cached_key_address(self) -> None:
         self._cached_key_dict = 0
         self._cached_key_entries = 0
+        self._cached_key_dict_count = -1
         self._cached_key_version = None
         self._cached_key_stack_address = 0
 
@@ -1804,15 +1813,20 @@ class PlayerStatsClient:
         entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
         if not entries:
             raise MemoryReadError("RunStats.stats entries are not initialized.")
+        count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
+        if count < 0 or count > self.MAX_RUN_STATS_ENTRIES:
+            raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
         version = self.memory.read_i32(stats_dict + self.DICT_VERSION_OFFSET)
 
         if (
             stats_dict != self._cached_chests_bought_dict
             or entries != self._cached_chests_bought_entries
+            or count != self._cached_chests_bought_count
             or version != self._cached_chests_bought_version
         ):
             self._cached_chests_bought_dict = stats_dict
             self._cached_chests_bought_entries = entries
+            self._cached_chests_bought_count = count
             self._cached_chests_bought_version = version
             self._cached_chests_bought_address = self._find_run_stat_value_address(
                 stats_dict,
@@ -1840,15 +1854,20 @@ class PlayerStatsClient:
         entries = self.memory.read_ptr(stats_dict + self.DICT_ENTRIES_OFFSET)
         if not entries:
             raise MemoryReadError("RunStats.stats entries are not initialized.")
+        count = self.memory.read_i32(stats_dict + self.DICT_COUNT_OFFSET)
+        if count < 0 or count > self.MAX_RUN_STATS_ENTRIES:
+            raise MemoryReadError(f"RunStats dictionary count is invalid: {count}")
         version = self.memory.read_i32(stats_dict + self.DICT_VERSION_OFFSET)
 
         if (
             stats_dict != self._cached_kills_dict
             or entries != self._cached_kills_entries
+            or count != self._cached_kills_count
             or version != self._cached_kills_version
         ):
             self._cached_kills_dict = stats_dict
             self._cached_kills_entries = entries
+            self._cached_kills_count = count
             self._cached_kills_version = version
             self._cached_kills_address = self._find_run_stat_value_address(
                 stats_dict,

@@ -1108,7 +1108,7 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(client.get_expected_chest_inputs(0x20000300)[0], 0)
 
         memory.mono_strings[0x20001200] = "chestsBought"
-        memory.ints[0x20001000 + PlayerStatsClient.DICT_VERSION_OFFSET] = 2
+        memory.ints[0x20001000 + PlayerStatsClient.DICT_COUNT_OFFSET] = 2
         self.assertEqual(client.get_expected_chest_inputs(0x20000300)[0], 37)
 
     def test_get_player_level_reads_live_player_xp_level(self) -> None:
