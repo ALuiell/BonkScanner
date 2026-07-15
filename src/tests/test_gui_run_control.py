@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import gui
 import gui_in_game_overlay
+import gui_scanner
 from game_data import RuntimeGameMode, RuntimeGameState
 from refresh_coordinator import RefreshTickContext
 from run_control import KeyboardRunControlProvider
@@ -1063,6 +1064,79 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(gui, "win32gui", fake_gui):
             with patch.object(gui, "win32process", fake_process):
                 self.assertTrue(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
+
+    def test_game_window_focus_recovers_after_game_restarts_with_a_new_pid(self) -> None:
+        app = object.__new__(gui.MegabonkApp)
+        app.client = SimpleNamespace(
+            memory=SimpleNamespace(_pm=SimpleNamespace(process_id=1234)),
+        )
+        app._process_id_matches_name = lambda process_id, process_name: (
+            process_id == 5678 and process_name == "Megabonk.exe"
+        )
+        app.find_game_window_by_pid = lambda process_id, process_name=None: (
+            222 if process_id == 5678 and process_name == "Megabonk.exe" else None
+        )
+        fake_gui = SimpleNamespace(GetForegroundWindow=lambda: 222)
+        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
+
+        with patch.object(gui, "win32gui", fake_gui):
+            with patch.object(gui, "win32process", fake_process):
+                self.assertTrue(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
+
+    def test_background_loop_reconnects_new_game_pid_and_keeps_scanning(self) -> None:
+        class FakeClient:
+            def __init__(self, process_id: int) -> None:
+                self.memory = SimpleNamespace(_pm=SimpleNamespace(process_id=process_id))
+                self.closed = False
+                self.wait_calls = 0
+
+            def close(self) -> None:
+                self.closed = True
+
+            def wait_for_map_ready(self, **_kwargs: object) -> dict[str, int]:
+                self.wait_calls += 1
+                return {"Moais": 4, "Microwaves": 1}
+
+            def get_map_generation_state(self) -> object:
+                return object()
+
+        old_client = FakeClient(1234)
+        new_client = FakeClient(5678)
+        created_clients: list[str] = []
+
+        app = object.__new__(gui.MegabonkApp)
+        app.client = old_client
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.scan_event.set()
+        app.is_running = True
+        app.is_ready_to_start = True
+        app.after = lambda _delay, callback: callback()
+        app.update_status_ui = lambda: None
+        app.is_game_window_active = lambda _process_name: True
+        app.wait_for_game_window_focus = lambda _process_name: True
+        app._foreground_game_process_id = lambda _process_name: 5678
+        app.check_best_map = lambda _stats: None
+        app.check_worst_map = lambda _stats: None
+        app.evaluate_candidate = lambda _stats, context=None: {"name": "Perfect", "color": "GREEN"}
+        app.log_target_found = lambda _name: None
+        app.handle_confirmed_target_window = lambda _process_name: app.stop_event.set() or True
+        app.log = lambda _message, tag=None: None
+        app._flush_total_rerolls = lambda force=False: None
+
+        def create_client(*, process_name: str) -> FakeClient:
+            created_clients.append(process_name)
+            return new_client
+
+        with patch.object(gui_scanner, "GameDataClient", create_client), patch.object(
+            gui_scanner, "adapt_map_stats", lambda raw_stats: raw_stats
+        ):
+            gui.MegabonkApp.background_loop(app)
+
+        self.assertTrue(old_client.closed)
+        self.assertEqual(created_clients, ["Megabonk.exe"])
+        self.assertEqual(new_client.wait_calls, 1)
+        self.assertTrue(new_client.closed)
 
     def test_keyboard_mode_still_waits_when_game_window_is_not_active(self) -> None:
         logs: list[tuple[str, str | None]] = []

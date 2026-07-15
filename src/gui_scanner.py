@@ -341,6 +341,25 @@ class ScannerMixin:
                 pass
             self.client = None
 
+    def _disconnect_stale_scanner_client(self, process_name: str) -> bool:
+        attached_process_id = self._attached_game_process_id()
+        foreground_process_id = self._foreground_game_process_id(process_name)
+        if (
+            attached_process_id is None
+            or foreground_process_id is None
+            or attached_process_id == foreground_process_id
+        ):
+            return False
+
+        self.log(
+            f"[*] Game process changed ({attached_process_id} -> {foreground_process_id}). Reconnecting scanner...",
+            tag="warning",
+        )
+        self.close_client()
+        self.is_ready_to_start = False
+        self.after(0, self.update_status_ui)
+        return True
+
     def background_loop(self):
         process_name = config.PROCESS_NAME.strip()
         wait_state = None
@@ -384,6 +403,12 @@ class ScannerMixin:
             try:
                 focus_was_active = self.is_game_window_active(process_name)
                 if not self.wait_for_game_window_focus(process_name):
+                    continue
+                if self._disconnect_stale_scanner_client(process_name):
+                    is_first_scan = True
+                    wait_state = None
+                    last_state = None
+                    last_stats = None
                     continue
                 if not focus_was_active:
                     is_first_scan = True

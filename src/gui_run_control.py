@@ -134,33 +134,41 @@ class RunControlMixin:
     def is_keyboard_run_control_active(self) -> bool:
         return isinstance(self.run_control_provider, KeyboardRunControlProvider)
 
-    def is_game_window_active(self, process_name: str) -> bool:
+    def _foreground_game_process_id(self, process_name: str) -> int | None:
         if win32gui is None or win32process is None:
-            return True
+            return None
         foreground_window = win32gui.GetForegroundWindow()
         if not foreground_window:
-            return False
+            return None
         try:
             _, foreground_process_id = win32process.GetWindowThreadProcessId(foreground_window)
         except Exception:
-            return False
+            return None
         try:
             foreground_process_id = int(foreground_process_id)
         except (TypeError, ValueError):
-            return False
+            return None
         if foreground_process_id <= 0:
-            return False
+            return None
 
         attached_process_id = self._attached_game_process_id()
         if attached_process_id is not None:
-            return (
+            if (
                 foreground_process_id == attached_process_id
                 and self.find_game_window_by_pid(attached_process_id, process_name=process_name) is not None
-            )
+            ):
+                return foreground_process_id
 
         if not self._process_id_matches_name(foreground_process_id, process_name):
-            return False
-        return self.find_game_window_by_pid(foreground_process_id, process_name=process_name) is not None
+            return None
+        if self.find_game_window_by_pid(foreground_process_id, process_name=process_name) is None:
+            return None
+        return foreground_process_id
+
+    def is_game_window_active(self, process_name: str) -> bool:
+        if win32gui is None or win32process is None:
+            return True
+        return self._foreground_game_process_id(process_name) is not None
 
     def wait_for_game_window_focus(self, process_name: str) -> bool:
         if self.is_game_window_active(process_name):
