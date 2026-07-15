@@ -29,110 +29,34 @@ Planned future work:
 - Add `Bald Heads` as a score input only for the map family where it exists.
 - Keep legacy score tiers backward-compatible for older maps unless there is an explicit rebalance pass.
 
-#### 7. Fix Clean Short Active Run Edge Case
+#### 10. Rework Stage Summary Around Fast Runtime Samples
 
 Status: `[Open]`
 
 Goal:
 
-- Ensure the "Clean Short" recordings functionality does not crash when the current active run falls below the snapshot threshold.
-- Catch the file lock exception (e.g., `WinError 32` / `PermissionError`) raised when attempting to delete the active recording file, or implement a check to explicitly skip the active run's file during iteration.
-- Ensure all other short recordings are successfully deleted even if the active run is encountered and skipped.
-
-#### 8. Harden The Live Powerup Read Pipeline
-
-Status: `[Open]`
-
-Goal:
-
-- Make the full live-data path resilient to transient or incomplete memory reads:
-  `memory read -> validation -> normalized snapshot -> Live Stats / OBS overlay /
-  Twitch bot / in-game overlay`.
-- Prevent a partially read powerup state from replacing the last known-good state
-  and making an active `Clock` or `TimeFreeze` effect disappear from every consumer.
-
-Current mitigation:
-
-- Commit `f8b2fcb` keeps the last valid powerup snapshot for `1.5s` when the fast
-  refresh path raises a read exception.
-- This protects against hard read failures, but it does not protect against a
-  successful-looking incomplete read. For example, `get_active_status_effects()`
-  can return an empty tuple after a pointer, dictionary, count, or entry read is
-  unavailable, and a failed `Powerup Multiplier` refresh can return `None`.
-- `LiveRunTracker.update_powerups()` currently accepts those values and writes a
-  fresh `available=True` snapshot with no active effects, so the TTL cannot help.
-
-Refactor requirements:
-
-- Separate raw memory reads from interpretation and consumer-facing state.
-- Return an explicit read result for each data group, including at least:
-  - `available` / `unavailable`
-  - `complete` / `partial`
-  - a machine-readable failure reason
-  - capture timestamp and source/read lane
-- Treat `effects=()` as authoritative only when the status-effect dictionary was
-  read and validated completely. An empty result caused by a failed or suspicious
-  read must not clear the previous active-effects snapshot.
-- Treat `powerup_multiplier=None` as a failed dependency for powerup analysis, not
-  as proof that no powerups are active. Preserve the last known-good analyzed
-  state until a valid replacement arrives or an explicit run reset is detected.
-- Keep the source effect model accurate: normal Clock uses the PM-scaled duration,
-  while Za Warudo produces the same `TimeFreeze` / `effect_id == 4` status effect
-  with a fixed `15.0s` duration. The shared effect ID is an attribution ambiguity,
-  not by itself a reason to reject or hide the active effect.
-- Ensure all consumers read the same normalized snapshot and do not independently
-  reinterpret raw memory values or failure states.
-- Add bounded diagnostics for rejected snapshots, especially:
-  `status_effects_unavailable`, `status_effects_partial`,
-  `powerup_multiplier_unavailable`, `effect_4_missing`, and invalid time fields.
-- Add tests for hard read errors, successful-but-empty reads, partial effect lists,
-  multiplier read failures, recovery after several failed polls, and explicit run
-  resets. Tests should verify that all consumers observe the same last-known-good
-  state.
-
-Implementation guidance:
-
-- Keep the current TTL fallback as a compatibility safety net during the refactor,
-  but move freshness and validity decisions into the shared snapshot layer rather
-  than individual UI refresh handlers.
-- Do not add a separate high-frequency inventory scan only to distinguish Clock
-  from Za Warudo. Attribution can remain ambiguous in the active-effect snapshot
-  and be resolved later from slower item snapshots where required.
-- Do not treat Alt+Tab or a single `ReadProcessMemory` failure as a Clock-specific
-  diagnosis. Log the failed read category first; the same pipeline should support
-  all powerups and all consumers.
-
-#### 9. Automated IL2CPP Offset Validator and Handoff Reporter
-
-Status: `[Open]`
-
-Goal:
-
-- Implement a diagnostic Python utility `tools/offset_finder.py` that verifies memory offsets against a fresh IL2CPP `dump.cs` after a game update and generates a Markdown handoff report for manual follow-up.
-- Reduce repetitive VS Code and Cheat Engine audit work by comparing expected classes and fields against the dump-derived metadata without attempting to automatically rewrite the production code.
+- Rework the Stage Summary card so stage boundaries are calculated from runtime
+  values that the application already reads frequently, instead of relying only
+  on the full player snapshot collected every `10s`.
+- Prevent kills earned near a map transition from being assigned to the next
+  stage merely because the first snapshot after the transition arrived late.
 
 Planned future work:
 
-- **Expectations Config**:
-  - Store the expected runtime offsets in a dedicated config file instead of deriving expectations from ad-hoc scans of the Python source.
-  - For each tracked entry, record the code constant id, target class name, field name, offset kind, current expected offset, source file, and optional notes.
-  - Cover the classes and fields that the application relies on, such as `MapController.currentStage`, `PlayerInventory.statusEffects`, and `StatusEffect.expirationTime`.
-- **IL2CPP Dump Parsing**:
-  - Load the `dump.cs` file produced by the IL2CPP Dumper and extract class definitions, static fields, instance fields, and their hexadecimal offsets.
-  - Prefer a small structured parser around the `dump.cs` layout instead of relying on one large fragile regular expression.
-- **Verification and Audit Output**:
-  - Compare the parsed offsets against the expectations config and report whether each entry is `matched`, `shifted`, `missing`, or `ambiguous`.
-  - Include the old and newly observed offsets for shifted entries, and clearly flag entries that require manual review due to field removal, renaming, or multiple candidates.
-  - Keep the tool strictly diagnostic for the first version; it should not patch `src/game_data.py`, `src/player_stats.py`, or other source files in-place.
-- **Handoff Reporting**:
-  - Generate a Markdown report summarizing all checked entries, including sections for matched offsets, shifted offsets, missing fields, ambiguous matches, and suggested manual code updates.
-  - Match the report structure and wording expectations of `docs/recovery/HANDOFF_TEMPLATE.md` so the output can be reused directly for manual verification in Cheat Engine and for updating the recovery guides.
-
-Scope guardrails:
-
-- Treat this utility as a metadata validator and handoff generator, not as a full runtime recovery tool.
-- Do not treat a `dump.cs` match as proof that the full live memory path still works at runtime; dictionary layouts, object roots, and runtime behavior may still require manual verification.
-- Defer any future auto-patching work unless the project later adopts explicit, tightly controlled source annotations for safe one-to-one offset replacement.
+- Make the existing fast kill counter the shared source of truth for Stage
+  Summary totals and stage-transition boundaries.
+- Evaluate using the already available fast run timer and stage timer/index reads
+  to record a precise boundary sample when the player enters the next stage.
+- Keep slower snapshot data for values that are not already available through a
+  fast read, such as the detailed item summary.
+- Avoid adding duplicate memory reads: reuse the fast values already collected
+  for KPS and event timing, and inject their latest valid values into recordings
+  and other consumers where needed.
+- Ensure the Stage Summary card, Twitch stage announcements, OBS/In-Game
+  overlays, and saved recordings all use the same stage-boundary result.
+- Add transition tests where the last `10s` snapshot is taken shortly before the
+  player changes maps and the next full snapshot is already several seconds into
+  the following stage.
 
 ### Twitch Commands
 

@@ -224,7 +224,7 @@ class PlayerStatsMixin:
         coordinator.register(
             RefreshTask(
                 task_id="event_timer",
-                interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
+                interval_ms=1_000,
                 required=self._should_refresh_fast_stage_timer,
                 run=self._refresh_event_timer_task,
             )
@@ -346,7 +346,14 @@ class PlayerStatsMixin:
                     self.player_stats_mob_kills_label,
                     self.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps()),
                 )
-            if self._overlay_widget_refresh_active("kps"):
+                self._set_stage_summary_labels(
+                    getattr(self, "player_stats_stage_summary_labels", None),
+                    self.live_run_tracker.stage_summary_rows(),
+                )
+            if (
+                self._overlay_widget_refresh_active("kps")
+                or self._overlay_widget_refresh_active("stage_summary")
+            ):
                 self.update_overlay_state_from_tracker()
             return True
         except Exception as exc:
@@ -369,6 +376,13 @@ class PlayerStatsMixin:
                 stage_duration_seconds=stage_duration_seconds,
             )
             self._mark_fast_feature_available("stage_timer")
+            if self._is_live_stats_tab_active():
+                self._set_stage_summary_labels(
+                    getattr(self, "player_stats_stage_summary_labels", None),
+                    self.live_run_tracker.stage_summary_rows(),
+                )
+            if self._overlay_widget_refresh_active("stage_summary"):
+                self.update_overlay_state_from_tracker()
             return True
         except Exception as exc:
             self._record_player_stats_memory_failure(exc)
@@ -432,9 +446,17 @@ class PlayerStatsMixin:
                 pass
         if self._is_vod_recording():
             return True
-        if self._in_game_overlay_widget_enabled("kps"):
+        if (
+            self._in_game_overlay_widget_enabled("kps")
+            or self._in_game_overlay_widget_enabled("stage_summary")
+        ):
             return True
-        if self._overlay_widget_refresh_active("kps"):
+        if (
+            self._overlay_widget_refresh_active("kps")
+            or self._overlay_widget_refresh_active("stage_summary")
+        ):
+            return True
+        if self._twitch_stage_summary_refresh_active():
             return True
         is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
         commands_cfg = config.TWITCH_BOT.get("commands", {})
@@ -488,10 +510,37 @@ class PlayerStatsMixin:
         return bool(recorder is not None and getattr(recorder, "is_recording", False))
 
     def _should_refresh_fast_stage_timer(self) -> bool:
+        if bool(getattr(self, "_player_stats_completed_run", False)):
+            return False
+        is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
+        if callable(is_live_stats_tab_active):
+            try:
+                if is_live_stats_tab_active():
+                    return True
+            except Exception:
+                pass
+        if self._is_vod_recording() or self._twitch_stage_summary_refresh_active():
+            return True
         return (
-            not bool(getattr(self, "_player_stats_completed_run", False))
-            and self._in_game_overlay_widget_enabled("event_timer")
+            self._in_game_overlay_widget_enabled("event_timer")
+            or self._in_game_overlay_widget_enabled("stage_summary")
+            or self._overlay_widget_refresh_active("stage_summary")
         )
+
+    def _twitch_stage_summary_refresh_active(self) -> bool:
+        is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
+        if not callable(is_twitch_bot_active):
+            return False
+        try:
+            if not is_twitch_bot_active():
+                return False
+        except Exception:
+            return False
+        commands = config.TWITCH_BOT.get("commands", {})
+        stages_enabled = bool(
+            commands.get("stages", config.DEFAULT_TWITCH_BOT["commands"].get("stages", False))
+        )
+        return stages_enabled or bool(config.TWITCH_BOT.get("stage_announcements", True))
 
     def _overlay_widget_refresh_active(self, widget_id: str) -> bool:
         server = getattr(self, "overlay_server", None)
@@ -2816,8 +2865,17 @@ class PlayerStatsMixin:
             return
 
         selected_path = self.loaded_vod.metadata.path if self.loaded_vod is not None else None
+        recorder = getattr(self, "player_stats_vod_recorder", None)
+        active_path = (
+            getattr(recorder, "path", None)
+            if recorder is not None and getattr(recorder, "is_recording", False)
+            else None
+        )
         try:
-            removed = delete_vods_below_snapshot_count(dialog.threshold)
+            result = delete_vods_below_snapshot_count(
+                dialog.threshold,
+                excluded_paths={active_path} if active_path is not None else None,
+            )
         except Exception as exc:
             _set_text(self.vods_status_label, f"Could not clean recordings: {exc}")
             return
@@ -2826,7 +2884,11 @@ class PlayerStatsMixin:
             self._clear_loaded_vod_selection()
 
         self.refresh_vods_list()
-        self.log(f"[*] Removed {removed} recordings with snapshot count below {dialog.threshold}.", tag="success")
+        message = f"[*] Removed {result.removed} recordings with snapshot count below {dialog.threshold}."
+        skipped = result.skipped_active + result.skipped_locked
+        if skipped:
+            message += f" Skipped {skipped} active or locked recording(s)."
+        self.log(message, tag="success")
 
     def delete_selected_vod(self):
         if self.loaded_vod is None:

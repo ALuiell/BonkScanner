@@ -338,6 +338,179 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(len(tracker._recent_kills_history), 1)
         self.assertEqual(tracker._recent_kills_history[-1], (586.522217, 48_360))
 
+    def test_stage_summary_uses_latest_fast_combat_sample_for_time_and_kills(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=10.0, mob_kills=100, items=("Anvil x1",)))
+        items_before_fast_sample = tracker.stage_summary_rows()[0]["items"]
+
+        tracker.track_kills(19.8, 275)
+
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(rows[0]["time"], "00:19")
+        self.assertEqual(rows[0]["kills"], "275")
+        self.assertEqual(rows[0]["items"], items_before_fast_sample)
+
+    def test_stage_summary_does_not_apply_fast_sample_from_before_full_snapshot(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(snapshot(time_seconds=10.0, mob_kills=100))
+        tracker.track_kills(12.0, 125)
+        tracker.update(snapshot(time_seconds=20.0, mob_kills=200))
+
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(rows[0]["time"], "00:20")
+        self.assertEqual(rows[0]["kills"], "200")
+
+    def test_fast_stage_index_closes_stage_summary_at_fast_combat_sample(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=100.0,
+                mob_kills=1_000,
+                stage_index=0,
+                stage_time_seconds=100.0,
+            )
+        )
+        tracker.track_kills(105.0, 1_075)
+
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=1.0,
+            stage_index=1,
+            stage_duration_seconds=600.0,
+        )
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=2.0,
+            stage_index=1,
+            stage_duration_seconds=600.0,
+        )
+
+        _, stage_index = tracker.run_identity()
+        rows = tracker.stage_summary_rows()
+        self.assertEqual(stage_index, 2)
+        self.assertEqual(rows[0]["time"], "01:45")
+        self.assertEqual(rows[0]["kills"], "1,075")
+        self.assertEqual(rows[1]["time"], "00:00")
+        self.assertEqual(rows[1]["kills"], "0")
+
+    def test_fast_stage_timer_preserves_stage_four_transition_heuristic(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=500.0,
+                mob_kills=5_000,
+                stage_index=2,
+                stage_time_seconds=500.0,
+            )
+        )
+        tracker.track_kills(501.0, 5_050)
+
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=1.0,
+            stage_index=2,
+            stage_duration_seconds=600.0,
+        )
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=2.0,
+            stage_index=2,
+            stage_duration_seconds=600.0,
+        )
+
+        _, stage_index = tracker.run_identity()
+        self.assertEqual(stage_index, 4)
+
+    def test_fast_stage_transition_survives_transient_timer_read_failure(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=100.0,
+                mob_kills=1_000,
+                stage_index=0,
+                stage_time_seconds=100.0,
+            )
+        )
+        tracker.track_kills(105.0, 1_075)
+        for stage_time in (1.0, 2.0):
+            tracker.update_fast_stage_timer(
+                stage_timer_seconds=stage_time,
+                stage_index=1,
+                stage_duration_seconds=540.0,
+            )
+
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=None,
+            stage_index=None,
+            stage_duration_seconds=None,
+        )
+
+        _, stage_index = tracker.run_identity()
+        rows = tracker.stage_summary_rows()
+        self.assertEqual(stage_index, 2)
+        self.assertEqual(rows[0]["kills"], "1,075")
+        self.assertEqual(rows[1]["kills"], "0")
+
+    def test_new_run_clears_fast_stage_boundaries_and_context(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=100.0,
+                mob_kills=1_000,
+                map_seed=1,
+                stage_index=0,
+                stage_time_seconds=100.0,
+            )
+        )
+        tracker.track_kills(105.0, 1_075)
+        for stage_time in (1.0, 2.0):
+            tracker.update_fast_stage_timer(
+                stage_timer_seconds=stage_time,
+                stage_index=1,
+                stage_duration_seconds=540.0,
+            )
+
+        tracker.update(
+            snapshot(
+                time_seconds=1.0,
+                mob_kills=0,
+                map_seed=2,
+                stage_index=0,
+                stage_time_seconds=1.0,
+            )
+        )
+
+        _, stage_index = tracker.run_identity()
+        rows = tracker.stage_summary_rows()
+        self.assertEqual(stage_index, 1)
+        self.assertEqual(rows[0]["kills"], "0")
+        self.assertEqual(rows[1]["kills"], "--")
+        self.assertEqual(tracker._fast_stage_boundaries, [])
+        self.assertIsNone(tracker.fast_stage_timer_context())
+
+    def test_fast_stage_transition_requires_confirmation(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=100.0,
+                mob_kills=1_000,
+                stage_index=0,
+                stage_time_seconds=100.0,
+            )
+        )
+        tracker.track_kills(101.0, 1_010)
+
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=1.0,
+            stage_index=2,
+            stage_duration_seconds=480.0,
+        )
+
+        _, stage_index = tracker.run_identity()
+        rows = tracker.stage_summary_rows()
+        self.assertEqual(stage_index, 1)
+        self.assertEqual(tracker._fast_stage_boundaries, [])
+        self.assertEqual(rows[1]["kills"], "--")
+        self.assertEqual(rows[2]["kills"], "--")
+
     def test_current_minute_avg_kps_uses_last_sixty_seconds(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.track_kills(0.0, 0)

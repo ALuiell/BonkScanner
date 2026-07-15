@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from math import gcd, isfinite
 import time
@@ -19,6 +19,7 @@ from stat_label_abbreviations import abbreviate_stat_label
 
 POWERUP_MAP_CONTEXT_TTL_SECONDS = 15.0
 FAST_STAGE_TIMER_TTL_SECONDS = 2.0
+FAST_STAGE_TRANSITION_CONFIRMATION_SAMPLES = 2
 POWERUPS_SNAPSHOT_TTL_SECONDS = 1.5
 
 
@@ -279,6 +280,9 @@ class _RunState:
     last_no_game_at: float | None = None
     cached_stage_summary: list[dict[str, Any]] | None = None
     disabled_items_cache: tuple[str, ...] | None = None
+    fast_stage_boundaries: list[LiveRunSnapshot] = field(default_factory=list)
+    pending_fast_stage_index: int | None = None
+    pending_fast_stage_samples: int = 0
 
 
 @dataclass
@@ -410,7 +414,8 @@ class LiveRunTracker:
         **{name: "_run_state" for name in (
             "run_id", "_lifecycle", "snapshots", "current_stage_index",
             "_last_update_at", "_last_failed_at", "_last_no_game_at",
-            "_cached_stage_summary", "_disabled_items_cache",
+            "_cached_stage_summary", "_disabled_items_cache", "_fast_stage_boundaries",
+            "_pending_fast_stage_index", "_pending_fast_stage_samples",
         )},
         **{name: "_combat_state" for name in (
             "_recent_kills_history", "_ui_kps_baseline", "_ui_kps_value",
@@ -746,8 +751,69 @@ class LiveRunTracker:
 
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:
         if self._cached_stage_summary is None:
-            self._cached_stage_summary = run_summary.build_stage_summary(tuple(self.snapshots))
+            snapshots = self._stage_summary_timeline_unlocked()
+            fast_snapshot = self._fast_stage_summary_snapshot_unlocked()
+            if fast_snapshot is not None:
+                snapshots += (fast_snapshot,)
+            self._cached_stage_summary = run_summary.build_stage_summary(snapshots)
         return copy.deepcopy(self._cached_stage_summary)
+
+    @staticmethod
+    def _stage_summary_snapshot_sort_key(snapshot: LiveRunSnapshot) -> tuple[bool, float, float]:
+        game_time = snapshot.game_time_seconds
+        return (
+            game_time is None,
+            float("inf") if game_time is None else float(game_time),
+            float(snapshot.captured_at),
+        )
+
+    def _stage_summary_timeline_unlocked(self) -> tuple[LiveRunSnapshot, ...]:
+        timeline = [*self.snapshots, *self._fast_stage_boundaries]
+        timeline.sort(key=self._stage_summary_snapshot_sort_key)
+        return tuple(timeline)
+
+    def _latest_stage_summary_snapshot_unlocked(self) -> LiveRunSnapshot | None:
+        timeline = self._stage_summary_timeline_unlocked()
+        return timeline[-1] if timeline else None
+
+    def _fast_stage_summary_snapshot_unlocked(
+        self,
+        *,
+        include_unconfirmed_stage_context: bool = False,
+    ) -> LiveRunSnapshot | None:
+        """Project fresh runtime values without exposing an unconfirmed transition."""
+        latest_snapshot = self._latest_stage_summary_snapshot_unlocked()
+        if latest_snapshot is None:
+            return None
+        changes: dict[str, Any] = {"items_available": False}
+
+        if self._recent_kills_history:
+            latest_game_time = latest_snapshot.game_time_seconds
+            fast_game_time, fast_kills = self._recent_kills_history[-1]
+            if latest_game_time is not None and fast_game_time >= float(latest_game_time):
+                if (
+                    fast_game_time != float(latest_game_time)
+                    or latest_snapshot.mob_kills is None
+                    or fast_kills != int(latest_snapshot.mob_kills)
+                ):
+                    changes.update(
+                        captured_at=float(self.clock()),
+                        game_time_seconds=float(fast_game_time),
+                        mob_kills=int(fast_kills),
+                    )
+
+        stage_context = self._fresh_fast_stage_timer_context_unlocked()
+        if include_unconfirmed_stage_context and stage_context is not None:
+            changes.update(
+                stage_timer_seconds=stage_context.stage_timer_seconds,
+                stage_time_seconds=stage_context.stage_timer_seconds,
+                stage_duration_seconds=stage_context.stage_duration_seconds,
+                stage_index=stage_context.stage_index,
+            )
+
+        if len(changes) == 1:
+            return None
+        return replace(latest_snapshot, **changes)
 
     def _tracked_item_rows_unlocked(self) -> list[dict[str, Any]]:
         return self._tracked_item_rows_for_rules_unlocked(self.tracked_item_rules)
@@ -779,9 +845,11 @@ class LiveRunTracker:
             elif game_time_seconds == last_time:
                 # Prevent deque bloat when the game is paused (time is frozen)
                 self._recent_kills_history[-1] = (game_time_seconds, max(last_kills, current_kills))
+                self._cached_stage_summary = None
                 return
 
         self._recent_kills_history.append((game_time_seconds, current_kills))
+        self._cached_stage_summary = None
 
         while self._recent_kills_history and self._recent_kills_history[0][0] < game_time_seconds - 300.0:
             self._recent_kills_history.popleft()
@@ -840,6 +908,9 @@ class LiveRunTracker:
     ) -> None:
         if stage_timer_seconds is None:
             self._fast_stage_timer_context = FastStageTimerContext()
+            self._pending_fast_stage_index = None
+            self._pending_fast_stage_samples = 0
+            self._cached_stage_summary = None
             return
         self._mark_feature_success_unlocked("progression", self.clock())
         self._fast_stage_timer_context = FastStageTimerContext(
@@ -852,6 +923,34 @@ class LiveRunTracker:
                 else float(stage_duration_seconds)
             ),
         )
+        fast_snapshot = self._fast_stage_summary_snapshot_unlocked(
+            include_unconfirmed_stage_context=True,
+        )
+        latest_snapshot = self._latest_stage_summary_snapshot_unlocked()
+        if fast_snapshot is not None and latest_snapshot is not None:
+            next_stage_index = min(
+                run_summary.resolve_next_stage_index(
+                    self.current_stage_index,
+                    latest_snapshot,
+                    fast_snapshot,
+                ),
+                4,
+            )
+            if next_stage_index > self.current_stage_index:
+                if self._pending_fast_stage_index == next_stage_index:
+                    self._pending_fast_stage_samples += 1
+                else:
+                    self._pending_fast_stage_index = next_stage_index
+                    self._pending_fast_stage_samples = 1
+                if self._pending_fast_stage_samples >= FAST_STAGE_TRANSITION_CONFIRMATION_SAMPLES:
+                    self._fast_stage_boundaries.append(fast_snapshot)
+                    self.current_stage_index = next_stage_index
+                    self._pending_fast_stage_index = None
+                    self._pending_fast_stage_samples = 0
+            else:
+                self._pending_fast_stage_index = None
+                self._pending_fast_stage_samples = 0
+        self._cached_stage_summary = None
 
     @with_lock
     def fast_stage_timer_context(self) -> FastStageTimerContext | None:
@@ -1467,6 +1566,10 @@ class LiveRunTracker:
         self.run_id = uuid4().hex
         self._lifecycle = RunLifecycle.ACTIVE
         self.snapshots.clear()
+        self._fast_stage_boundaries.clear()
+        self._fast_stage_timer_context = FastStageTimerContext()
+        self._pending_fast_stage_index = None
+        self._pending_fast_stage_samples = 0
         self._recent_kills_history.clear()
         self._reset_ui_kps_unlocked()
         self.current_stage_index = 1

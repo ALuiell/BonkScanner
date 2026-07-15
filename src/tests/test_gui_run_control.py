@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import gui
 import gui_in_game_overlay
+import gui_player_stats
 import gui_scanner
 from game_data import RuntimeGameMode, RuntimeGameState
 from refresh_coordinator import RefreshTickContext
@@ -2892,17 +2893,19 @@ class GuiRunControlTests(unittest.TestCase):
 
         app.read_player_stats_only = failing_read_player_stats_only
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.time, "monotonic", return_value=100.0):
-            gui.MegabonkApp.update_player_stats_timer(app)
+        fallback_client = FakeSeedStateClient([None, None])
+        with patch.object(gui_player_stats, "GameDataClient", return_value=fallback_client):
+            with patch.object(gui.config, "AUTO_START_RECORDING", False), \
+                 patch.object(gui.time, "monotonic", return_value=100.0):
+                gui.MegabonkApp.update_player_stats_timer(app)
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(
-                gui.time,
-                "monotonic",
-                return_value=100.0 + gui.PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
-            ):
-            gui.MegabonkApp.update_player_stats_timer(app)
+            with patch.object(gui.config, "AUTO_START_RECORDING", False), \
+                 patch.object(
+                    gui.time,
+                    "monotonic",
+                    return_value=100.0 + gui.PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
+                ):
+                gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
@@ -3123,6 +3126,36 @@ class GuiRunControlTests(unittest.TestCase):
         }
         with patch.object(gui.config, "AUTO_START_RECORDING", False), \
              patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
+            self.assertTrue(gui.MegabonkApp._should_refresh_fast_stage_timer(app))
+
+    def test_stage_summary_fast_demands_are_active_for_twitch_stages(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder.is_recording = False
+        app._is_live_stats_tab_active = lambda: False
+        app._is_twitch_bot_active = lambda: True
+
+        twitch_cfg = {
+            **gui.config.TWITCH_BOT,
+            "stage_announcements": False,
+            "commands": {
+                **gui.config.TWITCH_BOT.get("commands", {}),
+                "kps": False,
+                "stages": True,
+            },
+        }
+        with patch.object(gui.config, "TWITCH_BOT", twitch_cfg), \
+             patch.object(gui.config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}), \
+             patch.object(gui.config, "OVERLAY", {"widgets": []}):
+            self.assertTrue(gui.MegabonkApp._should_refresh_fast_kps(app))
+            self.assertTrue(gui.MegabonkApp._should_refresh_fast_stage_timer(app))
+
+    def test_stage_timer_demand_is_active_while_recording(self) -> None:
+        app = self.build_recording_app()
+        app._is_live_stats_tab_active = lambda: False
+        app._is_twitch_bot_active = lambda: False
+
+        with patch.object(gui.config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}), \
+             patch.object(gui.config, "OVERLAY", {"widgets": []}):
             self.assertTrue(gui.MegabonkApp._should_refresh_fast_stage_timer(app))
 
 

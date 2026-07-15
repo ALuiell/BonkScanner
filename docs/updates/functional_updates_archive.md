@@ -4,6 +4,71 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Recently Handled Items (Archived 2026-07-15)
+
+### Recordings
+
+#### 7. Fix Clean Short Active Run Edge Case
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- `Clean Short` explicitly excludes the currently active recorder file.
+- `PermissionError` and other `OSError` failures on individual files are skipped so the remaining short recordings are still processed.
+- The UI reports the number of removed and skipped active/locked recordings.
+- Regression coverage verifies that an active file and a locked file remain while other short files are deleted.
+
+Code anchors:
+
+- `src/vod_storage.py`
+- `src/gui_player_stats.py`
+- `src/tests/test_vod_storage.py`
+
+### Live Runtime
+
+#### 8. Harden The Live Powerup Read Pipeline
+
+Status: `[Partial / Archived]`
+
+Implemented scope:
+
+- Added structured read health for timing, status effects, and `Powerup Multiplier`.
+- Incomplete or unavailable powerup reads are rejected before replacing the shared tracker snapshot.
+- The existing last-known-good TTL fallback remains active for transient failures.
+- Added coverage for hard failures, partial effect lists, empty reads, multiplier failures, recovery, and shared consumer state.
+
+Remaining caveat:
+
+- The snapshot still expires after the compatibility TTL instead of being retained indefinitely until a valid replacement or explicit run reset.
+- Runtime diagnostics and full run-reset semantics remain follow-up work.
+
+Key commits:
+
+- `f8b2fcb` — preserve powerup snapshots through transient read errors.
+- `db2132d` — harden powerup memory reads and add health validation.
+- `5da3844` — prevent auxiliary reads from hiding powerups.
+
+### Recovery Tooling
+
+#### 9. Automated IL2CPP Offset Validator and Handoff Reporter
+
+Status: `[Implemented locally / Pending commit]`
+
+Implemented scope:
+
+- Added local `tools/offset_finder.py` utility.
+- Parses IL2CPP `dump.cs` metadata and optional `il2cpp.h` / `script.json` TypeInfo sources.
+- Compares configured expectations and reports `matched`, `shifted`, `missing`, `ambiguous`, and `unverified` entries.
+- Generates a Markdown validation and handoff draft with manual follow-up sections.
+- Remains diagnostic-only and does not patch production source files.
+
+Archive note:
+
+- The `tools/` directory is currently ignored by Git, so this utility is present in the workspace but is not yet included in a commit.
+
+---
+
 ## Completed / Done Items (Archived 2026-07-12)
 
 ### Twitch Commands

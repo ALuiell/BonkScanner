@@ -106,6 +106,13 @@ class LoadedVod:
     snapshots: tuple[VodSnapshot, ...]
 
 
+@dataclass(frozen=True)
+class VodCleanupResult:
+    removed: int = 0
+    skipped_active: int = 0
+    skipped_locked: int = 0
+
+
 def _metadata_to_index_record(metadata: VodMetadata, *, mtime_ns: int, size: int) -> dict[str, Any]:
     return {
         "path": str(metadata.path),
@@ -511,14 +518,41 @@ def delete_vod(path: Path) -> None:
     clear_vod_metadata_cache()
 
 
-def delete_vods_below_snapshot_count(min_snapshot_count: int, vods_dir: Path | None = None) -> int:
+def delete_vods_below_snapshot_count(
+    min_snapshot_count: int,
+    vods_dir: Path | None = None,
+    *,
+    excluded_paths: set[Path] | None = None,
+) -> VodCleanupResult:
     threshold = max(0, int(min_snapshot_count))
+    excluded_resolved_paths = {
+        path.resolve() for path in (excluded_paths or set())
+    }
     removed = 0
+    skipped_active = 0
+    skipped_locked = 0
     for metadata in list_vods(vods_dir):
-        if metadata.snapshot_count < threshold:
+        if metadata.snapshot_count >= threshold:
+            continue
+        if metadata.path.resolve() in excluded_resolved_paths:
+            skipped_active += 1
+            continue
+        try:
             delete_vod(metadata.path)
-            removed += 1
-    return removed
+        except PermissionError:
+            skipped_locked += 1
+            continue
+        except OSError:
+            # A file can become locked or disappear after list_vods() returns.
+            # Keep cleaning the remaining short recordings in either case.
+            skipped_locked += 1
+            continue
+        removed += 1
+    return VodCleanupResult(
+        removed=removed,
+        skipped_active=skipped_active,
+        skipped_locked=skipped_locked,
+    )
 
 
 def _iter_records(path: Path):

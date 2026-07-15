@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import src
+import vod_storage
 
 from types import SimpleNamespace
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from player_stats import (
     ChaosTomeSnapshot,
@@ -439,11 +441,56 @@ class VodStorageTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            removed = delete_vods_below_snapshot_count(2, root)
+            result = delete_vods_below_snapshot_count(2, root)
 
-            self.assertEqual(removed, 1)
+            self.assertEqual(result.removed, 1)
+            self.assertEqual(result.skipped_active, 0)
+            self.assertEqual(result.skipped_locked, 0)
             self.assertFalse(short_path.exists())
             self.assertTrue(keep_path.exists())
+
+    def test_delete_vods_below_snapshot_count_skips_active_and_locked_files(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            active_path = root / "active.jsonl"
+            locked_path = root / "locked.jsonl"
+            removable_path = root / "removable.jsonl"
+            for path, name in (
+                (active_path, "Active"),
+                (locked_path, "Locked"),
+                (removable_path, "Removable"),
+            ):
+                path.write_text(
+                    "\n".join(
+                        [
+                            f'{{"type":"metadata","version":3,"name":"{name}","created_at":"2026-05-10T16:00:00","snapshot_interval_seconds":30}}',
+                            '{"type":"summary","duration_seconds":5,"snapshot_count":1}',
+                        ]
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            original_delete_vod = vod_storage.delete_vod
+
+            def delete_with_locked_file(path: Path) -> None:
+                if path == locked_path:
+                    raise PermissionError("file is in use")
+                original_delete_vod(path)
+
+            with patch.object(vod_storage, "delete_vod", side_effect=delete_with_locked_file):
+                result = delete_vods_below_snapshot_count(
+                    2,
+                    root,
+                    excluded_paths={active_path},
+                )
+
+            self.assertEqual(result.removed, 1)
+            self.assertEqual(result.skipped_active, 1)
+            self.assertEqual(result.skipped_locked, 1)
+            self.assertTrue(active_path.exists())
+            self.assertTrue(locked_path.exists())
+            self.assertFalse(removable_path.exists())
 
     def test_recorder_stop_deletes_empty_recordings(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
