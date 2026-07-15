@@ -2659,6 +2659,30 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(rows[0]["items"].count("&#9679;"), 1)
         self.assertIn(">1</span>", rows[0]["items"])
 
+    def test_build_stage_summary_ignores_unavailable_item_snapshots(self) -> None:
+        snapshots = [
+            SimpleNamespace(
+                game_time_seconds=10.0, stage_time_seconds=10.0, stage_ptr=0x1000,
+                map_seed=11, mob_kills=10, items=("Za Warudo x1",), items_available=True,
+            ),
+            SimpleNamespace(
+                game_time_seconds=20.0, stage_time_seconds=20.0, stage_ptr=0x1000,
+                map_seed=11, mob_kills=20, items=(), items_available=False,
+            ),
+            SimpleNamespace(
+                game_time_seconds=30.0, stage_time_seconds=30.0, stage_ptr=0x1000,
+                map_seed=11, mob_kills=30, items=("Za Warudo x2",), items_available=True,
+            ),
+            SimpleNamespace(
+                game_time_seconds=40.0, stage_time_seconds=40.0, stage_ptr=0x1000,
+                map_seed=11, mob_kills=40, items=("Za Warudo x2",), items_available=True,
+            ),
+        ]
+
+        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+
+        self.assertIn(">1</span>", rows[0]["items"])
+
     def test_build_stage_summary_counts_reacquired_items_after_confirmed_consumption(self) -> None:
         snapshots = [
             SimpleNamespace(
@@ -3883,6 +3907,43 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["tomes"], (tome,))
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["damage_sources"], (damage,))
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["banishes"], ("Clover",))
+
+    def test_refresh_live_player_stats_now_preserves_last_known_items_when_read_is_empty(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)
+        app.player_stats_vod_snapshots = []
+        app.player_stats_last_known_items = ("Wrench x2", "Clover x1")
+        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        app.read_passive_items_only = lambda owner_stats=None: ()
+
+        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertTrue(result)
+        self.assertEqual(
+            app.player_stats_vod_recorder.capture_calls[0]["items"],
+            ("Wrench x2", "Clover x1"),
+        )
+        self.assertEqual(app.player_stats_last_known_items, ("Wrench x2", "Clover x1"))
+
+    def test_read_live_player_stats_data_accepts_empty_inventory_at_new_match_start(self) -> None:
+        app = self.build_recording_app()
+        app.player_stats_last_known_items = ("Wrench x2",)
+        app.player_stats_last_seed = 123
+        app.player_stats_last_run_timer = 45.0
+        app.read_passive_items_only = lambda owner_stats=None: ()
+        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            get_run_timer=lambda: 2.0,
+            get_stage_timer_context=lambda: (2.0, 0, 600.0),
+            get_killed_mobs=lambda: 0,
+            get_player_level=lambda owner_stats=None: 1,
+        )
+
+        result = gui.MegabonkApp._read_live_player_stats_data(app)
+
+        self.assertEqual(result[1], ())
+        self.assertTrue(result[2])
+        self.assertEqual(app.player_stats_last_known_items, None)
 
     def test_stop_player_stats_recording_refreshes_live_stats_without_items(self) -> None:
         app = object.__new__(gui.MegabonkApp)

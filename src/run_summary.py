@@ -152,7 +152,8 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
     previous_snapshot = None
     for snapshot in snapshots:
         snapshot_mob_kills = getattr(snapshot, "mob_kills", None)
-        if item_gain_tracker is None:
+        items_available = bool(getattr(snapshot, "items_available", True))
+        if item_gain_tracker is None and items_available:
             item_gain_tracker = create_stage_item_gain_tracker(getattr(snapshot, "items", ()))
         if previous_snapshot is not None:
             previous_stage_index = current_stage_index
@@ -173,12 +174,13 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
                     baseline = last_known_mob_kills
                 if baseline is not None:
                     stage_kill_baselines[current_stage_index] = max(0, int(baseline))
-            item_gains = update_stage_item_gain_tracker(
-                item_gain_tracker,
-                getattr(snapshot, "items", ()),
-            )
-            for rarity, count in item_gains.items():
-                stage_item_gains[current_stage_index][rarity] += count
+            if item_gain_tracker is not None and items_available:
+                item_gains = update_stage_item_gain_tracker(
+                    item_gain_tracker,
+                    getattr(snapshot, "items", ()),
+                )
+                for rarity, count in item_gains.items():
+                    stage_item_gains[current_stage_index][rarity] += count
         stage_buckets[current_stage_index].append(snapshot)
         if snapshot_mob_kills is not None:
             last_known_mob_kills = max(0, int(snapshot_mob_kills))

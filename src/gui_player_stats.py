@@ -558,7 +558,7 @@ class PlayerStatsMixin:
         for label in self.player_stats_rows.values():
             _set_text(label, "--")
         self.player_stats_items_expanded = False
-        self.player_stats_last_known_items = ()
+        self.player_stats_last_known_items = None
         self.player_stats_last_known_weapons = None
         self.player_stats_last_known_tomes = None
         self.player_stats_last_known_damage_sources = None
@@ -681,6 +681,7 @@ class PlayerStatsMixin:
 
         if is_new_match:
             self.player_stats_disabled_items_refresh_pending = True
+            self.player_stats_last_known_items = None
             self.player_stats_last_known_weapons = None
             self.player_stats_last_known_tomes = None
             self.player_stats_last_known_damage_sources = None
@@ -867,11 +868,18 @@ class PlayerStatsMixin:
 
         chests_per_minute = self.calculate_player_chests_per_minute(stats)
         items_text = None if items_available else "Items unavailable"
-        if items_available:
+        last_known_items = getattr(self, "player_stats_last_known_items", None)
+        if items_available and (items or last_known_items is None):
             effective_items = items
             self.player_stats_last_known_items = items
+        elif last_known_items is not None:
+            # The game can expose an empty inventory dictionary for a single
+            # refresh while it is being updated. Do not turn that into a real
+            # item loss or let it reset the stage-summary item baseline.
+            effective_items = last_known_items
+            items_available = False
         else:
-            effective_items = getattr(self, "player_stats_last_known_items", ())
+            effective_items = ()
 
         last_known_weapons = getattr(self, "player_stats_last_known_weapons", None)
         if weapons_available:
