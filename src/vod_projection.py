@@ -46,7 +46,7 @@ def build_vod_capture_kwargs(
         "free_chests": chests.free_chests,
         "keys_count": chests.keys_count,
         "expected_key_procs": (
-            chests.expected_key_procs if chests.expected_available else None
+            chests.expected_key_procs if chests.expected_complete else None
         ),
         "chests_opened_by_stage": dict(chests.opened_by_stage),
         "chests_total_by_stage": dict(chests.total_by_stage),

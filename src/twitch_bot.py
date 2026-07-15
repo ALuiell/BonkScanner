@@ -713,7 +713,7 @@ class TwitchBotWorker(QThread):
             normal_opened = stats.normal_opened
             expected_procs = (
                 f"{stats.expected_key_procs:.1f}"
-                if stats.expected_available
+                if stats.expected_complete
                 else "--"
             )
 

@@ -418,6 +418,15 @@ class TestTwitchBotWorker(unittest.TestCase):
             "channel", "Chests: T1:40/46 T2:0/46 | Total: 40/92 | Paid: 20 | Key Procs: 18/38 (47.4%) | Expected: 19.0 | Free Chests: 2 | Keys: 10 (50.0%)"
         )
 
+        # Never publish a stale numeric Expected when fast tracking missed opens.
+        self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
+            24, 46, 7, 20, 2, 2, {1: 24}, {1: 46}, True, 0.0, 0, True
+        )
+        self.bot._handle_chests("channel")
+        self.bot._send_chat.assert_called_with(
+            "channel", "Chests: T1:24/46 | Total: 24/46 | Paid: 20 | Key Procs: 2/22 (9.1%) | Expected: -- | Free Chests: 2 | Keys: 7 (41.2%)"
+        )
+
         # Test with 0 keys
         self.run_tracker.get_chest_stats.return_value = ChestStatsSnapshot(
             20, 46, 0, 18, 0, 2, {1: 20}, {1: 46}, True

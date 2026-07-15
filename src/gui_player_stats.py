@@ -1175,7 +1175,7 @@ class PlayerStatsMixin:
             keys_count=(chest_stats.keys_count if chest_stats else None),
             expected_key_procs=(
                 chest_stats.expected_key_procs
-                if chest_stats and chest_stats.expected_available
+                if chest_stats and chest_stats.expected_complete
                 else None
             ),
             chests_opened_by_stage=(chest_stats.opened_by_stage if chest_stats else None),
@@ -5358,7 +5358,7 @@ class PlayerStatsMixin:
                     chest_stats.key_procs if chest_stats.counters_available else None,
                     chest_stats.free_chests if chest_stats.counters_available else None,
                     chest_stats.keys_count,
-                    chest_stats.expected_key_procs if chest_stats.expected_available else None,
+                    chest_stats.expected_key_procs if chest_stats.expected_complete else None,
                     chest_stats.total_opened_is_minimum,
                 ),
             )

@@ -199,6 +199,15 @@ class ChestStatsSnapshot:
     def normal_opened(self) -> int:
         return self.paid + self.key_procs
 
+    @property
+    def expected_complete(self) -> bool:
+        """Whether Expected covers every normal chest represented by the counters."""
+        return (
+            self.counters_available
+            and self.expected_available
+            and self.expected_tracked_opens == self.normal_opened
+        )
+
 
 @dataclass(frozen=True)
 class PowerupEffectState:
