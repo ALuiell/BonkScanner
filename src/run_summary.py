@@ -147,14 +147,29 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
     }
     stage_kill_baselines: dict[int, int] = {1: 0}
     last_known_mob_kills: int | None = None
-    current_stage_index = resolve_initial_stage_index(snapshots[0])
+    initial_stage_index = resolve_initial_stage_index(snapshots[0])
+    current_stage_index = initial_stage_index
+    # A late attach on the first map has no earlier inventory baseline.  Since
+    # every item visible there belongs to Stage 1, seed the delta tracker from
+    # an empty inventory so the first readable item list is included.
+    include_initial_stage_one_items = (
+        raw_stage_index_to_stage_number(getattr(snapshots[0], "stage_index", None)) == 1
+    )
     item_gain_tracker = None
     previous_snapshot = None
     for snapshot in snapshots:
         snapshot_mob_kills = getattr(snapshot, "mob_kills", None)
         items_available = bool(getattr(snapshot, "items_available", True))
         if item_gain_tracker is None and items_available:
-            item_gain_tracker = create_stage_item_gain_tracker(getattr(snapshot, "items", ()))
+            initial_items = () if include_initial_stage_one_items else getattr(snapshot, "items", ())
+            item_gain_tracker = create_stage_item_gain_tracker(initial_items)
+            if include_initial_stage_one_items:
+                item_gains = update_stage_item_gain_tracker(
+                    item_gain_tracker,
+                    getattr(snapshot, "items", ()),
+                )
+                for rarity, count in item_gains.items():
+                    stage_item_gains[current_stage_index][rarity] += count
         if previous_snapshot is not None:
             previous_stage_index = current_stage_index
             next_stage_index = resolve_next_stage_index(
@@ -165,7 +180,10 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
             current_stage_index = min(max(next_stage_index, current_stage_index), 4)
             if (
                 current_stage_index > previous_stage_index
-                and is_stage_transition_boundary_snapshot(snapshot)
+                and (
+                    is_stage_transition_boundary_snapshot(snapshot)
+                    or is_explicit_raw_stage_transition(previous_snapshot, snapshot)
+                )
             ):
                 stage_buckets[previous_stage_index].append(snapshot)
             if current_stage_index > previous_stage_index:
@@ -194,6 +212,13 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
         start_run_time = getattr(first_snapshot, "game_time_seconds", None)
         if stage_index == 1 and start_run_time is not None:
             start_run_time = 0.0
+        elif stage_index == initial_stage_index:
+            inferred_start_run_time = infer_late_attach_stage_start_run_time(
+                first_snapshot,
+                stage_index,
+            )
+            if inferred_start_run_time is not None:
+                start_run_time = inferred_start_run_time
         end_run_time = getattr(last_snapshot, "game_time_seconds", None)
         duration_text = "--"
         if start_run_time is not None and end_run_time is not None:
@@ -351,6 +376,45 @@ def is_stage_transition_boundary_snapshot(snapshot) -> bool:
     if stage_time is None:
         return False
     return 0.0 <= float(stage_time) <= PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS
+
+
+def is_explicit_raw_stage_transition(previous_snapshot, snapshot) -> bool:
+    """Return whether the game explicitly advanced its zero-based map index."""
+    previous_stage = raw_stage_index_to_stage_number(
+        getattr(previous_snapshot, "stage_index", None)
+    )
+    current_stage = raw_stage_index_to_stage_number(getattr(snapshot, "stage_index", None))
+    return (
+        previous_stage is not None
+        and current_stage is not None
+        and current_stage > previous_stage
+    )
+
+
+def infer_late_attach_stage_start_run_time(snapshot, stage_index: int) -> float | None:
+    """Infer an observed Stage 2/3 start without backfilling heuristic Stage 4."""
+    stage_duration = {2: 540.0, 3: 480.0}.get(stage_index)
+    if stage_duration is None:
+        return None
+    if raw_stage_index_to_stage_number(getattr(snapshot, "stage_index", None)) != stage_index:
+        return None
+
+    stage_elapsed = getattr(snapshot, "stage_timer_seconds", None)
+    if stage_elapsed is None:
+        stage_elapsed = getattr(snapshot, "stage_time_seconds", None)
+    run_time = getattr(snapshot, "game_time_seconds", None)
+    try:
+        stage_elapsed = float(stage_elapsed)
+        run_time = float(run_time)
+    except (TypeError, ValueError):
+        return None
+
+    # The raw index remains 2 during Stage 4.  Values at or beyond the known
+    # Stage 3 duration may already be boss/ghost overtime and are not safe to
+    # backfill.  In that case Stage Summary keeps counting from first sight.
+    if not 0.0 <= stage_elapsed < stage_duration:
+        return None
+    return max(0.0, run_time - stage_elapsed)
 
 
 def looks_like_stage_four_transition(previous_snapshot, snapshot) -> bool:

@@ -2758,7 +2758,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "250")
-        self.assertEqual(rows[1]["time"], "00:30")
+        self.assertEqual(rows[1]["time"], "01:10")
         self.assertEqual(rows[2]["kills"], "--")
 
     def test_build_stage_summary_late_attach_uses_raw_stage_three_row_without_auto_stage_four(self) -> None:
@@ -2788,7 +2788,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "--")
         self.assertEqual(rows[2]["kills"], "600")
-        self.assertEqual(rows[2]["time"], "01:00")
+        self.assertEqual(rows[2]["time"], "02:20")
         self.assertEqual(rows[3]["kills"], "--")
 
     def test_build_stage_summary_attach_on_stage_four_uses_collapsed_chest_total_marker(self) -> None:

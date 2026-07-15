@@ -283,6 +283,7 @@ class _RunState:
     fast_stage_boundaries: list[LiveRunSnapshot] = field(default_factory=list)
     pending_fast_stage_index: int | None = None
     pending_fast_stage_samples: int = 0
+    pending_fast_stage_boundary: LiveRunSnapshot | None = None
 
 
 @dataclass
@@ -416,6 +417,7 @@ class LiveRunTracker:
             "_last_update_at", "_last_failed_at", "_last_no_game_at",
             "_cached_stage_summary", "_disabled_items_cache", "_fast_stage_boundaries",
             "_pending_fast_stage_index", "_pending_fast_stage_samples",
+            "_pending_fast_stage_boundary",
         )},
         **{name: "_combat_state" for name in (
             "_recent_kills_history", "_ui_kps_baseline", "_ui_kps_value",
@@ -910,6 +912,7 @@ class LiveRunTracker:
             self._fast_stage_timer_context = FastStageTimerContext()
             self._pending_fast_stage_index = None
             self._pending_fast_stage_samples = 0
+            self._pending_fast_stage_boundary = None
             self._cached_stage_summary = None
             return
         self._mark_feature_success_unlocked("progression", self.clock())
@@ -942,14 +945,18 @@ class LiveRunTracker:
                 else:
                     self._pending_fast_stage_index = next_stage_index
                     self._pending_fast_stage_samples = 1
+                    self._pending_fast_stage_boundary = fast_snapshot
                 if self._pending_fast_stage_samples >= FAST_STAGE_TRANSITION_CONFIRMATION_SAMPLES:
-                    self._fast_stage_boundaries.append(fast_snapshot)
+                    boundary = self._pending_fast_stage_boundary or fast_snapshot
+                    self._fast_stage_boundaries.append(boundary)
                     self.current_stage_index = next_stage_index
                     self._pending_fast_stage_index = None
                     self._pending_fast_stage_samples = 0
+                    self._pending_fast_stage_boundary = None
             else:
                 self._pending_fast_stage_index = None
                 self._pending_fast_stage_samples = 0
+                self._pending_fast_stage_boundary = None
         self._cached_stage_summary = None
 
     @with_lock
@@ -1570,6 +1577,7 @@ class LiveRunTracker:
         self._fast_stage_timer_context = FastStageTimerContext()
         self._pending_fast_stage_index = None
         self._pending_fast_stage_samples = 0
+        self._pending_fast_stage_boundary = None
         self._recent_kills_history.clear()
         self._reset_ui_kps_unlocked()
         self.current_stage_index = 1

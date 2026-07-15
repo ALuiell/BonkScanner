@@ -393,6 +393,68 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(rows[1]["time"], "00:00")
         self.assertEqual(rows[1]["kills"], "0")
 
+    def test_fast_stage_transition_commits_first_candidate_kill_boundary(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=100.0,
+                mob_kills=10_000,
+                stage_index=0,
+                stage_time_seconds=100.0,
+            )
+        )
+        tracker.track_kills(110.0, 11_730)
+
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=1.0,
+            stage_index=1,
+            stage_duration_seconds=600.0,
+        )
+        tracker.track_kills(111.0, 11_780)
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=2.0,
+            stage_index=1,
+            stage_duration_seconds=600.0,
+        )
+        tracker.track_kills(113.0, 11_830)
+
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(rows[0]["kills"], "11,730")
+        self.assertEqual(rows[1]["kills"], "100")
+
+    def test_explicit_stage_index_transition_does_not_reconcile_gap_into_new_stage(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=100.0,
+                mob_kills=10_000,
+                stage_index=0,
+                stage_time_seconds=100.0,
+            )
+        )
+        tracker.update(
+            snapshot(
+                time_seconds=110.0,
+                mob_kills=11_730,
+                stage_index=1,
+                stage_time_seconds=6.0,
+            )
+        )
+        tracker.update(
+            snapshot(
+                time_seconds=113.0,
+                mob_kills=11_830,
+                stage_index=1,
+                stage_time_seconds=9.0,
+            )
+        )
+
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(rows[0]["kills"], "11,730")
+        self.assertEqual(rows[1]["kills"], "100")
+
     def test_fast_stage_timer_preserves_stage_four_transition_heuristic(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(
@@ -1236,7 +1298,83 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "--")
         self.assertEqual(rows[2]["kills"], "600")
+        self.assertEqual(rows[2]["time"], "02:20")
         self.assertEqual(rows[3]["kills"], "--")
+
+    def test_stage_summary_late_attach_restores_elapsed_stage_two_time(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=240.0,
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=1,
+                stage_time_seconds=60.0,
+                mob_kills=2_000,
+            )
+        )
+        tracker.track_kills(243.0, 2_100)
+
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(rows[1]["time"], "01:03")
+
+    def test_stage_summary_does_not_backfill_unconfirmed_stage_four_time(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=1_000.0,
+                map_seed=300,
+                stage_ptr=3000,
+                stage_index=2,
+                stage_time_seconds=590.0,
+                mob_kills=20_000,
+            )
+        )
+        tracker.track_kills(1_003.0, 20_100)
+
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(rows[2]["time"], "00:03")
+
+    def test_stage_summary_late_attach_on_first_map_includes_current_items(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        tracker.update(
+            snapshot(
+                time_seconds=240.0,
+                items=("Za Warudo x2", "Clover x1"),
+                map_seed=100,
+                stage_ptr=1000,
+                stage_index=0,
+                stage_time_seconds=240.0,
+                mob_kills=2_000,
+            )
+        )
+
+        rows = tracker.stage_summary_rows()
+
+        self.assertIn(">2</span>", rows[0]["items"])
+        self.assertIn(">1</span>", rows[0]["items"])
+
+    def test_stage_summary_late_attach_on_second_map_does_not_include_current_items(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        tracker.update(
+            snapshot(
+                time_seconds=240.0,
+                items=("Za Warudo x2",),
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=1,
+                stage_time_seconds=60.0,
+                mob_kills=2_000,
+            )
+        )
+
+        rows = tracker.stage_summary_rows()
+
+        self.assertEqual(rows[1]["items"], '<span style="color:#98A7BA;">--</span>')
 
     def test_tracked_stage_three_promotes_on_later_collapsed_map_total(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
