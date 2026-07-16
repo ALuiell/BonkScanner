@@ -14,7 +14,14 @@ from functools import wraps
 
 import run_summary
 from gui_styles import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
-from player_stats import DisabledItemsReadResult, DisabledItemsReadStatus
+from core.stats.formats import PlayerStatFormat
+from core.stats.formatters import format_chaos_tome_stat_delta
+from core.stats.types import (
+    ChaosTomeSnapshot,
+    ChaosTomeStatSnapshot,
+    DisabledItemsReadResult,
+    DisabledItemsReadStatus,
+)
 from stat_label_abbreviations import abbreviate_stat_label
 
 POWERUP_MAP_CONTEXT_TTL_SECONDS = 15.0
@@ -101,8 +108,6 @@ class ChaosTomeStatTotal:
 
     @property
     def display_delta(self) -> str:
-        from player_stats import format_chaos_tome_stat_delta
-
         return format_chaos_tome_stat_delta(self.label, self.value, self.value_format)
 
 
@@ -663,8 +668,6 @@ class LiveRunTracker:
     def chaos_tome_snapshot(self):
         if self._chaos_tome_level is None:
             return None
-
-        from player_stats import ChaosTomeSnapshot, ChaosTomeStatSnapshot, PlayerStatFormat
 
         stats = tuple(
             ChaosTomeStatSnapshot(
