@@ -15,7 +15,7 @@ import gui_player_stats
 import gui_scanner
 from game_data import RuntimeGameMode, RuntimeGameState
 from live_run_tracker import LiveRunTracker
-from refresh_coordinator import RefreshTickContext
+from app.refresh_coordinator import RefreshTickContext
 from run_control import KeyboardRunControlProvider
 from PySide6.QtCore import QRect
 

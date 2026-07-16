@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from refresh_coordinator import RefreshCoordinator, RefreshTask
+from app.refresh_coordinator import RefreshCoordinator, RefreshTask
 
 
 class RefreshCoordinatorTests(unittest.TestCase):
