@@ -7,7 +7,6 @@ import config
 from in_game_projection import project_in_game_overlay
 from gui_in_game_overlay_render import (
     build_event_timer_overlay_html,
-    build_kps_overlay_html,
     build_kps_overlay_html_from_values,
     build_luck_rarity_overlay_html,
     build_powerups_overlay_html,
@@ -187,12 +186,7 @@ class InGameOverlayMixin:
             )
 
         # Retrieve snapshot and powerups map context to determine stage metadata
-        latest_snapshot_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
-        latest_snapshot = (
-            projection.latest_snapshot
-        )
-
-        is_graveyard = False
+        latest_snapshot = projection.latest_snapshot
         is_graveyard = projection.is_graveyard
 
         stage_index = 0
@@ -295,16 +289,9 @@ class InGameOverlayMixin:
         if not self.in_game_overlay_window or not self.in_game_overlay_window.isVisible():
             return
 
-        runtime_snapshot_reader = getattr(self.live_run_tracker, "runtime_snapshot", None)
-        runtime_snapshot = runtime_snapshot_reader() if callable(runtime_snapshot_reader) else None
+        tracker = self.live_run_tracker
+        runtime_snapshot = tracker.runtime_snapshot() if tracker is not None else None
         projection = project_in_game_overlay(runtime_snapshot) if runtime_snapshot is not None else None
-        if projection is None:
-            legacy_reader = getattr(self.live_run_tracker, "latest_snapshot", None)
-            latest_snapshot = legacy_reader() if callable(legacy_reader) else None
-            self._refresh_in_game_overlay_slow_widgets(
-                type("LegacyProjection", (), {"latest_snapshot": latest_snapshot})()
-            )
-            return
         self._refresh_in_game_overlay_slow_widgets(projection)
 
     def _refresh_in_game_overlay_slow_widgets(self, projection=None) -> None:

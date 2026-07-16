@@ -14,6 +14,7 @@ import gui_in_game_overlay
 import gui_player_stats
 import gui_scanner
 from game_data import RuntimeGameMode, RuntimeGameState
+from live_run_tracker import LiveRunTracker
 from refresh_coordinator import RefreshTickContext
 from run_control import KeyboardRunControlProvider
 from PySide6.QtCore import QRect
@@ -635,13 +636,9 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: True
         app.log_messages = []
         app.log = lambda message, tag=None: app.log_messages.append((message, tag))
-        app.live_run_tracker = SimpleNamespace(
-            update=lambda *args, **kwargs: None,
-            update_chests_and_keys=lambda *args, **kwargs: None,
-            mark_read_failed=lambda *args, **kwargs: None,
-            stage_summary_rows=lambda: [],
-            current_ui_kps=lambda: None,
-        )
+        # A real tracker keeps the update -> runtime_snapshot round trip honest:
+        # VOD capture reads its kwargs from the snapshot, not from local values.
+        app.live_run_tracker = LiveRunTracker()
         app.overlay_state_store = None
         return app
 
@@ -5395,8 +5392,15 @@ class GuiRunControlTests(unittest.TestCase):
             "luck_rarity": widget,
         }
         app.live_run_tracker = SimpleNamespace(
-            latest_snapshot=lambda: SimpleNamespace(
-                stats={"Luck": SimpleNamespace(value=1.0, display_value="100%")}
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=SimpleNamespace(
+                    stats={"Luck": SimpleNamespace(value=1.0, display_value="100%")}
+                ),
+                kps={},
+                powerups=SimpleNamespace(),
+                powerup_map_context=None,
+                fast_stage_timer=None,
+                graveyard_main_map_events_active=False,
             )
         )
         app.scanner_thread = None

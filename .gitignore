@@ -6,6 +6,10 @@ AGENT.md
 Instructions_*.txt
 config.json
 
+# === AGENT SCRATCH ===
+.scratch_diffs/
+gitlog.txt
+
 # === LEGACY & TEST FILES ===
 old/
 test/

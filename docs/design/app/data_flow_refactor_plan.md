@@ -10,7 +10,10 @@ the decisions made during design, and the migration order.
 ## Status
 
 - Branch: `codex/refactor-data-exchange`
-- Implementation status: phase 1-3 in progress
+- Implementation status: phases 1-3 complete; phase 4 partially complete
+  (tracker internals are grouped into feature states). Phase 5 is not started:
+  the coordinator wiring and demand predicates still live in
+  `gui_player_stats.py`, and the two UI timers still drive one coordinator.
 - Compatibility rule: keep existing intervals, consumer gating, payloads, and
   VOD format while replacing their internal data boundary incrementally.
 
@@ -223,7 +226,7 @@ requirements are:
 |---|---:|---|
 | Combat metrics: timer and kills sampling | 500 ms | Only while a consumer needs live KPS. The displayed instant KPS uses approximately one-second game-time windows. |
 | Powerups and expected chest inputs | 500 ms | Driven by relevant widgets or commands. |
-| In-game event timer | 500 ms | Current fast stage-timer read is driven by the 500 ms fast loop. |
+| In-game event timer | 1 s | Fixed interval, deliberately decoupled from `FAST_TRACKER_INTERVAL_MS`. The displayed timer has one-second resolution, so a faster read buys nothing. |
 | Full player snapshot | 10 s | Heavy reads: stats, items, weapons, tomes, banishes. |
 | VOD capture | Typically 30 s | Persists the latest compatible VOD projection; does not itself require a new memory read. |
 

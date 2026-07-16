@@ -43,16 +43,6 @@ _STATS_LABEL_WIDTH_PER_CHAR_PX = 9
 _XP_GAIN_CAP = 10.0
 
 
-def build_kps_overlay_html(run_tracker: Any, metrics_cfg: list[str] | tuple[str, ...]) -> str:
-    values = {
-        "current": _read_tracker_kps(run_tracker, "current_ui_kps"),
-        "minute_avg": _read_tracker_kps(run_tracker, "current_minute_avg_kps"),
-        "five_minute_avg": _read_tracker_kps(run_tracker, "current_five_minute_avg_kps"),
-        "run_avg": _read_tracker_kps(run_tracker, "current_run_avg_kps"),
-    }
-    return build_kps_overlay_html_from_values(values, metrics_cfg)
-
-
 def build_kps_overlay_html_from_values(
     values: dict[str, int | None],
     metrics_cfg: list[str] | tuple[str, ...],
@@ -81,11 +71,6 @@ _KPS_VALUE_KEYS = {
     "current_five_minute_avg_kps": "five_minute_avg",
     "current_run_avg_kps": "run_avg",
 }
-
-
-def _read_tracker_kps(run_tracker: Any, method_name: str) -> int | None:
-    reader = getattr(run_tracker, method_name, None)
-    return reader() if callable(reader) else None
 
 
 def build_status_indicator_html(label: str, is_active: bool) -> str:

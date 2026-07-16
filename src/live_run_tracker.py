@@ -106,17 +106,6 @@ class ChaosTomeStatTotal:
         return format_chaos_tome_stat_delta(self.label, self.value, self.value_format)
 
 
-@dataclass(frozen=True)
-class LiveRunTrackerState:
-    status: str
-    updated_at: float
-    run_id: str | None
-    current_stage_index: int
-    latest_snapshot: LiveRunSnapshot | None
-    tracked_items: list[dict[str, Any]]
-    stage_summary: list[dict[str, Any]]
-
-
 class FeatureAvailability(str, Enum):
     NEVER_LOADED = "never_loaded"
     FRESH = "fresh"
@@ -707,20 +696,6 @@ class LiveRunTracker:
     @with_lock
     def chaos_tome_ambiguous_rolls(self) -> int:
         return self._chaos_ambiguous_rolls
-
-    @with_lock
-    def state_snapshot(self) -> LiveRunTrackerState:
-        """Return a coherent tracker view for consumers that need multiple fields."""
-        now = self.clock()
-        return LiveRunTrackerState(
-            status=self._status_unlocked(now),
-            updated_at=now,
-            run_id=self.run_id,
-            current_stage_index=self.current_stage_index,
-            latest_snapshot=self.snapshots[-1] if self.snapshots else None,
-            tracked_items=self._tracked_item_rows_unlocked(),
-            stage_summary=self._stage_summary_rows_unlocked(),
-        )
 
     @with_lock
     def runtime_snapshot(self) -> RuntimeStateSnapshot:
