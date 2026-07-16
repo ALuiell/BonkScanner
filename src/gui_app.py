@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 import config
 import updater
 from app.refresh_tasks import RefreshTasksMixin
+from ui.tabs.compare_runs import CompareRunsMixin
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
@@ -31,6 +32,7 @@ class MegabonkApp(
     OverlayMixin,
     InGameOverlayMixin,
     RefreshTasksMixin,
+    CompareRunsMixin,
     PlayerStatsMixin,
     ScannerMixin,
     TwitchBotMixin,
