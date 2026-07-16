@@ -47,6 +47,7 @@ Please fill in the data for each of the 3 maps below, including memory addresses
 - Features specialized `Crypt Chests` (6 per crypt) in addition to the standard `Chests` (69 on the main map).
 - Presence of map-specific interactables: `Pumpkin` (105) and `Gravestones` (22).
 - The entire progression cycle (`crypt1` -> `main map` -> `crypt2` -> `boss` -> `post-boss main map`) is loaded as a single entity into memory. The pointers remain completely static throughout all these transitions: **`Current Map Ptr` = 0x20f412adee0**, and **`Current Stage Ptr` = 0x20f412a8c60**.
+- **`map_seed` is static too**, across every internal transition — see the live validation below for the evidence. The consequence worth stating up front: **a seed change on Graveyard means a new run, never a phase transition**, so consumers keyed on the seed have no in-run churn to defend against here.
 - The raw `stage_index` also remains effectively useless for tracker-side phase detection here. In live validation, Graveyard continued to report raw **`stage_index = 0`** across the different sub-phases, so software should not expect a clean raw stage progression inside this map.
 - **Timer Behavior**:
   - **Crypt 1 Start Room**: The timer does **not** start immediately on spawn. The crypt timer begins only after the player exits the initial room.
@@ -62,6 +63,24 @@ Please fill in the data for each of the 3 maps below, including memory addresses
   - In addition to standard `Greed Shrines` (12), the Main Map features **`Gravestones`** (22) which serve a similar or supplementary role.
   - The number of `Microwaves` is variable and can range from 4 to 8 per run.
   - For tracker-side Graveyard detection, the strongest practical markers are `Pumpkin`, `Gravestones`, `Crypt Chests`, `Crypt Pots`, or `Chests.max == 69`. The mere absence of standard `Pots` is **not** strong enough to use as a standalone proof.
+
+### Live Seed Invariance Validation (2026-07-16)
+
+A live Graveyard run was monitored directly through `GameDataClient` while
+checking the seed, map/stage pointers, raw stage index, timers, and activity
+dictionary at each internal transition. The run reported
+`map_seed = 1464264150` throughout:
+
+| Transition | Seed result | Supporting runtime evidence |
+| --- | --- | --- |
+| Crypt 1 -> main map | Unchanged (`1464264150`) | `Crypt Pots` and `Crypt Chests` disappeared; `stage_timer` started. |
+| Main map -> Crypt 2 | Unchanged (`1464264150`) | `stage_timer` reset to `0.0`; `crypt_timer` restarted; crypt activities returned. |
+| Main map / Crypt progression -> boss phase | Unchanged (`1464264150`) | `stage_timer` jumped from about `111.8` to `600.8`; `final_swarm_timer` became active. |
+
+Across all three transitions, `map_ptr` remained `0x23a40d06ee0`,
+`stage_ptr` remained `0x23a40d01c60`, and `stage_index` remained `0`. Therefore
+the Graveyard internal rooms/phases do not generate a new seed or a new raw
+stage identity; phase detection must use timers and activity changes.
 
 ---
 

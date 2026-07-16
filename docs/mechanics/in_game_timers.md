@@ -62,6 +62,14 @@ crypt activities   = absent
 
 When the activity dictionary is available, `Crypt Chests` and `Crypt Pots` therefore take priority. `crypt_timer` is only a fallback when activity data is unavailable.
 
+### Live Seed Check
+
+In a live Graveyard run on 2026-07-16, `map_seed` stayed at `1464264150` across
+Crypt 1 -> main map, main map -> Crypt 2, and the boss-phase transition. The
+map pointer, stage pointer, and raw `stage_index` also stayed unchanged. The
+observed changes were limited to phase timers and activity-dictionary contents;
+these are the signals to use for internal Graveyard phase detection.
+
 ## 4. Event Timer Overlay
 
 `build_event_timer_overlay_html()` uses `stage_timer_seconds` and a canonical phase duration. It does not use `stage_time_seconds` as the event duration because that field is a changing timeline marker and can represent a current marker instead of the full map limit.

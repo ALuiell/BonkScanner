@@ -7,20 +7,24 @@ feature references and will be consolidated later.
 
 ```mermaid
 flowchart LR
-    Memory[Game memory] --> Coordinator[RefreshCoordinator]
+    Memory[Game memory] --> Driver[update_player_stats_timer 500 ms]
+    Driver --> Coordinator[RefreshCoordinator]
     Config[Consumer config] --> Coordinator
+    Coordinator --> Lifecycle[recording_lifecycle 10 s]
     Coordinator --> Slow[full_player_snapshot 10 s]
     Coordinator --> Combat[combat_metrics 500 ms]
     Coordinator --> Powerups[powerups 500 ms]
     Coordinator --> Chests[expected_chest_inputs 500 ms]
-    Coordinator --> Event[event_timer 500 ms]
+    Coordinator --> Event[event_timer 1 s]
     Coordinator --> Chaos[chaos_tome 500 ms]
+    Slow --> Store[LiveSnapshotStore last-known values]
     Slow --> Tracker[LiveRunTracker feature states]
     Combat --> Tracker
     Powerups --> Tracker
     Chests --> Tracker
     Event --> Tracker
     Chaos --> Tracker
+    Lifecycle --> Recorder[VodRecorder lifecycle]
     Tracker --> Snapshot[RuntimeStateSnapshot]
     Snapshot --> OBS[OBS projection / OverlayStateStore]
     Snapshot --> InGame[In-game projection]
@@ -28,9 +32,18 @@ flowchart LR
     Snapshot --> VOD[VOD projection]
 ```
 
+- **One driver.** `update_player_stats_timer` is the only refresh timer; it ticks
+  the coordinator every `FAST_TRACKER_INTERVAL_MS` and does nothing else. Every
+  cadence in the diagram above comes from a task's `interval_ms`, never from a
+  timer. A second 10 s timer used to exist and ran the recording lifecycle from
+  its callback body; that work is the `recording_lifecycle` task now, which is
+  why collapsing the timers did not run it 20x more often.
 - `RefreshCoordinator` runs on the GUI owner thread and creates one shared
   `RefreshTickContext` per tick. Owner-dependent fast tasks resolve
   `owner_stats` at most once in that tick.
+- Tasks are gated by `required`, but `recording_lifecycle` is unconditional: it
+  auto-stops a recording whose game has gone away, so it cannot be gated on
+  consumer demand.
 - Tasks are demand-gated: OBS requires a running local server and an enabled
   widget; in-game overlay requires an enabled runtime widget; Twitch requires
   a connected bot and enabled command; VOD requires recording.
@@ -60,29 +73,28 @@ flowchart TD
         CFG[User Config / config.py]
     end
 
-    %% Fast Refresh Loop
-    subgraph FastRefresh [Fast Refresh Path 500ms]
-        FastTimer[update_chaos_tome_tracker_timer]
-        FastTimer -->|Read Kills, Timer, Powerups, Chaos| GM
-    end
-
-    %% Slow Refresh Loop
-    subgraph SlowRefresh [Slow Refresh Path 10s]
-        SlowTimer[update_player_stats_timer]
-        SlowTimer -->|Read Items, Weapons, Banishes| GM
+    %% Single driver, per-task cadence
+    subgraph Refresh [Refresh Driver 500ms -> RefreshCoordinator]
+        Driver[update_player_stats_timer]
+        Fast[Fast tasks 500ms - 1s]
+        Slow[full_player_snapshot 10s]
+        Driver --> Fast
+        Driver --> Slow
+        Fast -->|Read Kills, Timer, Powerups, Chaos| GM
+        Slow -->|Read Items, Weapons, Banishes| GM
     end
 
     %% State Owners
     subgraph StateOwners [State / Source of Truth]
         LRT(LiveRunTracker)
-        FLS(Full Live Snapshot)
+        FLS(LiveSnapshotStore)
         OS(OverlayStateStore)
         VODR(VodRecorder)
     end
 
-    FastTimer -->|Update KPS, Chaos, Chests| LRT
-    SlowTimer -->|Emit Snapshot| FLS
-    SlowTimer -->|Sync Items| LRT
+    Fast -->|Update KPS, Chaos, Chests| LRT
+    Slow -->|Merge last-known values| FLS
+    Slow -->|Sync Items| LRT
     LRT -->|Build State| OS
     FLS -->|Capture at Intervals| VODR
 
@@ -126,16 +138,26 @@ For each feature, the data begins its journey here.
 
 This section defines the active logic that pulls from data sources and pushes to state stores. (See *Activation / Gating Rules* for trigger conditions).
 
-- **Slow Full Live Stats Refresh**
+- **The driver** (not an updater itself)
   - **Code location:** `src/gui_player_stats.py` (`update_player_stats_timer`)
+  - **Cadence:** Every 500 ms (`FAST_TRACKER_INTERVAL_MS`). The only timer.
+  - **Does:** `_refresh_core_run_lifecycle_state()`, then one `tick()`. Nothing
+    else — a cadence in this callback would be invisible to the coordinator.
+- **Slow Full Live Stats Refresh**
+  - **Code location:** `src/app/refresh_tasks.py` (`full_player_snapshot` task)
   - **Updates:** Full live snapshot including items, weapons, banishes, and general player stats.
-  - **Cadence:** Every 10 seconds (`PLAYER_STATS_REFRESH_MS`).
-  - **Destination:** Emits full live snapshots, updates LiveRunTracker with stage transitions and item updates.
+  - **Cadence:** Every 10 seconds (`PLAYER_STATS_REFRESH_MS`), enforced by the task's `interval_ms`.
+  - **Destination:** Merges into `LiveSnapshotStore`, updates LiveRunTracker with stage transitions and item updates.
 - **Fast KPS, Chaos, and Powerup Refresh**
-  - **Code location:** `src/gui_player_stats.py` (`update_chaos_tome_tracker_timer`, `refresh_chaos_tome_tracker_now`)
+  - **Code location:** `src/app/refresh_tasks.py` (`combat_metrics`, `chaos_tome`, `powerups`, `expected_chest_inputs`, `event_timer` tasks)
   - **Updates:** Kills, run timer, Chaos Tome modifiers, Powerup snapshots, Chest counters.
-  - **Cadence:** Every 500 ms (`FAST_TRACKER_INTERVAL_MS`).
+  - **Cadence:** Every 500 ms (`FAST_TRACKER_INTERVAL_MS`), except `event_timer` (stage timer and stage index) at 1 s.
   - **Destination:** Directly pushes data into `LiveRunTracker`.
+- **Recording Lifecycle**
+  - **Code location:** `src/app/refresh_tasks.py` (`recording_lifecycle` task) -> `src/gui_player_stats.py` (`_sync_player_stats_recording_run_state`)
+  - **Updates:** VOD recording auto-start, auto-stop, auto-split and pause handling.
+  - **Cadence:** Every 10 seconds (`PLAYER_STATS_REFRESH_MS`). Ungated.
+  - **Destination:** `VodRecorder` lifecycle and the live-stats status text.
 - **Overlay State Updates**
   - **Code location:** `src/gui_overlay.py` (`update_overlay_state_from_tracker`)
   - **Updates:** Rebuilds the combined JSON payload for the web-based OBS overlay.
@@ -152,15 +174,18 @@ This section defines the active logic that pulls from data sources and pushes to
 
 ## 4. Activation / Gating Rules
 
-Refresh loops do not always pull data just because their timers are running. To save resources, they are guarded by specific consumers.
+Tasks do not pull data just because the driver ticked. To save resources, each is
+guarded by its own `required` predicate, evaluated every tick.
 
-- **Slow Loop Activation:** The slow 10s timer actively pulls from memory if **any** of the following is true:
+- **`full_player_snapshot` Activation:** pulls from memory if **any** of the following is true:
   - The "Live Stats" tab is visually active.
   - VOD Recording is actively armed or running.
   - OBS Overlay is enabled and running.
   - Twitch Bot is active.
-- **Fast Loop Activation:** The 500ms timer runs under the same conditions as the slow loop.
-- **KPS Consumer Gating (Inside the Fast Loop):** Even when the fast loop fires, the expensive memory reads for `run_timer` and `mob_kills` are skipped unless a consumer explicitly needs them. They ONLY advance if:
+- **`recording_lifecycle` Activation:** none — it is unconditional. It is what
+  auto-stops a recording after the game disappears, so gating it on consumer
+  demand would strand a recording open.
+- **KPS Consumer Gating (`combat_metrics`):** Even though the driver ticks every 500 ms, the expensive memory reads for `run_timer` and `mob_kills` are skipped unless a consumer explicitly needs them. They ONLY advance if:
   - The "Live Stats" tab is visually active, OR
   - The specific KPS widget in the OBS overlay is enabled, OR
   - The Twitch bot is active AND the `!kps` command is enabled.
@@ -172,9 +197,10 @@ This describes where the most authoritative version of the data lives.
 - **LiveRunTracker (`src/live_run_tracker.py`)**
   - **What it stores:** Tracks dynamic runtime metrics: kills history, fast-moving KPS, Chaos Tome state, Powerup mapping, chest open/purchased logic, and custom tracked items.
   - **Source of truth for:** Fast-refresh features, historical kills/KPS timeline, stage-specific context.
-- **Full Live Snapshot (in-memory variables in `gui_player_stats.py`)**
-  - **What it stores:** The heavy payload read every 10 seconds (complete item list, weapons, banishes, stage transitions).
+- **LiveSnapshotStore (`src/app/snapshot_store.py`)**
+  - **What it stores:** The heavy payload read every 10 seconds (complete item list, weapons, tomes, damage sources, banishes) plus the map metadata used to detect a new match.
   - **Source of truth for:** Slow-moving heavy data fields that don't need real-time visualization.
+  - **Why it exists:** It implements the last-known-value fallback — a transient empty or failed read returns the previous good value instead of flashing to empty. Exposes immutable snapshots; Qt-free and I/O-free.
 - **OverlayStateStore (`src/overlay_state.py`)**
   - **What it stores:** The exact JSON dictionary representation of the overlay UI, derived from LiveRunTracker.
   - **Source of truth for:** HTTP clients (OBS).
@@ -230,7 +256,56 @@ Note that this document outlines the target mental model, but reality contains s
 - **VOD Fast KPS Lane:** Active VOD recording explicitly enables the fast KPS refresh lane, so recorded `mob_kills` and `run_timer` values remain available even when Live Stats, Twitch, and the KPS overlay are inactive.
 - **Mixed Freshness in Overlay:** The OBS clients poll the `/api/overlay-state` endpoint every 500ms. However, only the KPS/Chaos widgets actually contain 500ms-fresh data. The player stats (Luck, Damage) and Items widgets only change their underlying values every 10 seconds due to the slow refresh path.
 
-## 10. Suggested Future Maintenance Rule
+## 10. Proposed Direction: Consumer-Composed Reads
+
+Not scheduled, and deliberately not a step in any current plan. Recorded here
+because the evidence for it keeps arriving on its own.
+
+**The idea:** revisit every consumer and let each compose the parts it needs from
+independent pieces, instead of the present arrangement where a read's shape is
+decided by whichever subsystem happened to introduce it first. The goals are no
+duplicate reads of the same memory, and no consumer that cannot reach data the
+application already has.
+
+**Why this is a real symptom and not a tidiness itch.** Four instances surfaced
+without being searched for, during a single evening of unrelated refactoring
+work:
+
+- **`get_runtime_game_state()` vs `get_runtime_activity_state()`**
+  (`src/game_data.py`) — overlapping reads of the same lifecycle facts. The first
+  is uncached and reads an extra static-field block; the second is cached and
+  cheaper. `_sync_player_stats_recording_run_state` calls the heavy one, while
+  `_refresh_core_run_lifecycle_state` keeps the light one fresh at 1 s a few
+  lines away.
+- **`stage_index` is read twice, from two packages** —
+  `get_stage_timer_context()` in `src/player_stats.py`, while
+  `get_map_generation_state()` in `src/game_data.py` already reads the exact
+  static-field block it lives in, for `current_stage_ptr`.
+- **`is_graveyard` cannot be reached by a consumer that needs it.** It is derived
+  in the tracker from `PowerupMapContext`, which the *powerups* task fills — and
+  that task's `required` does not include `_is_vod_recording()`. The recording
+  path cannot use it: the data exists, but the wrong subsystem owns its cadence.
+  Recording with the Live Stats tab closed silently leaves the detector dark.
+- **The run timer is read three times** — the `combat_metrics` task, the
+  recording sync, and inside `get_runtime_game_state()`.
+
+The `is_graveyard` case is the instructive one: the failure is not a missing
+read, it is a consumer whose data is gated by a demand predicate belonging to a
+different feature. That class of bug is invisible in tests and depends on which
+tab the user happens to have open.
+
+**The constraint to settle before building this.** `RuntimeStateSnapshot` is
+currently one coherent slice taken under the tracker's lock. If each consumer
+assembles its own subset, parts can arrive from different ticks and a consumer
+can observe a torn view — a KPS from this tick beside an item list from the last.
+`RefreshTickContext` already caches within a tick, so per-tick composition is the
+natural answer, but it has to be a design decision made up front rather than a
+property discovered after the fact.
+
+This *supports* `future_refactor_clarifications.md`'s "one authoritative source
+per feature" rather than competing with it: it is a way of satisfying it.
+
+## 11. Suggested Future Maintenance Rule
 
 When adding a new realtime feature, developers should immediately define:
 - **Raw source:** Is it derived logic or direct memory read?
