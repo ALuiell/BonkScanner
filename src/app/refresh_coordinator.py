@@ -58,9 +58,20 @@ class RefreshTask:
 class RefreshCoordinator:
     """Runs each demanded task at most once per configured interval."""
 
-    def __init__(self, *, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, *, clock: Callable[[], float] | None = None) -> None:
+        # Resolved per call rather than captured here: binding ``time.monotonic``
+        # as a default argument would freeze the real clock at import time, so a
+        # test patching ``time.monotonic`` would move its own clock while the
+        # coordinator kept scheduling against the real one. Tasks would then
+        # silently never come due again. Callers wanting a deterministic clock
+        # still pass one explicitly.
         self._clock = clock
         self._tasks: dict[str, RefreshTask] = {}
+
+    def _now(self) -> float:
+        if self._clock is not None:
+            return self._clock()
+        return time.monotonic()
 
     def register(self, task: RefreshTask) -> None:
         if not task.task_id:
@@ -72,7 +83,7 @@ class RefreshCoordinator:
         self._tasks[task.task_id] = task
 
     def tick(self) -> tuple[str, ...]:
-        now = self._clock()
+        now = self._now()
         context = RefreshTickContext()
         ran: list[str] = []
         for task in self._tasks.values():
@@ -99,7 +110,7 @@ class RefreshCoordinator:
         return tuple(ran)
 
     def diagnostics(self) -> tuple[RefreshTaskDiagnostics, ...]:
-        now = self._clock()
+        now = self._now()
         result: list[RefreshTaskDiagnostics] = []
         for task in self._tasks.values():
             try:

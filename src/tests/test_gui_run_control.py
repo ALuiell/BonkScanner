@@ -2913,30 +2913,67 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_shutting_down = False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        app._sync_player_stats_recording_run_state = lambda: (_ for _ in ()).throw(
+        app._refresh_core_run_lifecycle_state = lambda: (_ for _ in ()).throw(
             RuntimeError("lifecycle failed")
         )
 
         with self.assertRaisesRegex(RuntimeError, "lifecycle failed"):
             gui.MegabonkApp.update_player_stats_timer(app)
 
-        self.assertEqual(app.after_calls, [(gui.PLAYER_STATS_REFRESH_MS, app.update_player_stats_timer)])
+        self.assertEqual(
+            app.after_calls,
+            [(int(gui.config.FAST_TRACKER_INTERVAL_MS), app.update_player_stats_timer)],
+        )
 
-    def test_chaos_timer_reschedules_after_exception(self) -> None:
+    def test_recording_lifecycle_keeps_its_10s_cadence_under_the_500ms_driver(self) -> None:
+        # The whole risk of collapsing the two timers: the recording lifecycle
+        # used to be a 10 s timer's body, and the surviving driver runs 20x
+        # faster. Its interval must come from the task, not from the timer.
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.player_stats_vod_recorder.is_recording = False
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
+        app.read_player_stats_runtime_activity_state = lambda: RuntimeGameState(
+            mode=RuntimeGameMode.MAIN_MENU,
+        )
+        app.after = lambda delay, callback: None
+        sync_calls: list[int] = []
+        app._sync_player_stats_recording_run_state = lambda: sync_calls.append(1) and None
+
+        now = [1000.0]
+        with patch.object(gui.time, "monotonic", side_effect=lambda: now[0]), \
+             patch.object(gui.config, "AUTO_START_RECORDING", False), \
+             patch.object(gui.config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
+            for _ in range(40):  # 40 ticks x 500 ms = 20 s of driver time
+                gui.MegabonkApp.update_player_stats_timer(app)
+                now[0] += 0.5
+
+        self.assertEqual(len(sync_calls), 2)  # 20 s of ticking / 10 s interval
+
+    def test_recording_lifecycle_failure_is_contained_to_its_task(self) -> None:
+        # The recording sync used to be the timer callback's own body, so a
+        # failure escaped into Qt. It is a coordinator task now, which reports
+        # failures instead of propagating them -- the driver must survive.
         app = self.build_recording_app()
         app._is_shutting_down = False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        app._refresh_core_run_lifecycle_state = lambda: (_ for _ in ()).throw(
-            RuntimeError("chaos lifecycle failed")
+        app._sync_player_stats_recording_run_state = lambda: (_ for _ in ()).throw(
+            RuntimeError("lifecycle failed")
         )
 
-        with self.assertRaisesRegex(RuntimeError, "chaos lifecycle failed"):
-            gui.MegabonkApp.update_chaos_tome_tracker_timer(app)
+        gui.MegabonkApp.update_player_stats_timer(app)
 
+        diagnostics = {
+            entry.task_id: entry
+            for entry in app._refresh_coordinator.diagnostics()
+        }
+        self.assertIn("lifecycle failed", diagnostics["recording_lifecycle"].last_error or "")
         self.assertEqual(
             app.after_calls,
-            [(int(gui.config.FAST_TRACKER_INTERVAL_MS), app.update_chaos_tome_tracker_timer)],
+            [(int(gui.config.FAST_TRACKER_INTERVAL_MS), app.update_player_stats_timer)],
         )
 
     def test_refresh_right_tab_after_switch_immediately_refreshes_live_stats(self) -> None:

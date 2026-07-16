@@ -3,15 +3,19 @@ predicates that decide which fast-tick work actually runs.
 
 Moved out of ``PlayerStatsMixin`` without behaviour change. These predicates
 encode domain rules ("is a KPS consumer active") and only lived in a GUI file
-because the timers that drive them do -- the GUI keeps thread ownership and
+because the timer that drives them does -- the GUI keeps thread ownership and
 calls ``ensure_refresh_coordinator(self).tick()`` from
-``update_player_stats_timer``/``update_chaos_tome_tracker_timer``, both of
-which stay in ``gui_player_stats.py``.
+``update_player_stats_timer``, which stays in ``gui_player_stats.py``.
+
+That driver is now the only one. Every cadence lives in a task's
+``interval_ms``: a second 10 s timer used to run the recording lifecycle from
+its own callback body, so collapsing the timers without giving that work a
+task of its own would have run it 20x more often.
 
 ``ensure_refresh_coordinator``, ``overlay_widget_refresh_active`` and the two
 ``record_player_stats_memory_*`` helpers are plain functions, not mixin
 methods: each also has callers that stay behind in ``gui_player_stats.py``
-(the two timer drivers, ``_overlay_requires_player_snapshot``, and five
+(the timer driver, ``_overlay_requires_player_snapshot``, and five
 memory-read call sites). A mixin method reachable only via the shared
 ``self`` would show up as a new hidden cross-mixin read the moment its
 caller and its definition live in different files -- passing the owner
@@ -46,6 +50,20 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
     if coordinator is not None:
         return coordinator
     coordinator = RefreshCoordinator()
+    # Registered first, and deliberately so: ``tick`` runs tasks in registration
+    # order, and ``full_player_snapshot`` below reads the status text this task
+    # writes. Before the timers were collapsed this ordering was implicit -- the
+    # 10 s callback ran the recording sync and then called ``tick``.
+    coordinator.register(
+        RefreshTask(
+            task_id="recording_lifecycle",
+            interval_ms=PLAYER_STATS_REFRESH_MS,
+            # Unconditional: this is what auto-stops a recording once the game is
+            # gone, so it must keep running when every consumer has lost demand.
+            required=lambda: True,
+            run=owner._refresh_recording_lifecycle_task,
+        )
+    )
     coordinator.register(
         RefreshTask(
             task_id="full_player_snapshot",
@@ -135,6 +153,22 @@ def record_player_stats_memory_failure(owner, error: Exception) -> None:
 
 
 class RefreshTasksMixin:
+    def _refresh_recording_lifecycle_task(self, _context: RefreshTickContext) -> bool:
+        """Recording auto-start/auto-stop/pause handling, formerly the body of the
+        10 s Qt timer callback.
+
+        It is a task rather than a side effect of the surviving 500 ms driver
+        because it must keep its own 10 s cadence: running the recording
+        lifecycle 20x more often is a behaviour change, not a scheduling detail.
+        """
+        recording_state_action = self._sync_player_stats_recording_run_state()
+        self._player_stats_refresh_status_text = (
+            "Live player stats"
+            if recording_state_action != "stopped"
+            else "Live player stats (recording auto-stopped after run end)"
+        )
+        return True
+
     def _fast_task_client(self, context: RefreshTickContext) -> PlayerStatsClient:
         return context.get_or_create("player_stats_client", self._get_player_stats_client)
 

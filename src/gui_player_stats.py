@@ -33,7 +33,6 @@ from gui_styles import (
     PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS,
     PLAYER_STATS_LABEL_FONT_SIZE,
     PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
-    PLAYER_STATS_REFRESH_MS,
     PLAYER_STATS_STAGE4_GHOST_ENTRY_MAX_SECONDS,
     PLAYER_STATS_STAGE4_GHOST_TIMER_SECONDS,
     PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS,
@@ -203,20 +202,24 @@ class PlayerStatsMixin:
         )
 
     def update_player_stats_timer(self):
+        """The single refresh driver.
+
+        Every cadence lives in a registered task's ``interval_ms``, not in a
+        timer: this callback only ticks. Recording lifecycle work that used to
+        sit in a second 10 s timer is now the ``recording_lifecycle`` task, which
+        keeps its 10 s interval.
+        """
         if self._is_shutting_down:
             return
         try:
-            recording_state_action = self._sync_player_stats_recording_run_state()
             self._refresh_core_run_lifecycle_state()
-            self._player_stats_refresh_status_text = (
-                "Live player stats"
-                if recording_state_action != "stopped"
-                else "Live player stats (recording auto-stopped after run end)"
-            )
             ensure_refresh_coordinator(self).tick()
         finally:
             if not self._is_shutting_down:
-                self.after(PLAYER_STATS_REFRESH_MS, self.update_player_stats_timer)
+                self.after(
+                    int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)),
+                    self.update_player_stats_timer,
+                )
 
     def _player_stats_refresh_required(self) -> bool:
         return not bool(getattr(self, "_player_stats_completed_run", False)) and (
@@ -228,19 +231,6 @@ class PlayerStatsMixin:
             or self._in_game_overlay_requires_player_stats_refresh()
             or self._is_twitch_bot_active()
         )
-
-    def update_chaos_tome_tracker_timer(self):
-        if self._is_shutting_down:
-            return
-        try:
-            self._refresh_core_run_lifecycle_state()
-            ensure_refresh_coordinator(self).tick()
-        finally:
-            if not self._is_shutting_down:
-                self.after(
-                    int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)),
-                    self.update_chaos_tome_tracker_timer,
-                )
 
     def _record_player_stats_game_data_memory_success(self) -> None:
         self._player_stats_game_data_memory_error_streak = 0
