@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from game_data import MapStat, StatValue
+from core.game_state import MapStat, StatValue
 
 STAT_LABELS = (
     "Bald Heads",
