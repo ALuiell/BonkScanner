@@ -105,13 +105,10 @@ class MegabonkApp(
         self.player_stats_items_expanded = False
         self.player_stats_items_current = ()
         self.player_stats_items_text_current = None
-        self.player_stats_last_known_items = ()
-        self.player_stats_last_known_weapons = None
-        self.player_stats_last_known_tomes = None
-        self.player_stats_last_known_damage_sources = None
-        self.player_stats_last_known_banishes = None
+        # player_stats_last_known_{items,weapons,tomes,damage_sources,banishes}
+        # and player_stats_live_banishes now live on LiveSnapshotStore, lazily
+        # constructed by _ensure_live_snapshot_store() with the same defaults.
         self.player_stats_banishes_label = None
-        self.player_stats_live_banishes = ()
         self.player_stats_in_game_time_label = None
         self.player_stats_chests_per_minute_label = None
         self.player_stats_powerups_duration_label = None
@@ -293,8 +290,6 @@ class MegabonkApp(
         self.player_stats_last_run_id = None
         self.player_stats_disabled_items_cache = None
         self.player_stats_disabled_items_refresh_pending = False
-        self.player_stats_last_seed = None
-        self.player_stats_last_run_timer = None
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = None

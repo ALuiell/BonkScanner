@@ -65,6 +65,7 @@ from app.refresh_tasks import (
     record_player_stats_memory_failure,
     record_player_stats_memory_success,
 )
+from app.snapshot_store import LiveSnapshotStore
 from vod_storage import (
     delete_vod,
     delete_vods_below_snapshot_count,
@@ -98,6 +99,82 @@ def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
     _set_text(widget, text)
 
 class PlayerStatsMixin:
+    def _ensure_live_snapshot_store(self) -> LiveSnapshotStore:
+        store = self.__dict__.get("_live_snapshot_store")
+        if store is None:
+            store = LiveSnapshotStore()
+            self.__dict__["_live_snapshot_store"] = store
+        return store
+
+    # Backward-compatible attribute access over LiveSnapshotStore's fields.
+    # Production code should call _ensure_live_snapshot_store() and use its
+    # methods directly; these properties exist so external pokes (tests, and
+    # any object.__new__()-built app double that never runs __init__) keep
+    # working unchanged.
+    @property
+    def player_stats_last_known_items(self):
+        return self._ensure_live_snapshot_store().last_known_items
+
+    @player_stats_last_known_items.setter
+    def player_stats_last_known_items(self, value) -> None:
+        self._ensure_live_snapshot_store().last_known_items = value
+
+    @property
+    def player_stats_last_known_weapons(self):
+        return self._ensure_live_snapshot_store().last_known_weapons
+
+    @player_stats_last_known_weapons.setter
+    def player_stats_last_known_weapons(self, value) -> None:
+        self._ensure_live_snapshot_store().last_known_weapons = value
+
+    @property
+    def player_stats_last_known_tomes(self):
+        return self._ensure_live_snapshot_store().last_known_tomes
+
+    @player_stats_last_known_tomes.setter
+    def player_stats_last_known_tomes(self, value) -> None:
+        self._ensure_live_snapshot_store().last_known_tomes = value
+
+    @property
+    def player_stats_last_known_damage_sources(self):
+        return self._ensure_live_snapshot_store().last_known_damage_sources
+
+    @player_stats_last_known_damage_sources.setter
+    def player_stats_last_known_damage_sources(self, value) -> None:
+        self._ensure_live_snapshot_store().last_known_damage_sources = value
+
+    @property
+    def player_stats_last_known_banishes(self):
+        return self._ensure_live_snapshot_store().last_known_banishes
+
+    @player_stats_last_known_banishes.setter
+    def player_stats_last_known_banishes(self, value) -> None:
+        self._ensure_live_snapshot_store().last_known_banishes = value
+
+    @property
+    def player_stats_live_banishes(self):
+        return self._ensure_live_snapshot_store().live_banishes
+
+    @player_stats_live_banishes.setter
+    def player_stats_live_banishes(self, value) -> None:
+        self._ensure_live_snapshot_store().live_banishes = value
+
+    @property
+    def player_stats_last_seed(self):
+        return self._ensure_live_snapshot_store().last_seed
+
+    @player_stats_last_seed.setter
+    def player_stats_last_seed(self, value) -> None:
+        self._ensure_live_snapshot_store().last_seed = value
+
+    @property
+    def player_stats_last_run_timer(self):
+        return self._ensure_live_snapshot_store().last_run_timer
+
+    @player_stats_last_run_timer.setter
+    def player_stats_last_run_timer(self, value) -> None:
+        self._ensure_live_snapshot_store().last_run_timer = value
+
     def _is_player_stats_recording_armed(self) -> bool:
         auto_recording_enabled = bool(getattr(config, "AUTO_START_RECORDING", False))
         auto_recording_suppressed = bool(
@@ -233,11 +310,7 @@ class PlayerStatsMixin:
         for label in self.player_stats_rows.values():
             _set_text(label, "--")
         self.player_stats_items_expanded = False
-        self.player_stats_last_known_items = None
-        self.player_stats_last_known_weapons = None
-        self.player_stats_last_known_tomes = None
-        self.player_stats_last_known_damage_sources = None
-        self.player_stats_last_known_banishes = None
+        self._ensure_live_snapshot_store().reset_for_new_match()
         self._update_items_section("live", items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
         self._apply_live_powerups_card(None)
@@ -251,7 +324,6 @@ class PlayerStatsMixin:
         )
         _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, "No banishes yet")
-        self.player_stats_live_banishes = ()
         self._set_stage_summary_labels(self.player_stats_stage_summary_labels, None)
         self.player_stats_weapon_signature = None
         self.display_weapon_cards(
@@ -338,30 +410,12 @@ class PlayerStatsMixin:
             stage_ptr = 0
 
         # 3. Detect match start
-        is_new_match = False
-        prev_seed = getattr(self, "player_stats_last_seed", None)
-        prev_time = getattr(self, "player_stats_last_run_timer", None)
-        if run_timer_seconds is not None:
-            if prev_time is None and run_timer_seconds <= 5.0:
-                is_new_match = True
-
-            # Map seed changed or appeared on low game time
-            if map_seed is not None and (prev_seed is None or int(map_seed) != int(prev_seed)):
-                if run_timer_seconds <= 5.0:
-                    is_new_match = True
-
-            # Timer went backward (reset)
-            if prev_time is not None and run_timer_seconds + 1.0 < prev_time:
-                is_new_match = True
+        snapshot_store = self._ensure_live_snapshot_store()
+        is_new_match = snapshot_store.is_new_match(map_seed=map_seed, run_timer_seconds=run_timer_seconds)
 
         if is_new_match:
             self.player_stats_disabled_items_refresh_pending = True
-            self.player_stats_last_known_items = None
-            self.player_stats_last_known_weapons = None
-            self.player_stats_last_known_tomes = None
-            self.player_stats_last_known_damage_sources = None
-            self.player_stats_last_known_banishes = None
-            self.player_stats_live_banishes = ()
+            snapshot_store.reset_for_new_match()
 
         # 4. Read passive items
         try:
@@ -466,8 +520,7 @@ class PlayerStatsMixin:
             player_level = None
 
         # Update last seed and run timer values for the next tick
-        self.player_stats_last_seed = map_seed
-        self.player_stats_last_run_timer = run_timer_seconds
+        snapshot_store.record_match_tick(map_seed=map_seed, run_timer_seconds=run_timer_seconds)
 
         return (
             stats,
@@ -543,84 +596,35 @@ class PlayerStatsMixin:
 
         chests_per_minute = self.calculate_player_chests_per_minute(stats)
         items_text = None if items_available else "Items unavailable"
-        last_known_items = getattr(self, "player_stats_last_known_items", None)
-        if items_available and (items or last_known_items is None):
-            effective_items = items
-            self.player_stats_last_known_items = items
-        elif last_known_items is not None:
-            # The game can expose an empty inventory dictionary for a single
-            # refresh while it is being updated. Do not turn that into a real
-            # item loss or let it reset the stage-summary item baseline.
-            effective_items = last_known_items
-            items_available = False
-        else:
-            effective_items = ()
+        snapshot_store = self._ensure_live_snapshot_store()
 
-        last_known_weapons = getattr(self, "player_stats_last_known_weapons", None)
-        if weapons_available:
-            if weapons or last_known_weapons is None:
-                effective_weapons = weapons
-                self.player_stats_last_known_weapons = weapons
-                effective_weapons_available = True
-            else:
-                effective_weapons = last_known_weapons
-                weapons_available = False
-                effective_weapons_available = True
-        else:
-            effective_weapons = last_known_weapons or ()
-            effective_weapons_available = last_known_weapons is not None
+        merged_items = snapshot_store.merge_items(items, items_available)
+        effective_items = merged_items.effective
+        items_available = merged_items.available
 
-        last_known_tomes = getattr(self, "player_stats_last_known_tomes", None)
-        if tomes_available:
-            if tomes or last_known_tomes is None:
-                effective_tomes = tomes
-                self.player_stats_last_known_tomes = tomes
-                effective_tomes_available = True
-            else:
-                effective_tomes = last_known_tomes
-                tomes_available = False
-                effective_tomes_available = True
-        else:
-            effective_tomes = last_known_tomes or ()
-            effective_tomes_available = last_known_tomes is not None
+        merged_weapons = snapshot_store.merge_weapons(weapons, weapons_available)
+        effective_weapons = merged_weapons.effective
+        weapons_available = merged_weapons.available
+        effective_weapons_available = merged_weapons.effective_available
 
-        last_known_damage_sources = getattr(
-            self,
-            "player_stats_last_known_damage_sources",
-            None,
+        merged_tomes = snapshot_store.merge_tomes(tomes, tomes_available)
+        effective_tomes = merged_tomes.effective
+        tomes_available = merged_tomes.available
+        effective_tomes_available = merged_tomes.effective_available
+
+        merged_damage_sources = snapshot_store.merge_damage_sources(damage_sources, damage_sources_available)
+        effective_damage_sources = merged_damage_sources.effective
+        damage_sources_available = merged_damage_sources.available
+        effective_damage_sources_available = merged_damage_sources.effective_available
+
+        merged_banishes = snapshot_store.merge_banishes(
+            banishes,
+            banishes_available,
+            merge_fn=self.merge_banish_appearance_order,
         )
-        if damage_sources_available:
-            if damage_sources or last_known_damage_sources is None:
-                effective_damage_sources = damage_sources
-                self.player_stats_last_known_damage_sources = damage_sources
-                effective_damage_sources_available = True
-            else:
-                effective_damage_sources = last_known_damage_sources
-                damage_sources_available = False
-                effective_damage_sources_available = True
-        else:
-            effective_damage_sources = last_known_damage_sources or ()
-            effective_damage_sources_available = last_known_damage_sources is not None
+        banishes = merged_banishes.banishes
+        banishes_available = merged_banishes.available
 
-        if banishes_available:
-            last_known_banishes = getattr(self, "player_stats_last_known_banishes", None)
-            if banishes or last_known_banishes is None:
-                banishes = self.merge_banish_appearance_order(
-                    self.player_stats_live_banishes,
-                    banishes,
-                )
-                self.player_stats_live_banishes = banishes
-                self.player_stats_last_known_banishes = banishes
-            else:
-                banishes = last_known_banishes
-                banishes_available = False
-        else:
-            last_known_banishes = getattr(self, "player_stats_last_known_banishes", None)
-            banishes = (
-                last_known_banishes
-                if last_known_banishes is not None
-                else self.player_stats_live_banishes
-            )
         is_live_tab_active = self._is_live_stats_tab_active()
         map_stats = {}
         map_chests_total = None
@@ -3780,8 +3784,7 @@ class PlayerStatsMixin:
             except Exception:
                 pass
             self.player_stats_client = None
-        self.player_stats_last_seed = None
-        self.player_stats_last_run_timer = None
+        self._ensure_live_snapshot_store().reset_match_metadata()
         self._player_stats_memory_error_streak = 0
 
     def close_player_stats_game_data_client(self):
