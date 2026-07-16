@@ -5,15 +5,9 @@ import src
 import time
 import unittest
 
-from game_data import (
-    GameDataClient,
-    MapGenerationState,
-    MapStat,
-    RuntimeGameMode,
-    RuntimeGameState,
-    StatValue,
-)
-from memory import MemoryReadError
+from core.game_state import MapGenerationState, MapStat, RuntimeGameMode, RuntimeGameState, StatValue
+from infra.memory.game_data_client import GameDataClient
+from infra.memory.reader import MemoryReadError
 
 
 class FakeMemory:

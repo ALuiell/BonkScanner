@@ -10,17 +10,8 @@ import time
 from typing import Any
 
 import config
-from player_stats import (
-    ChaosTomeSnapshot,
-    ChaosTomeStatSnapshot,
-    DamageSourceSnapshot,
-    PlayerStatFormat,
-    PlayerStatValue,
-    TomeSnapshot,
-    WeaponSnapshot,
-    WeaponStatFormat,
-    WeaponStatValue,
-)
+from core.stats.formats import PlayerStatFormat, WeaponStatFormat
+from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
 
 VOD_FORMAT_VERSION = 6

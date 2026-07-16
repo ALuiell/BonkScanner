@@ -1,8 +1,12 @@
 """Memory client for player stats.
 
-The domain half of this module now lives in ``core.stats``; the names are
-re-exported here so existing ``from player_stats import ...`` call sites keep
-working until step 10 moves this client into ``infra/memory/``.
+The domain half lives in ``core.stats``. Step 2 re-exported those names here so
+that ``from player_stats import ...`` call sites kept working across the split;
+step 10 moved this client and rewrote every call site to import types from
+``core.stats`` directly, so the ``__all__`` re-exports below now have **no
+external consumers** -- only this module's own internal use of them is load
+bearing. They are kept for one release as a courtesy to anything unmerged;
+delete them once nothing depends on this module for types.
 """
 
 from __future__ import annotations
@@ -12,7 +16,7 @@ import time
 from typing import Iterable
 
 from core.item_metadata import ITEM_DISPLAY_NAME_BY_RAW_VALUE, ITEM_ENUM_NAMES_BY_ID
-from memory import MemoryReadError, ProcessMemory
+from infra.memory.reader import MemoryReadError, ProcessMemory
 
 from core.stats.formats import (
     CRIT_DAMAGE_BASE_MULTIPLIER,

@@ -11,7 +11,8 @@ from core.run_control import (
     SleepFunction,
     WarningHandler,
 )
-from game_data import GameDataClient, MapGenerationState, MapStat, StatValue
+from core.game_state import MapGenerationState, MapStat, StatValue
+from infra.memory.game_data_client import GameDataClient
 
 __all__ = [
     "AbortCondition",

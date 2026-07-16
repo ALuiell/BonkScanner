@@ -9,16 +9,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from player_stats import (
-    ChaosTomeSnapshot,
-    ChaosTomeStatSnapshot,
-    DamageSourceSnapshot,
-    PlayerStatFormat,
-    TomeSnapshot,
-    WeaponSnapshot,
-    WeaponStatFormat,
-    WeaponStatValue,
-)
+from core.stats.formats import PlayerStatFormat, WeaponStatFormat
+from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 from vod_storage import (
     LEGACY_VODS_DIR,
     RECORDINGS_DIR,

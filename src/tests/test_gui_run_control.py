@@ -13,7 +13,7 @@ import gui
 import gui_in_game_overlay
 import gui_player_stats
 import gui_scanner
-from game_data import RuntimeGameMode, RuntimeGameState
+from core.game_state import RuntimeGameMode, RuntimeGameState
 from live_run_tracker import LiveRunTracker
 from app.refresh_coordinator import RefreshTickContext
 from run_control import KeyboardRunControlProvider

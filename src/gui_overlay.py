@@ -51,7 +51,7 @@ from core.item_metadata import (
 from live_run_tracker import LiveRunTracker, TrackedItemRule
 from overlay_server import LocalOverlayServer, OverlayStateStore
 from projections.obs import build_overlay_state
-from player_stats import PLAYER_STAT_GROUPS
+from core.stats.types import PLAYER_STAT_GROUPS
 
 
 OVERLAY_WIDGET_LABELS = {

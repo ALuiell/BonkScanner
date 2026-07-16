@@ -58,7 +58,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
 )
 from core.item_metadata import preferred_item_display_name
-from player_stats import PLAYER_STAT_GROUPS
+from core.stats.types import PLAYER_STAT_GROUPS
 from gui_overlay import OverlayMixin
 from core.stat_labels import abbreviate_stat_label
 

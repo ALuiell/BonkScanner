@@ -54,7 +54,7 @@ import ctypes
 import os
 import threading
 import time
-from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.runtime_stats import adapt_map_stats
 from vod_storage import delete_vod, delete_vods_below_snapshot_count, list_vods, load_vod, rename_vod
 

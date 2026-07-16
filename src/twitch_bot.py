@@ -10,7 +10,7 @@ from PySide6.QtCore import QThread, Signal
 import config
 from core.stat_labels import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
 from twitch_credentials import get_twitch_oauth_token
-from player_stats import format_chaos_tome_stat_delta
+from core.stats.formatters import format_chaos_tome_stat_delta
 from projections.twitch import format_kps, format_powerups, truncate_chat_message
 
 

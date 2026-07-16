@@ -5,20 +5,12 @@ import src
 import unittest
 from unittest.mock import patch
 
-from memory import MemoryReadError
-from player_stats import (
-    ChaosTomeStatSnapshot,
-    DisabledItemsReadStatus,
-    PLAYER_STAT_SPEC_BY_LABEL,
-    PlayerStatsClient,
-    PlayerStatFormat,
-    PlayerStatsTimeline,
-    WeaponStatFormat,
-    calculate_chests_per_minute,
-    format_chaos_tome_stat_delta,
-    format_player_stat_value,
-    format_weapon_stat_value,
-)
+from infra.memory.reader import MemoryReadError
+from core.stats.formats import PlayerStatFormat, WeaponStatFormat
+from core.stats.formatters import format_chaos_tome_stat_delta, format_player_stat_value, format_weapon_stat_value
+from core.stats.timeline import PlayerStatsTimeline
+from core.stats.types import ChaosTomeStatSnapshot, DisabledItemsReadStatus, PLAYER_STAT_SPEC_BY_LABEL, calculate_chests_per_minute
+from infra.memory.player_stats_client import PlayerStatsClient
 
 
 class FakeMemory:
@@ -632,7 +624,7 @@ class PlayerStatsClientTests(unittest.TestCase):
         )
         client = PlayerStatsClient(memory=memory)
 
-        with patch("player_stats.time.monotonic", side_effect=(100.0, 101.0, 106.0)):
+        with patch("infra.memory.player_stats_client.time.monotonic", side_effect=(100.0, 101.0, 106.0)):
             first = client.get_powerup_tracking_snapshot(owner_stats)
             memory.floats[entries + powerup_spec.offset] = 2.0
             second = client.get_powerup_tracking_snapshot(owner_stats)
@@ -694,7 +686,7 @@ class PlayerStatsClientTests(unittest.TestCase):
         )
         client = PlayerStatsClient(memory=memory)
 
-        with patch("player_stats.time.monotonic", side_effect=(100.0, 101.0)):
+        with patch("infra.memory.player_stats_client.time.monotonic", side_effect=(100.0, 101.0)):
             first = client.get_powerup_tracking_snapshot(owner_stats)
             second = client.get_powerup_tracking_snapshot(owner_stats_2)
 

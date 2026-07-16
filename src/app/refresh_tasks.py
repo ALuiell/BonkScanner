@@ -36,10 +36,10 @@ import config
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from gui_shared import _set_text
 from gui_styles import PLAYER_STATS_REFRESH_MS
-from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 
 if TYPE_CHECKING:
-    from player_stats import PlayerStatsClient
+    from infra.memory.player_stats_client import PlayerStatsClient
 
 
 PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD = 3

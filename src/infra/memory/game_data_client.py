@@ -1,8 +1,12 @@
 """Memory client for game runtime data.
 
-The domain half of this module now lives in ``core.game_state``; the names are
-re-exported here so existing ``from game_data import ...`` call sites keep
-working until step 10 moves this client into ``infra/memory/``.
+The domain half lives in ``core.game_state``. Step 3 re-exported those names
+here so that ``from game_data import ...`` call sites kept working across the
+split; step 10 moved this client and rewrote every call site to import types
+from ``core.game_state`` directly, so the ``__all__`` re-exports below now have
+**no external consumers** -- only this module's own internal use of them is load
+bearing. They are kept for one release as a courtesy to anything unmerged;
+delete them once nothing depends on this module for types.
 """
 
 from __future__ import annotations
@@ -10,7 +14,7 @@ from __future__ import annotations
 import time
 from typing import Callable
 
-from memory import MemoryReadError, ProcessMemory
+from infra.memory.reader import MemoryReadError, ProcessMemory
 
 from core.game_state import (
     MapGenerationState,

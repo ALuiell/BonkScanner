@@ -12,7 +12,7 @@ sys.modules['PySide6'] = mock_pyside
 sys.modules['PySide6.QtCore'] = mock_pyside.QtCore
 
 from twitch_bot import TwitchBotWorker
-from player_stats import DisabledItemsReadResult, DisabledItemsReadStatus
+from core.stats.types import DisabledItemsReadResult, DisabledItemsReadStatus
 
 class TestTwitchBotWorker(unittest.TestCase):
     def setUp(self):

@@ -34,7 +34,8 @@ from PySide6.QtWidgets import (
 )
 
 import config
-from player_stats import PLAYER_STAT_GROUPS, PlayerStatFormat
+from core.stats.formats import PlayerStatFormat
+from core.stats.types import PLAYER_STAT_GROUPS
 
 SUMMARY_LABEL_PADDING_STYLESHEET = "padding-left: 4px;"
 LIVE_STATS_CARD_COLUMNS = 3

@@ -10,10 +10,10 @@ from PySide6.QtWidgets import QLabel
 
 import config
 import updater
-from game_data import GameDataClient
+from infra.memory.game_data_client import GameDataClient
 from gui_shared import _clear_layout, _set_text
 from gui_styles import COLOR_MAP, _button_state_stylesheet
-from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from run_control import RunControlError
 from core.runtime_stats import adapt_map_stats
 

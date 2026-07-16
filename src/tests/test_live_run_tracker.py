@@ -12,7 +12,7 @@ from live_run_tracker import (
     PowerupMapContext,
     TrackedItemRule,
 )
-from player_stats import PlayerStatFormat
+from core.stats.formats import PlayerStatFormat
 from projections.vod import build_vod_capture_kwargs
 
 

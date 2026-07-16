@@ -4,7 +4,7 @@ import src
 
 import unittest
 
-from game_data import MapStat, StatValue
+from core.game_state import MapStat, StatValue
 from core.runtime_stats import adapt_map_stats, empty_runtime_stats
 
 

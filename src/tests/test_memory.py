@@ -6,7 +6,7 @@ import struct
 import types
 import unittest
 
-from memory import MemoryReadError, ProcessMemory
+from infra.memory.reader import MemoryReadError, ProcessMemory
 
 
 class FakePymem:

@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (
 )
 
 import config
-from game_data import GameDataClient, RuntimeGameMode, RuntimeGameState, MapStat
+from core.game_state import MapStat, RuntimeGameMode, RuntimeGameState
+from infra.memory.game_data_client import GameDataClient
 from gui_dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from gui_shared import _clear_layout, _clear_text_input, _read_text, _set_text, _set_text_input
 from gui_styles import (
@@ -42,21 +43,15 @@ from gui_styles import (
     PLAYER_STATS_VALUE_FONT_SIZE,
     _button_state_stylesheet,
 )
-from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from live_run_tracker import (
     CHAOS_TOME_GAME_STAT_ORDER,
     LiveRunSnapshot,
     LiveRunTracker,
     PowerupMapContext,
 )
-from player_stats import (
-    PLAYER_STAT_GROUPS,
-    DamageSourceSnapshot,
-    PlayerStatsClient,
-    TomeSnapshot,
-    WeaponSnapshot,
-    calculate_chests_per_minute,
-)
+from core.stats.types import DamageSourceSnapshot, PLAYER_STAT_GROUPS, TomeSnapshot, WeaponSnapshot, calculate_chests_per_minute
+from infra.memory.player_stats_client import PlayerStatsClient
 from app.refresh_tasks import (
     PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD,
     ensure_refresh_coordinator,
