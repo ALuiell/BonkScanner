@@ -4,7 +4,7 @@ import src
 
 import unittest
 
-import logic
+from core import logic
 
 
 class LogicTests(unittest.TestCase):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from item_metadata import (
+from core.item_metadata import (
     ITEM_DISPLAY_NAME_ALIASES,
     ITEM_RARITY_BY_NAME,
     ITEM_RARITY_FOLDED_NAME_ALIASES,

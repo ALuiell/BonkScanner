@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import run_summary
+from core import run_summary
+from core.tracker.snapshots import RuntimeStateSnapshot
 from gui_styles import COLOR_MAP, ITEM_RARITY_COLOR_MAP
-from live_run_tracker import LiveRunTracker, RuntimeStateSnapshot
+
+if TYPE_CHECKING:
+    from live_run_tracker import LiveRunTracker
 
 
 DEFAULT_STATS_WIDGET_LABELS = ("Damage", "Attack Speed", "Luck", "XP Gain")

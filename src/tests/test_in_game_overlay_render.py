@@ -5,7 +5,7 @@ import src
 import unittest
 from types import SimpleNamespace
 
-from gui_in_game_overlay_render import (
+from projections.in_game_html import (
     build_event_timer_overlay_html,
     build_stats_overlay_html,
 )

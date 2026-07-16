@@ -5,7 +5,7 @@ import src
 import unittest
 
 from game_data import MapStat, StatValue
-from runtime_stats import adapt_map_stats, empty_runtime_stats
+from core.runtime_stats import adapt_map_stats, empty_runtime_stats
 
 
 class RuntimeStatsTests(unittest.TestCase):

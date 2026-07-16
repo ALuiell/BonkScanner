@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from live_run_tracker import RuntimeStateSnapshot
+from core.tracker.snapshots import RuntimeStateSnapshot
 
 
 def build_vod_capture_kwargs(

@@ -11,7 +11,7 @@ from math import isfinite
 import time
 from typing import Iterable
 
-from item_metadata import ITEM_DISPLAY_NAME_BY_RAW_VALUE, ITEM_ENUM_NAMES_BY_ID
+from core.item_metadata import ITEM_DISPLAY_NAME_BY_RAW_VALUE, ITEM_ENUM_NAMES_BY_ID
 from memory import MemoryReadError, ProcessMemory
 
 from core.stats.formats import (

@@ -4,8 +4,8 @@ from PySide6.QtCore import QRect, QTimer
 from PySide6.QtWidgets import QApplication
 
 import config
-from in_game_projection import project_in_game_overlay
-from gui_in_game_overlay_render import (
+from projections.in_game import project_in_game_overlay
+from projections.in_game_html import (
     build_event_timer_overlay_html,
     build_kps_overlay_html_from_values,
     build_luck_rarity_overlay_html,

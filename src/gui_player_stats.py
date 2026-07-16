@@ -66,7 +66,7 @@ from vod_storage import (
     refresh_vod_metadata_index,
     rename_vod,
 )
-from vod_projection import build_vod_capture_kwargs
+from projections.vod import build_vod_capture_kwargs
 from projections import formatting
 from projections.formatting import COMPARE_RUN_STAT_LABELS
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from live_run_tracker import RuntimeStateSnapshot
+from core.tracker.snapshots import RuntimeStateSnapshot
 
 
 @dataclass(frozen=True)

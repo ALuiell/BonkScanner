@@ -13,7 +13,7 @@ from live_run_tracker import (
     TrackedItemRule,
 )
 from player_stats import PlayerStatFormat
-from vod_projection import build_vod_capture_kwargs
+from projections.vod import build_vod_capture_kwargs
 
 
 def snapshot(

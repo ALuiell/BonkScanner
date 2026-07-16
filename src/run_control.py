@@ -1,36 +1,28 @@
 from __future__ import annotations
 
 import time
-from typing import Callable, Protocol
 
+from core.run_control import (
+    AbortCondition,
+    DynamicFloat,
+    DynamicString,
+    RunControlError,
+    RunControlProvider,
+    SleepFunction,
+    WarningHandler,
+)
 from game_data import GameDataClient, MapGenerationState, MapStat, StatValue
 
-
-WarningHandler = Callable[[str], None]
-SleepFunction = Callable[[float], None]
-DynamicFloat = float | Callable[[], float]
-DynamicString = str | Callable[[], str]
-AbortCondition = Callable[[], bool]
-
-
-class RunControlError(Exception):
-    """Raised when a run-control provider cannot restart the run."""
-
-
-class RunControlProvider(Protocol):
-    def restart_run(self) -> None:
-        ...
-
-    def wait_for_next_run(
-        self,
-        *,
-        client: GameDataClient | None = None,
-        previous_state: MapGenerationState | None = None,
-        previous_stats: dict[MapStat, StatValue] | None = None,
-        warn: WarningHandler | None = None,
-        abort_condition: AbortCondition | None = None,
-    ) -> None:
-        ...
+__all__ = [
+    "AbortCondition",
+    "DynamicFloat",
+    "DynamicString",
+    "KeyboardRunControlProvider",
+    "RunControlError",
+    "RunControlProvider",
+    "SleepFunction",
+    "WarningHandler",
+]
 
 
 class KeyboardRunControlProvider:

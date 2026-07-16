@@ -11,7 +11,7 @@ import copy
 import threading
 from functools import wraps
 
-import run_summary
+from core import run_summary
 from gui_styles import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
 from core.stats.formats import PlayerStatFormat
 from core.stats.types import (
@@ -20,7 +20,7 @@ from core.stats.types import (
     DisabledItemsReadResult,
     DisabledItemsReadStatus,
 )
-from stat_label_abbreviations import abbreviate_stat_label
+from core.stat_labels import abbreviate_stat_label
 from core.tracker.snapshots import (
     LiveRunSnapshot,
     TrackedItemRule,

@@ -57,10 +57,10 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QDoubleSpinBox,
 )
-from item_metadata import preferred_item_display_name
+from core.item_metadata import preferred_item_display_name
 from player_stats import PLAYER_STAT_GROUPS
 from gui_overlay import OverlayMixin
-from stat_label_abbreviations import abbreviate_stat_label
+from core.stat_labels import abbreviate_stat_label
 
 import config
 import updater
@@ -1368,7 +1368,7 @@ class TwitchCommandSettingsDialog(QDialog):
         self.disabled_grid.setContentsMargins(5, 5, 5, 5)
         self.disabled_grid.setSpacing(8)
 
-        from item_metadata import ITEMS, ITEM_DISPLAY_NAME_BY_RAW_VALUE
+        from core.item_metadata import ITEMS, ITEM_DISPLAY_NAME_BY_RAW_VALUE
 
         display_names_to_item = {}
         for item in ITEMS:

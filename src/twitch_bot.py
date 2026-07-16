@@ -8,10 +8,10 @@ from decimal import Decimal, ROUND_HALF_UP
 from math import isfinite
 from PySide6.QtCore import QThread, Signal
 import config
-from stat_label_abbreviations import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
+from core.stat_labels import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
 from twitch_credentials import get_twitch_oauth_token
 from player_stats import format_chaos_tome_stat_delta
-from twitch_projection import format_kps, format_powerups, truncate_chat_message
+from projections.twitch import format_kps, format_powerups, truncate_chat_message
 
 
 COMMAND_COOLDOWN_KEYS = {
@@ -437,7 +437,7 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, "No items found in current run.")
             return
 
-        from run_summary import split_item_stack_suffix, normalize_item_name_for_display, normalize_item_name_for_rarity
+        from core.run_summary import split_item_stack_suffix, normalize_item_name_for_display, normalize_item_name_for_rarity
         from gui_styles import ITEM_RARITY_BY_NAME
 
         legendary_items = []

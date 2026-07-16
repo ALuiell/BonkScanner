@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QCheckBox, QDialog, QMessageBox
 
 import config
-import logic
+from core import logic
 from gui_dialogs import DeleteDialog, HelpDialog, ScoresSettingsDialog, SettingsDialog, TemplateDialog, TemplateManagerDialog
 from gui_shared import _clear_layout, _read_bool, _set_text, format_template_conditions
 from gui_styles import COLOR_MAP, _template_checkbox_stylesheet, _tier_color

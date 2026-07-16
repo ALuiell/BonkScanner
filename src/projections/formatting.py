@@ -9,14 +9,14 @@ from __future__ import annotations
 import html
 from math import isfinite
 
-import run_summary
+from core import run_summary
 from gui_styles import (
     COLOR_MAP,
     ITEM_RARITY_BY_NAME,
     ITEM_RARITY_COLOR_MAP,
     ITEM_RARITY_SORT_ORDER,
 )
-from item_metadata import (
+from core.item_metadata import (
     item_display_color,
     normalize_item_name_for_display,
     normalize_item_name_for_rarity,

@@ -6,7 +6,7 @@ import unittest
 
 import config
 from live_run_tracker import LiveRunSnapshot, LiveRunTracker
-from overlay_state import build_overlay_state
+from projections.obs import build_overlay_state
 
 
 class _DisplayValue:

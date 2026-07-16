@@ -41,7 +41,7 @@ from gui_styles import (
     PLAYER_STATS_REFRESH_MS,
     _button_state_stylesheet,
 )
-from item_metadata import (
+from core.item_metadata import (
     ITEM_RARITY_BY_NAME,
     available_item_display_names,
     item_display_color,
@@ -50,7 +50,7 @@ from item_metadata import (
 )
 from live_run_tracker import LiveRunTracker, TrackedItemRule
 from overlay_server import LocalOverlayServer, OverlayStateStore
-from overlay_state import build_overlay_state
+from projections.obs import build_overlay_state
 from player_stats import PLAYER_STAT_GROUPS
 
 

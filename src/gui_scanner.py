@@ -15,7 +15,7 @@ from gui_shared import _clear_layout, _set_text
 from gui_styles import COLOR_MAP, _button_state_stylesheet
 from memory import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from run_control import RunControlError
-from runtime_stats import adapt_map_stats
+from core.runtime_stats import adapt_map_stats
 
 try:
     import keyboard

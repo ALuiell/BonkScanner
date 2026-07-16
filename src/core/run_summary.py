@@ -14,7 +14,7 @@ from gui_styles import (
     PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS,
     PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS,
 )
-from item_metadata import (
+from core.item_metadata import (
     normalize_item_name_for_display,
     normalize_item_name_for_rarity,
 )

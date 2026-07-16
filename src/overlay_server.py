@@ -247,7 +247,7 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
             state = self._state_provider()
             if isinstance(state, dict):
                 overlay_config = config.OVERLAY or {}
-                from overlay_state import _widget_config_by_id
+                from projections.obs import _widget_config_by_id
                 state["widgets"] = _widget_config_by_id(overlay_config)
                 state["canvas_width"] = int(overlay_config.get("canvas_width", 1920))
                 state["canvas_height"] = int(overlay_config.get("canvas_height", 1080))
