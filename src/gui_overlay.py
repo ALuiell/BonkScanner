@@ -26,9 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 import config
-import run_summary
 from gui_shared import (
-    TRACKED_ITEM_LIST_HEIGHT,
     CollapsibleSection,
     CollapsibleSectionGroup,
     FlowLayout,
@@ -584,7 +582,6 @@ class OverlayMixin:
             if self.overlay_port_entry is not None:
                 _set_text_input(self.overlay_port_entry, str(overlay["port"]))
 
-            widget_config = self._overlay_widget_config_by_id()
             widgets = []
             for widget in overlay.get("widgets", []):
                 if not isinstance(widget, dict):

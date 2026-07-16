@@ -627,10 +627,6 @@ class LiveRunTracker:
             return
 
         current_level = max(0, int(chaos_level))
-        current_baselines = {
-            int(stat_id): tuple(float(getattr(m, "value", 0.0)) for m in (modifiers or ()))
-            for stat_id, modifiers in (permanent_modifiers or {}).items()
-        }
 
         if self._chaos_tome_level is None:
             if current_level <= 0:

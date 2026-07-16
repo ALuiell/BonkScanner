@@ -8,7 +8,6 @@ from functools import partial
 from pathlib import Path
 
 from gui_shared import (
-    TRACKED_ITEM_LIST_HEIGHT,
     CollapsibleSection,
     CollapsibleSectionGroup,
     TrackedRuleTagWidget,
@@ -46,7 +45,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QPlainTextEdit,
     QAbstractItemView,
     QListView,
     QListWidget,
@@ -59,7 +57,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QDoubleSpinBox,
 )
-from item_metadata import available_item_display_names, preferred_item_display_name
+from item_metadata import preferred_item_display_name
 from player_stats import PLAYER_STAT_GROUPS
 from gui_overlay import OverlayMixin
 from stat_label_abbreviations import abbreviate_stat_label
@@ -303,7 +301,6 @@ class TemplateManagerDialog(QDialog):
             return
 
         payload["id"] = template.get("id")
-        original_name = template.get("name")
         if callable(self.on_save) and not self.on_save(template, payload):
             return
 

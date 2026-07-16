@@ -295,7 +295,7 @@ def get_game_reset_time() -> float | None:
             if quick_reset_time is not None:
                 # The game's config stores the time without a safety margin. In our app, we add 0.05s for reliability.
                 return float(quick_reset_time) + 0.05
-    except Exception as e:
+    except Exception:
         pass
     return None
 
@@ -308,7 +308,7 @@ def update_game_reset_time(game_val: float):
             data["cfGameSettings"] = {}
         data["cfGameSettings"]["quick_reset_time"] = game_val
         save_game_config(data)
-    except Exception as e:
+    except Exception:
         pass
 
 # ==========================================

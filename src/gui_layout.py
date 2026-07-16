@@ -1152,7 +1152,7 @@ class GuiLayoutMixin:
         self.status_label = QLabel("Status: <span style='color:#9CA3AF;'>IDLE</span>")
         self.status_label.setTextFormat(Qt.RichText)
         self.status_label.setObjectName("StatusLabel")
-        self.toggle_btn = QPushButton(f"Start")
+        self.toggle_btn = QPushButton("Start")
         self.toggle_btn.setObjectName("ToggleButton")
         self.toggle_btn.clicked.connect(self.toggle_main_loop)
         controls.addWidget(self.settings_btn)

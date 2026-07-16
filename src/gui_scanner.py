@@ -5,12 +5,10 @@ import html
 import threading
 import time
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QLabel
 
 import config
-import logic
 import updater
 from game_data import GameDataClient
 from gui_shared import _clear_layout, _set_text
@@ -449,7 +447,7 @@ class ScannerMixin:
                         if config.EVALUATION_MODE == "scores"
                         else ""
                     )
-                    self.log([f"\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
+                    self.log(["\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
                     self.log(f"Map Stats: {self.format_stats(stats)}", tag="success")
                     self.log_target_found(t_name)
 

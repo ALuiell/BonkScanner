@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import datetime
 import html
 from math import isfinite
-import re
 import threading
 import time
 from pathlib import Path
@@ -14,11 +12,9 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidgetItem,
-    QMessageBox,
     QVBoxLayout,
 )
 
@@ -4484,8 +4480,6 @@ class PlayerStatsMixin:
             return "No previous snapshot"
         changes = cls.summarize_item_segment_changes(segment_snapshots or (previous_snapshot, snapshot))
         gains = changes["gained"]
-        broken = changes["broken"]
-        lost = changes["lost"]
         total = sum(gain for _name, gain in gains)
         items_summary = cls.format_item_gain_rarity_totals(gains)
         if total > 0:

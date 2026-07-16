@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import html
-
 from PySide6.QtWidgets import QCheckBox, QDialog, QMessageBox
 
 import config
