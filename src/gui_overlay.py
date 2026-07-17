@@ -48,8 +48,8 @@ from core.item_metadata import (
     normalize_item_name_for_rarity,
     preferred_item_display_name,
 )
-from live_run_tracker import LiveRunTracker, TrackedItemRule
-from infra.overlay_server import LocalOverlayServer, OverlayStateStore
+from live_run_tracker import TrackedItemRule
+from app.coordinator import AppCoordinator
 from projections.obs import build_overlay_state
 from core.stats.types import PLAYER_STAT_GROUPS
 
@@ -71,18 +71,27 @@ OVERLAY_KPS_METRIC_LABELS = (
 
 class OverlayMixin:
     def initialize_overlay_runtime(self) -> None:
-        self.overlay_state_store = OverlayStateStore()
-        stale_seconds = max(25.0, (float(PLAYER_STATS_REFRESH_MS) / 1000.0) * 2.5)
-        self.live_run_tracker = LiveRunTracker(
-            tracked_item_rules=self._combined_tracked_item_rules(),
-            stale_after_seconds=stale_seconds,
-        )
-        self.overlay_server = LocalOverlayServer(
-            host=config.OVERLAY.get("host", "127.0.0.1"),
-            port=int(config.OVERLAY.get("port", 17845)),
-            state_store=self.overlay_state_store,
-        )
+        # Construction moved to AppCoordinator (step 11); these are aliases onto
+        # the instances it owns. Kept as a mixin method because tests that build
+        # an app double without __init__ call it directly to get a runtime.
+        coordinator = self._ensure_app_coordinator()
+        self.overlay_state_store = coordinator.overlay_state_store
+        self.live_run_tracker = coordinator.live_run_tracker
+        self.overlay_server = coordinator.overlay_server
         self.overlay_state_store.set_state(build_overlay_state(self.live_run_tracker, self._effective_overlay_config()))
+
+    def _ensure_app_coordinator(self) -> AppCoordinator:
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is None:
+            coordinator = AppCoordinator(
+                tracked_item_rules=self._combined_tracked_item_rules(),
+                stale_after_seconds=max(25.0, (float(PLAYER_STATS_REFRESH_MS) / 1000.0) * 2.5),
+                overlay_host=config.OVERLAY.get("host", "127.0.0.1"),
+                overlay_port=int(config.OVERLAY.get("port", 17845)),
+                vod_interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
+            )
+            self.coordinator = coordinator
+        return coordinator
 
     def _build_overlay_tab(self) -> None:
         self.tab_overlay = QWidget()
@@ -550,10 +559,9 @@ class OverlayMixin:
         self.save_overlay_settings_from_ui(persist=False)
         if self.overlay_server.is_running:
             return True
-        self.overlay_server = LocalOverlayServer(
+        self.overlay_server = self._ensure_app_coordinator().rebuild_overlay_server(
             host="127.0.0.1",
             port=int(config.OVERLAY.get("port", 17845)),
-            state_store=self.overlay_state_store,
         )
         try:
             self.overlay_server.start()

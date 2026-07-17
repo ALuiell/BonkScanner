@@ -46,6 +46,11 @@ PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD = 3
 
 
 def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
+    # The AppCoordinator owns this when there is one (step 11). There is not one
+    # on an app double built without __init__, which keeps the old attribute.
+    app_coordinator = getattr(owner, "coordinator", None)
+    if app_coordinator is not None and app_coordinator.refresh_coordinator is not None:
+        return app_coordinator.refresh_coordinator
     coordinator = getattr(owner, "_refresh_coordinator", None)
     if coordinator is not None:
         return coordinator
@@ -118,7 +123,10 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
             run=owner._refresh_chaos_tome_task,
         )
     )
-    owner._refresh_coordinator = coordinator
+    if app_coordinator is not None:
+        app_coordinator.refresh_coordinator = coordinator
+    else:
+        owner._refresh_coordinator = coordinator
     return coordinator
 
 

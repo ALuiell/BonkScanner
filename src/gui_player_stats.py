@@ -78,6 +78,11 @@ def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
 
 class PlayerStatsMixin:
     def _ensure_live_snapshot_store(self) -> LiveSnapshotStore:
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            return coordinator.snapshot_store
+        # No coordinator means an app double built without __init__. Constructing
+        # one here would bind an overlay HTTP port, so those keep a bare store.
         store = self.__dict__.get("_live_snapshot_store")
         if store is None:
             store = LiveSnapshotStore()

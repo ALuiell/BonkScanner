@@ -9,6 +9,7 @@ from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QApplication
 
 from app import config
+from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
 from app.refresh_tasks import RefreshTasksMixin
 from ui.tabs.compare_runs import CompareRunsMixin
@@ -19,10 +20,15 @@ from gui_player_stats import PlayerStatsMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
 from gui_shared import UiInvoker, _AppWindow, resource_path
-from gui_styles import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC, build_qt_app_stylesheet
+from gui_styles import (
+    ITEM_SORT_DEFAULT,
+    ITEM_SORT_RARITY_DESC,
+    PLAYER_STATS_REFRESH_MS,
+    build_qt_app_stylesheet,
+)
 from gui_templates import TemplatesMixin
 from gui_twitch import TwitchBotMixin
-from infra.vod_storage import VodRecorder, load_cached_vods
+from infra.vod_storage import load_cached_vods
 
 
 class MegabonkApp(
@@ -284,9 +290,16 @@ class MegabonkApp(
         self.player_stats_game_data_client = None
         self._player_stats_memory_error_streak = 0
         self._player_stats_game_data_memory_error_streak = 0
-        self.player_stats_vod_recorder = VodRecorder(
-            interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
+        self.coordinator = AppCoordinator(
+            tracked_item_rules=self._combined_tracked_item_rules(),
+            stale_after_seconds=max(25.0, (float(PLAYER_STATS_REFRESH_MS) / 1000.0) * 2.5),
+            overlay_host=config.OVERLAY.get("host", "127.0.0.1"),
+            overlay_port=int(config.OVERLAY.get("port", 17845)),
+            vod_interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
         )
+        # Aliases, not copies: the coordinator owns these, the mixins still reach
+        # them through the shared `self`. Step 12 removes the aliases.
+        self.player_stats_vod_recorder = self.coordinator.vod_recorder
         self.initialize_overlay_runtime()
         self.initialize_in_game_overlay_runtime()
         self.player_stats_last_run_id = None

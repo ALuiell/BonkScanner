@@ -71,6 +71,7 @@ Here is how the responsibilities are distributed across the project's codebase:
 | :--- | :--- |
 | **Startup & Application Control** | |
 | [src/main.py](../../src/main.py) | Entry point of the desktop application. Instantiates `QApplication` and displays the GUI. |
+| [src/app/coordinator.py](../../src/app/coordinator.py) | Owns the runtime instances (live run tracker, overlay server and state store, snapshot store, VOD recorder). Qt-free. |
 | [src/app/config.py](../../src/app/config.py) | Loads, validates, and saves configuration settings, profile templates, scoring configurations, custom hotkeys, and version histories in `config.json`. |
 | [src/app/version.py](../../src/app/version.py) | Holds `CURRENT_VERSION` and version-string comparison. |
 | [src/app/update_flow.py](../../src/app/update_flow.py) | Decides whether a packaged build should update, asking through a caller-supplied confirm callback. |
