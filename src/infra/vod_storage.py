@@ -9,17 +9,29 @@ import threading
 import time
 from typing import Any
 
-from app import config
+from infra import paths
+
+from core.settings import RecordingSettings
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
 
 VOD_FORMAT_VERSION = 6
-RECORDINGS_DIR = Path(config.application_path) / "stats_recordings"
-LEGACY_VODS_DIR = Path(config.application_path) / "vods"
+RECORDINGS_DIR = Path(paths.application_path()) / "stats_recordings"
+LEGACY_VODS_DIR = Path(paths.application_path()) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
 _VOD_METADATA_INDEX_CONFIG_KEY = "_VOD_METADATA_INDEX"
 _VOD_INDEX_LOCK = threading.RLock()
+
+# Injected by app/ at startup. None means "no persistent index": the metadata
+# is still correct, it is just recomputed from disk instead of cached, which is
+# what the tests exercise.
+_settings: RecordingSettings | None = None
+
+
+def use_settings(settings: RecordingSettings | None) -> None:
+    global _settings
+    _settings = settings
 SNAPSHOT_FLUSH_EVERY = 3
 
 
@@ -136,7 +148,9 @@ def _metadata_from_index_record(record: dict[str, Any]) -> tuple[Path, int, int,
 
 
 def _load_index_records() -> list[dict[str, Any]]:
-    payload = config.user_config.get(_VOD_METADATA_INDEX_CONFIG_KEY, {})
+    if _settings is None:
+        return []
+    payload = _settings.read_metadata_index()
     if not isinstance(payload, dict):
         return []
     records = payload.get("records", [])
@@ -193,8 +207,8 @@ def refresh_vod_metadata_index() -> list[VodMetadata]:
             _metadata_to_index_record(metadata, mtime_ns=mtime_ns, size=size)
             for mtime_ns, size, metadata in current.values()
         ]
-        config.user_config[_VOD_METADATA_INDEX_CONFIG_KEY] = {"version": 1, "records": records}
-        config.save_config(config.user_config)
+        if _settings is not None:
+            _settings.write_metadata_index({"version": 1, "records": records})
         return sorted((entry[2] for entry in current.values()), key=lambda vod: vod.created_at, reverse=True)
 
 

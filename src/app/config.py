@@ -1,10 +1,11 @@
 import os
-import sys
 import json
 import math
 import shutil
 import colorama
 import threading
+
+from infra import paths
 
 colorama.init(autoreset=True)
 config_lock = threading.RLock()
@@ -12,13 +13,11 @@ config_lock = threading.RLock()
 # ==========================================
 # CONSTANTS & SETTINGS
 # ==========================================
-# Dynamic path resolution
-if getattr(sys, 'frozen', False):
-    source_path = os.path.dirname(sys.executable)
-    application_path = os.path.dirname(sys.executable)
-else:
-    source_path = os.path.dirname(os.path.abspath(__file__))
-    application_path = os.path.dirname(source_path)
+# Dynamic path resolution. Anchored in infra/paths.py, not here: these were
+# derived from this file's own __file__, so moving this file moved the user's
+# config.json and recordings with it. Step 10b did exactly that.
+source_path = paths.source_path()
+application_path = paths.application_path()
 
 DEFAULT_TEMPLATES = [
     {"id": 1, "name": "LIGHT", "color": "WHITE", "desc": "S+M: 7, Micro: 2, Boss: 2+", "sm_total": 7, "micro": 2, "boss": 2},

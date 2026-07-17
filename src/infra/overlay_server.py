@@ -10,7 +10,7 @@ import threading
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-from app import config
+from core.settings import NullOverlaySettings, OverlaySettings
 
 
 WIDGET_ROUTE_NAMES = {
@@ -56,10 +56,12 @@ class LocalOverlayServer:
         port: int = 17845,
         state_store: OverlayStateStore | None = None,
         asset_dir: Path | None = None,
+        settings: OverlaySettings | None = None,
     ) -> None:
         self.host = "127.0.0.1" if host != "127.0.0.1" else host
         self.port = int(port)
         self.state_store = state_store or OverlayStateStore()
+        self.settings = settings or NullOverlaySettings()
         self.asset_dir = asset_dir or _default_overlay_asset_dir()
         self._server: _OverlayHTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -84,6 +86,7 @@ class LocalOverlayServer:
             OverlayRequestHandler,
             state_provider=self.state_store.get_state,
             asset_dir=self.asset_dir,
+            settings=self.settings,
         )
         try:
             self._server = _OverlayHTTPServer((self.host, self.port), handler)
@@ -118,10 +121,12 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
         *args,
         state_provider: Callable[[], dict[str, Any]],
         asset_dir: Path,
+        settings: OverlaySettings | None = None,
         **kwargs,
     ) -> None:
         self._state_provider = state_provider
         self._asset_dir = asset_dir
+        self._settings = settings or NullOverlaySettings()
         super().__init__(*args, **kwargs)
 
     def do_GET(self) -> None:
@@ -162,9 +167,7 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
                 data = json.loads(post_data.decode('utf-8'))
                 widget_id = data.get("id")
                 
-                # Update config with lock to prevent race conditions
-                with config.config_lock:
-                    overlay = dict(config.OVERLAY)
+                def apply_widget_geometry(overlay):
                     widgets = []
                     for widget in overlay.get("widgets", []):
                         if isinstance(widget, dict):
@@ -196,9 +199,10 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
                                         w["scale"] = max(0.4, min(float(scale_val), 4.0))
                             widgets.append(w)
                     overlay["widgets"] = widgets
-                    config.OVERLAY = overlay
-                    config.user_config["OVERLAY"] = config.OVERLAY
-                    config.save_config(config.user_config)
+
+                # The store takes the lock; this is the read-modify-write it
+                # used to do inline under config.config_lock.
+                self._settings.update(apply_widget_geometry)
                 
                 # Response
                 body = json.dumps({"status": "success"}).encode("utf-8")
@@ -218,14 +222,11 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
                 width = int(data.get("width", 1920))
                 height = int(data.get("height", 1080))
                 
-                # Update config with lock to prevent race conditions
-                with config.config_lock:
-                    overlay = dict(config.OVERLAY)
+                def apply_canvas_size(overlay):
                     overlay["canvas_width"] = max(400, min(width, 7680))
                     overlay["canvas_height"] = max(300, min(height, 4320))
-                    config.OVERLAY = overlay
-                    config.user_config["OVERLAY"] = config.OVERLAY
-                    config.save_config(config.user_config)
+
+                self._settings.update(apply_canvas_size)
                 
                 # Response
                 body = json.dumps({"status": "success"}).encode("utf-8")
@@ -246,7 +247,7 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
         try:
             state = self._state_provider()
             if isinstance(state, dict):
-                overlay_config = config.OVERLAY or {}
+                overlay_config = self._settings.read()
                 from projections.obs import _widget_config_by_id
                 state["widgets"] = _widget_config_by_id(overlay_config)
                 state["canvas_width"] = int(overlay_config.get("canvas_width", 1920))

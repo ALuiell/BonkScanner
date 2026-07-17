@@ -14,6 +14,19 @@ from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSou
 from infra.vod_storage import LEGACY_VODS_DIR, RECORDINGS_DIR, VodRecorder, delete_vod, delete_vods_below_snapshot_count, list_vods, load_cached_vods, load_vod, load_vod_metadata, rename_vod, refresh_vod_metadata_index
 
 
+class FakeRecordingSettings:
+    """A RecordingSettings that keeps the index in memory."""
+
+    def __init__(self) -> None:
+        self.index: dict = {}
+
+    def read_metadata_index(self) -> dict:
+        return self.index
+
+    def write_metadata_index(self, payload: dict) -> None:
+        self.index = payload
+
+
 class VodStorageTests(unittest.TestCase):
     def test_vod_metadata_index_persists_and_drops_deleted_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -27,31 +40,33 @@ class VodStorageTests(unittest.TestCase):
                 '{"type":"summary","duration_seconds":90,"snapshot_count":3}\n',
                 encoding="utf-8",
             )
-            old_recordings, old_legacy, old_index = (
+            # Injected rather than reached for: this used to patch the real
+            # config.user_config, so the test mutated the developer's own config.
+            settings = FakeRecordingSettings()
+            old_recordings, old_legacy, old_settings = (
                 vod_storage.RECORDINGS_DIR,
                 vod_storage.LEGACY_VODS_DIR,
-                vod_storage.config.user_config.get(vod_storage._VOD_METADATA_INDEX_CONFIG_KEY),
+                vod_storage._settings,
             )
             try:
                 vod_storage.RECORDINGS_DIR = root
                 vod_storage.LEGACY_VODS_DIR = Path(temp_dir) / "missing-legacy"
-                vod_storage.config.user_config.pop(vod_storage._VOD_METADATA_INDEX_CONFIG_KEY, None)
+                vod_storage.use_settings(settings)
                 refreshed = refresh_vod_metadata_index()
                 self.assertEqual([vod.name for vod in refreshed], ["Indexed run"])
                 self.assertEqual([vod.name for vod in load_cached_vods()], ["Indexed run"])
-                self.assertIn(vod_storage._VOD_METADATA_INDEX_CONFIG_KEY, vod_storage.config.user_config)
+                self.assertEqual(settings.index.get("version"), 1)
+                self.assertEqual(len(settings.index.get("records", [])), 1)
 
                 path.unlink()
                 refreshed = refresh_vod_metadata_index()
                 self.assertEqual(refreshed, [])
                 self.assertEqual(load_cached_vods(), [])
+                self.assertEqual(settings.index.get("records"), [])
             finally:
                 vod_storage.RECORDINGS_DIR = old_recordings
                 vod_storage.LEGACY_VODS_DIR = old_legacy
-                if old_index is None:
-                    vod_storage.config.user_config.pop(vod_storage._VOD_METADATA_INDEX_CONFIG_KEY, None)
-                else:
-                    vod_storage.config.user_config[vod_storage._VOD_METADATA_INDEX_CONFIG_KEY] = old_index
+                vod_storage.use_settings(old_settings)
 
     def test_recorder_batches_snapshot_flushes_but_flushes_metadata_and_summary(self) -> None:
         class FakeFile:

@@ -18,7 +18,9 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 from app.refresh_coordinator import RefreshCoordinator
+from app.settings import ConfigOverlaySettings, ConfigRecordingSettings
 from app.snapshot_store import LiveSnapshotStore
+from infra import vod_storage
 from infra.overlay_server import LocalOverlayServer, OverlayStateStore
 from infra.vod_storage import VodRecorder
 from live_run_tracker import LiveRunTracker
@@ -34,6 +36,11 @@ class AppCoordinator:
         overlay_port: int,
         vod_interval_seconds: float,
     ) -> None:
+        # infra/ depends on the settings ports in core/; this is where the
+        # config-backed implementations get injected (step 11c).
+        self.overlay_settings = ConfigOverlaySettings()
+        vod_storage.use_settings(ConfigRecordingSettings())
+
         self.overlay_state_store = OverlayStateStore()
         self.live_run_tracker = LiveRunTracker(
             tracked_item_rules=tracked_item_rules,
@@ -43,6 +50,7 @@ class AppCoordinator:
             host=overlay_host,
             port=overlay_port,
             state_store=self.overlay_state_store,
+            settings=self.overlay_settings,
         )
         self.snapshot_store = LiveSnapshotStore()
         self.vod_recorder = VodRecorder(interval_seconds=vod_interval_seconds)
@@ -66,6 +74,7 @@ class AppCoordinator:
             host=host,
             port=port,
             state_store=self.overlay_state_store,
+            settings=self.overlay_settings,
         )
         return self.overlay_server
 
