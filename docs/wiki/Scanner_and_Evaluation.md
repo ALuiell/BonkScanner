@@ -54,7 +54,7 @@ stateDiagram-v2
 
 ## 1. Templates Mode (Rule-Based Matching)
 
-In Templates mode, maps are matched against strict logical thresholds. The evaluation is handled by `find_matching_template` in [src/logic.py](../../src/logic.py).
+In Templates mode, maps are matched against strict logical thresholds. The evaluation is handled by `find_matching_template` in [src/core/logic.py](../../src/core/logic.py).
 
 ### Matching Algorithm
 - All templates configured in `config.json` are loaded.
@@ -71,7 +71,7 @@ In Templates mode, maps are matched against strict logical thresholds. The evalu
 
 ## 2. Scores Mode (Weighted Evaluation)
 
-Scores mode ranks maps using weights and multipliers to determine which "tier" a generated map belongs to. It is computed in `calculate_score` and `evaluate_map_by_scores` in [src/logic.py](../../src/logic.py).
+Scores mode ranks maps using weights and multipliers to determine which "tier" a generated map belongs to. It is computed in `calculate_score` and `evaluate_map_by_scores` in [src/core/logic.py](../../src/core/logic.py).
 
 ### Microwave Normalization
 Microwave values in the game memory can occasionally be null or overflow. The value is normalized before scoring:
@@ -90,7 +90,7 @@ $$
 \text{Base Score} = (\text{Moais} \times W_{moai}) + (\text{Shady} \times W_{shady}) + (\text{Boss} \times W_{boss}) + (\min(\text{Magnet Shrines}, 2) \times W_{magnet})
 $$
 
-Where default weights configured in `src/config.py` are:
+Where default weights configured in `src/app/config.py` are:
 * $W_{moai} = 3.0$
 * $W_{shady} = 2.0$
 * $W_{boss} = 1.0$

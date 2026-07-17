@@ -335,7 +335,7 @@ build_exe.bat
 - `src/gui_twitch.py` - Twitch authentication and bot UI orchestration.
 - `src/gui_dialogs.py` - settings, help, score, template, and Twitch command dialogs.
 - `src/gui_styles.py` - Qt stylesheet and item rarity styling.
-- `src/config.py` - app config, game config integration, templates, scores, overlay, Twitch, and compare settings.
+- `src/app/config.py` - app config, game config integration, templates, scores, overlay, Twitch, and compare settings.
 - `src/core/logic.py` - template and score evaluation logic.
 - `src/infra/memory/game_data_client.py` - map-ready state, counters, seed-related runtime reads, and scan data.
 - `src/infra/memory/reader.py` - low-level `pymem` wrappers and memory helpers.

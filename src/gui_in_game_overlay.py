@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QRect, QTimer
 from PySide6.QtWidgets import QApplication
 
-import config
+from app import config
 from projections.in_game import project_in_game_overlay
 from projections.in_game_html import (
     build_event_timer_overlay_html,

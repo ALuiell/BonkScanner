@@ -77,7 +77,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.assertIn("150%", bot._send_chat.call_args.args[1])
 
     def test_access_tier_mods_vips(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
         TWITCH_BOT["access_tier"] = "Mods & VIPs"
         self.assertTrue(self.bot._check_access("badges=moderator/1,subscriber/0"))
@@ -87,7 +87,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["access_tier"] = old_tier
 
     def test_access_tier_subs_mods(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
         TWITCH_BOT["access_tier"] = "Subs & Mods"
         self.assertTrue(self.bot._check_access("badges=moderator/1"))
@@ -97,7 +97,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["access_tier"] = old_tier
 
     def test_cooldown_per_command(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
         old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
         old_cooldown = TWITCH_BOT.get("cooldown_seconds")
@@ -140,7 +140,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["commands"] = old_commands
 
     def test_command_aliases_share_the_same_cooldown(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
         old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
         old_cooldown = TWITCH_BOT.get("cooldown_seconds")
@@ -168,7 +168,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["commands"] = old_commands
 
     def test_opt_in_commands_stay_disabled_when_missing_from_partial_config(self):
-        import config
+        from app import config
 
         with patch.dict(config.TWITCH_BOT, {"commands": {"stats": True}}):
             enabled_commands = self.bot._enabled_command_names()
@@ -198,7 +198,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.assertEqual(res, "Hello John, your age is --")
 
     def test_safe_formatter_invalid_format_spec(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_templates = TWITCH_BOT.get("templates")
 
         # stats has an invalid format spec or missing key that fails to format with invalid specs
@@ -225,7 +225,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._send_chat.assert_called_once_with("channel", "Session stats are not available yet.")
 
     def test_twitch_tracked_items_source_defaults_to_custom(self):
-        from config import normalize_twitch_bot_config
+        from app.config import normalize_twitch_bot_config
 
         bot_cfg = normalize_twitch_bot_config(
             {
@@ -320,7 +320,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         )
 
     def test_handle_stats_uses_shared_stat_abbreviations(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
 
         self.bot._send_chat = MagicMock()
         self.run_tracker.latest_snapshot.return_value = SimpleNamespace(
@@ -346,7 +346,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         )
 
     def test_powerups_command_routes_through_chat_handler(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
         old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
         old_cooldown = TWITCH_BOT.get("cooldown_seconds")
@@ -379,7 +379,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.assertEqual(TwitchBotWorker._target_channel(cfg), "streamerchannel")
 
     def test_handle_chests(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         from live_run_tracker import ChestStatsSnapshot
 
         TWITCH_BOT.setdefault("templates", {})["chests"] = (
@@ -456,7 +456,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.run_tracker.get_chests_and_keys.assert_not_called()
 
     def test_chests_command_routes_through_chat_handler(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
         old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
         old_cooldown = TWITCH_BOT.get("cooldown_seconds")
@@ -491,7 +491,7 @@ class TestTwitchBotWorker(unittest.TestCase):
 
     def test_handle_presets_templates_mode(self):
         from unittest.mock import patch
-        import config
+        from app import config
         self.bot._send_chat = MagicMock()
 
         with patch.object(config, 'EVALUATION_MODE', 'templates'), \
@@ -508,7 +508,7 @@ class TestTwitchBotWorker(unittest.TestCase):
 
     def test_handle_presets_scores_mode(self):
         from unittest.mock import patch
-        import config
+        from app import config
         self.bot._send_chat = MagicMock()
 
         scores_system_mock = {
@@ -526,7 +526,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             )
 
     def test_presets_command_routes_through_chat_handler(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
         old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
         old_cooldown = TWITCH_BOT.get("cooldown_seconds")
@@ -561,7 +561,7 @@ class TestTwitchBotWorker(unittest.TestCase):
 
     def test_handle_commands_lists_enabled_only(self):
         from unittest.mock import patch
-        import config
+        from app import config
         self.bot._send_chat = MagicMock()
 
         mock_commands_cfg = {
@@ -589,7 +589,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             )
 
     def test_handle_commands_uses_configured_template(self):
-        import config
+        from app import config
 
         self.bot._send_chat = MagicMock()
         mock_commands_cfg = {key: False for key in config.DEFAULT_TWITCH_BOT["commands"]}
@@ -607,7 +607,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._send_chat.assert_called_once_with("channel", "Commands -> !stats, !bonkhelp")
 
     def test_twitch_template_defaults_include_configurable_commands_and_session(self):
-        import config
+        from app import config
 
         bot_cfg = config.normalize_twitch_bot_config({"templates": {}})
 
@@ -615,7 +615,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.assertIn("session", bot_cfg["templates"])
 
     def test_legacy_commands_key_migrates_to_bonkhelp(self):
-        import config
+        from app import config
 
         bot_cfg = config.normalize_twitch_bot_config(
             {
@@ -630,7 +630,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.assertNotIn("commands", bot_cfg["templates"])
 
     def test_legacy_powerups_template_migrates_to_live_format(self):
-        import config
+        from app import config
 
         bot_cfg = config.normalize_twitch_bot_config(
             {
@@ -646,7 +646,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         )
 
     def test_intermediate_powerups_template_with_durations_tail_migrates_to_live_format(self):
-        import config
+        from app import config
 
         bot_cfg = config.normalize_twitch_bot_config(
             {
@@ -662,7 +662,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         )
 
     def test_commands_announcement_uses_configured_interval(self):
-        import config
+        from app import config
 
         self.bot._handle_commands = MagicMock()
         with patch.dict(
@@ -683,7 +683,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_commands.assert_called_once_with("channel")
 
     def test_commands_announcement_restarts_timer_when_enabled(self):
-        import config
+        from app import config
 
         self.bot._handle_commands = MagicMock()
         with patch.dict(
@@ -703,7 +703,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_commands.assert_called_once_with("channel")
 
     def test_commands_announcement_skips_when_no_commands_are_enabled(self):
-        import config
+        from app import config
 
         self.bot._handle_commands = MagicMock()
         disabled_commands = {
@@ -723,7 +723,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._handle_commands.assert_not_called()
 
     def test_commands_command_routes_through_chat_handler(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
         old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
         old_cooldown = TWITCH_BOT.get("cooldown_seconds")
@@ -802,7 +802,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         )
 
     def test_handle_kps_uses_custom_template(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
 
         old_templates = TWITCH_BOT.get("templates")
         TWITCH_BOT["templates"] = dict(old_templates or {})
@@ -837,7 +837,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         )
 
     def test_handle_disabled_with_run(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_highlighted = TWITCH_BOT.get("highlighted_disabled_items")
         old_templates = TWITCH_BOT.get("templates")
 
@@ -867,7 +867,7 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["templates"] = old_templates
 
     def test_disabled_command_routes_through_chat_handler(self):
-        from config import TWITCH_BOT
+        from app.config import TWITCH_BOT
         old_tier = TWITCH_BOT.get("access_tier")
         old_global_cooldown = TWITCH_BOT.get("global_cooldown_seconds")
         old_cooldown = TWITCH_BOT.get("cooldown_seconds")

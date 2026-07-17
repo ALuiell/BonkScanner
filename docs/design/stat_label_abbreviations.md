@@ -9,7 +9,7 @@ surfaces where full stat names take too much space.
 
 This mapping is now centralized in:
 
-- `src/stat_label_abbreviations.py`
+- `src/core/stat_labels.py`
 
 Current consumers:
 

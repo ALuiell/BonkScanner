@@ -9,7 +9,7 @@ This page documents the desktop-level transparent **In-Game Overlay** of BonkSca
 The overlay is implemented across four files:
 - **[gui_in_game_overlay.py](../../src/gui_in_game_overlay.py)**: Defines `InGameOverlayMixin`, which implements state machines, timer loops, game window alignment, and setting callbacks.
 - **[gui_in_game_overlay_window.py](../../src/gui_in_game_overlay_window.py)**: Implements the translucency canvas window, mouse click-through behavior, custom segment drawing, and widget drag-and-drop mechanics.
-- **[gui_in_game_overlay_render.py](../../src/gui_in_game_overlay_render.py)**: Renders HTML strings (rich text) for indicators, KPS metrics, powerup countdowns, and calculates Luck rarity drop probabilities.
+- **[gui_in_game_overlay_render.py](../../src/projections/in_game_html.py)**: Renders HTML strings (rich text) for indicators, KPS metrics, powerup countdowns, and calculates Luck rarity drop probabilities.
 - **[gui_in_game_overlay_settings.py](../../src/gui_in_game_overlay_settings.py)**: Builds the GUI settings tab controls and widget scaling double-spinbox dialogs.
 
 ---

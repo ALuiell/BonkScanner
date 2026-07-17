@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import src
 
-import config
+from app import config
 
 
 class LegacyNativeHookCleanupTests(unittest.TestCase):

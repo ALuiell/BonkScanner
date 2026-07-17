@@ -49,7 +49,7 @@ from gui_styles import (
 from gui_templates import TemplatesMixin
 
 # Compatibility exports for tests and existing extension points that patched gui.py globals.
-import config
+from app import config
 import ctypes
 import os
 import threading

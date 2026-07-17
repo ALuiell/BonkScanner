@@ -8,7 +8,7 @@ import time
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QApplication
 
-import config
+from app import config
 import updater
 from app.refresh_tasks import RefreshTasksMixin
 from ui.tabs.compare_runs import CompareRunsMixin

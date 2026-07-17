@@ -3,7 +3,7 @@
 This document is designed for an in-depth, low-level analysis of map generation across 3 different maps.
 
 ## Data Extraction Mechanics
-We parse the game's memory (`src/game_data.py`) to extract static addresses and structures containing map information:
+We parse the game's memory (`src/infra/memory/game_data_client.py`) to extract static addresses and structures containing map information:
 - `GameManager` / `MapController` / `MapGenerationController`
 - From `MapController`, we retrieve `current_map_ptr` and `current_stage_ptr`.
 - Map activities are located in the `interactables_dict`, which maps string Labels to their current and max capacities.

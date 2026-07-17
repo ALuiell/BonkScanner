@@ -7,7 +7,7 @@ import string
 from decimal import Decimal, ROUND_HALF_UP
 from math import isfinite
 from PySide6.QtCore import QThread, Signal
-import config
+from app import config
 from core.stat_labels import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
 from twitch_credentials import get_twitch_oauth_token
 from core.stats.formatters import format_chaos_tome_stat_delta

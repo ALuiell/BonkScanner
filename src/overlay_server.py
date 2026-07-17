@@ -10,7 +10,7 @@ import threading
 from typing import Any, Callable
 from urllib.parse import urlparse
 
-import config
+from app import config
 
 
 WIDGET_ROUTE_NAMES = {

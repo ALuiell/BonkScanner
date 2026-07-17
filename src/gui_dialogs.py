@@ -62,7 +62,7 @@ from core.stats.types import PLAYER_STAT_GROUPS
 from gui_overlay import OverlayMixin
 from core.stat_labels import abbreviate_stat_label
 
-import config
+from app import config
 import updater
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL

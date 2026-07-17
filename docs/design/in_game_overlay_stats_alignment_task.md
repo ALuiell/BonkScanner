@@ -8,7 +8,7 @@ Bring the `stats` widget alignment used by the OBS overlay into the in-game over
 
 ### Data preparation
 
-- File: `src/overlay_state.py`
+- File: `src/projections/obs.py`
 - Function: `_snapshot_stats()`
 
 OBS `stats` rows are prepared as an ordered list of objects:
@@ -57,7 +57,7 @@ The in-game overlay reads the selected stats config and sends it to `build_stats
 
 ### Current rendering
 
-- File: `src/gui_in_game_overlay_render.py`
+- File: `src/projections/in_game_html.py`
 - Function: `build_stats_overlay_html()`
 
 Current output is a simple list of HTML lines:
@@ -124,7 +124,7 @@ The width should be based on the final displayed label text in the in-game overl
    - `max_display_label_len`
    - or directly `label_width_px`
 
-3. Update `build_stats_overlay_html()` in `src/gui_in_game_overlay_render.py`.
+3. Update `build_stats_overlay_html()` in `src/projections/in_game_html.py`.
    It should stop emitting plain `Label: Value` lines and instead render two-column rows, for example:
    - label element with fixed width / inline-block width
    - value element after it

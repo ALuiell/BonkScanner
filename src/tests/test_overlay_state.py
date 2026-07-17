@@ -4,7 +4,7 @@ import src
 
 import unittest
 
-import config
+from app import config
 from live_run_tracker import LiveRunSnapshot, LiveRunTracker
 from projections.obs import build_overlay_state
 

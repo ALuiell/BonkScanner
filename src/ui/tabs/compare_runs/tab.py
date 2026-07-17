@@ -27,7 +27,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QListWidgetItem
 
-import config
+from app import config
 from core.stats.types import PLAYER_STAT_GROUPS
 from gui_shared import _set_text
 from projections import formatting

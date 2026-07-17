@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import config
+from app import config
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from gui_shared import _set_text
 from gui_styles import PLAYER_STATS_REFRESH_MS

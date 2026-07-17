@@ -1,4 +1,4 @@
-import config
+from app import config
 from PySide6.QtCore import QThread, QTimer, Signal
 from twitch_auth import (
     TwitchAuthThread,

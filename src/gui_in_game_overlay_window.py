@@ -16,7 +16,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
-import config
+from app import config
 from projections.in_game_html import (
     LUCK_RARITY_ORDER,
     build_luck_rarity_overlay_html_for_probabilities,

@@ -9,7 +9,7 @@ import threading
 import time
 from typing import Any
 
-import config
+from app import config
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 

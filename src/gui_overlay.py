@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-import config
+from app import config
 from gui_shared import (
     CollapsibleSection,
     CollapsibleSectionGroup,
@@ -1055,7 +1055,7 @@ class OverlayMixin:
 
         items_str = ", ".join(tracked_parts) if tracked_parts else "None"
 
-        import config
+        from app import config
         tpl = config.TWITCH_BOT.get("templates", {}).get(
             "session", "{resets} resets, {seeds} seeds found ({seed_rate}%) | Tracked Items: {items}"
         )

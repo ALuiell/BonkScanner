@@ -71,7 +71,7 @@ Here is how the responsibilities are distributed across the project's codebase:
 | :--- | :--- |
 | **Startup & Application Control** | |
 | [src/main.py](../../src/main.py) | Entry point of the desktop application. Instantiates `QApplication` and displays the GUI. |
-| [src/config.py](../../src/config.py) | Loads, validates, and saves configuration settings, profile templates, scoring configurations, custom hotkeys, and version histories in `config.json`. |
+| [src/app/config.py](../../src/app/config.py) | Loads, validates, and saves configuration settings, profile templates, scoring configurations, custom hotkeys, and version histories in `config.json`. |
 | [src/updater.py](../../src/updater.py) | Checks for updates from releases and handles self-updates for packaged applications. |
 | **User Interface (PySide6)** | |
 | [src/gui.py](../../src/gui.py) | Backward compatibility facade containing core interfaces for tests and imports. |

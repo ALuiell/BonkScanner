@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-import config
+from app import config
 from core.game_state import MapStat, RuntimeGameMode, RuntimeGameState
 from infra.memory.game_data_client import GameDataClient
 from gui_dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog

@@ -123,7 +123,7 @@ For each feature, the data begins its journey here.
   - **Data extracted:** Player stats (luck, damage), run timer, mob kills, items, weapons, chaos tome level, expected chest inputs, powerup tracking snapshots, banishes.
 - **Config / User Config**
   - **What it is:** Configuration settings read from disk or defined at runtime.
-  - **Code location:** `src/config.py` (`OVERLAY`, `TWITCH_BOT`, etc.).
+  - **Code location:** `src/app/config.py` (`OVERLAY`, `TWITCH_BOT`, etc.).
   - **Data extracted:** Refresh intervals (`PLAYER_STATS_REFRESH_MS`, `FAST_TRACKER_INTERVAL_MS`), overlay tracked item rules, Twitch bot commands.
 - **Runtime-derived Values**
   - **What it is:** Values calculated dynamically based on raw memory data over time.

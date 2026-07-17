@@ -8,7 +8,7 @@ import time
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QLabel
 
-import config
+from app import config
 import updater
 from infra.memory.game_data_client import GameDataClient
 from gui_shared import _clear_layout, _set_text

@@ -5,7 +5,7 @@ import os
 import time
 from ctypes import wintypes
 
-import config
+from app import config
 from hotkey_manager import HotkeyBinding, ModifierAwareHotkeyManager
 from run_control import KeyboardRunControlProvider
 

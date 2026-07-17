@@ -8,7 +8,7 @@ import threading
 
 import requests
 
-import config
+from app import config
 
 try:
     from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QPushButton, QTextEdit, QVBoxLayout

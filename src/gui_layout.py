@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
 )
 
-import config
+from app import config
 from core.stats.formats import PlayerStatFormat
 from core.stats.types import PLAYER_STAT_GROUPS
 
