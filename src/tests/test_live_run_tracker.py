@@ -1528,6 +1528,56 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(rows[2]["kills"], "--")
         self.assertEqual(rows[3]["kills"], "600")
 
+    def test_fast_two_to_three_does_not_flip_to_stage_four_from_stale_map_two_interactables(self) -> None:
+        # Regression: after a raw 1 -> 2 (Stage 2 -> Stage 3) transition confirmed
+        # via update_fast_stage_timer, the fast_snapshot used to inherit the
+        # previous map's ``chests_total``/``pots_total`` from the latest
+        # snapshot (map 2 typically has max=1/1 for chests/pots).  On the tick
+        # after the boundary was committed, both prev_tracked and current
+        # settled at stage 3, and ``looks_like_stage_four_from_map_activity``
+        # flipped on the stale <46 / <55 readings, promoting to stage 4 within
+        # one second of "Moving to Stage 3".
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=500.0,
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=1,
+                stage_time_seconds=500.0,
+                mob_kills=5_000,
+                chests_total=1,
+                pots_total=1,
+            )
+        )
+        tracker.track_kills(501.0, 5_050)
+
+        # Confirm the fast 2 -> 3 boundary.
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=1.0,
+            stage_index=2,
+            stage_duration_seconds=600.0,
+        )
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=2.0,
+            stage_index=2,
+            stage_duration_seconds=600.0,
+        )
+        # Two more ticks with a normally-advancing timer must not promote to 4.
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=3.0,
+            stage_index=2,
+            stage_duration_seconds=600.0,
+        )
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=4.0,
+            stage_index=2,
+            stage_duration_seconds=600.0,
+        )
+
+        _, stage_index = tracker.run_identity()
+        self.assertEqual(stage_index, 3)
+
     def test_expected_key_procs_accumulate_sampled_probabilities(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
 

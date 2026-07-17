@@ -580,6 +580,14 @@ class LiveRunTracker:
 
         if len(changes) == 1:
             return None
+        # Interactable totals belong to the slow tick's game_data read; a fast
+        # projection has no way to refresh them and must not carry them forward.
+        # Stale ``chests_total``/``pots_total`` was the trigger for a bogus
+        # Stage 3 -> Stage 4 promotion right after a raw 1 -> 2 transition
+        # (fast_snapshot inherited the previous map's low totals and
+        # ``looks_like_stage_four_from_map_activity`` flipped on them).
+        changes.setdefault("chests_total", None)
+        changes.setdefault("pots_total", None)
         return replace(latest_snapshot, **changes)
 
     def _tracked_item_rows_unlocked(self) -> list[dict[str, Any]]:
