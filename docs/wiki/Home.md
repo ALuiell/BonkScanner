@@ -87,19 +87,18 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/gui_overlay.py](../../src/gui_overlay.py) | Settings panel layout and button callbacks for the OBS HTTP server overlay. |
 | [src/gui_in_game_overlay.py](../../src/gui_in_game_overlay.py) | Controls the QTimer ticks and lifecycle management of the inside-game overlay. |
 | [src/gui_in_game_overlay_window.py](../../src/gui_in_game_overlay_window.py) | Translucent, click-through widget canvas for desktop overlay drawing. |
-| [src/gui_in_game_overlay_render.py](../../src/gui_in_game_overlay_render.py) | Rich HTML layouts generator for the KPS, powerups, and indicator widgets. |
+| [src/projections/in_game_html.py](../../src/projections/in_game_html.py) | Rich HTML layouts generator for the KPS, powerups, and indicator widgets. |
 | [src/gui_in_game_overlay_settings.py](../../src/gui_in_game_overlay_settings.py) | Settings tab layout and scaling configuration dialogs for inside-game widgets. |
 | [src/gui_twitch.py](../../src/gui_twitch.py) | Chatbot activation, channel configuration, and console messaging GUI widgets. |
-| [src/ui.py](../../src/ui.py) | Reusable PySide6 custom layouts and scroll section container templates. |
 | **Logic & Evaluators** | |
-| [src/logic.py](../../src/logic.py) | Functional core that evaluates map stats against rules (Templates) and computes map scores (Scores). |
-| [src/runtime_stats.py](../../src/runtime_stats.py) | Standardizes raw map details into structures suitable for matching logic. |
+| [src/core/logic.py](../../src/core/logic.py) | Functional core that evaluates map stats against rules (Templates) and computes map scores (Scores). |
+| [src/core/runtime_stats.py](../../src/core/runtime_stats.py) | Standardizes raw map details into structures suitable for matching logic. |
 | [src/live_run_tracker.py](../../src/live_run_tracker.py) | Tracks live stage transitions, item acquisition differentials, and chaos stats during runs. |
 | **Memory Readers & Low-level** | |
-| [src/memory.py](../../src/memory.py) | Core memory access module wrapping Windows APIs (OpenProcess, ReadProcessMemory) to read raw bytes. |
-| [src/game_data.py](../../src/game_data.py) | Uses pointers to read current map properties, seed, status indicators, and generation cycles. |
-| [src/player_stats.py](../../src/player_stats.py) | Decodes complex player statistics, inventory dictionaries, tome modifications, and passive item arrays. |
-| [src/item_metadata.py](../../src/item_metadata.py) | Normalization tables mapping raw item hashes or names to readable titles and rarity. |
+| [src/infra/memory/reader.py](../../src/infra/memory/reader.py) | Core memory access module wrapping Windows APIs (OpenProcess, ReadProcessMemory) to read raw bytes. |
+| [src/infra/memory/game_data_client.py](../../src/infra/memory/game_data_client.py) | Uses pointers to read current map properties, seed, status indicators, and generation cycles. |
+| [src/infra/memory/player_stats_client.py](../../src/infra/memory/player_stats_client.py) | Decodes complex player statistics, inventory dictionaries, tome modifications, and passive item arrays. |
+| [src/core/item_metadata.py](../../src/core/item_metadata.py) | Normalization tables mapping raw item hashes or names to readable titles and rarity. |
 | [src/run_control.py](../../src/run_control.py) | Keyboard automation engine for issuing restart macro keystrokes to the game process. |
 | [src/hotkey_manager.py](../../src/hotkey_manager.py) | Low-level system keyboard hook manager mapping global keystrokes to restart commands. |
 | **Integrations & Recording** | |
@@ -108,7 +107,7 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/twitch_auth.py](../../src/twitch_auth.py) | Client library for Twitch OAuth token generation and authorization scopes. |
 | [src/twitch_credentials.py](../../src/twitch_credentials.py) | Encrypted storage, file paths, and local settings manager for Twitch credentials. |
 | [src/overlay_server.py](../../src/overlay_server.py) | Lightweight server hosting CSS/JS web widgets for OBS Studio overlays. |
-| [src/overlay_state.py](../../src/overlay_state.py) | Thread-safe data structure storing overlay state broadcast snapshots. |
+| [src/projections/obs.py](../../src/projections/obs.py) | Builds the OBS overlay payload from a tracker snapshot. The thread-safe `OverlayStateStore` that holds it lives in `overlay_server.py`. |
 
 ---
 

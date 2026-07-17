@@ -4,7 +4,7 @@
 This component detects which items have been globally disabled (excluded from the drop pool) by the player in lobby settings. It does this by comparing the global catalog of item templates in `DataManager` against the run-specific active pool in `RunUnlockables` and the banished items.
 
 - **Target Files**:
-  - Code: `src/player_stats.py`
+  - Code: `src/infra/memory/player_stats_client.py`
   - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
@@ -78,7 +78,7 @@ Search for these classes in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/infra/memory/player_stats_client.py`:
 ```python
 class PlayerStatsClient:
     DATA_MANAGER_TYPE_INFO_OFFSET = 0x02F85790

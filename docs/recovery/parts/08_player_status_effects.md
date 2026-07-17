@@ -4,7 +4,7 @@
 This component monitors the active status effects (buffs and debuffs) currently applied to the player character, such as Haste, Rage, Shield, Stonks, TimeFreeze, or Invulnerability. It resolves the player inventory status effects pointer and iterates over the active effects dictionary to read expiration timers and effect types.
 
 - **Target Files**:
-  - Code: `src/player_stats.py`
+  - Code: `src/infra/memory/player_stats_client.py`
   - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
@@ -78,7 +78,7 @@ Search for these classes and enums in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/infra/memory/player_stats_client.py`:
 ```python
 class PlayerStatsClient:
     PLAYER_INVENTORY_OFFSET = 0x28

@@ -40,9 +40,9 @@ the code is updated.
 
 Code:
 
-- `src/game_data.py`
-- `src/runtime_stats.py`
-- `src/logic.py`
+- `src/infra/memory/game_data_client.py`
+- `src/core/runtime_stats.py`
+- `src/core/logic.py`
 
 Symptoms:
 
@@ -63,7 +63,7 @@ Most fragile pieces:
 
 Code:
 
-- `src/player_stats.py`
+- `src/infra/memory/player_stats_client.py`
 - `src/gui.py`
 - `src/vod_storage.py`
 
@@ -84,7 +84,7 @@ Most fragile pieces:
 
 Code:
 
-- `src/player_stats.py`
+- `src/infra/memory/player_stats_client.py`
 - `src/gui.py`
 - `src/vod_storage.py`
 
@@ -107,7 +107,7 @@ Most fragile pieces:
 
 Code:
 
-- `src/player_stats.py`
+- `src/infra/memory/player_stats_client.py`
 - `src/gui_player_stats.py`
 
 Symptoms:
@@ -124,7 +124,7 @@ Most fragile pieces:
 
 Code:
 
-- `src/player_stats.py`
+- `src/infra/memory/player_stats_client.py`
 - `src/gui_player_stats.py`
 
 Symptoms:
@@ -143,7 +143,7 @@ Most fragile pieces:
 
 Code:
 
-- `src/player_stats.py`
+- `src/infra/memory/player_stats_client.py`
 - `src/live_run_tracker.py`
 
 Symptoms:
@@ -198,7 +198,7 @@ Reason:
 
 Check:
 
-- current `TYPE_INFO_OFFSET` values in `src/game_data.py`
+- current `TYPE_INFO_OFFSET` values in `src/infra/memory/game_data_client.py`
 - whether the interactables dictionary still resolves
 - whether labels still match the expected map stats
 
@@ -335,7 +335,7 @@ Best workflow:
 
 Good prompt example:
 
-`Game updated. Use docs/recovery/reports/2026-05-12-player-stats-refresh.md as source of truth and update src/player_stats.py + related UI.`
+`Game updated. Use docs/recovery/reports/2026-05-12-player-stats-refresh.md as source of truth and update src/infra/memory/player_stats_client.py + related UI.`
 
 Even better:
 

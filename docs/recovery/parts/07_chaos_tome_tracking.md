@@ -4,7 +4,7 @@
 This component tracks the Chaos Tome level and resolves permanent stat modifier upgrades (from the Chaos Tome). When the Chaos Tome levels up, it adds a random stat modifier to the permanent stat upgrades dictionary in `StatInventory`. The tracker reads this dictionary, parses the list of `StatModifier` objects per stat, compares it with prior baselines, and resolves the exact random rolls and levels.
 
 - **Target Files**:
-  - Code: `src/player_stats.py`, `src/live_run_tracker.py`
+  - Code: `src/infra/memory/player_stats_client.py`, `src/live_run_tracker.py`
   - Unit Tests: `src/tests/test_player_stats.py`, `src/tests/test_live_run_tracker.py`
 
 ---
@@ -78,7 +78,7 @@ Search for these classes in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/infra/memory/player_stats_client.py`:
 ```python
 class PlayerStatsClient:
     STAT_INVENTORY_OFFSET = 0x50

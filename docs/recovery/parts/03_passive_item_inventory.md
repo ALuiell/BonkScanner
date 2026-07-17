@@ -4,7 +4,7 @@
 This component tracks the player's current passive item inventory (e.g. Wrench, Clover, Oats) and their stack counts. It uses a primary dictionary path through `inventoryContainer`, falling back to `playerInventory.ItemInventory` if the primary dictionary is empty. It parses class names to build display names.
 
 - **Target Files**:
-  - Code: `src/player_stats.py`
+  - Code: `src/infra/memory/player_stats_client.py`
   - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
@@ -67,7 +67,7 @@ Search for these classes in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/infra/memory/player_stats_client.py`:
 ```python
 class PlayerStatsClient:
     INVENTORY_CONTAINER_OFFSET = 0xA0

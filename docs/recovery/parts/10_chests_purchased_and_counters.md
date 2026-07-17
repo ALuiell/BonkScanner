@@ -4,7 +4,7 @@
 This component monitors the number of chests opened and purchased during a run, calculates key proc probabilities for free chest openings, and evaluates chest pricing math. It uses static trackers from `MoneyUtility` and compares gold delta differences to confirm free key procs in external memory.
 
 - **Target Files**:
-  - Code: `src/player_stats.py`
+  - Code: `src/infra/memory/player_stats_client.py`
   - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
@@ -85,7 +85,7 @@ Search for these classes in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/infra/memory/player_stats_client.py`:
 ```python
 class PlayerStatsClient:
     MONEY_UTILITY_TYPE_INFO_OFFSET = 0x02F5E0B0

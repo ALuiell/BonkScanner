@@ -4,7 +4,7 @@
 This component tracks the active run's collected tomes (e.g. Damage Tome, Agility Tome, Cooldown Tome, Chaos Tome) and their current levels. It resolves the `TomeInventory` from player inventory, queries the levels dictionary (tome ID to level), and queries the upgrades dictionary (tome ID to effective stat modifier).
 
 - **Target Files**:
-  - Code: `src/player_stats.py`
+  - Code: `src/infra/memory/player_stats_client.py`
   - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
@@ -77,7 +77,7 @@ Search for these classes in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/infra/memory/player_stats_client.py`:
 ```python
 class PlayerStatsClient:
     PLAYER_INVENTORY_OFFSET = 0x28

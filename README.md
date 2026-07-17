@@ -336,18 +336,18 @@ build_exe.bat
 - `src/gui_dialogs.py` - settings, help, score, template, and Twitch command dialogs.
 - `src/gui_styles.py` - Qt stylesheet and item rarity styling.
 - `src/config.py` - app config, game config integration, templates, scores, overlay, Twitch, and compare settings.
-- `src/logic.py` - template and score evaluation logic.
-- `src/game_data.py` - map-ready state, counters, seed-related runtime reads, and scan data.
-- `src/memory.py` - low-level `pymem` wrappers and memory helpers.
-- `src/player_stats.py` - live player stats, passive items, weapons, tomes, banishes, damage sources, and chest-rate calculations.
+- `src/core/logic.py` - template and score evaluation logic.
+- `src/infra/memory/game_data_client.py` - map-ready state, counters, seed-related runtime reads, and scan data.
+- `src/infra/memory/reader.py` - low-level `pymem` wrappers and memory helpers.
+- `src/infra/memory/player_stats_client.py` - live player stats, passive items, weapons, tomes, banishes, damage sources, and chest-rate calculations.
 - `src/live_run_tracker.py` - thread-safe live run snapshot tracking for overlay and Twitch.
-- `src/overlay_state.py` - overlay state serialization.
+- `src/projections/obs.py` - builds the OBS overlay payload from a tracker snapshot.
 - `src/overlay_server.py` - local HTTP server for OBS/browser overlay pages.
 - `src/twitch_auth.py` - local Twitch OAuth flow.
 - `src/twitch_bot.py` - Twitch IRC bot worker and command handlers.
 - `src/twitch_credentials.py` - Twitch token storage helpers.
 - `src/vod_storage.py` - saved recording format, metadata cache, load, rename, and cleanup helpers.
-- `src/run_summary.py` - recording and compare summary helpers.
+- `src/core/run_summary.py` - recording and compare summary helpers.
 - `src/run_control.py` - keyboard restart provider and restart timing helpers.
 - `src/updater.py` - packaged-build update checks and update application flow.
 - `src\tests` - unit tests.

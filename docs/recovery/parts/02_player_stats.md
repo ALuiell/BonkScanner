@@ -4,7 +4,7 @@
 This component reads the active player's stats (e.g. Max HP, Damage, Crit Chance, Luck, XP Gain, etc.) from the in-game player stats tab. It resolves the primary `PlayerStatsNew` static instance, traverses to the stats context entries, and extracts values for predefined stat IDs.
 
 - **Target Files**:
-  - Code: `src/player_stats.py`
+  - Code: `src/infra/memory/player_stats_client.py`
   - UI Overlay: `src/gui_player_stats.py`
   - Unit Tests: `src/tests/test_player_stats.py`
 
@@ -87,7 +87,7 @@ Search for `PlayerStatsNew` or the class that controls it (e.g. `PlayerStatsClie
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/infra/memory/player_stats_client.py`:
 ```python
 class PlayerStatsClient:
     TYPE_INFO_OFFSET = 0x02F6A4B8

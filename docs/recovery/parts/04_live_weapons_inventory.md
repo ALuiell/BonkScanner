@@ -4,7 +4,7 @@
 This component reads the active run's weapons, their levels, and their stats. It parses the weapons dictionary, gets the level, extracts the weapon configuration, and parses the weapon stats dictionary. It also decodes the upgrade stat modifiers to distinguish between the weapon's base stats and stats upgraded by the weapon's level-up pool.
 
 - **Target Files**:
-  - Code: `src/player_stats.py`
+  - Code: `src/infra/memory/player_stats_client.py`
   - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
@@ -94,7 +94,7 @@ Search for these classes and structures in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/infra/memory/player_stats_client.py`:
 ```python
 class PlayerStatsClient:
     PLAYER_INVENTORY_OFFSET = 0x28

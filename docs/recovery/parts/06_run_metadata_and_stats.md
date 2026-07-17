@@ -9,7 +9,7 @@ This component reads overall run metadata and analytics from memory, including:
 - Banished Items and Tomes (by decoding the `RunUnlockables` hashsets)
 
 - **Target Files**:
-  - Code: `src/player_stats.py`
+  - Code: `src/infra/memory/player_stats_client.py`
   - Unit Tests: `src/tests/test_player_stats.py`
 
 ---
@@ -138,7 +138,7 @@ Search for these classes in `dump.cs`:
 ---
 
 ## Code Reference
-Offsets are defined in `PlayerStatsClient` in `src/player_stats.py`:
+Offsets are defined in `PlayerStatsClient` in `src/infra/memory/player_stats_client.py`:
 ```python
 class PlayerStatsClient:
     RUN_TIMER_TYPE_INFO_OFFSET = 0x02F62398

@@ -21,8 +21,8 @@ BonkScanner has three major responsibilities:
 The desktop UI now uses a split GUI layout. `src/gui.py` is a compatibility facade,
 `src/gui_app.py` defines `MegabonkApp`, and focused `gui_*` modules own layout,
 scanner flow, run control, dialogs, live stats, and recordings behavior.
-Memory-facing readers are split mostly into `src/game_data.py` for map/reroll data
-and `src/player_stats.py` for run inspection. Recordings are stored and loaded
+Memory-facing readers are split mostly into `src/infra/memory/game_data_client.py` for map/reroll data
+and `src/infra/memory/player_stats_client.py` for run inspection. Recordings are stored and loaded
 through `src/vod_storage.py`.
 
 ## System Architecture & Concurrency Model
@@ -44,10 +44,10 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
   `src/gui_shared.py`, `src/gui_twitch.py`, `src/gui_overlay.py`, and `src/gui_styles.py` split the PySide6 responsibilities.
 - `src/config.py` loads and saves app settings, templates, score rules, hotkeys,
   and update preferences.
-- `src/logic.py` evaluates map stats against templates and score tiers.
-- `src/game_data.py` reads map readiness, interactable counters, and map generation
+- `src/core/logic.py` evaluates map stats against templates and score tiers.
+- `src/infra/memory/game_data_client.py` reads map readiness, interactable counters, and map generation
   state from the game process.
-- `src/player_stats.py` reads live player stats, passive items, weapons, run timer,
+- `src/infra/memory/player_stats_client.py` reads live player stats, passive items, weapons, run timer,
   stage timer, kill count, and level.
 - `src/live_run_tracker.py` maintains live stage boundaries, item deltas, and chaos stats.
 - `src/twitch_bot.py` handles the Twitch IRC connection and commands.
@@ -76,9 +76,9 @@ Implementation shape:
 
 - UI state is centralized in `MegabonkApp`; scanner loop control mainly lives
   in `src/gui_scanner.py`, with run-control helpers in `src/gui_run_control.py`.
-- Map memory reads come from `GameDataClient` in `src/game_data.py`.
-- Runtime map stats are normalized through `src/runtime_stats.py`.
-- Template and score decisions come from `src/logic.py`.
+- Map memory reads come from `GameDataClient` in `src/infra/memory/game_data_client.py`.
+- Runtime map stats are normalized through `src/core/runtime_stats.py`.
+- Template and score decisions come from `src/core/logic.py`.
 - Restart execution goes through `src/run_control.py`.
 
 Important details:
@@ -125,7 +125,7 @@ Scores:
 Implementation shape:
 
 - Defaults and persisted values live in `src/config.py`.
-- Evaluation lives in `src/logic.py`.
+- Evaluation lives in `src/core/logic.py`.
 - UI controls live across `src/gui_layout.py`, `src/gui_templates.py`, and
   `src/gui_dialogs.py`; runtime refresh for this area is coordinated through
   `MegabonkApp`.
@@ -180,7 +180,7 @@ Shown data:
 
 Implementation shape:
 
-- `PlayerStatsClient` in `src/player_stats.py` reads memory.
+- `PlayerStatsClient` in `src/infra/memory/player_stats_client.py` reads memory.
 - `MegabonkApp.refresh_live_player_stats_now()` coordinates reads.
 - `MegabonkApp.display_player_stats()` updates the UI.
 - Passive item formatting, coloring, counting, and sorting are handled in

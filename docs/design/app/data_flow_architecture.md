@@ -119,7 +119,7 @@ For each feature, the data begins its journey here.
 
 - **Game Memory / Memory Readers**
   - **What it is:** Direct memory reading of the target game process.
-  - **Code location:** `src/memory.py`, `src/gui_player_stats.py` (e.g., `_get_player_stats_client()`).
+  - **Code location:** `src/infra/memory/reader.py`, `src/gui_player_stats.py` (e.g., `_get_player_stats_client()`).
   - **Data extracted:** Player stats (luck, damage), run timer, mob kills, items, weapons, chaos tome level, expected chest inputs, powerup tracking snapshots, banishes.
 - **Config / User Config**
   - **What it is:** Configuration settings read from disk or defined at runtime.
@@ -127,7 +127,7 @@ For each feature, the data begins its journey here.
   - **Data extracted:** Refresh intervals (`PLAYER_STATS_REFRESH_MS`, `FAST_TRACKER_INTERVAL_MS`), overlay tracked item rules, Twitch bot commands.
 - **Runtime-derived Values**
   - **What it is:** Values calculated dynamically based on raw memory data over time.
-  - **Code location:** `src/live_run_tracker.py`, `src/run_summary.py`.
+  - **Code location:** `src/live_run_tracker.py`, `src/core/run_summary.py`.
   - **Data extracted:** Kills per Second (KPS), stage summaries, RPM (rerolls per minute).
 - **VOD Snapshots**
   - **What it is:** Saved JSON records of completed runs.
@@ -201,7 +201,7 @@ This describes where the most authoritative version of the data lives.
   - **What it stores:** The heavy payload read every 10 seconds (complete item list, weapons, tomes, damage sources, banishes) plus the map metadata used to detect a new match.
   - **Source of truth for:** Slow-moving heavy data fields that don't need real-time visualization.
   - **Why it exists:** It implements the last-known-value fallback — a transient empty or failed read returns the previous good value instead of flashing to empty. Exposes immutable snapshots; Qt-free and I/O-free.
-- **OverlayStateStore (`src/overlay_state.py`)**
+- **OverlayStateStore (`src/overlay_server.py`)**
   - **What it stores:** The exact JSON dictionary representation of the overlay UI, derived from LiveRunTracker.
   - **Source of truth for:** HTTP clients (OBS).
 - **VodRecorder (`src/vod_storage.py`)**
@@ -272,14 +272,14 @@ without being searched for, during a single evening of unrelated refactoring
 work:
 
 - **`get_runtime_game_state()` vs `get_runtime_activity_state()`**
-  (`src/game_data.py`) — overlapping reads of the same lifecycle facts. The first
+  (`src/infra/memory/game_data_client.py`) — overlapping reads of the same lifecycle facts. The first
   is uncached and reads an extra static-field block; the second is cached and
   cheaper. `_sync_player_stats_recording_run_state` calls the heavy one, while
   `_refresh_core_run_lifecycle_state` keeps the light one fresh at 1 s a few
   lines away.
 - **`stage_index` is read twice, from two packages** —
-  `get_stage_timer_context()` in `src/player_stats.py`, while
-  `get_map_generation_state()` in `src/game_data.py` already reads the exact
+  `get_stage_timer_context()` in `src/infra/memory/player_stats_client.py`, while
+  `get_map_generation_state()` in `src/infra/memory/game_data_client.py` already reads the exact
   static-field block it lives in, for `current_stage_ptr`.
 - **`is_graveyard` cannot be reached by a consumer that needs it.** It is derived
   in the tracker from `PowerupMapContext`, which the *powerups* task fills — and
