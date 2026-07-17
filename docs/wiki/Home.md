@@ -72,7 +72,11 @@ Here is how the responsibilities are distributed across the project's codebase:
 | **Startup & Application Control** | |
 | [src/main.py](../../src/main.py) | Entry point of the desktop application. Instantiates `QApplication` and displays the GUI. |
 | [src/app/config.py](../../src/app/config.py) | Loads, validates, and saves configuration settings, profile templates, scoring configurations, custom hotkeys, and version histories in `config.json`. |
-| [src/updater.py](../../src/updater.py) | Checks for updates from releases and handles self-updates for packaged applications. |
+| [src/app/version.py](../../src/app/version.py) | Holds `CURRENT_VERSION` and version-string comparison. |
+| [src/app/update_flow.py](../../src/app/update_flow.py) | Decides whether a packaged build should update, asking through a caller-supplied confirm callback. |
+| [src/infra/updater.py](../../src/infra/updater.py) | Fetches the latest GitHub release and downloads/applies the new `.exe`. |
+| [src/ui/dialogs/update_dialog.py](../../src/ui/dialogs/update_dialog.py) | The "Update Available" dialog. |
+| [src/ui/update_prompt.py](../../src/ui/update_prompt.py) | Adapter wiring the update flow to the GUI thread and the dialog. |
 | **User Interface (PySide6)** | |
 | [src/gui.py](../../src/gui.py) | Backward compatibility facade containing core interfaces for tests and imports. |
 | [src/gui_app.py](../../src/gui_app.py) | Definitive application container class (`MegabonkApp`) linking core business logic to UI events. |
@@ -99,7 +103,9 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/infra/memory/game_data_client.py](../../src/infra/memory/game_data_client.py) | Uses pointers to read current map properties, seed, status indicators, and generation cycles. |
 | [src/infra/memory/player_stats_client.py](../../src/infra/memory/player_stats_client.py) | Decodes complex player statistics, inventory dictionaries, tome modifications, and passive item arrays. |
 | [src/core/item_metadata.py](../../src/core/item_metadata.py) | Normalization tables mapping raw item hashes or names to readable titles and rarity. |
-| [src/run_control.py](../../src/run_control.py) | Keyboard automation engine for issuing restart macro keystrokes to the game process. |
+| [src/core/run_control.py](../../src/core/run_control.py) | The run-control port: provider protocol, errors, and type aliases. |
+| [src/infra/keyboard_run_control.py](../../src/infra/keyboard_run_control.py) | Keyboard automation engine for issuing restart macro keystrokes to the game process. |
+| [src/infra/process.py](../../src/infra/process.py) | Pure win32 window/process helpers used to find and score the game window. |
 | [src/infra/hotkeys.py](../../src/infra/hotkeys.py) | Low-level system keyboard hook manager mapping global keystrokes to restart commands. |
 | **Integrations & Recording** | |
 | [src/infra/vod_storage.py](../../src/infra/vod_storage.py) | Serializes and deserializes snapshot data to `.jsonl` run records. |

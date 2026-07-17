@@ -9,7 +9,7 @@ from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QLabel
 
 from app import config
-import updater
+from ui.update_prompt import start_update_check
 from infra.memory.game_data_client import GameDataClient
 from gui_shared import _clear_layout, _set_text
 from gui_styles import COLOR_MAP, _button_state_stylesheet
@@ -67,7 +67,7 @@ class ScannerMixin:
         self.log(colored_parts, tag=colored_tags)
 
     def deferred_update_check(self):
-        threading.Thread(target=updater.check_and_update, args=(self, False), daemon=True).start()
+        start_update_check(self, force_check=False)
 
     def update_timer(self):
         if self._is_shutting_down:

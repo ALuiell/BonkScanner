@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import html
 import re
-import threading
 import webbrowser
 from functools import partial
 from pathlib import Path
@@ -63,7 +62,7 @@ from gui_overlay import OverlayMixin
 from core.stat_labels import abbreviate_stat_label
 
 from app import config
-import updater
+from ui.update_prompt import start_update_check
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
 KOFI_SUPPORT_URL = config.KOFI_SUPPORT_URL
@@ -1012,7 +1011,7 @@ class SettingsDialog(QDialog):
             button.setFixedHeight(26)
 
     def check_update(self):
-        threading.Thread(target=updater.check_and_update, args=(self.master, True), daemon=True).start()
+        start_update_check(self.master, force_check=True)
         if hasattr(self, "close"):
             self.close()
 

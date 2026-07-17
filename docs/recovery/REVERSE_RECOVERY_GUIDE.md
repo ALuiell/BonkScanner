@@ -161,7 +161,9 @@ Most fragile pieces:
 
 Code:
 
-- `src/run_control.py`
+- `src/core/run_control.py`
+- `src/infra/keyboard_run_control.py`
+- `src/infra/process.py`
 - `src/gui_run_control.py`
 
 Symptoms:
@@ -260,7 +262,7 @@ Check:
 Check:
 
 - hotkey assignments in UI settings
-- layout delays and hold durations in `src/run_control.py`
+- layout delays and hold durations in `src/infra/keyboard_run_control.py`
 
 ## Common Failure Patterns
 

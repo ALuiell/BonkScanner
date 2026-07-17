@@ -9,7 +9,7 @@ from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QApplication
 
 from app import config
-import updater
+from app.version import CURRENT_VERSION
 from app.refresh_tasks import RefreshTasksMixin
 from ui.tabs.compare_runs import CompareRunsMixin
 from gui_layout import GuiLayoutMixin
@@ -59,7 +59,7 @@ class MegabonkApp(
         self._is_shutting_down = False
         self._close_in_progress = False
 
-        self.setWindowTitle(f"BonkScanner v{updater.CURRENT_VERSION}")
+        self.setWindowTitle(f"BonkScanner v{CURRENT_VERSION}")
         self.resize(1320, 830)
         self.setMinimumSize(1120, 710)
         icon_path = resource_path("media/bonkscanner_icon.ico")
@@ -363,7 +363,7 @@ class MegabonkApp(
         self.update_timer()
         self.update_player_stats_timer()
         self.check_admin_rights()
-        self.log(f"[*] Welcome to BonkScanner v{updater.CURRENT_VERSION}!", tag="success")
+        self.log(f"[*] Welcome to BonkScanner v{CURRENT_VERSION}!", tag="success")
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")
         self.log("[*] Ready! Select templates and start the main process loop.")
         self.apply_run_control_mode(detach_hooks=False)

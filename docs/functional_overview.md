@@ -53,8 +53,8 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
 - `src/twitch_bot.py` handles the Twitch IRC connection and commands.
 - `src/infra/overlay_server.py` runs a local HTTP/WebSocket server for OBS widgets.
 - `src/infra/vod_storage.py` writes and reads `.jsonl` recordings.
-- `src/run_control.py` abstracts keyboard restart timing and input.
-- `src/updater.py` handles packaged-build update checks and update application.
+- `src/core/run_control.py` defines the run-control port; `src/infra/keyboard_run_control.py` is the keyboard adapter behind it.
+- `src/infra/updater.py` fetches releases and applies them; `src/app/update_flow.py` decides whether to update.
 
 ## Scanner Flow
 
@@ -79,7 +79,7 @@ Implementation shape:
 - Map memory reads come from `GameDataClient` in `src/infra/memory/game_data_client.py`.
 - Runtime map stats are normalized through `src/core/runtime_stats.py`.
 - Template and score decisions come from `src/core/logic.py`.
-- Restart execution goes through `src/run_control.py`.
+- Restart execution goes through `src/infra/keyboard_run_control.py`, behind the port in `src/core/run_control.py`.
 
 Important details:
 
@@ -438,7 +438,7 @@ Purpose:
 
 Implementation shape:
 
-- `src/updater.py` handles version checks and update application.
+- `src/app/update_flow.py` decides whether to update; `src/infra/updater.py` performs the release fetch and the download; `src/ui/dialogs/update_dialog.py` asks the user.
 - Source runs should not auto-update themselves.
 - Skipped versions are remembered in `config.json`.
 
