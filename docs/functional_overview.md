@@ -23,7 +23,7 @@ The desktop UI now uses a split GUI layout. `src/gui.py` is a compatibility faca
 scanner flow, run control, dialogs, live stats, and recordings behavior.
 Memory-facing readers are split mostly into `src/infra/memory/game_data_client.py` for map/reroll data
 and `src/infra/memory/player_stats_client.py` for run inspection. Recordings are stored and loaded
-through `src/vod_storage.py`.
+through `src/infra/vod_storage.py`.
 
 ## System Architecture & Concurrency Model
 
@@ -51,8 +51,8 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
   stage timer, kill count, and level.
 - `src/live_run_tracker.py` maintains live stage boundaries, item deltas, and chaos stats.
 - `src/twitch_bot.py` handles the Twitch IRC connection and commands.
-- `src/overlay_server.py` runs a local HTTP/WebSocket server for OBS widgets.
-- `src/vod_storage.py` writes and reads `.jsonl` recordings.
+- `src/infra/overlay_server.py` runs a local HTTP/WebSocket server for OBS widgets.
+- `src/infra/vod_storage.py` writes and reads `.jsonl` recordings.
 - `src/run_control.py` abstracts keyboard restart timing and input.
 - `src/updater.py` handles packaged-build update checks and update application.
 
@@ -346,7 +346,7 @@ Purpose:
 
 Implementation shape:
 
-- Background `ThreadingHTTPServer` (`src/overlay_server.py`).
+- Background `ThreadingHTTPServer` (`src/infra/overlay_server.py`).
 - Routes like `/stage_summary` return styled HTML widgets.
 - Widgets poll or use WebSockets connecting to the `OverlayStateStore`.
 - Managed in `src/gui_overlay.py`.

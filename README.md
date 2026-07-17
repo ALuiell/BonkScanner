@@ -342,11 +342,11 @@ build_exe.bat
 - `src/infra/memory/player_stats_client.py` - live player stats, passive items, weapons, tomes, banishes, damage sources, and chest-rate calculations.
 - `src/live_run_tracker.py` - thread-safe live run snapshot tracking for overlay and Twitch.
 - `src/projections/obs.py` - builds the OBS overlay payload from a tracker snapshot.
-- `src/overlay_server.py` - local HTTP server for OBS/browser overlay pages.
+- `src/infra/overlay_server.py` - local HTTP server for OBS/browser overlay pages.
 - `src/twitch_auth.py` - local Twitch OAuth flow.
 - `src/twitch_bot.py` - Twitch IRC bot worker and command handlers.
-- `src/twitch_credentials.py` - Twitch token storage helpers.
-- `src/vod_storage.py` - saved recording format, metadata cache, load, rename, and cleanup helpers.
+- `src/infra/twitch_credentials.py` - Twitch token storage helpers.
+- `src/infra/vod_storage.py` - saved recording format, metadata cache, load, rename, and cleanup helpers.
 - `src/core/run_summary.py` - recording and compare summary helpers.
 - `src/run_control.py` - keyboard restart provider and restart timing helpers.
 - `src/updater.py` - packaged-build update checks and update application flow.

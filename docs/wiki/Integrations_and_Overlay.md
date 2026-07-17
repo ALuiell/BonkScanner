@@ -47,7 +47,7 @@ sequenceDiagram
 To provide real-time status displays for stream overlays without taxing screen capture cards, BonkScanner hosts a local web server that outputs transparent HTML widgets.
 
 ### Local HTTP Server Details
-- **Engine**: Python's native `ThreadingHTTPServer` configured inside `LocalOverlayServer` (defined in [src/overlay_server.py](../../src/overlay_server.py)).
+- **Engine**: Python's native `ThreadingHTTPServer` configured inside `LocalOverlayServer` (defined in [src/infra/overlay_server.py](../../src/infra/overlay_server.py)).
 - **Port**: Listens on port `17845` (binds to localhost `127.0.0.1`).
 - **Assets Source**: Resolves assets folder in `./src/media/overlay` (or the unpacked PyInstaller bundle `_MEIPASS/media/overlay` directory).
 

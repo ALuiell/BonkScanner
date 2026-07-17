@@ -100,13 +100,13 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/infra/memory/player_stats_client.py](../../src/infra/memory/player_stats_client.py) | Decodes complex player statistics, inventory dictionaries, tome modifications, and passive item arrays. |
 | [src/core/item_metadata.py](../../src/core/item_metadata.py) | Normalization tables mapping raw item hashes or names to readable titles and rarity. |
 | [src/run_control.py](../../src/run_control.py) | Keyboard automation engine for issuing restart macro keystrokes to the game process. |
-| [src/hotkey_manager.py](../../src/hotkey_manager.py) | Low-level system keyboard hook manager mapping global keystrokes to restart commands. |
+| [src/infra/hotkeys.py](../../src/infra/hotkeys.py) | Low-level system keyboard hook manager mapping global keystrokes to restart commands. |
 | **Integrations & Recording** | |
-| [src/vod_storage.py](../../src/vod_storage.py) | Serializes and deserializes snapshot data to `.jsonl` run records. |
+| [src/infra/vod_storage.py](../../src/infra/vod_storage.py) | Serializes and deserializes snapshot data to `.jsonl` run records. |
 | [src/twitch_bot.py](../../src/twitch_bot.py) | Handles Twitch channel connection, IRC message handling, and command processing. |
 | [src/twitch_auth.py](../../src/twitch_auth.py) | Client library for Twitch OAuth token generation and authorization scopes. |
-| [src/twitch_credentials.py](../../src/twitch_credentials.py) | Encrypted storage, file paths, and local settings manager for Twitch credentials. |
-| [src/overlay_server.py](../../src/overlay_server.py) | Lightweight server hosting CSS/JS web widgets for OBS Studio overlays. |
+| [src/infra/twitch_credentials.py](../../src/infra/twitch_credentials.py) | Encrypted storage, file paths, and local settings manager for Twitch credentials. |
+| [src/infra/overlay_server.py](../../src/infra/overlay_server.py) | Lightweight server hosting CSS/JS web widgets for OBS Studio overlays. |
 | [src/projections/obs.py](../../src/projections/obs.py) | Builds the OBS overlay payload from a tracker snapshot. The thread-safe `OverlayStateStore` that holds it lives in `overlay_server.py`. |
 
 ---

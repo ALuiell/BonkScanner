@@ -28,11 +28,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QListWidgetItem
 
 from app import config
+from app.vod_library import load_vod
 from core.stats.types import PLAYER_STAT_GROUPS
 from gui_shared import _set_text
 from projections import formatting
 from projections.formatting import COMPARE_RUN_STAT_LABELS
-from vod_storage import load_vod
 
 
 COMPARE_RUN_STAT_CONFIG_KEY = "COMPARE_RUN_STAT_LABELS"

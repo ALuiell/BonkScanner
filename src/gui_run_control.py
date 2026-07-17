@@ -6,7 +6,7 @@ import time
 from ctypes import wintypes
 
 from app import config
-from hotkey_manager import HotkeyBinding, ModifierAwareHotkeyManager
+from infra.hotkeys import HotkeyBinding, ModifierAwareHotkeyManager
 from run_control import KeyboardRunControlProvider
 
 try:

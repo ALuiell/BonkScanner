@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import src
-import vod_storage
+from infra import vod_storage as vod_storage
 
 from types import SimpleNamespace
 import tempfile
@@ -11,25 +11,13 @@ from unittest.mock import patch
 
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot, WeaponStatValue
-from vod_storage import (
-    LEGACY_VODS_DIR,
-    RECORDINGS_DIR,
-    VodRecorder,
-    delete_vod,
-    delete_vods_below_snapshot_count,
-    list_vods,
-    load_cached_vods,
-    load_vod,
-    load_vod_metadata,
-    rename_vod,
-    refresh_vod_metadata_index,
-)
+from infra.vod_storage import LEGACY_VODS_DIR, RECORDINGS_DIR, VodRecorder, delete_vod, delete_vods_below_snapshot_count, list_vods, load_cached_vods, load_vod, load_vod_metadata, rename_vod, refresh_vod_metadata_index
 
 
 class VodStorageTests(unittest.TestCase):
     def test_vod_metadata_index_persists_and_drops_deleted_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            import vod_storage
+            from infra import vod_storage as vod_storage
 
             root = Path(temp_dir) / "recordings"
             root.mkdir()
@@ -373,7 +361,7 @@ class VodStorageTests(unittest.TestCase):
             original_recordings_dir = RECORDINGS_DIR
             original_legacy_dir = LEGACY_VODS_DIR
             try:
-                import vod_storage
+                from infra import vod_storage as vod_storage
 
                 vod_storage.RECORDINGS_DIR = Path(temp_dir) / "stats_recordings"
                 vod_storage.LEGACY_VODS_DIR = legacy_dir

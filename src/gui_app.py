@@ -22,7 +22,7 @@ from gui_shared import UiInvoker, _AppWindow, resource_path
 from gui_styles import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC, build_qt_app_stylesheet
 from gui_templates import TemplatesMixin
 from gui_twitch import TwitchBotMixin
-from vod_storage import VodRecorder, load_cached_vods
+from infra.vod_storage import VodRecorder, load_cached_vods
 
 
 class MegabonkApp(

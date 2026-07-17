@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
-from overlay_server import LocalOverlayServer, OverlayStateStore
+from infra.overlay_server import LocalOverlayServer, OverlayStateStore
 
 
 def free_port() -> int:

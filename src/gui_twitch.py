@@ -7,7 +7,7 @@ from twitch_auth import (
     validate_twitch_access_token,
 )
 from twitch_bot import TwitchBotWorker
-from twitch_credentials import delete_twitch_oauth_token, get_twitch_oauth_token, set_twitch_oauth_token
+from infra.twitch_credentials import delete_twitch_oauth_token, get_twitch_oauth_token, set_twitch_oauth_token
 from gui_styles import _button_state_stylesheet
 
 

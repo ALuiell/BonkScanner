@@ -60,13 +60,7 @@ from app.refresh_tasks import (
     record_player_stats_memory_success,
 )
 from app.snapshot_store import LiveSnapshotStore
-from vod_storage import (
-    delete_vod,
-    delete_vods_below_snapshot_count,
-    load_vod,
-    refresh_vod_metadata_index,
-    rename_vod,
-)
+from infra.vod_storage import delete_vod, delete_vods_below_snapshot_count, load_vod, refresh_vod_metadata_index, rename_vod
 from projections.vod import build_vod_capture_kwargs
 from projections import formatting
 

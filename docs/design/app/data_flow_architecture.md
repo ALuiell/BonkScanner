@@ -131,7 +131,7 @@ For each feature, the data begins its journey here.
   - **Data extracted:** Kills per Second (KPS), stage summaries, RPM (rerolls per minute).
 - **VOD Snapshots**
   - **What it is:** Saved JSON records of completed runs.
-  - **Code location:** `src/vod_storage.py`.
+  - **Code location:** `src/infra/vod_storage.py`.
   - **Data extracted:** Full historical snapshots for the Compare Runs UI.
 
 ## 3. Updaters / Refresh Loops
@@ -164,7 +164,7 @@ This section defines the active logic that pulls from data sources and pushes to
   - **Cadence:** On-demand after fast or slow refreshes.
   - **Destination:** `OverlayStateStore`.
 - **VOD Snapshot Capture**
-  - **Code location:** `src/gui_player_stats.py` -> `src/vod_storage.py`
+  - **Code location:** `src/gui_player_stats.py` -> `src/infra/vod_storage.py`
   - **Updates:** Records historical run states for later review.
   - **Cadence:** Configurable, typically every 30 seconds (`PLAYER_STATS_RECORD_INTERVAL_SECONDS`).
 - **Twitch Bot Command Read Path**
@@ -201,10 +201,10 @@ This describes where the most authoritative version of the data lives.
   - **What it stores:** The heavy payload read every 10 seconds (complete item list, weapons, tomes, damage sources, banishes) plus the map metadata used to detect a new match.
   - **Source of truth for:** Slow-moving heavy data fields that don't need real-time visualization.
   - **Why it exists:** It implements the last-known-value fallback — a transient empty or failed read returns the previous good value instead of flashing to empty. Exposes immutable snapshots; Qt-free and I/O-free.
-- **OverlayStateStore (`src/overlay_server.py`)**
+- **OverlayStateStore (`src/infra/overlay_server.py`)**
   - **What it stores:** The exact JSON dictionary representation of the overlay UI, derived from LiveRunTracker.
   - **Source of truth for:** HTTP clients (OBS).
-- **VodRecorder (`src/vod_storage.py`)**
+- **VodRecorder (`src/infra/vod_storage.py`)**
   - **What it stores:** Serialized historical snapshots of runs on disk.
   - **Source of truth for:** The "Compare Runs" tab and the "VODs" list.
 
@@ -215,7 +215,7 @@ This defines who is reading the data at the end of the pipeline.
 - **Live Stats Tab** (`src/gui_player_stats.py`)
   - **Reads:** `LiveRunTracker` (for KPS/Chaos/Powerups) and direct memory snapshots (for Items/Banishes/Weapons).
   - **Cadence:** Updated directly by the GUI loops (500ms / 10s).
-- **OBS Overlay / Widgets** (`src/overlay_server.py`)
+- **OBS Overlay / Widgets** (`src/infra/overlay_server.py`)
   - **Reads:** `OverlayStateStore` (via HTTP endpoints).
   - **Cadence:** Clients poll the HTTP server via GET requests to `/api/overlay-state` (no WebSockets or Server-Sent Events).
 - **Twitch Bot** (`src/twitch_bot.py`)

@@ -65,7 +65,7 @@ Code:
 
 - `src/infra/memory/player_stats_client.py`
 - `src/gui.py`
-- `src/vod_storage.py`
+- `src/infra/vod_storage.py`
 
 Symptoms:
 
@@ -86,7 +86,7 @@ Code:
 
 - `src/infra/memory/player_stats_client.py`
 - `src/gui.py`
-- `src/vod_storage.py`
+- `src/infra/vod_storage.py`
 
 Symptoms:
 

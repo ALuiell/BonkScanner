@@ -56,7 +56,7 @@ import threading
 import time
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.runtime_stats import adapt_map_stats
-from vod_storage import delete_vod, delete_vods_below_snapshot_count, list_vods, load_vod, rename_vod
+from infra.vod_storage import delete_vod, delete_vods_below_snapshot_count, list_vods, load_vod, rename_vod
 
 keyboard = _gui_run_control.keyboard
 win32gui = _gui_run_control.win32gui

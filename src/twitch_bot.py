@@ -9,7 +9,7 @@ from math import isfinite
 from PySide6.QtCore import QThread, Signal
 from app import config
 from core.stat_labels import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
-from twitch_credentials import get_twitch_oauth_token
+from infra.twitch_credentials import get_twitch_oauth_token
 from core.stats.formatters import format_chaos_tome_stat_delta
 from projections.twitch import format_kps, format_powerups, truncate_chat_message
 

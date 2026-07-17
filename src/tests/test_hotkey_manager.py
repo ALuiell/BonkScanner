@@ -5,7 +5,7 @@ import src
 import types
 import unittest
 
-from hotkey_manager import HotkeyBinding, ModifierAwareHotkeyManager
+from infra.hotkeys import HotkeyBinding, ModifierAwareHotkeyManager
 
 
 class FakeKeyboard:
