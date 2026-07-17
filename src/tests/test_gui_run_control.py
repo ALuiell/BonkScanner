@@ -15,6 +15,7 @@ import gui_player_stats
 import gui_scanner
 from core.game_state import RuntimeGameMode, RuntimeGameState
 from live_run_tracker import LiveRunTracker
+from app.coordinator import AppCoordinator, RefreshLoop
 from app.refresh_coordinator import RefreshTickContext
 from infra.keyboard_run_control import KeyboardRunControlProvider
 from PySide6.QtCore import QRect
@@ -3047,24 +3048,43 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
-        self.assertEqual(len(app.after_calls), 2)
 
-    def test_update_player_stats_timer_reschedules_after_exception(self) -> None:
-        app = self.build_recording_app()
-        app._is_shutting_down = False
-        app.after_calls = []
-        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        app._refresh_core_run_lifecycle_state = lambda: (_ for _ in ()).throw(
-            RuntimeError("lifecycle failed")
+    def test_refresh_loop_reschedules_after_tick_exception(self) -> None:
+        # The reschedule moved from update_player_stats_timer's own finally into
+        # RefreshLoop (step 12a): a tick that raises must still reschedule, so a
+        # transient lifecycle read failure cannot terminate the driver.
+        schedule_calls: list[tuple[int, object]] = []
+        loop = RefreshLoop(
+            tick=lambda: (_ for _ in ()).throw(RuntimeError("lifecycle failed")),
+            schedule=lambda delay, callback: schedule_calls.append((delay, callback)),
+            is_active=lambda: True,
+            interval_ms=lambda: int(gui.config.FAST_TRACKER_INTERVAL_MS),
         )
 
         with self.assertRaisesRegex(RuntimeError, "lifecycle failed"):
-            gui.MegabonkApp.update_player_stats_timer(app)
+            loop.start()
 
         self.assertEqual(
-            app.after_calls,
-            [(int(gui.config.FAST_TRACKER_INTERVAL_MS), app.update_player_stats_timer)],
+            schedule_calls,
+            [(int(gui.config.FAST_TRACKER_INTERVAL_MS), loop._step)],
         )
+
+    def test_refresh_loop_does_not_reschedule_once_inactive(self) -> None:
+        # The is-active gate replaces the old _is_shutting_down checks: once the
+        # app is stopping, neither the tick nor a follow-up reschedule runs.
+        ticks: list[int] = []
+        schedule_calls: list[tuple[int, object]] = []
+        loop = RefreshLoop(
+            tick=lambda: ticks.append(1),
+            schedule=lambda delay, callback: schedule_calls.append((delay, callback)),
+            is_active=lambda: False,
+            interval_ms=lambda: 500,
+        )
+
+        loop.start()
+
+        self.assertEqual(ticks, [])
+        self.assertEqual(schedule_calls, [])
 
     def test_recording_lifecycle_keeps_its_own_cadence_under_the_500ms_driver(self) -> None:
         # The whole risk of collapsing the two timers: the recording lifecycle
@@ -3133,11 +3153,12 @@ class GuiRunControlTests(unittest.TestCase):
     def test_recording_lifecycle_failure_is_contained_to_its_task(self) -> None:
         # The recording sync used to be the timer callback's own body, so a
         # failure escaped into Qt. It is a coordinator task now, which reports
-        # failures instead of propagating them -- the driver must survive.
+        # failures instead of propagating them -- the tick must survive. (The
+        # reschedule that keeps the driver alive is RefreshLoop's job now, tested
+        # separately in test_refresh_loop_reschedules_after_tick_exception.)
         app = self.build_recording_app()
         app._is_shutting_down = False
-        app.after_calls = []
-        app.after = lambda delay, callback: app.after_calls.append((delay, callback))
+        app.after = lambda delay, callback: None
         app._sync_player_stats_recording_run_state = lambda: (_ for _ in ()).throw(
             RuntimeError("lifecycle failed")
         )
@@ -3149,10 +3170,6 @@ class GuiRunControlTests(unittest.TestCase):
             for entry in app._refresh_coordinator.diagnostics()
         }
         self.assertIn("lifecycle failed", diagnostics["recording_lifecycle"].last_error or "")
-        self.assertEqual(
-            app.after_calls,
-            [(int(gui.config.FAST_TRACKER_INTERVAL_MS), app.update_player_stats_timer)],
-        )
 
     def test_refresh_right_tab_after_switch_immediately_refreshes_live_stats(self) -> None:
         app = object.__new__(gui.MegabonkApp)
@@ -3185,8 +3202,6 @@ class GuiRunControlTests(unittest.TestCase):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(read_calls, [])
-        self.assertEqual(len(app.after_calls), 1)
-
     def test_update_player_stats_timer_refreshes_hidden_live_stats_when_auto_start_enabled(self) -> None:
         app = self.build_recording_app()
         app._is_shutting_down = False
@@ -3202,8 +3217,6 @@ class GuiRunControlTests(unittest.TestCase):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(refresh_calls, ["refresh"])
-        self.assertEqual(len(app.after_calls), 1)
-
     def test_update_player_stats_timer_refreshes_hidden_live_stats_when_in_game_overlay_luck_rarity_enabled(self) -> None:
         app = self.build_recording_app()
         app._is_shutting_down = False
@@ -3228,8 +3241,6 @@ class GuiRunControlTests(unittest.TestCase):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(refresh_calls, ["refresh"])
-        self.assertEqual(len(app.after_calls), 1)
-
     def test_update_player_stats_timer_refreshes_hidden_live_stats_when_in_game_overlay_stats_enabled(self) -> None:
         app = self.build_recording_app()
         app._is_shutting_down = False
@@ -3254,8 +3265,6 @@ class GuiRunControlTests(unittest.TestCase):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(refresh_calls, ["refresh"])
-        self.assertEqual(len(app.after_calls), 1)
-
     def test_update_player_stats_timer_refreshes_hidden_live_stats_when_in_game_overlay_event_timer_enabled(self) -> None:
         app = self.build_recording_app()
         app._is_shutting_down = False
@@ -3280,8 +3289,6 @@ class GuiRunControlTests(unittest.TestCase):
             gui.MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(refresh_calls, ["refresh"])
-        self.assertEqual(len(app.after_calls), 1)
-
     def test_powerup_demand_is_active_when_in_game_overlay_powerups_enabled(self) -> None:
         app = self.build_recording_app()
         app._is_shutting_down = False
@@ -5300,6 +5307,57 @@ class GuiRunControlTests(unittest.TestCase):
             closed,
             ["transition", "client", "player_stats", "player_stats_game_data", "overlay", "in_game_overlay", "twitch"],
         )
+
+    def test_app_coordinator_shutdown_closes_the_memory_clients(self) -> None:
+        # step 12c: the coordinator owns the three clients, so it closes them.
+        coordinator = AppCoordinator.__new__(AppCoordinator)
+        closed: list[str] = []
+        coordinator.client = SimpleNamespace(close=lambda: closed.append("client"))
+        coordinator.player_stats_client = SimpleNamespace(
+            close=lambda: closed.append("player_stats")
+        )
+        coordinator.player_stats_game_data_client = SimpleNamespace(
+            close=lambda: closed.append("player_stats_game_data")
+        )
+
+        coordinator.shutdown()
+
+        self.assertEqual(closed, ["client", "player_stats", "player_stats_game_data"])
+        self.assertIsNone(coordinator.client)
+        self.assertIsNone(coordinator.player_stats_client)
+        self.assertIsNone(coordinator.player_stats_game_data_client)
+        coordinator.shutdown()  # idempotent
+
+    def test_on_closing_delegates_client_teardown_to_the_coordinator(self) -> None:
+        # step 12c: when a coordinator is present, on_closing tears the clients
+        # down through it rather than the three mixin close methods.
+        destroyed: list[bool] = []
+        closed: list[str] = []
+        app = object.__new__(gui.MegabonkApp)
+        app.coordinator = SimpleNamespace(shutdown=lambda: closed.append("coordinator"))
+        app.stop_event = gui.threading.Event()
+        app.scan_event = gui.threading.Event()
+        app.log = lambda _message, tag=None: None
+        app.destroy = lambda: destroyed.append(True)
+        app._is_shutting_down = False
+        app._cancel_right_tab_transition = lambda: None
+        app._flush_total_rerolls = lambda *args, **kwargs: None
+        app.close_client = lambda: closed.append("mixin_client")
+        app.close_player_stats_client = lambda: closed.append("mixin_player_stats")
+        app.close_player_stats_game_data_client = lambda: closed.append("mixin_game_data")
+        app.close_overlay_server = lambda: None
+        app.stop_in_game_overlay = lambda: None
+        app.stop_twitch_bot = lambda: None
+        app.twitch_auth_thread = None
+        app.player_stats_vod_recorder = None
+        app._hotkey_manager = None
+
+        with patch.object(gui, "keyboard", None):
+            gui.MegabonkApp.on_closing(app)
+
+        self.assertEqual(closed, ["coordinator"])
+        self.assertEqual(destroyed, [True])
+
     def test_refresh_live_player_stats_now_parses_single_key(self) -> None:
         app = object.__new__(gui.MegabonkApp)
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)

@@ -205,24 +205,19 @@ class PlayerStatsMixin:
         )
 
     def update_player_stats_timer(self):
-        """The single refresh driver.
+        """The per-tick body of the fast refresh loop.
 
-        Every cadence lives in a registered task's ``interval_ms``, not in a
-        timer: this callback only ticks. Recording lifecycle work that used to
-        sit in a second 10 s timer is now the ``recording_lifecycle`` task, which
-        keeps its 10 s interval.
+        The loop itself -- the interval, the is-active gate, and the ``after``
+        thread hop that reschedules it -- is owned by
+        ``AppCoordinator.start_refresh_loop`` (step 12a). This method is only the
+        work done on each tick. Every cadence still lives in a registered task's
+        ``interval_ms``, not here: this only ticks. Recording lifecycle work that
+        used to sit in a second 10 s timer is the ``recording_lifecycle`` task.
         """
         if self._is_shutting_down:
             return
-        try:
-            self._refresh_core_run_lifecycle_state()
-            ensure_refresh_coordinator(self).tick()
-        finally:
-            if not self._is_shutting_down:
-                self.after(
-                    int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)),
-                    self.update_player_stats_timer,
-                )
+        self._refresh_core_run_lifecycle_state()
+        ensure_refresh_coordinator(self).tick()
 
     def _player_stats_refresh_required(self) -> bool:
         return not bool(getattr(self, "_player_stats_completed_run", False)) and (
@@ -258,6 +253,40 @@ class PlayerStatsMixin:
 
     def _refresh_live_powerups_label(self) -> None:
         self._apply_live_powerups_card(None)
+
+    # Owned by AppCoordinator (step 12b). These properties delegate to it, with a
+    # __dict__ fallback so app doubles built with object.__new__ (no coordinator)
+    # keep working: a test that sets app.player_stats_client = <fake> round-trips
+    # through _player_stats_client with zero test changes.
+    @property
+    def player_stats_client(self):
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            return coordinator.player_stats_client
+        return self.__dict__.get("_player_stats_client")
+
+    @player_stats_client.setter
+    def player_stats_client(self, value) -> None:
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            coordinator.player_stats_client = value
+        else:
+            self.__dict__["_player_stats_client"] = value
+
+    @property
+    def player_stats_game_data_client(self):
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            return coordinator.player_stats_game_data_client
+        return self.__dict__.get("_player_stats_game_data_client")
+
+    @player_stats_game_data_client.setter
+    def player_stats_game_data_client(self, value) -> None:
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            coordinator.player_stats_game_data_client = value
+        else:
+            self.__dict__["_player_stats_game_data_client"] = value
 
     def _get_player_stats_client(self) -> PlayerStatsClient:
         if self.player_stats_client is None:
@@ -3253,7 +3282,9 @@ class PlayerStatsMixin:
             )
 
     def close_player_stats_client(self):
-        player_stats_client = self.__dict__.get("player_stats_client")
+        # The instance is owned by the coordinator now (step 12b); reach it through
+        # the property rather than __dict__, which no longer holds it.
+        player_stats_client = self.player_stats_client
         if player_stats_client:
             try:
                 player_stats_client.close()
@@ -3264,7 +3295,7 @@ class PlayerStatsMixin:
         self._player_stats_memory_error_streak = 0
 
     def close_player_stats_game_data_client(self):
-        game_data_client = self.__dict__.get("player_stats_game_data_client")
+        game_data_client = self.player_stats_game_data_client
         if game_data_client:
             try:
                 game_data_client.close()

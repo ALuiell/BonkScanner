@@ -285,9 +285,10 @@ class MegabonkApp(
         self.obs_recording_reminder_shown = False
         self.active_templates = []
         self.scanner_thread = None
-        self.client = None
-        self.player_stats_client = None
-        self.player_stats_game_data_client = None
+        # client / player_stats_client / player_stats_game_data_client are owned by
+        # AppCoordinator (step 12b); it initialises them to None in its __init__,
+        # reached here through the property delegation on the scanner/player-stats
+        # mixins. The coordinator is built a few lines below.
         self._player_stats_memory_error_streak = 0
         self._player_stats_game_data_memory_error_streak = 0
         self.coordinator = AppCoordinator(
@@ -374,7 +375,12 @@ class MegabonkApp(
         self.refresh_scores_ui()
         self.setup_hotkeys()
         self.update_timer()
-        self.update_player_stats_timer()
+        self.coordinator.start_refresh_loop(
+            tick=self.update_player_stats_timer,
+            schedule=self.after,
+            is_active=lambda: not self._is_shutting_down,
+            interval_ms=lambda: int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500)),
+        )
         self.check_admin_rights()
         self.log(f"[*] Welcome to BonkScanner v{CURRENT_VERSION}!", tag="success")
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")

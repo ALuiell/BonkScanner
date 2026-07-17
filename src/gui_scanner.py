@@ -25,6 +25,25 @@ except ImportError:
 class ScannerMixin:
     _TOTAL_REROLLS_FLUSH_INTERVAL = 15.0
 
+    # The scanner's GameDataClient is owned by AppCoordinator (step 12b). This
+    # property delegates to it -- including the assignment the background thread
+    # makes when it connects -- with a __dict__ fallback so app doubles built with
+    # object.__new__ (no coordinator) keep setting app.client = <fake> unchanged.
+    @property
+    def client(self):
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            return coordinator.client
+        return self.__dict__.get("_client")
+
+    @client.setter
+    def client(self, value) -> None:
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            coordinator.client = value
+        else:
+            self.__dict__["_client"] = value
+
     def _flush_total_rerolls(self, *, force: bool = False) -> None:
         lock = getattr(self, "_total_rerolls_lock", None)
         if lock is None:
@@ -514,9 +533,16 @@ class ScannerMixin:
         self.stop_event.set()
         self.scan_event.set()
         self._flush_total_rerolls(force=True)
-        self.close_client()
-        self.close_player_stats_client()
-        self.close_player_stats_game_data_client()
+        # The coordinator owns the three memory clients (step 12b), so it closes
+        # them (step 12c). App doubles built without a coordinator fall back to the
+        # mixin close methods, preserving the shutdown order those tests assert.
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is not None:
+            coordinator.shutdown()
+        else:
+            self.close_client()
+            self.close_player_stats_client()
+            self.close_player_stats_game_data_client()
         if hasattr(self, "close_overlay_server"):
             self.close_overlay_server()
         if hasattr(self, "stop_in_game_overlay"):
