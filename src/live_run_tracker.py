@@ -69,6 +69,11 @@ class _RunState:
     pending_fast_stage_index: int | None = None
     pending_fast_stage_samples: int = 0
     pending_fast_stage_boundary: LiveRunSnapshot | None = None
+    # The game updates its raw stage index ~1 s before it resets the stage
+    # timer, so the sample that detects an index change can still carry the
+    # previous map's timer.  While True, the pending boundary holds that stale
+    # timer and must not be committed until a reset is observed.
+    pending_fast_stage_awaiting_timer_reset: bool = False
 
 
 @dataclass
@@ -202,7 +207,7 @@ class LiveRunTracker:
             "_last_update_at", "_last_failed_at", "_last_no_game_at",
             "_cached_stage_summary", "_disabled_items_cache", "_fast_stage_boundaries",
             "_pending_fast_stage_index", "_pending_fast_stage_samples",
-            "_pending_fast_stage_boundary",
+            "_pending_fast_stage_boundary", "_pending_fast_stage_awaiting_timer_reset",
         )},
         **{name: "_combat_state" for name in (
             "_recent_kills_history", "_ui_kps_baseline", "_ui_kps_value",
@@ -686,8 +691,10 @@ class LiveRunTracker:
             self._pending_fast_stage_index = None
             self._pending_fast_stage_samples = 0
             self._pending_fast_stage_boundary = None
+            self._pending_fast_stage_awaiting_timer_reset = False
             self._cached_stage_summary = None
             return
+        previous_fast_timer = self._fast_stage_timer_context.stage_timer_seconds
         self._mark_feature_success_unlocked("progression", self.clock())
         self._fast_stage_timer_context = FastStageTimerContext(
             captured_at=self.clock(),
@@ -713,23 +720,60 @@ class LiveRunTracker:
                 4,
             )
             if next_stage_index > self.current_stage_index:
+                current_timer = float(stage_timer_seconds)
                 if self._pending_fast_stage_index == next_stage_index:
                     self._pending_fast_stage_samples += 1
+                    if self._pending_fast_stage_awaiting_timer_reset:
+                        pending_boundary = self._pending_fast_stage_boundary
+                        detection_timer = (
+                            None
+                            if pending_boundary is None
+                            else pending_boundary.stage_time_seconds
+                        )
+                        # Stage timers only count up, so a value below the one
+                        # captured at detection means the reset happened in
+                        # between.  Adopt this post-reset sample as the boundary.
+                        if detection_timer is None or current_timer < float(detection_timer):
+                            self._pending_fast_stage_boundary = fast_snapshot
+                            self._pending_fast_stage_awaiting_timer_reset = False
                 else:
                     self._pending_fast_stage_index = next_stage_index
                     self._pending_fast_stage_samples = 1
                     self._pending_fast_stage_boundary = fast_snapshot
-                if self._pending_fast_stage_samples >= FAST_STAGE_TRANSITION_CONFIRMATION_SAMPLES:
+                    # The game advances the raw stage index ~1 s before it
+                    # resets the stage timer.  If the detecting sample's timer
+                    # still continues the previous stage's timer, the boundary
+                    # holds the wrong stage_time and one tick later the real
+                    # reset would read as a bogus stage-4 collapse.  Hold the
+                    # commit until the reset is observed.  Heuristic stage-4
+                    # promotions (raw index unchanged) are exempt: there the
+                    # timer movement itself is the detection signal.
+                    reference_timer = previous_fast_timer
+                    if reference_timer is None:
+                        reference_timer = latest_snapshot.stage_time_seconds
+                    self._pending_fast_stage_awaiting_timer_reset = (
+                        run_summary.is_explicit_raw_stage_transition(
+                            latest_snapshot, fast_snapshot
+                        )
+                        and reference_timer is not None
+                        and current_timer >= float(reference_timer)
+                    )
+                if (
+                    self._pending_fast_stage_samples >= FAST_STAGE_TRANSITION_CONFIRMATION_SAMPLES
+                    and not self._pending_fast_stage_awaiting_timer_reset
+                ):
                     boundary = self._pending_fast_stage_boundary or fast_snapshot
                     self._fast_stage_boundaries.append(boundary)
                     self.current_stage_index = next_stage_index
                     self._pending_fast_stage_index = None
                     self._pending_fast_stage_samples = 0
                     self._pending_fast_stage_boundary = None
+                    self._pending_fast_stage_awaiting_timer_reset = False
             else:
                 self._pending_fast_stage_index = None
                 self._pending_fast_stage_samples = 0
                 self._pending_fast_stage_boundary = None
+                self._pending_fast_stage_awaiting_timer_reset = False
         self._cached_stage_summary = None
 
     @with_lock
@@ -1351,6 +1395,7 @@ class LiveRunTracker:
         self._pending_fast_stage_index = None
         self._pending_fast_stage_samples = 0
         self._pending_fast_stage_boundary = None
+        self._pending_fast_stage_awaiting_timer_reset = False
         self._recent_kills_history.clear()
         self._reset_ui_kps_unlocked()
         self.current_stage_index = 1

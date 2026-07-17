@@ -1578,6 +1578,58 @@ class LiveRunTrackerTests(unittest.TestCase):
         _, stage_index = tracker.run_identity()
         self.assertEqual(stage_index, 3)
 
+    def test_fast_two_to_three_with_lagging_timer_reset_does_not_flip_to_stage_four(self) -> None:
+        # Regression for the second propagation path of the same live bug: the
+        # game advances its raw stage index ~1 s before it resets the stage
+        # timer (map_monitor_log.jsonl: stage_index_changed at :28.84,
+        # timer_dropped 546.3 -> 0.0 at :29.87).  The fast tick that detects the
+        # 1 -> 2 index change therefore still carries the previous map's timer,
+        # and that sample used to become the committed boundary.  One tick later
+        # the real reset arrived and read as a stage-4 timer collapse against
+        # the corrupted boundary (same ptr, same seed, timer 500 -> ~1),
+        # promoting to Stage 4 within a second of "Moving to Stage 3".
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=500.0,
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=1,
+                stage_time_seconds=500.0,
+                mob_kills=5_000,
+            )
+        )
+        tracker.track_kills(501.0, 5_050)
+
+        # Desync window: index already reads 2, timer still continues map 2's.
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=501.0,
+            stage_index=2,
+            stage_duration_seconds=600.0,
+        )
+        tracker.track_kills(502.0, 5_060)
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=502.0,
+            stage_index=2,
+            stage_duration_seconds=600.0,
+        )
+        # The timer finally resets to the new map and advances normally.
+        tracker.track_kills(503.0, 5_070)
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=0.9,
+            stage_index=2,
+            stage_duration_seconds=600.0,
+        )
+        tracker.track_kills(504.0, 5_080)
+        tracker.update_fast_stage_timer(
+            stage_timer_seconds=1.9,
+            stage_index=2,
+            stage_duration_seconds=600.0,
+        )
+
+        _, stage_index = tracker.run_identity()
+        self.assertEqual(stage_index, 3)
+
     def test_expected_key_procs_accumulate_sampled_probabilities(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
 
