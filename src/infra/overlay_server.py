@@ -11,6 +11,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from core.settings import NullOverlaySettings, OverlaySettings
+from infra import paths
 
 
 WIDGET_ROUTE_NAMES = {
@@ -26,7 +27,11 @@ def _default_overlay_asset_dir() -> Path:
     bundle_root = getattr(sys, "_MEIPASS", None)
     if bundle_root is not None:
         return Path(bundle_root) / "media" / "overlay"
-    return Path(__file__).resolve().parent / "media" / "overlay"
+    # Anchored in infra/paths, not this file's own __file__: the assets live in
+    # src/media/overlay and do not follow this module around. Deriving from
+    # __file__ here meant step 10b's src/ -> src/infra/ move pointed this at
+    # src/infra/media/overlay, and the overlay served 404 for every asset.
+    return Path(paths.source_path()) / "media" / "overlay"
 
 
 class OverlayStateStore:

@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
-from infra.overlay_server import LocalOverlayServer, OverlayStateStore
+from infra.overlay_server import LocalOverlayServer, _default_overlay_asset_dir, OverlayStateStore
 
 
 def free_port() -> int:
@@ -76,3 +76,31 @@ class OverlayServerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OverlayAssetDirTests(unittest.TestCase):
+    """The asset dir is a path into the repo, so a module move can silently break it.
+
+    Step 10b moved overlay_server.py from src/ to src/infra/ while the dir was
+    derived from this module's own __file__, and the overlay served 404 for every
+    asset. No test noticed: none of them used the real asset dir, they all passed
+    a temp one. The exe was fine throughout -- the frozen branch reads _MEIPASS.
+    """
+
+    def test_default_asset_dir_holds_the_overlay_page(self) -> None:
+        asset_dir = _default_overlay_asset_dir()
+        self.assertTrue(asset_dir.is_dir(), f"overlay assets missing: {asset_dir}")
+        self.assertTrue(
+            (asset_dir / "index.html").is_file(),
+            f"overlay index.html missing under {asset_dir}",
+        )
+
+    def test_default_server_serves_the_real_overlay_page(self) -> None:
+        server = LocalOverlayServer(port=free_port())
+        server.start()
+        try:
+            with urlopen(f"http://127.0.0.1:{server.port}/overlay", timeout=2) as response:
+                self.assertEqual(response.status, 200)
+                self.assertIn(b"<", response.read(64))
+        finally:
+            server.stop()
