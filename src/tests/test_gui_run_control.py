@@ -585,6 +585,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_selected_snapshot_index = 0
         app.player_stats_recording_seed = None
         app.player_stats_recording_stage_ptr = 0
+        app.player_stats_recording_stage_index = None
         app.player_stats_recording_seed_missing_since = None
         app.player_stats_recording_run_time_seconds = None
         app.player_stats_recording_armed = False
@@ -1835,13 +1836,18 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(gui.MegabonkApp.reroll_map(app))
 
     def test_recording_run_state_split_starts_new_file_when_seed_changes(self) -> None:
+        # stage_index fell (2 -> 0): a new run started, even though the timer
+        # alone (4.0s, far below the old 120.0s baseline) would also have said
+        # "new run" under the pre-8b heuristic. Kept low here specifically so
+        # this test cannot pass by accident if the tie-break path is reached.
         app = self.build_recording_app()
         app.player_stats_recording_seed = 111
         app.player_stats_recording_stage_ptr = 0x1000
+        app.player_stats_recording_stage_index = 2
         app.player_stats_recording_run_time_seconds = 120.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 4.0, get_killed_mobs=lambda: 37)
         app.player_stats_game_data_client = FakeSeedStateClient(
-            [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000)]
+            [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000, stage_index=0)]
         )
 
         action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
@@ -1850,17 +1856,24 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [{"name": None, "seed": 222}])
         self.assertEqual(app.player_stats_recording_seed, 222)
+        self.assertEqual(app.player_stats_recording_stage_index, 0)
         self.assertEqual(app.player_stats_vod_snapshots, [])
         self.assertIn("auto-split", app.log_messages[0][0])
 
     def test_recording_run_state_does_not_split_when_seed_changes_between_stages(self) -> None:
+        # stage_index rose (0 -> 1): a map transition, not a new run, even
+        # though the seed also changed. The timer (123.0s, above the 120.0s
+        # baseline) would agree under the old heuristic too -- see the
+        # unreadable-timer variant below for the case that used to get this
+        # wrong.
         app = self.build_recording_app()
         app.player_stats_recording_seed = 111
         app.player_stats_recording_stage_ptr = 0x1000
+        app.player_stats_recording_stage_index = 0
         app.player_stats_recording_run_time_seconds = 120.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 123.0, get_killed_mobs=lambda: 37)
         app.player_stats_game_data_client = FakeSeedStateClient(
-            [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000)]
+            [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000, stage_index=1)]
         )
 
         action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
@@ -1870,17 +1883,21 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
         self.assertEqual(app.player_stats_recording_seed, 222)
         self.assertEqual(app.player_stats_recording_stage_ptr, 0x2000)
+        self.assertEqual(app.player_stats_recording_stage_index, 1)
         self.assertEqual(app.player_stats_recording_run_time_seconds, 123.0)
         self.assertEqual(app.log_messages, [])
 
     def test_recording_run_state_does_not_split_when_stage_ptr_changes_inside_same_run(self) -> None:
+        # Forest/Desert shape: seed constant, stage_ptr changes at 1 -> 2 -> 3,
+        # stage_index increments cleanly alongside it.
         app = self.build_recording_app()
         app.player_stats_recording_seed = 111
         app.player_stats_recording_stage_ptr = 0x1000
+        app.player_stats_recording_stage_index = 0
         app.player_stats_recording_run_time_seconds = 120.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 123.0, get_killed_mobs=lambda: 37)
         app.player_stats_game_data_client = FakeSeedStateClient(
-            [SimpleNamespace(map_seed=111, current_stage_ptr=0x2000)]
+            [SimpleNamespace(map_seed=111, current_stage_ptr=0x2000, stage_index=1)]
         )
 
         action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
@@ -1890,8 +1907,124 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
         self.assertEqual(app.player_stats_recording_seed, 111)
         self.assertEqual(app.player_stats_recording_stage_ptr, 0x2000)
+        self.assertEqual(app.player_stats_recording_stage_index, 1)
         self.assertEqual(app.player_stats_recording_run_time_seconds, 123.0)
         self.assertEqual(app.log_messages, [])
+
+    def test_recording_run_state_does_not_split_when_run_timer_read_fails_mid_transition(self) -> None:
+        """The bug step 8b exists to fix, in its original form.
+
+        An ordinary Forest map transition (seed and stage_ptr both change) while
+        the run-timer read fails on the loading screen. The pre-8b code asked
+        `_seed_change_looks_like_same_run(120.0, None)`, got False because the
+        timer was None, and split the recording in two. stage_index rose 0 -> 1
+        and says plainly that this is the same run.
+        """
+        app = self.build_recording_app()
+        app.player_stats_recording_seed = 111
+        app.player_stats_recording_stage_ptr = 0x1000
+        app.player_stats_recording_stage_index = 0
+        app.player_stats_recording_run_time_seconds = 120.0
+        app.player_stats_client = SimpleNamespace(
+            get_run_timer=lambda: None,  # the failed read
+            get_killed_mobs=lambda: 37,
+        )
+        app.player_stats_game_data_client = FakeSeedStateClient(
+            [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000, stage_index=1)]
+        )
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertIsNone(action)
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
+        self.assertEqual(app.player_stats_recording_stage_index, 1)
+        self.assertEqual(app.log_messages, [])
+
+    def test_recording_run_state_does_not_split_when_stage_index_is_unreadable(self) -> None:
+        # The bug step 8b exists to fix: a failed read must not be read as an
+        # answer. stage_ptr changed (so the decision block is reached at all),
+        # but stage_index came back None -- the guard must wait for the next
+        # tick rather than fall back to any other signal.
+        app = self.build_recording_app()
+        app.player_stats_recording_seed = 111
+        app.player_stats_recording_stage_ptr = 0x1000
+        app.player_stats_recording_stage_index = 1
+        app.player_stats_recording_run_time_seconds = 120.0
+        app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 4.0, get_killed_mobs=lambda: 37)
+        app.player_stats_game_data_client = FakeSeedStateClient(
+            [SimpleNamespace(map_seed=111, current_stage_ptr=0x2000, stage_index=None)]
+        )
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertIsNone(action)
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
+        self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
+        # State must be untouched, not adopted -- there was nothing to decide.
+        self.assertEqual(app.player_stats_recording_seed, 111)
+        self.assertEqual(app.player_stats_recording_stage_ptr, 0x1000)
+        self.assertEqual(app.player_stats_recording_stage_index, 1)
+        self.assertEqual(app.player_stats_recording_run_time_seconds, 120.0)
+        self.assertEqual(app.log_messages, [])
+
+    def test_recording_run_state_splits_when_stage_index_unchanged_and_timer_regresses(self) -> None:
+        # A run that died and restarted at the same stage_index (typically 0,
+        # per the Graveyard live check) -- the tie-break the four rules
+        # reserve for "unchanged".
+        app = self.build_recording_app()
+        app.player_stats_recording_seed = 111
+        app.player_stats_recording_stage_ptr = 0x1000
+        app.player_stats_recording_stage_index = 0
+        app.player_stats_recording_run_time_seconds = 400.0
+        app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 2.0, get_killed_mobs=lambda: 0)
+        app.player_stats_game_data_client = FakeSeedStateClient(
+            [SimpleNamespace(map_seed=999, current_stage_ptr=0x9000, stage_index=0)]
+        )
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertEqual(action, "split")
+        self.assertEqual(app.player_stats_recording_seed, 999)
+        self.assertEqual(app.player_stats_recording_stage_index, 0)
+
+    def test_recording_run_state_does_not_split_when_stage_index_unchanged_and_timer_unreadable(self) -> None:
+        # Unspecified by the four documented rules, so the conservative default
+        # applies: missing timer data must not manufacture a split either.
+        app = self.build_recording_app()
+        app.player_stats_recording_seed = 111
+        app.player_stats_recording_stage_ptr = 0x1000
+        app.player_stats_recording_stage_index = 0
+        app.player_stats_recording_run_time_seconds = 400.0
+        app.player_stats_client = SimpleNamespace(get_run_timer=lambda: None, get_killed_mobs=lambda: 0)
+        app.player_stats_game_data_client = FakeSeedStateClient(
+            [SimpleNamespace(map_seed=999, current_stage_ptr=0x9000, stage_index=0)]
+        )
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertIsNone(action)
+        self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
+        self.assertEqual(app.player_stats_recording_seed, 999)
+        self.assertEqual(app.player_stats_recording_stage_index, 0)
+
+    def test_stage_index_signals_new_run_direct(self) -> None:
+        signals = gui.MegabonkApp._stage_index_signals_new_run
+        # index unreadable -> do not decide
+        self.assertIsNone(signals(1, None, 100.0, 50.0))
+        # no baseline yet -> adopt without splitting
+        self.assertFalse(signals(None, 0, None, 10.0))
+        # rose -> same run
+        self.assertFalse(signals(1, 2, 100.0, 105.0))
+        # fell -> new run
+        self.assertTrue(signals(2, 0, 100.0, 5.0))
+        # unchanged + timer regressed -> new run
+        self.assertTrue(signals(0, 0, 400.0, 2.0))
+        # unchanged + timer held -> same run
+        self.assertFalse(signals(0, 0, 400.0, 405.0))
+        # unchanged + timer missing -> do not manufacture a split
+        self.assertFalse(signals(0, 0, 400.0, None))
+        self.assertFalse(signals(0, 0, None, 2.0))
 
     def test_recording_run_state_stops_after_seed_missing_grace_period(self) -> None:
         app = self.build_recording_app()

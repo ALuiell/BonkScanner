@@ -152,6 +152,10 @@ class GameDataClient:
             map_controller_static_fields,
             self.MAP_CONTROLLER_RESETING_OFFSET,
         )
+        stage_index = self._read_i32_optional(
+            map_controller_static_fields,
+            self.MAP_CONTROLLER_INDEX_OFFSET,
+        )
 
         return MapGenerationState(
             is_generating=is_generating,
@@ -159,6 +163,7 @@ class GameDataClient:
             current_map_ptr=current_map_ptr,
             current_stage_ptr=current_stage_ptr,
             is_resetting=is_resetting,
+            stage_index=stage_index,
         )
 
     def get_runtime_activity_state(self) -> RuntimeGameState:

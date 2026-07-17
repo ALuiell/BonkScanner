@@ -742,6 +742,7 @@ class PlayerStatsMixin:
                 player_level=player_level,
                 map_seed=map_seed,
                 stage_ptr=stage_ptr,
+                stage_index=runtime_state.current_stage_index,
             )
         else:
             self.player_stats_auto_start_detection_streak = 0
@@ -958,12 +959,14 @@ class PlayerStatsMixin:
             state = self._read_player_stats_recording_state_safe()
             seed = state.map_seed if state is not None else None
             stage_ptr = state.current_stage_ptr if state is not None else 0
+            stage_index = state.stage_index if state is not None else None
             run_time_seconds = self._read_player_stats_recording_run_timer_safe()
             runtime_state = self._runtime_game_state_or_unknown()
             if runtime_state.mode is RuntimeGameMode.IN_GAME:
                 vod_path = self._start_player_stats_recording(
                     seed=seed,
                     stage_ptr=stage_ptr,
+                    stage_index=stage_index,
                     run_time_seconds=run_time_seconds,
                 )
                 self.log(f"[*] Player stats recording started: {vod_path.name}", tag="success")
@@ -1084,33 +1087,44 @@ class PlayerStatsMixin:
             return None
 
     @staticmethod
-    def _seed_change_looks_like_same_run(
+    def _stage_index_signals_new_run(
+        previous_index: int | None,
+        current_index: int | None,
         previous_run_time_seconds: float | None,
         current_run_time_seconds: float | None,
-    ) -> bool:
-        if previous_run_time_seconds is None or current_run_time_seconds is None:
+    ) -> bool | None:
+        """Decide "same run" vs. "new run" from stage_index direction.
+
+        stage_index is a MapController static-field ordinal that survives the
+        loading screen, unlike the run timer this replaced (step 8b): a failed
+        timer read used to be treated as "different run" and split a recording
+        on an ordinary map transition.
+
+        Returns True to split, False to continue the current recording, or
+        None when the index could not be read this tick -- the caller must not
+        decide from that, only wait for the next sample.
+        """
+        if current_index is None:
+            return None
+        if previous_index is None:
+            # No baseline yet (the index was unreadable when this recording
+            # started). Adopt it without splitting; there is nothing to compare.
+            return False
+        if current_index > previous_index:
+            return False  # map transition within the same run (e.g. 1 -> 2 -> 3)
+        if current_index < previous_index:
+            return True  # index reset -- a new run started
+        # Unchanged. Live-verified (Graveyard, and the virtual stage-4 boss
+        # room): this game never changes stage_ptr or seed without stage_index
+        # also moving, except when a new run starts at the same index a
+        # finished run held (typically 0). The run timer resetting confirms
+        # that case. Missing timer data must not manufacture a split -- that is
+        # exactly the failure this guard replaces -- so treat it as "continue".
+        if current_run_time_seconds is None or previous_run_time_seconds is None:
             return False
         return (
             current_run_time_seconds + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
-            >= previous_run_time_seconds
-        )
-
-    @staticmethod
-    def _stage_change_looks_like_same_run(
-        previous_stage_ptr: int,
-        current_stage_ptr: int,
-        previous_run_time_seconds: float | None,
-        current_run_time_seconds: float | None,
-    ) -> bool:
-        if (
-            not previous_stage_ptr
-            or not current_stage_ptr
-            or previous_stage_ptr == current_stage_ptr
-        ):
-            return False
-        return PlayerStatsMixin._seed_change_looks_like_same_run(
-            previous_run_time_seconds,
-            current_run_time_seconds,
+            < previous_run_time_seconds
         )
 
     def _start_player_stats_recording(
@@ -1118,6 +1132,7 @@ class PlayerStatsMixin:
         *,
         seed: int | None = None,
         stage_ptr: int = 0,
+        stage_index: int | None = None,
         run_time_seconds: float | None = None,
     ):
         vod_path = self.player_stats_vod_recorder.start(seed=seed)
@@ -1125,6 +1140,7 @@ class PlayerStatsMixin:
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = seed
         self.player_stats_recording_stage_ptr = stage_ptr
+        self.player_stats_recording_stage_index = stage_index
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = run_time_seconds
         self.player_stats_recording_waiting_mode = None
@@ -1144,6 +1160,7 @@ class PlayerStatsMixin:
         self.player_stats_selected_snapshot_index = None
         self.player_stats_recording_seed = None
         self.player_stats_recording_stage_ptr = 0
+        self.player_stats_recording_stage_index = None
         self.player_stats_recording_seed_missing_since = None
         self.player_stats_recording_run_time_seconds = None
         self.player_stats_recording_waiting_mode = None
@@ -1171,10 +1188,14 @@ class PlayerStatsMixin:
                 current_stage_ptr = (
                     current_state.current_stage_ptr if current_state is not None else 0
                 )
+                current_stage_index = (
+                    getattr(current_state, "stage_index", None) if current_state is not None else None
+                )
                 current_run_time_seconds = self._read_player_stats_recording_run_timer_safe()
                 vod_path = self._start_player_stats_recording(
                     seed=current_seed,
                     stage_ptr=current_stage_ptr,
+                    stage_index=current_stage_index,
                     run_time_seconds=current_run_time_seconds,
                 )
                 self.log(
@@ -1214,6 +1235,9 @@ class PlayerStatsMixin:
         current_stage_ptr = (
             current_state.current_stage_ptr if current_state is not None else 0
         )
+        current_stage_index = (
+            getattr(current_state, "stage_index", None) if current_state is not None else None
+        )
         current_run_time_seconds = self._read_player_stats_recording_run_timer_safe()
         if current_seed is None:
             if self.player_stats_recording_seed_missing_since is None:
@@ -1234,6 +1258,7 @@ class PlayerStatsMixin:
         if self.player_stats_recording_seed is None:
             self.player_stats_recording_seed = current_seed
             self.player_stats_recording_stage_ptr = current_stage_ptr
+            self.player_stats_recording_stage_index = current_stage_index
         if (
             current_seed == self.player_stats_recording_seed
             and current_stage_ptr == self.player_stats_recording_stage_ptr
@@ -1242,24 +1267,22 @@ class PlayerStatsMixin:
             return None
 
         previous_seed = self.player_stats_recording_seed
-        previous_stage_ptr = self.player_stats_recording_stage_ptr
         previous_run_time_seconds = self.player_stats_recording_run_time_seconds
-        if self._stage_change_looks_like_same_run(
-            previous_stage_ptr,
-            current_stage_ptr,
+        decision = self._stage_index_signals_new_run(
+            self.player_stats_recording_stage_index,
+            current_stage_index,
             previous_run_time_seconds,
             current_run_time_seconds,
-        ):
-            self.player_stats_recording_seed = current_seed
-            self.player_stats_recording_stage_ptr = current_stage_ptr
-            self.player_stats_recording_run_time_seconds = current_run_time_seconds
+        )
+        if decision is None:
+            # stage_index unreadable this tick. Absence of data is not an
+            # answer -- the bug this guard replaces -- so wait for the next
+            # sample instead of deciding from it.
             return None
-        if self._seed_change_looks_like_same_run(
-            previous_run_time_seconds,
-            current_run_time_seconds,
-        ):
+        if not decision:
             self.player_stats_recording_seed = current_seed
             self.player_stats_recording_stage_ptr = current_stage_ptr
+            self.player_stats_recording_stage_index = current_stage_index
             self.player_stats_recording_run_time_seconds = current_run_time_seconds
             return None
 
@@ -1267,6 +1290,7 @@ class PlayerStatsMixin:
         vod_path = self._start_player_stats_recording(
             seed=current_seed,
             stage_ptr=current_stage_ptr,
+            stage_index=current_stage_index,
             run_time_seconds=current_run_time_seconds,
         )
         self.log(
@@ -1303,6 +1327,7 @@ class PlayerStatsMixin:
         player_level: int | None,
         map_seed: int | None,
         stage_ptr: int,
+        stage_index: int | None = None,
     ) -> bool:
         if self.player_stats_vod_recorder.is_recording:
             self.player_stats_auto_start_detection_streak = 0
@@ -1332,6 +1357,7 @@ class PlayerStatsMixin:
         vod_path = self._start_player_stats_recording(
             seed=map_seed,
             stage_ptr=stage_ptr,
+            stage_index=stage_index,
             run_time_seconds=run_timer_seconds,
         )
         self.log(f"[*] Player stats recording auto-started: {vod_path.name}", tag="success")

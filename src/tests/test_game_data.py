@@ -343,6 +343,7 @@ class GameDataClientTests(unittest.TestCase):
             },
             integers={
                 map_generation_static + GameDataClient.MAP_GENERATION_MAP_SEED_OFFSET: 12345,
+                map_controller_static + GameDataClient.MAP_CONTROLLER_INDEX_OFFSET: 2,
             },
             bytes_={
                 map_generation_static + GameDataClient.MAP_GENERATION_IS_GENERATING_OFFSET: 1,
@@ -359,8 +360,33 @@ class GameDataClientTests(unittest.TestCase):
                 current_map_ptr=current_map,
                 current_stage_ptr=current_stage,
                 is_resetting=True,
+                stage_index=2,
             ),
         )
+
+    def test_get_map_generation_state_reports_unreadable_stage_index_as_none(self) -> None:
+        """The split guard must be able to tell "index is 0" from "index unknown".
+
+        0 is a real stage on every map, and on Graveyard it is the only one, so
+        a failed read that returned 0 would look like an ordinary sample.
+        """
+        base = 0x10000000
+        map_controller_type_info = base + GameDataClient.MAP_CONTROLLER_TYPE_INFO_OFFSET
+        map_controller_class = 0x20000100
+        map_controller_static = 0x30000100
+
+        memory = FakeMemory(
+            module_base=base,
+            pointers={
+                map_controller_type_info: map_controller_class,
+                map_controller_class + GameDataClient.CLASS_STATIC_FIELDS_OFFSET: map_controller_static,
+                map_controller_static + GameDataClient.MAP_CONTROLLER_CURRENT_STAGE_OFFSET: 0x40000100,
+            },
+            # No MAP_CONTROLLER_INDEX_OFFSET entry: the read fails.
+        )
+        client = GameDataClient(memory=memory)
+
+        self.assertIsNone(client.get_map_generation_state().stage_index)
 
     def test_get_map_generation_state_handles_missing_static_fields(self) -> None:
         client = GameDataClient(memory=FakeMemory())
