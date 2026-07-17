@@ -4,7 +4,8 @@ import src
 
 import unittest
 
-from run_control import KeyboardRunControlProvider, RunControlError
+from core.run_control import RunControlError
+from infra.keyboard_run_control import KeyboardRunControlProvider
 
 
 class FakeKeyboard:

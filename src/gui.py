@@ -9,6 +9,7 @@ import gui_layout as _gui_layout
 import gui_overlay as _gui_overlay
 import gui_player_stats as _gui_player_stats
 import gui_run_control as _gui_run_control
+import infra.process as _infra_process
 import gui_scanner as _gui_scanner
 import gui_shared as _gui_shared
 import gui_styles as _gui_styles
@@ -73,6 +74,11 @@ _PATCH_COMPAT_MODULES = (
     _gui_shared,
     _gui_styles,
     _gui_templates,
+    # Not a GUI module. The win32 primitives moved to infra/process.py in step
+    # 10c, and 16 tests patch `gui.win32gui` expecting to control that whole
+    # code path -- which now spans two modules. Propagating here is what this
+    # tuple is for. It goes away with the facade itself (step 15).
+    _infra_process,
 )
 
 
