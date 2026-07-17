@@ -1173,14 +1173,7 @@ class PlayerStatsMixin:
         self._refresh_vods_list_if_visible()
 
     def _sync_player_stats_recording_run_state(self) -> str | None:
-        # Reuses the lifecycle state the 500 ms driver already refreshes once a
-        # second, rather than issuing its own uncached get_runtime_game_state().
-        # At this task's old 10 s cadence that extra heavy read was affordable;
-        # at 1 s it would be ten times a second, for a mode the cheaper cached
-        # reader computes identically (verified exhaustively -- the extra
-        # `and not is_game_over` in get_runtime_game_state is unreachable).
-        # Only `.mode` is used here, which is all the cached state carries.
-        runtime_state = self._runtime_state_for_refresh()
+        runtime_state = self._runtime_game_state_or_unknown()
         if runtime_state.mode is RuntimeGameMode.GAME_OVER:
             self._player_stats_completed_run = True
             mark_completed = getattr(self.live_run_tracker, "mark_run_completed", None)

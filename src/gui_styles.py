@@ -10,11 +10,6 @@ from core.item_metadata import (
 )
 
 PLAYER_STATS_REFRESH_MS = 10_000
-# The recording lifecycle used to inherit the 10 s snapshot cadence above; it is
-# its own decision (step 8b) because it decides run boundaries, and a boundary
-# noticed a whole interval late mis-attributes that interval's kills to the wrong
-# stage. Matches CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS, whose state it reads.
-RECORDING_LIFECYCLE_REFRESH_MS = 1_000
 PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
 PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS = 3.0
 PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS = 5.0

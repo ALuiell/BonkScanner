@@ -630,18 +630,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.close_player_stats_client = lambda: None
         app.read_player_stats_only = lambda: ({}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ()
-        # Both lifecycle readers, and deliberately the same value: production
-        # computes `mode` identically in get_runtime_game_state and the cheaper
-        # cached get_runtime_activity_state (verified exhaustively over every
-        # input combination -- the extra `and not is_game_over` is unreachable).
-        # A double whose two readers disagree is a fiction, and step 8b's move to
-        # the cached reader is what exposed that this one did.
-        _runtime_state = RuntimeGameState(
+        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.IN_GAME,
             is_playing=True,
         )
-        app.read_player_stats_runtime_game_state = lambda: _runtime_state
-        app.read_player_stats_runtime_activity_state = lambda: _runtime_state
         app._is_live_stats_tab_active = lambda: True
         app.log_messages = []
         app.log = lambda message, tag=None: app.log_messages.append((message, tag))
@@ -3066,12 +3058,10 @@ class GuiRunControlTests(unittest.TestCase):
             [(int(gui.config.FAST_TRACKER_INTERVAL_MS), app.update_player_stats_timer)],
         )
 
-    def test_recording_lifecycle_keeps_its_own_cadence_under_the_500ms_driver(self) -> None:
+    def test_recording_lifecycle_keeps_its_10s_cadence_under_the_500ms_driver(self) -> None:
         # The whole risk of collapsing the two timers: the recording lifecycle
         # used to be a 10 s timer's body, and the surviving driver runs 20x
-        # faster. Its interval must come from the task, not from the timer --
-        # which is also what let step 8b move it to 1 s without touching the
-        # driver or the 10 s snapshot.
+        # faster. Its interval must come from the task, not from the timer.
         app = self.build_recording_app()
         app._is_shutting_down = False
         app.player_stats_vod_recorder.is_recording = False
@@ -3093,42 +3083,7 @@ class GuiRunControlTests(unittest.TestCase):
                 gui.MegabonkApp.update_player_stats_timer(app)
                 now[0] += 0.5
 
-        # 20 s of ticking / the task's 1 s interval -- not 40, which is what
-        # inheriting the driver's 500 ms would give.
-        self.assertEqual(len(sync_calls), 20)
-
-    def test_recording_lifecycle_reuses_the_cached_lifecycle_state(self) -> None:
-        # What makes 1 s affordable. The sync used to call the uncached, heavier
-        # get_runtime_game_state() itself; at 10 s that was one extra heavy read
-        # per 10 s, at 1 s it would be one per second. The 500 ms driver already
-        # refreshes the cheap cached state once a second, so the sync reads that
-        # instead and issues no read of its own.
-        app = self.build_recording_app()
-        app._is_shutting_down = False
-        app._is_live_stats_tab_active = lambda: False
-        app.overlay_should_refresh_live_stats = lambda: False
-        app._is_twitch_bot_active = lambda: False
-        app.after = lambda delay, callback: None
-
-        heavy_reads: list[int] = []
-        app.read_player_stats_runtime_game_state = lambda: heavy_reads.append(1) or RuntimeGameState(
-            mode=RuntimeGameMode.MAIN_MENU,
-        )
-        cheap_reads: list[int] = []
-        app.read_player_stats_runtime_activity_state = lambda: cheap_reads.append(1) or RuntimeGameState(
-            mode=RuntimeGameMode.MAIN_MENU,
-        )
-
-        now = [1000.0]
-        with patch.object(gui.time, "monotonic", side_effect=lambda: now[0]), \
-             patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
-            for _ in range(20):  # 10 s of driver time
-                gui.MegabonkApp.update_player_stats_timer(app)
-                now[0] += 0.5
-
-        self.assertEqual(heavy_reads, [], "the sync must not issue its own uncached read")
-        self.assertEqual(len(cheap_reads), 10)  # 10 s / the 1 s lifecycle probe
+        self.assertEqual(len(sync_calls), 2)  # 20 s of ticking / 10 s interval
 
     def test_recording_lifecycle_failure_is_contained_to_its_task(self) -> None:
         # The recording sync used to be the timer callback's own body, so a

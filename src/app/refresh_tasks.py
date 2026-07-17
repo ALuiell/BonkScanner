@@ -10,9 +10,7 @@ calls ``ensure_refresh_coordinator(self).tick()`` from
 That driver is now the only one. Every cadence lives in a task's
 ``interval_ms``: a second 10 s timer used to run the recording lifecycle from
 its own callback body, so collapsing the timers without giving that work a
-task of its own would have run it 20x more often. Having its own task is what
-later let step 8b move it to 1 s on its own merits, without dragging the 10 s
-snapshot along.
+task of its own would have run it 20x more often.
 
 ``ensure_refresh_coordinator``, ``overlay_widget_refresh_active`` and the two
 ``record_player_stats_memory_*`` helpers are plain functions, not mixin
@@ -37,7 +35,7 @@ from typing import TYPE_CHECKING
 from app import config
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from gui_shared import _set_text
-from gui_styles import PLAYER_STATS_REFRESH_MS, RECORDING_LIFECYCLE_REFRESH_MS
+from gui_styles import PLAYER_STATS_REFRESH_MS
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 
 if TYPE_CHECKING:
@@ -64,15 +62,7 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
     coordinator.register(
         RefreshTask(
             task_id="recording_lifecycle",
-            # 1 s, not the 10 s snapshot cadence this used to inherit. Seed,
-            # stage_index and the run timer are what attribute kills to a stage,
-            # so a transition noticed late files up to a full interval of kills
-            # made on one map against the next -- corruption of recorded data,
-            # not a lagging label. Only safe with step 8b's stage_index guard in
-            # place: the 10 s interval was accidentally acting as a settle delay
-            # over the loading screen, and the guard replaces it with a
-            # deliberate one ("index unreadable -> do not decide").
-            interval_ms=RECORDING_LIFECYCLE_REFRESH_MS,
+            interval_ms=PLAYER_STATS_REFRESH_MS,
             # Unconditional: this is what auto-stops a recording once the game is
             # gone, so it must keep running when every consumer has lost demand.
             required=lambda: True,
@@ -175,10 +165,9 @@ class RefreshTasksMixin:
         """Recording auto-start/auto-stop/pause handling, formerly the body of the
         10 s Qt timer callback.
 
-        It is a task rather than a side effect of the surviving 500 ms driver so
-        that it owns its own cadence. Step 8 kept that at the inherited 10 s to
-        stay a pure refactor; step 8b then moved it to 1 s on its own merits,
-        which is what having a task made possible.
+        It is a task rather than a side effect of the surviving 500 ms driver
+        because it must keep its own 10 s cadence: running the recording
+        lifecycle 20x more often is a behaviour change, not a scheduling detail.
         """
         recording_state_action = self._sync_player_stats_recording_run_state()
         self._player_stats_refresh_status_text = (
