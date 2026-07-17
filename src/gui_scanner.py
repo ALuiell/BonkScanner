@@ -6,13 +6,13 @@ import threading
 import time
 
 from PySide6.QtGui import QTextCursor
-from PySide6.QtWidgets import QLabel
+from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app import config
 from ui.update_prompt import start_update_check
 from infra.memory.game_data_client import GameDataClient
-from gui_shared import _clear_layout, _set_text
-from gui_styles import COLOR_MAP, _button_state_stylesheet
+from gui_shared import _apply_button_icon, _clear_layout, _make_scroll_section, _set_text
+from gui_styles import COLOR_MAP, _button_state_stylesheet, _session_stats_label_stylesheet
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.run_control import RunControlError
 from core.runtime_stats import adapt_map_stats
@@ -540,3 +540,75 @@ class ScannerMixin:
                 pass
             self._hotkey_manager = None
         self.destroy()
+
+    def _build_session_stats_tab(self):
+        self.tab_stats = QWidget()
+        stats_layout = QVBoxLayout(self.tab_stats)
+        stats_scroll, _stats_content, stats_content_layout = _make_scroll_section()
+        stats_layout.addWidget(stats_scroll)
+        self.stats_time_label = QLabel("Session Time: 00:00:00")
+        self.stats_rerolls_label = QLabel("Session Rerolls: 0")
+        self.stats_rpm_label = QLabel("Rerolls per Minute (RPM): 0.0")
+        self.stats_best_label = QLabel("Best Map Found: None")
+        self.stats_worst_label = QLabel("Worst Map Found: None")
+
+        overview_group = QGroupBox("Session Overview")
+        overview_layout = QVBoxLayout(overview_group)
+        overview_layout.setContentsMargins(12, 12, 12, 12)
+        overview_layout.setSpacing(8)
+        for widget in (
+            self.stats_time_label,
+            self.stats_rerolls_label,
+            self.stats_rpm_label,
+        ):
+            widget.setWordWrap(True)
+            widget.setStyleSheet(_session_stats_label_stylesheet(accent=True))
+            overview_layout.addWidget(widget)
+        stats_content_layout.addWidget(overview_group)
+
+        maps_group = QGroupBox("Map Highlights")
+        maps_layout = QVBoxLayout(maps_group)
+        maps_layout.setContentsMargins(12, 12, 12, 12)
+        maps_layout.setSpacing(10)
+        for widget in (
+            self.stats_best_label,
+            self.stats_worst_label,
+        ):
+            widget.setWordWrap(True)
+            widget.setStyleSheet(_session_stats_label_stylesheet())
+            maps_layout.addWidget(widget)
+        stats_content_layout.addWidget(maps_group)
+
+        tracked_items_group = QGroupBox("Tracked Items")
+        tracked_items_layout = QVBoxLayout(tracked_items_group)
+        tracked_items_layout.setContentsMargins(12, 12, 12, 12)
+        tracked_items_layout.setSpacing(0)
+        tracked_items_row = QHBoxLayout()
+        tracked_items_row.setContentsMargins(0, 0, 0, 0)
+        tracked_items_row.setSpacing(8)
+        self.stats_tracked_items_label = QLabel("Anvils Map 1: 0")
+        self.stats_tracked_items_label.setWordWrap(True)
+        self.stats_tracked_items_label.setStyleSheet(_session_stats_label_stylesheet())
+        self.stats_tracked_items_settings_btn = QPushButton("")
+        self.stats_tracked_items_settings_btn.setObjectName("SettingsButton")
+        self.stats_tracked_items_settings_btn.setToolTip("Tracked item settings")
+        self.stats_tracked_items_settings_btn.setFixedSize(34, 30)
+        _apply_button_icon(self.stats_tracked_items_settings_btn, "media/settings_icon.png", 18)
+        self.stats_tracked_items_settings_btn.clicked.connect(self.open_session_tracked_item_settings_dialog)
+        tracked_items_row.addWidget(self.stats_tracked_items_label, 1)
+        tracked_items_row.addWidget(self.stats_tracked_items_settings_btn)
+        tracked_items_layout.addLayout(tracked_items_row)
+        stats_content_layout.addWidget(tracked_items_group)
+
+        average_group = QGroupBox("Average Rerolls per Target")
+        average_layout = QVBoxLayout(average_group)
+        average_layout.setContentsMargins(12, 12, 12, 12)
+        average_layout.setSpacing(8)
+        self.stats_avg_frame = QWidget()
+        self.stats_avg_layout = QVBoxLayout(self.stats_avg_frame)
+        self.stats_avg_layout.setContentsMargins(0, 0, 0, 0)
+        self.stats_avg_layout.setSpacing(6)
+        average_layout.addWidget(self.stats_avg_frame)
+        stats_content_layout.addWidget(average_group)
+        stats_content_layout.addStretch(1)
+        self.tabview.addTab(self.tab_stats, "Session Stats")
