@@ -13,6 +13,11 @@ from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
 from app.refresh_tasks import RefreshTasksMixin
 from ui.tabs.compare_runs import CompareRunsMixin
+from ui.tabs.player_stats import (
+    LiveStatsTabMixin,
+    PlayerStatsCardsMixin,
+    RecordingsTabMixin,
+)
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
@@ -39,6 +44,9 @@ class MegabonkApp(
     InGameOverlayMixin,
     RefreshTasksMixin,
     CompareRunsMixin,
+    LiveStatsTabMixin,
+    RecordingsTabMixin,
+    PlayerStatsCardsMixin,
     PlayerStatsMixin,
     ScannerMixin,
     TwitchBotMixin,

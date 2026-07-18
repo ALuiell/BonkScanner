@@ -14,12 +14,16 @@ import gui_scanner as _gui_scanner
 import gui_shared as _gui_shared
 import gui_styles as _gui_styles
 import gui_templates as _gui_templates
+import ui.tabs.player_stats.cards as _ui_player_stats_cards
+import ui.tabs.player_stats.live_stats as _ui_player_stats_live
+import ui.tabs.player_stats.recordings as _ui_player_stats_recordings
 
 from gui_app import MegabonkApp
 from gui_dialogs import *
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
-from gui_player_stats import PlayerStatsMixin, _set_items_text
+from gui_player_stats import PlayerStatsMixin
+from ui.tabs.player_stats import _set_items_text
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
 from gui_shared import *
@@ -79,6 +83,13 @@ _PATCH_COMPAT_MODULES = (
     # code path -- which now spans two modules. Propagating here is what this
     # tuple is for. It goes away with the facade itself (step 15).
     _infra_process,
+    # Same reason, step 14: the Live Stats and Recordings view code left
+    # `gui_player_stats` for `ui/tabs/player_stats/`, and the tests that patch
+    # it through the facade -- `patch.object(gui, "load_vod")` and friends --
+    # target the names where they are now used, not where they used to be.
+    _ui_player_stats_cards,
+    _ui_player_stats_live,
+    _ui_player_stats_recordings,
 )
 
 
