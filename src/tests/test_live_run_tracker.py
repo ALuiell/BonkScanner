@@ -2319,6 +2319,75 @@ class LiveRunTrackerTests(unittest.TestCase):
             "Powerups: Shield (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
+    def test_powerups_summary_uses_seconds_in_crypt_for_effect_picked_up_before_entering(self) -> None:
+        # A crypt has no meaningful stage clock (the stage timer is frozen near
+        # zero), so an effect picked up before entering used to be rendered
+        # against it and came out as nonsense -- "Shield 17:00 -> 15:05" for an
+        # effect with 15 s left. Being in the crypt is what decides the format,
+        # not when the effect was picked up.
+        # duration 15 * 7.61 = 114.15 s puts the pickup well before the crypt
+        # window (1000 - 76 = 924), which is what used to fall through.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=0.0,
+                stage_index=0,
+                stage_time_seconds=960.0,
+                final_swarm_timer_seconds=0.0,
+                crypt_timer_seconds=76.0,
+                powerup_multiplier=7.61,
+                powerup_multiplier_display="7.61x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=900.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield (15s left) | Durations: standard 114s, clock 91s (PM 7.61x)",
+        )
+
+    def test_powerups_summary_keeps_stage_times_outside_crypt_while_crypt_timer_lingers(self) -> None:
+        # Guards the other side of the fix above: `crypt_timer` stays non-zero
+        # after leaving a crypt, so it cannot mean "in a crypt" by itself. With
+        # the stage timer running again the stage-limit format must come back,
+        # otherwise the whole graveyard map would lose its times.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=300.0,
+                stage_index=0,
+                stage_time_seconds=960.0,
+                final_swarm_timer_seconds=0.0,
+                crypt_timer_seconds=76.0,
+                powerup_multiplier=1.0,
+                powerup_multiplier_display="1x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=1000.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield 11:00 -> 10:45 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
+        )
+
     def test_powerups_summary_uses_safe_format_without_fresh_map_context(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_powerups(

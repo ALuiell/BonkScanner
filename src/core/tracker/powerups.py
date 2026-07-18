@@ -136,11 +136,19 @@ def resolve_ui_context(
         crypt_value = float(crypt_timer)
     except (TypeError, ValueError):
         crypt_value = float("nan")
+    # `crypt_timer` stays non-zero after leaving a crypt, so it cannot identify
+    # the current room on its own; the frozen stage timer is what says we are
+    # inside one.  Being inside is enough -- *when* the effect was picked up
+    # does not matter.  This used to also require the pickup to fall inside the
+    # crypt window, which sent effects picked up before entering down to the
+    # stage-limit branch below, where they were rendered against a stage timer
+    # that is frozen near zero in a crypt: "Shield 17:00 -> 15:05" for an effect
+    # with 54 s left.  Seconds-remaining is the only honest reading in a room
+    # with no meaningful stage clock, so all active effects get it.
     if (
         isfinite(crypt_value)
         and crypt_value > 0.0
         and stage_timer <= 1.0
-        and pickup_time >= my_time - crypt_value
     ):
         return _PowerupUiContext(crypt_value, None)
 
