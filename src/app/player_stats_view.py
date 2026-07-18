@@ -53,6 +53,9 @@ class PlayerStatsView(Protocol):
     def set_recording_status_text(self, text: str) -> None:
         """Set the Live Stats status line (recording / paused / armed)."""
 
+    def set_mob_kills_text(self, text: str) -> None:
+        """Set the Live Stats mob-kills line."""
+
     # -- neighbouring views that mirror the same reading ----------------------
     def update_overlay_state_from_tracker(self) -> None:
         """Republish tracker state to the OBS overlay."""

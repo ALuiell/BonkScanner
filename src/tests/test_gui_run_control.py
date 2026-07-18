@@ -3873,6 +3873,74 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(tracked_kills, [(21.5, 37), (22.5, 37)])
         self.assertEqual(overlay_updates, ["overlay", "overlay"])
 
+    def _fast_kps_app_with_live_stats_tab_showing(self, label):
+        """A fast-KPS app double with the Live Stats tab *active*.
+
+        Every other fast-KPS test above sets `_is_live_stats_tab_active` to
+        False, so the branch that writes the mob-kills line was uncovered --
+        neutering that writer left all 582 tests green. Step 17a rerouted it
+        through `PlayerStatsView`, so it gets covered here.
+        """
+        app = object.__new__(MegabonkApp)
+        app._is_live_stats_tab_active = lambda: True
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
+        app.player_stats_mob_kills_label = label
+        app.player_stats_stage_summary_labels = None
+        app._set_stage_summary_labels = lambda labels, rows: None
+        app.update_overlay_state_from_tracker = lambda: None
+        app.overlay_server = SimpleNamespace(is_running=False)
+        app._get_player_stats_client = lambda: SimpleNamespace(
+            resolve_owner_stats=lambda: 0x1234,
+            get_expected_chest_inputs=lambda owner_stats: (7, 3),
+            get_run_timer=lambda: 21.5,
+            get_killed_mobs=lambda: 37,
+            get_chaos_tracking_state=lambda owner_stats: (None, {}),
+        )
+        app.live_run_tracker = SimpleNamespace(
+            track_expected_key_procs=lambda bought, keys: None,
+            update_chaos_tome=lambda **kwargs: None,
+            track_kills=lambda run_timer, mob_kills: None,
+            current_ui_kps=lambda: 123,
+            stage_summary_rows=lambda: [],
+        )
+        return app
+
+    def test_fast_kps_writes_the_mob_kills_line_when_live_stats_is_showing(self) -> None:
+        label = FakeLabel()
+        app = self._fast_kps_app_with_live_stats_tab_showing(label)
+
+        with patch.object(config, "OVERLAY", {"widgets": []}), patch.object(
+            time, "monotonic", side_effect=(100.0, 101.0)
+        ):
+            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+
+        # The real formatter, through the real MRO: player_stats_view(app)
+        # returns app, whose set_mob_kills_text comes from LiveStatsTabMixin.
+        self.assertEqual(label.text(), formatting.format_mob_kills(37, 123))
+        self.assertEqual(label.text(), "Mob Kills: 37 (123/s)")
+
+    def test_fast_kps_mob_kills_goes_through_the_player_stats_view_port(self) -> None:
+        """An injected view receives it, and the widget is left alone.
+
+        This is what distinguishes the port from the old direct `_set_text`
+        write: with a substitute view in place, nothing touches the label.
+        """
+        label = FakeLabel()
+        app = self._fast_kps_app_with_live_stats_tab_showing(label)
+        received: list[str] = []
+        app._player_stats_view = SimpleNamespace(
+            set_mob_kills_text=lambda text: received.append(text),
+        )
+
+        with patch.object(config, "OVERLAY", {"widgets": []}), patch.object(
+            time, "monotonic", side_effect=(100.0, 101.0)
+        ):
+            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+
+        self.assertEqual(received, ["Mob Kills: 37 (123/s)"])
+        self.assertEqual(label.text(), "")
+
     def test_chaos_refresh_skips_fast_kps_reads_when_overlay_kps_widget_is_disabled(self) -> None:
         app = object.__new__(MegabonkApp)
         run_timer_reads: list[int] = []

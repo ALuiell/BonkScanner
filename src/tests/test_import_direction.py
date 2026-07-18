@@ -98,11 +98,6 @@ KNOWN_VIOLATIONS: Dict[Tuple[str, str], str] = {
 # Layered package -> unlayered top-level module. Debt, not violation: the target
 # has no layer yet, so no direction can be assigned to the edge.
 TOPLEVEL_DEBT: Dict[Tuple[str, str], str] = {
-    ("app/refresh_tasks.py", "gui_shared"): (
-        "_set_text, outstanding from step 6. Removed by the "
-        "gui_styles/gui_shared split -- the helper lands in a layer and this "
-        "becomes app -> projections or app -> core."
-    ),
     ("app/coordinator.py", "live_run_tracker"): (
         "The tracker's own module file is still top-level: step 13 split its "
         "internals into core/tracker/ but moving live_run_tracker.py would "

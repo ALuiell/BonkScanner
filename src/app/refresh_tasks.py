@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING
 
 from app import config
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
-from gui_shared import _set_text
+from app.player_stats_view import player_stats_view
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from projections import formatting
 
@@ -272,8 +272,7 @@ class RefreshTasksMixin:
             self.live_run_tracker.track_kills(run_timer_seconds, mob_kills)
             self._last_fast_kps_game_time_seconds = run_timer_seconds
             if self._is_live_stats_tab_active():
-                _set_text(
-                    self.player_stats_mob_kills_label,
+                player_stats_view(self).set_mob_kills_text(
                     formatting.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps()),
                 )
                 self._set_stage_summary_labels(

@@ -260,6 +260,19 @@ class LiveStatsTabMixin:
         """
         _set_text(self.player_stats_status_label, text)
 
+    def set_mob_kills_text(self, text: str) -> None:
+        """Set the Live Stats mob-kills line.
+
+        Same shape, and the same reason, as `set_recording_status_text` above:
+        this mixin builds `player_stats_mob_kills_label`, so it is the only
+        place that should write it. `app/refresh_tasks.py` used to import
+        `_set_text` from `gui_shared` and write the widget itself -- the last
+        consumer of `gui_shared` outside UI code, outstanding since step 6.
+        The app layer still decides what the line says; it no longer reaches
+        through a Qt helper to put it there.
+        """
+        _set_text(self.player_stats_mob_kills_label, text)
+
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True):
         snapshot_count = len(self.player_stats_vod_snapshots)
         recording_armed = self._is_player_stats_recording_armed()
