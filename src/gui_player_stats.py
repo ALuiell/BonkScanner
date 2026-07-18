@@ -89,152 +89,6 @@ class PlayerStatsMixin:
         self._ensure_live_snapshot_store().last_run_timer = value
 
 
-    @classmethod
-    def _item_total_count(cls, items) -> int:
-        return formatting._item_total_count(items)
-
-    @classmethod
-    def format_items_rarity_summary_rich_text(cls, items) -> str:
-        return formatting.format_items_rarity_summary_rich_text(items)
-
-    @classmethod
-    def sort_items_for_display(cls, items, mode: str | None) -> tuple[str, ...]:
-        return formatting.sort_items_for_display(items, mode)
-
-    @classmethod
-    def _item_rarity_rank(cls, item_text: str) -> int:
-        return formatting._item_rarity_rank(item_text)
-
-
-    @staticmethod
-    def format_duration(seconds: int) -> str:
-        return formatting.format_duration(seconds)
-
-    @staticmethod
-    def format_elapsed_time(seconds: float | int) -> str:
-        return formatting.format_elapsed_time(seconds)
-
-    @classmethod
-    def format_in_game_time(cls, seconds: float | None) -> str:
-        return formatting.format_in_game_time(seconds)
-
-    @staticmethod
-    def format_mob_kills(value: int | None, kps: int | None = None) -> str:
-        return formatting.format_mob_kills(value, kps)
-
-    @staticmethod
-    def format_kps_averages(
-        minute_avg_kps: int | None,
-        five_minute_avg_kps: int | None,
-    ) -> str:
-        return formatting.format_kps_averages(minute_avg_kps, five_minute_avg_kps)
-
-    @staticmethod
-    def format_damage_source_value(value: int | float) -> str:
-        return formatting.format_damage_source_value(value)
-
-    @staticmethod
-    def format_player_level(value: int | None) -> str:
-        return formatting.format_player_level(value)
-
-    @staticmethod
-    def format_items(items) -> str:
-        return formatting.format_items(items)
-
-
-    @classmethod
-    def format_snapshot_new_items(cls, previous_snapshot, snapshot) -> str:
-        return formatting.format_snapshot_new_items(previous_snapshot, snapshot)
-
-    @classmethod
-    def format_snapshot_item_gains_preview(cls, previous_snapshot, snapshot, *, segment_snapshots=()) -> str:
-        return formatting.format_snapshot_item_gains_preview(previous_snapshot, snapshot, segment_snapshots=segment_snapshots)
-
-    @classmethod
-    def diff_new_items(cls, previous_items, current_items) -> tuple[str, ...]:
-        return formatting.diff_new_items(previous_items, current_items)
-
-    @classmethod
-    def diff_item_gains(cls, previous_items, current_items) -> tuple[tuple[str, int], ...]:
-        return formatting.diff_item_gains(previous_items, current_items)
-
-    @classmethod
-    def summarize_item_segment_changes(cls, snapshots) -> dict[str, tuple[tuple[str, int], ...]]:
-        return formatting.summarize_item_segment_changes(snapshots)
-
-    @classmethod
-    def format_snapshot_item_changes_details(cls, previous_snapshot, snapshot, *, segment_snapshots=()) -> str:
-        return formatting.format_snapshot_item_changes_details(previous_snapshot, snapshot, segment_snapshots=segment_snapshots)
-
-    @classmethod
-    def format_item_gains_by_rarity(
-        cls,
-        gains: tuple[tuple[str, int], ...],
-        *,
-        max_items: int | None = None,
-    ) -> str:
-        return formatting.format_item_gains_by_rarity(gains, max_items=max_items)
-
-    @classmethod
-    def format_snapshot_compare_summary(
-        cls,
-        base_snapshot,
-        snapshot,
-        *,
-        base_index: int | None,
-        current_index: int | None,
-        segment_snapshots=(),
-    ) -> str:
-        return formatting.format_snapshot_compare_summary(base_snapshot, snapshot, base_index=base_index, current_index=current_index, segment_snapshots=segment_snapshots)
-
-    @classmethod
-    def format_banishes_rich_text(cls, banishes) -> str:
-        return formatting.format_banishes_rich_text(banishes)
-
-    @staticmethod
-    def merge_banish_appearance_order(previous_banishes, current_banishes) -> tuple[str, ...]:
-        return formatting.merge_banish_appearance_order(previous_banishes, current_banishes)
-
-    @classmethod
-    def _item_counts(cls, items) -> dict[str, int]:
-        return formatting._item_counts(items)
-
-    @classmethod
-    def build_stage_summary(cls, snapshots) -> list[dict[str, str]]:
-        return formatting.build_stage_summary(snapshots)
-
-    @classmethod
-    def format_items_rich_text(cls, items) -> str:
-        return formatting.format_items_rich_text(items)
-
-    @staticmethod
-    def _split_item_stack_suffix(item_text: str) -> tuple[str, str]:
-        return formatting._split_item_stack_suffix(item_text)
-
-    @staticmethod
-    def _normalize_item_name_for_rarity(item_name: str) -> str:
-        return formatting._normalize_item_name_for_rarity(item_name)
-
-    @staticmethod
-    def _normalize_item_name_for_display(item_name: str) -> str:
-        return formatting._normalize_item_name_for_display(item_name)
-
-    @staticmethod
-    def calculate_player_chests_per_minute(stats) -> float | None:
-        return formatting.calculate_player_chests_per_minute(stats)
-
-    @classmethod
-    def resolve_snapshot_chests_per_minute(cls, snapshot) -> float | None:
-        return formatting.resolve_snapshot_chests_per_minute(snapshot)
-
-    @staticmethod
-    def format_chests_per_minute(value: float | None) -> str:
-        return formatting.format_chests_per_minute(value)
-
-    @classmethod
-    def format_powerups_duration(cls, stats) -> str:
-        return formatting.format_powerups_duration(stats)
-
     def format_live_powerups(self, stats) -> str:
         formatter = getattr(self.live_run_tracker, "format_powerups_summary", None)
         snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
@@ -244,7 +98,7 @@ class PlayerStatsMixin:
                     return formatter(include_left_word=False)
             except Exception:
                 pass
-        return self.format_powerups_duration(stats)
+        return formatting.format_powerups_duration(stats)
 
 
     def format_live_powerups_card(self, stats) -> tuple[str, dict[str, str]]:
@@ -264,7 +118,7 @@ class PlayerStatsMixin:
             for effect_name in values:
                 effect = active_by_name.get(effect_name)
                 if effect is not None:
-                    left_text = f"({self.format_seconds_compact(effect.remaining_seconds)}s)"
+                    left_text = f"({formatting.format_seconds_compact(effect.remaining_seconds)}s)"
                     if (
                         getattr(effect, "pickup_ui", None) is None
                         or getattr(effect, "expires_ui", None) is None
@@ -282,7 +136,7 @@ class PlayerStatsMixin:
                     else getattr(snapshot, "standard_duration_seconds", None)
                 )
                 if duration is not None:
-                    values[effect_name] = f"-- ({self.format_seconds_compact(duration)}s)"
+                    values[effect_name] = f"-- ({formatting.format_seconds_compact(duration)}s)"
             return title, values
 
         stat = (stats or {}).get("Powerup Multiplier")
@@ -296,42 +150,11 @@ class PlayerStatsMixin:
         pm_display = str(getattr(stat, "display_value", "") or "").strip()
         if pm_display:
             title = f"Powerups (PM {pm_display})"
-        standard_duration = self.format_seconds_compact(15.0 * powerup_multiplier)
-        clock_duration = self.format_seconds_compact(12.0 * powerup_multiplier)
+        standard_duration = formatting.format_seconds_compact(15.0 * powerup_multiplier)
+        clock_duration = formatting.format_seconds_compact(12.0 * powerup_multiplier)
         values["Rage"] = f"-- ({standard_duration}s)"
         values["Clock"] = f"-- ({clock_duration}s)"
         values["Shield"] = f"-- ({standard_duration}s)"
         values["Stonks"] = f"-- ({standard_duration}s)"
         return title, values
-
-    @staticmethod
-    def format_seconds_compact(value: float) -> str:
-        return formatting.format_seconds_compact(value)
-
-    @staticmethod
-    def chests_card_values(
-        opened_by_stage: dict[int, int] | None,
-        total_by_stage: dict[int, int] | None,
-        opened: int | None,
-        total: int | None,
-        paid: int | None,
-        key_procs: int | None,
-        free: int | None,
-        keys: int | None,
-        expected: float | None,
-        total_is_minimum: bool = False,
-    ) -> dict[str, str]:
-        return formatting.chests_card_values(
-            opened_by_stage,
-            total_by_stage,
-            opened,
-            total,
-            paid,
-            key_procs,
-            free,
-            keys,
-            expected,
-            total_is_minimum,
-        )
-
 

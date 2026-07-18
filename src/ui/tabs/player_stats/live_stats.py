@@ -53,6 +53,7 @@ from gui_styles import (
     PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
     _button_state_stylesheet,
 )
+from projections import formatting
 
 
 class LiveStatsTabMixin:
@@ -135,10 +136,10 @@ class LiveStatsTabMixin:
                 _set_text(value_label, stat.display_value)
         self._update_items_section("live", items, items_text=items_text)
         if chests_per_minute is None:
-            chests_per_minute = self.calculate_player_chests_per_minute(stats)
+            chests_per_minute = formatting.calculate_player_chests_per_minute(stats)
         _set_text(
             self.player_stats_chests_per_minute_label,
-            self.format_chests_per_minute(chests_per_minute),
+            formatting.format_chests_per_minute(chests_per_minute),
         )
         _set_text(
             getattr(self, "player_stats_powerups_duration_label", None),
@@ -147,19 +148,19 @@ class LiveStatsTabMixin:
         self._apply_live_powerups_card(stats)
         _set_text(
             self.player_stats_in_game_time_label,
-            self.format_in_game_time(game_time_seconds),
+            formatting.format_in_game_time(game_time_seconds),
         )
         _set_text(
             self.player_stats_mob_kills_label,
-            self.format_mob_kills(mob_kills, kps),
+            formatting.format_mob_kills(mob_kills, kps),
         )
         _set_text(
             getattr(self, "player_stats_kps_averages_label", None),
-            self.format_kps_averages(minute_avg_kps, five_minute_avg_kps),
+            formatting.format_kps_averages(minute_avg_kps, five_minute_avg_kps),
         )
         _set_text(
             self.player_stats_level_label,
-            self.format_player_level(player_level),
+            formatting.format_player_level(player_level),
         )
         get_chest_stats = getattr(self.live_run_tracker, "get_chest_stats", None)
         if callable(get_chest_stats):
@@ -168,7 +169,7 @@ class LiveStatsTabMixin:
             _set_text(getattr(self, "player_stats_new_items_label", None), new_items_text)
         else:
             _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
-        _set_text(self.player_stats_banishes_label, self.format_banishes_rich_text(banishes))
+        _set_text(self.player_stats_banishes_label, formatting.format_banishes_rich_text(banishes))
         self._set_stage_summary_labels(self.player_stats_stage_summary_labels, stage_summary_rows)
         self.display_weapon_cards(
             weapons if weapons_available else (),
@@ -203,9 +204,9 @@ class LiveStatsTabMixin:
             damage_sources=getattr(snapshot, "damage_sources", ()),
             status_text=(
                 f"Recorded snapshot {index}/{total} at {snapshot.time_label}"
-                f" | {self.format_in_game_time(snapshot.game_time_seconds)}"
+                f" | {formatting.format_in_game_time(snapshot.game_time_seconds)}"
             ),
-            chests_per_minute=self.resolve_snapshot_chests_per_minute(snapshot),
+            chests_per_minute=formatting.resolve_snapshot_chests_per_minute(snapshot),
             items_text=items_text,
             game_time_seconds=snapshot.game_time_seconds,
             mob_kills=getattr(snapshot, "mob_kills", None),
@@ -213,12 +214,12 @@ class LiveStatsTabMixin:
             minute_avg_kps=getattr(snapshot, "minute_avg_kps_at_capture", None),
             five_minute_avg_kps=getattr(snapshot, "five_minute_avg_kps_at_capture", None),
             player_level=getattr(snapshot, "player_level", None),
-            new_items_text=self.format_snapshot_item_gains_preview(
+            new_items_text=formatting.format_snapshot_item_gains_preview(
                 self._previous_player_stats_snapshot(snapshot),
                 snapshot,
                 segment_snapshots=self._player_stats_snapshot_segment(snapshot),
             ),
-            stage_summary_rows=self.build_stage_summary(
+            stage_summary_rows=formatting.build_stage_summary(
                 self.player_stats_vod_snapshots[:index]
             ),
         )
@@ -333,7 +334,7 @@ class LiveStatsTabMixin:
         if labels:
             self._set_chests_card_values(
                 labels,
-                self.chests_card_values(
+                formatting.chests_card_values(
                     chest_stats.opened_by_stage,
                     chest_stats.total_by_stage,
                     chest_stats.total_opened,

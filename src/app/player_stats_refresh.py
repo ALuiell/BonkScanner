@@ -40,6 +40,7 @@ from infra.memory.game_data_client import GameDataClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from live_run_tracker import LiveRunSnapshot, PowerupMapContext
 from projections.vod import build_vod_capture_kwargs
+from projections import formatting
 
 # The cadence at which the core run-lifecycle probe re-reads runtime state.
 # gui_styles.py's PLAYER_STATS_* comment refers to this value by name.
@@ -145,7 +146,7 @@ class PlayerStatsRefreshMixin:
 
         record_player_stats_memory_success(self)
 
-        chests_per_minute = self.calculate_player_chests_per_minute(stats)
+        chests_per_minute = formatting.calculate_player_chests_per_minute(stats)
         items_text = None if items_available else "Items unavailable"
         snapshot_store = self._ensure_live_snapshot_store()
 
@@ -171,7 +172,7 @@ class PlayerStatsRefreshMixin:
         merged_banishes = snapshot_store.merge_banishes(
             banishes,
             banishes_available,
-            merge_fn=self.merge_banish_appearance_order,
+            merge_fn=formatting.merge_banish_appearance_order,
         )
         banishes = merged_banishes.banishes
         banishes_available = merged_banishes.available

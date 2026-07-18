@@ -52,6 +52,7 @@ from app.coordinator import AppCoordinator, RefreshLoop
 from app.refresh_coordinator import RefreshTickContext
 from infra.keyboard_run_control import KeyboardRunControlProvider
 from PySide6.QtCore import QRect
+from projections import formatting
 
 # The modules `gui.py`'s `_PATCH_COMPAT_MODULES` used to propagate a `setattr`
 # across. Step 15 deletes that facade, so the propagation moves here -- to the
@@ -612,7 +613,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_formats_full_chests_card(self) -> None:
         self.assertEqual(
-            MegabonkApp.chests_card_values(
+            formatting.chests_card_values(
                 {1: 46, 2: 46, 3: 42},
                 {1: 46, 2: 46, 3: 46},
                 134,
@@ -635,7 +636,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_formats_midrun_chests_card_with_minimum_total(self) -> None:
         self.assertEqual(
-            MegabonkApp.chests_card_values(
+            formatting.chests_card_values(
                 {1: -1, 2: 20},
                 {1: 46, 2: 46},
                 51,
@@ -2329,7 +2330,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "200")
         self.assertEqual(rows[0]["time"], "01:00")
@@ -2374,7 +2375,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "92,100")
         self.assertEqual(rows[0]["time"], "22:00")
@@ -2417,7 +2418,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["time"], "22:00")
 
@@ -2465,7 +2466,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[2]["kills"], "3,000")
         self.assertEqual(rows[2]["time"], "01:20")
@@ -2516,7 +2517,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[2]["kills"], "50")
         self.assertEqual(rows[2]["time"], "00:12")
@@ -2566,7 +2567,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[2]["kills"], "1,000")
         self.assertEqual(rows[2]["time"], "05:10")
@@ -2617,7 +2618,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[2]["kills"], "0")
         self.assertEqual(rows[2]["time"], "00:00")
@@ -2684,7 +2685,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "200")
         self.assertEqual(rows[1]["kills"], "60")
@@ -2711,7 +2712,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["time"], "22:00")
 
@@ -2751,7 +2752,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "128")
 
@@ -2799,7 +2800,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[1]["kills"], "6,500")
 
@@ -2823,7 +2824,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertIn("#FACC15", rows[0]["items"])
         self.assertIn("#22C55E", rows[0]["items"])
@@ -2856,7 +2857,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["item_rarities"]["COMMON"], 1)
         self.assertNotIn("759271589", rows[0]["items"])
@@ -2897,7 +2898,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["items"].count("&#9679;"), 1)
         self.assertIn(">1</span>", rows[0]["items"])
@@ -2922,7 +2923,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertIn(">1</span>", rows[0]["items"])
 
@@ -2970,7 +2971,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertIn(">2</span>", rows[0]["items"])
 
@@ -2996,7 +2997,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "250")
@@ -3025,7 +3026,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "--")
@@ -3057,7 +3058,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "--")
@@ -3089,7 +3090,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = MegabonkApp.build_stage_summary(snapshots)
+        rows = formatting.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "--")
@@ -3098,7 +3099,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(rows[3]["time"], "01:00")
 
     def test_item_total_count_includes_stacks_and_duplicate_entries(self) -> None:
-        total = MegabonkApp._item_total_count(
+        total = formatting._item_total_count(
             ("Wrench x3", "Anvil x2", "Anvil x1", "Moldy Cheese")
         )
 
@@ -3108,15 +3109,15 @@ class GuiRunControlTests(unittest.TestCase):
         items = ("Wrench x1", "Anvil x1", "Beacon x1", "Spiky Shield x1", "Key x1")
 
         self.assertEqual(
-            MegabonkApp.sort_items_for_display(items, ITEM_SORT_DEFAULT),
+            formatting.sort_items_for_display(items, ITEM_SORT_DEFAULT),
             items,
         )
         self.assertEqual(
-            MegabonkApp.sort_items_for_display(items, ITEM_SORT_RARITY_DESC),
+            formatting.sort_items_for_display(items, ITEM_SORT_RARITY_DESC),
             ("Anvil x1", "Spiky Shield x1", "Beacon x1", "Wrench x1", "Key x1"),
         )
         self.assertEqual(
-            MegabonkApp.sort_items_for_display(items, ITEM_SORT_RARITY_ASC),
+            formatting.sort_items_for_display(items, ITEM_SORT_RARITY_ASC),
             ("Wrench x1", "Key x1", "Beacon x1", "Spiky Shield x1", "Anvil x1"),
         )
 
@@ -4526,28 +4527,28 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.vods_kps_averages_label.text(), "KPS: 60s 243/s | 5m 221/s")
 
     def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
-        self.assertEqual(MegabonkApp.format_in_game_time(None), "In-Game Time: --")
-        self.assertEqual(MegabonkApp.format_in_game_time(21.52338219), "In-Game Time: 00:21")
-        self.assertEqual(MegabonkApp.format_in_game_time(3661.9), "In-Game Time: 01:01:01")
+        self.assertEqual(formatting.format_in_game_time(None), "In-Game Time: --")
+        self.assertEqual(formatting.format_in_game_time(21.52338219), "In-Game Time: 00:21")
+        self.assertEqual(formatting.format_in_game_time(3661.9), "In-Game Time: 01:01:01")
 
     def test_format_mob_kills_formats_missing_and_positive_values(self) -> None:
-        self.assertEqual(MegabonkApp.format_mob_kills(None), "Mob Kills: --")
-        self.assertEqual(MegabonkApp.format_mob_kills(42), "Mob Kills: 42")
-        self.assertEqual(MegabonkApp.format_mob_kills(1291146), "Mob Kills: 1,291,146")
+        self.assertEqual(formatting.format_mob_kills(None), "Mob Kills: --")
+        self.assertEqual(formatting.format_mob_kills(42), "Mob Kills: 42")
+        self.assertEqual(formatting.format_mob_kills(1291146), "Mob Kills: 1,291,146")
 
     def test_format_kps_averages_formats_missing_and_positive_values(self) -> None:
         self.assertEqual(
-            MegabonkApp.format_kps_averages(None, None),
+            formatting.format_kps_averages(None, None),
             "KPS: 60s -- | 5m --",
         )
         self.assertEqual(
-            MegabonkApp.format_kps_averages(243, 221),
+            formatting.format_kps_averages(243, 221),
             "KPS: 60s 243/s | 5m 221/s",
         )
 
     def test_format_player_level_formats_missing_and_positive_values(self) -> None:
-        self.assertEqual(MegabonkApp.format_player_level(None), "Level: --")
-        self.assertEqual(MegabonkApp.format_player_level(4), "Level: 4")
+        self.assertEqual(formatting.format_player_level(None), "Level: --")
+        self.assertEqual(formatting.format_player_level(4), "Level: 4")
 
     def test_format_powerups_duration_uses_powerup_multiplier(self) -> None:
         stats = {
@@ -4555,10 +4556,10 @@ class GuiRunControlTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            MegabonkApp.format_powerups_duration(stats),
+            formatting.format_powerups_duration(stats),
             "Powerups: 22s | Clock: 18s",
         )
-        self.assertEqual(MegabonkApp.format_powerups_duration({}), "Powerups: --")
+        self.assertEqual(formatting.format_powerups_duration({}), "Powerups: --")
 
     def test_nearest_snapshot_index_prefers_in_game_time(self) -> None:
         snapshots = (
@@ -5047,7 +5048,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
     def test_diff_new_items_includes_new_stacks_and_new_names(self) -> None:
-        result = MegabonkApp.diff_new_items(
+        result = formatting.diff_new_items(
             ("Wrench x1", "Dice x1"),
             ("Wrench x3", "Dice x1", "Holy Book x1"),
         )
@@ -5055,7 +5056,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(result, ("Holy Book x1", "Wrench x2"))
 
     def test_diff_item_gains_sorts_by_rarity_and_gain(self) -> None:
-        result = MegabonkApp.diff_item_gains(
+        result = formatting.diff_item_gains(
             ("Wrench x1", "Key x1", "Beefy Ring x1"),
             ("Wrench x3", "Key x7", "Beefy Ring x6", "Za Warudo x4", "Golden Shield x1"),
         )
@@ -5072,7 +5073,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
     def test_format_item_gains_by_rarity_uses_one_dot_per_rarity_row(self) -> None:
-        result = MegabonkApp.format_item_gains_by_rarity(
+        result = formatting.format_item_gains_by_rarity(
             (
                 ("Za Warudo", 4),
                 ("Wizards Hat", 3),
@@ -5101,7 +5102,7 @@ class GuiRunControlTests(unittest.TestCase):
             items=("Wrench x3", "Za Warudo x4", "Beefy Ring x5"),
         )
 
-        result = MegabonkApp.format_snapshot_item_gains_preview(base, current)
+        result = formatting.format_snapshot_item_gains_preview(base, current)
 
         self.assertIn("Items:", result)
         self.assertIn("+11</span>", result)
@@ -5117,7 +5118,7 @@ class GuiRunControlTests(unittest.TestCase):
             SimpleNamespace(items=("Wrench x1", "Key x1")),
         )
 
-        result = MegabonkApp.summarize_item_segment_changes(snapshots)
+        result = formatting.summarize_item_segment_changes(snapshots)
 
         self.assertEqual(result["gained"], (("Za Warudo", 1), ("Key", 3)))
         self.assertEqual(result["broken"], (("Za Warudo", 1),))
@@ -5143,7 +5144,7 @@ class GuiRunControlTests(unittest.TestCase):
             items=("Wrench x1",),
         )
 
-        result = MegabonkApp.format_snapshot_item_gains_preview(
+        result = formatting.format_snapshot_item_gains_preview(
             base,
             current,
             segment_snapshots=(base, middle, current),
@@ -5167,7 +5168,7 @@ class GuiRunControlTests(unittest.TestCase):
             items=("Wrench x1",),
         )
 
-        result = MegabonkApp.format_snapshot_item_gains_preview(base, current)
+        result = formatting.format_snapshot_item_gains_preview(base, current)
 
         self.assertIn("Items:</span> <span style=\"color:#98A7BA;\">--</span>", result)
         self.assertNotIn("+0", result)
@@ -5177,7 +5178,7 @@ class GuiRunControlTests(unittest.TestCase):
         middle = SimpleNamespace(items=("Wrench x1", "Za Warudo x1", "Key x3"))
         current = SimpleNamespace(items=("Wrench x1", "Key x1"))
 
-        result = MegabonkApp.format_snapshot_item_changes_details(
+        result = formatting.format_snapshot_item_changes_details(
             base,
             current,
             segment_snapshots=(base, middle, current),
@@ -5204,7 +5205,7 @@ class GuiRunControlTests(unittest.TestCase):
             items=("Wrench x3", "Za Warudo x1"),
         )
 
-        result = MegabonkApp.format_snapshot_compare_summary(base, current, base_index=3, current_index=8)
+        result = formatting.format_snapshot_compare_summary(base, current, base_index=3, current_index=8)
 
         self.assertEqual(
             result,
@@ -5214,14 +5215,14 @@ class GuiRunControlTests(unittest.TestCase):
     def test_format_snapshot_new_items_handles_first_snapshot_and_no_changes(self) -> None:
         snapshot = SimpleNamespace(items=("Wrench x1",))
 
-        self.assertEqual(MegabonkApp.format_snapshot_new_items(None, snapshot), "No previous snapshot")
+        self.assertEqual(formatting.format_snapshot_new_items(None, snapshot), "No previous snapshot")
         self.assertEqual(
-            MegabonkApp.format_snapshot_new_items(snapshot, SimpleNamespace(items=("Wrench x1",))),
+            formatting.format_snapshot_new_items(snapshot, SimpleNamespace(items=("Wrench x1",))),
             "No new items since previous snapshot",
         )
 
     def test_merge_banish_appearance_order_preserves_existing_sequence_and_appends_new(self) -> None:
-        result = MegabonkApp.merge_banish_appearance_order(
+        result = formatting.merge_banish_appearance_order(
             ("Clover", "Golden Tome"),
             ("Golden Tome", "Clover", "Battery"),
         )
@@ -5229,7 +5230,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(result, ("Clover", "Golden Tome", "Battery"))
 
     def test_format_items_rich_text_colors_name_only(self) -> None:
-        result = MegabonkApp.format_items_rich_text(("Wrench x2", "Bonker x1", "Crypt Key x1"))
+        result = formatting.format_items_rich_text(("Wrench x2", "Bonker x1", "Crypt Key x1"))
 
         self.assertIn('color: #22C55E', result)
         self.assertIn('>Wrench</span> x2', result)
@@ -5239,7 +5240,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertNotIn('color: #22C55E;">Wrench x2</span>', result)
 
     def test_format_items_rich_text_supports_gloves_aliases(self) -> None:
-        result = MegabonkApp.format_items_rich_text(("Gloves Blood x1", "Gloves Power x1"))
+        result = formatting.format_items_rich_text(("Gloves Blood x1", "Gloves Power x1"))
 
         self.assertIn('>Slurp Gloves</span> x1', result)
         self.assertIn('color: #E879F9', result)
@@ -5247,13 +5248,13 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn('color: #FACC15', result)
 
     def test_format_items_rich_text_supports_flappy_feathers_alias(self) -> None:
-        result = MegabonkApp.format_items_rich_text(("Flappy Feathers x1",))
+        result = formatting.format_items_rich_text(("Flappy Feathers x1",))
 
         self.assertIn('>Feathers</span> x1', result)
         self.assertIn('color: #60A5FA', result)
 
     def test_format_items_rich_text_handles_display_name_variants(self) -> None:
-        result = MegabonkApp.format_items_rich_text(
+        result = formatting.format_items_rich_text(
             (
                 "Borgor x1",
                 "Bob Lantern x1",
@@ -5279,17 +5280,17 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn('color: #FACC15', result)
 
     def test_normalize_item_name_for_rarity_handles_aliases_and_gloves_rule(self) -> None:
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Flappy Feathers"), "Feathers")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Gloves Power"), "Glove Power")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Borgor"), "Borgar")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Bob Lantern"), "Bobs Lantern")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Bob's Lantern"), "Bobs Lantern")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Gloves Cursed"), "Glove Curse")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("No Implementation"), "Golden Ring")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("The One Ring"), "Golden Ring")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Pot Steel"), "Pot")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Sucky Hoof"), "Sucky Magnet")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Wrench"), "Wrench")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("Flappy Feathers"), "Feathers")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("Gloves Power"), "Glove Power")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("Borgor"), "Borgar")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("Bob Lantern"), "Bobs Lantern")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("Bob's Lantern"), "Bobs Lantern")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("Gloves Cursed"), "Glove Curse")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("No Implementation"), "Golden Ring")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("The One Ring"), "Golden Ring")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("Pot Steel"), "Pot")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("Sucky Hoof"), "Sucky Magnet")
+        self.assertEqual(formatting._normalize_item_name_for_rarity("Wrench"), "Wrench")
 
     def test_tracked_item_display_name_prefers_live_inventory_aliases(self) -> None:
         self.assertEqual(OverlayMixin._tracked_item_display_name("Glove Power"), "Power Gloves")
@@ -5377,13 +5378,13 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
     def test_normalize_item_name_for_display_replaces_no_implementation(self) -> None:
-        self.assertEqual(MegabonkApp._normalize_item_name_for_display("No Implementation"), "The One Ring")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_display("Golden Ring"), "The One Ring")
-        self.assertEqual(MegabonkApp._normalize_item_name_for_display("Sucky Hoof"), "Sucky Magnet")
+        self.assertEqual(formatting._normalize_item_name_for_display("No Implementation"), "The One Ring")
+        self.assertEqual(formatting._normalize_item_name_for_display("Golden Ring"), "The One Ring")
+        self.assertEqual(formatting._normalize_item_name_for_display("Sucky Hoof"), "Sucky Magnet")
 
     def test_split_item_stack_suffix_handles_plain_names(self) -> None:
-        self.assertEqual(MegabonkApp._split_item_stack_suffix("Wrench x2"), ("Wrench", " x2"))
-        self.assertEqual(MegabonkApp._split_item_stack_suffix("Ghost"), ("Ghost", ""))
+        self.assertEqual(formatting._split_item_stack_suffix("Wrench x2"), ("Wrench", " x2"))
+        self.assertEqual(formatting._split_item_stack_suffix("Ghost"), ("Ghost", ""))
 
     def test_on_closing_stops_supported_runtime_resources(self) -> None:
         destroyed: list[bool] = []

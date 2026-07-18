@@ -9,7 +9,7 @@ the other -- so these sit in neither tab.
 through ``MegabonkApp``'s MRO like every other cross-mixin call here.
 
 Still a mixin, for step 9's reason: the suite calls several of these
-class-qualified (``gui.MegabonkApp.sort_items_for_display(...)``), which only
+class-qualified (``gui.formatting.sort_items_for_display(...)``), which only
 resolves through the MRO. Tabs-as-classes is a behaviour change and is not this
 move.
 
@@ -37,6 +37,7 @@ from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
 from gui_player_stats import PlayerStatsMixin
 from gui_shared import _clear_layout, _set_text
 from gui_styles import ITEM_SORT_DEFAULT
+from projections import formatting
 
 
 class PlayerStatsCardsMixin:
@@ -79,9 +80,9 @@ class PlayerStatsCardsMixin:
             return
 
         items = tuple(items or ())
-        self._set_items_group_title(group, self._item_total_count(items))
+        self._set_items_group_title(group, formatting._item_total_count(items))
         self._set_items_rarity_summary_label(rarity_label, items)
-        sorted_items = self.sort_items_for_display(
+        sorted_items = formatting.sort_items_for_display(
             items,
             self.__dict__.get(f"{prefix}_items_sort_mode", ITEM_SORT_DEFAULT),
         )
@@ -90,12 +91,12 @@ class PlayerStatsCardsMixin:
         if sort_combo is not None:
             sort_combo.setEnabled(bool(items))
         if hasattr(label, "setTextFormat"):
-            text = self.format_items_rich_text(visible_items)
+            text = formatting.format_items_rich_text(visible_items)
             if has_more and not expanded:
                 text = f'{text} <span style="color:#98A7BA;">...</span>'
             label.setText(text)
         else:
-            text = self.format_items(visible_items)
+            text = formatting.format_items(visible_items)
             if has_more and not expanded:
                 text = f"{text} ..."
             _set_text(label, text)
@@ -109,7 +110,7 @@ class PlayerStatsCardsMixin:
     def _set_items_rarity_summary_label(label, items) -> None:
         if label is None:
             return
-        text = PlayerStatsMixin.format_items_rarity_summary_rich_text(items)
+        text = formatting.format_items_rarity_summary_rich_text(items)
         label.setVisible(bool(text))
         label.setText(text)
 
@@ -500,7 +501,7 @@ class PlayerStatsCardsMixin:
             name_label.setStyleSheet("font-size: 16px; font-weight: 700;")
             cell_layout.addWidget(name_label, 1)
 
-            dmg_label = QLabel(self.format_damage_source_value(source.damage))
+            dmg_label = QLabel(formatting.format_damage_source_value(source.damage))
             dmg_label.setStyleSheet("font-size: 17px; font-weight: 700; color: #F3F4F6;")
             dmg_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             cell_layout.addWidget(dmg_label)
@@ -558,17 +559,17 @@ class PlayerStatsCardsMixin:
     def _set_chests_card_values(labels, values: dict[str, str] | None) -> None:
         if not labels:
             return
-        values = values or PlayerStatsMixin.chests_card_values(
+        values = values or formatting.chests_card_values(
             None, None, None, None, None, None, None, None, None
         )
         for key, label in labels.items():
             _set_text(label, values.get(key, "--"))
 
 def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
-    text = items_text if items_text is not None else PlayerStatsMixin.format_items(items)
+    text = items_text if items_text is not None else formatting.format_items(items)
     if widget is None:
         return
     if hasattr(widget, "setTextFormat"):
-        widget.setText(PlayerStatsMixin.format_items_rich_text(items) if items_text is None else text)
+        widget.setText(formatting.format_items_rich_text(items) if items_text is None else text)
         return
     _set_text(widget, text)

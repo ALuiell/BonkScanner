@@ -41,6 +41,7 @@ from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTick
 from gui_shared import _set_text
 from gui_styles import PLAYER_STATS_REFRESH_MS, RECORDING_LIFECYCLE_REFRESH_MS
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+from projections import formatting
 
 if TYPE_CHECKING:
     from infra.memory.player_stats_client import PlayerStatsClient
@@ -264,7 +265,7 @@ class RefreshTasksMixin:
             if self._is_live_stats_tab_active():
                 _set_text(
                     self.player_stats_mob_kills_label,
-                    self.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps()),
+                    formatting.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps()),
                 )
                 self._set_stage_summary_labels(
                     getattr(self, "player_stats_stage_summary_labels", None),

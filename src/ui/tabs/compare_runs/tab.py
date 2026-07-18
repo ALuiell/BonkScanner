@@ -96,7 +96,7 @@ class CompareRunsMixin:
 
         selected_row = None
         for row, vod in enumerate(vods):
-            duration = self.format_duration(vod.duration_seconds)
+            duration = formatting.format_duration(vod.duration_seconds)
             item = QListWidgetItem(f"{vod.name}\n{vod.snapshot_count} snapshots | {duration}")
             item.setData(Qt.UserRole, str(vod.path))
             list_frame.addItem(item)
@@ -484,7 +484,7 @@ class CompareRunsMixin:
         if vod is None:
             return "--"
         snapshot_count = len(vod.snapshots)
-        duration = self.format_duration(vod.metadata.duration_seconds)
+        duration = formatting.format_duration(vod.metadata.duration_seconds)
         return f"{vod.metadata.name} ({snapshot_count} snapshots | {duration})"
 
     @staticmethod

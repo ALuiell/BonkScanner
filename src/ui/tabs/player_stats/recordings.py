@@ -75,6 +75,7 @@ from gui_shared import (
     _set_text_input,
 )
 from gui_styles import ITEM_SORT_LABELS
+from projections import formatting
 
 
 class RecordingsTabMixin:
@@ -104,7 +105,7 @@ class RecordingsTabMixin:
 
         selected_row = None
         for row, vod in enumerate(vods):
-            duration = self.format_duration(vod.duration_seconds)
+            duration = formatting.format_duration(vod.duration_seconds)
             item = QListWidgetItem(f"{vod.name}\n{vod.snapshot_count} snapshots | {duration}")
             item.setData(Qt.UserRole, str(vod.path))
             self.vods_list_frame.addItem(item)
@@ -251,7 +252,7 @@ class RecordingsTabMixin:
 
         snapshot_count = len(self.loaded_vod.snapshots)
         metadata = self.loaded_vod.metadata
-        duration = self.format_duration(metadata.duration_seconds)
+        duration = formatting.format_duration(metadata.duration_seconds)
         _set_text(self.vods_status_label, f"{metadata.created_label} | {snapshot_count} snapshots | {duration}")
 
         if snapshot_count:
@@ -301,7 +302,7 @@ class RecordingsTabMixin:
             self.vods_status_label,
             (
                 f"{self.loaded_vod.metadata.name} | {index + 1}/{len(self.loaded_vod.snapshots)}"
-                f" at {snapshot.time_label} | {self.format_in_game_time(snapshot.game_time_seconds)}"
+                f" at {snapshot.time_label} | {formatting.format_in_game_time(snapshot.game_time_seconds)}"
             ),
         )
         first = self.loaded_vod.snapshots[0].time_label
@@ -316,46 +317,46 @@ class RecordingsTabMixin:
         self._update_items_section("vod", snapshot.items)
         _set_text(
             self.vods_chests_per_minute_label,
-            self.format_chests_per_minute(self.resolve_snapshot_chests_per_minute(snapshot)),
+            formatting.format_chests_per_minute(formatting.resolve_snapshot_chests_per_minute(snapshot)),
         )
         _set_text(
             self.vods_in_game_time_label,
-            self.format_in_game_time(snapshot.game_time_seconds),
+            formatting.format_in_game_time(snapshot.game_time_seconds),
         )
         _set_text(
             self.vods_mob_kills_label,
-            self.format_mob_kills(
+            formatting.format_mob_kills(
                 getattr(snapshot, "mob_kills", None),
                 getattr(snapshot, "kps_at_capture", None),
             ),
         )
         _set_text(
             getattr(self, "vods_kps_averages_label", None),
-            self.format_kps_averages(
+            formatting.format_kps_averages(
                 getattr(snapshot, "minute_avg_kps_at_capture", None),
                 getattr(snapshot, "five_minute_avg_kps_at_capture", None),
             ),
         )
         _set_text(
             self.vods_level_label,
-            self.format_player_level(getattr(snapshot, "player_level", None)),
+            formatting.format_player_level(getattr(snapshot, "player_level", None)),
         )
         self._update_recorded_chest_summary(snapshot)
         self._set_stage_summary_labels(
             self.vods_stage_summary_labels,
-            self.build_stage_summary(self.loaded_vod.snapshots[: index + 1]),
+            formatting.build_stage_summary(self.loaded_vod.snapshots[: index + 1]),
         )
         previous_snapshot = self._resolve_vod_compare_base_snapshot(index)
         segment_snapshots = self._vod_compare_segment_snapshots(index)
         _set_text(
             self.vods_new_items_label,
-            self.format_snapshot_item_gains_preview(previous_snapshot, snapshot, segment_snapshots=segment_snapshots),
+            formatting.format_snapshot_item_gains_preview(previous_snapshot, snapshot, segment_snapshots=segment_snapshots),
         )
         self._refresh_vod_compare_controls()
         self._refresh_vod_compare_details(previous_snapshot, snapshot, index=index, segment_snapshots=segment_snapshots)
         _set_text(
             self.vods_banishes_label,
-            self.format_banishes_rich_text(getattr(snapshot, "banishes", ())),
+            formatting.format_banishes_rich_text(getattr(snapshot, "banishes", ())),
         )
         self.display_weapon_cards(getattr(snapshot, "weapons", ()), scope="vod")
         self.display_tome_cards(getattr(snapshot, "tomes", ()), scope="vod")
@@ -448,7 +449,7 @@ class RecordingsTabMixin:
 
         compare_index = getattr(self, "loaded_vod_compare_start_index", None)
         base_index = compare_index if compare_index is not None else (index - 1 if index is not None else None)
-        summary = self.format_snapshot_compare_summary(
+        summary = formatting.format_snapshot_compare_summary(
             base_snapshot,
             snapshot,
             base_index=base_index,
@@ -458,7 +459,7 @@ class RecordingsTabMixin:
         _set_text(getattr(self, "vods_compare_details_summary_label", None), summary)
         _set_text(
             getattr(self, "vods_compare_details_items_label", None),
-            self.format_snapshot_item_changes_details(base_snapshot, snapshot, segment_snapshots=segment_snapshots),
+            formatting.format_snapshot_item_changes_details(base_snapshot, snapshot, segment_snapshots=segment_snapshots),
         )
     def rename_selected_vod(self):
         if self.loaded_vod is None or self.vods_name_entry is None:
@@ -568,7 +569,7 @@ class RecordingsTabMixin:
         if labels:
             self._set_chests_card_values(
                 labels,
-                self.chests_card_values(
+                formatting.chests_card_values(
                     getattr(snapshot, "chests_opened_by_stage", None),
                     getattr(snapshot, "chests_total_by_stage", None),
                     getattr(snapshot, "chests_opened", None),
