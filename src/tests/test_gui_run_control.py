@@ -4,14 +4,28 @@ import src
 
 import types
 import unittest
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import gui
+import gui_app
+import gui_dialogs
 import gui_in_game_overlay
+import gui_layout
+import gui_overlay
+import gui_player_stats
+import gui_run_control
 import gui_scanner
+import gui_shared
+import gui_styles
+import gui_templates
+import infra.process as infra_process
+import ui.tabs.player_stats.cards as ui_player_stats_cards
+import ui.tabs.player_stats.live_stats as ui_player_stats_live
+import ui.tabs.player_stats.recordings as ui_player_stats_recordings
 from app import player_stats_memory, player_stats_refresh
 from app.player_stats_view import player_stats_view
 from core.game_state import RuntimeGameMode, RuntimeGameState
@@ -20,6 +34,51 @@ from app.coordinator import AppCoordinator, RefreshLoop
 from app.refresh_coordinator import RefreshTickContext
 from infra.keyboard_run_control import KeyboardRunControlProvider
 from PySide6.QtCore import QRect
+
+# The modules `gui.py`'s `_PATCH_COMPAT_MODULES` used to propagate a `setattr`
+# across. Step 15 deletes that facade, so the propagation moves here -- to the
+# tests, which are the only thing that ever needed it. Production code imports
+# names from wherever they actually live.
+_PATCH_TARGETS = (
+    gui_app,
+    gui_dialogs,
+    gui_layout,
+    gui_overlay,
+    gui_player_stats,
+    gui_run_control,
+    gui_scanner,
+    gui_shared,
+    gui_styles,
+    gui_templates,
+    infra_process,
+    ui_player_stats_cards,
+    ui_player_stats_live,
+    ui_player_stats_recordings,
+)
+
+
+@contextmanager
+def patch_everywhere(name, value=None, **kwargs):
+    """Patch `name` on every module that defines it.
+
+    Replaces `_GuiFacadeModule.__setattr__`, which did exactly this --
+    `for module in _PATCH_COMPAT_MODULES: if hasattr(module, name): setattr(...)`.
+    A name like `win32gui` is read by two modules (`gui_run_control` and
+    `infra.process`, since step 10c split that code path), so patching only one
+    of them silently leaves half the path live.
+    """
+    targets = [m for m in _PATCH_TARGETS if hasattr(m, name)]
+    if not targets:
+        raise AssertionError(f"no module defines {name!r} -- did it move?")
+    # One object, propagated -- not one mock per module. The facade assigned a
+    # single value across every module, so a test that asserts on the mock sees
+    # calls made through any of them.
+    if value is None:
+        value = MagicMock(**kwargs)
+    with ExitStack() as stack:
+        for module in targets:
+            stack.enter_context(patch.object(module, name, value))
+        yield value
 
 
 class FakeEntry:
@@ -1041,8 +1100,8 @@ class GuiRunControlTests(unittest.TestCase):
         )
         fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
 
-        with patch.object(gui, "win32gui", fake_gui):
-            with patch.object(gui, "win32process", fake_process):
+        with patch_everywhere("win32gui", fake_gui):
+            with patch_everywhere("win32process", fake_process):
                 self.assertFalse(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
 
     def test_game_window_focus_returns_false_without_game_pid(self) -> None:
@@ -1053,8 +1112,8 @@ class GuiRunControlTests(unittest.TestCase):
         )
         fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 1234))
 
-        with patch.object(gui, "win32gui", fake_gui):
-            with patch.object(gui, "win32process", fake_process):
+        with patch_everywhere("win32gui", fake_gui):
+            with patch_everywhere("win32process", fake_process):
                 self.assertFalse(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
 
     def test_game_window_focus_can_match_foreground_window_without_scanner_pid(self) -> None:
@@ -1070,8 +1129,8 @@ class GuiRunControlTests(unittest.TestCase):
         )
         fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 1234))
 
-        with patch.object(gui, "win32gui", fake_gui):
-            with patch.object(gui, "win32process", fake_process):
+        with patch_everywhere("win32gui", fake_gui):
+            with patch_everywhere("win32process", fake_process):
                 self.assertTrue(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
 
     def test_game_window_focus_recovers_after_game_restarts_with_a_new_pid(self) -> None:
@@ -1088,8 +1147,8 @@ class GuiRunControlTests(unittest.TestCase):
         fake_gui = SimpleNamespace(GetForegroundWindow=lambda: 222)
         fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
 
-        with patch.object(gui, "win32gui", fake_gui):
-            with patch.object(gui, "win32process", fake_process):
+        with patch_everywhere("win32gui", fake_gui):
+            with patch_everywhere("win32process", fake_process):
                 self.assertTrue(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
 
     def test_background_loop_reconnects_new_game_pid_and_keeps_scanning(self) -> None:
@@ -1184,7 +1243,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.wait_for_game_window_focus = lambda process_name: focus_checks.append(process_name) or True
         app.bring_game_window_to_front = lambda _process_name: self.fail("keyboard mode should not bring window forward")
 
-        with patch.object(gui, "keyboard", fake_keyboard):
+        with patch_everywhere("keyboard", fake_keyboard):
             self.assertTrue(gui.MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
 
         self.assertEqual(focus_checks, ["Megabonk.exe"])
@@ -1200,8 +1259,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.find_game_window = lambda _process_name: 111
         app.log = lambda message, tag=None: logs.append((message, tag))
 
-        with patch.object(gui, "win32gui", fake_gui):
-            with patch.object(gui, "win32process", fake_process):
+        with patch_everywhere("win32gui", fake_gui):
+            with patch_everywhere("win32process", fake_process):
                 with patch.object(gui.ctypes, "windll", fake_windll):
                     self.assertTrue(gui.MegabonkApp.bring_game_window_to_front(app, "Megabonk.exe"))
 
@@ -1227,8 +1286,8 @@ class GuiRunControlTests(unittest.TestCase):
         fake_windll = FakeWindll(fake_user32, FakeKernel32())
         app = object.__new__(gui.MegabonkApp)
 
-        with patch.object(gui, "win32gui", fake_gui):
-            with patch.object(gui, "win32process", fake_process):
+        with patch_everywhere("win32gui", fake_gui):
+            with patch_everywhere("win32process", fake_process):
                 with patch.object(gui.ctypes, "windll", fake_windll):
                     with self.assertRaisesRegex(RuntimeError, "foreground denied"):
                         gui.MegabonkApp.try_attach_foreground_window(app, 111)
@@ -1412,7 +1471,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.hotkey_toggle_scanning = lambda: None
         app.hotkey_toggle_player_stats_recording = lambda: None
 
-        with patch.object(gui, "keyboard", fake_keyboard):
+        with patch_everywhere("keyboard", fake_keyboard):
             with patch.object(gui.config, "HOTKEY", "f6"):
                 with patch.object(gui.config, "PLAYER_STATS_RECORD_HOTKEY", "f8"):
                     gui.MegabonkApp.setup_hotkeys(app)
@@ -1436,9 +1495,9 @@ class GuiRunControlTests(unittest.TestCase):
         )
         fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
 
-        with patch.object(gui, "keyboard", fake_keyboard):
-            with patch.object(gui, "win32gui", fake_gui):
-                with patch.object(gui, "win32process", fake_process):
+        with patch_everywhere("keyboard", fake_keyboard):
+            with patch_everywhere("win32gui", fake_gui):
+                with patch_everywhere("win32process", fake_process):
                     with patch.object(gui.config, "HOTKEY_GAME_KEY_WHITELIST", ("w",)):
                         with patch.object(gui.config, "HOTKEY", "f6"):
                             gui.MegabonkApp.setup_hotkeys(app)
@@ -1489,8 +1548,8 @@ class GuiRunControlTests(unittest.TestCase):
         )
         fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda window: process_by_window[window])
 
-        with patch.object(gui, "win32gui", fake_gui):
-            with patch.object(gui, "win32process", fake_process):
+        with patch_everywhere("win32gui", fake_gui):
+            with patch_everywhere("win32process", fake_process):
                 self.assertEqual(gui.MegabonkApp.find_game_window_by_name(app, "Megabonk.exe"), 22)
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:
@@ -1505,7 +1564,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.refresh_loaded_vod_ui = lambda: None
         app.refresh_vods_list = lambda: None
 
-        with patch.object(gui, "load_vod", return_value=loaded_vod) as load_vod:
+        with patch_everywhere("load_vod", return_value=loaded_vod) as load_vod:
             gui.MegabonkApp.load_selected_vod(app, "C:/tmp/run.jsonl")
 
         load_vod.assert_called_once_with(Path("C:/tmp/run.jsonl"))
@@ -1545,7 +1604,7 @@ class GuiRunControlTests(unittest.TestCase):
             threads.append(thread)
             return thread
 
-        with patch.object(gui, "load_vod", return_value=loaded_vod):
+        with patch_everywhere("load_vod", return_value=loaded_vod):
             with patch.object(gui.threading, "Thread", side_effect=make_thread):
                 gui.MegabonkApp.load_selected_vod(app, "C:/tmp/new.jsonl")
 
@@ -1558,7 +1617,7 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertFalse(app.vods_compare_set_btn.isEnabled())
                 self.assertFalse(app.vods_compare_clear_btn.isEnabled())
 
-                with patch.object(gui, "rename_vod") as rename_vod:
+                with patch_everywhere("rename_vod") as rename_vod:
                     gui.MegabonkApp.rename_selected_vod(app)
                 rename_vod.assert_not_called()
 
@@ -1589,7 +1648,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_status_label = FakeLabel()
         app._clear_loaded_vod_selection = MagicMock()
 
-        with patch.object(gui, "load_vod", side_effect=ValueError("broken file")):
+        with patch_everywhere("load_vod", side_effect=ValueError("broken file")):
             gui.MegabonkApp.load_selected_vod(app, "C:/tmp/broken.jsonl")
 
         app._clear_loaded_vod_selection.assert_called_once_with()
@@ -1610,7 +1669,7 @@ class GuiRunControlTests(unittest.TestCase):
         templates = [{"id": 1, "name": "LIGHT"}]
 
         with patch.object(gui.config, "TEMPLATES", templates):
-            with patch.object(gui, "TemplateManagerDialog", return_value=fake_dialog) as dialog_cls:
+            with patch_everywhere("TemplateManagerDialog", return_value=fake_dialog) as dialog_cls:
                 gui.MegabonkApp.edit_template_dialog(app)
 
         dialog_cls.assert_called_once_with(app.window, templates, app.apply_template_edit)
@@ -1827,7 +1886,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.close_client = lambda: None
         app.log = lambda _message, tag=None: None
 
-        with patch.object(gui, "adapt_map_stats", lambda raw_stats: raw_stats):
+        with patch_everywhere("adapt_map_stats", lambda raw_stats: raw_stats):
             gui.MegabonkApp.background_loop(app)
 
         self.assertEqual(app.client.get_map_stats_calls, 0)
@@ -5329,7 +5388,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = None
         app._hotkey_manager = None
 
-        with patch.object(gui, "keyboard", None):
+        with patch_everywhere("keyboard", None):
             gui.MegabonkApp.on_closing(app)
 
         self.assertTrue(app.stop_event.is_set())
@@ -5384,7 +5443,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = None
         app._hotkey_manager = None
 
-        with patch.object(gui, "keyboard", None):
+        with patch_everywhere("keyboard", None):
             gui.MegabonkApp.on_closing(app)
 
         self.assertEqual(closed, ["coordinator"])
