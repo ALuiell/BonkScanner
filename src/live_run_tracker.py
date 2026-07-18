@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field, replace
-from math import gcd, isfinite
+from math import isfinite
 import time
 from typing import Any, Callable, Iterable
 from uuid import uuid4
@@ -13,20 +13,17 @@ from functools import wraps
 
 from core import run_summary
 from gui_styles import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
-from core.stats.formats import PlayerStatFormat
 from core.stats.types import (
-    ChaosTomeSnapshot,
-    ChaosTomeStatSnapshot,
     DisabledItemsReadResult,
     DisabledItemsReadStatus,
 )
-from core.stat_labels import abbreviate_stat_label
+from core.tracker import chaos
+from core.tracker.chaos import _ChaosTomeState
 from core.tracker.snapshots import (
     LiveRunSnapshot,
     TrackedItemRule,
     TrackedItemEvent,
     _PendingItemIncrease,
-    ChaosTomeStatTotal,
     FeatureAvailability,
     RunLifecycle,
     FeatureStatus,
@@ -108,16 +105,6 @@ class _ChestState:
 
 
 @dataclass
-class _ChaosTomeState:
-    chaos_tome_level: int | None = None
-    chaos_modifier_baselines: dict[int, tuple[float, ...]] = field(default_factory=dict)
-    chaos_totals: dict[int, ChaosTomeStatTotal] = field(default_factory=dict)
-    chaos_ambiguous_rolls: int = 0
-    chaos_available_rolls: int = 0
-    chaos_unbudgeted_candidates: dict[tuple[int, int], tuple[float, int]] = field(default_factory=dict)
-
-
-@dataclass
 class _PowerupState:
     powerups_snapshot: PowerupsSnapshot = field(default_factory=PowerupsSnapshot)
     powerup_map_context: PowerupMapContext = field(default_factory=PowerupMapContext)
@@ -154,51 +141,6 @@ DEFAULT_TRACKED_ITEM_RULES: tuple[TrackedItemRule, ...] = (
         mode="all_run",
     ),
 )
-
-CHAOS_TOME_BASE_VALUES: dict[int, float] = {
-    0: 15, 1: 20, 2: 5, 3: 5, 4: 0.05, 5: 0.05,
-    9: 0.08, 10: 0.08, 11: 0.10, 12: 0.12,
-    15: 0.06, 16: 1, 17: 0.06, 18: 0.05, 19: 0.10,
-    23: 0.10, 24: 0.10, 25: 0.08, 29: 0.20,
-    30: 0.05, 31: 0.075, 32: 0.075, 38: 0.08,
-    39: 0.15, 40: 0.10, 41: 0.05, 46: 1,
-}
-
-def round3(val: float) -> float:
-    return float(round(val, 3))
-
-def _compute_chaos_fingerprints() -> dict[int, list[float]]:
-    fingerprints = {}
-    rarities = (2.0, 1.6, 1.4, 1.2, 1.0)
-    for stat_id, base in CHAOS_TOME_BASE_VALUES.items():
-        stat_fps = set()
-        for r1 in rarities:
-            for r2 in rarities:
-                val = round3(round3(base * r1) * 1.4 * r2)
-                stat_fps.add(val)
-        fingerprints[stat_id] = sorted(list(stat_fps), reverse=True)
-    return fingerprints
-
-CHAOS_FINGERPRINTS: dict[int, list[float]] = _compute_chaos_fingerprints()
-CHAOS_TOME_STAT_IDS: frozenset[int] = frozenset(CHAOS_FINGERPRINTS.keys())
-CHAOS_UNBUDGETED_BASELINE_SAMPLES = 4
-CHAOS_TOME_GAME_STAT_ORDER: dict[int, int] = {
-    stat_id: index
-    for index, stat_id in enumerate(
-        (
-            0, 1, 2, 4, 5, 17, 3,
-            12, 18, 19, 15, 16,
-            9, 11, 10, 23, 24, 25,
-            46, 30, 38,
-            29, 32, 31, 39, 40, 41,
-        )
-    )
-}
-
-def chaos_tome_stat_sort_key(total: Any) -> tuple[int, str]:
-    stat_id = int(getattr(total, "stat_id", -1))
-    return (CHAOS_TOME_GAME_STAT_ORDER.get(stat_id, 999), str(getattr(total, "label", "")).lower())
-
 
 class LiveRunTracker:
     _STATE_FIELDS = {
@@ -421,68 +363,19 @@ class LiveRunTracker:
         permanent_modifiers: dict[int, tuple[Any, ...]],
     ) -> None:
         self._mark_feature_success_unlocked("chaos_tome", self.clock())
-        if chaos_level is None:
-            # TomeInventory may be unavailable while the game mutates its
-            # dictionaries. A missing read is not evidence that the tome was
-            # removed; run resets and level decreases handle real resets.
-            return
-
-        current_level = max(0, int(chaos_level))
-
-        if self._chaos_tome_level is None:
-            if current_level <= 0:
-                return
-            self._chaos_tome_level = current_level
-            self._chaos_modifier_baselines = {}
-            self._chaos_available_rolls = current_level
-            self._chaos_unbudgeted_candidates = {}
-            self._record_chaos_modifier_deltas(permanent_modifiers)
-            return
-
-        if current_level < self._chaos_tome_level:
-            return
-
-        if current_level > self._chaos_tome_level:
-            self._chaos_available_rolls += (current_level - self._chaos_tome_level)
-            self._chaos_tome_level = current_level
-
-        self._record_chaos_modifier_deltas(permanent_modifiers)
+        chaos.update(
+            self._chaos_state,
+            chaos_level=chaos_level,
+            permanent_modifiers=permanent_modifiers,
+        )
 
     @with_lock
     def chaos_tome_summary_parts(self) -> list[str]:
-        totals = sorted(
-            self._chaos_totals.values(),
-            key=chaos_tome_stat_sort_key,
-        )
-        parts: list[str] = []
-        for total in totals:
-            label = abbreviate_stat_label(total.label)
-            parts.append(f"{label} {total.display_delta}")
-        return parts
+        return chaos.summary_parts(self._chaos_state)
 
     @with_lock
     def chaos_tome_snapshot(self):
-        if self._chaos_tome_level is None:
-            return None
-
-        stats = tuple(
-            ChaosTomeStatSnapshot(
-                stat_id=total.stat_id,
-                label=total.label,
-                value=total.value,
-                value_format=total.value_format or PlayerStatFormat.FLAT,
-                rolls=total.rolls,
-            )
-            for total in sorted(
-                self._chaos_totals.values(),
-                key=chaos_tome_stat_sort_key,
-            )
-        )
-        return ChaosTomeSnapshot(
-            level=self._chaos_tome_level,
-            stats=stats,
-            ambiguous_rolls=self._chaos_ambiguous_rolls,
-        )
+        return chaos.snapshot(self._chaos_state)
 
     @with_lock
     def chaos_tome_level(self) -> int | None:
@@ -1441,12 +1334,7 @@ class LiveRunTracker:
             self._combo_run_counts = {rule.id: 0 for rule in self.tracked_item_rules}
 
     def _reset_chaos_tracking(self) -> None:
-        self._chaos_tome_level = None
-        self._chaos_modifier_baselines = {}
-        self._chaos_totals = {}
-        self._chaos_ambiguous_rolls = 0
-        self._chaos_available_rolls = 0
-        self._chaos_unbudgeted_candidates = {}
+        chaos.reset(self._chaos_state)
 
     def _reset_ui_kps_unlocked(self) -> None:
         self._ui_kps_baseline = None
@@ -1490,172 +1378,6 @@ class LiveRunTracker:
 
         self._ui_kps_value = max(0, int(current_kills) - baseline_kills)
         self._ui_kps_baseline = current_sample
-
-    def _record_chaos_modifier_deltas(
-        self,
-        permanent_modifiers: dict[int, tuple[Any, ...]],
-    ) -> None:
-        for stat_id, modifiers in (permanent_modifiers or {}).items():
-            stat_id = int(stat_id)
-            values = tuple(modifiers or ())
-            old_values = self._chaos_modifier_baselines.get(stat_id, ())
-            new_values = tuple(float(getattr(m, "value", 0.0)) for m in values)
-            
-            new_baseline = list(old_values)
-            
-            # Check existing indices for stacked modifiers
-            for i in range(min(len(old_values), len(new_values))):
-                delta = new_values[i] - old_values[i]
-                if abs(delta) > 0.001:
-                    matched_rolls = self._looks_like_chaos_value(
-                        stat_id,
-                        delta,
-                        max_rolls=max(1, int(self._chaos_tome_level or 1)),
-                    )
-                    if matched_rolls > 0:
-                        rolls_to_process = min(self._chaos_available_rolls, matched_rolls)
-                        if rolls_to_process > 0:
-                            self._add_chaos_total_by_value(
-                                stat_id,
-                                values[i],
-                                delta * (rolls_to_process / matched_rolls),
-                                rolls=rolls_to_process,
-                            )
-                            self._chaos_available_rolls -= rolls_to_process
-                            new_baseline[i] = new_values[i]
-                            self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
-                        elif self._should_commit_unbudgeted_candidate(stat_id, i, new_values[i]):
-                            new_baseline[i] = new_values[i]
-                    else:
-                        new_baseline[i] = new_values[i]
-                        self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
-            
-            # Check new indices for spawned modifiers
-            if len(new_values) > len(old_values):
-                for i in range(len(old_values), len(new_values)):
-                    val = new_values[i]
-                    matched_rolls = self._looks_like_chaos_value(
-                        stat_id,
-                        val,
-                        max_rolls=max(1, int(self._chaos_tome_level or 1)),
-                    )
-                    if matched_rolls > 0:
-                        rolls_to_process = min(self._chaos_available_rolls, matched_rolls)
-                        if rolls_to_process > 0:
-                            self._add_chaos_total_by_value(
-                                stat_id,
-                                values[i],
-                                val * (rolls_to_process / matched_rolls),
-                                rolls=rolls_to_process,
-                            )
-                            self._chaos_available_rolls -= rolls_to_process
-                            new_baseline.append(val)
-                            self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
-                        elif self._should_commit_unbudgeted_candidate(stat_id, i, val):
-                            new_baseline.append(val)
-                        else:
-                            break
-                    else:
-                        new_baseline.append(val)
-                        self._chaos_unbudgeted_candidates.pop((stat_id, i), None)
-            
-            self._chaos_modifier_baselines[stat_id] = tuple(new_baseline)
-
-    @staticmethod
-    def _looks_like_chaos_value(
-        stat_id: int,
-        value: float,
-        *,
-        max_rolls: int = 1,
-    ) -> int:
-        numeric = abs(value)
-        if numeric <= 0:
-            return 0
-
-        fingerprints = CHAOS_FINGERPRINTS.get(stat_id)
-        if not fingerprints:
-            return 0
-
-        # The game stacks different Chaos rolls for the same stat into one
-        # modifier value. Work in thousandths (the game's own rounding) and
-        # find the smallest valid combination of known fingerprints.
-        target = int(round(numeric * 1000.0))
-        fingerprint_units = tuple(
-            sorted({int(round(float(fp) * 1000.0)) for fp in fingerprints if fp > 0})
-        )
-        if target <= 0 or not fingerprint_units:
-            return 0
-
-        max_rolls = max(1, int(max_rolls))
-        minimum_progress = max(1, min(fingerprint_units) - 2)
-        max_rolls = min(max_rolls, (target // minimum_progress) + 1)
-        scale = 0
-        for fingerprint in fingerprint_units:
-            scale = gcd(scale, fingerprint)
-        scale = max(1, scale)
-        scaled_fingerprints = tuple(fingerprint // scale for fingerprint in fingerprint_units)
-        maximum_sum = (target + (2 * max_rolls)) // scale
-        reachable = 1  # Bit N means that a scaled fingerprint sum of N is reachable.
-        sum_mask = (1 << (maximum_sum + 1)) - 1
-        for roll_count in range(1, max_rolls + 1):
-            next_reachable = 0
-            for fingerprint in scaled_fingerprints:
-                next_reachable |= reachable << fingerprint
-            reachable = next_reachable & sum_mask
-            tolerance = max(2, 2 * roll_count)
-            lower_raw = max(0, target - tolerance)
-            upper_raw = target + tolerance
-            lower = (lower_raw + scale - 1) // scale
-            upper = min(maximum_sum, upper_raw // scale)
-            window_width = upper - lower + 1
-            if window_width > 0 and ((reachable >> lower) & ((1 << window_width) - 1)):
-                return roll_count
-            if not reachable:
-                break
-
-        return 0
-
-    def _should_commit_unbudgeted_candidate(self, stat_id: int, index: int, value: float) -> bool:
-        key = (stat_id, index)
-        previous = self._chaos_unbudgeted_candidates.get(key)
-        if previous is not None and abs(previous[0] - value) <= 0.001:
-            samples = previous[1] + 1
-        else:
-            samples = 1
-
-        if samples >= CHAOS_UNBUDGETED_BASELINE_SAMPLES:
-            self._chaos_unbudgeted_candidates.pop(key, None)
-            return True
-
-        self._chaos_unbudgeted_candidates[key] = (value, samples)
-        return False
-
-    def _add_chaos_total_by_value(
-        self,
-        stat_id: int,
-        modifier: Any,
-        delta: float,
-        *,
-        rolls: int = 1,
-    ) -> None:
-        rolls = max(1, int(rolls))
-        existing = self._chaos_totals.get(stat_id)
-        if existing is None:
-            self._chaos_totals[stat_id] = ChaosTomeStatTotal(
-                stat_id=stat_id,
-                label=str(getattr(modifier, "label", f"Stat {stat_id}")),
-                value=delta,
-                value_format=getattr(modifier, "value_format", None),
-                rolls=rolls,
-            )
-            return
-        self._chaos_totals[stat_id] = ChaosTomeStatTotal(
-            stat_id=existing.stat_id,
-            label=existing.label,
-            value=existing.value + delta,
-            value_format=existing.value_format,
-            rolls=existing.rolls + rolls,
-        )
 
     def _should_reset_for_snapshot(self, snapshot: LiveRunSnapshot) -> bool:
         previous = self.snapshots[-1] if self.snapshots else None

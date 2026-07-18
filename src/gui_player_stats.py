@@ -45,11 +45,11 @@ from gui_styles import (
 )
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from live_run_tracker import (
-    CHAOS_TOME_GAME_STAT_ORDER,
     LiveRunSnapshot,
     LiveRunTracker,
     PowerupMapContext,
 )
+from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
 from core.stats.types import DamageSourceSnapshot, PLAYER_STAT_GROUPS, TomeSnapshot, WeaponSnapshot, calculate_chests_per_minute
 from infra.memory.player_stats_client import PlayerStatsClient
 from app.refresh_tasks import (

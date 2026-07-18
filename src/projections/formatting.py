@@ -21,7 +21,7 @@ from core.item_metadata import (
     normalize_item_name_for_display,
     normalize_item_name_for_rarity,
 )
-from live_run_tracker import CHAOS_TOME_GAME_STAT_ORDER
+from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
 
 COMPARE_RUN_STAT_LABELS = (
     "Damage",
