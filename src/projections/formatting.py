@@ -12,7 +12,6 @@ from math import isfinite
 from core import run_summary
 from gui_styles import (
     COLOR_MAP,
-    ITEM_RARITY_BY_NAME,
     ITEM_RARITY_COLOR_MAP,
     ITEM_RARITY_SORT_ORDER,
     ITEM_SORT_DEFAULT,
@@ -20,6 +19,7 @@ from gui_styles import (
     ITEM_SORT_RARITY_DESC,
 )
 from core.item_metadata import (
+    ITEM_RARITY_BY_NAME,
     item_display_color,
     normalize_item_name_for_display,
     normalize_item_name_for_rarity,

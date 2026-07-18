@@ -4,7 +4,6 @@ import html
 
 from gui_styles import (
     COLOR_MAP,
-    ITEM_RARITY_BY_NAME,
     ITEM_RARITY_COLOR_MAP,
     PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS,
     PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS,
@@ -15,6 +14,7 @@ from gui_styles import (
     PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS,
 )
 from core.item_metadata import (
+    ITEM_RARITY_BY_NAME,
     normalize_item_name_for_display,
     normalize_item_name_for_rarity,
 )

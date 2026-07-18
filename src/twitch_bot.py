@@ -438,7 +438,7 @@ class TwitchBotWorker(QThread):
             return
 
         from core.run_summary import split_item_stack_suffix, normalize_item_name_for_display, normalize_item_name_for_rarity
-        from gui_styles import ITEM_RARITY_BY_NAME
+        from core.item_metadata import ITEM_RARITY_BY_NAME
 
         legendary_items = []
         rare_items = []

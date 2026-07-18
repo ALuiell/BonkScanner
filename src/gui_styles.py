@@ -1,14 +1,5 @@
 from __future__ import annotations
 
-from core.item_metadata import (
-    ITEM_DISPLAY_NAME_ALIASES,
-    ITEM_RARITY_BY_NAME,
-    ITEM_RARITY_FOLDED_NAME_ALIASES,
-    ITEM_RARITY_NAME_ALIASES,
-    ITEM_RARITY_NAME_BY_FOLDED_NAME,
-    _fold_item_name_for_rarity,
-)
-
 PLAYER_STATS_REFRESH_MS = 10_000
 # The recording lifecycle used to inherit the 10 s snapshot cadence above; it is
 # its own decision (step 8b) because it decides run boundaries, and a boundary
