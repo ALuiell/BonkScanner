@@ -15,22 +15,20 @@ continues while ``PAUSED_IN_GAME`` but capture does not: ``can_capture_recording
 requires ``IN_GAME`` strictly, and a paused recording reports status
 ``\"paused\"`` and writes nothing. Do not 'fix' this into symmetry.
 
-**Known debt, carried verbatim by this commit, removed by the next one:**
-``_sync_player_stats_recording_run_state`` writes a Qt widget directly
-(``_set_text(self.player_stats_status_label, ...)``) and calls
-``refresh_player_stats_timeline_ui``. That is why ``gui_shared`` is imported
-below from an ``app/`` module. It is the same leak step 6 carried into
-``app/refresh_tasks.py``; this commit relocates the code without deepening or
-fixing it, and the callback inversion follows separately so the move stays
-reviewable as a move.
+This module renders through ``PlayerStatsView`` (``app/player_stats_view.py``),
+never through a widget. ``_sync_player_stats_recording_run_state`` used to write
+the ``player_stats_status_label`` widget directly -- a Qt write from the app
+layer, against a label owned by ``ui/tabs/player_stats/live_stats.py`` -- and
+that is now ``view.set_recording_status_text(...)``, implemented by the mixin
+that builds the label.
 """
 from __future__ import annotations
 
 import time
 
 from app import config
+from app.player_stats_view import player_stats_view
 from core.game_state import RuntimeGameMode
-from gui_shared import _set_text
 from gui_styles import (
     PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
     PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS,
@@ -81,9 +79,9 @@ class VodCaptureMixin:
                 waiting_status_text="Recording stats; waiting for game/player stats...",
                 unavailable_status_prefix="Recording stats; player stats unavailable",
             )
-            self._refresh_vods_list_if_visible()
+            player_stats_view(self)._refresh_vods_list_if_visible()
 
-        self.refresh_player_stats_timeline_ui()
+        player_stats_view(self).refresh_player_stats_timeline_ui()
 
     @staticmethod
     def _stage_index_signals_new_run(
@@ -169,7 +167,7 @@ class VodCaptureMixin:
             self.log(log_message, tag=log_tag)
         if refresh_live_stats:
             self.refresh_live_player_stats_now()
-        self._refresh_vods_list_if_visible()
+        player_stats_view(self)._refresh_vods_list_if_visible()
 
     def _sync_player_stats_recording_run_state(self) -> str | None:
         # Reuses the lifecycle state the 500 ms driver already refreshes once a
@@ -190,9 +188,9 @@ class VodCaptureMixin:
             was_paused = self.player_stats_recording_waiting_mode == RuntimeGameMode.PAUSED_IN_GAME.value
             self.player_stats_recording_waiting_mode = None
             if was_paused and self.player_stats_vod_recorder.is_recording:
-                self.refresh_player_stats_timeline_ui()
+                player_stats_view(self).refresh_player_stats_timeline_ui()
                 if self._is_live_stats_tab_active():
-                    _set_text(self.player_stats_status_label, "Live player stats (recording)")
+                    player_stats_view(self).set_recording_status_text("Live player stats (recording)")
             if self._is_player_stats_recording_armed() and not self.player_stats_vod_recorder.is_recording:
                 current_state = self._read_player_stats_recording_state_safe()
                 current_seed = current_state.map_seed if current_state is not None else None
@@ -213,7 +211,7 @@ class VodCaptureMixin:
                     f"[*] Player stats recording started from waiting mode: {vod_path.name}",
                     tag="success",
                 )
-                self.refresh_player_stats_timeline_ui()
+                player_stats_view(self).refresh_player_stats_timeline_ui()
                 return "started"
 
         if not self.player_stats_vod_recorder.is_recording:
@@ -223,9 +221,9 @@ class VodCaptureMixin:
             was_paused = self.player_stats_recording_waiting_mode == runtime_state.mode.value
             self.player_stats_recording_waiting_mode = runtime_state.mode.value
             if not was_paused:
-                self.refresh_player_stats_timeline_ui()
+                player_stats_view(self).refresh_player_stats_timeline_ui()
                 if self._is_live_stats_tab_active():
-                    _set_text(self.player_stats_status_label, "Live player stats (recording paused)")
+                    player_stats_view(self).set_recording_status_text("Live player stats (recording paused)")
             return "paused"
         if runtime_state.mode in {RuntimeGameMode.GAME_OVER, RuntimeGameMode.MAIN_MENU}:
             mode_text = "game over" if runtime_state.mode is RuntimeGameMode.GAME_OVER else "main menu"
@@ -239,7 +237,7 @@ class VodCaptureMixin:
             if not should_remain_armed:
                 self.player_stats_recording_armed = False
             self.player_stats_recording_waiting_mode = runtime_state.mode.value
-            self.refresh_player_stats_timeline_ui()
+            player_stats_view(self).refresh_player_stats_timeline_ui()
             return "waiting"
         if runtime_state.mode is RuntimeGameMode.UNKNOWN:
             self.player_stats_recording_waiting_mode = runtime_state.mode.value
@@ -267,7 +265,7 @@ class VodCaptureMixin:
                 log_tag="warning",
                 refresh_live_stats=False,
             )
-            self.refresh_player_stats_timeline_ui()
+            player_stats_view(self).refresh_player_stats_timeline_ui()
             return "stopped"
 
         self.player_stats_recording_seed_missing_since = None
@@ -313,7 +311,7 @@ class VodCaptureMixin:
             f"[*] Player stats recording auto-split: seed {previous_seed} -> {current_seed}; new file {vod_path.name}",
             tag="success",
         )
-        self.refresh_player_stats_timeline_ui()
+        player_stats_view(self).refresh_player_stats_timeline_ui()
         return "split"
 
     @staticmethod

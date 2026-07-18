@@ -28,6 +28,7 @@ import time
 
 from app import config
 from app.player_stats_memory import PlayerStatsMemoryMixin
+from app.player_stats_view import player_stats_view
 from app.refresh_tasks import (
     ensure_refresh_coordinator,
     overlay_widget_refresh_active,
@@ -130,14 +131,14 @@ class PlayerStatsRefreshMixin:
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
             record_player_stats_memory_failure(self, exc)
             try:
-                self.mark_overlay_read_failed(no_game=False)
+                player_stats_view(self).mark_overlay_read_failed(no_game=False)
             except Exception:
                 pass
             return False
         except Exception as exc:
             record_player_stats_memory_failure(self, exc)
             try:
-                self.mark_overlay_read_failed(no_game=False)
+                player_stats_view(self).mark_overlay_read_failed(no_game=False)
             except Exception:
                 pass
             return False
@@ -285,11 +286,12 @@ class PlayerStatsRefreshMixin:
         except Exception:
             pass
 
-        if hasattr(self, "refresh_session_tracked_item_stats_ui"):
-            self.refresh_session_tracked_item_stats_ui()
+        view = player_stats_view(self)
+        if hasattr(view, "refresh_session_tracked_item_stats_ui"):
+            view.refresh_session_tracked_item_stats_ui()
         chaos_snapshot_reader = getattr(self.live_run_tracker, "chaos_tome_snapshot", None)
         chaos_tome_snapshot = chaos_snapshot_reader() if callable(chaos_snapshot_reader) else None
-        self.update_overlay_state_from_tracker()
+        view.update_overlay_state_from_tracker()
         live_stage_summary_rows = self.live_run_tracker.stage_summary_rows()
         runtime_state = self._runtime_state_for_refresh()
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
@@ -316,10 +318,10 @@ class PlayerStatsRefreshMixin:
             snapshot = self.player_stats_vod_recorder.capture(**capture_kwargs)
             self.player_stats_vod_snapshots.append(snapshot)
             self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
-            self.refresh_player_stats_timeline_ui()
-            self._refresh_vods_list_if_visible()
+            view.refresh_player_stats_timeline_ui()
+            view._refresh_vods_list_if_visible()
             if is_live_tab_active:
-                self.display_player_stats_snapshot(snapshot, items_text=items_text)
+                view.display_player_stats_snapshot(snapshot, items_text=items_text)
             return True
 
         if is_live_tab_active:
@@ -336,7 +338,7 @@ class PlayerStatsRefreshMixin:
             else:
                 status_text_val = status_text
             self.player_stats_selected_snapshot_index = None
-            self.display_player_stats(
+            view.display_player_stats(
                 stats,
                 effective_items,
                 weapons=effective_weapons,

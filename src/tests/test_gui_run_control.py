@@ -13,6 +13,7 @@ import gui
 import gui_in_game_overlay
 import gui_scanner
 from app import player_stats_memory, player_stats_refresh
+from app.player_stats_view import player_stats_view
 from core.game_state import RuntimeGameMode, RuntimeGameState
 from live_run_tracker import LiveRunTracker
 from app.coordinator import AppCoordinator, RefreshLoop
@@ -2071,6 +2072,31 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(app.player_stats_vod_recorder.is_recording)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
         self.assertEqual(app.player_stats_recording_waiting_mode, RuntimeGameMode.PAUSED_IN_GAME.value)
+
+    def test_pausing_writes_the_status_line_through_the_view(self) -> None:
+        """Covers the branch step 14c re-routed and the suite never asserted.
+
+        `_sync_player_stats_recording_run_state` used to call `_set_text` on
+        `player_stats_status_label` directly from `app/`; it now goes through
+        `PlayerStatsView.set_recording_status_text`. The existing pause test drives
+        this branch but asserts nothing about the text, so mutating the writer left
+        the whole suite green -- which is why this assertion exists.
+        """
+        app = self.build_recording_app()
+        app._is_live_stats_tab_active = lambda: True
+        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+            mode=RuntimeGameMode.PAUSED_IN_GAME,
+            is_playing=True,
+            is_paused=True,
+        )
+
+        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+
+        self.assertEqual(action, "paused")
+        self.assertEqual(
+            app.player_stats_status_label.text(),
+            "Live player stats (recording paused)",
+        )
 
     def test_recording_run_state_waits_after_game_over_without_disarming(self) -> None:
         app = self.build_recording_app()
@@ -5821,6 +5847,51 @@ class GuiRunControlTests(unittest.TestCase):
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]
         self.assertIn("Event Timer (preview)", rendered_html)
+
+    def test_player_stats_view_defaults_to_the_app_itself(self) -> None:
+        """The default view must be the app object, or step 14c's inversion would
+        have changed dispatch rather than just naming it. App doubles are built with
+        object.__new__ and never run __init__, so this has to work with no injection.
+        """
+        app = object.__new__(gui.MegabonkApp)
+
+        self.assertIs(player_stats_view(app), app)
+
+    def test_recording_status_text_is_written_through_the_injected_view(self) -> None:
+        """The port is a real seam, not decoration: an injected view receives the
+        render calls, and the app layer never touches the widget. Before step 14c,
+        `_sync_player_stats_recording_run_state` called `_set_text` on
+        `player_stats_status_label` directly from `app/`.
+        """
+        app = self.build_recording_app()
+        app.player_stats_vod_recorder.is_recording = True
+
+        class RecordingView:
+            def __init__(self) -> None:
+                self.status_texts: list[str] = []
+                self.timeline_refreshes = 0
+
+            def set_recording_status_text(self, text: str) -> None:
+                self.status_texts.append(text)
+
+            def refresh_player_stats_timeline_ui(self) -> None:
+                self.timeline_refreshes += 1
+
+        view = RecordingView()
+        app._player_stats_view = view
+        self.assertIs(player_stats_view(app), view)
+
+        gui.MegabonkApp.refresh_player_stats_timeline_ui = lambda *a, **k: None
+        try:
+            player_stats_view(app).set_recording_status_text("Live player stats (recording)")
+            player_stats_view(app).refresh_player_stats_timeline_ui()
+        finally:
+            del gui.MegabonkApp.refresh_player_stats_timeline_ui
+
+        self.assertEqual(view.status_texts, ["Live player stats (recording)"])
+        self.assertEqual(view.timeline_refreshes, 1)
+        # the real widget was never touched
+        self.assertEqual(app.player_stats_status_label.text(), "")
 
     def test_chaos_tome_signature_resolves_its_helper_from_the_cards_mixin(self) -> None:
         """Step 14b moved `_chaos_stats_in_game_order` into `PlayerStatsCardsMixin`

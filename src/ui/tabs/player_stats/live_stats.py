@@ -247,6 +247,18 @@ class LiveStatsTabMixin:
         self.player_stats_selected_snapshot_index = index
         self.display_player_stats_snapshot(self.player_stats_vod_snapshots[index])
         self.refresh_player_stats_timeline_ui(update_slider=False)
+
+    def set_recording_status_text(self, text: str) -> None:
+        """Set the Live Stats status line.
+
+        This mixin builds `player_stats_status_label`, so it is the only place
+        that should write it. `app/vod_capture.py` used to reach in and call
+        `_set_text` on the widget directly -- a Qt write from the app layer,
+        against the widget whose creator had already moved here in step 14b.
+        It now goes through `PlayerStatsView` instead.
+        """
+        _set_text(self.player_stats_status_label, text)
+
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True):
         snapshot_count = len(self.player_stats_vod_snapshots)
         recording_armed = self._is_player_stats_recording_armed()
