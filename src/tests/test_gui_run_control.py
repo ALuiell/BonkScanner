@@ -10,7 +10,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import gui
+import ctypes
+import os
+import threading
+import time
+
 import gui_app
 import gui_dialogs
 import gui_in_game_overlay
@@ -26,7 +30,21 @@ import infra.process as infra_process
 import ui.tabs.player_stats.cards as ui_player_stats_cards
 import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
-from app import player_stats_memory, player_stats_refresh
+from app import config, player_stats_memory, player_stats_refresh
+from gui_app import MegabonkApp
+from gui_dialogs import (
+    SettingsDialog,
+    TemplateManagerDialog,
+    TwitchCommandSettingsDialog,
+)
+from gui_overlay import OverlayMixin
+from gui_styles import (
+    ITEM_SORT_DEFAULT,
+    ITEM_SORT_RARITY_ASC,
+    ITEM_SORT_RARITY_DESC,
+    PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
+)
+from infra.memory.reader import MemoryReadError, ProcessNotFoundError
 from app.player_stats_view import player_stats_view
 from core.game_state import RuntimeGameMode, RuntimeGameState
 from live_run_tracker import LiveRunTracker
@@ -512,11 +530,11 @@ class GuiRunControlTests(unittest.TestCase):
             _is_twitch_bot_active=lambda: True,
         )
 
-        self.assertFalse(gui.MegabonkApp._player_stats_refresh_required(app))
-        self.assertFalse(gui.MegabonkApp._should_refresh_fast_kps(app))
-        self.assertFalse(gui.MegabonkApp._should_refresh_powerup_tracker(app))
-        self.assertFalse(gui.MegabonkApp._should_refresh_expected_chest_inputs(app))
-        self.assertFalse(gui.MegabonkApp._should_refresh_chaos_tome(app))
+        self.assertFalse(MegabonkApp._player_stats_refresh_required(app))
+        self.assertFalse(MegabonkApp._should_refresh_fast_kps(app))
+        self.assertFalse(MegabonkApp._should_refresh_powerup_tracker(app))
+        self.assertFalse(MegabonkApp._should_refresh_expected_chest_inputs(app))
+        self.assertFalse(MegabonkApp._should_refresh_chaos_tome(app))
 
     def test_core_run_demand_keeps_snapshot_and_expected_chests_active(self) -> None:
         app = SimpleNamespace(
@@ -530,11 +548,11 @@ class GuiRunControlTests(unittest.TestCase):
             _is_twitch_bot_active=lambda: False,
             _twitch_command_refresh_active=lambda _command: False,
         )
-        app._core_run_active = lambda: gui.MegabonkApp._core_run_active(app)
-        app._player_stats_refresh_required = lambda: gui.MegabonkApp._player_stats_refresh_required(app)
+        app._core_run_active = lambda: MegabonkApp._core_run_active(app)
+        app._player_stats_refresh_required = lambda: MegabonkApp._player_stats_refresh_required(app)
 
-        self.assertTrue(gui.MegabonkApp._should_refresh_full_player_snapshot(app))
-        self.assertTrue(gui.MegabonkApp._should_refresh_expected_chest_inputs(app))
+        self.assertTrue(MegabonkApp._should_refresh_full_player_snapshot(app))
+        self.assertTrue(MegabonkApp._should_refresh_expected_chest_inputs(app))
 
     def test_core_lifecycle_probe_is_cached_and_marks_game_over_once(self) -> None:
         app = SimpleNamespace(
@@ -556,21 +574,21 @@ class GuiRunControlTests(unittest.TestCase):
         app.read_player_stats_runtime_activity_state = read_activity_state
         app.close_player_stats_game_data_client = lambda: None
         app._read_player_stats_runtime_activity_state_safe = (
-            lambda: gui.MegabonkApp._read_player_stats_runtime_activity_state_safe(app)
+            lambda: MegabonkApp._read_player_stats_runtime_activity_state_safe(app)
         )
 
-        with patch.object(gui.time, "monotonic", side_effect=(10.0, 10.5, 11.0)):
+        with patch.object(time, "monotonic", side_effect=(10.0, 10.5, 11.0)):
             self.assertEqual(
-                gui.MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
+                MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
                 RuntimeGameMode.IN_GAME,
             )
             self.assertFalse(app._player_stats_completed_run)
             self.assertEqual(
-                gui.MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
+                MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
                 RuntimeGameMode.IN_GAME,
             )
             self.assertEqual(
-                gui.MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
+                MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
                 RuntimeGameMode.GAME_OVER,
             )
 
@@ -587,14 +605,14 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         )
 
-        with patch.object(gui.time, "monotonic", return_value=10.5):
-            state = gui.MegabonkApp._runtime_state_for_refresh(app)
+        with patch.object(time, "monotonic", return_value=10.5):
+            state = MegabonkApp._runtime_state_for_refresh(app)
 
         self.assertEqual(state.mode, RuntimeGameMode.PAUSED_IN_GAME)
 
     def test_formats_full_chests_card(self) -> None:
         self.assertEqual(
-            gui.MegabonkApp.chests_card_values(
+            MegabonkApp.chests_card_values(
                 {1: 46, 2: 46, 3: 42},
                 {1: 46, 2: 46, 3: 46},
                 134,
@@ -617,7 +635,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_formats_midrun_chests_card_with_minimum_total(self) -> None:
         self.assertEqual(
-            gui.MegabonkApp.chests_card_values(
+            MegabonkApp.chests_card_values(
                 {1: -1, 2: 20},
                 {1: 46, 2: 46},
                 51,
@@ -639,8 +657,8 @@ class GuiRunControlTests(unittest.TestCase):
             },
         )
 
-    def build_recording_app(self) -> gui.MegabonkApp:
-        app = object.__new__(gui.MegabonkApp)
+    def build_recording_app(self) -> MegabonkApp:
+        app = object.__new__(MegabonkApp)
         app.player_stats_vod_recorder = FakeRecordingRecorder()
         app.player_stats_vod_snapshots = ["snapshot"]
         app.player_stats_selected_snapshot_index = 0
@@ -714,27 +732,27 @@ class GuiRunControlTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.original_config_values = {
-            "HOTKEY": gui.config.HOTKEY,
-            "HOTKEY_GAME_KEY_WHITELIST": deepcopy(gui.config.HOTKEY_GAME_KEY_WHITELIST),
-            "RESET_HOTKEY": gui.config.RESET_HOTKEY,
-            "PLAYER_STATS_RECORD_HOTKEY": gui.config.PLAYER_STATS_RECORD_HOTKEY,
-            "AUTO_START_RECORDING": gui.config.AUTO_START_RECORDING,
-            "SHOW_OBS_REMINDER_ON_START_SCANNER": gui.config.SHOW_OBS_REMINDER_ON_START_SCANNER,
-            "MAP_LOAD_DELAY": gui.config.MAP_LOAD_DELAY,
-            "RESET_HOLD_DURATION": gui.config.RESET_HOLD_DURATION,
-            "TOTAL_REROLLS": gui.config.TOTAL_REROLLS,
-            "ACTIVE_TEMPLATES": deepcopy(gui.config.ACTIVE_TEMPLATES),
-            "EVALUATION_MODE": gui.config.EVALUATION_MODE,
-            "SCORES_SYSTEM": deepcopy(gui.config.SCORES_SYSTEM),
-            "TEMPLATES": deepcopy(gui.config.TEMPLATES),
+            "HOTKEY": config.HOTKEY,
+            "HOTKEY_GAME_KEY_WHITELIST": deepcopy(config.HOTKEY_GAME_KEY_WHITELIST),
+            "RESET_HOTKEY": config.RESET_HOTKEY,
+            "PLAYER_STATS_RECORD_HOTKEY": config.PLAYER_STATS_RECORD_HOTKEY,
+            "AUTO_START_RECORDING": config.AUTO_START_RECORDING,
+            "SHOW_OBS_REMINDER_ON_START_SCANNER": config.SHOW_OBS_REMINDER_ON_START_SCANNER,
+            "MAP_LOAD_DELAY": config.MAP_LOAD_DELAY,
+            "RESET_HOLD_DURATION": config.RESET_HOLD_DURATION,
+            "TOTAL_REROLLS": config.TOTAL_REROLLS,
+            "ACTIVE_TEMPLATES": deepcopy(config.ACTIVE_TEMPLATES),
+            "EVALUATION_MODE": config.EVALUATION_MODE,
+            "SCORES_SYSTEM": deepcopy(config.SCORES_SYSTEM),
+            "TEMPLATES": deepcopy(config.TEMPLATES),
         }
-        self.original_user_config = deepcopy(gui.config.user_config)
+        self.original_user_config = deepcopy(config.user_config)
 
     def tearDown(self) -> None:
         for name, value in self.original_config_values.items():
-            setattr(gui.config, name, value)
-        gui.config.user_config.clear()
-        gui.config.user_config.update(self.original_user_config)
+            setattr(config, name, value)
+        config.user_config.clear()
+        config.user_config.update(self.original_user_config)
 
     def test_enabling_twitch_help_shows_alias_dialog(self) -> None:
         import gui_dialogs
@@ -750,19 +768,19 @@ class GuiRunControlTests(unittest.TestCase):
             def exec(self):
                 return 1
 
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.window = object()
         app.twitch_cmd_commands_cb = FakeCheckbox(True)
         app.save_twitch_settings = lambda *args: saved.append(True)
-        gui.config.user_config["SKIP_TWITCH_HELP_WARNING"] = False
+        config.user_config["SKIP_TWITCH_HELP_WARNING"] = False
 
         with patch.object(gui_dialogs, "TwitchCommandsHelpDialog", FakeAliasDialog), patch.object(
-            gui.config, "save_config"
+            config, "save_config"
         ):
-            gui.MegabonkApp.on_twitch_commands_toggled(app)
+            MegabonkApp.on_twitch_commands_toggled(app)
 
         self.assertEqual(shown, [app.window])
-        self.assertTrue(gui.config.user_config["SKIP_TWITCH_HELP_WARNING"])
+        self.assertTrue(config.user_config["SKIP_TWITCH_HELP_WARNING"])
         self.assertEqual(saved, [True])
 
     def test_save_twitch_settings_does_not_depend_on_main_interval_widget(self) -> None:
@@ -790,25 +808,25 @@ class GuiRunControlTests(unittest.TestCase):
             twitch_cmd_disabled_cb=FakeCheckbox(False),
         )
 
-        with patch.object(gui.config, "save_config") as save_config:
-            gui.MegabonkApp.save_twitch_settings(app)
+        with patch.object(config, "save_config") as save_config:
+            MegabonkApp.save_twitch_settings(app)
 
-        self.assertEqual(gui.config.TWITCH_BOT["target_channel"], "bonk")
-        self.assertEqual(gui.config.TWITCH_BOT["global_cooldown_seconds"], 5)
-        self.assertEqual(gui.config.TWITCH_BOT["cooldown_seconds"], 7)
-        self.assertTrue(gui.config.TWITCH_BOT["commands_announcements"])
+        self.assertEqual(config.TWITCH_BOT["target_channel"], "bonk")
+        self.assertEqual(config.TWITCH_BOT["global_cooldown_seconds"], 5)
+        self.assertEqual(config.TWITCH_BOT["cooldown_seconds"], 7)
+        self.assertTrue(config.TWITCH_BOT["commands_announcements"])
         self.assertTrue(save_config.called)
 
     def test_save_twitch_auto_connect_persists_checkbox_state(self) -> None:
         app = types.SimpleNamespace(twitch_auto_connect_cb=FakeCheckbox(True))
 
-        with patch.dict(gui.config.TWITCH_BOT, {"auto_connect": False}), patch.object(
-            gui.config, "save_config"
+        with patch.dict(config.TWITCH_BOT, {"auto_connect": False}), patch.object(
+            config, "save_config"
         ) as save_config:
-            gui.MegabonkApp.save_twitch_auto_connect(app)
+            MegabonkApp.save_twitch_auto_connect(app)
 
-            self.assertTrue(gui.config.TWITCH_BOT["auto_connect"])
-            save_config.assert_called_once_with(gui.config.user_config)
+            self.assertTrue(config.TWITCH_BOT["auto_connect"])
+            save_config.assert_called_once_with(config.user_config)
 
     def test_twitch_auth_success_starts_bot_when_auto_connect_is_enabled(self) -> None:
         app = types.SimpleNamespace(
@@ -820,13 +838,13 @@ class GuiRunControlTests(unittest.TestCase):
             log=MagicMock(),
             validate_twitch_session_async=MagicMock(return_value=True),
         )
-        app._set_twitch_connected_ui = lambda username: gui.MegabonkApp._set_twitch_connected_ui(app, username)
-        app._set_twitch_disconnected_ui = lambda: gui.MegabonkApp._set_twitch_disconnected_ui(app)
+        app._set_twitch_connected_ui = lambda username: MegabonkApp._set_twitch_connected_ui(app, username)
+        app._set_twitch_disconnected_ui = lambda: MegabonkApp._set_twitch_disconnected_ui(app)
 
-        with patch.dict(gui.config.TWITCH_BOT, {"auto_connect": True}), patch(
+        with patch.dict(config.TWITCH_BOT, {"auto_connect": True}), patch(
             "gui_twitch.set_twitch_oauth_token"
-        ), patch.object(gui.config, "save_config"):
-            gui.MegabonkApp.on_twitch_auth_success(app, "bonk", "token")
+        ), patch.object(config, "save_config"):
+            MegabonkApp.on_twitch_auth_success(app, "bonk", "token")
 
             app.validate_twitch_session_async.assert_called_once_with(
                 log_on_success=False,
@@ -846,12 +864,12 @@ class GuiRunControlTests(unittest.TestCase):
             _start_twitch_bot_worker=MagicMock(),
             log=MagicMock(),
         )
-        app._set_twitch_connected_ui = lambda username: gui.MegabonkApp._set_twitch_connected_ui(app, username)
+        app._set_twitch_connected_ui = lambda username: MegabonkApp._set_twitch_connected_ui(app, username)
 
-        with patch.dict(gui.config.TWITCH_BOT, {"username": "", "auto_connect": True}), patch(
+        with patch.dict(config.TWITCH_BOT, {"username": "", "auto_connect": True}), patch(
             "gui_twitch.get_twitch_oauth_token", return_value="token"
-        ), patch.object(gui.config, "save_config"):
-            gui.MegabonkApp._on_twitch_token_validation_finished(
+        ), patch.object(config, "save_config"):
+            MegabonkApp._on_twitch_token_validation_finished(
                 app,
                 "token",
                 types.SimpleNamespace(valid=True, login="bonk"),
@@ -860,7 +878,7 @@ class GuiRunControlTests(unittest.TestCase):
                 "fallback",
                 "auth",
             )
-            self.assertEqual(gui.config.TWITCH_BOT["username"], "bonk")
+            self.assertEqual(config.TWITCH_BOT["username"], "bonk")
 
         app.twitch_token_validation_timer.start.assert_called_once_with()
         app._start_twitch_bot_worker.assert_called_once_with()
@@ -873,7 +891,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         with patch("gui_twitch.get_twitch_oauth_token", return_value="new-token"):
-            gui.MegabonkApp._on_twitch_token_validation_finished(
+            MegabonkApp._on_twitch_token_validation_finished(
                 app,
                 "old-token",
                 types.SimpleNamespace(valid=True, login="bonk"),
@@ -896,17 +914,17 @@ class GuiRunControlTests(unittest.TestCase):
             stop_twitch_bot=MagicMock(),
             log=MagicMock(),
         )
-        app._clear_twitch_session_state = lambda: gui.MegabonkApp._clear_twitch_session_state(app)
-        app._set_twitch_disconnected_ui = lambda: gui.MegabonkApp._set_twitch_disconnected_ui(app)
+        app._clear_twitch_session_state = lambda: MegabonkApp._clear_twitch_session_state(app)
+        app._set_twitch_disconnected_ui = lambda: MegabonkApp._set_twitch_disconnected_ui(app)
 
-        with patch.dict(gui.config.TWITCH_BOT, {"username": "bonk"}), patch(
+        with patch.dict(config.TWITCH_BOT, {"username": "bonk"}), patch(
             "gui_twitch.get_twitch_oauth_token", return_value="token"
         ), patch(
             "gui_twitch.validate_twitch_access_token",
             return_value=types.SimpleNamespace(valid=False, transient_error=False, error_message="Token is no longer valid."),
-        ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch.object(gui.config, "save_config"):
-            valid = gui.MegabonkApp.validate_twitch_session(app, log_on_success=False)
-            self.assertEqual(gui.config.TWITCH_BOT["username"], "")
+        ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch.object(config, "save_config"):
+            valid = MegabonkApp.validate_twitch_session(app, log_on_success=False)
+            self.assertEqual(config.TWITCH_BOT["username"], "")
 
         self.assertFalse(valid)
         delete_token.assert_called_once_with()
@@ -923,15 +941,15 @@ class GuiRunControlTests(unittest.TestCase):
             _start_twitch_token_revoke=MagicMock(),
             log=MagicMock(),
         )
-        app._clear_twitch_session_state = lambda: gui.MegabonkApp._clear_twitch_session_state(app)
-        app._set_twitch_disconnected_ui = lambda: gui.MegabonkApp._set_twitch_disconnected_ui(app)
+        app._clear_twitch_session_state = lambda: MegabonkApp._clear_twitch_session_state(app)
+        app._set_twitch_disconnected_ui = lambda: MegabonkApp._set_twitch_disconnected_ui(app)
 
-        with patch.dict(gui.config.TWITCH_BOT, {"username": "bonk"}), patch(
+        with patch.dict(config.TWITCH_BOT, {"username": "bonk"}), patch(
             "gui_twitch.get_twitch_oauth_token", return_value="token"
-        ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch.object(gui.config, "save_config"):
-            gui.MegabonkApp.disconnect_twitch(app)
-            gui.MegabonkApp._on_twitch_token_revoke_finished(app, False, "timeout")
-            self.assertEqual(gui.config.TWITCH_BOT["username"], "")
+        ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch.object(config, "save_config"):
+            MegabonkApp.disconnect_twitch(app)
+            MegabonkApp._on_twitch_token_revoke_finished(app, False, "timeout")
+            self.assertEqual(config.TWITCH_BOT["username"], "")
 
         delete_token.assert_called_once_with()
         app.stop_twitch_bot.assert_called_once_with()
@@ -942,7 +960,7 @@ class GuiRunControlTests(unittest.TestCase):
         status_label = MagicMock()
         app = types.SimpleNamespace(twitch_bot_status_label=status_label)
 
-        gui.MegabonkApp._update_twitch_bot_status_ui(app, "Connected")
+        MegabonkApp._update_twitch_bot_status_ui(app, "Connected")
 
         formatted = status_label.setText.call_args.args[0]
         self.assertNotIn("Status:", formatted)
@@ -965,15 +983,15 @@ class GuiRunControlTests(unittest.TestCase):
             destroy=lambda: destroyed.append(True),
         )
 
-        with patch.object(gui.config, "save_config") as save_config:
-            with patch.object(gui.config, "update_game_reset_time") as update_game_reset_time:
-                gui.SettingsDialog.save(dialog)
+        with patch.object(config, "save_config") as save_config:
+            with patch.object(config, "update_game_reset_time") as update_game_reset_time:
+                SettingsDialog.save(dialog)
 
-        self.assertTrue(gui.config.AUTO_START_RECORDING)
-        self.assertTrue(gui.config.SHOW_OBS_REMINDER_ON_START_SCANNER)
+        self.assertTrue(config.AUTO_START_RECORDING)
+        self.assertTrue(config.SHOW_OBS_REMINDER_ON_START_SCANNER)
         self.assertFalse(master.player_stats_auto_recording_suppressed)
-        self.assertTrue(gui.config.user_config["AUTO_START_RECORDING"])
-        self.assertTrue(gui.config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
+        self.assertTrue(config.user_config["AUTO_START_RECORDING"])
+        self.assertTrue(config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         self.assertTrue(update_game_reset_time.called)
@@ -990,13 +1008,13 @@ class GuiRunControlTests(unittest.TestCase):
             accept=lambda: accepted.append(True),
         )
 
-        with patch.object(gui.config, "save_config") as save_config:
-            gui.TwitchCommandSettingsDialog.save(dialog)
+        with patch.object(config, "save_config") as save_config:
+            TwitchCommandSettingsDialog.save(dialog)
 
-        self.assertEqual(gui.config.TWITCH_BOT["commands_announcement_interval_minutes"], 42)
-        self.assertEqual(gui.config.TWITCH_BOT["highlighted_disabled_items"], ["Anvil"])
+        self.assertEqual(config.TWITCH_BOT["commands_announcement_interval_minutes"], 42)
+        self.assertEqual(config.TWITCH_BOT["highlighted_disabled_items"], ["Anvil"])
         self.assertEqual(accepted, [True])
-        save_config.assert_called_once_with(gui.config.user_config)
+        save_config.assert_called_once_with(config.user_config)
 
     def test_twitch_command_settings_filter_shows_ingame_disabled_items_without_show_all(self) -> None:
         class FakeGridItem:
@@ -1049,7 +1067,7 @@ class GuiRunControlTests(unittest.TestCase):
             },
         )
 
-        gui.TwitchCommandSettingsDialog.filter_disabled_items(dialog)
+        TwitchCommandSettingsDialog.filter_disabled_items(dialog)
 
         self.assertEqual(grid.widgets, [disabled_cb, selected_cb])
         self.assertTrue(disabled_cb.visible)
@@ -1066,34 +1084,34 @@ class GuiRunControlTests(unittest.TestCase):
             commands_announcement_interval_spin=FakeSpinBox(99),
         )
 
-        gui.TwitchCommandSettingsDialog.reset_to_defaults(dialog)
+        TwitchCommandSettingsDialog.reset_to_defaults(dialog)
 
         self.assertEqual(
             dialog.commands_announcement_interval_spin.value(),
-            gui.config.DEFAULT_TWITCH_BOT["commands_announcement_interval_minutes"],
+            config.DEFAULT_TWITCH_BOT["commands_announcement_interval_minutes"],
         )
 
     def test_apply_run_control_mode_enables_keyboard_provider(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.run_control_provider = object()
 
-        gui.MegabonkApp.apply_run_control_mode(app)
+        MegabonkApp.apply_run_control_mode(app)
 
         self.assertIsInstance(app.run_control_provider, KeyboardRunControlProvider)
 
     def test_check_admin_rights_logs_keyboard_warnings_without_admin(self) -> None:
         logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.log = lambda message, tag=None: logs.append((message, tag))
         app.is_running_as_admin = lambda: False
 
-        with patch.object(gui.os, "name", "nt"):
-            gui.MegabonkApp.check_admin_rights(app)
+        with patch.object(os, "name", "nt"):
+            MegabonkApp.check_admin_rights(app)
 
         self.assertTrue(any("WARNING: Script is not running as Administrator" in message for message, _tag in logs))
         self.assertTrue(any("Hotkeys may not work while the game window is active" in message for message, _tag in logs))
     def test_game_window_focus_requires_foreground_pid_match(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.get_game_process_id = lambda: 1234
         fake_gui = SimpleNamespace(
             GetForegroundWindow=lambda: 111,
@@ -1102,10 +1120,10 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch_everywhere("win32gui", fake_gui):
             with patch_everywhere("win32process", fake_process):
-                self.assertFalse(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
+                self.assertFalse(MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
 
     def test_game_window_focus_returns_false_without_game_pid(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.get_game_process_id = lambda: None
         fake_gui = SimpleNamespace(
             GetForegroundWindow=lambda: 111,
@@ -1114,10 +1132,10 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch_everywhere("win32gui", fake_gui):
             with patch_everywhere("win32process", fake_process):
-                self.assertFalse(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
+                self.assertFalse(MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
 
     def test_game_window_focus_can_match_foreground_window_without_scanner_pid(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app._process_id_matches_name = lambda process_id, process_name: (
             process_id == 1234 and process_name == "Megabonk.exe"
         )
@@ -1131,10 +1149,10 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch_everywhere("win32gui", fake_gui):
             with patch_everywhere("win32process", fake_process):
-                self.assertTrue(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
+                self.assertTrue(MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
 
     def test_game_window_focus_recovers_after_game_restarts_with_a_new_pid(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.client = SimpleNamespace(
             memory=SimpleNamespace(_pm=SimpleNamespace(process_id=1234)),
         )
@@ -1149,7 +1167,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch_everywhere("win32gui", fake_gui):
             with patch_everywhere("win32process", fake_process):
-                self.assertTrue(gui.MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
+                self.assertTrue(MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
 
     def test_background_loop_reconnects_new_game_pid_and_keeps_scanning(self) -> None:
         class FakeClient:
@@ -1172,10 +1190,10 @@ class GuiRunControlTests(unittest.TestCase):
         new_client = FakeClient(5678)
         created_clients: list[str] = []
 
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.client = old_client
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
         app.scan_event.set()
         app.is_running = True
         app.is_ready_to_start = True
@@ -1199,7 +1217,7 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(gui_scanner, "GameDataClient", create_client), patch.object(
             gui_scanner, "adapt_map_stats", lambda raw_stats: raw_stats
         ):
-            gui.MegabonkApp.background_loop(app)
+            MegabonkApp.background_loop(app)
 
         self.assertTrue(old_client.closed)
         self.assertEqual(created_clients, ["Megabonk.exe"])
@@ -1210,21 +1228,21 @@ class GuiRunControlTests(unittest.TestCase):
         logs: list[tuple[str, str | None]] = []
         sleeps: list[float] = []
         active_results = [False, False, True]
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.run_control_provider = KeyboardRunControlProvider(
             None,
             reset_hotkey="r",
             reset_hold_duration=0.1,
             map_load_delay=0.2,
         )
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
         app.scan_event.set()
         app.log = lambda message, tag=None: logs.append((message, tag))
         app.is_game_window_active = lambda _process_name: active_results.pop(0)
 
-        with patch.object(gui.time, "sleep", sleeps.append):
-            self.assertTrue(gui.MegabonkApp.wait_for_game_window_focus(app, "Megabonk.exe"))
+        with patch.object(time, "sleep", sleeps.append):
+            self.assertTrue(MegabonkApp.wait_for_game_window_focus(app, "Megabonk.exe"))
 
         self.assertEqual(sleeps, [0.3])
         self.assertIn(("[WAIT] Game window is not active. Auto-reroll paused...", "warning"), logs)
@@ -1233,7 +1251,7 @@ class GuiRunControlTests(unittest.TestCase):
     def test_confirmed_target_in_keyboard_mode_keeps_focus_check_and_esc(self) -> None:
         fake_keyboard = FakeKeyboardModule()
         focus_checks: list[str] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.run_control_provider = KeyboardRunControlProvider(
             fake_keyboard,
             reset_hotkey="r",
@@ -1244,7 +1262,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.bring_game_window_to_front = lambda _process_name: self.fail("keyboard mode should not bring window forward")
 
         with patch_everywhere("keyboard", fake_keyboard):
-            self.assertTrue(gui.MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
+            self.assertTrue(MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
 
         self.assertEqual(focus_checks, ["Megabonk.exe"])
         self.assertEqual(fake_keyboard.press_and_release_calls, ["esc"])
@@ -1255,14 +1273,14 @@ class GuiRunControlTests(unittest.TestCase):
         fake_user32 = FakeUser32()
         fake_windll = FakeWindll(fake_user32, FakeKernel32())
         logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.find_game_window = lambda _process_name: 111
         app.log = lambda message, tag=None: logs.append((message, tag))
 
         with patch_everywhere("win32gui", fake_gui):
             with patch_everywhere("win32process", fake_process):
-                with patch.object(gui.ctypes, "windll", fake_windll):
-                    self.assertTrue(gui.MegabonkApp.bring_game_window_to_front(app, "Megabonk.exe"))
+                with patch.object(ctypes, "windll", fake_windll):
+                    self.assertTrue(MegabonkApp.bring_game_window_to_front(app, "Megabonk.exe"))
 
         self.assertEqual(fake_gui.show_window_calls, [(111, 5)])
         self.assertEqual(fake_gui.set_foreground_calls, [111, 111])
@@ -1284,13 +1302,13 @@ class GuiRunControlTests(unittest.TestCase):
         fake_process = FakeForegroundProcess()
         fake_user32 = FakeUser32()
         fake_windll = FakeWindll(fake_user32, FakeKernel32())
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
 
         with patch_everywhere("win32gui", fake_gui):
             with patch_everywhere("win32process", fake_process):
-                with patch.object(gui.ctypes, "windll", fake_windll):
+                with patch.object(ctypes, "windll", fake_windll):
                     with self.assertRaisesRegex(RuntimeError, "foreground denied"):
-                        gui.MegabonkApp.try_attach_foreground_window(app, 111)
+                        MegabonkApp.try_attach_foreground_window(app, 111)
 
         self.assertEqual(
             fake_user32.attach_calls,
@@ -1304,25 +1322,25 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_toggle_main_loop_clears_stale_scan_event_before_starting_worker(self) -> None:
         logs: list[tuple[object, object | None]] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.scanner_thread = None
         app.checkboxes = {"Any": FakeVar(True)}
         app.refresh_stats_ui = lambda: None
         app.background_loop = lambda: None
         app.update_status_ui = lambda: None
         app.log = lambda message, tag=None: logs.append((message, tag))
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
         app.stop_event.set()
         app.scan_event.set()
         app.is_running = True
         app.is_ready_to_start = True
 
-        with patch.dict(gui.config.user_config, {"SKIP_REROLL_WARNING": True}):
-            with patch.object(gui.config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
-                with patch.object(gui.config, "EVALUATION_MODE", "templates"):
-                    with patch.object(gui.threading, "Thread", FakeThread):
-                        gui.MegabonkApp.toggle_main_loop(app)
+        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}):
+            with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
+                with patch.object(config, "EVALUATION_MODE", "templates"):
+                    with patch.object(threading, "Thread", FakeThread):
+                        MegabonkApp.toggle_main_loop(app)
 
         self.assertFalse(app.scan_event.is_set())
         self.assertFalse(app.stop_event.is_set())
@@ -1332,30 +1350,30 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_toggle_main_loop_logs_scores_tiers_with_colors(self) -> None:
         logs: list[tuple[object, object | None]] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.scanner_thread = None
         app.refresh_stats_ui = lambda: None
         app.background_loop = lambda: None
         app.update_status_ui = lambda: None
         app.log = lambda message, tag=None: logs.append((message, tag))
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
         app.is_running = False
         app.is_ready_to_start = False
 
-        original_scores = deepcopy(gui.config.SCORES_SYSTEM)
-        updated_scores = deepcopy(gui.config.SCORES_SYSTEM)
+        original_scores = deepcopy(config.SCORES_SYSTEM)
+        updated_scores = deepcopy(config.SCORES_SYSTEM)
         updated_scores["active_tiers"] = ["Light", "Perfect", "Perfect+"]
-        gui.config.SCORES_SYSTEM = updated_scores
+        config.SCORES_SYSTEM = updated_scores
 
         try:
-            with patch.dict(gui.config.user_config, {"SKIP_REROLL_WARNING": True}):
-                with patch.object(gui.config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
-                    with patch.object(gui.config, "EVALUATION_MODE", "scores"):
-                        with patch.object(gui.threading, "Thread", FakeThread):
-                            gui.MegabonkApp.toggle_main_loop(app)
+            with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}):
+                with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
+                    with patch.object(config, "EVALUATION_MODE", "scores"):
+                        with patch.object(threading, "Thread", FakeThread):
+                            MegabonkApp.toggle_main_loop(app)
         finally:
-            gui.config.SCORES_SYSTEM = original_scores
+            config.SCORES_SYSTEM = original_scores
 
         self.assertIn(
             (
@@ -1377,7 +1395,7 @@ class GuiRunControlTests(unittest.TestCase):
     def test_toggle_main_loop_shows_obs_reminder_when_enabled(self) -> None:
         logs: list[tuple[object, object | None]] = []
         shown = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.window = object()
         app.scanner_thread = None
         app.checkboxes = {"Any": FakeVar(True)}
@@ -1385,8 +1403,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.background_loop = lambda: None
         app.update_status_ui = lambda: None
         app.log = lambda message, tag=None: logs.append((message, tag))
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
         app.is_running = False
         app.is_ready_to_start = False
         app.obs_recording_reminder_shown = False
@@ -1400,47 +1418,47 @@ class GuiRunControlTests(unittest.TestCase):
                 return 1
 
         with patch.dict(
-            gui.config.user_config,
+            config.user_config,
             {"SKIP_REROLL_WARNING": True, "SHOW_OBS_REMINDER_ON_START_SCANNER": True},
         ):
-            with patch.object(gui.config, "SHOW_OBS_REMINDER_ON_START_SCANNER", True):
-                with patch.object(gui.config, "EVALUATION_MODE", "templates"):
-                    with patch.object(gui.threading, "Thread", FakeThread):
+            with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", True):
+                with patch.object(config, "EVALUATION_MODE", "templates"):
+                    with patch.object(threading, "Thread", FakeThread):
                         with patch("gui_dialogs.ObsRecordingReminderDialog", FakeObsRecordingReminderDialog):
-                            gui.MegabonkApp.toggle_main_loop(app)
+                            MegabonkApp.toggle_main_loop(app)
 
         self.assertEqual(shown, [app.window, "exec"])
         self.assertTrue(app.obs_recording_reminder_shown)
         self.assertTrue(app.scanner_thread.started)
 
         app.scanner_thread = None
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
 
         with patch.dict(
-            gui.config.user_config,
+            config.user_config,
             {"SKIP_REROLL_WARNING": True, "SHOW_OBS_REMINDER_ON_START_SCANNER": True},
         ):
-            with patch.object(gui.config, "SHOW_OBS_REMINDER_ON_START_SCANNER", True):
-                with patch.object(gui.config, "EVALUATION_MODE", "templates"):
-                    with patch.object(gui.threading, "Thread", FakeThread):
+            with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", True):
+                with patch.object(config, "EVALUATION_MODE", "templates"):
+                    with patch.object(threading, "Thread", FakeThread):
                         with patch("gui_dialogs.ObsRecordingReminderDialog", FakeObsRecordingReminderDialog):
-                            gui.MegabonkApp.toggle_main_loop(app)
+                            MegabonkApp.toggle_main_loop(app)
 
         self.assertEqual(shown, [app.window, "exec"])
         self.assertTrue(app.scanner_thread.started)
 
     def test_hotkey_starts_scanning_inside_running_monitor(self) -> None:
         logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.scanner_thread = FakeAliveThread()
-        app.scan_event = gui.threading.Event()
+        app.scan_event = threading.Event()
         app.is_ready_to_start = True
         app.is_running = False
         app.log = lambda message, tag=None: logs.append((message, tag))
         app.update_status_ui = lambda: None
 
-        gui.MegabonkApp.toggle_scan_event(app)
+        MegabonkApp.toggle_scan_event(app)
 
         self.assertTrue(app.is_running)
         self.assertTrue(app.scan_event.is_set())
@@ -1448,16 +1466,16 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_hotkey_pauses_scanning_without_stopping_monitor(self) -> None:
         logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.scanner_thread = FakeAliveThread()
-        app.scan_event = gui.threading.Event()
+        app.scan_event = threading.Event()
         app.scan_event.set()
         app.is_ready_to_start = True
         app.is_running = True
         app.log = lambda message, tag=None: logs.append((message, tag))
         app.update_status_ui = lambda: None
 
-        gui.MegabonkApp.toggle_scan_event(app)
+        MegabonkApp.toggle_scan_event(app)
 
         self.assertFalse(app.is_running)
         self.assertFalse(app.scan_event.is_set())
@@ -1466,15 +1484,15 @@ class GuiRunControlTests(unittest.TestCase):
     def test_setup_hotkeys_registers_supported_hotkeys(self) -> None:
         fake_keyboard = FakeKeyboardModule()
         logs: list[tuple[str, str | None]] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.log = lambda message, tag=None: logs.append((message, tag))
         app.hotkey_toggle_scanning = lambda: None
         app.hotkey_toggle_player_stats_recording = lambda: None
 
         with patch_everywhere("keyboard", fake_keyboard):
-            with patch.object(gui.config, "HOTKEY", "f6"):
-                with patch.object(gui.config, "PLAYER_STATS_RECORD_HOTKEY", "f8"):
-                    gui.MegabonkApp.setup_hotkeys(app)
+            with patch.object(config, "HOTKEY", "f6"):
+                with patch.object(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"):
+                    MegabonkApp.setup_hotkeys(app)
 
         self.assertEqual(fake_keyboard.unhook_all_calls, 0)
         self.assertEqual(len(fake_keyboard.hook_calls), 1)
@@ -1485,7 +1503,7 @@ class GuiRunControlTests(unittest.TestCase):
     def test_hotkey_with_held_game_key_requires_matching_foreground_pid(self) -> None:
         fake_keyboard = FakeKeyboardModule()
         scan_toggles: list[str] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.log = lambda _message, tag=None: None
         app.get_game_process_id = lambda: 1234
         app.hotkey_toggle_scanning = lambda: scan_toggles.append("scan")
@@ -1498,9 +1516,9 @@ class GuiRunControlTests(unittest.TestCase):
         with patch_everywhere("keyboard", fake_keyboard):
             with patch_everywhere("win32gui", fake_gui):
                 with patch_everywhere("win32process", fake_process):
-                    with patch.object(gui.config, "HOTKEY_GAME_KEY_WHITELIST", ("w",)):
-                        with patch.object(gui.config, "HOTKEY", "f6"):
-                            gui.MegabonkApp.setup_hotkeys(app)
+                    with patch.object(config, "HOTKEY_GAME_KEY_WHITELIST", ("w",)):
+                        with patch.object(config, "HOTKEY", "f6"):
+                            MegabonkApp.setup_hotkeys(app)
 
                             hook = fake_keyboard.hook_calls[0]
                             hook(SimpleNamespace(scan_code=fake_keyboard.key_to_scan_codes("w")[0], event_type="down"))
@@ -1509,13 +1527,13 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(scan_toggles, [])
 
     def test_find_game_window_falls_back_to_name_lookup_without_scanner_pid(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.find_game_window_by_name = lambda process_name: 222 if process_name == "Megabonk.exe" else None
 
-        self.assertEqual(gui.MegabonkApp.find_game_window(app, "Megabonk.exe"), 222)
+        self.assertEqual(MegabonkApp.find_game_window(app, "Megabonk.exe"), 222)
 
     def test_find_game_window_by_name_prefers_largest_matching_main_window(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.log = lambda _message, tag=None: None
         app._process_id_matches_name = lambda process_id, process_name: (
             process_name == "megabonk.exe" and process_id in {2001, 2002}
@@ -1550,14 +1568,14 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch_everywhere("win32gui", fake_gui):
             with patch_everywhere("win32process", fake_process):
-                self.assertEqual(gui.MegabonkApp.find_game_window_by_name(app, "Megabonk.exe"), 22)
+                self.assertEqual(MegabonkApp.find_game_window_by_name(app, "Megabonk.exe"), 22)
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:
         loaded_vod = types.SimpleNamespace(
             metadata=types.SimpleNamespace(path=Path("run.jsonl"), name="Run"),
             snapshots=(),
         )
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.loaded_vod = None
         app.loaded_vod_snapshot_index = None
         app.vods_name_entry = None
@@ -1565,7 +1583,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.refresh_vods_list = lambda: None
 
         with patch_everywhere("load_vod", return_value=loaded_vod) as load_vod:
-            gui.MegabonkApp.load_selected_vod(app, "C:/tmp/run.jsonl")
+            MegabonkApp.load_selected_vod(app, "C:/tmp/run.jsonl")
 
         load_vod.assert_called_once_with(Path("C:/tmp/run.jsonl"))
         self.assertIs(app.loaded_vod, loaded_vod)
@@ -1579,7 +1597,7 @@ class GuiRunControlTests(unittest.TestCase):
             metadata=types.SimpleNamespace(path=Path("new.jsonl"), name="New"),
             snapshots=(object(),),
         )
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.loaded_vod = old_vod
         app.loaded_vod_snapshot_index = 0
         app.loaded_vod_compare_start_index = None
@@ -1605,8 +1623,8 @@ class GuiRunControlTests(unittest.TestCase):
             return thread
 
         with patch_everywhere("load_vod", return_value=loaded_vod):
-            with patch.object(gui.threading, "Thread", side_effect=make_thread):
-                gui.MegabonkApp.load_selected_vod(app, "C:/tmp/new.jsonl")
+            with patch.object(threading, "Thread", side_effect=make_thread):
+                MegabonkApp.load_selected_vod(app, "C:/tmp/new.jsonl")
 
                 self.assertIsNone(app.loaded_vod)
                 self.assertFalse(app.vods_name_entry.enabled)
@@ -1618,7 +1636,7 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertFalse(app.vods_compare_clear_btn.isEnabled())
 
                 with patch_everywhere("rename_vod") as rename_vod:
-                    gui.MegabonkApp.rename_selected_vod(app)
+                    MegabonkApp.rename_selected_vod(app)
                 rename_vod.assert_not_called()
 
                 threads[0].target()
@@ -1633,7 +1651,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app.vods_compare_clear_btn.isEnabled())
 
     def test_load_selected_vod_clears_old_ui_when_load_fails(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.loaded_vod = types.SimpleNamespace(snapshots=(object(),))
         app.loaded_vod_snapshot_index = 0
         app.loaded_vod_compare_start_index = None
@@ -1649,7 +1667,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._clear_loaded_vod_selection = MagicMock()
 
         with patch_everywhere("load_vod", side_effect=ValueError("broken file")):
-            gui.MegabonkApp.load_selected_vod(app, "C:/tmp/broken.jsonl")
+            MegabonkApp.load_selected_vod(app, "C:/tmp/broken.jsonl")
 
         app._clear_loaded_vod_selection.assert_called_once_with()
         self.assertIsNone(app.loaded_vod)
@@ -1663,25 +1681,25 @@ class GuiRunControlTests(unittest.TestCase):
     def test_edit_template_dialog_opens_template_manager(self) -> None:
         opened: list[object] = []
         fake_dialog = types.SimpleNamespace(exec=lambda: opened.append("exec"))
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.window = object()
         app.apply_template_edit = lambda original, updated: opened.append((original, updated))
         templates = [{"id": 1, "name": "LIGHT"}]
 
-        with patch.object(gui.config, "TEMPLATES", templates):
+        with patch.object(config, "TEMPLATES", templates):
             with patch_everywhere("TemplateManagerDialog", return_value=fake_dialog) as dialog_cls:
-                gui.MegabonkApp.edit_template_dialog(app)
+                MegabonkApp.edit_template_dialog(app)
 
         dialog_cls.assert_called_once_with(app.window, templates, app.apply_template_edit)
         self.assertEqual(opened, ["exec"])
 
     def test_template_manager_dialog_expands_selected_template(self) -> None:
-        gui.MegabonkApp._ensure_qt_application()
+        MegabonkApp._ensure_qt_application()
         templates = [
             {"id": 1, "name": "LIGHT", "color": "GREEN"},
             {"id": 2, "name": "PERFECT", "color": "YELLOW"},
         ]
-        dialog = gui.TemplateManagerDialog(None, templates, lambda _original, _updated: True)
+        dialog = TemplateManagerDialog(None, templates, lambda _original, _updated: True)
 
         first_details = dialog.card_widgets[1]["details"]
         second_details = dialog.card_widgets[2]["details"]
@@ -1696,10 +1714,10 @@ class GuiRunControlTests(unittest.TestCase):
         dialog.close()
 
     def test_template_manager_dialog_save_updates_template_and_collapses_card(self) -> None:
-        gui.MegabonkApp._ensure_qt_application()
+        MegabonkApp._ensure_qt_application()
         saved: list[tuple[dict, dict]] = []
         templates = [{"id": 9, "name": "Custom", "micro": 1, "color": "MAGENTA"}]
-        dialog = gui.TemplateManagerDialog(None, templates, lambda original, updated: saved.append((original, updated)) or True)
+        dialog = TemplateManagerDialog(None, templates, lambda original, updated: saved.append((original, updated)) or True)
 
         form = dialog.card_widgets[9]["form"]
         form.micro_entry.setText("3")
@@ -1715,7 +1733,7 @@ class GuiRunControlTests(unittest.TestCase):
         dialog.close()
 
     def test_log_reroll_stats_tracks_session_and_persistent_totals(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.session_rerolls = 3
         app.template_stats = {"Perfect": {"rerolls_since_last": 2, "history": []}}
         app.after = lambda _delay, callback: callback()
@@ -1727,23 +1745,23 @@ class GuiRunControlTests(unittest.TestCase):
         app.best_map_stats = None
         app.worst_map_stats = None
 
-        with patch.object(gui.config, "TOTAL_REROLLS", 10):
-            with patch.object(gui.config, "save_config") as save_config:
-                gui.MegabonkApp.log_reroll_stats(app)
+        with patch.object(config, "TOTAL_REROLLS", 10):
+            with patch.object(config, "save_config") as save_config:
+                MegabonkApp.log_reroll_stats(app)
 
                 self.assertEqual(app.session_rerolls, 4)
                 self.assertEqual(app.template_stats["Perfect"]["rerolls_since_last"], 3)
-                self.assertEqual(gui.config.TOTAL_REROLLS, 11)
-                self.assertEqual(gui.config.user_config["TOTAL_REROLLS"], 11)
+                self.assertEqual(config.TOTAL_REROLLS, 11)
+                self.assertEqual(config.user_config["TOTAL_REROLLS"], 11)
                 save_config.assert_not_called()
                 self.assertTrue(app._total_rerolls_dirty)
                 self.assertEqual(refreshed_twitch_snapshots, [4])
 
-                gui.MegabonkApp._flush_total_rerolls(app, force=True)
-                save_config.assert_called_once_with(gui.config.user_config)
+                MegabonkApp._flush_total_rerolls(app, force=True)
+                save_config.assert_called_once_with(config.user_config)
 
     def test_save_checkbox_state_updates_runtime_templates_without_restart(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.checkboxes = {
             "Alpha": FakeCheckbox(True),
             "Beta": FakeCheckbox(False),
@@ -1762,20 +1780,20 @@ class GuiRunControlTests(unittest.TestCase):
         logs: list[tuple[str, str | None]] = []
         app.log = lambda message, tag=None: logs.append((message, tag))
 
-        with patch.object(gui.config, "EVALUATION_MODE", "templates"):
-            with patch.object(gui.config, "save_config") as save_config:
-                gui.MegabonkApp.save_checkbox_state(app)
+        with patch.object(config, "EVALUATION_MODE", "templates"):
+            with patch.object(config, "save_config") as save_config:
+                MegabonkApp.save_checkbox_state(app)
 
-        self.assertEqual(gui.config.ACTIVE_TEMPLATES, ["Alpha", "Gamma"])
+        self.assertEqual(config.ACTIVE_TEMPLATES, ["Alpha", "Gamma"])
         self.assertEqual(app.active_templates, ["Alpha", "Gamma"])
         self.assertEqual(app.template_stats["Alpha"]["history"], [3])
         self.assertEqual(app.template_stats["Gamma"], {"rerolls_since_last": 0, "history": []})
         self.assertEqual(app.template_stats["Beta"], {"rerolls_since_last": 1, "history": [4]})
         self.assertEqual(logs, [("[*] Active templates updated live: Alpha, Gamma", None)])
-        save_config.assert_called_once_with(gui.config.user_config)
+        save_config.assert_called_once_with(config.user_config)
 
     def test_format_stats_includes_bald_heads_when_active_template_requires_it(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.active_templates = ["BALD"]
         stats = {
             "Shady Guy": 1,
@@ -1787,15 +1805,15 @@ class GuiRunControlTests(unittest.TestCase):
             "Bald Heads": 4,
         }
 
-        with patch.object(gui.config, "EVALUATION_MODE", "templates"):
-            with patch.object(gui.config, "TEMPLATES", [{"name": "BALD", "bald_heads": 2}]):
-                text = gui.MegabonkApp.format_stats(app, stats)
+        with patch.object(config, "EVALUATION_MODE", "templates"):
+            with patch.object(config, "TEMPLATES", [{"name": "BALD", "bald_heads": 2}]):
+                text = MegabonkApp.format_stats(app, stats)
 
         self.assertIn("Bald Heads: 4", text)
         self.assertIn("Microwaves: 7", text)
 
     def test_refresh_scores_ui_updates_runtime_tiers_without_restart(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.scores_desc_label = SimpleNamespace(setHtml=lambda _text: None)
         app.scores_checkboxes = {
             "Light": FakeCheckbox(True),
@@ -1811,17 +1829,17 @@ class GuiRunControlTests(unittest.TestCase):
         logs: list[tuple[str, str | None]] = []
         app.log = lambda message, tag=None: logs.append((message, tag))
 
-        original_scores = deepcopy(gui.config.SCORES_SYSTEM)
-        updated_scores = deepcopy(gui.config.SCORES_SYSTEM)
+        original_scores = deepcopy(config.SCORES_SYSTEM)
+        updated_scores = deepcopy(config.SCORES_SYSTEM)
         updated_scores["active_tiers"] = ["Good"]
-        gui.config.SCORES_SYSTEM = updated_scores
-        gui.config.user_config["SCORES_SYSTEM"] = updated_scores
+        config.SCORES_SYSTEM = updated_scores
+        config.user_config["SCORES_SYSTEM"] = updated_scores
 
-        with patch.object(gui.config, "EVALUATION_MODE", "scores"):
-            with patch.object(gui.config, "save_config") as save_config:
-                gui.MegabonkApp.refresh_scores_ui(app)
+        with patch.object(config, "EVALUATION_MODE", "scores"):
+            with patch.object(config, "save_config") as save_config:
+                MegabonkApp.refresh_scores_ui(app)
 
-        self.assertEqual(gui.config.SCORES_SYSTEM["active_tiers"], ["Light", "Perfect"])
+        self.assertEqual(config.SCORES_SYSTEM["active_tiers"], ["Light", "Perfect"])
         self.assertEqual(
             app.template_stats,
             {
@@ -1831,15 +1849,15 @@ class GuiRunControlTests(unittest.TestCase):
             },
         )
         self.assertEqual(logs, [("[*] Active tiers updated live: Light, Perfect", None)])
-        save_config.assert_called_once_with(gui.config.user_config)
-        gui.config.SCORES_SYSTEM = original_scores
-        gui.config.user_config["SCORES_SYSTEM"] = original_scores
+        save_config.assert_called_once_with(config.user_config)
+        config.SCORES_SYSTEM = original_scores
+        config.user_config["SCORES_SYSTEM"] = original_scores
 
     def test_background_loop_cleanup_clears_scan_event_after_stop_wake(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.client = None
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
         app.stop_event.set()
         app.scan_event.set()
         app.is_running = True
@@ -1847,7 +1865,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.after = lambda _delay, callback: callback()
         app.update_status_ui = lambda: None
 
-        gui.MegabonkApp.background_loop(app)
+        MegabonkApp.background_loop(app)
 
         self.assertFalse(app.scan_event.is_set())
         self.assertFalse(app.is_running)
@@ -1868,10 +1886,10 @@ class GuiRunControlTests(unittest.TestCase):
                 self.get_map_stats_calls += 1
                 return {"Moais": 999}
 
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.client = FakeClient()
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
         app.scan_event.set()
         app.is_running = True
         app.is_ready_to_start = True
@@ -1887,22 +1905,22 @@ class GuiRunControlTests(unittest.TestCase):
         app.log = lambda _message, tag=None: None
 
         with patch_everywhere("adapt_map_stats", lambda raw_stats: raw_stats):
-            gui.MegabonkApp.background_loop(app)
+            MegabonkApp.background_loop(app)
 
         self.assertEqual(app.client.get_map_stats_calls, 0)
 
     def test_reroll_map_returns_false_when_scan_is_paused(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.run_control_provider = SimpleNamespace(
             restart_run=lambda: self.fail("restart_run should not be called while paused"),
             wait_for_next_run=lambda **_kwargs: self.fail("wait_for_next_run should not be called while paused"),
         )
         app.client = None
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
         app.log = lambda _message, tag=None: None
 
-        self.assertFalse(gui.MegabonkApp.reroll_map(app))
+        self.assertFalse(MegabonkApp.reroll_map(app))
 
     def test_recording_run_state_split_starts_new_file_when_seed_changes(self) -> None:
         # stage_index fell (2 -> 0): a new run started, even though the timer
@@ -1919,7 +1937,7 @@ class GuiRunControlTests(unittest.TestCase):
             [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000, stage_index=0)]
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertEqual(action, "split")
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
@@ -1945,7 +1963,7 @@ class GuiRunControlTests(unittest.TestCase):
             [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000, stage_index=1)]
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertIsNone(action)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
@@ -1969,7 +1987,7 @@ class GuiRunControlTests(unittest.TestCase):
             [SimpleNamespace(map_seed=111, current_stage_ptr=0x2000, stage_index=1)]
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertIsNone(action)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
@@ -2002,7 +2020,7 @@ class GuiRunControlTests(unittest.TestCase):
             [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000, stage_index=1)]
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertIsNone(action)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
@@ -2025,7 +2043,7 @@ class GuiRunControlTests(unittest.TestCase):
             [SimpleNamespace(map_seed=111, current_stage_ptr=0x2000, stage_index=None)]
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertIsNone(action)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
@@ -2051,7 +2069,7 @@ class GuiRunControlTests(unittest.TestCase):
             [SimpleNamespace(map_seed=999, current_stage_ptr=0x9000, stage_index=0)]
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertEqual(action, "split")
         self.assertEqual(app.player_stats_recording_seed, 999)
@@ -2070,7 +2088,7 @@ class GuiRunControlTests(unittest.TestCase):
             [SimpleNamespace(map_seed=999, current_stage_ptr=0x9000, stage_index=0)]
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertIsNone(action)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
@@ -2078,7 +2096,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_recording_stage_index, 0)
 
     def test_stage_index_signals_new_run_direct(self) -> None:
-        signals = gui.MegabonkApp._stage_index_signals_new_run
+        signals = MegabonkApp._stage_index_signals_new_run
         # index unreadable -> do not decide
         self.assertIsNone(signals(1, None, 100.0, 50.0))
         # no baseline yet -> adopt without splitting
@@ -2100,15 +2118,15 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_recording_seed = 111
         app.player_stats_game_data_client = FakeSeedStateClient([None, None])
 
-        with patch.object(gui.time, "monotonic", return_value=100.0):
-            first_action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        with patch.object(time, "monotonic", return_value=100.0):
+            first_action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         with patch.object(
-            gui.time,
+            time,
             "monotonic",
-            return_value=100.0 + gui.PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
+            return_value=100.0 + PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
         ):
-            second_action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+            second_action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertIsNone(first_action)
         self.assertEqual(second_action, "stopped")
@@ -2125,7 +2143,7 @@ class GuiRunControlTests(unittest.TestCase):
             is_paused=True,
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertEqual(action, "paused")
         self.assertTrue(app.player_stats_vod_recorder.is_recording)
@@ -2149,7 +2167,7 @@ class GuiRunControlTests(unittest.TestCase):
             is_paused=True,
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertEqual(action, "paused")
         self.assertEqual(
@@ -2166,7 +2184,7 @@ class GuiRunControlTests(unittest.TestCase):
             is_game_over=True,
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertEqual(action, "waiting")
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
@@ -2181,7 +2199,7 @@ class GuiRunControlTests(unittest.TestCase):
             mode=RuntimeGameMode.MAIN_MENU,
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertEqual(action, "waiting")
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
@@ -2203,7 +2221,7 @@ class GuiRunControlTests(unittest.TestCase):
             current_stage_ptr=0x3000,
         )
 
-        action = gui.MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = MegabonkApp._sync_player_stats_recording_run_state(app)
 
         self.assertEqual(action, "started")
         self.assertTrue(app.player_stats_vod_recorder.is_recording)
@@ -2218,12 +2236,12 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_recording_waiting_mode = RuntimeGameMode.MAIN_MENU.value
         app.refresh_live_player_stats_now = lambda *args, **kwargs: None
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", True):
-            self.assertTrue(gui.MegabonkApp._is_player_stats_recording_armed(app))
+        with patch.object(config, "AUTO_START_RECORDING", True):
+            self.assertTrue(MegabonkApp._is_player_stats_recording_armed(app))
 
-            gui.MegabonkApp.toggle_player_stats_recording(app)
+            MegabonkApp.toggle_player_stats_recording(app)
 
-            self.assertFalse(gui.MegabonkApp._is_player_stats_recording_armed(app))
+            self.assertFalse(MegabonkApp._is_player_stats_recording_armed(app))
 
         self.assertTrue(app.player_stats_auto_recording_suppressed)
         self.assertFalse(app.player_stats_recording_armed)
@@ -2237,8 +2255,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder.is_recording = False
         app.player_stats_auto_recording_suppressed = True
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", True):
-            started = gui.MegabonkApp._maybe_auto_start_player_stats_recording(
+        with patch.object(config, "AUTO_START_RECORDING", True):
+            started = MegabonkApp._maybe_auto_start_player_stats_recording(
                 app,
                 stats={"Damage": SimpleNamespace(display_value="123", value=1.23)},
                 run_timer_seconds=21.5,
@@ -2311,7 +2329,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "200")
         self.assertEqual(rows[0]["time"], "01:00")
@@ -2356,7 +2374,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "92,100")
         self.assertEqual(rows[0]["time"], "22:00")
@@ -2399,7 +2417,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["time"], "22:00")
 
@@ -2447,7 +2465,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[2]["kills"], "3,000")
         self.assertEqual(rows[2]["time"], "01:20")
@@ -2498,7 +2516,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[2]["kills"], "50")
         self.assertEqual(rows[2]["time"], "00:12")
@@ -2548,7 +2566,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[2]["kills"], "1,000")
         self.assertEqual(rows[2]["time"], "05:10")
@@ -2599,7 +2617,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[2]["kills"], "0")
         self.assertEqual(rows[2]["time"], "00:00")
@@ -2666,7 +2684,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "200")
         self.assertEqual(rows[1]["kills"], "60")
@@ -2693,7 +2711,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["time"], "22:00")
 
@@ -2733,7 +2751,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "128")
 
@@ -2781,7 +2799,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[1]["kills"], "6,500")
 
@@ -2805,7 +2823,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertIn("#FACC15", rows[0]["items"])
         self.assertIn("#22C55E", rows[0]["items"])
@@ -2838,7 +2856,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["item_rarities"]["COMMON"], 1)
         self.assertNotIn("759271589", rows[0]["items"])
@@ -2879,7 +2897,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["items"].count("&#9679;"), 1)
         self.assertIn(">1</span>", rows[0]["items"])
@@ -2904,7 +2922,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertIn(">1</span>", rows[0]["items"])
 
@@ -2952,7 +2970,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertIn(">2</span>", rows[0]["items"])
 
@@ -2978,7 +2996,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "250")
@@ -3007,7 +3025,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "--")
@@ -3039,7 +3057,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "--")
@@ -3071,7 +3089,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
         ]
 
-        rows = gui.MegabonkApp.build_stage_summary(snapshots)
+        rows = MegabonkApp.build_stage_summary(snapshots)
 
         self.assertEqual(rows[0]["kills"], "--")
         self.assertEqual(rows[1]["kills"], "--")
@@ -3080,7 +3098,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(rows[3]["time"], "01:00")
 
     def test_item_total_count_includes_stacks_and_duplicate_entries(self) -> None:
-        total = gui.MegabonkApp._item_total_count(
+        total = MegabonkApp._item_total_count(
             ("Wrench x3", "Anvil x2", "Anvil x1", "Moldy Cheese")
         )
 
@@ -3090,15 +3108,15 @@ class GuiRunControlTests(unittest.TestCase):
         items = ("Wrench x1", "Anvil x1", "Beacon x1", "Spiky Shield x1", "Key x1")
 
         self.assertEqual(
-            gui.MegabonkApp.sort_items_for_display(items, gui.ITEM_SORT_DEFAULT),
+            MegabonkApp.sort_items_for_display(items, ITEM_SORT_DEFAULT),
             items,
         )
         self.assertEqual(
-            gui.MegabonkApp.sort_items_for_display(items, gui.ITEM_SORT_RARITY_DESC),
+            MegabonkApp.sort_items_for_display(items, ITEM_SORT_RARITY_DESC),
             ("Anvil x1", "Spiky Shield x1", "Beacon x1", "Wrench x1", "Key x1"),
         )
         self.assertEqual(
-            gui.MegabonkApp.sort_items_for_display(items, gui.ITEM_SORT_RARITY_ASC),
+            MegabonkApp.sort_items_for_display(items, ITEM_SORT_RARITY_ASC),
             ("Wrench x1", "Key x1", "Beacon x1", "Spiky Shield x1", "Anvil x1"),
         )
 
@@ -3113,7 +3131,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_twitch_bot_active = lambda: False
 
         def failing_read_player_stats_only() -> tuple[dict[str, object], int]:
-            raise gui.ProcessNotFoundError("game closed")
+            raise ProcessNotFoundError("game closed")
 
         app.read_player_stats_only = failing_read_player_stats_only
 
@@ -3125,17 +3143,17 @@ class GuiRunControlTests(unittest.TestCase):
         # which is the whole point of the fallback.
         with patch.object(player_stats_memory, "GameDataClient", return_value=fallback_client), \
              patch.object(player_stats_refresh, "GameDataClient", return_value=fallback_client):
-            with patch.object(gui.config, "AUTO_START_RECORDING", False), \
-                 patch.object(gui.time, "monotonic", return_value=100.0):
-                gui.MegabonkApp.update_player_stats_timer(app)
+            with patch.object(config, "AUTO_START_RECORDING", False), \
+                 patch.object(time, "monotonic", return_value=100.0):
+                MegabonkApp.update_player_stats_timer(app)
 
-            with patch.object(gui.config, "AUTO_START_RECORDING", False), \
+            with patch.object(config, "AUTO_START_RECORDING", False), \
                  patch.object(
-                    gui.time,
+                    time,
                     "monotonic",
-                    return_value=100.0 + gui.PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
+                    return_value=100.0 + PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
                 ):
-                gui.MegabonkApp.update_player_stats_timer(app)
+                MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
@@ -3149,7 +3167,7 @@ class GuiRunControlTests(unittest.TestCase):
             tick=lambda: (_ for _ in ()).throw(RuntimeError("lifecycle failed")),
             schedule=lambda delay, callback: schedule_calls.append((delay, callback)),
             is_active=lambda: True,
-            interval_ms=lambda: int(gui.config.FAST_TRACKER_INTERVAL_MS),
+            interval_ms=lambda: int(config.FAST_TRACKER_INTERVAL_MS),
         )
 
         with self.assertRaisesRegex(RuntimeError, "lifecycle failed"):
@@ -3157,7 +3175,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(
             schedule_calls,
-            [(int(gui.config.FAST_TRACKER_INTERVAL_MS), loop._step)],
+            [(int(config.FAST_TRACKER_INTERVAL_MS), loop._step)],
         )
 
     def test_refresh_loop_does_not_reschedule_once_inactive(self) -> None:
@@ -3197,11 +3215,11 @@ class GuiRunControlTests(unittest.TestCase):
         app._sync_player_stats_recording_run_state = lambda: sync_calls.append(1) and None
 
         now = [1000.0]
-        with patch.object(gui.time, "monotonic", side_effect=lambda: now[0]), \
-             patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
+        with patch.object(time, "monotonic", side_effect=lambda: now[0]), \
+             patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
             for _ in range(40):  # 40 ticks x 500 ms = 20 s of driver time
-                gui.MegabonkApp.update_player_stats_timer(app)
+                MegabonkApp.update_player_stats_timer(app)
                 now[0] += 0.5
 
         # 20 s of ticking / the task's 1 s interval -- not 40, which is what
@@ -3231,11 +3249,11 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         now = [1000.0]
-        with patch.object(gui.time, "monotonic", side_effect=lambda: now[0]), \
-             patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
+        with patch.object(time, "monotonic", side_effect=lambda: now[0]), \
+             patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
             for _ in range(20):  # 10 s of driver time
-                gui.MegabonkApp.update_player_stats_timer(app)
+                MegabonkApp.update_player_stats_timer(app)
                 now[0] += 0.5
 
         self.assertEqual(heavy_reads, [], "the sync must not issue its own uncached read")
@@ -3254,7 +3272,7 @@ class GuiRunControlTests(unittest.TestCase):
             RuntimeError("lifecycle failed")
         )
 
-        gui.MegabonkApp.update_player_stats_timer(app)
+        MegabonkApp.update_player_stats_timer(app)
 
         diagnostics = {
             entry.task_id: entry
@@ -3263,13 +3281,13 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("lifecycle failed", diagnostics["recording_lifecycle"].last_error or "")
 
     def test_refresh_right_tab_after_switch_immediately_refreshes_live_stats(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.tabview = FakeTabWidget("Live Stats")
         calls: list[str] = []
         app.refresh_vods_list = lambda: calls.append("vods")
         app.refresh_live_player_stats_now = lambda *args, **kwargs: calls.append("live")
 
-        gui.MegabonkApp._refresh_right_tab_after_switch(app)
+        MegabonkApp._refresh_right_tab_after_switch(app)
 
         self.assertEqual(calls, ["live"])
 
@@ -3288,9 +3306,9 @@ class GuiRunControlTests(unittest.TestCase):
         read_calls: list[str] = []
         app.read_player_stats_only = lambda: read_calls.append("stats") or ({}, 0x1234)
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
-            gui.MegabonkApp.update_player_stats_timer(app)
+        with patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
+            MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(read_calls, [])
     def test_update_player_stats_timer_refreshes_hidden_live_stats_when_auto_start_enabled(self) -> None:
@@ -3304,8 +3322,8 @@ class GuiRunControlTests(unittest.TestCase):
         refresh_calls: list[str] = []
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", True):
-            gui.MegabonkApp.update_player_stats_timer(app)
+        with patch.object(config, "AUTO_START_RECORDING", True):
+            MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(refresh_calls, ["refresh"])
     def test_update_player_stats_timer_refreshes_hidden_live_stats_when_in_game_overlay_luck_rarity_enabled(self) -> None:
@@ -3327,9 +3345,9 @@ class GuiRunControlTests(unittest.TestCase):
                 "luck_rarity": {"enabled": True},
             },
         }
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp.update_player_stats_timer(app)
+        with patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(refresh_calls, ["refresh"])
     def test_update_player_stats_timer_refreshes_hidden_live_stats_when_in_game_overlay_stats_enabled(self) -> None:
@@ -3351,9 +3369,9 @@ class GuiRunControlTests(unittest.TestCase):
                 "stats": {"enabled": True},
             },
         }
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp.update_player_stats_timer(app)
+        with patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(refresh_calls, ["refresh"])
     def test_update_player_stats_timer_refreshes_hidden_live_stats_when_in_game_overlay_event_timer_enabled(self) -> None:
@@ -3375,9 +3393,9 @@ class GuiRunControlTests(unittest.TestCase):
                 "event_timer": {"enabled": True},
             },
         }
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp.update_player_stats_timer(app)
+        with patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp.update_player_stats_timer(app)
 
         self.assertEqual(refresh_calls, ["refresh"])
     def test_powerup_demand_is_active_when_in_game_overlay_powerups_enabled(self) -> None:
@@ -3395,9 +3413,9 @@ class GuiRunControlTests(unittest.TestCase):
                 "kps": {"enabled": False},
             },
         }
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            self.assertTrue(gui.MegabonkApp._should_refresh_powerup_tracker(app))
+        with patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            self.assertTrue(MegabonkApp._should_refresh_powerup_tracker(app))
 
     def test_combat_demand_is_active_when_in_game_overlay_kps_enabled(self) -> None:
         app = self.build_recording_app()
@@ -3414,9 +3432,9 @@ class GuiRunControlTests(unittest.TestCase):
                 "kps": {"enabled": True},
             },
         }
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            self.assertTrue(gui.MegabonkApp._should_refresh_fast_kps(app))
+        with patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            self.assertTrue(MegabonkApp._should_refresh_fast_kps(app))
 
     def test_event_timer_demand_is_active_when_in_game_overlay_event_timer_enabled(self) -> None:
         app = self.build_recording_app()
@@ -3434,9 +3452,9 @@ class GuiRunControlTests(unittest.TestCase):
                 "event_timer": {"enabled": True},
             },
         }
-        with patch.object(gui.config, "AUTO_START_RECORDING", False), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            self.assertTrue(gui.MegabonkApp._should_refresh_fast_stage_timer(app))
+        with patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            self.assertTrue(MegabonkApp._should_refresh_fast_stage_timer(app))
 
     def test_stage_summary_fast_demands_are_active_for_twitch_stages(self) -> None:
         app = self.build_recording_app()
@@ -3445,28 +3463,28 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_twitch_bot_active = lambda: True
 
         twitch_cfg = {
-            **gui.config.TWITCH_BOT,
+            **config.TWITCH_BOT,
             "stage_announcements": False,
             "commands": {
-                **gui.config.TWITCH_BOT.get("commands", {}),
+                **config.TWITCH_BOT.get("commands", {}),
                 "kps": False,
                 "stages": True,
             },
         }
-        with patch.object(gui.config, "TWITCH_BOT", twitch_cfg), \
-             patch.object(gui.config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}), \
-             patch.object(gui.config, "OVERLAY", {"widgets": []}):
-            self.assertTrue(gui.MegabonkApp._should_refresh_fast_kps(app))
-            self.assertTrue(gui.MegabonkApp._should_refresh_fast_stage_timer(app))
+        with patch.object(config, "TWITCH_BOT", twitch_cfg), \
+             patch.object(config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}), \
+             patch.object(config, "OVERLAY", {"widgets": []}):
+            self.assertTrue(MegabonkApp._should_refresh_fast_kps(app))
+            self.assertTrue(MegabonkApp._should_refresh_fast_stage_timer(app))
 
     def test_stage_timer_demand_is_active_while_recording(self) -> None:
         app = self.build_recording_app()
         app._is_live_stats_tab_active = lambda: False
         app._is_twitch_bot_active = lambda: False
 
-        with patch.object(gui.config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}), \
-             patch.object(gui.config, "OVERLAY", {"widgets": []}):
-            self.assertTrue(gui.MegabonkApp._should_refresh_fast_stage_timer(app))
+        with patch.object(config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}), \
+             patch.object(config, "OVERLAY", {"widgets": []}):
+            self.assertTrue(MegabonkApp._should_refresh_fast_stage_timer(app))
 
 
     def test_should_refresh_powerup_tracker_when_event_timer_enabled(self) -> None:
@@ -3481,11 +3499,11 @@ class GuiRunControlTests(unittest.TestCase):
                 "event_timer": {"enabled": True},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            self.assertTrue(gui.MegabonkApp._should_refresh_powerup_tracker(app))
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            self.assertTrue(MegabonkApp._should_refresh_powerup_tracker(app))
 
     def test_refresh_live_player_stats_now_keeps_stats_when_items_fail(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
@@ -3522,7 +3540,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         def fail_items(owner_stats=None):
-            raise gui.MemoryReadError("items missing")
+            raise MemoryReadError("items missing")
 
         app.read_passive_items_only = fail_items
         app.live_run_tracker = SimpleNamespace(
@@ -3533,8 +3551,8 @@ class GuiRunControlTests(unittest.TestCase):
             current_ui_kps=lambda: None,
         )
         app.overlay_state_store = None
-        with patch.object(gui.config, "AUTO_START_RECORDING", False):
-            result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        with patch.object(config, "AUTO_START_RECORDING", False):
+            result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
         self.assertEqual(app.player_stats_status_label.text(), "Live player stats")
@@ -3553,17 +3571,17 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True)
         app.player_stats_status_label.setText("Live player stats (recording)")
         app._read_live_player_stats_data = lambda: (_ for _ in ()).throw(
-            gui.MemoryReadError("transient player read")
+            MemoryReadError("transient player read")
         )
 
-        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertFalse(result)
         self.assertTrue(app.player_stats_vod_recorder.is_recording)
         self.assertEqual(app.player_stats_status_label.text(), "Live player stats (recording)")
 
     def test_refresh_chaos_tome_tracker_updates_powerups_when_in_game_overlay_window_is_not_visible(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
@@ -3595,16 +3613,16 @@ class GuiRunControlTests(unittest.TestCase):
                 "kps": {"enabled": False},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg), \
-             patch.object(gui.time, "monotonic", return_value=100.0):
-            self.assertTrue(gui.MegabonkApp._refresh_powerups_task(app, RefreshTickContext()))
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), \
+             patch.object(time, "monotonic", return_value=100.0):
+            self.assertTrue(MegabonkApp._refresh_powerups_task(app, RefreshTickContext()))
 
         self.assertEqual(powerup_reads, [0x1234])
         self.assertEqual(powerup_updates, [powerup_snapshot])
         self.assertEqual(refreshed, ["label"])
 
     def test_refresh_chaos_tome_tracker_updates_fast_stage_timer_when_event_timer_enabled(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
@@ -3637,9 +3655,9 @@ class GuiRunControlTests(unittest.TestCase):
                 "event_timer": {"enabled": True},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg), \
-             patch.object(gui.time, "monotonic", return_value=100.0):
-            self.assertTrue(gui.MegabonkApp._refresh_event_timer_task(app, RefreshTickContext()))
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), \
+             patch.object(time, "monotonic", return_value=100.0):
+            self.assertTrue(MegabonkApp._refresh_event_timer_task(app, RefreshTickContext()))
 
         self.assertEqual(
             fast_stage_updates,
@@ -3653,7 +3671,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
     def test_refresh_chaos_tome_tracker_updates_kps_when_in_game_overlay_window_is_not_visible(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
@@ -3683,16 +3701,16 @@ class GuiRunControlTests(unittest.TestCase):
                 "kps": {"enabled": True},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg), \
-             patch.object(gui.time, "monotonic", return_value=100.0):
-            self.assertTrue(gui.MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), \
+             patch.object(time, "monotonic", return_value=100.0):
+            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
 
         self.assertEqual(run_timer_reads, [1])
         self.assertEqual(mob_kill_reads, [1])
         self.assertEqual(tracked_kills, [(21.5, 37)])
 
     def test_owner_stats_is_shared_by_due_fast_tasks(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         owner_reads: list[str] = []
         client = SimpleNamespace(
             resolve_owner_stats=lambda: owner_reads.append("owner") or 0x1234,
@@ -3709,20 +3727,20 @@ class GuiRunControlTests(unittest.TestCase):
         )
         context = RefreshTickContext()
 
-        self.assertTrue(gui.MegabonkApp._refresh_powerups_task(app, context))
-        self.assertTrue(gui.MegabonkApp._refresh_expected_chest_inputs_task(app, context))
-        self.assertTrue(gui.MegabonkApp._refresh_chaos_tome_task(app, context))
+        self.assertTrue(MegabonkApp._refresh_powerups_task(app, context))
+        self.assertTrue(MegabonkApp._refresh_expected_chest_inputs_task(app, context))
+        self.assertTrue(MegabonkApp._refresh_chaos_tome_task(app, context))
 
         self.assertEqual(owner_reads, ["owner"])
 
     def test_powerup_failure_does_not_block_other_owner_tasks(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         expected_updates: list[tuple[int, int]] = []
         chaos_updates: list[dict[str, object]] = []
         client = SimpleNamespace(
             resolve_owner_stats=lambda: 0x1234,
             get_powerup_tracking_snapshot=lambda _owner: (_ for _ in ()).throw(
-                gui.MemoryReadError("powerups unavailable")
+                MemoryReadError("powerups unavailable")
             ),
             get_expected_chest_inputs=lambda _owner: (7, 3),
             get_chaos_tracking_state=lambda _owner: (2, {1: ()}),
@@ -3736,15 +3754,15 @@ class GuiRunControlTests(unittest.TestCase):
         )
         context = RefreshTickContext()
 
-        self.assertFalse(gui.MegabonkApp._refresh_powerups_task(app, context))
-        self.assertTrue(gui.MegabonkApp._refresh_expected_chest_inputs_task(app, context))
-        self.assertTrue(gui.MegabonkApp._refresh_chaos_tome_task(app, context))
+        self.assertFalse(MegabonkApp._refresh_powerups_task(app, context))
+        self.assertTrue(MegabonkApp._refresh_expected_chest_inputs_task(app, context))
+        self.assertTrue(MegabonkApp._refresh_chaos_tome_task(app, context))
 
         self.assertEqual(expected_updates, [(7, 3)])
         self.assertEqual(chaos_updates, [{"chaos_level": 2, "permanent_modifiers": {1: ()}}])
 
     def test_repeated_memory_errors_close_cached_player_stats_client(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         closed: list[str] = []
         app.player_stats_client = SimpleNamespace(close=lambda: closed.append("closed"))
         app.player_stats_last_seed = 1
@@ -3756,20 +3774,20 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app.player_stats_client.resolve_owner_stats = lambda: 0x1234
         app.player_stats_client.get_chaos_tracking_state = (
-            lambda _owner: (_ for _ in ()).throw(gui.MemoryReadError("stale handle"))
+            lambda _owner: (_ for _ in ()).throw(MemoryReadError("stale handle"))
         )
 
-        self.assertFalse(gui.MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
-        self.assertFalse(gui.MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
+        self.assertFalse(MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
+        self.assertFalse(MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
         self.assertIsNotNone(app.player_stats_client)
         self.assertEqual(closed, [])
 
-        self.assertFalse(gui.MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
+        self.assertFalse(MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
         self.assertIsNone(app.player_stats_client)
         self.assertEqual(closed, ["closed"])
 
     def test_successful_memory_read_resets_error_streak(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app._player_stats_memory_error_streak = 2
         app.player_stats_client = SimpleNamespace(
             resolve_owner_stats=lambda: 0x1234,
@@ -3779,11 +3797,11 @@ class GuiRunControlTests(unittest.TestCase):
             update_chaos_tome=lambda **_kwargs: None,
         )
 
-        self.assertTrue(gui.MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
+        self.assertTrue(MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
         self.assertEqual(app._player_stats_memory_error_streak, 0)
 
     def test_chaos_refresh_throttles_expected_chest_reads_to_500ms(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         expected_reads: list[int] = []
         tracked: list[tuple[int, int]] = []
         client = SimpleNamespace(
@@ -3804,16 +3822,16 @@ class GuiRunControlTests(unittest.TestCase):
             current_ui_kps=lambda: None,
         )
 
-        with patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 100.5)):
-            self.assertTrue(gui.MegabonkApp._refresh_expected_chest_inputs_task(app, RefreshTickContext()))
-            self.assertTrue(gui.MegabonkApp._refresh_expected_chest_inputs_task(app, RefreshTickContext()))
-            self.assertTrue(gui.MegabonkApp._refresh_expected_chest_inputs_task(app, RefreshTickContext()))
+        with patch.object(time, "monotonic", side_effect=(100.0, 100.25, 100.5)):
+            self.assertTrue(MegabonkApp._refresh_expected_chest_inputs_task(app, RefreshTickContext()))
+            self.assertTrue(MegabonkApp._refresh_expected_chest_inputs_task(app, RefreshTickContext()))
+            self.assertTrue(MegabonkApp._refresh_expected_chest_inputs_task(app, RefreshTickContext()))
 
         self.assertEqual(expected_reads, [0x1234, 0x1234, 0x1234])
         self.assertEqual(tracked, [(7, 3), (7, 3), (7, 3)])
 
     def test_chaos_refresh_throttles_fast_kps_reads_to_one_second(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         run_timer_reads: list[int] = []
         mob_kill_reads: list[int] = []
         tracked_kills: list[tuple[float, int]] = []
@@ -3843,13 +3861,13 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         with patch.object(
-            gui.config,
+            config,
             "OVERLAY",
             {"widgets": [{"id": "kps", "enabled": True}]},
-        ), patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
-            self.assertTrue(gui.MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
-            self.assertTrue(gui.MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
-            self.assertTrue(gui.MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+        ), patch.object(time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
+            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
 
         self.assertEqual(run_timer_reads, [1, 1, 1])
         self.assertEqual(mob_kill_reads, [1, 1])
@@ -3857,7 +3875,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(overlay_updates, ["overlay", "overlay"])
 
     def test_chaos_refresh_skips_fast_kps_reads_when_overlay_kps_widget_is_disabled(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         run_timer_reads: list[int] = []
         mob_kill_reads: list[int] = []
         tracked_kills: list[tuple[float, int]] = []
@@ -3885,15 +3903,15 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         with patch.object(
-            gui.config,
+            config,
             "OVERLAY",
             {"widgets": [{"id": "kps", "enabled": False}]},
         ), patch.object(
-            gui.config,
+            config,
             "IN_GAME_OVERLAY",
             {"enabled": False, "widgets": {}},
         ):
-            self.assertFalse(gui.MegabonkApp._should_refresh_fast_kps(app))
+            self.assertFalse(MegabonkApp._should_refresh_fast_kps(app))
 
         self.assertEqual(run_timer_reads, [])
         self.assertEqual(mob_kill_reads, [])
@@ -3901,7 +3919,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(overlay_updates, [])
 
     def test_chaos_refresh_skips_fast_kps_kill_reads_when_game_timer_does_not_advance(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         run_timer_reads: list[int] = []
         mob_kill_reads: list[int] = []
         tracked_kills: list[tuple[float, int]] = []
@@ -3931,13 +3949,13 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         with patch.object(
-            gui.config,
+            config,
             "OVERLAY",
             {"widgets": [{"id": "kps", "enabled": True}]},
-        ), patch.object(gui.time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
-            self.assertTrue(gui.MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
-            self.assertTrue(gui.MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
-            self.assertTrue(gui.MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+        ), patch.object(time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
+            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
 
         self.assertEqual(run_timer_reads, [1, 1, 1])
         self.assertEqual(mob_kill_reads, [1])
@@ -3985,7 +4003,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
 
-        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
         self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
@@ -4027,7 +4045,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
 
-        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
         self.assertEqual(app.player_stats_vod_recorder.capture_calls, [])
@@ -4040,7 +4058,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
         app.read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
-            gui.MemoryReadError("runtime state unavailable")
+            MemoryReadError("runtime state unavailable")
         )
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_live_weapons=lambda owner_stats=None: (),
@@ -4057,7 +4075,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
 
-        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
         self.assertEqual(app.player_stats_vod_recorder.capture_calls, [])
@@ -4093,7 +4111,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
 
-        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
         self.assertEqual(len(display_calls), 1)
@@ -4118,9 +4136,9 @@ class GuiRunControlTests(unittest.TestCase):
             get_player_level=lambda owner_stats=None: 2,
         )
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", True):
-            first = gui.MegabonkApp.refresh_live_player_stats_now(app)
-            second = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        with patch.object(config, "AUTO_START_RECORDING", True):
+            first = MegabonkApp.refresh_live_player_stats_now(app)
+            second = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(first)
         self.assertTrue(second)
@@ -4146,8 +4164,8 @@ class GuiRunControlTests(unittest.TestCase):
             get_player_level=lambda owner_stats=None: None,
         )
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", True):
-            result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        with patch.object(config, "AUTO_START_RECORDING", True):
+            result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
@@ -4160,7 +4178,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
         app.read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
-            gui.MemoryReadError("runtime state unavailable")
+            MemoryReadError("runtime state unavailable")
         )
         app.read_player_stats_only = lambda: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
@@ -4175,8 +4193,8 @@ class GuiRunControlTests(unittest.TestCase):
             get_player_level=lambda owner_stats=None: 2,
         )
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", True):
-            result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        with patch.object(config, "AUTO_START_RECORDING", True):
+            result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
         self.assertEqual(app.player_stats_auto_start_detection_streak, 0)
@@ -4192,12 +4210,12 @@ class GuiRunControlTests(unittest.TestCase):
         app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
 
         def fail_items(owner_stats=None):
-            raise gui.MemoryReadError("items missing")
+            raise MemoryReadError("items missing")
 
         app.read_passive_items_only = fail_items
 
-        with patch.object(gui.config, "AUTO_START_RECORDING", False):
-            gui.MegabonkApp.toggle_player_stats_recording(app)
+        with patch.object(config, "AUTO_START_RECORDING", False):
+            MegabonkApp.toggle_player_stats_recording(app)
 
         self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["items"], ())
@@ -4222,7 +4240,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         def fail_items(owner_stats=None):
-            raise gui.MemoryReadError("items missing")
+            raise MemoryReadError("items missing")
 
         app.read_passive_items_only = fail_items
         app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
@@ -4238,7 +4256,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_live_damage_sources=lambda *_args, **_kwargs: (),
         )
 
-        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
         self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
@@ -4259,7 +4277,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
         app.read_passive_items_only = lambda owner_stats=None: ()
 
-        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
         self.assertEqual(
@@ -4282,14 +4300,14 @@ class GuiRunControlTests(unittest.TestCase):
             get_player_level=lambda owner_stats=None: 1,
         )
 
-        result = gui.MegabonkApp._read_live_player_stats_data(app)
+        result = MegabonkApp._read_live_player_stats_data(app)
 
         self.assertEqual(result[1], ())
         self.assertTrue(result[2])
         self.assertEqual(app.player_stats_last_known_items, None)
 
     def test_stop_player_stats_recording_refreshes_live_stats_without_items(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True)
         app.player_stats_vod_snapshots = ["snapshot"]
         app.player_stats_selected_snapshot_index = 0
@@ -4323,7 +4341,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
 
         def fail_items(owner_stats=None):
-            raise gui.MemoryReadError("items missing")
+            raise MemoryReadError("items missing")
 
         app.read_passive_items_only = fail_items
         app.live_run_tracker = SimpleNamespace(
@@ -4334,8 +4352,8 @@ class GuiRunControlTests(unittest.TestCase):
             current_ui_kps=lambda: None,
         )
         app.overlay_state_store = None
-        with patch.object(gui.config, "AUTO_START_RECORDING", False):
-            gui.MegabonkApp._stop_player_stats_recording(app)
+        with patch.object(config, "AUTO_START_RECORDING", False):
+            MegabonkApp._stop_player_stats_recording(app)
 
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertEqual(app.player_stats_status_label.text(), "Live player stats")
@@ -4347,7 +4365,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_new_items_label.text(), "Live snapshot")
 
     def test_display_player_stats_snapshot_shows_in_game_time_in_status_and_summary(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.player_stats_vod_snapshots = []
         calls: list[dict[str, object]] = []
         snapshot = SimpleNamespace(
@@ -4366,7 +4384,7 @@ class GuiRunControlTests(unittest.TestCase):
             {"stats": stats, "items": tuple(items), "kwargs": kwargs}
         )
 
-        gui.MegabonkApp.display_player_stats_snapshot(app, snapshot)
+        MegabonkApp.display_player_stats_snapshot(app, snapshot)
 
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["kwargs"]["status_text"], "Recorded snapshot 1/1 at 01:00 | In-Game Time: 01:21")
@@ -4377,7 +4395,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(calls[0]["kwargs"]["banishes"], snapshot.banishes)
 
     def test_display_player_stats_snapshot_uses_compact_segment_compare_text(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         calls: list[dict[str, object]] = []
         previous = SimpleNamespace(
             stats={},
@@ -4403,7 +4421,7 @@ class GuiRunControlTests(unittest.TestCase):
             {"stats": stats, "items": tuple(items), "kwargs": kwargs}
         )
 
-        gui.MegabonkApp.display_player_stats_snapshot(app, current)
+        MegabonkApp.display_player_stats_snapshot(app, current)
 
         self.assertIn("+3</span>", calls[0]["kwargs"]["new_items_text"])
         self.assertIn("Time:</span> 00:30", calls[0]["kwargs"]["new_items_text"])
@@ -4411,7 +4429,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertNotIn("Za Warudo +1", calls[0]["kwargs"]["new_items_text"])
 
     def test_display_loaded_vod_snapshot_shows_legacy_in_game_fallback(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.vods_status_label = FakeLabel()
         app.vods_slider_time_label = FakeLabel()
         app.vods_items_label = FakeLabel()
@@ -4441,7 +4459,7 @@ class GuiRunControlTests(unittest.TestCase):
         metadata = SimpleNamespace(name="Legacy run")
         app.loaded_vod = SimpleNamespace(metadata=metadata, snapshots=[snapshot])
 
-        gui.MegabonkApp.display_loaded_vod_snapshot(app, 0)
+        MegabonkApp.display_loaded_vod_snapshot(app, 0)
 
         self.assertEqual(app.vods_status_label.text(), "Legacy run | 1/1 at 00:00 | In-Game Time: --")
         self.assertEqual(app.vods_in_game_time_label.text(), "In-Game Time: --")
@@ -4453,7 +4471,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.vods_items_label.text(), "Wrench x1")
 
     def test_display_loaded_vod_snapshot_updates_damage_sources_tab(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.vods_status_label = FakeLabel()
         app.vods_slider_time_label = FakeLabel()
         app.vods_items_label = FakeLabel()
@@ -4499,7 +4517,7 @@ class GuiRunControlTests(unittest.TestCase):
         metadata = SimpleNamespace(name="Run")
         app.loaded_vod = SimpleNamespace(metadata=metadata, snapshots=[snapshot])
 
-        gui.MegabonkApp.display_loaded_vod_snapshot(app, 0)
+        MegabonkApp.display_loaded_vod_snapshot(app, 0)
 
         self.assertEqual(len(damage_calls), 1)
         self.assertEqual(damage_calls[0][1], "vod")
@@ -4508,28 +4526,28 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.vods_kps_averages_label.text(), "KPS: 60s 243/s | 5m 221/s")
 
     def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
-        self.assertEqual(gui.MegabonkApp.format_in_game_time(None), "In-Game Time: --")
-        self.assertEqual(gui.MegabonkApp.format_in_game_time(21.52338219), "In-Game Time: 00:21")
-        self.assertEqual(gui.MegabonkApp.format_in_game_time(3661.9), "In-Game Time: 01:01:01")
+        self.assertEqual(MegabonkApp.format_in_game_time(None), "In-Game Time: --")
+        self.assertEqual(MegabonkApp.format_in_game_time(21.52338219), "In-Game Time: 00:21")
+        self.assertEqual(MegabonkApp.format_in_game_time(3661.9), "In-Game Time: 01:01:01")
 
     def test_format_mob_kills_formats_missing_and_positive_values(self) -> None:
-        self.assertEqual(gui.MegabonkApp.format_mob_kills(None), "Mob Kills: --")
-        self.assertEqual(gui.MegabonkApp.format_mob_kills(42), "Mob Kills: 42")
-        self.assertEqual(gui.MegabonkApp.format_mob_kills(1291146), "Mob Kills: 1,291,146")
+        self.assertEqual(MegabonkApp.format_mob_kills(None), "Mob Kills: --")
+        self.assertEqual(MegabonkApp.format_mob_kills(42), "Mob Kills: 42")
+        self.assertEqual(MegabonkApp.format_mob_kills(1291146), "Mob Kills: 1,291,146")
 
     def test_format_kps_averages_formats_missing_and_positive_values(self) -> None:
         self.assertEqual(
-            gui.MegabonkApp.format_kps_averages(None, None),
+            MegabonkApp.format_kps_averages(None, None),
             "KPS: 60s -- | 5m --",
         )
         self.assertEqual(
-            gui.MegabonkApp.format_kps_averages(243, 221),
+            MegabonkApp.format_kps_averages(243, 221),
             "KPS: 60s 243/s | 5m 221/s",
         )
 
     def test_format_player_level_formats_missing_and_positive_values(self) -> None:
-        self.assertEqual(gui.MegabonkApp.format_player_level(None), "Level: --")
-        self.assertEqual(gui.MegabonkApp.format_player_level(4), "Level: 4")
+        self.assertEqual(MegabonkApp.format_player_level(None), "Level: --")
+        self.assertEqual(MegabonkApp.format_player_level(4), "Level: 4")
 
     def test_format_powerups_duration_uses_powerup_multiplier(self) -> None:
         stats = {
@@ -4537,10 +4555,10 @@ class GuiRunControlTests(unittest.TestCase):
         }
 
         self.assertEqual(
-            gui.MegabonkApp.format_powerups_duration(stats),
+            MegabonkApp.format_powerups_duration(stats),
             "Powerups: 22s | Clock: 18s",
         )
-        self.assertEqual(gui.MegabonkApp.format_powerups_duration({}), "Powerups: --")
+        self.assertEqual(MegabonkApp.format_powerups_duration({}), "Powerups: --")
 
     def test_nearest_snapshot_index_prefers_in_game_time(self) -> None:
         snapshots = (
@@ -4549,10 +4567,10 @@ class GuiRunControlTests(unittest.TestCase):
             SimpleNamespace(game_time_seconds=90.0, elapsed_seconds=300),
         )
 
-        self.assertEqual(gui.MegabonkApp._nearest_snapshot_index(snapshots, 43.0), 1)
+        self.assertEqual(MegabonkApp._nearest_snapshot_index(snapshots, 43.0), 1)
 
     def test_compare_run_loading_error_clears_previous_side_content(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.compare_run_a_vod = object()
         app.compare_run_b_vod = None
         app.compare_run_a_snapshot_index = 4
@@ -4566,7 +4584,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._refresh_compare_runs_item_details_button = MagicMock()
         app._refresh_compare_runs_selected_labels = MagicMock()
 
-        gui.MegabonkApp._set_compare_run_error(app, "a", "Could not load recording")
+        MegabonkApp._set_compare_run_error(app, "a", "Could not load recording")
 
         self.assertIsNone(app.compare_run_a_vod)
         self.assertIsNone(app.compare_run_a_snapshot_index)
@@ -4577,7 +4595,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.compare_run_a_slider.setEnabled.assert_called_once_with(False)
 
     def test_compare_runs_diff_skips_disabled_optional_sections(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         snapshot_a = SimpleNamespace(stats={}, items=())
         snapshot_b = SimpleNamespace(stats={}, items=())
         app.compare_run_a_vod = SimpleNamespace(snapshots=(snapshot_a,))
@@ -4601,7 +4619,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._set_compare_runs_diff_cards = MagicMock()
         app._refresh_compare_runs_item_details_button = MagicMock()
 
-        gui.MegabonkApp._refresh_compare_runs_diff(app)
+        MegabonkApp._refresh_compare_runs_diff(app)
 
         app.format_compare_runs_items_diff.assert_not_called()
         app.format_compare_runs_stage_summary_diff.assert_not_called()
@@ -4643,7 +4661,7 @@ class GuiRunControlTests(unittest.TestCase):
         vod_a = SimpleNamespace(metadata=SimpleNamespace(name="Run A"))
         vod_b = SimpleNamespace(metadata=SimpleNamespace(name="Run B"))
 
-        result = gui.MegabonkApp.format_compare_runs_diff(vod_a, snapshot_a, vod_b, snapshot_b)
+        result = MegabonkApp.format_compare_runs_diff(vod_a, snapshot_a, vod_b, snapshot_b)
 
         self.assertIn("Mode:</span> Run B compared to Run A", result)
         self.assertIn("Time offset:</span> +00:06", result)
@@ -4677,7 +4695,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
 
-        result = gui.MegabonkApp.format_compare_runs_diff(
+        result = MegabonkApp.format_compare_runs_diff(
             vod,
             snapshot_a,
             vod,
@@ -4707,7 +4725,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
 
-        result = gui.MegabonkApp.format_compare_runs_diff(
+        result = MegabonkApp.format_compare_runs_diff(
             vod,
             snapshot_a,
             vod,
@@ -4736,7 +4754,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
 
-        result = gui.MegabonkApp.format_compare_runs_diff(
+        result = MegabonkApp.format_compare_runs_diff(
             vod,
             snapshot_a,
             vod,
@@ -4772,7 +4790,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
 
-        result = gui.MegabonkApp.format_compare_runs_diff(
+        result = MegabonkApp.format_compare_runs_diff(
             vod,
             snapshot_a,
             vod,
@@ -4832,7 +4850,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
 
-        result = gui.MegabonkApp.format_compare_runs_diff(
+        result = MegabonkApp.format_compare_runs_diff(
             vod,
             snapshot_a,
             vod,
@@ -4856,23 +4874,23 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn(">+0.20x</span>", result)
 
     def test_configured_compare_run_stat_labels_reads_valid_saved_config(self) -> None:
-        original_config = deepcopy(gui.config.user_config)
+        original_config = deepcopy(config.user_config)
         try:
-            gui.config.user_config.clear()
-            gui.config.user_config["COMPARE_RUN_STAT_LABELS"] = ["Luck", "Not Real", "Damage"]
+            config.user_config.clear()
+            config.user_config["COMPARE_RUN_STAT_LABELS"] = ["Luck", "Not Real", "Damage"]
 
-            result = gui.MegabonkApp.configured_compare_run_stat_labels()
+            result = MegabonkApp.configured_compare_run_stat_labels()
 
             self.assertEqual(result, ("Luck", "Damage"))
         finally:
-            gui.config.user_config.clear()
-            gui.config.user_config.update(original_config)
+            config.user_config.clear()
+            config.user_config.update(original_config)
 
     def test_configured_compare_run_sections_reads_saved_config(self) -> None:
-        original_config = deepcopy(gui.config.user_config)
+        original_config = deepcopy(config.user_config)
         try:
-            gui.config.user_config.clear()
-            gui.config.user_config["COMPARE_RUN_SECTIONS"] = {
+            config.user_config.clear()
+            config.user_config["COMPARE_RUN_SECTIONS"] = {
                 "items": True,
                 "stage_summary": True,
                 "weapons": False,
@@ -4880,7 +4898,7 @@ class GuiRunControlTests(unittest.TestCase):
                 "unknown": True,
             }
 
-            result = gui.MegabonkApp.configured_compare_run_sections()
+            result = MegabonkApp.configured_compare_run_sections()
 
             self.assertEqual(
                 result,
@@ -4893,8 +4911,8 @@ class GuiRunControlTests(unittest.TestCase):
                 },
             )
         finally:
-            gui.config.user_config.clear()
-            gui.config.user_config.update(original_config)
+            config.user_config.clear()
+            config.user_config.update(original_config)
 
     def test_format_compare_runs_stage_summary_diff_uses_selected_snapshot_progress(self) -> None:
         snapshot_a_1 = SimpleNamespace(
@@ -4932,7 +4950,7 @@ class GuiRunControlTests(unittest.TestCase):
         vod_a = SimpleNamespace(snapshots=(snapshot_a_1, snapshot_a_2))
         vod_b = SimpleNamespace(snapshots=(snapshot_b_1, snapshot_b_2))
 
-        result = gui.MegabonkApp.format_compare_runs_stage_summary_diff(vod_a, 1, vod_b, 1)
+        result = MegabonkApp.format_compare_runs_stage_summary_diff(vod_a, 1, vod_b, 1)
 
         self.assertIn("Stage 1", result)
         self.assertIn("01:00", result)
@@ -4944,18 +4962,18 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("&rarr;", result)
 
     def test_save_compare_run_stat_selection_persists_checked_labels(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.compare_runs_stat_checkboxes = {
             "Damage": SimpleNamespace(isChecked=lambda: True),
             "Luck": SimpleNamespace(isChecked=lambda: False),
             "Difficulty": SimpleNamespace(isChecked=lambda: True),
         }
 
-        with patch.object(gui.config, "save_config") as save_config:
-            gui.MegabonkApp._save_compare_run_stat_selection(app)
+        with patch.object(config, "save_config") as save_config:
+            MegabonkApp._save_compare_run_stat_selection(app)
 
-        self.assertEqual(gui.config.user_config["COMPARE_RUN_STAT_LABELS"], ["Damage", "Difficulty"])
-        save_config.assert_called_once_with(gui.config.user_config)
+        self.assertEqual(config.user_config["COMPARE_RUN_STAT_LABELS"], ["Damage", "Difficulty"])
+        save_config.assert_called_once_with(config.user_config)
 
     def test_auto_close_compare_runs_chooser_if_ready_closes_after_both_runs_selected(self) -> None:
         refreshed = []
@@ -4967,7 +4985,7 @@ class GuiRunControlTests(unittest.TestCase):
             set_compare_runs_chooser_expanded=lambda expanded, guided=False: refreshed.append((expanded, guided)),
         )
 
-        gui.MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
+        MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
 
         self.assertEqual(refreshed, [(False, False)])
 
@@ -4981,7 +4999,7 @@ class GuiRunControlTests(unittest.TestCase):
             _refresh_compare_runs_chooser=lambda: refreshed.append(True),
         )
 
-        gui.MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
+        MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
 
         self.assertTrue(app.compare_runs_chooser_expanded)
         self.assertEqual(refreshed, [])
@@ -4996,7 +5014,7 @@ class GuiRunControlTests(unittest.TestCase):
             set_compare_runs_chooser_expanded=lambda expanded, guided=False: refreshed.append((expanded, guided)),
         )
 
-        gui.MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
+        MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
 
         self.assertEqual(refreshed, [])
 
@@ -5010,7 +5028,7 @@ class GuiRunControlTests(unittest.TestCase):
             set_compare_runs_chooser_expanded=lambda expanded, guided=False: calls.append((expanded, guided)),
         )
 
-        gui.MegabonkApp.ensure_compare_runs_chooser_for_empty_selection(app)
+        MegabonkApp.ensure_compare_runs_chooser_for_empty_selection(app)
 
         self.assertEqual(calls, [(True, True)])
 
@@ -5024,12 +5042,12 @@ class GuiRunControlTests(unittest.TestCase):
             set_compare_runs_chooser_expanded=lambda expanded, guided=False: calls.append((expanded, guided)),
         )
 
-        gui.MegabonkApp.ensure_compare_runs_chooser_for_empty_selection(app)
+        MegabonkApp.ensure_compare_runs_chooser_for_empty_selection(app)
 
         self.assertEqual(calls, [])
 
     def test_diff_new_items_includes_new_stacks_and_new_names(self) -> None:
-        result = gui.MegabonkApp.diff_new_items(
+        result = MegabonkApp.diff_new_items(
             ("Wrench x1", "Dice x1"),
             ("Wrench x3", "Dice x1", "Holy Book x1"),
         )
@@ -5037,7 +5055,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(result, ("Holy Book x1", "Wrench x2"))
 
     def test_diff_item_gains_sorts_by_rarity_and_gain(self) -> None:
-        result = gui.MegabonkApp.diff_item_gains(
+        result = MegabonkApp.diff_item_gains(
             ("Wrench x1", "Key x1", "Beefy Ring x1"),
             ("Wrench x3", "Key x7", "Beefy Ring x6", "Za Warudo x4", "Golden Shield x1"),
         )
@@ -5054,7 +5072,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
     def test_format_item_gains_by_rarity_uses_one_dot_per_rarity_row(self) -> None:
-        result = gui.MegabonkApp.format_item_gains_by_rarity(
+        result = MegabonkApp.format_item_gains_by_rarity(
             (
                 ("Za Warudo", 4),
                 ("Wizards Hat", 3),
@@ -5083,7 +5101,7 @@ class GuiRunControlTests(unittest.TestCase):
             items=("Wrench x3", "Za Warudo x4", "Beefy Ring x5"),
         )
 
-        result = gui.MegabonkApp.format_snapshot_item_gains_preview(base, current)
+        result = MegabonkApp.format_snapshot_item_gains_preview(base, current)
 
         self.assertIn("Items:", result)
         self.assertIn("+11</span>", result)
@@ -5099,7 +5117,7 @@ class GuiRunControlTests(unittest.TestCase):
             SimpleNamespace(items=("Wrench x1", "Key x1")),
         )
 
-        result = gui.MegabonkApp.summarize_item_segment_changes(snapshots)
+        result = MegabonkApp.summarize_item_segment_changes(snapshots)
 
         self.assertEqual(result["gained"], (("Za Warudo", 1), ("Key", 3)))
         self.assertEqual(result["broken"], (("Za Warudo", 1),))
@@ -5125,7 +5143,7 @@ class GuiRunControlTests(unittest.TestCase):
             items=("Wrench x1",),
         )
 
-        result = gui.MegabonkApp.format_snapshot_item_gains_preview(
+        result = MegabonkApp.format_snapshot_item_gains_preview(
             base,
             current,
             segment_snapshots=(base, middle, current),
@@ -5149,7 +5167,7 @@ class GuiRunControlTests(unittest.TestCase):
             items=("Wrench x1",),
         )
 
-        result = gui.MegabonkApp.format_snapshot_item_gains_preview(base, current)
+        result = MegabonkApp.format_snapshot_item_gains_preview(base, current)
 
         self.assertIn("Items:</span> <span style=\"color:#98A7BA;\">--</span>", result)
         self.assertNotIn("+0", result)
@@ -5159,7 +5177,7 @@ class GuiRunControlTests(unittest.TestCase):
         middle = SimpleNamespace(items=("Wrench x1", "Za Warudo x1", "Key x3"))
         current = SimpleNamespace(items=("Wrench x1", "Key x1"))
 
-        result = gui.MegabonkApp.format_snapshot_item_changes_details(
+        result = MegabonkApp.format_snapshot_item_changes_details(
             base,
             current,
             segment_snapshots=(base, middle, current),
@@ -5186,7 +5204,7 @@ class GuiRunControlTests(unittest.TestCase):
             items=("Wrench x3", "Za Warudo x1"),
         )
 
-        result = gui.MegabonkApp.format_snapshot_compare_summary(base, current, base_index=3, current_index=8)
+        result = MegabonkApp.format_snapshot_compare_summary(base, current, base_index=3, current_index=8)
 
         self.assertEqual(
             result,
@@ -5196,14 +5214,14 @@ class GuiRunControlTests(unittest.TestCase):
     def test_format_snapshot_new_items_handles_first_snapshot_and_no_changes(self) -> None:
         snapshot = SimpleNamespace(items=("Wrench x1",))
 
-        self.assertEqual(gui.MegabonkApp.format_snapshot_new_items(None, snapshot), "No previous snapshot")
+        self.assertEqual(MegabonkApp.format_snapshot_new_items(None, snapshot), "No previous snapshot")
         self.assertEqual(
-            gui.MegabonkApp.format_snapshot_new_items(snapshot, SimpleNamespace(items=("Wrench x1",))),
+            MegabonkApp.format_snapshot_new_items(snapshot, SimpleNamespace(items=("Wrench x1",))),
             "No new items since previous snapshot",
         )
 
     def test_merge_banish_appearance_order_preserves_existing_sequence_and_appends_new(self) -> None:
-        result = gui.MegabonkApp.merge_banish_appearance_order(
+        result = MegabonkApp.merge_banish_appearance_order(
             ("Clover", "Golden Tome"),
             ("Golden Tome", "Clover", "Battery"),
         )
@@ -5211,7 +5229,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(result, ("Clover", "Golden Tome", "Battery"))
 
     def test_format_items_rich_text_colors_name_only(self) -> None:
-        result = gui.MegabonkApp.format_items_rich_text(("Wrench x2", "Bonker x1", "Crypt Key x1"))
+        result = MegabonkApp.format_items_rich_text(("Wrench x2", "Bonker x1", "Crypt Key x1"))
 
         self.assertIn('color: #22C55E', result)
         self.assertIn('>Wrench</span> x2', result)
@@ -5221,7 +5239,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertNotIn('color: #22C55E;">Wrench x2</span>', result)
 
     def test_format_items_rich_text_supports_gloves_aliases(self) -> None:
-        result = gui.MegabonkApp.format_items_rich_text(("Gloves Blood x1", "Gloves Power x1"))
+        result = MegabonkApp.format_items_rich_text(("Gloves Blood x1", "Gloves Power x1"))
 
         self.assertIn('>Slurp Gloves</span> x1', result)
         self.assertIn('color: #E879F9', result)
@@ -5229,13 +5247,13 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn('color: #FACC15', result)
 
     def test_format_items_rich_text_supports_flappy_feathers_alias(self) -> None:
-        result = gui.MegabonkApp.format_items_rich_text(("Flappy Feathers x1",))
+        result = MegabonkApp.format_items_rich_text(("Flappy Feathers x1",))
 
         self.assertIn('>Feathers</span> x1', result)
         self.assertIn('color: #60A5FA', result)
 
     def test_format_items_rich_text_handles_display_name_variants(self) -> None:
-        result = gui.MegabonkApp.format_items_rich_text(
+        result = MegabonkApp.format_items_rich_text(
             (
                 "Borgor x1",
                 "Bob Lantern x1",
@@ -5261,27 +5279,27 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn('color: #FACC15', result)
 
     def test_normalize_item_name_for_rarity_handles_aliases_and_gloves_rule(self) -> None:
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Flappy Feathers"), "Feathers")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Gloves Power"), "Glove Power")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Borgor"), "Borgar")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Bob Lantern"), "Bobs Lantern")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Bob's Lantern"), "Bobs Lantern")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Gloves Cursed"), "Glove Curse")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("No Implementation"), "Golden Ring")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("The One Ring"), "Golden Ring")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Pot Steel"), "Pot")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Sucky Hoof"), "Sucky Magnet")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_rarity("Wrench"), "Wrench")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Flappy Feathers"), "Feathers")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Gloves Power"), "Glove Power")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Borgor"), "Borgar")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Bob Lantern"), "Bobs Lantern")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Bob's Lantern"), "Bobs Lantern")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Gloves Cursed"), "Glove Curse")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("No Implementation"), "Golden Ring")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("The One Ring"), "Golden Ring")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Pot Steel"), "Pot")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Sucky Hoof"), "Sucky Magnet")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_rarity("Wrench"), "Wrench")
 
     def test_tracked_item_display_name_prefers_live_inventory_aliases(self) -> None:
-        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Power"), "Power Gloves")
-        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Blood"), "Slurp Gloves")
-        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Glove Lightning"), "Thunder Mitts")
-        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Pot"), "Pot (stainless steel)")
-        self.assertEqual(gui.OverlayMixin._tracked_item_display_name("Wrench"), "Wrench")
+        self.assertEqual(OverlayMixin._tracked_item_display_name("Glove Power"), "Power Gloves")
+        self.assertEqual(OverlayMixin._tracked_item_display_name("Glove Blood"), "Slurp Gloves")
+        self.assertEqual(OverlayMixin._tracked_item_display_name("Glove Lightning"), "Thunder Mitts")
+        self.assertEqual(OverlayMixin._tracked_item_display_name("Pot"), "Pot (stainless steel)")
+        self.assertEqual(OverlayMixin._tracked_item_display_name("Wrench"), "Wrench")
 
     def test_overlay_available_item_names_use_game_ui_names(self) -> None:
-        names = gui.OverlayMixin._overlay_available_item_names()
+        names = OverlayMixin._overlay_available_item_names()
 
         self.assertIn("Bob's Light", names)
         self.assertIn("Crypt key", names)
@@ -5306,16 +5324,16 @@ class GuiRunControlTests(unittest.TestCase):
             update_overlay_state_from_tracker=MagicMock(),
             refresh_overlay_ui=MagicMock(),
         )
-        overlay = deepcopy(gui.config.DEFAULT_OVERLAY)
+        overlay = deepcopy(config.DEFAULT_OVERLAY)
 
-        with patch.object(gui.config, "OVERLAY", overlay), \
-             patch.object(gui.config, "user_config", {}), \
-             patch.object(gui.config, "save_config") as save_config:
-            gui.OverlayMixin.save_overlay_settings_from_ui(app)
+        with patch.object(config, "OVERLAY", overlay), \
+             patch.object(config, "user_config", {}), \
+             patch.object(config, "save_config") as save_config:
+            OverlayMixin.save_overlay_settings_from_ui(app)
 
-            self.assertTrue(gui.config.OVERLAY["auto_start"])
-            self.assertTrue(gui.config.user_config["OVERLAY"]["auto_start"])
-            save_config.assert_called_once_with(gui.config.user_config)
+            self.assertTrue(config.OVERLAY["auto_start"])
+            self.assertTrue(config.user_config["OVERLAY"]["auto_start"])
+            save_config.assert_called_once_with(config.user_config)
 
     def test_overlay_autostart_uses_auto_start_setting(self) -> None:
         app = types.SimpleNamespace(
@@ -5323,18 +5341,18 @@ class GuiRunControlTests(unittest.TestCase):
             update_overlay_state_from_tracker=MagicMock(),
         )
 
-        with patch.object(gui.config, "OVERLAY", {"enabled": True, "auto_start": False}):
-            gui.OverlayMixin.apply_overlay_autostart(app)
+        with patch.object(config, "OVERLAY", {"enabled": True, "auto_start": False}):
+            OverlayMixin.apply_overlay_autostart(app)
         app.start_overlay_server.assert_not_called()
 
-        with patch.object(gui.config, "OVERLAY", {"enabled": False, "auto_start": True}):
-            gui.OverlayMixin.apply_overlay_autostart(app)
+        with patch.object(config, "OVERLAY", {"enabled": False, "auto_start": True}):
+            OverlayMixin.apply_overlay_autostart(app)
         app.start_overlay_server.assert_called_once_with()
         self.assertEqual(app.update_overlay_state_from_tracker.call_count, 2)
 
     def test_tracked_rule_display_label_prefers_live_alias_for_default_labels(self) -> None:
         self.assertEqual(
-            gui.OverlayMixin._tracked_rule_display_label(
+            OverlayMixin._tracked_rule_display_label(
                 {"label": "Glove Power Map 1"},
                 ["Glove Power"],
                 "map_1_only",
@@ -5342,7 +5360,7 @@ class GuiRunControlTests(unittest.TestCase):
             "Power Gloves Map 1",
         )
         self.assertEqual(
-            gui.OverlayMixin._tracked_rule_display_label(
+            OverlayMixin._tracked_rule_display_label(
                 {"label": "Glove Blood"},
                 ["Glove Blood"],
                 "all_run",
@@ -5350,7 +5368,7 @@ class GuiRunControlTests(unittest.TestCase):
             "Slurp Gloves",
         )
         self.assertEqual(
-            gui.OverlayMixin._tracked_rule_display_label(
+            OverlayMixin._tracked_rule_display_label(
                 {"label": "Custom Gloves Label"},
                 ["Glove Power"],
                 "all_run",
@@ -5359,21 +5377,21 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
     def test_normalize_item_name_for_display_replaces_no_implementation(self) -> None:
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("No Implementation"), "The One Ring")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("Golden Ring"), "The One Ring")
-        self.assertEqual(gui.MegabonkApp._normalize_item_name_for_display("Sucky Hoof"), "Sucky Magnet")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_display("No Implementation"), "The One Ring")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_display("Golden Ring"), "The One Ring")
+        self.assertEqual(MegabonkApp._normalize_item_name_for_display("Sucky Hoof"), "Sucky Magnet")
 
     def test_split_item_stack_suffix_handles_plain_names(self) -> None:
-        self.assertEqual(gui.MegabonkApp._split_item_stack_suffix("Wrench x2"), ("Wrench", " x2"))
-        self.assertEqual(gui.MegabonkApp._split_item_stack_suffix("Ghost"), ("Ghost", ""))
+        self.assertEqual(MegabonkApp._split_item_stack_suffix("Wrench x2"), ("Wrench", " x2"))
+        self.assertEqual(MegabonkApp._split_item_stack_suffix("Ghost"), ("Ghost", ""))
 
     def test_on_closing_stops_supported_runtime_resources(self) -> None:
         destroyed: list[bool] = []
         closed: list[str] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.client = None
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
         app.log = lambda _message, tag=None: None
         app.destroy = lambda: destroyed.append(True)
         app._is_shutting_down = False
@@ -5389,7 +5407,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._hotkey_manager = None
 
         with patch_everywhere("keyboard", None):
-            gui.MegabonkApp.on_closing(app)
+            MegabonkApp.on_closing(app)
 
         self.assertTrue(app.stop_event.is_set())
         self.assertTrue(app.scan_event.is_set())
@@ -5424,10 +5442,10 @@ class GuiRunControlTests(unittest.TestCase):
         # down through it rather than the three mixin close methods.
         destroyed: list[bool] = []
         closed: list[str] = []
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.coordinator = SimpleNamespace(shutdown=lambda: closed.append("coordinator"))
-        app.stop_event = gui.threading.Event()
-        app.scan_event = gui.threading.Event()
+        app.stop_event = threading.Event()
+        app.scan_event = threading.Event()
         app.log = lambda _message, tag=None: None
         app.destroy = lambda: destroyed.append(True)
         app._is_shutting_down = False
@@ -5444,13 +5462,13 @@ class GuiRunControlTests(unittest.TestCase):
         app._hotkey_manager = None
 
         with patch_everywhere("keyboard", None):
-            gui.MegabonkApp.on_closing(app)
+            MegabonkApp.on_closing(app)
 
         self.assertEqual(closed, ["coordinator"])
         self.assertEqual(destroyed, [True])
 
     def test_refresh_live_player_stats_now_parses_single_key(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
@@ -5507,12 +5525,12 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app.overlay_state_store = None
 
-        result = gui.MegabonkApp.refresh_live_player_stats_now(app)
+        result = MegabonkApp.refresh_live_player_stats_now(app)
         self.assertTrue(result)
         self.assertEqual(chests_and_keys_args, [(12, 50, 1)])
 
     def test_session_tracked_items_stats_tab_includes_seed_percent(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.template_stats = {
             "template_a": {"history": [1, 2]},
             "template_b": {"history": [3, 4]},
@@ -5528,12 +5546,12 @@ class GuiRunControlTests(unittest.TestCase):
             ]
         )
 
-        text = gui.MegabonkApp.format_session_tracked_items_for_stats_tab(app)
+        text = MegabonkApp.format_session_tracked_items_for_stats_tab(app)
 
         self.assertEqual(text, "Kevin + Electric Plug T1: 2 (50.00%)")
 
     def test_apply_in_game_overlay_settings_stops_without_restarting_overlay(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
         app.overlay_fast_timer = FakeOverlayTimer()
         app.overlay_slow_timer = FakeOverlayTimer()
@@ -5543,8 +5561,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._overlay_slow_tick = lambda: status_updates.append("slow")
 
         overlay_cfg = {"enabled": False, "widgets": {}}
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp.apply_in_game_overlay_settings(app)
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp.apply_in_game_overlay_settings(app)
 
         self.assertEqual(app.in_game_overlay_window.hide_calls, 1)
         self.assertEqual(app.overlay_fast_timer.stop_calls, 1)
@@ -5552,7 +5570,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(status_updates, ["status"])
 
     def test_apply_in_game_overlay_settings_restarts_runtime_when_edit_mode_left_window_visible(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True, edit_mode=True)
         app.in_game_overlay_window.widgets = {}
         app.overlay_fast_timer = FakeOverlayTimer()
@@ -5563,15 +5581,15 @@ class GuiRunControlTests(unittest.TestCase):
         app._overlay_slow_tick = lambda: status_updates.append("slow")
 
         overlay_cfg = {"enabled": True, "widgets": {}}
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp.apply_in_game_overlay_settings(app)
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp.apply_in_game_overlay_settings(app)
 
         self.assertEqual(app.overlay_fast_timer.start_calls, 1)
         self.assertEqual(app.overlay_slow_timer.start_calls, 1)
         self.assertEqual(status_updates, ["fast", "slow", "status"])
 
     def test_overlay_fast_tick_hides_disabled_overlay_even_if_game_is_active(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
         app.is_game_window_active = lambda _process_name: True
         app.live_run_tracker = SimpleNamespace(
@@ -5592,14 +5610,14 @@ class GuiRunControlTests(unittest.TestCase):
                 "powerups": {"enabled": False},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp._overlay_fast_tick(app)
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp._overlay_fast_tick(app)
 
         self.assertEqual(app.in_game_overlay_window.hide_calls, 1)
         self.assertFalse(app.in_game_overlay_window.isVisible())
 
     def test_overlay_fast_tick_syncs_geometry_before_showing_game_overlay(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
         app.is_game_window_active = lambda _process_name: True
         app.live_run_tracker = SimpleNamespace(
@@ -5620,14 +5638,14 @@ class GuiRunControlTests(unittest.TestCase):
                 "powerups": {"enabled": False},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp._overlay_fast_tick(app)
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp._overlay_fast_tick(app)
 
         self.assertEqual(app.in_game_overlay_window.sync_calls, 1)
         self.assertEqual(app.in_game_overlay_window.show_calls, 1)
 
     def test_overlay_fast_tick_refreshes_slow_widgets_when_overlay_becomes_visible(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
         scanner_widget = SimpleNamespace(set_text=MagicMock())
         app.in_game_overlay_window.widgets = {
@@ -5661,26 +5679,26 @@ class GuiRunControlTests(unittest.TestCase):
                 "powerups": {"enabled": False},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            became_visible = gui.MegabonkApp._overlay_fast_tick(app)
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            became_visible = MegabonkApp._overlay_fast_tick(app)
 
         self.assertTrue(became_visible)
         scanner_widget.set_text.assert_called_once()
 
     def test_in_game_overlay_target_geometry_uses_game_window_rect(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.find_game_window = lambda _process_name: 321
         app.in_game_overlay_window = FakeInGameOverlayWindow()
 
         fake_win32gui = SimpleNamespace(GetWindowRect=lambda _window: (100, 200, 740, 680))
         with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui):
-            rect = gui.MegabonkApp._in_game_overlay_target_geometry(app)
+            rect = MegabonkApp._in_game_overlay_target_geometry(app)
 
         self.assertIsInstance(rect, QRect)
         self.assertEqual(rect, QRect(100, 200, 640, 480))
 
     def test_in_game_overlay_target_geometry_prefers_game_client_area(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.find_game_window = lambda _process_name: 321
         app.in_game_overlay_window = FakeInGameOverlayWindow()
 
@@ -5690,17 +5708,17 @@ class GuiRunControlTests(unittest.TestCase):
             ClientToScreen=lambda _window, point: (100 + point[0], 200 + point[1]),
         )
         with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui):
-            rect = gui.MegabonkApp._in_game_overlay_target_geometry(app)
+            rect = MegabonkApp._in_game_overlay_target_geometry(app)
 
         self.assertEqual(rect, QRect(100, 200, 640, 480))
 
     def test_in_game_overlay_target_geometry_returns_none_without_game_window_outside_edit_mode(self) -> None:
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.find_game_window = lambda _process_name: None
         app.in_game_overlay_window = FakeInGameOverlayWindow(edit_mode=False)
 
         with patch.object(gui_in_game_overlay, "win32gui", SimpleNamespace()):
-            rect = gui.MegabonkApp._in_game_overlay_target_geometry(app)
+            rect = MegabonkApp._in_game_overlay_target_geometry(app)
 
         self.assertIsNone(rect)
 
@@ -5748,7 +5766,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_overlay_slow_tick_updates_luck_rarity_widget_from_latest_snapshot(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
         app.in_game_overlay_window.widgets = {
             "scanner": SimpleNamespace(set_text=MagicMock()),
@@ -5777,8 +5795,8 @@ class GuiRunControlTests(unittest.TestCase):
                 "luck_rarity": {"enabled": True},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp._overlay_slow_tick(app)
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp._overlay_slow_tick(app)
 
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]
@@ -5789,7 +5807,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_overlay_fast_tick_uses_fast_stage_timer_context_for_event_timer(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
         app.in_game_overlay_window.widgets = {
             "event_timer": widget,
@@ -5824,8 +5842,8 @@ class GuiRunControlTests(unittest.TestCase):
                 "powerups": {"enabled": False},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp._overlay_fast_tick(app)
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp._overlay_fast_tick(app)
 
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]
@@ -5833,7 +5851,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_overlay_fast_tick_preserves_graveyard_stage_duration_for_event_timer(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
         app.in_game_overlay_window.widgets = {"event_timer": widget}
         app.live_run_tracker = SimpleNamespace(
@@ -5866,15 +5884,15 @@ class GuiRunControlTests(unittest.TestCase):
                 "powerups": {"enabled": False},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp._overlay_fast_tick(app)
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp._overlay_fast_tick(app)
 
         rendered_html = widget.set_text.call_args.args[0]
         self.assertIn("Boss at 13:00", rendered_html)
 
     def test_overlay_fast_tick_shows_event_timer_preview_in_edit_mode(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
         app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True, edit_mode=True)
         app.in_game_overlay_window.widgets = {
             "event_timer": widget,
@@ -5900,8 +5918,8 @@ class GuiRunControlTests(unittest.TestCase):
                 "powerups": {"enabled": False},
             },
         }
-        with patch.object(gui.config, "IN_GAME_OVERLAY", overlay_cfg):
-            gui.MegabonkApp._overlay_fast_tick(app)
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            MegabonkApp._overlay_fast_tick(app)
 
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]
@@ -5912,7 +5930,7 @@ class GuiRunControlTests(unittest.TestCase):
         have changed dispatch rather than just naming it. App doubles are built with
         object.__new__ and never run __init__, so this has to work with no injection.
         """
-        app = object.__new__(gui.MegabonkApp)
+        app = object.__new__(MegabonkApp)
 
         self.assertIs(player_stats_view(app), app)
 
@@ -5940,12 +5958,12 @@ class GuiRunControlTests(unittest.TestCase):
         app._player_stats_view = view
         self.assertIs(player_stats_view(app), view)
 
-        gui.MegabonkApp.refresh_player_stats_timeline_ui = lambda *a, **k: None
+        MegabonkApp.refresh_player_stats_timeline_ui = lambda *a, **k: None
         try:
             player_stats_view(app).set_recording_status_text("Live player stats (recording)")
             player_stats_view(app).refresh_player_stats_timeline_ui()
         finally:
-            del gui.MegabonkApp.refresh_player_stats_timeline_ui
+            del MegabonkApp.refresh_player_stats_timeline_ui
 
         self.assertEqual(view.status_texts, ["Live player stats (recording)"])
         self.assertEqual(view.timeline_refreshes, 1)
@@ -5961,7 +5979,7 @@ class GuiRunControlTests(unittest.TestCase):
         stat = SimpleNamespace(stat_id=1, label="Damage", display_delta="+1", rolls=1)
         chaos_tome = SimpleNamespace(level=2, ambiguous_rolls=0, stats=(stat,))
 
-        signature = gui.MegabonkApp._chaos_tome_signature(chaos_tome)
+        signature = MegabonkApp._chaos_tome_signature(chaos_tome)
 
         self.assertEqual(signature, (2, 0, ((1, "Damage", "+1", 1),)))
 
