@@ -5,7 +5,8 @@ Moved out of ``PlayerStatsMixin`` without behaviour change. These predicates
 encode domain rules ("is a KPS consumer active") and only lived in a GUI file
 because the timer that drives them does -- the GUI keeps thread ownership and
 calls ``ensure_refresh_coordinator(self).tick()`` from
-``update_player_stats_timer``, which stays in ``gui_player_stats.py``.
+``update_player_stats_timer``, which step 14c moved on to
+``app/player_stats_refresh.py``.
 
 That driver is now the only one. Every cadence lives in a task's
 ``interval_ms``: a second 10 s timer used to run the recording lifecycle from
@@ -16,9 +17,10 @@ snapshot along.
 
 ``ensure_refresh_coordinator``, ``overlay_widget_refresh_active`` and the two
 ``record_player_stats_memory_*`` helpers are plain functions, not mixin
-methods: each also has callers that stay behind in ``gui_player_stats.py``
-(the timer driver, ``_overlay_requires_player_snapshot``, and five
-memory-read call sites). A mixin method reachable only via the shared
+methods: each also has callers outside this module (the timer driver,
+``_overlay_requires_player_snapshot``, and five memory-read call sites --
+all of which step 14c moved on to ``app/player_stats_refresh.py`` and
+``app/player_stats_memory.py``). A mixin method reachable only via the shared
 ``self`` would show up as a new hidden cross-mixin read the moment its
 caller and its definition live in different files -- passing the owner
 explicitly avoids that without changing behaviour.

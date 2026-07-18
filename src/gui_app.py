@@ -11,6 +11,8 @@ from PySide6.QtWidgets import QApplication
 from app import config
 from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
+from app.player_stats_memory import PlayerStatsMemoryMixin
+from app.player_stats_refresh import PlayerStatsRefreshMixin
 from app.refresh_tasks import RefreshTasksMixin
 from ui.tabs.compare_runs import CompareRunsMixin
 from ui.tabs.player_stats import (
@@ -43,6 +45,8 @@ class MegabonkApp(
     OverlayMixin,
     InGameOverlayMixin,
     RefreshTasksMixin,
+    PlayerStatsRefreshMixin,
+    PlayerStatsMemoryMixin,
     CompareRunsMixin,
     LiveStatsTabMixin,
     RecordingsTabMixin,

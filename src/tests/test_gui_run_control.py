@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import gui
 import gui_in_game_overlay
-import gui_player_stats
 import gui_scanner
+from app import player_stats_memory, player_stats_refresh
 from core.game_state import RuntimeGameMode, RuntimeGameState
 from live_run_tracker import LiveRunTracker
 from app.coordinator import AppCoordinator, RefreshLoop
@@ -3033,7 +3033,13 @@ class GuiRunControlTests(unittest.TestCase):
         app.read_player_stats_only = failing_read_player_stats_only
 
         fallback_client = FakeSeedStateClient([None, None])
-        with patch.object(gui_player_stats, "GameDataClient", return_value=fallback_client):
+        # Step 14c moved the lazy `GameDataClient(...)` construction out of
+        # `gui_player_stats` into both app-layer modules -- the memory reads and
+        # `refresh_live_player_stats_now` each build one. Patch both, so this test
+        # keeps asserting "no lazily-created client can reach the real game",
+        # which is the whole point of the fallback.
+        with patch.object(player_stats_memory, "GameDataClient", return_value=fallback_client), \
+             patch.object(player_stats_refresh, "GameDataClient", return_value=fallback_client):
             with patch.object(gui.config, "AUTO_START_RECORDING", False), \
                  patch.object(gui.time, "monotonic", return_value=100.0):
                 gui.MegabonkApp.update_player_stats_timer(app)
