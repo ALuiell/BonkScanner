@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass, field, replace
-from math import isfinite
 import time
 from typing import Any, Callable, Iterable
 from uuid import uuid4
@@ -32,7 +31,6 @@ from core.tracker.snapshots import (
     RuntimeStateSnapshot,
     FastStageTimerContext,
     ChestStatsSnapshot,
-    PowerupEffectState,
     PowerupsSnapshot,
     PowerupMapContext,
 )
@@ -618,179 +616,20 @@ class LiveRunTracker:
         map_context: PowerupMapContext | None = None,
     ) -> bool:
         if map_context is not None:
-            if map_context.captured_at <= 0:
-                map_context = PowerupMapContext(
-                    is_graveyard=map_context.is_graveyard,
-                    captured_at=self.clock(),
-                    activity_max=map_context.activity_max,
-                )
-            self._powerup_map_context = map_context
+            powerups.set_map_context(self._powerup_state, map_context, self.clock)
 
-        for health_name in (
-            "status_effects_health",
-            "timing_health",
-            "multiplier_health",
-        ):
-            health = getattr(snapshot, health_name, None)
-            if health is None:
-                continue
-            if bool(getattr(health, "available", False)) and bool(
-                getattr(health, "complete", False)
-            ):
-                continue
-            reason = str(
-                getattr(health, "failure_reason", None)
-                or "powerup_snapshot_incomplete"
-            )
-            self._mark_feature_failure_unlocked("powerups", self.clock(), reason)
+        failure_reason = powerups.check_health(snapshot)
+        if failure_reason is not None:
+            self._mark_feature_failure_unlocked("powerups", self.clock(), failure_reason)
             return False
 
         self._mark_feature_success_unlocked("powerups", self.clock())
-
-        # Graveyard room transitions replace entries in the activity dictionary.
-        # `crypt_timer` remains non-zero after leaving a crypt, so it cannot
-        # identify the current room.
-        fresh_map_context = self._fresh_powerup_map_context_unlocked()
-        is_graveyard = bool(fresh_map_context and fresh_map_context.is_graveyard)
-
-        if is_graveyard:
-            final_swarm_timer = getattr(snapshot, "final_swarm_timer_seconds", None) if snapshot is not None else None
-            try:
-                swarm_val = float(final_swarm_timer)
-            except (TypeError, ValueError):
-                swarm_val = float("nan")
-            self._graveyard_final_swarm_timer_is_zero = swarm_val == 0.0
-        else:
-            self._graveyard_final_swarm_timer_is_zero = False
-        powerup_multiplier = getattr(snapshot, "powerup_multiplier", None)
-        try:
-            powerup_multiplier = float(powerup_multiplier)
-        except (TypeError, ValueError):
-            powerup_multiplier = None
-        if powerup_multiplier is not None and not isfinite(powerup_multiplier):
-            powerup_multiplier = None
-
-        standard_duration = (
-            15.0 * powerup_multiplier if powerup_multiplier is not None else None
-        )
-        clock_duration = (
-            12.0 * powerup_multiplier if powerup_multiplier is not None else None
-        )
-
-        my_time = getattr(snapshot, "my_time_seconds", None)
-        stage_timer = getattr(snapshot, "stage_timer_seconds", None)
-        stage_time = getattr(snapshot, "stage_time_seconds", None)
-        final_swarm_timer = getattr(snapshot, "final_swarm_timer_seconds", None)
-        crypt_timer = getattr(snapshot, "crypt_timer_seconds", None)
-        stage_index = getattr(snapshot, "stage_index", None)
-        active: list[PowerupEffectState] = []
-
-        if (
-            my_time is not None
-            and stage_timer is not None
-            and stage_time is not None
-            and powerup_multiplier is not None
-            and int(stage_index if stage_index is not None else -1) < 3
-        ):
-            for effect in getattr(snapshot, "effects", ()) or ():
-                try:
-                    effect_id = int(getattr(effect, "effect_id", -1))
-                    added_time_raw = getattr(effect, "added_time", None)
-                    added_time = (
-                        float(added_time_raw) if added_time_raw is not None else float("nan")
-                    )
-                    expiration_time = float(getattr(effect, "expiration_time", 0.0))
-                    remaining = expiration_time - float(my_time)
-                    if remaining <= 0 or not isfinite(remaining):
-                        continue
-                    base_duration = 12.0 if effect_id == 4 else 15.0
-                    duration = base_duration * powerup_multiplier
-                    pickup_time = expiration_time - duration
-                    ui_context = powerups.resolve_ui_context(
-                        self._powerup_state,
-                        self.clock(),
-                        my_time=float(my_time),
-                        pickup_time=pickup_time,
-                        stage_timer=float(stage_timer),
-                        stage_time=float(stage_time),
-                        final_swarm_timer=final_swarm_timer,
-                        crypt_timer=crypt_timer,
-                    )
-                    if (
-                        isfinite(added_time)
-                        and added_time <= expiration_time
-                        and added_time <= float(my_time)
-                    ):
-                        added_time_ui_context = powerups.resolve_ui_context(
-                            self._powerup_state,
-                            self.clock(),
-                            my_time=float(my_time),
-                            pickup_time=added_time,
-                            stage_timer=float(stage_timer),
-                            stage_time=float(stage_time),
-                            final_swarm_timer=final_swarm_timer,
-                            crypt_timer=crypt_timer,
-                        )
-                        if added_time_ui_context == ui_context:
-                            pickup_time = added_time
-                            ui_context = added_time_ui_context
-                    raw_pickup = ui_context.timer_value + (pickup_time - float(my_time))
-                    raw_expiration = ui_context.timer_value + (
-                        expiration_time - float(my_time)
-                    )
-                    if not isfinite(raw_pickup) or not isfinite(raw_expiration):
-                        continue
-                except (TypeError, ValueError, OverflowError):
-                    continue
-                active.append(
-                    PowerupEffectState(
-                        effect_id=effect_id,
-                        name=str(getattr(effect, "name", effect_id)),
-                        pickup_ui=(
-                            powerups.format_ui_stage_time(
-                                raw_pickup,
-                                ui_context.timer_limit,
-                            )
-                            if ui_context.timer_limit is not None
-                            else None
-                        ),
-                        expires_ui=(
-                            powerups.format_ui_stage_time(
-                                raw_expiration,
-                                ui_context.timer_limit,
-                            )
-                            if ui_context.timer_limit is not None
-                            else None
-                        ),
-                        pickup_offset_seconds=pickup_time - float(my_time),
-                        expiration_offset_seconds=expiration_time - float(my_time),
-                        remaining_seconds=remaining,
-                        duration_seconds=duration,
-                        stage_index=stage_index,
-                        raw_stage_pickup=raw_pickup,
-                        raw_stage_expiration=raw_expiration,
-                    )
-                )
-
-        active.sort(key=lambda effect: effect.raw_stage_expiration, reverse=True)
-        self._powerups_snapshot = PowerupsSnapshot(
-            active=tuple(active),
-            powerup_multiplier=powerup_multiplier,
-            powerup_multiplier_display=str(
-                getattr(snapshot, "powerup_multiplier_display", "--") or "--"
-            ),
-            standard_duration_seconds=standard_duration,
-            clock_duration_seconds=clock_duration,
-            stage_index=stage_index,
-            stage_time_seconds=stage_time,
-            captured_at=self.clock(),
-            available=True,
-        )
+        powerups.apply_snapshot(self._powerup_state, snapshot, clock=self.clock)
         return True
 
     @with_lock
     def clear_powerups(self) -> None:
-        self._powerups_snapshot = PowerupsSnapshot()
+        powerups.clear(self._powerup_state)
 
     @with_lock
     def powerups_snapshot(self) -> PowerupsSnapshot:
