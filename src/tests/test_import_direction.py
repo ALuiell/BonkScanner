@@ -112,18 +112,9 @@ TOPLEVEL_DEBT: Dict[Tuple[str, str], str] = {
         "Same as app/refresh_tasks.py -> gui_styles; removed by the same "
         "gui_styles split."
     ),
-    ("core/run_summary.py", "gui_styles"): (
-        "The worst of the seven -- core/ reaching a top-level Qt-adjacent "
-        "module. Removed by the gui_styles split, which is the single change "
-        "that clears core/, projections/ and app/ at once."
-    ),
     ("projections/formatting.py", "gui_styles"): (
         "Removed by the gui_styles split."
     ),
-    ("projections/in_game_html.py", "gui_styles"): (
-        "Removed by the gui_styles split."
-    ),
-    ("projections/obs.py", "gui_styles"): ("Removed by the gui_styles split."),
     ("app/coordinator.py", "live_run_tracker"): (
         "The tracker's own module file is still top-level: step 13 split its "
         "internals into core/tracker/ but moving live_run_tracker.py would "

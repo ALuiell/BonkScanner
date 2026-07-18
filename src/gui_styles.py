@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# COLOR_MAP now belongs to core/item_metadata.py, whose lowest consumer it is;
+# the Qt helpers below still build stylesheets out of it, which is a legal
+# downward import.
+from core.item_metadata import COLOR_MAP
+
 PLAYER_STATS_REFRESH_MS = 10_000
 # The recording lifecycle used to inherit the 10 s snapshot cadence above; it is
 # its own decision (step 8b) because it decides run boundaries, and a boundary
@@ -7,13 +12,6 @@ PLAYER_STATS_REFRESH_MS = 10_000
 # stage. Matches CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS, whose state it reads.
 RECORDING_LIFECYCLE_REFRESH_MS = 1_000
 PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
-PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS = 3.0
-PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS = 5.0
-PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS = 90.0
-PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS = 300.0
-PLAYER_STATS_STAGE4_GHOST_TIMER_SECONDS = 500.0
-PLAYER_STATS_STAGE4_GHOST_ENTRY_MAX_SECONDS = 900.0
-PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS = 2
 PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
 PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
 PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
@@ -32,24 +30,6 @@ ITEM_RARITY_SORT_ORDER = {
     "UNCOMMON": 1,
     "RARE": 2,
     "LEGENDARY": 3,
-}
-COLOR_MAP = {
-    "WHITE": "#F8FAFC",
-    "CYAN": "#22D3EE",
-    "GREEN": "#22C55E",
-    "YELLOW": "#FACC15",
-    "LIGHTRED_EX": "#FB7185",
-    "RED": "#EF4444",
-    "MAGENTA": "#E879F9",
-    "BLUE": "#60A5FA",
-    "LIGHTBLUE_EX": "#93C5FD",
-    "DEFAULT": "#E5E7EB",
-}
-ITEM_RARITY_COLOR_MAP = {
-    "COMMON": COLOR_MAP["GREEN"],
-    "UNCOMMON": COLOR_MAP["BLUE"],
-    "RARE": COLOR_MAP["MAGENTA"],
-    "LEGENDARY": COLOR_MAP["YELLOW"],
 }
 
 def _template_checkbox_stylesheet(color_hex: str) -> str:

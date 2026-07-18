@@ -5,7 +5,7 @@ from math import isfinite, log
 from typing import Any
 
 from core.stat_labels import abbreviate_stat_label
-from gui_styles import ITEM_RARITY_COLOR_MAP
+from core.item_metadata import ITEM_RARITY_COLOR_MAP
 
 TEXT_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
 POWERUP_COLORS: dict[str, str] = {

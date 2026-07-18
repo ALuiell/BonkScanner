@@ -11,15 +11,15 @@ from math import isfinite
 
 from core import run_summary
 from gui_styles import (
-    COLOR_MAP,
-    ITEM_RARITY_COLOR_MAP,
     ITEM_RARITY_SORT_ORDER,
     ITEM_SORT_DEFAULT,
     ITEM_SORT_RARITY_ASC,
     ITEM_SORT_RARITY_DESC,
 )
 from core.item_metadata import (
+    COLOR_MAP,
     ITEM_RARITY_BY_NAME,
+    ITEM_RARITY_COLOR_MAP,
     item_display_color,
     normalize_item_name_for_display,
     normalize_item_name_for_rarity,

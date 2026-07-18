@@ -11,7 +11,7 @@ import threading
 from functools import wraps
 
 from core import run_summary
-from gui_styles import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
+from core.run_summary import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
 from core.stats.types import (
     DisabledItemsReadResult,
     DisabledItemsReadStatus,

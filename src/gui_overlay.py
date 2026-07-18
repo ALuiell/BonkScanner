@@ -36,13 +36,13 @@ from gui_shared import (
     _set_text_input,
 )
 from gui_styles import (
-    ITEM_RARITY_COLOR_MAP,
     ITEM_RARITY_SORT_ORDER,
     PLAYER_STATS_REFRESH_MS,
     _button_state_stylesheet,
 )
 from core.item_metadata import (
     ITEM_RARITY_BY_NAME,
+    ITEM_RARITY_COLOR_MAP,
     available_item_display_names,
     item_display_color,
     normalize_item_name_for_rarity,

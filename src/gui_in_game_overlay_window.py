@@ -21,7 +21,7 @@ from projections.in_game_html import (
     LUCK_RARITY_ORDER,
     build_luck_rarity_overlay_html_for_probabilities,
 )
-from gui_styles import ITEM_RARITY_COLOR_MAP
+from core.item_metadata import ITEM_RARITY_COLOR_MAP
 
 if TYPE_CHECKING:
     from gui_in_game_overlay import InGameOverlayMixin

@@ -2,25 +2,30 @@ from __future__ import annotations
 
 import html
 
-from gui_styles import (
-    COLOR_MAP,
-    ITEM_RARITY_COLOR_MAP,
-    PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS,
-    PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS,
-    PLAYER_STATS_STAGE4_GHOST_ENTRY_MAX_SECONDS,
-    PLAYER_STATS_STAGE4_GHOST_TIMER_SECONDS,
-    PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS,
-    PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS,
-    PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS,
-)
 from core.item_metadata import (
+    COLOR_MAP,
     ITEM_RARITY_BY_NAME,
+    ITEM_RARITY_COLOR_MAP,
     normalize_item_name_for_display,
     normalize_item_name_for_rarity,
 )
 
 
 MAX_TRUSTED_ITEM_STACK_COUNT = 1_000_000
+
+# Stage- and run-boundary tuning, moved here from gui_styles.py. This module is
+# the only consumer of six of the seven, and core/tracker/items.py already
+# sourced the seventh from here rather than from gui_styles -- its comment named
+# run_summary the owner, so this makes that literal. A separate core/thresholds.py
+# was considered and rejected: it would exist for a single importer and would
+# invite becoming the junk drawer the allowlist tests exist to prevent.
+PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS = 3.0
+PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS = 5.0
+PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS = 90.0
+PLAYER_STATS_STAGE4_TIMER_JUMP_SECONDS = 300.0
+PLAYER_STATS_STAGE4_GHOST_TIMER_SECONDS = 500.0
+PLAYER_STATS_STAGE4_GHOST_ENTRY_MAX_SECONDS = 900.0
+PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS = 2
 
 
 def default_stage_summary_rows() -> list[dict[str, str]]:

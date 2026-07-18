@@ -29,10 +29,8 @@ import time
 from app import config
 from app.player_stats_view import player_stats_view
 from core.game_state import RuntimeGameMode
-from gui_styles import (
-    PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
-    PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS,
-)
+from core.run_summary import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
+from gui_styles import PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS
 
 
 class VodCaptureMixin:

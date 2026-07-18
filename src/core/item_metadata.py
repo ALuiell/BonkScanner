@@ -214,6 +214,30 @@ ITEM_DISPLAY_COLOR_BY_CANONICAL_NAME: dict[str, str] = {
     "Golden Ring": "#F97316",
 }
 
+# The shared palette, and the rarity colours derived from it. These lived in
+# gui_styles.py, but core/run_summary.py consumes both, so the lowest actual
+# consumer is core/ -- and this module already owns the rarity data they are
+# keyed by (ITEM_RARITY_BY_NAME) and a colour table of its own. Neither value
+# touches Qt; "colour" is not the same claim as "presentation layer".
+COLOR_MAP = {
+    "WHITE": "#F8FAFC",
+    "CYAN": "#22D3EE",
+    "GREEN": "#22C55E",
+    "YELLOW": "#FACC15",
+    "LIGHTRED_EX": "#FB7185",
+    "RED": "#EF4444",
+    "MAGENTA": "#E879F9",
+    "BLUE": "#60A5FA",
+    "LIGHTBLUE_EX": "#93C5FD",
+    "DEFAULT": "#E5E7EB",
+}
+ITEM_RARITY_COLOR_MAP = {
+    "COMMON": COLOR_MAP["GREEN"],
+    "UNCOMMON": COLOR_MAP["BLUE"],
+    "RARE": COLOR_MAP["MAGENTA"],
+    "LEGENDARY": COLOR_MAP["YELLOW"],
+}
+
 ITEM_DISPLAY_NAME_BY_RAW_VALUE: dict[str, str] = {
     **ITEM_UI_NAME_BY_ENUM_NAME,
     "GoldenRing": "The One Ring",

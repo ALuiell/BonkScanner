@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from core import run_summary
 from core.tracker.snapshots import RuntimeStateSnapshot
-from gui_styles import COLOR_MAP, ITEM_RARITY_COLOR_MAP
+from core.item_metadata import COLOR_MAP, ITEM_RARITY_COLOR_MAP
 
 if TYPE_CHECKING:
     from live_run_tracker import LiveRunTracker
