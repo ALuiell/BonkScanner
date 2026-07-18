@@ -9,6 +9,11 @@ config.json
 # === AGENT SCRATCH ===
 .scratch_diffs/
 gitlog.txt
+.codegraph/
+.tmp_*
+
+# === TOOL OUTPUT ===
+map_monitor_log.jsonl
 
 # === LEGACY & TEST FILES ===
 old/
