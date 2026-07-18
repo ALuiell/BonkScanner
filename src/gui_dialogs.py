@@ -6,7 +6,7 @@ import webbrowser
 from functools import partial
 from pathlib import Path
 
-from gui_shared import (
+from ui.shared import (
     CollapsibleSection,
     CollapsibleSectionGroup,
     TrackedRuleTagWidget,

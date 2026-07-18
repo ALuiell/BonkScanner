@@ -86,7 +86,7 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/ui/tabs/player_stats/](../../src/ui/tabs/player_stats/) | Controls the live statistics panels, item inventory styling, weapon upgrade tabs, and item sorting. |
 | [src/gui_templates.py](../../src/gui_templates.py) | Dialogs and controls for creating, deleting, and tweaking template profiles. |
 | [src/gui_dialogs.py](../../src/gui_dialogs.py) | Custom prompt dialogs, scoring rules adjustments, and details widgets. |
-| [src/gui_shared.py](../../src/gui_shared.py) | Base classes, utility widgets, and common state-sharing interfaces for the GUI components. |
+| [src/ui/shared.py](../../src/ui/shared.py) | Base classes, utility widgets, and common state-sharing interfaces for the GUI components. |
 | [src/gui_styles.py](../../src/gui_styles.py) | Central styling stylesheets, color constants, tier badges, and theme parameters. |
 | [src/gui_overlay.py](../../src/gui_overlay.py) | Settings panel layout and button callbacks for the OBS HTTP server overlay. |
 | [src/gui_in_game_overlay.py](../../src/gui_in_game_overlay.py) | Controls the QTimer ticks and lifecycle management of the inside-game overlay. |

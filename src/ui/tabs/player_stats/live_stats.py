@@ -44,7 +44,7 @@ from gui_layout import (
     _build_chests_stats_card,
     _retain_hidden_widget_size,
 )
-from gui_shared import _make_scroll_section, _set_text
+from ui.shared import _make_scroll_section, _set_text
 from gui_styles import (
     ITEM_SORT_LABELS,
     PLAYER_STATS_ACTIVE_BUTTON_COLOR,

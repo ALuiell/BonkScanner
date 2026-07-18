@@ -6,8 +6,8 @@ import unittest
 
 from pathlib import Path
 
-import gui_shared
-from gui_shared import build_template_payload, format_template_conditions
+from ui import shared as gui_shared
+from ui.shared import build_template_payload, format_template_conditions
 from infra import paths
 
 
@@ -36,17 +36,21 @@ if __name__ == "__main__":
     unittest.main()
 
 class ResourcePathAnchorTests(unittest.TestCase):
-    """resource_path derives its anchor from gui_shared's own __file__.
+    """resource_path derives its anchor from ui/shared.py's own __file__.
 
-    That is correct while this module sits in src/, and breaks the moment it
-    moves -- which step 14 (gui_shared.py -> ui/shared.py) will do. The same
-    derivation in config.py and overlay_server.py was broken by step 10b and
-    nothing noticed for two commits, so pin the resolved values here: this test
-    fails the moment the anchor shifts, whoever shifts it.
+    The move this test was written to catch has now happened: step 17a did
+    `git mv src/gui_shared.py src/ui/shared.py`, and the derivation went from
+    one dirname to two so that media/ still resolves under src/ and everything
+    else under the repository root. Left alone it would have repointed the
+    user's config.json at src/config.json -- the step-10b failure, which went
+    unnoticed for two commits.
+
+    This test did its job: it failed on the move and was made to pass by fixing
+    the anchor, not by relaxing the assertion. Both resolved values below are
+    unchanged from before the move, which is the whole claim.
 
     It cannot simply import infra/paths: ui/ must never reach infra/, and this
-    file is ui/-destined. Deciding that anchor is step 14's problem; noticing is
-    this test's.
+    file is ui/ code.
     """
 
     def test_media_resolves_under_src(self) -> None:

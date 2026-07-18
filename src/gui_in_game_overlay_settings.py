@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
-from gui_shared import _make_scroll_section
+from ui.shared import _make_scroll_section
 from gui_styles import _button_state_stylesheet
 
 

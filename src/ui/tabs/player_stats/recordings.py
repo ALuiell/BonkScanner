@@ -67,7 +67,7 @@ from gui_layout import (
     _build_chests_stats_card,
     _retain_hidden_widget_size,
 )
-from gui_shared import (
+from ui.shared import (
     _clear_text_input,
     _make_scroll_section,
     _read_text,

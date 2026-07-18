@@ -33,7 +33,14 @@ def resource_path(relative_path: str) -> str:
     if bundle_path is not None:
         base_path = bundle_path
     else:
-        source_path = os.path.dirname(os.path.abspath(__file__))
+        # This module moved from src/gui_shared.py to src/ui/shared.py in step
+        # 17a, but both anchors it resolves against are unchanged: media/ sits
+        # under src/, and everything else under the repository root. So src/ is
+        # derived two levels up, not one. Left as dirname(__file__), the move
+        # would have silently repointed media/ at src/ui/media and the user's
+        # config.json at src/config.json -- which is exactly what step 10b did,
+        # undetected for two commits. ResourcePathAnchorTests pins both values.
+        source_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         repo_root = os.path.dirname(source_path)
         normalized = relative_path.replace("\\", "/")
         base_path = source_path if normalized == "media" or normalized.startswith("media/") else repo_root

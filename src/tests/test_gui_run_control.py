@@ -22,7 +22,7 @@ import gui_layout
 import gui_overlay
 import gui_run_control
 import gui_scanner
-import gui_shared
+from ui import shared as gui_shared
 import gui_styles
 import gui_templates
 import infra.process as infra_process

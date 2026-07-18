@@ -27,7 +27,7 @@ from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
-from gui_shared import UiInvoker, _AppWindow, resource_path
+from ui.shared import UiInvoker, _AppWindow, resource_path
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from gui_styles import build_qt_app_stylesheet
 from projections.item_sort import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC

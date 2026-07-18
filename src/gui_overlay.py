@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
-from gui_shared import (
+from ui.shared import (
     CollapsibleSection,
     CollapsibleSectionGroup,
     FlowLayout,

@@ -30,7 +30,7 @@ from PySide6.QtWidgets import QListWidgetItem
 from app import config
 from app.vod_library import load_vod
 from core.stats.types import PLAYER_STAT_GROUPS
-from gui_shared import _set_text
+from ui.shared import _set_text
 from projections import formatting
 from projections.formatting import COMPARE_RUN_STAT_LABELS
 
