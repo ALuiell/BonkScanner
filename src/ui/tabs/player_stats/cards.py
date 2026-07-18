@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 from core.stats.types import TomeSnapshot, WeaponSnapshot
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
 from gui_shared import _clear_layout, _set_text
-from gui_styles import ITEM_SORT_DEFAULT
+from projections.item_sort import ITEM_SORT_DEFAULT
 from math import isfinite
 
 from projections import formatting

@@ -28,12 +28,9 @@ from gui_in_game_overlay import InGameOverlayMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
 from gui_shared import UiInvoker, _AppWindow, resource_path
-from gui_styles import (
-    ITEM_SORT_DEFAULT,
-    ITEM_SORT_RARITY_DESC,
-    PLAYER_STATS_REFRESH_MS,
-    build_qt_app_stylesheet,
-)
+from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
+from gui_styles import build_qt_app_stylesheet
+from projections.item_sort import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC
 from gui_templates import TemplatesMixin
 from gui_twitch import TwitchBotMixin
 from infra.vod_storage import load_cached_vods

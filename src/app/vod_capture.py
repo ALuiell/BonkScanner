@@ -30,7 +30,9 @@ from app import config
 from app.player_stats_view import player_stats_view
 from core.game_state import RuntimeGameMode
 from core.run_summary import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
-from gui_styles import PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS
+
+# Moved here from gui_styles.py in step 17a; this module is its only consumer.
+PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
 
 
 class VodCaptureMixin:

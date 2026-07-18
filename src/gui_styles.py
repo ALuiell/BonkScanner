@@ -4,32 +4,22 @@ from __future__ import annotations
 # the Qt helpers below still build stylesheets out of it, which is a legal
 # downward import.
 from core.item_metadata import COLOR_MAP
+# ITEM_SORT_LABELS below is keyed by the sort modes, which projections/ owns.
+from projections.item_sort import (
+    ITEM_SORT_DEFAULT,
+    ITEM_SORT_RARITY_ASC,
+    ITEM_SORT_RARITY_DESC,
+)
 
-PLAYER_STATS_REFRESH_MS = 10_000
-# The recording lifecycle used to inherit the 10 s snapshot cadence above; it is
-# its own decision (step 8b) because it decides run boundaries, and a boundary
-# noticed a whole interval late mis-attributes that interval's kills to the wrong
-# stage. Matches CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS, whose state it reads.
-RECORDING_LIFECYCLE_REFRESH_MS = 1_000
-PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS = 20
 PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
 PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
 PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
 PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#14375e"
 PLAYER_STATS_VALUE_WIDTH = 72
-ITEM_SORT_DEFAULT = "default"
-ITEM_SORT_RARITY_DESC = "rarity_desc"
-ITEM_SORT_RARITY_ASC = "rarity_asc"
 ITEM_SORT_LABELS = {
     ITEM_SORT_DEFAULT: "Default",
     ITEM_SORT_RARITY_DESC: "Rarity ↓",
     ITEM_SORT_RARITY_ASC: "Rarity ↑",
-}
-ITEM_RARITY_SORT_ORDER = {
-    "COMMON": 0,
-    "UNCOMMON": 1,
-    "RARE": 2,
-    "LEGENDARY": 3,
 }
 
 def _template_checkbox_stylesheet(color_hex: str) -> str:

@@ -10,7 +10,7 @@ import html
 from math import isfinite
 
 from core import run_summary
-from gui_styles import (
+from projections.item_sort import (
     ITEM_RARITY_SORT_ORDER,
     ITEM_SORT_DEFAULT,
     ITEM_SORT_RARITY_ASC,

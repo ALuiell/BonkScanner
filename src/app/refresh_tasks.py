@@ -39,7 +39,6 @@ from typing import TYPE_CHECKING
 from app import config
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from gui_shared import _set_text
-from gui_styles import PLAYER_STATS_REFRESH_MS, RECORDING_LIFECYCLE_REFRESH_MS
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from projections import formatting
 
@@ -48,6 +47,16 @@ if TYPE_CHECKING:
 
 
 PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD = 3
+
+# The two refresh cadences, moved here from gui_styles.py in step 17a: this
+# module is what turns them into RefreshTask intervals, and is the only consumer
+# of both.
+PLAYER_STATS_REFRESH_MS = 10_000
+# The recording lifecycle used to inherit the 10 s snapshot cadence above; it is
+# its own decision (step 8b) because it decides run boundaries, and a boundary
+# noticed a whole interval late mis-attributes that interval's kills to the wrong
+# stage. Matches CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS, whose state it reads.
+RECORDING_LIFECYCLE_REFRESH_MS = 1_000
 
 
 def ensure_refresh_coordinator(owner) -> RefreshCoordinator:

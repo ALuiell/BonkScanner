@@ -37,11 +37,11 @@ from gui_dialogs import (
     TwitchCommandSettingsDialog,
 )
 from gui_overlay import OverlayMixin
-from gui_styles import (
+from app.vod_capture import PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS
+from projections.item_sort import (
     ITEM_SORT_DEFAULT,
     ITEM_SORT_RARITY_ASC,
     ITEM_SORT_RARITY_DESC,
-    PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
 )
 from infra.memory.reader import MemoryReadError, ProcessNotFoundError
 from app.player_stats_view import player_stats_view

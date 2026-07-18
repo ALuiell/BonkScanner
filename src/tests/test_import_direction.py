@@ -103,18 +103,6 @@ TOPLEVEL_DEBT: Dict[Tuple[str, str], str] = {
         "gui_styles/gui_shared split -- the helper lands in a layer and this "
         "becomes app -> projections or app -> core."
     ),
-    ("app/refresh_tasks.py", "gui_styles"): (
-        "Style constants read by refresh wiring. Removed by splitting "
-        "gui_styles.py: the pure data half goes to core/, the Qt half to "
-        "ui/styles.py, and this edge becomes app -> core."
-    ),
-    ("app/vod_capture.py", "gui_styles"): (
-        "Same as app/refresh_tasks.py -> gui_styles; removed by the same "
-        "gui_styles split."
-    ),
-    ("projections/formatting.py", "gui_styles"): (
-        "Removed by the gui_styles split."
-    ),
     ("app/coordinator.py", "live_run_tracker"): (
         "The tracker's own module file is still top-level: step 13 split its "
         "internals into core/tracker/ but moving live_run_tracker.py would "
@@ -145,9 +133,6 @@ TOPLEVEL_DEBT: Dict[Tuple[str, str], str] = {
     ),
     ("ui/tabs/player_stats/recordings.py", "gui_shared"): (
         "Removed when gui_shared.py moves to ui/shared.py."
-    ),
-    ("ui/tabs/player_stats/cards.py", "gui_styles"): (
-        "Removed by the gui_styles split -- the ui half becomes ui/styles.py."
     ),
     ("ui/tabs/player_stats/live_stats.py", "gui_styles"): (
         "Removed by the gui_styles split."
