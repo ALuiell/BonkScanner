@@ -17,8 +17,9 @@ from core.stats.types import (
     DisabledItemsReadResult,
     DisabledItemsReadStatus,
 )
-from core.tracker import chaos, combat
+from core.tracker import chaos, chests, combat
 from core.tracker.chaos import _ChaosTomeState
+from core.tracker.chests import _ChestState
 from core.tracker.combat import _CombatState
 from core.tracker.snapshots import (
     LiveRunSnapshot,
@@ -72,30 +73,6 @@ class _RunState:
     # previous map's timer.  While True, the pending boundary holds that stale
     # timer and must not be committed until a reset is observed.
     pending_fast_stage_awaiting_timer_reset: bool = False
-
-
-@dataclass
-class _ChestState:
-    chests_opened: int = 0
-    chests_total: int = 46
-    keys_count: int = 0
-    paid_chest_opens: int = 0
-    key_chest_procs: int = 0
-    free_chest_opens: int | None = None
-    chest_counters_available: bool = False
-    chest_history_incomplete: bool = False
-    total_opened_minimum: int | None = None
-    total_opened_is_minimum: bool = False
-    expected_key_procs: float = 0.0
-    expected_tracked_opens: int = 0
-    expected_chests_bought: int | None = None
-    expected_keys_count: int | None = None
-    expected_available: bool = False
-    expected_detected_run_reset: bool = False
-    stage_ptrs_seen: list[int] = field(default_factory=list)
-    stage_numbers_by_ptr: dict[int, int] = field(default_factory=dict)
-    chests_opened_by_stage: dict[int, int] = field(default_factory=dict)
-    chests_total_by_stage: dict[int, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -963,110 +940,24 @@ class LiveRunTracker:
     @with_lock
     def update_chests_and_keys(self, chests_opened: int, chests_total: int, keys_count: int) -> None:
         self._mark_feature_success_unlocked("progression", self.clock())
-        self._chests_opened = chests_opened
-        self._chests_total = chests_total
-        self._keys_count = keys_count
-
-        latest = self.latest_snapshot()
-        stage_ptr = latest.stage_ptr if (latest and latest.stage_ptr) else 0
-        raw_stage_index = int(getattr(latest, "stage_index", -1) or 0) if latest else -1
-        if stage_ptr == 0:
-            return
-
-        if stage_ptr not in self._stage_ptrs_seen:
-            stage_num = self._raw_stage_to_human_stage(raw_stage_index)
-            fallback_total = self._baseline_chest_total_for_history(chests_total)
-            if not self._stage_ptrs_seen and raw_stage_index > 0 and stage_num > 1:
-                self._chest_history_incomplete = True
-                for missing_stage in range(1, stage_num):
-                    self._chests_opened_by_stage.setdefault(missing_stage, -1)
-                    self._chests_total_by_stage.setdefault(missing_stage, fallback_total)
-            if stage_num <= 0:
-                stage_num = max(self._chests_total_by_stage.keys(), default=0) + 1
-            while stage_num in self._chests_total_by_stage:
-                stage_num += 1
-            self._stage_ptrs_seen.append(stage_ptr)
-            self._stage_numbers_by_ptr[stage_ptr] = stage_num
-            self._chests_opened_by_stage[stage_num] = 0
-            self._chests_total_by_stage[stage_num] = (
-                fallback_total if self._chest_history_incomplete else chests_total
-            )
-
-        stage_num = self._stage_numbers_by_ptr.get(stage_ptr, 0)
-        if stage_num <= 0:
-            return
-
-        # Protect against stage transition race conditions (residual counts)
-        ptr_order = self._stage_ptrs_seen.index(stage_ptr)
-        if ptr_order > 0:
-            prev_stage_ptr = self._stage_ptrs_seen[ptr_order - 1]
-            prev_stage_num = self._stage_numbers_by_ptr.get(prev_stage_ptr, 0)
-            prev_opened = max(0, self._chests_opened_by_stage.get(prev_stage_num, 0))
-            current_opened = max(0, self._chests_opened_by_stage.get(stage_num, 0))
-            if current_opened == 0 and chests_opened == prev_opened:
-                chests_opened = 0
-
-        current_opened = max(0, self._chests_opened_by_stage.get(stage_num, 0))
-        self._chests_opened_by_stage[stage_num] = max(current_opened, chests_opened)
-        self._chests_total_by_stage[stage_num] = max(self._chests_total_by_stage.get(stage_num, 0), chests_total)
+        chests.update_chests_and_keys(
+            self._chest_state,
+            chests_opened,
+            chests_total,
+            keys_count,
+            latest_snapshot=self._latest_snapshot_unlocked(),
+        )
 
     @with_lock
     def update_chest_counters(self, chests_bought: int, chests_purchased: int) -> bool:
         self._mark_feature_success_unlocked("progression", self.clock())
-        chests_bought = int(chests_bought)
-        chests_purchased = int(chests_purchased)
-        known_total = sum(max(0, value) for value in self._chests_opened_by_stage.values())
-        max_total = self._resolve_maximum_chest_total_unlocked()
-        if max_total is None:
-            return False
-        total_opened = known_total
-        total_opened_is_minimum = False
-        if self._chest_history_incomplete:
-            if chests_bought > max_total:
-                return False
-            total_opened = max(known_total, chests_bought)
-            total_opened_is_minimum = True
-
-        if not (
-            0 <= chests_purchased <= chests_bought <= total_opened
-        ):
-            return False
-
-        self._paid_chest_opens = chests_purchased
-        self._key_chest_procs = chests_bought - chests_purchased
-        self._free_chest_opens = (
-            None if self._chest_history_incomplete else total_opened - chests_bought
+        return chests.update_chest_counters(
+            self._chest_state, chests_bought, chests_purchased
         )
-        self._total_opened_minimum = total_opened if total_opened_is_minimum else None
-        self._total_opened_is_minimum = total_opened_is_minimum
-        self._chest_counters_available = True
-        return True
 
-    def _resolve_maximum_chest_total_unlocked(self) -> int | None:
-        total = 0
-        for stage_num, stage_total in self._chests_total_by_stage.items():
-            opened = int(self._chests_opened_by_stage.get(stage_num, 0))
-            if opened < 0:
-                total += max(0, int(stage_total))
-            else:
-                total += max(0, opened)
-        return total
-
-    @staticmethod
-    def _raw_stage_to_human_stage(raw_stage_index: int) -> int:
-        if raw_stage_index < 0:
-            return 0
-        return int(raw_stage_index) + 1
-
-    @staticmethod
-    def _baseline_chest_total_for_history(chests_total: int) -> int:
-        total = max(0, int(chests_total))
-        return 69 if total >= 69 else 46
-
-    @staticmethod
-    def key_proc_chance(keys_count: int) -> float:
-        keys_count = max(0, int(keys_count))
-        return (0.10 * keys_count) / ((0.10 * keys_count) + 1.0)
+    # Called class-qualified from gui_player_stats.py, so it has to stay
+    # resolvable on LiveRunTracker even though the implementation moved.
+    key_proc_chance = staticmethod(chests.key_proc_chance)
 
     @staticmethod
     def _format_duration_seconds(value: float) -> str:
@@ -1127,64 +1018,14 @@ class LiveRunTracker:
 
     @with_lock
     def track_expected_key_procs(self, chests_bought: int, keys_count: int) -> None:
-        chests_bought = max(0, int(chests_bought))
-        keys_count = max(0, int(keys_count))
-        self._keys_count = keys_count
-
-        if self._expected_chests_bought is None:
-            self._expected_chests_bought = chests_bought
-            self._expected_keys_count = keys_count
-            self._expected_available = chests_bought == 0
-            return
-
-        if chests_bought < self._expected_chests_bought:
-            self._expected_key_procs = 0.0
-            self._expected_tracked_opens = 0
-            self._expected_chests_bought = chests_bought
-            self._expected_keys_count = keys_count
-            self._expected_available = chests_bought == 0
-            self._expected_detected_run_reset = True
-            return
-
-        delta = chests_bought - self._expected_chests_bought
-        if delta > 0:
-            # A key dropped by a chest can proc on that same chest, so the
-            # post-open stack is the best observable probability sample.
-            self._expected_key_procs += delta * self.key_proc_chance(keys_count)
-            self._expected_tracked_opens += delta
-
-        self._expected_chests_bought = chests_bought
-        self._expected_keys_count = keys_count
+        chests.track_expected_key_procs(self._chest_state, chests_bought, keys_count)
 
     @with_lock
     def get_chest_stats(self) -> ChestStatsSnapshot:
         return self._get_chest_stats_unlocked()
 
     def _get_chest_stats_unlocked(self) -> ChestStatsSnapshot:
-        opened_by_num = {
-            stage_num: self._chests_opened_by_stage.get(stage_num, 0)
-            for stage_num in sorted(self._chests_total_by_stage)
-        }
-        total_by_num = {
-            stage_num: self._chests_total_by_stage.get(stage_num, 0)
-            for stage_num in sorted(self._chests_total_by_stage)
-        }
-        return ChestStatsSnapshot(
-            current_opened=self._chests_opened,
-            current_total=self._chests_total,
-            keys_count=self._keys_count,
-            paid=self._paid_chest_opens,
-            key_procs=self._key_chest_procs,
-            free_chests=self._free_chest_opens,
-            opened_by_stage=opened_by_num,
-            total_by_stage=total_by_num,
-            counters_available=self._chest_counters_available,
-            expected_key_procs=self._expected_key_procs,
-            expected_tracked_opens=self._expected_tracked_opens,
-            expected_available=self._expected_available,
-            total_opened_minimum=self._total_opened_minimum,
-            total_opened_is_minimum=self._total_opened_is_minimum,
-        )
+        return chests.get_chest_stats(self._chest_state)
 
     @with_lock
     def get_chests_and_keys(self) -> tuple[int, int, int, int, dict[int, int], dict[int, int]]:
@@ -1264,28 +1105,7 @@ class LiveRunTracker:
         self._pending_fast_stage_awaiting_timer_reset = False
         combat.reset(self._combat_state)
         self.current_stage_index = 1
-        self._chests_opened = 0
-        self._chests_total = 46
-        self._keys_count = 0
-        self._paid_chest_opens = 0
-        self._key_chest_procs = 0
-        self._free_chest_opens = None
-        self._chest_counters_available = False
-        self._chest_history_incomplete = False
-        self._total_opened_minimum = None
-        self._total_opened_is_minimum = False
-        if self._expected_detected_run_reset:
-            self._expected_detected_run_reset = False
-        else:
-            self._expected_key_procs = 0.0
-            self._expected_tracked_opens = 0
-            self._expected_chests_bought = None
-            self._expected_keys_count = None
-            self._expected_available = False
-        self._stage_ptrs_seen = []
-        self._stage_numbers_by_ptr = {}
-        self._chests_opened_by_stage = {}
-        self._chests_total_by_stage = {}
+        chests.reset(self._chest_state)
         self._reset_current_run_item_baseline()
         self._reset_chaos_tracking()
         self._powerups_snapshot = PowerupsSnapshot()
