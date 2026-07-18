@@ -148,6 +148,10 @@ class StatusEffectsReadResult:
 class PowerupTrackingSnapshot:
     my_time_seconds: float | None
     stage_timer_seconds: float | None
+    # The run clock, used to tell a real stage timer from one the game has
+    # fast-forwarded. Not the same as ``my_time_seconds``, which is a session
+    # clock running since well before the run started.
+    run_timer_seconds: float | None
     stage_index: int | None
     stage_time_seconds: float | None
     powerup_multiplier: float | None

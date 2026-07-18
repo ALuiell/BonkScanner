@@ -2388,6 +2388,74 @@ class LiveRunTrackerTests(unittest.TestCase):
             "Powerups: Shield 11:00 -> 10:45 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
+    def test_powerups_summary_uses_seconds_when_stage_timer_outran_the_run_timer(self) -> None:
+        # The boss appearing fast-forwards the stage timer past the run timer
+        # (measured: 4.82 -> 590.27 in one 0.5 s sample, at run 189.99). A stage
+        # cannot have run longer than the run itself, so every time derived
+        # from that clock is fiction. final_swarm_timer is still 0 here - it
+        # only starts ~10 s later - so it cannot be the marker.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=590.27,
+                run_timer_seconds=189.99,
+                stage_index=0,
+                stage_time_seconds=960.0,
+                final_swarm_timer_seconds=0.0,
+                crypt_timer_seconds=17.79,
+                powerup_multiplier=1.0,
+                powerup_multiplier_display="1x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=900.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
+        )
+
+    def test_powerups_summary_keeps_stage_times_while_stage_timer_trails_the_run(self) -> None:
+        # The other side of the guard: on the graveyard main map the stage timer
+        # legitimately trails the run timer (94.66 vs 115.44 as captured), and
+        # the 16-minute stage format must survive.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=94.66,
+                run_timer_seconds=115.44,
+                stage_index=0,
+                stage_time_seconds=960.0,
+                final_swarm_timer_seconds=0.0,
+                crypt_timer_seconds=16.94,
+                powerup_multiplier=1.0,
+                powerup_multiplier_display="1x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=1000.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield 14:25 -> 14:10 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
+        )
+
     def test_powerups_summary_uses_safe_format_without_fresh_map_context(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_powerups(

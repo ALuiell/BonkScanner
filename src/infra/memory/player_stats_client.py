@@ -1120,10 +1120,16 @@ class PlayerStatsClient:
                 raise MemoryReadError("MyTime static fields are not initialized.")
             my_time_seconds = self.memory.read_float(my_time_static_fields + self.MY_TIME_TIME_OFFSET)
             stage_timer_seconds = self.memory.read_float(my_time_static_fields + self.STAGE_TIMER_OFFSET)
+            # Read from the same already-resolved MyTime object as the two
+            # above. ``my_time`` is a session clock, not the run clock, so it
+            # cannot serve as the reference the powerup renderer needs: the
+            # stage timer is only meaningful while it has not overrun the run.
+            run_timer_seconds = self.memory.read_float(my_time_static_fields + self.RUN_TIMER_OFFSET)
         except MemoryReadError:
             self._clear_my_time_cache()
             my_time_seconds = None
             stage_timer_seconds = None
+            run_timer_seconds = None
             timing_health = PowerupReadHealth(
                 available=False,
                 complete=False,
@@ -1188,6 +1194,7 @@ class PlayerStatsClient:
         return PowerupTrackingSnapshot(
             my_time_seconds=my_time_seconds,
             stage_timer_seconds=stage_timer_seconds,
+            run_timer_seconds=run_timer_seconds,
             stage_index=stage_index,
             stage_time_seconds=stage_time_seconds,
             powerup_multiplier=powerup_multiplier,
