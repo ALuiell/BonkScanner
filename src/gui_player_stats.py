@@ -1217,7 +1217,12 @@ class PlayerStatsMixin:
                 mark_completed()
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
             self._player_stats_completed_run = False
+            was_paused = self.player_stats_recording_waiting_mode == RuntimeGameMode.PAUSED_IN_GAME.value
             self.player_stats_recording_waiting_mode = None
+            if was_paused and self.player_stats_vod_recorder.is_recording:
+                self.refresh_player_stats_timeline_ui()
+                if self._is_live_stats_tab_active():
+                    _set_text(self.player_stats_status_label, "Live player stats (recording)")
             if self._is_player_stats_recording_armed() and not self.player_stats_vod_recorder.is_recording:
                 current_state = self._read_player_stats_recording_state_safe()
                 current_seed = current_state.map_seed if current_state is not None else None
@@ -1245,7 +1250,12 @@ class PlayerStatsMixin:
             return None
 
         if runtime_state.mode is RuntimeGameMode.PAUSED_IN_GAME:
+            was_paused = self.player_stats_recording_waiting_mode == runtime_state.mode.value
             self.player_stats_recording_waiting_mode = runtime_state.mode.value
+            if not was_paused:
+                self.refresh_player_stats_timeline_ui()
+                if self._is_live_stats_tab_active():
+                    _set_text(self.player_stats_status_label, "Live player stats (recording paused)")
             return "paused"
         if runtime_state.mode in {RuntimeGameMode.GAME_OVER, RuntimeGameMode.MAIN_MENU}:
             mode_text = "game over" if runtime_state.mode is RuntimeGameMode.GAME_OVER else "main menu"
