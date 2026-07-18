@@ -25,7 +25,7 @@ from twitch_auth import (
 from twitch_bot import TwitchBotWorker
 from infra.twitch_credentials import delete_twitch_oauth_token, get_twitch_oauth_token, set_twitch_oauth_token
 from ui.shared import _make_scroll_section
-from gui_styles import _button_state_stylesheet
+from ui.styles import _button_state_stylesheet
 
 
 class TwitchTokenValidationWorker(QThread):

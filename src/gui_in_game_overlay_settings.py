@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from app import config
 from ui.shared import _make_scroll_section
-from gui_styles import _button_state_stylesheet
+from ui.styles import _button_state_stylesheet
 
 
 class InGameWidgetSettingsDialog(QDialog):

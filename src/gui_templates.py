@@ -7,7 +7,7 @@ from core import logic
 from gui_dialogs import DeleteDialog, HelpDialog, ScoresSettingsDialog, SettingsDialog, TemplateDialog, TemplateManagerDialog
 from ui.shared import _clear_layout, _read_bool, _set_text, format_template_conditions
 from core.item_metadata import COLOR_MAP
-from gui_styles import _template_checkbox_stylesheet, _tier_color
+from ui.styles import _template_checkbox_stylesheet, _tier_color
 
 class TemplatesMixin:
 

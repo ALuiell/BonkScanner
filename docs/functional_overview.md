@@ -41,7 +41,7 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
 - `src/gui_app.py` defines the application container;
   `src/gui_layout.py`, `src/gui_scanner.py`, `src/gui_run_control.py`,
   `src/ui/tabs/player_stats/`, `src/gui_templates.py`, `src/gui_dialogs.py`,
-  `src/ui/shared.py`, `src/gui_twitch.py`, `src/gui_overlay.py`, and `src/gui_styles.py` split the PySide6 responsibilities.
+  `src/ui/shared.py`, `src/gui_twitch.py`, `src/gui_overlay.py`, and `src/ui/styles.py` split the PySide6 responsibilities.
 - `src/app/config.py` loads and saves app settings, templates, score rules, hotkeys,
   and update preferences.
 - `src/core/logic.py` evaluates map stats against templates and score tiers.
@@ -184,7 +184,7 @@ Implementation shape:
 - `MegabonkApp.refresh_live_player_stats_now()` coordinates reads.
 - `MegabonkApp.display_player_stats()` updates the UI.
 - Passive item formatting, coloring, counting, and sorting are handled in
-  `src/ui/tabs/player_stats/` and style constants from `src/gui_styles.py`.
+  `src/ui/tabs/player_stats/` and style constants from `src/ui/styles.py`.
 
 Passive item logic:
 

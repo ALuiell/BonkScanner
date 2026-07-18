@@ -36,7 +36,7 @@ from ui.shared import (
     _set_text_input,
 )
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
-from gui_styles import _button_state_stylesheet
+from ui.styles import _button_state_stylesheet
 from projections.item_sort import ITEM_RARITY_SORT_ORDER
 from core.item_metadata import (
     ITEM_RARITY_BY_NAME,

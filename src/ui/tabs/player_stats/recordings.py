@@ -74,7 +74,7 @@ from ui.shared import (
     _set_text,
     _set_text_input,
 )
-from gui_styles import ITEM_SORT_LABELS
+from ui.styles import ITEM_SORT_LABELS
 from projections import formatting
 
 

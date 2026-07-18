@@ -45,7 +45,7 @@ from gui_layout import (
     _retain_hidden_widget_size,
 )
 from ui.shared import _make_scroll_section, _set_text
-from gui_styles import (
+from ui.styles import (
     ITEM_SORT_LABELS,
     PLAYER_STATS_ACTIVE_BUTTON_COLOR,
     PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR,

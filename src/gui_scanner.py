@@ -13,7 +13,7 @@ from ui.update_prompt import start_update_check
 from infra.memory.game_data_client import GameDataClient
 from ui.shared import _apply_button_icon, _clear_layout, _make_scroll_section, _set_text
 from core.item_metadata import COLOR_MAP
-from gui_styles import _button_state_stylesheet, _session_stats_label_stylesheet
+from ui.styles import _button_state_stylesheet, _session_stats_label_stylesheet
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.run_control import RunControlError
 from core.runtime_stats import adapt_map_stats

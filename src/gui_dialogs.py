@@ -22,7 +22,7 @@ from ui.shared import (
     format_template_conditions,
     resource_path,
 )
-from gui_styles import (
+from ui.styles import (
     _template_color_hex,
     _template_manager_card_stylesheet,
     _template_manager_header_stylesheet,

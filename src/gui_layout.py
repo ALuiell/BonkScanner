@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 from ui.shared import _apply_button_icon, _make_scroll_section, resource_path
-from gui_styles import (
+from ui.styles import (
     ITEM_SORT_LABELS,
     PLAYER_STATS_VALUE_WIDTH,)
 

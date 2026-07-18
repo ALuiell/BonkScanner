@@ -23,7 +23,7 @@ import gui_overlay
 import gui_run_control
 import gui_scanner
 from ui import shared as gui_shared
-import gui_styles
+from ui import styles as gui_styles
 import gui_templates
 import infra.process as infra_process
 import ui.tabs.player_stats.cards as ui_player_stats_cards
