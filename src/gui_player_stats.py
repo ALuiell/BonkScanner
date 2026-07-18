@@ -79,7 +79,7 @@ from gui_layout import (
     _build_chests_stats_card,
     _retain_hidden_widget_size,
 )
-from infra.vod_storage import delete_vod, delete_vods_below_snapshot_count, load_vod, refresh_vod_metadata_index, rename_vod
+from app.vod_library import delete_vod, delete_vods_below_snapshot_count, load_vod, refresh_vod_metadata_index, rename_vod
 from projections.vod import build_vod_capture_kwargs
 from projections import formatting
 
