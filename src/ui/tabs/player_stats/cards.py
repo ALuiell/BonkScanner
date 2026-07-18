@@ -380,7 +380,7 @@ class PlayerStatsCardsMixin:
                     getattr(stat, "display_delta", "--"),
                     int(getattr(stat, "rolls", 0)),
                 )
-                for stat in PlayerStatsMixin._chaos_stats_in_game_order(chaos_tome)
+                for stat in PlayerStatsCardsMixin._chaos_stats_in_game_order(chaos_tome)
             ),
         )
     def _build_chaos_summary_card(self, chaos_tome) -> QFrame:

@@ -5816,6 +5816,19 @@ class GuiRunControlTests(unittest.TestCase):
         rendered_html = widget.set_text.call_args.args[0]
         self.assertIn("Event Timer (preview)", rendered_html)
 
+    def test_chaos_tome_signature_resolves_its_helper_from_the_cards_mixin(self) -> None:
+        """Step 14b moved `_chaos_stats_in_game_order` into `PlayerStatsCardsMixin`
+        but left this call site qualified with `PlayerStatsMixin`, where the name no
+        longer exists -- an unguarded AttributeError on every Chaos Tome render with a
+        non-None tome. Nothing covered the path, so the suite stayed green.
+        """
+        stat = SimpleNamespace(stat_id=1, label="Damage", display_delta="+1", rolls=1)
+        chaos_tome = SimpleNamespace(level=2, ambiguous_rolls=0, stats=(stat,))
+
+        signature = gui.MegabonkApp._chaos_tome_signature(chaos_tome)
+
+        self.assertEqual(signature, (2, 0, ((1, "Damage", "+1", 1),)))
+
 
 if __name__ == "__main__":
     unittest.main()
