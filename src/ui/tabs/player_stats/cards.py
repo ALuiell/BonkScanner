@@ -34,9 +34,10 @@ from PySide6.QtWidgets import (
 
 from core.stats.types import TomeSnapshot, WeaponSnapshot
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
-from gui_player_stats import PlayerStatsMixin
 from gui_shared import _clear_layout, _set_text
 from gui_styles import ITEM_SORT_DEFAULT
+from math import isfinite
+
 from projections import formatting
 
 
@@ -565,6 +566,63 @@ class PlayerStatsCardsMixin:
         for key, label in labels.items():
             _set_text(label, values.get(key, "--"))
 
+    def format_live_powerups_card(self, stats) -> tuple[str, dict[str, str]]:
+        values = {name: "--" for name in ("Rage", "Clock", "Shield", "Stonks")}
+        title = "Powerups"
+
+        snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+        snapshot = snapshot_reader() if callable(snapshot_reader) else None
+        if getattr(snapshot, "available", False):
+            pm_display = str(getattr(snapshot, "powerup_multiplier_display", "--") or "--")
+            if pm_display != "--":
+                title = f"Powerups (PM {pm_display})"
+            active_by_name = {
+                str(getattr(effect, "name", "")): effect
+                for effect in getattr(snapshot, "active", ()) or ()
+            }
+            for effect_name in values:
+                effect = active_by_name.get(effect_name)
+                if effect is not None:
+                    left_text = f"({formatting.format_seconds_compact(effect.remaining_seconds)}s)"
+                    if (
+                        getattr(effect, "pickup_ui", None) is None
+                        or getattr(effect, "expires_ui", None) is None
+                    ):
+                        values[effect_name] = left_text
+                    else:
+                        values[effect_name] = (
+                            f"{effect.pickup_ui} -> {effect.expires_ui} "
+                            f"{left_text}"
+                        )
+                    continue
+                duration = (
+                    getattr(snapshot, "clock_duration_seconds", None)
+                    if effect_name == "Clock"
+                    else getattr(snapshot, "standard_duration_seconds", None)
+                )
+                if duration is not None:
+                    values[effect_name] = f"-- ({formatting.format_seconds_compact(duration)}s)"
+            return title, values
+
+        stat = (stats or {}).get("Powerup Multiplier")
+        try:
+            powerup_multiplier = float(getattr(stat, "value", None))
+        except (TypeError, ValueError):
+            return title, values
+        if not isfinite(powerup_multiplier):
+            return title, values
+
+        pm_display = str(getattr(stat, "display_value", "") or "").strip()
+        if pm_display:
+            title = f"Powerups (PM {pm_display})"
+        standard_duration = formatting.format_seconds_compact(15.0 * powerup_multiplier)
+        clock_duration = formatting.format_seconds_compact(12.0 * powerup_multiplier)
+        values["Rage"] = f"-- ({standard_duration}s)"
+        values["Clock"] = f"-- ({clock_duration}s)"
+        values["Shield"] = f"-- ({standard_duration}s)"
+        values["Stonks"] = f"-- ({standard_duration}s)"
+        return title, values
+
 def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
     text = items_text if items_text is not None else formatting.format_items(items)
     if widget is None:
@@ -573,3 +631,4 @@ def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
         widget.setText(formatting.format_items_rich_text(items) if items_text is None else text)
         return
     _set_text(widget, text)
+

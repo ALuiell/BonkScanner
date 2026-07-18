@@ -330,7 +330,7 @@ build_exe.bat
 - `src/gui_layout.py` - main UI layout, tabs, and shared UI sections.
 - `src/gui_scanner.py` - scanner loop, hotkeys, lifecycle, and shutdown flow.
 - `src/gui_run_control.py` - run restart mode UI and provider coordination.
-- `src/gui_player_stats.py` - live stats, recordings, compare runs, and snapshot UI.
+- `src/ui/tabs/player_stats/` - live stats, recordings, and snapshot UI.
 - `src/gui_overlay.py` - OBS overlay controls and overlay state refresh.
 - `src/gui_twitch.py` - Twitch authentication and bot UI orchestration.
 - `src/gui_dialogs.py` - settings, help, score, template, and Twitch command dialogs.

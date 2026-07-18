@@ -76,7 +76,7 @@ class LiveSnapshotStoreState:
 
 class LiveSnapshotStore:
     """Application-state component, not a widget model. One writer: the
-    player-stats refresh cycle in ``gui_player_stats.py``.
+    player-stats refresh cycle in ``app/player_stats_refresh.py``.
     """
 
     def __init__(self) -> None:
@@ -199,3 +199,94 @@ class LiveSnapshotStore:
             last_known_banishes = self.last_known_banishes
             banishes = last_known_banishes if last_known_banishes is not None else self.live_banishes
         return MergedBanishes(banishes=banishes, available=banishes_available)
+
+
+class LiveSnapshotStoreMixin:
+    """Owner-side access to the LiveSnapshotStore.
+
+    Was PlayerStatsMixin until step 15 dissolved it. The properties are a
+    compatibility surface, not the production path: production code calls
+    _ensure_live_snapshot_store() and uses the store's own methods. They
+    exist so external pokes -- the suite, and any object.__new__()-built app
+    double that never runs __init__ -- keep working unchanged.
+    """
+    def _ensure_live_snapshot_store(self) -> LiveSnapshotStore:
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            return coordinator.snapshot_store
+        # No coordinator means an app double built without __init__. Constructing
+        # one here would bind an overlay HTTP port, so those keep a bare store.
+        store = self.__dict__.get("_live_snapshot_store")
+        if store is None:
+            store = LiveSnapshotStore()
+            self.__dict__["_live_snapshot_store"] = store
+        return store
+
+    # Backward-compatible attribute access over LiveSnapshotStore's fields.
+    # Production code should call _ensure_live_snapshot_store() and use its
+    # methods directly; these properties exist so external pokes (tests, and
+    # any object.__new__()-built app double that never runs __init__) keep
+    # working unchanged.
+    @property
+    def player_stats_last_known_items(self):
+        return self._ensure_live_snapshot_store().last_known_items
+
+    @player_stats_last_known_items.setter
+    def player_stats_last_known_items(self, value) -> None:
+        self._ensure_live_snapshot_store().last_known_items = value
+
+    @property
+    def player_stats_last_known_weapons(self):
+        return self._ensure_live_snapshot_store().last_known_weapons
+
+    @player_stats_last_known_weapons.setter
+    def player_stats_last_known_weapons(self, value) -> None:
+        self._ensure_live_snapshot_store().last_known_weapons = value
+
+    @property
+    def player_stats_last_known_tomes(self):
+        return self._ensure_live_snapshot_store().last_known_tomes
+
+    @player_stats_last_known_tomes.setter
+    def player_stats_last_known_tomes(self, value) -> None:
+        self._ensure_live_snapshot_store().last_known_tomes = value
+
+    @property
+    def player_stats_last_known_damage_sources(self):
+        return self._ensure_live_snapshot_store().last_known_damage_sources
+
+    @player_stats_last_known_damage_sources.setter
+    def player_stats_last_known_damage_sources(self, value) -> None:
+        self._ensure_live_snapshot_store().last_known_damage_sources = value
+
+    @property
+    def player_stats_last_known_banishes(self):
+        return self._ensure_live_snapshot_store().last_known_banishes
+
+    @player_stats_last_known_banishes.setter
+    def player_stats_last_known_banishes(self, value) -> None:
+        self._ensure_live_snapshot_store().last_known_banishes = value
+
+    @property
+    def player_stats_live_banishes(self):
+        return self._ensure_live_snapshot_store().live_banishes
+
+    @player_stats_live_banishes.setter
+    def player_stats_live_banishes(self, value) -> None:
+        self._ensure_live_snapshot_store().live_banishes = value
+
+    @property
+    def player_stats_last_seed(self):
+        return self._ensure_live_snapshot_store().last_seed
+
+    @player_stats_last_seed.setter
+    def player_stats_last_seed(self, value) -> None:
+        self._ensure_live_snapshot_store().last_seed = value
+
+    @property
+    def player_stats_last_run_timer(self):
+        return self._ensure_live_snapshot_store().last_run_timer
+
+    @player_stats_last_run_timer.setter
+    def player_stats_last_run_timer(self, value) -> None:
+        self._ensure_live_snapshot_store().last_run_timer = value

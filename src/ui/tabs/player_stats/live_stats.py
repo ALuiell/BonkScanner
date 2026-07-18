@@ -5,7 +5,7 @@ reads them back, which is why this file's widget reads never counted as hidden
 dependencies -- see the roadmap's step 11b table.
 
 What is *not* here: acquiring the data. ``refresh_live_player_stats_now`` and the
-memory clients stay in ``gui_player_stats.py``; this tab only renders what it is
+memory clients live in ``app/player_stats_memory.py``; this tab only renders what it is
 handed. That boundary is the whole point of step 14 -- it is what let this module
 land under ``ui/`` with no ``infra`` import at all.
 
@@ -579,3 +579,14 @@ class LiveStatsTabMixin:
         chaos_tab_layout.setContentsMargins(0, 0, 0, 0)
         damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
         self.tabview.addTab(self.tab_player_stats, "Live Stats")
+
+    def format_live_powerups(self, stats) -> str:
+        formatter = getattr(self.live_run_tracker, "format_powerups_summary", None)
+        snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+        if callable(formatter) and callable(snapshot_reader):
+            try:
+                if getattr(snapshot_reader(), "available", False) is True:
+                    return formatter(include_left_word=False)
+            except Exception:
+                pass
+        return formatting.format_powerups_duration(stats)

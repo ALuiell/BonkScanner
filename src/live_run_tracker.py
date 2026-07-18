@@ -728,7 +728,7 @@ class LiveRunTracker:
             self._chest_state, chests_bought, chests_purchased
         )
 
-    # Called class-qualified from gui_player_stats.py, so it has to stay
+    # Called class-qualified from projections/formatting.py, so it has to stay
     # resolvable on LiveRunTracker even though the implementation moved.
     key_proc_chance = staticmethod(chests.key_proc_chance)
 

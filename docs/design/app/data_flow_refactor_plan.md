@@ -13,7 +13,7 @@ the decisions made during design, and the migration order.
 - Implementation status: phases 1-3 complete; phase 4 partially complete
   (tracker internals are grouped into feature states). Phase 5 is not started:
   the coordinator wiring and demand predicates still live in
-  `gui_player_stats.py`, and the two UI timers still drive one coordinator.
+  `gui_player_stats.py` (dissolved in step 15), and the two UI timers still drive one coordinator.
 - Compatibility rule: keep existing intervals, consumer gating, payloads, and
   VOD format while replacing their internal data boundary incrementally.
 

@@ -17,7 +17,7 @@ module.
 
 ``_set_visible``, ``_checkbox_checked``, ``_nearest_snapshot_index`` and
 ``_snapshot_compare_time`` came along despite their generic names: once the tab
-left, ``gui_player_stats.py`` had no callers of any of them.
+left, the player-stats mixin had no callers of any of them.
 """
 from __future__ import annotations
 

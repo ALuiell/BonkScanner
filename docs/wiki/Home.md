@@ -83,7 +83,7 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/gui_layout.py](../../src/gui_layout.py) | Defines the main desktop application layout, split views, and primary window panels. |
 | [src/gui_scanner.py](../../src/gui_scanner.py) | Manages scanner settings UI, scan state machines, and active session control buttons. |
 | [src/gui_run_control.py](../../src/gui_run_control.py) | Layout and button event mappings for resetting runs and configuring game restart options. |
-| [src/gui_player_stats.py](../../src/gui_player_stats.py) | Controls the live statistics panels, item inventory styling, weapon upgrade tabs, and item sorting. |
+| [src/ui/tabs/player_stats/](../../src/ui/tabs/player_stats/) | Controls the live statistics panels, item inventory styling, weapon upgrade tabs, and item sorting. |
 | [src/gui_templates.py](../../src/gui_templates.py) | Dialogs and controls for creating, deleting, and tweaking template profiles. |
 | [src/gui_dialogs.py](../../src/gui_dialogs.py) | Custom prompt dialogs, scoring rules adjustments, and details widgets. |
 | [src/gui_shared.py](../../src/gui_shared.py) | Base classes, utility widgets, and common state-sharing interfaces for the GUI components. |

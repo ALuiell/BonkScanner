@@ -14,7 +14,7 @@ reindexes -- so step 14a widened that seam rather than letting this module impor
 ``infra.vod_storage``.
 
 Capture is not here either: starting and stopping a recording is lifecycle, and
-it stays in ``gui_player_stats.py`` until it reaches ``app/vod_capture.py``.
+it lives in ``app/vod_capture.py``.
 
 Note for whoever moves this again: ``ui.tabs.player_stats.recordings`` is in
 ``gui.py``'s ``_PATCH_COMPAT_MODULES`` because four tests do

@@ -119,7 +119,7 @@ For each feature, the data begins its journey here.
 
 - **Game Memory / Memory Readers**
   - **What it is:** Direct memory reading of the target game process.
-  - **Code location:** `src/infra/memory/reader.py`, `src/gui_player_stats.py` (e.g., `_get_player_stats_client()`).
+  - **Code location:** `src/infra/memory/reader.py`, `src/app/player_stats_memory.py` (e.g., `_get_player_stats_client()`).
   - **Data extracted:** Player stats (luck, damage), run timer, mob kills, items, weapons, chaos tome level, expected chest inputs, powerup tracking snapshots, banishes.
 - **Config / User Config**
   - **What it is:** Configuration settings read from disk or defined at runtime.
@@ -139,7 +139,7 @@ For each feature, the data begins its journey here.
 This section defines the active logic that pulls from data sources and pushes to state stores. (See *Activation / Gating Rules* for trigger conditions).
 
 - **The driver** (not an updater itself)
-  - **Code location:** `src/gui_player_stats.py` (`update_player_stats_timer`)
+  - **Code location:** `src/app/player_stats_refresh.py` (`update_player_stats_timer`)
   - **Cadence:** Every 500 ms (`FAST_TRACKER_INTERVAL_MS`). The only timer.
   - **Does:** `_refresh_core_run_lifecycle_state()`, then one `tick()`. Nothing
     else — a cadence in this callback would be invisible to the coordinator.
@@ -154,7 +154,7 @@ This section defines the active logic that pulls from data sources and pushes to
   - **Cadence:** Every 500 ms (`FAST_TRACKER_INTERVAL_MS`), except `event_timer` (stage timer and stage index) at 1 s.
   - **Destination:** Directly pushes data into `LiveRunTracker`.
 - **Recording Lifecycle**
-  - **Code location:** `src/app/refresh_tasks.py` (`recording_lifecycle` task) -> `src/gui_player_stats.py` (`_sync_player_stats_recording_run_state`)
+  - **Code location:** `src/app/refresh_tasks.py` (`recording_lifecycle` task) -> `src/app/vod_capture.py` (`_sync_player_stats_recording_run_state`)
   - **Updates:** VOD recording auto-start, auto-stop, auto-split and pause handling.
   - **Cadence:** Every 10 seconds (`PLAYER_STATS_REFRESH_MS`). Ungated.
   - **Destination:** `VodRecorder` lifecycle and the live-stats status text.
@@ -164,7 +164,7 @@ This section defines the active logic that pulls from data sources and pushes to
   - **Cadence:** On-demand after fast or slow refreshes.
   - **Destination:** `OverlayStateStore`.
 - **VOD Snapshot Capture**
-  - **Code location:** `src/gui_player_stats.py` -> `src/infra/vod_storage.py`
+  - **Code location:** `src/app/vod_capture.py` -> `src/infra/vod_storage.py`
   - **Updates:** Records historical run states for later review.
   - **Cadence:** Configurable, typically every 30 seconds (`PLAYER_STATS_RECORD_INTERVAL_SECONDS`).
 - **Twitch Bot Command Read Path**
@@ -212,7 +212,7 @@ This describes where the most authoritative version of the data lives.
 
 This defines who is reading the data at the end of the pipeline.
 
-- **Live Stats Tab** (`src/gui_player_stats.py`)
+- **Live Stats Tab** (`src/ui/tabs/player_stats/live_stats.py`)
   - **Reads:** `LiveRunTracker` (for KPS/Chaos/Powerups) and direct memory snapshots (for Items/Banishes/Weapons).
   - **Cadence:** Updated directly by the GUI loops (500ms / 10s).
 - **OBS Overlay / Widgets** (`src/infra/overlay_server.py`)
@@ -221,7 +221,7 @@ This defines who is reading the data at the end of the pipeline.
 - **Twitch Bot** (`src/twitch_bot.py`)
   - **Reads:** Primarily `LiveRunTracker` and `config.TWITCH_BOT`.
   - **Cadence:** On-demand when a user types a command in chat.
-- **Recordings / Compare Runs** (`src/gui_app.py`, `src/gui_player_stats.py`)
+- **Recordings / Compare Runs** (`src/ui/tabs/player_stats/recordings.py`, `src/ui/tabs/compare_runs/tab.py`)
   - **Reads:** `VodRecorder` snapshots.
   - **Cadence:** Interactive user inspection.
 

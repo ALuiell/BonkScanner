@@ -72,7 +72,7 @@
 
 ### Open: полный load_vod выполняется в UI-потоке
 
-- Файл: `src/gui_player_stats.py`
+- Файл: `src/ui/tabs/player_stats/`
 - Участок: `PlayerStatsMixin.load_selected_vod()`.
 - Проблема: при выборе записи вызывается синхронный `load_vod(path)`, который
   полностью разбирает JSONL и создаёт все snapshot objects в главном UI-потоке.
@@ -97,7 +97,7 @@
 
 ### Open: синхронная загрузка двух полных VOD
 
-- Файл: `src/gui_player_stats.py`
+- Файл: `src/ui/tabs/player_stats/`
 - Участок: `PlayerStatsMixin.load_compare_run()`.
 - Проблема: каждый выбранный Run A/Run B полностью загружается через
   `load_vod()` в UI-потоке.
@@ -108,7 +108,7 @@
 
 ### Open: stale выбранный VOD после внешнего удаления файла
 
-- Файл: `src/gui_player_stats.py`
+- Файл: `src/ui/tabs/player_stats/`
 - Участок: `refresh_compare_runs_list()`.
 - Проблема: если выбранный файл удалён или перемещён вне приложения, список
   перестраивается без найденного selected row, но `compare_run_a_vod` или

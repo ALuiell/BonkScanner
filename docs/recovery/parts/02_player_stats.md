@@ -5,7 +5,7 @@ This component reads the active player's stats (e.g. Max HP, Damage, Crit Chance
 
 - **Target Files**:
   - Code: `src/infra/memory/player_stats_client.py`
-  - UI Overlay: `src/gui_player_stats.py`
+  - UI Overlay: `src/ui/tabs/player_stats/live_stats.py`
   - Unit Tests: `src/tests/test_player_stats.py`
 
 ---

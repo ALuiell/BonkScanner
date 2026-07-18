@@ -108,7 +108,7 @@ Most fragile pieces:
 Code:
 
 - `src/infra/memory/player_stats_client.py`
-- `src/gui_player_stats.py`
+- `src/ui/tabs/player_stats/live_stats.py`
 
 Symptoms:
 
@@ -125,7 +125,7 @@ Most fragile pieces:
 Code:
 
 - `src/infra/memory/player_stats_client.py`
-- `src/gui_player_stats.py`
+- `src/ui/tabs/player_stats/live_stats.py`
 
 Symptoms:
 

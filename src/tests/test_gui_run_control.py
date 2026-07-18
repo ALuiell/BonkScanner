@@ -20,7 +20,6 @@ import gui_dialogs
 import gui_in_game_overlay
 import gui_layout
 import gui_overlay
-import gui_player_stats
 import gui_run_control
 import gui_scanner
 import gui_shared
@@ -63,7 +62,6 @@ _PATCH_TARGETS = (
     gui_dialogs,
     gui_layout,
     gui_overlay,
-    gui_player_stats,
     gui_run_control,
     gui_scanner,
     gui_shared,
@@ -3138,7 +3136,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         fallback_client = FakeSeedStateClient([None, None])
         # Step 14c moved the lazy `GameDataClient(...)` construction out of
-        # `gui_player_stats` into both app-layer modules -- the memory reads and
+        # the player-stats mixin into both app-layer modules -- the memory reads and
         # `refresh_live_player_stats_now` each build one. Patch both, so this test
         # keeps asserting "no lazily-created client can reach the real game",
         # which is the whole point of the fallback.
@@ -5925,6 +5923,61 @@ class GuiRunControlTests(unittest.TestCase):
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]
         self.assertIn("Event Timer (preview)", rendered_html)
+
+    def test_no_mixin_method_is_nested_inside_a_function(self) -> None:
+        """A method that lands inside a function instead of a class is invisible.
+
+        Step 15 hit this: `format_live_powerups_card` was appended to `cards.py`
+        at the wrong indentation and became a nested function inside the
+        module-level `_set_items_text`. The file parsed, AST identity held, and
+        all 568 tests passed -- but `MegabonkApp` no longer had the method. A
+        `def` taking `self` as its first parameter while nested inside another
+        function is that mistake's fingerprint.
+        """
+        import ast
+        import pathlib
+
+        src_root = pathlib.Path(__file__).resolve().parent.parent
+        offenders = []
+        for path in src_root.rglob("*.py"):
+            if "__pycache__" in path.parts or "tests" in path.parts:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for inner in node.body:
+                    if not isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        continue
+                    args = inner.args.args
+                    if not args or args[0].arg != "self":
+                        continue
+                    # A decorator's inner wrapper legitimately takes self and
+                    # forwards it -- `@wraps(...)` is what marks one.
+                    if any(
+                        (isinstance(d, ast.Call) and getattr(d.func, "id", "") == "wraps")
+                        or getattr(d, "id", "") == "wraps"
+                        for d in inner.decorator_list
+                    ):
+                        continue
+                    offenders.append(f"{path.name}:{inner.lineno} {inner.name}")
+
+        self.assertEqual(offenders, [])
+
+    def test_rehomed_player_stats_methods_resolve_on_the_app(self) -> None:
+        """Step 15 dissolved `PlayerStatsMixin`; these moved to three new homes."""
+        expected = {
+            "format_live_powerups": "ui.tabs.player_stats.live_stats",
+            "format_live_powerups_card": "ui.tabs.player_stats.cards",
+            "_ensure_live_snapshot_store": "app.snapshot_store",
+        }
+        for name, module in expected.items():
+            self.assertEqual(getattr(MegabonkApp, name).__module__, module, name)
+
+        # the snapshot-store compat properties survived the move as properties
+        self.assertIsInstance(
+            MegabonkApp.player_stats_last_known_items, property
+        )
 
     def test_player_stats_view_defaults_to_the_app_itself(self) -> None:
         """The default view must be the app object, or step 14c's inversion would

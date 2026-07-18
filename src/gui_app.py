@@ -14,6 +14,7 @@ from app.version import CURRENT_VERSION
 from app.player_stats_memory import PlayerStatsMemoryMixin
 from app.player_stats_refresh import PlayerStatsRefreshMixin
 from app.refresh_tasks import RefreshTasksMixin
+from app.snapshot_store import LiveSnapshotStoreMixin
 from app.vod_capture import VodCaptureMixin
 from ui.tabs.compare_runs import CompareRunsMixin
 from ui.tabs.player_stats import (
@@ -24,7 +25,6 @@ from ui.tabs.player_stats import (
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
-from gui_player_stats import PlayerStatsMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
 from gui_shared import UiInvoker, _AppWindow, resource_path
@@ -53,7 +53,7 @@ class MegabonkApp(
     LiveStatsTabMixin,
     RecordingsTabMixin,
     PlayerStatsCardsMixin,
-    PlayerStatsMixin,
+    LiveSnapshotStoreMixin,
     ScannerMixin,
     TwitchBotMixin,
 ):

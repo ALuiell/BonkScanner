@@ -63,7 +63,7 @@ class MapGenerationState:
     current_stage_ptr: int = 0
     is_resetting: bool = False
     # The MapController static ordinal (0/1/2). Unlike current_stage_ptr, it
-    # survives the loading screen -- the split guard in gui_player_stats.py
+    # survives the loading screen -- the split guard in app/player_stats_memory.py
     # decides "same run vs. new run" from its direction rather than the run
     # timer. Read from the same static-field block as current_stage_ptr, so
     # adding it costs no extra memory read. None means the read failed or the
