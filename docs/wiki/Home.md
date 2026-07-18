@@ -79,7 +79,6 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/ui/dialogs/update_dialog.py](../../src/ui/dialogs/update_dialog.py) | The "Update Available" dialog. |
 | [src/ui/update_prompt.py](../../src/ui/update_prompt.py) | Adapter wiring the update flow to the GUI thread and the dialog. |
 | **User Interface (PySide6)** | |
-| [src/gui.py](../../src/gui.py) | Backward compatibility facade containing core interfaces for tests and imports. |
 | [src/gui_app.py](../../src/gui_app.py) | Definitive application container class (`MegabonkApp`) linking core business logic to UI events. |
 | [src/gui_layout.py](../../src/gui_layout.py) | Defines the main desktop application layout, split views, and primary window panels. |
 | [src/gui_scanner.py](../../src/gui_scanner.py) | Manages scanner settings UI, scan state machines, and active session control buttons. |

@@ -18,8 +18,8 @@ BonkScanner has three major responsibilities:
 2. Inspect the current run in real time through memory reads.
 3. Record and replay live run snapshots for later review.
 
-The desktop UI now uses a split GUI layout. `src/gui.py` is a compatibility facade,
-`src/gui_app.py` defines `MegabonkApp`, and focused `gui_*` modules own layout,
+The desktop UI now uses a split GUI layout. `src/gui_app.py` defines
+`MegabonkApp`, and focused `gui_*` modules own layout,
 scanner flow, run control, dialogs, live stats, and recordings behavior.
 Memory-facing readers are split mostly into `src/infra/memory/game_data_client.py` for map/reroll data
 and `src/infra/memory/player_stats_client.py` for run inspection. Recordings are stored and loaded
@@ -38,7 +38,7 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
 ## Main Files
 
 - `src/main.py` starts the desktop app.
-- `src/gui.py` is the compatibility facade for imports/tests; `src/gui_app.py`,
+- `src/gui_app.py` defines the application container;
   `src/gui_layout.py`, `src/gui_scanner.py`, `src/gui_run_control.py`,
   `src/gui_player_stats.py`, `src/gui_templates.py`, `src/gui_dialogs.py`,
   `src/gui_shared.py`, `src/gui_twitch.py`, `src/gui_overlay.py`, and `src/gui_styles.py` split the PySide6 responsibilities.

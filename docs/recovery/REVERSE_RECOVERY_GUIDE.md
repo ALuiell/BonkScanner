@@ -64,7 +64,7 @@ Most fragile pieces:
 Code:
 
 - `src/infra/memory/player_stats_client.py`
-- `src/gui.py`
+- `src/gui_app.py`
 - `src/infra/vod_storage.py`
 
 Symptoms:
@@ -85,7 +85,7 @@ Most fragile pieces:
 Code:
 
 - `src/infra/memory/player_stats_client.py`
-- `src/gui.py`
+- `src/gui_app.py`
 - `src/infra/vod_storage.py`
 
 Symptoms:

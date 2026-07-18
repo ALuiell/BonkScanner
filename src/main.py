@@ -3,7 +3,7 @@ try:
 except ImportError:
     keyboard = None
 
-from gui import MegabonkApp
+from gui_app import MegabonkApp
 
 def main():
     if keyboard is None:
