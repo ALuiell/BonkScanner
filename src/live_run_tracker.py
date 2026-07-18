@@ -67,6 +67,13 @@ class _RunState:
     # previous map's timer.  While True, the pending boundary holds that stale
     # timer and must not be committed until a reset is observed.
     pending_fast_stage_awaiting_timer_reset: bool = False
+    # The slow-tick half of the same desync.  ``update`` stores each read
+    # verbatim, so a snapshot can land with the advanced raw index and the
+    # previous map's timer, and one tick later that stored sample is the
+    # ``previous_snapshot`` a stage-4 timer collapse is measured against.
+    # Holds the stage_time captured at detection while the reset is awaited;
+    # ``None`` once observed.
+    slow_stage_timer_reset_pending_from: float | None = None
 
 
 @dataclass
@@ -97,6 +104,7 @@ class LiveRunTracker:
             "_cached_stage_summary", "_disabled_items_cache", "_fast_stage_boundaries",
             "_pending_fast_stage_index", "_pending_fast_stage_samples",
             "_pending_fast_stage_boundary", "_pending_fast_stage_awaiting_timer_reset",
+            "_slow_stage_timer_reset_pending_from",
         )},
         **{name: "_combat_state" for name in (
             "_recent_kills_history", "_ui_kps_baseline", "_ui_kps_value",
@@ -209,7 +217,7 @@ class LiveRunTracker:
 
         previous_snapshot = self.snapshots[-1] if self.snapshots else None
         if previous_snapshot is not None and self._is_active_snapshot(previous_snapshot):
-            self.current_stage_index = min(
+            next_stage_index = min(
                 max(
                     run_summary.resolve_next_stage_index(
                         self.current_stage_index,
@@ -220,6 +228,9 @@ class LiveRunTracker:
                 ),
                 4,
             )
+            next_stage_index = self._suppress_desync_stage_four_unlocked(next_stage_index)
+            self.current_stage_index = next_stage_index
+            self._update_slow_stage_desync_unlocked(previous_snapshot, snapshot)
 
         self.snapshots.append(snapshot)
         if snapshot.disabled_items_available:
@@ -360,6 +371,50 @@ class LiveRunTracker:
     def _latest_stage_summary_snapshot_unlocked(self) -> LiveRunSnapshot | None:
         timeline = self._stage_summary_timeline_unlocked()
         return timeline[-1] if timeline else None
+
+    def _suppress_desync_stage_four_unlocked(self, next_stage_index: int) -> int:
+        """Drop a stage-4 promotion measured against a stale stage timer.
+
+        Stage 4 is virtual -- same ``stage_ptr``, same raw ``stage_index``, only
+        the timer collapses -- so the detector is a pure timer comparison.  While
+        the slow tick is holding a sample whose timer still belongs to the
+        previous map, that comparison reads the *real* reset as the collapse and
+        promotes within a second of "Moving to Stage 3".  Genuine stage 4 is
+        unaffected: it happens well after the reset has been observed and the
+        hold has cleared.
+        """
+        if (
+            next_stage_index == 4
+            and self.current_stage_index == 3
+            and self._slow_stage_timer_reset_pending_from is not None
+        ):
+            return 3
+        return next_stage_index
+
+    def _update_slow_stage_desync_unlocked(self, previous_snapshot, snapshot) -> None:
+        current_stage_time = getattr(snapshot, "stage_time_seconds", None)
+        pending_from = self._slow_stage_timer_reset_pending_from
+        if pending_from is not None:
+            # Stage timers only count up, so a value below the one captured at
+            # detection is the reset itself, relative to itself -- no threshold.
+            if current_stage_time is not None and float(current_stage_time) < pending_from:
+                self._slow_stage_timer_reset_pending_from = None
+            return
+        previous_stage_time = getattr(previous_snapshot, "stage_time_seconds", None)
+        if (
+            run_summary.is_explicit_raw_stage_transition(previous_snapshot, snapshot)
+            and current_stage_time is not None
+            and previous_stage_time is not None
+            and float(current_stage_time) >= float(previous_stage_time)
+            # A sample already at a fresh-stage value has reset, whatever the
+            # previous one read; it also sits below the threshold the collapse
+            # detector requires of its ``previous_stage_time``, so it cannot be
+            # the false positive being guarded against.
+            and not run_summary.is_stage_transition_boundary_snapshot(snapshot)
+        ):
+            # Raw index advanced but the timer kept counting the old map: this
+            # stored sample carries a stale stage_time.
+            self._slow_stage_timer_reset_pending_from = float(current_stage_time)
 
     def _fast_stage_summary_snapshot_unlocked(
         self,
@@ -502,6 +557,12 @@ class LiveRunTracker:
                 ),
                 4,
             )
+            # The fast tick measures against the same stored timeline, so a
+            # slow-tick sample holding a stale timer feeds a bogus stage-4
+            # collapse here too -- and this path is exempt from the
+            # ``awaiting_timer_reset`` hold, since a 3 -> 4 promotion carries no
+            # raw index advance to detect.
+            next_stage_index = self._suppress_desync_stage_four_unlocked(next_stage_index)
             if next_stage_index > self.current_stage_index:
                 current_timer = float(stage_timer_seconds)
                 if self._pending_fast_stage_index == next_stage_index:
@@ -758,6 +819,7 @@ class LiveRunTracker:
         self._pending_fast_stage_samples = 0
         self._pending_fast_stage_boundary = None
         self._pending_fast_stage_awaiting_timer_reset = False
+        self._slow_stage_timer_reset_pending_from = None
         combat.reset(self._combat_state)
         self.current_stage_index = 1
         chests.reset(self._chest_state)

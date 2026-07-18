@@ -1630,6 +1630,117 @@ class LiveRunTrackerTests(unittest.TestCase):
         _, stage_index = tracker.run_identity()
         self.assertEqual(stage_index, 3)
 
+    def test_slow_two_to_three_with_lagging_timer_reset_does_not_flip_to_stage_four(self) -> None:
+        # Third propagation path of the same live bug, and the one the two 8b
+        # fixes left open: they both guarded the fast tick, but ``update``
+        # stores every slow-tick read verbatim.  A sample landing inside the
+        # ~1 s index/timer desync window keeps the previous map's stage_time,
+        # and one tick later it is the ``previous_snapshot`` that
+        # ``looks_like_stage_four_transition`` measures the real reset against
+        # (same ptr, same seed, 501 -> 1.0) -- a stage-4 promotion within a
+        # second of "Moving to Stage 3".
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=500.0,
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=1,
+                stage_time_seconds=500.0,
+                mob_kills=5_000,
+            )
+        )
+        # Desync window: raw index and map identity already advanced, timer not.
+        tracker.update(
+            snapshot(
+                time_seconds=501.0,
+                map_seed=300,
+                stage_ptr=3000,
+                stage_index=2,
+                stage_time_seconds=501.0,
+                mob_kills=5_010,
+            )
+        )
+        self.assertEqual(tracker.run_identity()[1], 3)
+        # The real reset arrives on the next slow tick.
+        tracker.update(
+            snapshot(
+                time_seconds=502.0,
+                map_seed=300,
+                stage_ptr=3000,
+                stage_index=2,
+                stage_time_seconds=1.0,
+                mob_kills=5_020,
+            )
+        )
+
+        _, stage_index = tracker.run_identity()
+        self.assertEqual(stage_index, 3)
+
+    def test_slow_stage_desync_spanning_two_ticks_still_reaches_stage_four_later(self) -> None:
+        # The hold must survive a desync that spans more than one slow tick (at
+        # a 500 ms cadence the ~1 s window covers two), and must clear once the
+        # reset is observed so a genuine stage 4 -- virtual: same ptr, same raw
+        # index, only the timer collapses -- still promotes later in map 3.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=500.0,
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=1,
+                stage_time_seconds=500.0,
+                mob_kills=5_000,
+            )
+        )
+        for offset, stage_time, kills in (
+            (0.5, 500.5, 5_005),
+            (1.0, 501.0, 5_010),
+            (1.5, 1.0, 5_015),
+        ):
+            tracker.update(
+                snapshot(
+                    time_seconds=500.0 + offset,
+                    map_seed=300,
+                    stage_ptr=3000,
+                    stage_index=2,
+                    stage_time_seconds=stage_time,
+                    mob_kills=kills,
+                )
+            )
+        self.assertEqual(tracker.run_identity()[1], 3)
+
+        game_time, stage_time, kills = 501.5, 1.0, 5_015
+        for _ in range(120):
+            game_time += 1.0
+            stage_time += 1.0
+            kills += 10
+            tracker.update(
+                snapshot(
+                    time_seconds=game_time,
+                    map_seed=300,
+                    stage_ptr=3000,
+                    stage_index=2,
+                    stage_time_seconds=stage_time,
+                    mob_kills=kills,
+                )
+            )
+        self.assertEqual(tracker.run_identity()[1], 3)
+
+        tracker.update(
+            snapshot(
+                time_seconds=game_time + 1.0,
+                map_seed=300,
+                stage_ptr=3000,
+                stage_index=2,
+                stage_time_seconds=5.1,
+                mob_kills=kills + 10,
+            )
+        )
+
+        _, stage_index = tracker.run_identity()
+        self.assertEqual(stage_index, 4)
+
     def test_expected_key_procs_accumulate_sampled_probabilities(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
 
