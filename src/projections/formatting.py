@@ -15,6 +15,9 @@ from gui_styles import (
     ITEM_RARITY_BY_NAME,
     ITEM_RARITY_COLOR_MAP,
     ITEM_RARITY_SORT_ORDER,
+    ITEM_SORT_DEFAULT,
+    ITEM_SORT_RARITY_ASC,
+    ITEM_SORT_RARITY_DESC,
 )
 from core.item_metadata import (
     item_display_color,
@@ -22,6 +25,8 @@ from core.item_metadata import (
     normalize_item_name_for_rarity,
 )
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
+from core.tracker.chests import key_proc_chance
+from core.stats.types import calculate_chests_per_minute
 
 COMPARE_RUN_STAT_LABELS = (
     "Damage",
@@ -1502,3 +1507,109 @@ def format_powerups_duration(stats) -> str:
 
 def format_seconds_compact(value: float) -> str:
     return str(int(round(value)))
+
+
+def merge_banish_appearance_order(previous_banishes, current_banishes) -> tuple[str, ...]:
+    current = tuple(str(item) for item in (current_banishes or ()))
+    if not current:
+        return ()
+    previous = tuple(str(item) for item in (previous_banishes or ()))
+    merged = [item for item in previous if item in current]
+    for item in current:
+        if item not in merged:
+            merged.append(item)
+    return tuple(merged)
+
+
+def calculate_player_chests_per_minute(stats) -> float | None:
+    elite_stat = stats.get("Elite Spawn Increase")
+    powerup_stat = stats.get("Powerup Drop Chance")
+    elite_spawn_increase = getattr(elite_stat, "value", None)
+    powerup_drop_chance = getattr(powerup_stat, "value", None)
+    if elite_spawn_increase is None or powerup_drop_chance is None:
+        return None
+    return calculate_chests_per_minute(elite_spawn_increase, powerup_drop_chance)
+
+
+def resolve_snapshot_chests_per_minute(snapshot) -> float | None:
+    stored_value = getattr(snapshot, "chests_per_minute", None)
+    if stored_value is not None:
+        return stored_value
+    return calculate_player_chests_per_minute(snapshot.stats)
+
+
+def chests_card_values(
+    opened_by_stage: dict[int, int] | None,
+    total_by_stage: dict[int, int] | None,
+    opened: int | None,
+    total: int | None,
+    paid: int | None,
+    key_procs: int | None,
+    free: int | None,
+    keys: int | None,
+    expected: float | None,
+    total_is_minimum: bool = False,
+) -> dict[str, str]:
+    if total is None:
+        return {
+            "maps": "--",
+            "total": "--",
+            "paid_free": "-- / --",
+            "key_procs": "-- (--)",
+            "expected": "--",
+            "keys": "-- (--)",
+        }
+
+    stage_parts = []
+    for stage, count in sorted((opened_by_stage or {}).items()):
+        stage_total = (total_by_stage or {}).get(stage, 0)
+        if int(count) < 0:
+            stage_parts.append(f"T{stage}:--/{stage_total}")
+        else:
+            stage_parts.append(f"T{stage}:{count}/{stage_total}")
+    opened_text = "--" if opened is None else str(opened)
+    if opened is not None and total_is_minimum:
+        opened_text += "+"
+    total_text = str(total)
+    stages = " ".join(stage_parts) if stage_parts else f"T1:{opened_text}/{total_text}"
+
+    paid_text = "--" if paid is None else str(paid)
+    free_text = "--" if free is None else str(free)
+    normal = None if paid is None or key_procs is None else paid + key_procs
+    procs_text = "--" if key_procs is None or normal is None else f"{key_procs}/{normal}"
+    proc_rate = (
+        "--"
+        if key_procs is None or not normal
+        else f"{key_procs / normal * 100.0:.1f}%"
+    )
+    expected_text = "--" if expected is None else f"{expected:.1f}"
+    keys_text = "--" if keys is None else str(keys)
+    chance = "--" if keys is None else f"{key_proc_chance(keys) * 100.0:.1f}%"
+    return {
+        "maps": stages,
+        "total": f"{opened_text}/{total_text}",
+        "paid_free": f"{paid_text} / {free_text}",
+        "key_procs": f"{procs_text} ({proc_rate})",
+        "expected": expected_text,
+        "keys": f"{keys_text} ({chance})",
+    }
+
+
+def sort_items_for_display(items, mode: str | None) -> tuple[str, ...]:
+    items = tuple(items or ())
+    if mode == ITEM_SORT_DEFAULT or not items:
+        return items
+    reverse = mode == ITEM_SORT_RARITY_DESC
+    if mode not in (ITEM_SORT_RARITY_ASC, ITEM_SORT_RARITY_DESC):
+        return items
+
+    def sort_key(entry) -> tuple[int, int]:
+        index, item = entry
+        rarity_rank = _item_rarity_rank(str(item))
+        return (-rarity_rank if reverse else rarity_rank, index)
+
+    return tuple(item for _index, item in sorted(enumerate(items), key=sort_key))
+
+
+def _item_total_count(items) -> int:
+    return sum(_item_counts(items).values())
