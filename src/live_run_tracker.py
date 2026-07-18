@@ -17,8 +17,9 @@ from core.stats.types import (
     DisabledItemsReadResult,
     DisabledItemsReadStatus,
 )
-from core.tracker import chaos
+from core.tracker import chaos, combat
 from core.tracker.chaos import _ChaosTomeState
+from core.tracker.combat import _CombatState
 from core.tracker.snapshots import (
     LiveRunSnapshot,
     TrackedItemRule,
@@ -71,13 +72,6 @@ class _RunState:
     # previous map's timer.  While True, the pending boundary holds that stale
     # timer and must not be committed until a reset is observed.
     pending_fast_stage_awaiting_timer_reset: bool = False
-
-
-@dataclass
-class _CombatState:
-    recent_kills_history: deque[tuple[float, int]] = field(default_factory=deque)
-    ui_kps_baseline: tuple[float, int] | None = None
-    ui_kps_value: int | None = None
 
 
 @dataclass
@@ -286,9 +280,8 @@ class LiveRunTracker:
         self._mark_feature_failure_unlocked("run", now, "game memory read failed")
         if no_game:
             self._last_no_game_at = now
-            self._recent_kills_history.clear()
+            combat.reset(self._combat_state)
             self._fast_stage_timer_context = FastStageTimerContext()
-            self._reset_ui_kps_unlocked()
 
     @with_lock
     def mark_run_completed(self) -> None:
@@ -509,25 +502,12 @@ class LiveRunTracker:
         if game_time_seconds is None or current_kills is None:
             return
         self._mark_feature_success_unlocked("combat", self.clock())
-
-        if self._recent_kills_history:
-            last_time, last_kills = self._recent_kills_history[-1]
-            if current_kills < last_kills or game_time_seconds < last_time:
-                self._recent_kills_history.clear()
-                self._reset_ui_kps_unlocked()
-            elif game_time_seconds == last_time:
-                # Prevent deque bloat when the game is paused (time is frozen)
-                self._recent_kills_history[-1] = (game_time_seconds, max(last_kills, current_kills))
-                self._cached_stage_summary = None
-                return
-
-        self._recent_kills_history.append((game_time_seconds, current_kills))
+        combat.track_kills(self._combat_state, game_time_seconds, current_kills)
+        # Every branch past the None guard invalidated the cache before the
+        # split (including the paused-game early return), so clearing it here
+        # unconditionally is the same behaviour without the feature module
+        # needing to reach into run state.
         self._cached_stage_summary = None
-
-        while self._recent_kills_history and self._recent_kills_history[0][0] < game_time_seconds - 300.0:
-            self._recent_kills_history.popleft()
-
-        self._track_ui_kps_unlocked(game_time_seconds, current_kills)
 
     @with_lock
     def current_kps(self) -> int | None:
@@ -550,14 +530,7 @@ class LiveRunTracker:
         return self._current_run_avg_kps_unlocked()
 
     def _current_run_avg_kps_unlocked(self) -> int | None:
-        if not self._recent_kills_history:
-            return None
-
-        newest_time, newest_kills = self._recent_kills_history[-1]
-        if newest_time <= 0:
-            return None
-
-        return int(round(newest_kills / newest_time))
+        return combat.current_run_avg_kps(self._combat_state)
 
     @with_lock
     def run_identity(self) -> tuple[str | None, int]:
@@ -1289,8 +1262,7 @@ class LiveRunTracker:
         self._pending_fast_stage_samples = 0
         self._pending_fast_stage_boundary = None
         self._pending_fast_stage_awaiting_timer_reset = False
-        self._recent_kills_history.clear()
-        self._reset_ui_kps_unlocked()
+        combat.reset(self._combat_state)
         self.current_stage_index = 1
         self._chests_opened = 0
         self._chests_total = 46
@@ -1337,47 +1309,10 @@ class LiveRunTracker:
         chaos.reset(self._chaos_state)
 
     def _reset_ui_kps_unlocked(self) -> None:
-        self._ui_kps_baseline = None
-        self._ui_kps_value = None
+        combat.reset_ui_kps(self._combat_state)
 
     def _average_kps_for_window_unlocked(self, window_seconds: float) -> int | None:
-        if len(self._recent_kills_history) < 2:
-            return None
-
-        newest_time, newest_kills = self._recent_kills_history[-1]
-        cutoff = newest_time - float(window_seconds)
-        oldest_time, oldest_kills = self._recent_kills_history[0]
-        for sample_time, sample_kills in self._recent_kills_history:
-            if sample_time >= cutoff:
-                oldest_time, oldest_kills = sample_time, sample_kills
-                break
-
-        time_delta = newest_time - oldest_time
-        if time_delta <= 0:
-            return None
-
-        kills_delta = newest_kills - oldest_kills
-        return int(round(kills_delta / time_delta))
-
-    def _track_ui_kps_unlocked(self, game_time_seconds: float, current_kills: int) -> None:
-        baseline = self._ui_kps_baseline
-        current_sample = (float(game_time_seconds), int(current_kills))
-        if baseline is None:
-            self._ui_kps_baseline = current_sample
-            return
-
-        baseline_time, baseline_kills = baseline
-        time_delta = float(game_time_seconds) - baseline_time
-        if time_delta <= 0:
-            return
-        if time_delta < 0.9:
-            return
-        if time_delta > 1.2:
-            self._ui_kps_baseline = current_sample
-            return
-
-        self._ui_kps_value = max(0, int(current_kills) - baseline_kills)
-        self._ui_kps_baseline = current_sample
+        return combat.average_kps_for_window(self._combat_state, window_seconds)
 
     def _should_reset_for_snapshot(self, snapshot: LiveRunSnapshot) -> bool:
         previous = self.snapshots[-1] if self.snapshots else None
