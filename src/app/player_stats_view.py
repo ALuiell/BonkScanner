@@ -1,4 +1,4 @@
-"""The port the player-stats app layer renders through.
+"""The ports the player-stats app layer renders through.
 
 ``app/`` may not import ``ui/``. Before this module, ``player_stats_refresh``
 and ``vod_capture`` reached the UI anyway -- through the shared ``self``, which
@@ -6,30 +6,54 @@ the layering table cannot see and the hidden-dependency metric only counts while
 the code still sits in one of the eight original mixins. Moving that code to
 ``app/`` in step 14c did not remove those edges; it removed them from view.
 
-So they are named here instead. ``PlayerStatsView`` is the whole surface the app
-layer needs from the UI: eight operations, no widgets, no Qt types. This is the
-step-10d inversion (``app/update_flow.py`` + ``ui/update_prompt.py``) applied to
-the refresh path -- the difference between an implicit contract and a stated one.
+So they are named here instead: no widgets, no Qt types. This is the step-10d
+inversion (``app/update_flow.py`` + ``ui/update_prompt.py``) applied to the
+refresh path -- the difference between an implicit contract and a stated one.
 
-**The default view is the app object itself, and that is deliberate.**
-``player_stats_view(owner)`` returns ``owner`` unless something injected a
-replacement. ``MegabonkApp`` satisfies this protocol through its mixins, so
-dispatch is byte-for-byte what it was before -- this commit states the contract
-without changing behaviour. What it buys today is that the app layer depends on
-a named, documented, substitutable interface rather than on whatever happens to
-be reachable through a shared namespace, and that a test can drive the refresh
-path with a recording double instead of a window.
+Three ports, not one -- and why that changed at step 19
+======================================================
 
-Two things this deliberately does **not** do, because both are behaviour
-changes and belong to a later step:
+Step 14c named a single nine-operation ``PlayerStatsView``, after what the app
+layer needed rather than after who implements it. Step 19 measured where those
+nine actually live, and they are not one feature's:
 
+===========  =========================================  ===========
+Operations   Implemented in                             Owning step
+===========  =========================================  ===========
+5            ``ui/tabs/player_stats/live_stats.py``     19
+3            ``gui_overlay.py``                         24
+1            ``gui_layout.py``                          26
+===========  =========================================  ===========
+
+That is why ``player_stats_view(owner)`` had to return ``owner``: only
+``MegabonkApp`` satisfies all nine at once. Step 19's exit criterion --
+"``player_stats_view`` has no ambient-owner fallback in production" -- was
+therefore unreachable inside step 19's own bounds. Injecting a real view meant
+either converting the overlay and layout mixins, which step 19 forbids, or a
+composite delegating four operations back to the ambient ``owner``, which is
+step 18's stated rollback condition.
+
+Splitting the port by implementer is what unblocks it, and it is not the
+"changed address, paid nothing" move the roadmap warns about: those four
+operations were never Player Stats' debt. They are the overlay's and the
+layout's, mislabelled by a port named after its caller. Each now sits behind
+the accessor its own step will convert, and each accessor's fallback dies with
+that step -- 24 for ``overlay_view``, 26 for ``recordings_list_view``.
+
+Only ``PlayerStatsView`` is expected to lose its ambient fallback at step 19.
+The other two keep it *by design*, and the docstrings say which step removes
+them, so a later reader can tell a scheduled fallback from a forgotten one.
+
+What this deliberately does **not** do
+======================================
+
+- It does not move any implementation. ``gui_overlay.py`` and ``gui_layout.py``
+  are untouched; ``MegabonkApp`` still satisfies all three protocols through
+  its mixins, so every default dispatch is byte-for-byte what it was.
 - It does not make the app layer *push* rendering decisions to the UI.
   ``refresh_live_player_stats_now`` still decides what to display and when;
   splitting "read a coherent sample" from "project it for a consumer" is the
-  composable-reads design, which needs step 12 first.
-- It does not remove the owner-bound mixin shape. These are still methods on
-  ``MegabonkApp``, because ~44 of them are called class-qualified from the suite
-  and resolve only through the MRO. Tabs-as-classes is step 15.
+  composable-reads design.
 """
 from __future__ import annotations
 
@@ -38,9 +62,12 @@ from typing import Protocol, runtime_checkable
 
 @runtime_checkable
 class PlayerStatsView(Protocol):
-    """Everything the player-stats app layer asks the UI to do."""
+    """The Player Stats tabs, as the app layer sees them.
 
-    # -- live stats rendering -------------------------------------------------
+    Implemented by ``ui/tabs/player_stats/live_stats.py``. This is the port
+    step 19 converts to a real injected object.
+    """
+
     def display_player_stats(self, stats, items, **kwargs) -> None:
         """Render a live reading into the Live Stats tab."""
 
@@ -56,7 +83,15 @@ class PlayerStatsView(Protocol):
     def set_mob_kills_text(self, text: str) -> None:
         """Set the Live Stats mob-kills line."""
 
-    # -- neighbouring views that mirror the same reading ----------------------
+
+@runtime_checkable
+class OverlayView(Protocol):
+    """The OBS overlay and session panel, as the refresh path sees them.
+
+    Implemented by ``gui_overlay.py``. **Step 24** converts this one; until
+    then ``overlay_view()`` falls back to the app object on purpose.
+    """
+
     def update_overlay_state_from_tracker(self) -> None:
         """Republish tracker state to the OBS overlay."""
 
@@ -66,21 +101,50 @@ class PlayerStatsView(Protocol):
     def refresh_session_tracked_item_stats_ui(self) -> None:
         """Re-render the session tracked-item panel."""
 
+
+@runtime_checkable
+class RecordingsListView(Protocol):
+    """The recordings list, as the capture lifecycle sees it.
+
+    Implemented by ``gui_layout.py``. **Step 26** converts this one; until then
+    ``recordings_list_view()`` falls back to the app object on purpose.
+    """
+
     def _refresh_vods_list_if_visible(self) -> None:
         """Re-render the recordings list, if that tab is showing."""
 
 
-def player_stats_view(owner) -> PlayerStatsView:
-    """The view the app layer should render through.
-
-    Defaults to ``owner`` itself: ``MegabonkApp`` implements this protocol via
-    its mixins, so the default preserves the original dispatch exactly. An
-    injected ``_player_stats_view`` takes precedence, which is what lets a test
-    -- or a future headless consumer -- drive the refresh path without a window.
+def _injected(owner, name: str):
+    """An injected collaborator, or ``None``.
 
     Reads ``__dict__`` directly rather than ``getattr`` because app doubles are
     built with ``object.__new__(gui.MegabonkApp)`` and never run ``__init__``;
     the same lazy-fallback shape as ``_ensure_live_snapshot_store``.
     """
-    injected = owner.__dict__.get("_player_stats_view")
+    return owner.__dict__.get(name)
+
+
+def player_stats_view(owner) -> PlayerStatsView:
+    """The Player Stats view the app layer should render through."""
+    injected = _injected(owner, "_player_stats_view")
+    return owner if injected is None else injected
+
+
+def overlay_view(owner) -> OverlayView:
+    """The overlay view the app layer should publish through.
+
+    Falls back to ``owner`` **by design until step 24**, which converts
+    ``OverlayMixin``. This is a scheduled fallback, not an overlooked one.
+    """
+    injected = _injected(owner, "_overlay_view")
+    return owner if injected is None else injected
+
+
+def recordings_list_view(owner) -> RecordingsListView:
+    """The recordings-list view the capture lifecycle should refresh through.
+
+    Falls back to ``owner`` **by design until step 26**, which retires
+    ``GuiLayoutMixin``. This is a scheduled fallback, not an overlooked one.
+    """
+    injected = _injected(owner, "_recordings_list_view")
     return owner if injected is None else injected

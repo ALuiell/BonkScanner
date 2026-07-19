@@ -15,7 +15,8 @@ continues while ``PAUSED_IN_GAME`` but capture does not: ``can_capture_recording
 requires ``IN_GAME`` strictly, and a paused recording reports status
 ``\"paused\"`` and writes nothing. Do not 'fix' this into symmetry.
 
-This module renders through ``PlayerStatsView`` (``app/player_stats_view.py``),
+This module renders through ``PlayerStatsView`` and ``RecordingsListView``
+(``app/player_stats_view.py``),
 never through a widget. ``_sync_player_stats_recording_run_state`` used to write
 the ``player_stats_status_label`` widget directly -- a Qt write from the app
 layer, against a label owned by ``ui/tabs/player_stats/live_stats.py`` -- and
@@ -27,7 +28,7 @@ from __future__ import annotations
 import time
 
 from app import config
-from app.player_stats_view import player_stats_view
+from app.player_stats_view import player_stats_view, recordings_list_view
 from core.game_state import RuntimeGameMode
 from core.run_summary import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
 
@@ -79,7 +80,7 @@ class VodCaptureMixin:
                 waiting_status_text="Recording stats; waiting for game/player stats...",
                 unavailable_status_prefix="Recording stats; player stats unavailable",
             )
-            player_stats_view(self)._refresh_vods_list_if_visible()
+            recordings_list_view(self)._refresh_vods_list_if_visible()
 
         player_stats_view(self).refresh_player_stats_timeline_ui()
 
@@ -169,7 +170,7 @@ class VodCaptureMixin:
             self.log(log_message, tag=log_tag)
         if refresh_live_stats:
             self.refresh_live_player_stats_now()
-        player_stats_view(self)._refresh_vods_list_if_visible()
+        recordings_list_view(self)._refresh_vods_list_if_visible()
 
     def _sync_player_stats_recording_run_state(self) -> str | None:
         # Reuses the lifecycle state the 500 ms driver already refreshes once a

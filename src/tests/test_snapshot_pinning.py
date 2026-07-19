@@ -77,14 +77,25 @@ def build_refresh_app(*, snapshots, selected, pinned, should_capture=False):
     app.player_stats_auto_recording_suppressed = False
 
     rendered = {"live": 0, "snapshot": []}
+    # Three doubles, because step 19 split the one nine-operation port into the
+    # three features that actually implement it. Faking them separately is the
+    # point: a single object satisfying all nine is what let the app layer
+    # reach the overlay and the recordings list through "the player stats
+    # view" without anything noticing.
     app._player_stats_view = SimpleNamespace(
         display_player_stats=lambda *a, **k: rendered.__setitem__("live", rendered["live"] + 1),
         display_player_stats_snapshot=lambda snap, **k: rendered["snapshot"].append(snap.time_label),
         refresh_player_stats_timeline_ui=lambda *a, **k: None,
-        _refresh_vods_list_if_visible=lambda: None,
+        set_recording_status_text=lambda text: None,
+        set_mob_kills_text=lambda text: None,
+    )
+    app._overlay_view = SimpleNamespace(
         mark_overlay_read_failed=lambda **k: None,
         refresh_session_tracked_item_stats_ui=lambda: None,
         update_overlay_state_from_tracker=lambda: None,
+    )
+    app._recordings_list_view = SimpleNamespace(
+        _refresh_vods_list_if_visible=lambda: None,
     )
     app.rendered = rendered
 

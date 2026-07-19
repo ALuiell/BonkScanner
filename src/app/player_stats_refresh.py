@@ -28,7 +28,11 @@ import time
 
 from app import config
 from app.player_stats_memory import PlayerStatsMemoryMixin
-from app.player_stats_view import player_stats_view
+from app.player_stats_view import (
+    overlay_view,
+    player_stats_view,
+    recordings_list_view,
+)
 from app.refresh_tasks import (
     ensure_refresh_coordinator,
     overlay_widget_refresh_active,
@@ -161,14 +165,14 @@ class PlayerStatsRefreshMixin:
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
             record_player_stats_memory_failure(self, exc)
             try:
-                player_stats_view(self).mark_overlay_read_failed(no_game=False)
+                overlay_view(self).mark_overlay_read_failed(no_game=False)
             except Exception:
                 pass
             return False
         except Exception as exc:
             record_player_stats_memory_failure(self, exc)
             try:
-                player_stats_view(self).mark_overlay_read_failed(no_game=False)
+                overlay_view(self).mark_overlay_read_failed(no_game=False)
             except Exception:
                 pass
             return False
@@ -317,11 +321,12 @@ class PlayerStatsRefreshMixin:
             pass
 
         view = player_stats_view(self)
-        if hasattr(view, "refresh_session_tracked_item_stats_ui"):
-            view.refresh_session_tracked_item_stats_ui()
+        overlay = overlay_view(self)
+        if hasattr(overlay, "refresh_session_tracked_item_stats_ui"):
+            overlay.refresh_session_tracked_item_stats_ui()
         chaos_snapshot_reader = getattr(self.live_run_tracker, "chaos_tome_snapshot", None)
         chaos_tome_snapshot = chaos_snapshot_reader() if callable(chaos_snapshot_reader) else None
-        view.update_overlay_state_from_tracker()
+        overlay.update_overlay_state_from_tracker()
         live_stage_summary_rows = self.live_run_tracker.stage_summary_rows()
         runtime_state = self._runtime_state_for_refresh()
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
@@ -351,7 +356,7 @@ class PlayerStatsRefreshMixin:
             if not pinned:
                 self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
             view.refresh_player_stats_timeline_ui()
-            view._refresh_vods_list_if_visible()
+            recordings_list_view(self)._refresh_vods_list_if_visible()
             if is_live_tab_active and not pinned:
                 view.display_player_stats_snapshot(snapshot, items_text=items_text)
             return True
