@@ -6098,12 +6098,26 @@ class GuiRunControlTests(unittest.TestCase):
         in the step-18 inventory. The assertion is unchanged, so this still
         fails if the signature stops resolving its ordering helper.
         """
-        stat = SimpleNamespace(stat_id=1, label="Damage", display_delta="+1", rolls=1)
-        chaos_tome = SimpleNamespace(level=2, ambiguous_rolls=0, stats=(stat,))
+        # Two stats, ordered against the game table rather than insertion
+        # order. The original single-stat fixture passed against a signature
+        # that had stopped calling the ordering helper altogether -- one stat
+        # sorts identically however you sort it -- so it asserted only that
+        # the name resolved, not that it was used. Verified by mutation.
+        first = SimpleNamespace(stat_id=9, label="Nine", display_delta="+9", rolls=1)
+        second = SimpleNamespace(stat_id=1, label="One", display_delta="+1", rolls=2)
+        chaos_tome = SimpleNamespace(level=2, ambiguous_rolls=0, stats=(first, second))
+        self.assertLess(
+            CHAOS_TOME_GAME_STAT_ORDER.get(second.stat_id, 999),
+            CHAOS_TOME_GAME_STAT_ORDER.get(first.stat_id, 999),
+            "fixture must be out of game order, or this asserts nothing",
+        )
 
         signature = StatCardsView._chaos_tome_signature_for(chaos_tome)
 
-        self.assertEqual(signature, (2, 0, ((1, "Damage", "+1", 1),)))
+        self.assertEqual(
+            signature,
+            (2, 0, ((1, "One", "+1", 2), (9, "Nine", "+9", 1))),
+        )
 
     def test_chaos_stats_in_game_order_sorts_by_the_game_order_table(self) -> None:
         """The ordering itself, which the signature test above cannot see.
