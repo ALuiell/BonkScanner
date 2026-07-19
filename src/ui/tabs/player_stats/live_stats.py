@@ -44,6 +44,7 @@ from gui_layout import (
 from ui.shared import _make_scroll_section, _set_text
 from ui.styles import ITEM_SORT_LABELS
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
+from ui.tabs.player_stats.stat_cards import StatCardsView
 from projections import formatting
 
 
@@ -80,29 +81,12 @@ class LiveStatsTabMixin:
         _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, "No banishes yet")
         self._set_stage_summary_labels(self.player_stats_stage_summary_labels, None)
-        self.player_stats_weapon_signature = None
-        self.display_weapon_cards(
-            (),
-            scope="live",
-            status_text="Waiting for weapon data...",
-        )
-        self.player_stats_tome_signature = None
-        self.display_tome_cards(
-            (),
-            scope="live",
-            status_text="Waiting for tome data...",
-        )
-        self.player_stats_chaos_signature = None
-        self.display_chaos_tome_card(
-            None,
-            scope="live",
-            status_text="Waiting for Chaos Tome data...",
-        )
-        self.player_stats_damage_source_signature = None
-        self.display_damage_source_rows(
-            (),
-            scope="live",
-            status_text="Waiting for damage source data...",
+        self._stat_cards.invalidate()
+        self._stat_cards.display_weapons((), status_text="Waiting for weapon data...")
+        self._stat_cards.display_tomes((), status_text="Waiting for tome data...")
+        self._stat_cards.display_chaos_tome(None, status_text="Waiting for Chaos Tome data...")
+        self._stat_cards.display_damage_sources(
+            (), status_text="Waiting for damage source data..."
         )
     def display_player_stats(
         self,
@@ -172,24 +156,20 @@ class LiveStatsTabMixin:
             _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, formatting.format_banishes_rich_text(banishes))
         self._set_stage_summary_labels(self.player_stats_stage_summary_labels, stage_summary_rows)
-        self.display_weapon_cards(
+        self._stat_cards.display_weapons(
             weapons if weapons_available else (),
-            scope="live",
             status_text=None if weapons_available else "Weapons unavailable",
         )
-        self.display_tome_cards(
+        self._stat_cards.display_tomes(
             tomes if tomes_available else (),
-            scope="live",
             status_text=None if tomes_available else "Tomes unavailable",
         )
-        self.display_chaos_tome_card(
+        self._stat_cards.display_chaos_tome(
             chaos_tome,
-            scope="live",
             status_text=None if chaos_tome is not None else "No Chaos Tome data yet",
         )
-        self.display_damage_source_rows(
+        self._stat_cards.display_damage_sources(
             damage_sources if damage_sources_available else (),
-            scope="live",
             status_text=None if damage_sources_available else "Damage sources unavailable",
         )
     def display_player_stats_snapshot(self, snapshot, *, items_text: str | None = None):
@@ -500,40 +480,51 @@ class LiveStatsTabMixin:
         player_stats_scroll_layout.addStretch(1)
         weapons_tab = QWidget()
         weapons_tab_layout = QVBoxLayout(weapons_tab)
-        self.player_stats_weapons_status_label = QLabel("Waiting for weapon data...")
-        self.player_stats_weapons_status_label.setWordWrap(True)
-        weapons_tab_layout.addWidget(self.player_stats_weapons_status_label)
+        weapons_status_label = QLabel("Waiting for weapon data...")
+        weapons_status_label.setWordWrap(True)
+        weapons_tab_layout.addWidget(weapons_status_label)
         player_weapons_scroll, _player_weapons_scroll_content, player_weapons_scroll_layout = _make_scroll_section()
         player_weapons_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.player_stats_weapons_layout = player_weapons_scroll_layout
         weapons_tab_layout.addWidget(player_weapons_scroll)
         tomes_tab = QWidget()
         tomes_tab_layout = QVBoxLayout(tomes_tab)
-        self.player_stats_tomes_status_label = QLabel("Waiting for tome data...")
-        self.player_stats_tomes_status_label.setWordWrap(True)
-        tomes_tab_layout.addWidget(self.player_stats_tomes_status_label)
+        tomes_status_label = QLabel("Waiting for tome data...")
+        tomes_status_label.setWordWrap(True)
+        tomes_tab_layout.addWidget(tomes_status_label)
         player_tomes_scroll, _player_tomes_scroll_content, player_tomes_scroll_layout = _make_scroll_section()
         player_tomes_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.player_stats_tomes_layout = player_tomes_scroll_layout
         tomes_tab_layout.addWidget(player_tomes_scroll)
         chaos_tab = QWidget()
         chaos_tab_layout = QVBoxLayout(chaos_tab)
-        self.player_stats_chaos_status_label = QLabel("Waiting for Chaos Tome data...")
-        self.player_stats_chaos_status_label.setWordWrap(True)
-        chaos_tab_layout.addWidget(self.player_stats_chaos_status_label)
+        chaos_status_label = QLabel("Waiting for Chaos Tome data...")
+        chaos_status_label.setWordWrap(True)
+        chaos_tab_layout.addWidget(chaos_status_label)
         player_chaos_scroll, _player_chaos_scroll_content, player_chaos_scroll_layout = _make_scroll_section()
         player_chaos_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.player_stats_chaos_layout = player_chaos_scroll_layout
         chaos_tab_layout.addWidget(player_chaos_scroll)
         damage_sources_tab = QWidget()
         damage_sources_tab_layout = QVBoxLayout(damage_sources_tab)
-        self.player_stats_damage_sources_status_label = QLabel("Waiting for damage source data...")
-        self.player_stats_damage_sources_status_label.setWordWrap(True)
-        damage_sources_tab_layout.addWidget(self.player_stats_damage_sources_status_label)
+        damage_sources_status_label = QLabel("Waiting for damage source data...")
+        damage_sources_status_label.setWordWrap(True)
+        damage_sources_tab_layout.addWidget(damage_sources_status_label)
         player_damage_sources_scroll, _player_damage_sources_scroll_content, player_damage_sources_scroll_layout = _make_scroll_section()
         player_damage_sources_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.player_stats_damage_sources_layout = player_damage_sources_scroll_layout
         damage_sources_tab_layout.addWidget(player_damage_sources_scroll)
+        # These eight widgets are the component's, not the shared namespace's.
+        # As `self.player_stats_weapons_layout` and friends they were reached
+        # by composed name from `cards.py` behind guards that returned silently
+        # on `None` -- the arrangement step 18 identified as the reason making
+        # this tab's widgets private could break four panels without raising.
+        self._stat_cards = StatCardsView(
+            weapons_layout=player_weapons_scroll_layout,
+            weapons_status_label=weapons_status_label,
+            tomes_layout=player_tomes_scroll_layout,
+            tomes_status_label=tomes_status_label,
+            chaos_layout=player_chaos_scroll_layout,
+            chaos_status_label=chaos_status_label,
+            damage_sources_layout=player_damage_sources_scroll_layout,
+            damage_sources_status_label=damage_sources_status_label,
+        )
         self.player_stats_detail_tabs.addTab(player_stats_tab, "Stats")
         self.player_stats_detail_tabs.addTab(weapons_tab, "Weapons")
         self.player_stats_detail_tabs.addTab(tomes_tab, "Tomes")

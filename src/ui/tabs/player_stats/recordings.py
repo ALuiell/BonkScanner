@@ -75,6 +75,7 @@ from ui.shared import (
     _set_text_input,
 )
 from ui.styles import ITEM_SORT_LABELS
+from ui.tabs.player_stats.stat_cards import StatCardsView
 from projections import formatting
 
 
@@ -284,14 +285,15 @@ class RecordingsTabMixin:
             self._refresh_vod_compare_details(None, None, index=None)
             _set_text(self.vods_banishes_label, "No banishes yet")
             self._set_stage_summary_labels(self.vods_stage_summary_labels, None)
-            self.vods_weapon_signature = None
-            self.display_weapon_cards((), scope="vod", status_text="No weapon data in this recording")
-            self.vods_tome_signature = None
-            self.display_tome_cards((), scope="vod", status_text="No tome data in this recording")
-            self.vods_chaos_signature = None
-            self.display_chaos_tome_card(None, scope="vod", status_text="No Chaos Tome data in this recording")
-            self.vods_damage_source_signature = None
-            self.display_damage_source_rows((), scope="vod", status_text="No damage source data in this recording")
+            self._stat_cards.invalidate()
+            self._stat_cards.display_weapons((), status_text="No weapon data in this recording")
+            self._stat_cards.display_tomes((), status_text="No tome data in this recording")
+            self._stat_cards.display_chaos_tome(
+                None, status_text="No Chaos Tome data in this recording"
+            )
+            self._stat_cards.display_damage_sources(
+                (), status_text="No damage source data in this recording"
+            )
     def display_loaded_vod_snapshot(self, index: int):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
             return
@@ -358,14 +360,13 @@ class RecordingsTabMixin:
             self.vods_banishes_label,
             formatting.format_banishes_rich_text(getattr(snapshot, "banishes", ())),
         )
-        self.display_weapon_cards(getattr(snapshot, "weapons", ()), scope="vod")
-        self.display_tome_cards(getattr(snapshot, "tomes", ()), scope="vod")
-        self.display_chaos_tome_card(
+        self._stat_cards.display_weapons(getattr(snapshot, "weapons", ()))
+        self._stat_cards.display_tomes(getattr(snapshot, "tomes", ()))
+        self._stat_cards.display_chaos_tome(
             getattr(snapshot, "chaos_tome", None),
-            scope="vod",
             status_text=None if getattr(snapshot, "chaos_tome", None) is not None else "No Chaos Tome data in this snapshot",
         )
-        self.display_damage_source_rows(getattr(snapshot, "damage_sources", ()), scope="vod")
+        self._stat_cards.display_damage_sources(getattr(snapshot, "damage_sources", ()))
     def on_vods_slider_changed(self, value):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
             return
@@ -502,14 +503,11 @@ class RecordingsTabMixin:
         self._refresh_vod_compare_details(None, None, index=None)
         _set_text(self.vods_banishes_label, "No banishes yet")
         self._set_stage_summary_labels(self.vods_stage_summary_labels, None)
-        self.vods_weapon_signature = None
-        self.display_weapon_cards((), scope="vod", status_text="Select a recording")
-        self.vods_tome_signature = None
-        self.display_tome_cards((), scope="vod", status_text="Select a recording")
-        self.vods_chaos_signature = None
-        self.display_chaos_tome_card(None, scope="vod", status_text="Select a recording")
-        self.vods_damage_source_signature = None
-        self.display_damage_source_rows((), scope="vod", status_text="Select a recording")
+        self._stat_cards.invalidate()
+        self._stat_cards.display_weapons((), status_text="Select a recording")
+        self._stat_cards.display_tomes((), status_text="Select a recording")
+        self._stat_cards.display_chaos_tome(None, status_text="Select a recording")
+        self._stat_cards.display_damage_sources((), status_text="Select a recording")
     def cleanup_recordings_by_snapshot_count(self):
         dialog = CleanupRecordingsDialog(self.window)
         if dialog.exec() != QDialog.Accepted or dialog.threshold is None:
@@ -819,40 +817,50 @@ class RecordingsTabMixin:
         vods_scroll_layout.addStretch(1)
         vod_weapons_tab = QWidget()
         vod_weapons_tab_layout = QVBoxLayout(vod_weapons_tab)
-        self.vods_weapons_status_label = QLabel("Select a recording")
-        self.vods_weapons_status_label.setWordWrap(True)
-        vod_weapons_tab_layout.addWidget(self.vods_weapons_status_label)
+        vods_weapons_status_label = QLabel("Select a recording")
+        vods_weapons_status_label.setWordWrap(True)
+        vod_weapons_tab_layout.addWidget(vods_weapons_status_label)
         vod_weapons_scroll, _vod_weapons_scroll_content, vod_weapons_scroll_layout = _make_scroll_section()
         vod_weapons_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.vods_weapons_layout = vod_weapons_scroll_layout
         vod_weapons_tab_layout.addWidget(vod_weapons_scroll)
         vod_tomes_tab = QWidget()
         vod_tomes_tab_layout = QVBoxLayout(vod_tomes_tab)
-        self.vods_tomes_status_label = QLabel("Select a recording")
-        self.vods_tomes_status_label.setWordWrap(True)
-        vod_tomes_tab_layout.addWidget(self.vods_tomes_status_label)
+        vods_tomes_status_label = QLabel("Select a recording")
+        vods_tomes_status_label.setWordWrap(True)
+        vod_tomes_tab_layout.addWidget(vods_tomes_status_label)
         vod_tomes_scroll, _vod_tomes_scroll_content, vod_tomes_scroll_layout = _make_scroll_section()
         vod_tomes_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.vods_tomes_layout = vod_tomes_scroll_layout
         vod_tomes_tab_layout.addWidget(vod_tomes_scroll)
         vod_chaos_tab = QWidget()
         vod_chaos_tab_layout = QVBoxLayout(vod_chaos_tab)
-        self.vods_chaos_status_label = QLabel("Select a recording")
-        self.vods_chaos_status_label.setWordWrap(True)
-        vod_chaos_tab_layout.addWidget(self.vods_chaos_status_label)
+        vods_chaos_status_label = QLabel("Select a recording")
+        vods_chaos_status_label.setWordWrap(True)
+        vod_chaos_tab_layout.addWidget(vods_chaos_status_label)
         vod_chaos_scroll, _vod_chaos_scroll_content, vod_chaos_scroll_layout = _make_scroll_section()
         vod_chaos_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.vods_chaos_layout = vod_chaos_scroll_layout
         vod_chaos_tab_layout.addWidget(vod_chaos_scroll)
         vod_damage_sources_tab = QWidget()
         vod_damage_sources_tab_layout = QVBoxLayout(vod_damage_sources_tab)
-        self.vods_damage_sources_status_label = QLabel("Select a recording")
-        self.vods_damage_sources_status_label.setWordWrap(True)
-        vod_damage_sources_tab_layout.addWidget(self.vods_damage_sources_status_label)
+        vods_damage_sources_status_label = QLabel("Select a recording")
+        vods_damage_sources_status_label.setWordWrap(True)
+        vod_damage_sources_tab_layout.addWidget(vods_damage_sources_status_label)
         vod_damage_sources_scroll, _vod_damage_sources_scroll_content, vod_damage_sources_scroll_layout = _make_scroll_section()
         vod_damage_sources_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.vods_damage_sources_layout = vod_damage_sources_scroll_layout
         vod_damage_sources_tab_layout.addWidget(vod_damage_sources_scroll)
+        # Owned by the component, same as the Live Stats tab's eight. See
+        # `ui/tabs/player_stats/stat_cards.py` for why this half of the
+        # cards renderer needs no Compare Runs adapter: the compare scopes
+        # never reach these four sections.
+        self._stat_cards = StatCardsView(
+            weapons_layout=vod_weapons_scroll_layout,
+            weapons_status_label=vods_weapons_status_label,
+            tomes_layout=vod_tomes_scroll_layout,
+            tomes_status_label=vods_tomes_status_label,
+            chaos_layout=vod_chaos_scroll_layout,
+            chaos_status_label=vods_chaos_status_label,
+            damage_sources_layout=vod_damage_sources_scroll_layout,
+            damage_sources_status_label=vods_damage_sources_status_label,
+        )
         self.vods_detail_tabs.addTab(vod_stats_tab, "Stats")
         self.vods_detail_tabs.addTab(vod_weapons_tab, "Weapons")
         self.vods_detail_tabs.addTab(vod_tomes_tab, "Tomes")

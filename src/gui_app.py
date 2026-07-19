@@ -134,20 +134,9 @@ class MegabonkApp(
         self.player_stats_level_label = None
         self.player_stats_new_items_label = None
         self.player_stats_stage_summary_labels = []
-        self.player_stats_weapons_status_label = None
-        self.player_stats_weapons_layout = None
-        self.player_stats_weapon_cards = []
-        self.player_stats_weapon_signature = None
-        self.player_stats_tomes_status_label = None
-        self.player_stats_tomes_layout = None
-        self.player_stats_tome_cards = []
-        self.player_stats_tome_signature = None
-        self.player_stats_chaos_status_label = None
-        self.player_stats_chaos_layout = None
-        self.player_stats_chaos_signature = None
-        self.player_stats_damage_sources_status_label = None
-        self.player_stats_damage_sources_layout = None
-        self.player_stats_damage_source_signature = None
+        # The Weapons/Tomes/Chaos/Damage widgets and their four repaint
+        # signatures are StatCardsView's, constructed in _build_live_stats_tab.
+        # 14 names off the shared namespace.
         self.vods_list_frame = None
         self.vods_chooser_group = None
         self.vods_select_btn = None
@@ -181,20 +170,7 @@ class MegabonkApp(
         self.vods_compare_details_summary_label = None
         self.vods_compare_details_items_label = None
         self.vods_stage_summary_labels = []
-        self.vods_weapons_status_label = None
-        self.vods_weapons_layout = None
-        self.vods_weapon_cards = []
-        self.vods_weapon_signature = None
-        self.vods_tomes_status_label = None
-        self.vods_tomes_layout = None
-        self.vods_tome_cards = []
-        self.vods_tome_signature = None
-        self.vods_chaos_status_label = None
-        self.vods_chaos_layout = None
-        self.vods_chaos_signature = None
-        self.vods_damage_sources_status_label = None
-        self.vods_damage_sources_layout = None
-        self.vods_damage_source_signature = None
+        # Same 14, owned by the Recordings tab's own StatCardsView.
         self.recordings_chooser_expanded = False
         self.recordings_guided_selection_active = False
         self.compare_run_a_list_frame = None

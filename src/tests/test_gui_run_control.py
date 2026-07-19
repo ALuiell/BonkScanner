@@ -29,6 +29,9 @@ import infra.process as infra_process
 import ui.tabs.player_stats.cards as ui_player_stats_cards
 import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
+from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
+from tests.support.player_stats import RecordingStatCardsView
+from ui.tabs.player_stats.stat_cards import StatCardsView, chaos_stats_in_game_order
 from app import config, player_stats_memory, player_stats_refresh
 from gui_app import MegabonkApp
 from gui_dialogs import (
@@ -689,22 +692,12 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
         app.player_stats_stage_summary_labels = []
-        app.player_stats_tome_signature = None
-        app.player_stats_tomes_status_label = FakeLabel()
-        app.player_stats_tomes_layout = None
-        app.player_stats_damage_sources_status_label = FakeLabel()
-        app.player_stats_damage_sources_layout = None
-        app.player_stats_damage_source_signature = None
         app.vods_banishes_label = FakeLabel()
-        app.vods_damage_sources_status_label = FakeLabel()
-        app.vods_damage_sources_layout = None
-        app.vods_damage_source_signature = None
         app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app.display_player_stats = lambda *args, **kwargs: None
         app.display_player_stats_snapshot = lambda *args, **kwargs: None
-        app.display_tome_cards = lambda *args, **kwargs: None
-        app.display_damage_source_rows = lambda *args, **kwargs: None
+        app._stat_cards = RecordingStatCardsView()
         app.close_player_stats_client = lambda: None
         app.read_player_stats_only = lambda: ({}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ()
@@ -3521,6 +3514,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
         app.player_stats_stage_summary_labels = []
+        app._stat_cards = RecordingStatCardsView()
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -4394,6 +4388,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
         app.player_stats_stage_summary_labels = []
+        app._stat_cards = RecordingStatCardsView()
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -4509,8 +4504,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_banishes_label = FakeLabel()
         app.vods_stage_summary_labels = []
         app.vods_rows = {"Damage": FakeLabel()}
-        app.display_weapon_cards = lambda *args, **kwargs: None
-        app.display_tome_cards = lambda *args, **kwargs: None
+        app._stat_cards = RecordingStatCardsView()
         app.loaded_vod_snapshot_index = None
         snapshot = SimpleNamespace(
             stats={"Damage": SimpleNamespace(display_value="123", value=1.23)},
@@ -4551,10 +4545,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_banishes_label = FakeLabel()
         app.vods_stage_summary_labels = []
         app.vods_rows = {}
-        app.display_weapon_cards = lambda *args, **kwargs: None
-        app.display_tome_cards = lambda *args, **kwargs: None
-        damage_calls: list[tuple[tuple[object, ...], str]] = []
-        app.display_damage_source_rows = lambda sources, *, scope, status_text=None: damage_calls.append((tuple(sources), scope))
+        app._stat_cards = RecordingStatCardsView()
         app._update_items_section = lambda *args, **kwargs: None
         app.resolve_snapshot_chests_per_minute = lambda snapshot: getattr(snapshot, "chests_per_minute", None)
         app._set_stage_summary_labels = lambda *args, **kwargs: None
@@ -4586,9 +4577,10 @@ class GuiRunControlTests(unittest.TestCase):
 
         MegabonkApp.display_loaded_vod_snapshot(app, 0)
 
-        self.assertEqual(len(damage_calls), 1)
-        self.assertEqual(damage_calls[0][1], "vod")
-        self.assertEqual(damage_calls[0][0][0].source_name, "Katana")
+        self.assertEqual(len(app._stat_cards.damage_sources), 1)
+        sources, status_text = app._stat_cards.damage_sources[0]
+        self.assertIsNone(status_text)
+        self.assertEqual(sources[0].source_name, "Katana")
         self.assertEqual(app.vods_mob_kills_label.text(), "Mob Kills: 10 (150/s)")
         self.assertEqual(app.vods_kps_averages_label.text(), "KPS: 60s 243/s | 5m 221/s")
 
@@ -6092,18 +6084,49 @@ class GuiRunControlTests(unittest.TestCase):
         # the real widget was never touched
         self.assertEqual(app.player_stats_status_label.text(), "")
 
-    def test_chaos_tome_signature_resolves_its_helper_from_the_cards_mixin(self) -> None:
+    def test_chaos_tome_signature_resolves_its_ordering_helper(self) -> None:
         """Step 14b moved `_chaos_stats_in_game_order` into `PlayerStatsCardsMixin`
         but left this call site qualified with `PlayerStatsMixin`, where the name no
         longer exists -- an unguarded AttributeError on every Chaos Tome render with a
         non-None tome. Nothing covered the path, so the suite stayed green.
+
+        Retargeted at step 19, not deleted. The renderer is now
+        `StatCardsView` and the helper is the module-level
+        `chaos_stats_in_game_order`, which is what removes the original
+        failure mode: a free function cannot be orphaned by its class
+        moving, and it was the last *production* class-qualified call site
+        in the step-18 inventory. The assertion is unchanged, so this still
+        fails if the signature stops resolving its ordering helper.
         """
         stat = SimpleNamespace(stat_id=1, label="Damage", display_delta="+1", rolls=1)
         chaos_tome = SimpleNamespace(level=2, ambiguous_rolls=0, stats=(stat,))
 
-        signature = MegabonkApp._chaos_tome_signature(chaos_tome)
+        signature = StatCardsView._chaos_tome_signature_for(chaos_tome)
 
         self.assertEqual(signature, (2, 0, ((1, "Damage", "+1", 1),)))
+
+    def test_chaos_stats_in_game_order_sorts_by_the_game_order_table(self) -> None:
+        """The ordering itself, which the signature test above cannot see.
+
+        `_chaos_tome_signature_for` calls the helper but a single stat is
+        ordered identically however the helper sorts, so that test passes
+        against a helper that does not sort at all.
+        """
+        stats = tuple(
+            SimpleNamespace(stat_id=stat_id, label=f"Stat {stat_id}", display_delta="+1", rolls=0)
+            for stat_id in (9, 2, 14, 1)
+        )
+        chaos_tome = SimpleNamespace(level=1, ambiguous_rolls=0, stats=stats)
+
+        ordered = chaos_stats_in_game_order(chaos_tome)
+        positions = [CHAOS_TOME_GAME_STAT_ORDER.get(s.stat_id, 999) for s in ordered]
+
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotEqual(
+            [s.stat_id for s in ordered],
+            [s.stat_id for s in stats],
+            "fixture must not already be in game order, or this asserts nothing",
+        )
 
 
 if __name__ == "__main__":

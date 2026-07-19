@@ -41,8 +41,6 @@ is eight names:
     OverlayMixin._tracked_rule_color               gui_dialogs.py:1583
     OverlayMixin._tracked_rule_tag_label           gui_dialogs.py:1586
     OverlayMixin._tracked_item_rules_from_config   gui_overlay.py:1344,1348
-    PlayerStatsCardsMixin._chaos_stats_in_game_order
-                                                   ui/tabs/player_stats/cards.py:385
     PlayerStatsMemoryMixin._record_player_stats_game_data_memory_failure
                                                    app/player_stats_memory.py:155,306,318,330,342
                                                    app/player_stats_refresh.py:208
@@ -52,11 +50,16 @@ is eight names:
 
 Note what is *not* in that list: the Player Stats view mixins
 (`LiveStatsTabMixin`, `RecordingsTabMixin`) have **zero** production
-class-qualified callers. The single player-stats entry is
-`_chaos_stats_in_game_order`, which is the exact name that broke at 14b and is
-called from within its own module. Converting a player-stats view object is
-therefore not blocked by this constraint at all -- which is why it is the
-bounded pilot.
+class-qualified callers. Converting a player-stats view object is therefore
+not blocked by this constraint at all -- which is why it was the bounded pilot.
+
+**Step 19 removed the one player-stats entry**,
+`PlayerStatsCardsMixin._chaos_stats_in_game_order` (was cards.py:385) -- the
+exact name that broke at 14b. It is now the module-level
+`ui.tabs.player_stats.stat_cards.chaos_stats_in_game_order`, which retires the
+failure mode instead of relocating it: the 14b breakage was a call site naming
+a class the method had left, and a free function has no class to leave. The
+production ratchets tightened to 18 sites / 7 names.
 
 **`object.__new__` app doubles: 72, all in one file.** Every one is in
 `src/tests/test_gui_run_control.py`. The roadmap's 71 was off by one and did not
@@ -128,8 +131,13 @@ MRO_MODULES = {
 }
 
 # Ratchets, measured 2026-07-19 at 84291cb. These may only shrink.
-MAX_PRODUCTION_CLASS_QUALIFIED_SITES = 19
-MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 8
+# Tightened at step 19 (19 -> 18 sites, 8 -> 7 names): the cards renderer's
+# `_chaos_stats_in_game_order` became a module-level function in
+# `ui/tabs/player_stats/stat_cards.py`, which is what retires the failure mode
+# rather than relocating it -- a free function cannot be orphaned by its class
+# moving, which is precisely what broke at 14b.
+MAX_PRODUCTION_CLASS_QUALIFIED_SITES = 18
+MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 7
 MAX_OBJECT_NEW_APP_DOUBLES = 72
 
 # The one module allowed to build app doubles without `__init__`.
@@ -141,7 +149,6 @@ PRODUCTION_CLASS_QUALIFIED_NAMES = {
     "OverlayMixin._tracked_item_rules_from_config",
     "OverlayMixin._tracked_rule_color",
     "OverlayMixin._tracked_rule_tag_label",
-    "PlayerStatsCardsMixin._chaos_stats_in_game_order",
     "PlayerStatsMemoryMixin._record_player_stats_game_data_memory_failure",
     "PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success",
 }
@@ -285,6 +292,29 @@ class ClassQualifiedReferenceTests(unittest.TestCase):
             set(production) <= PRODUCTION_CLASS_QUALIFIED_NAMES,
             f"unrecorded class-qualified name(s): "
             f"{sorted(set(production) - PRODUCTION_CLASS_QUALIFIED_NAMES)}",
+        )
+
+    def test_class_qualified_allowlist_does_not_outlive_its_debt(self) -> None:
+        """An entry that no longer names a real call site must be removed.
+
+        Added at step 19, for the reason `test_import_direction`'s equivalent
+        already exists: a subset assertion alone lets the list keep entries for
+        debt that has been paid, and a ratchet nobody has to shrink stops being
+        a ratchet. Step 19 retired
+        `PlayerStatsCardsMixin._chaos_stats_in_game_order` and the subset check
+        stayed green over the stale entry.
+        """
+        qualified, _ = _scan()
+        production = {
+            name
+            for name, sites in qualified.items()
+            if any(not rel.startswith("tests/") for rel, _ in sites)
+        }
+        self.assertEqual(
+            sorted(PRODUCTION_CLASS_QUALIFIED_NAMES - production),
+            [],
+            "allowlist entries with no remaining production call site; delete "
+            "them and tighten MAX_PRODUCTION_CLASS_QUALIFIED_*",
         )
 
 
