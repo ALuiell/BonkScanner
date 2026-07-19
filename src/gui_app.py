@@ -17,11 +17,7 @@ from app.refresh_tasks import RefreshTasksMixin
 from app.snapshot_store import LiveSnapshotStoreMixin
 from app.vod_capture import VodCaptureMixin
 from ui.tabs.compare_runs import CompareRunsMixin
-from ui.tabs.player_stats import (
-    LiveStatsTabMixin,
-    PlayerStatsCardsMixin,
-    RecordingsTabMixin,
-)
+from ui.tabs.player_stats import LiveStatsTabMixin, RecordingsTabMixin
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
@@ -48,7 +44,6 @@ class MegabonkApp(
     CompareRunsMixin,
     LiveStatsTabMixin,
     RecordingsTabMixin,
-    PlayerStatsCardsMixin,
     LiveSnapshotStoreMixin,
     ScannerMixin,
     TwitchBotMixin,

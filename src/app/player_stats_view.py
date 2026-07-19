@@ -83,6 +83,15 @@ class PlayerStatsView(Protocol):
     def set_mob_kills_text(self, text: str) -> None:
         """Set the Live Stats mob-kills line."""
 
+    def set_stage_summary_rows(self, rows) -> None:
+        """Render stage-summary rows into the Live Stats tab.
+
+        Added at step 19. Before it, `app/refresh_tasks.py` reached
+        `self.player_stats_stage_summary_labels` -- a Qt widget -- and called
+        the writer on it directly, which is the same leak step 17 closed for
+        the mob-kills line. Six operations now, not five.
+        """
+
 
 @runtime_checkable
 class OverlayView(Protocol):

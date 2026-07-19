@@ -3,7 +3,8 @@
 Step 14c named one nine-operation ``PlayerStatsView``. Step 19 measured where
 those nine are implemented and found three features, not one:
 
-* 5 in ``ui/tabs/player_stats/live_stats.py`` (step 19)
+* 6 in ``ui/tabs/player_stats/live_stats.py`` (step 19 -- five original,
+  plus ``set_stage_summary_rows``, which closed the last app-to-widget leak)
 * 3 in ``gui_overlay.py`` (step 24)
 * 1 in ``gui_layout.py`` (step 26)
 
@@ -163,7 +164,11 @@ class ViewPortRoutingTests(unittest.TestCase):
                 union & group, set(), "an operation is declared by two ports"
             )
             union |= group
-        self.assertEqual(len(union), 9, f"expected the original nine ops, got {sorted(union)}")
+        self.assertEqual(
+            len(union),
+            10,
+            f"expected the original nine plus set_stage_summary_rows, got {sorted(union)}",
+        )
 
     def test_the_scheduled_fallbacks_are_the_ones_still_expected(self) -> None:
         """The overlay and recordings-list fallbacks are deliberate, until 24/26.

@@ -77,6 +77,10 @@ from ui.shared import (
 from ui.styles import ITEM_SORT_LABELS
 from ui.tabs.player_stats.items_section import ItemsSectionView
 from ui.tabs.player_stats.stat_cards import StatCardsView
+from ui.tabs.player_stats.summary_cards import (
+    set_chests_card_values,
+    set_stage_summary_labels,
+)
 from projections import formatting
 
 
@@ -277,7 +281,7 @@ class RecordingsTabMixin:
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
             _set_text(getattr(self, "vods_kps_averages_label", None), "KPS: --")
             _set_text(self.vods_level_label, "Level: --")
-            self._set_chests_card_values(
+            set_chests_card_values(
                 getattr(self, "vods_chests_card_values", None),
                 None,
             )
@@ -285,7 +289,7 @@ class RecordingsTabMixin:
             self._refresh_vod_compare_controls()
             self._refresh_vod_compare_details(None, None, index=None)
             _set_text(self.vods_banishes_label, "No banishes yet")
-            self._set_stage_summary_labels(self.vods_stage_summary_labels, None)
+            set_stage_summary_labels(self.vods_stage_summary_labels, None)
             self._stat_cards.invalidate()
             self._stat_cards.display_weapons((), status_text="No weapon data in this recording")
             self._stat_cards.display_tomes((), status_text="No tome data in this recording")
@@ -345,7 +349,7 @@ class RecordingsTabMixin:
             formatting.format_player_level(getattr(snapshot, "player_level", None)),
         )
         self._update_recorded_chest_summary(snapshot)
-        self._set_stage_summary_labels(
+        set_stage_summary_labels(
             self.vods_stage_summary_labels,
             formatting.build_stage_summary(self.loaded_vod.snapshots[: index + 1]),
         )
@@ -495,7 +499,7 @@ class RecordingsTabMixin:
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
         _set_text(getattr(self, "vods_kps_averages_label", None), "KPS: --")
         _set_text(self.vods_level_label, "Level: --")
-        self._set_chests_card_values(
+        set_chests_card_values(
             getattr(self, "vods_chests_card_values", None),
             None,
         )
@@ -503,7 +507,7 @@ class RecordingsTabMixin:
         self._refresh_vod_compare_controls()
         self._refresh_vod_compare_details(None, None, index=None)
         _set_text(self.vods_banishes_label, "No banishes yet")
-        self._set_stage_summary_labels(self.vods_stage_summary_labels, None)
+        set_stage_summary_labels(self.vods_stage_summary_labels, None)
         self._stat_cards.invalidate()
         self._stat_cards.display_weapons((), status_text="Select a recording")
         self._stat_cards.display_tomes((), status_text="Select a recording")
@@ -561,7 +565,7 @@ class RecordingsTabMixin:
         key_procs = getattr(snapshot, "key_procs", None)
         labels = getattr(self, "vods_chests_card_values", None)
         if labels:
-            self._set_chests_card_values(
+            set_chests_card_values(
                 labels,
                 formatting.chests_card_values(
                     getattr(snapshot, "chests_opened_by_stage", None),

@@ -26,7 +26,6 @@ from ui import shared as gui_shared
 from ui import styles as gui_styles
 import gui_templates
 import infra.process as infra_process
-import ui.tabs.player_stats.cards as ui_player_stats_cards
 import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
@@ -75,7 +74,6 @@ _PATCH_TARGETS = (
     gui_styles,
     gui_templates,
     infra_process,
-    ui_player_stats_cards,
     ui_player_stats_live,
     ui_player_stats_recordings,
 )
@@ -3886,8 +3884,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
         app.player_stats_mob_kills_label = label
-        app.player_stats_stage_summary_labels = None
-        app._set_stage_summary_labels = lambda labels, rows: None
+        app.set_stage_summary_rows = lambda rows: None
         app.update_overlay_state_from_tracker = lambda: None
         app.overlay_server = SimpleNamespace(is_running=False)
         app._get_player_stats_client = lambda: SimpleNamespace(
@@ -3929,8 +3926,14 @@ class GuiRunControlTests(unittest.TestCase):
         label = FakeLabel()
         app = self._fast_kps_app_with_live_stats_tab_showing(label)
         received: list[str] = []
+        stage_rows: list = []
         app._player_stats_view = SimpleNamespace(
             set_mob_kills_text=lambda text: received.append(text),
+            # Step 19 moved the stage-summary write onto the same port, for the
+            # same reason: `refresh_tasks` was reaching the labels widget
+            # directly. An injected view now has to satisfy both, which is what
+            # proves neither still reaches around the port.
+            set_stage_summary_rows=lambda rows: stage_rows.append(rows),
         )
 
         with patch.object(config, "OVERLAY", {"widgets": []}), patch.object(
@@ -3940,6 +3943,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(received, ["Mob Kills: 37 (123/s)"])
         self.assertEqual(label.text(), "")
+        self.assertEqual(len(stage_rows), 1)
 
     def test_chaos_refresh_skips_fast_kps_reads_when_overlay_kps_widget_is_disabled(self) -> None:
         app = object.__new__(MegabonkApp)
@@ -4556,7 +4560,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._stat_cards = RecordingStatCardsView()
         app._items_section = RecordingItemsSectionView()
         app.resolve_snapshot_chests_per_minute = lambda snapshot: getattr(snapshot, "chests_per_minute", None)
-        app._set_stage_summary_labels = lambda *args, **kwargs: None
+        app.set_stage_summary_rows = lambda rows: None
         app._resolve_vod_compare_base_snapshot = lambda index: None
         app._vod_compare_segment_snapshots = lambda index: ()
         app._refresh_vod_compare_controls = lambda *args, **kwargs: None
@@ -6036,7 +6040,7 @@ class GuiRunControlTests(unittest.TestCase):
         """Step 15 dissolved `PlayerStatsMixin`; these moved to three new homes."""
         expected = {
             "format_live_powerups": "ui.tabs.player_stats.live_stats",
-            "format_live_powerups_card": "ui.tabs.player_stats.cards",
+            "format_live_powerups_card": "ui.tabs.player_stats.live_stats",
             "_ensure_live_snapshot_store": "app.snapshot_store",
         }
         for name, module in expected.items():

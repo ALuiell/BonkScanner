@@ -275,8 +275,7 @@ class RefreshTasksMixin:
                 player_stats_view(self).set_mob_kills_text(
                     formatting.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps()),
                 )
-                self._set_stage_summary_labels(
-                    getattr(self, "player_stats_stage_summary_labels", None),
+                player_stats_view(self).set_stage_summary_rows(
                     self.live_run_tracker.stage_summary_rows(),
                 )
             if (
@@ -306,8 +305,7 @@ class RefreshTasksMixin:
             )
             self._mark_fast_feature_available("stage_timer")
             if self._is_live_stats_tab_active():
-                self._set_stage_summary_labels(
-                    getattr(self, "player_stats_stage_summary_labels", None),
+                player_stats_view(self).set_stage_summary_rows(
                     self.live_run_tracker.stage_summary_rows(),
                 )
             if overlay_widget_refresh_active(self, "stage_summary"):

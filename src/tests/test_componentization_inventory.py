@@ -124,7 +124,6 @@ MRO_MODULES = {
     "CompareRunsMixin": "ui.tabs.compare_runs",
     "LiveStatsTabMixin": "ui.tabs.player_stats",
     "RecordingsTabMixin": "ui.tabs.player_stats",
-    "PlayerStatsCardsMixin": "ui.tabs.player_stats",
     "LiveSnapshotStoreMixin": "app.snapshot_store",
     "ScannerMixin": "gui_scanner",
     "TwitchBotMixin": "gui_twitch",

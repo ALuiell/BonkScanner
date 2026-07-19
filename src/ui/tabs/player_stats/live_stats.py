@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from math import isfinite
+
 from core.stats.types import PLAYER_STAT_GROUPS
 from gui_layout import (
     LIVE_STATS_CARD_COLUMNS,
@@ -46,6 +48,10 @@ from ui.styles import ITEM_SORT_LABELS
 from ui.tabs.player_stats.items_section import ItemsSectionView
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 from ui.tabs.player_stats.stat_cards import StatCardsView
+from ui.tabs.player_stats.summary_cards import (
+    set_chests_card_values,
+    set_stage_summary_labels,
+)
 from projections import formatting
 
 
@@ -62,6 +68,92 @@ def pin_for_selection(index: int, snapshot_count: int) -> bool:
 class LiveStatsTabMixin:
     def _refresh_live_powerups_label(self) -> None:
         self._apply_live_powerups_card(None)
+
+    def _apply_live_powerups_card(self, stats) -> None:
+        """Write the Powerups card.
+
+        Moved out of `PlayerStatsCardsMixin` at step 19: the Live Stats tab is
+        its only caller and it writes two widgets this file builds, so it was
+        never shared card rendering.
+        """
+        group = getattr(self, "player_stats_powerups_group", None)
+        labels = getattr(self, "player_stats_live_powerup_labels", None)
+        if group is None or not isinstance(labels, dict):
+            return
+        title, values = self.format_live_powerups_card(stats)
+        group.setTitle(title)
+        for effect_name, label in labels.items():
+            _set_text(label, f"{effect_name}: {values.get(effect_name, '--')}")
+
+    def format_live_powerups_card(self, stats) -> tuple[str, dict[str, str]]:
+        values = {name: "--" for name in ("Rage", "Clock", "Shield", "Stonks")}
+        title = "Powerups"
+
+        snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+        snapshot = snapshot_reader() if callable(snapshot_reader) else None
+        if getattr(snapshot, "available", False):
+            pm_display = str(getattr(snapshot, "powerup_multiplier_display", "--") or "--")
+            if pm_display != "--":
+                title = f"Powerups (PM {pm_display})"
+            active_by_name = {
+                str(getattr(effect, "name", "")): effect
+                for effect in getattr(snapshot, "active", ()) or ()
+            }
+            for effect_name in values:
+                effect = active_by_name.get(effect_name)
+                if effect is not None:
+                    left_text = f"({formatting.format_seconds_compact(effect.remaining_seconds)}s)"
+                    if (
+                        getattr(effect, "pickup_ui", None) is None
+                        or getattr(effect, "expires_ui", None) is None
+                    ):
+                        values[effect_name] = left_text
+                    else:
+                        values[effect_name] = (
+                            f"{effect.pickup_ui} -> {effect.expires_ui} "
+                            f"{left_text}"
+                        )
+                    continue
+                duration = (
+                    getattr(snapshot, "clock_duration_seconds", None)
+                    if effect_name == "Clock"
+                    else getattr(snapshot, "standard_duration_seconds", None)
+                )
+                if duration is not None:
+                    values[effect_name] = f"-- ({formatting.format_seconds_compact(duration)}s)"
+            return title, values
+
+        stat = (stats or {}).get("Powerup Multiplier")
+        try:
+            powerup_multiplier = float(getattr(stat, "value", None))
+        except (TypeError, ValueError):
+            return title, values
+        if not isfinite(powerup_multiplier):
+            return title, values
+
+        pm_display = str(getattr(stat, "display_value", "") or "").strip()
+        if pm_display:
+            title = f"Powerups (PM {pm_display})"
+        standard_duration = formatting.format_seconds_compact(15.0 * powerup_multiplier)
+        clock_duration = formatting.format_seconds_compact(12.0 * powerup_multiplier)
+        values["Rage"] = f"-- ({standard_duration}s)"
+        values["Clock"] = f"-- ({clock_duration}s)"
+        values["Shield"] = f"-- ({standard_duration}s)"
+        values["Stonks"] = f"-- ({standard_duration}s)"
+        return title, values
+
+    def set_stage_summary_rows(self, rows) -> None:
+        """Render stage-summary rows into this tab's own labels.
+
+        A `PlayerStatsView` operation, added at step 19 for the same reason
+        step 17 added `set_mob_kills_text`: `app/refresh_tasks.py` was reaching
+        `self.player_stats_stage_summary_labels` -- a Qt widget -- and calling
+        the writer on it directly. The app layer still decides what the rows
+        say; it no longer reaches through the shared namespace to a widget to
+        put them there, which is what let these labels stay public.
+        """
+        set_stage_summary_labels(self.player_stats_stage_summary_labels, rows)
+
     def _reset_live_player_stats_ui(self, status_text: str, *, items_text: str = "--") -> None:
         _set_text(self.player_stats_status_label, status_text)
         for label in self.player_stats_rows.values():
@@ -75,13 +167,13 @@ class LiveStatsTabMixin:
         _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
         _set_text(getattr(self, "player_stats_kps_averages_label", None), "KPS: --")
         _set_text(self.player_stats_level_label, "Level: --")
-        self._set_chests_card_values(
+        set_chests_card_values(
             getattr(self, "player_stats_chests_card_values", None),
             None,
         )
         _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, "No banishes yet")
-        self._set_stage_summary_labels(self.player_stats_stage_summary_labels, None)
+        set_stage_summary_labels(self.player_stats_stage_summary_labels, None)
         self._stat_cards.invalidate()
         self._stat_cards.display_weapons((), status_text="Waiting for weapon data...")
         self._stat_cards.display_tomes((), status_text="Waiting for tome data...")
@@ -156,7 +248,7 @@ class LiveStatsTabMixin:
         else:
             _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, formatting.format_banishes_rich_text(banishes))
-        self._set_stage_summary_labels(self.player_stats_stage_summary_labels, stage_summary_rows)
+        set_stage_summary_labels(self.player_stats_stage_summary_labels, stage_summary_rows)
         self._stat_cards.display_weapons(
             weapons if weapons_available else (),
             status_text=None if weapons_available else "Weapons unavailable",
@@ -262,7 +354,7 @@ class LiveStatsTabMixin:
     def _update_live_chest_summary(self, chest_stats) -> None:
         labels = getattr(self, "player_stats_chests_card_values", None)
         if labels:
-            self._set_chests_card_values(
+            set_chests_card_values(
                 labels,
                 formatting.chests_card_values(
                     chest_stats.opened_by_stage,
