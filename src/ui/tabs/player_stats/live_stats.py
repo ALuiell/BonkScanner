@@ -24,14 +24,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSlider,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from app import config
-from core.game_state import RuntimeGameMode
 from core.stats.types import PLAYER_STAT_GROUPS
 from gui_layout import (
     LIVE_STATS_CARD_COLUMNS,
@@ -45,14 +42,8 @@ from gui_layout import (
     _retain_hidden_widget_size,
 )
 from ui.shared import _make_scroll_section, _set_text
-from ui.styles import (
-    ITEM_SORT_LABELS,
-    PLAYER_STATS_ACTIVE_BUTTON_COLOR,
-    PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR,
-    PLAYER_STATS_INACTIVE_BUTTON_COLOR,
-    PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
-    _button_state_stylesheet,
-)
+from ui.styles import ITEM_SORT_LABELS
+from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 from projections import formatting
 
 
@@ -239,15 +230,7 @@ class LiveStatsTabMixin:
         start_index = max(0, index - 1)
         return tuple(self.player_stats_vod_snapshots[start_index : index + 1])
     def on_player_stats_slider_changed(self, value):
-        snapshot_count = len(self.player_stats_vod_snapshots)
-        if snapshot_count == 0:
-            return
-        index = min(max(int(round(float(value))), 0), snapshot_count - 1)
-        if self.player_stats_selected_snapshot_index == index:
-            return
-        self.player_stats_selected_snapshot_index = index
-        self.display_player_stats_snapshot(self.player_stats_vod_snapshots[index])
-        self.refresh_player_stats_timeline_ui(update_slider=False)
+        self._recording_timeline.handle_slider_value(value)
 
     def set_recording_status_text(self, text: str) -> None:
         """Set the Live Stats status line.
@@ -274,67 +257,15 @@ class LiveStatsTabMixin:
         _set_text(self.player_stats_mob_kills_label, text)
 
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True):
-        snapshot_count = len(self.player_stats_vod_snapshots)
-        recording_armed = self._is_player_stats_recording_armed()
-        waiting_mode = getattr(self, "player_stats_recording_waiting_mode", None)
+        """Re-render the recording timeline strip.
 
-        if self.player_stats_vod_recorder.is_recording or recording_armed:
-            self.player_stats_record_btn.setText("Stop Recording")
-            self.player_stats_record_btn.setStyleSheet(
-                _button_state_stylesheet(
-                    PLAYER_STATS_ACTIVE_BUTTON_COLOR,
-                    PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR,
-                )
-            )
-        else:
-            self.player_stats_record_btn.setText(f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})")
-            self.player_stats_record_btn.setStyleSheet(
-                _button_state_stylesheet(
-                    PLAYER_STATS_INACTIVE_BUTTON_COLOR,
-                    PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
-                )
-            )
+        Kept on the mixin because it is part of the `PlayerStatsView` protocol
+        and has eight app-layer callers; the rendering itself moved to
+        `RecordingTimelineView`. This is not a new forwarding method -- the name
+        and signature predate the pilot.
+        """
+        self._recording_timeline.refresh(update_slider=update_slider)
 
-        if self.player_stats_vod_recorder.is_recording and snapshot_count:
-            self.player_stats_slider.setEnabled(True)
-            self.player_stats_slider.setMaximum(max(snapshot_count - 1, 1))
-            if update_slider:
-                index = self.player_stats_selected_snapshot_index
-                self.player_stats_slider.setValue(index if index is not None else snapshot_count - 1)
-        else:
-            self.player_stats_slider.setEnabled(False)
-            self.player_stats_slider.setMaximum(1)
-            self.player_stats_slider.setValue(0)
-
-        if self.player_stats_vod_recorder.is_recording:
-            prefix = f"Recording {self.player_stats_vod_recorder.elapsed_label()} | "
-            if snapshot_count:
-                selected = self.player_stats_selected_snapshot_index
-                mode = self.player_stats_vod_snapshots[selected].time_label if selected is not None else "--"
-                self.player_stats_timeline_label.setText(f"{prefix}{snapshot_count} snapshots | {mode}")
-            elif waiting_mode == RuntimeGameMode.PAUSED_IN_GAME.value:
-                self.player_stats_timeline_label.setText(f"{prefix}Paused in game")
-            else:
-                self.player_stats_timeline_label.setText(f"{prefix}No snapshots")
-        elif recording_armed:
-            self.player_stats_timeline_label.setText("Recording armed | waiting for run")
-        else:
-            self.player_stats_timeline_label.setText("Live stats")
-
-        if self.player_stats_vod_recorder.is_recording and snapshot_count:
-            first = self.player_stats_vod_snapshots[0].time_label
-            last = self.player_stats_vod_snapshots[-1].time_label
-            selected = self.player_stats_selected_snapshot_index
-            current = self.player_stats_vod_snapshots[selected].time_label if selected is not None else "--"
-            self.player_stats_slider_time_label.setText(f"Timeline: {first} - {last} | Selected: {current}")
-        elif self.player_stats_vod_recorder.is_recording:
-            self.player_stats_slider_time_label.setText(
-                f"Timeline: recording {self.player_stats_vod_recorder.elapsed_label()} | waiting for first snapshot"
-            )
-        elif recording_armed:
-            self.player_stats_slider_time_label.setText("Timeline: recording armed | waiting for run")
-        else:
-            self.player_stats_slider_time_label.setText("Timeline: live stats")
     def toggle_player_items_expanded(self) -> None:
         self.player_stats_items_expanded = not self.player_stats_items_expanded
         self._update_items_section(
@@ -367,20 +298,25 @@ class LiveStatsTabMixin:
         player_layout.addWidget(player_scroll)
         self.player_stats_status_label = QLabel("Waiting for game...")
         player_content_layout.addWidget(self.player_stats_status_label)
-        player_controls = QHBoxLayout()
-        self.player_stats_record_btn = QPushButton(f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})")
-        self.player_stats_record_btn.clicked.connect(self.toggle_player_stats_recording)
-        self.player_stats_timeline_label = QLabel("Live stats")
-        player_controls.addWidget(self.player_stats_record_btn)
-        player_controls.addStretch(1)
-        player_controls.addWidget(self.player_stats_timeline_label)
-        player_content_layout.addLayout(player_controls)
-        self.player_stats_slider = QSlider(Qt.Horizontal)
-        self.player_stats_slider.setEnabled(False)
-        self.player_stats_slider.valueChanged.connect(self.on_player_stats_slider_changed)
-        player_content_layout.addWidget(self.player_stats_slider)
-        self.player_stats_slider_time_label = QLabel("Timeline: live stats")
-        player_content_layout.addWidget(self.player_stats_slider_time_label)
+        # Step-18 pilot: the timeline strip is a component, not four more
+        # attributes on the shared `self`. Its seven collaborators are named
+        # here -- this is the composition root for it -- and it owns its Qt
+        # widgets privately. Constructed inline rather than behind a factory
+        # method so the pilot adds no new name to `MegabonkApp`'s MRO.
+        def _select_snapshot(index: int) -> None:
+            self.player_stats_selected_snapshot_index = index
+            self.display_player_stats_snapshot(self.player_stats_vod_snapshots[index])
+
+        self._recording_timeline = RecordingTimelineView(
+            recorder=lambda: self.player_stats_vod_recorder,
+            snapshots=lambda: self.player_stats_vod_snapshots,
+            selected_index=lambda: self.player_stats_selected_snapshot_index,
+            recording_armed=self._is_player_stats_recording_armed,
+            waiting_mode=lambda: getattr(self, "player_stats_recording_waiting_mode", None),
+            on_toggle_recording=self.toggle_player_stats_recording,
+            on_snapshot_selected=_select_snapshot,
+        )
+        self._recording_timeline.install(player_content_layout)
         items_group = QGroupBox("Items")
         self.player_stats_items_group = items_group
         items_layout = QVBoxLayout(items_group)

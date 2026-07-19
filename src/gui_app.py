@@ -109,10 +109,9 @@ class MegabonkApp(
         self.stats_avg_layout = None
         self.stats_avg_labels = {}
         self.player_stats_status_label = None
-        self.player_stats_record_btn = None
-        self.player_stats_slider = None
-        self.player_stats_slider_time_label = None
-        self.player_stats_timeline_label = None
+        # player_stats_{record_btn,slider,slider_time_label,timeline_label} are
+        # gone from the shared namespace: RecordingTimelineView owns them
+        # privately and is constructed in _build_live_stats_tab (step 18 pilot).
         self.player_stats_detail_tabs = None
         self.player_stats_rows = {}
         self.player_stats_items_group = None
