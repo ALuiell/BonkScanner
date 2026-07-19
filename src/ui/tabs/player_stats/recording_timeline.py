@@ -123,6 +123,17 @@ class RecordingTimelineView:
         self._slider_time_label = QLabel("Timeline: live stats")
         content_layout.addWidget(self._slider_time_label)
 
+        # Render the true state immediately, because nothing else will.
+        # Every other caller of `refresh_player_stats_timeline_ui` is a
+        # recording-lifecycle event, a capture, a scanner event or a dialog --
+        # none of them fires at startup. Without this the button keeps the
+        # caption baked in above and reads "Start Recording" even when
+        # `AUTO_START_RECORDING` has already armed the app, so the first click
+        # takes the *stop* branch ("cancel auto-start") and only the second
+        # one arms. That is the double-click-to-start reported on 2026-07-19,
+        # and it is a widget lying about state rather than a toggle bug.
+        self.refresh()
+
     def attach_widgets(
         self, *, record_btn, timeline_label, slider, slider_time_label
     ) -> None:

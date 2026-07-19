@@ -12,12 +12,14 @@ component's real constructor -- no `object.__new__(MegabonkApp)`.
 
 from __future__ import annotations
 
+import os
 import unittest
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from core.game_state import RuntimeGameMode
-from support.player_stats import build_recording_timeline_view
+from support.player_stats import FakeRecorder, build_recording_timeline_view
+from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 
 
 class RecordingTimelineRenderTests(unittest.TestCase):
@@ -169,6 +171,69 @@ class RecordingTimelineCommandTests(unittest.TestCase):
         harness.view._on_toggle_recording()
 
         self.assertEqual(1, harness.toggles)
+
+
+class RecordingTimelineInitialPaintTests(unittest.TestCase):
+    """`install()` must render the real state, not the caption baked into it.
+
+    Nothing else paints this strip at startup -- every other caller of
+    `refresh_player_stats_timeline_ui` is a recording-lifecycle event, a
+    capture, a scanner event or a dialog. Without an initial render the button
+    claims "Start Recording" while `AUTO_START_RECORDING` has already armed the
+    app, so the first click takes the stop branch and only the second arms.
+    That was reported as "needs a double click to start" on 2026-07-19.
+
+    Drives the real `install()` against real Qt widgets, because the bug was
+    precisely that `install()` did not render -- a test using `attach_widgets`
+    would not have caught it.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+
+        cls._app = QApplication.instance() or QApplication([])
+
+    def _install(self, *, armed: bool, recording: bool):
+        from PySide6.QtWidgets import QVBoxLayout, QWidget
+
+        holder = QWidget()
+        layout = QVBoxLayout(holder)
+        view = RecordingTimelineView(
+            recorder=lambda: FakeRecorder(is_recording=recording, elapsed="00:07"),
+            snapshots=lambda: [],
+            selected_index=lambda: None,
+            recording_armed=lambda: armed,
+            waiting_mode=lambda: None,
+            on_toggle_recording=lambda: None,
+            on_snapshot_selected=lambda index: None,
+        )
+        view.install(layout)
+        # Keep `holder` alive: Qt deletes child widgets with their parent, and
+        # a collected parent turns every later read into a RuntimeError.
+        self._holder = holder
+        return view
+
+    def test_armed_at_startup_is_shown_immediately(self) -> None:
+        view = self._install(armed=True, recording=False)
+
+        self.assertEqual("Stop Recording", view._record_btn.text())
+        self.assertEqual(
+            "Recording armed | waiting for run", view._timeline_label.text()
+        )
+
+    def test_idle_at_startup_still_reads_start_recording(self) -> None:
+        view = self._install(armed=False, recording=False)
+
+        self.assertIn("Start Recording", view._record_btn.text())
+        self.assertEqual("Live stats", view._timeline_label.text())
+
+    def test_already_recording_at_startup_is_shown_immediately(self) -> None:
+        view = self._install(armed=False, recording=True)
+
+        self.assertEqual("Stop Recording", view._record_btn.text())
+        self.assertEqual("Recording 00:07 | No snapshots", view._timeline_label.text())
 
 
 class RecordingTimelineEncapsulationTests(unittest.TestCase):
