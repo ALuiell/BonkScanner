@@ -11,6 +11,7 @@ from typing import Any, Callable
 from urllib.parse import urlparse
 
 from core.settings import NullOverlaySettings, OverlaySettings
+from core.overlay_config import widget_config_by_id
 from infra import paths
 
 
@@ -253,8 +254,11 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
             state = self._state_provider()
             if isinstance(state, dict):
                 overlay_config = self._settings.read()
-                from projections.obs import _widget_config_by_id
-                state["widgets"] = _widget_config_by_id(overlay_config)
+                # Re-read per request on purpose: the overlay editor POSTs new
+                # widget geometry to this same server, and the browser must see
+                # it on the next poll rather than waiting for the cached state
+                # to be refreshed by a tracker update.
+                state["widgets"] = widget_config_by_id(overlay_config)
                 state["canvas_width"] = int(overlay_config.get("canvas_width", 1920))
                 state["canvas_height"] = int(overlay_config.get("canvas_height", 1080))
         except Exception as exc:

@@ -6,13 +6,19 @@ from typing import TYPE_CHECKING, Any
 from core import run_summary
 from core.tracker.snapshots import RuntimeStateSnapshot
 from core.item_metadata import COLOR_MAP, ITEM_RARITY_COLOR_MAP
+# Overlay-config normalization moved down to core/ in step 17b, so that
+# infra/overlay_server.py can consume it without an infra -> projections import.
+# The coercion helpers are still used throughout this module.
+from core.overlay_config import (
+    _coerce_int,
+    _coerce_optional_float,
+    _coerce_optional_int,
+    _selected_stat_labels,
+    widget_config_by_id,
+)
 
 if TYPE_CHECKING:
     from live_run_tracker import LiveRunTracker
-
-
-DEFAULT_STATS_WIDGET_LABELS = ("Damage", "Attack Speed", "Luck", "XP Gain")
-DEFAULT_KPS_WIDGET_METRIC_IDS = ("current", "minute_avg", "five_minute_avg", "run_avg")
 
 
 @dataclass(frozen=True)
@@ -58,7 +64,7 @@ def build_overlay_state_from_snapshot(
     """Project a runtime snapshot into the stable OBS HTTP payload."""
     overlay_config = overlay_config or {}
     snapshot = runtime.latest_snapshot
-    widgets = _widget_config_by_id(overlay_config)
+    widgets = widget_config_by_id(overlay_config)
     state = OverlayState(
         status=runtime.status,
         updated_at=runtime.updated_at,
@@ -82,33 +88,6 @@ def build_overlay_state_from_snapshot(
     data["stats"] = _snapshot_stats(snapshot, widgets)
     data["banishes"] = _snapshot_banishes(snapshot, widgets)
     return data
-
-
-def _widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
-    widgets: dict[str, Any] = {}
-    for index, raw_widget in enumerate(overlay_config.get("widgets") or ()):
-        if not isinstance(raw_widget, dict):
-            continue
-        widget_id = str(raw_widget.get("id") or "").strip()
-        if not widget_id:
-            continue
-        widgets[widget_id] = {
-            "id": widget_id,
-            "enabled": bool(raw_widget.get("enabled", True)),
-            "mode": str(raw_widget.get("mode") or "compact"),
-            "order": _coerce_int(raw_widget.get("order"), default=(index + 1) * 10),
-            "max_rows": _coerce_int(raw_widget.get("max_rows"), default=40),
-            "selected_stats": _selected_stat_labels(raw_widget.get("selected_stats")),
-            "selected_kps_metrics": _selected_kps_metric_ids(raw_widget.get("selected_kps_metrics")),
-            "background_opacity": _coerce_bounded_float(raw_widget.get("background_opacity"), default=0.0),
-            "show_header": bool(raw_widget.get("show_header", True)),
-            "x": _coerce_optional_int(raw_widget.get("x")),
-            "y": _coerce_optional_int(raw_widget.get("y")),
-            "width": _coerce_optional_int(raw_widget.get("width")),
-            "height": _coerce_optional_int(raw_widget.get("height")),
-            "scale": max(0.4, min(_coerce_optional_float(raw_widget.get("scale")) or 1.0, 4.0)),
-        }
-    return widgets
 
 
 def _overlay_stage_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -208,50 +187,3 @@ def _coerce_poll_ms(value: Any) -> int:
     return max(250, min(_coerce_int(value, default=500), 5000))
 
 
-def _coerce_optional_int(value: Any) -> int | None:
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _coerce_optional_float(value: Any) -> float | None:
-    try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _coerce_bounded_float(value: Any, *, default: float = 0.0) -> float:
-    try:
-        return max(0.0, min(float(value), 1.0))
-    except (TypeError, ValueError):
-        return default
-
-
-def _coerce_int(value: Any, *, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _selected_stat_labels(value: Any) -> tuple[str, ...]:
-    if isinstance(value, (list, tuple)):
-        labels = tuple(str(label).strip() for label in value if str(label).strip())
-        if labels:
-            return labels
-    return DEFAULT_STATS_WIDGET_LABELS
-
-
-def _selected_kps_metric_ids(value: Any) -> tuple[str, ...]:
-    allowed = set(DEFAULT_KPS_WIDGET_METRIC_IDS)
-    if isinstance(value, (list, tuple)):
-        metric_ids = tuple(
-            str(metric_id).strip()
-            for metric_id in value
-            if str(metric_id).strip() in allowed
-        )
-        if metric_ids:
-            return metric_ids
-    return DEFAULT_KPS_WIDGET_METRIC_IDS

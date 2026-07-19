@@ -82,18 +82,13 @@ class Edge(NamedTuple):
 
 # Runtime edges that the §2 table forbids outright. This is not a parking lot:
 # an entry here is an open bug, not an accepted shape.
-KNOWN_VIOLATIONS: Dict[Tuple[str, str], str] = {
-    ("infra/overlay_server.py", "projections"): (
-        "Found by this checker, not by review -- a runtime import of the "
-        "private name projections.obs._widget_config_by_id from inside the "
-        "body of _serve_state. Step 11c grepped infra/ for 'from app' and "
-        "never looked for projections, and a method-body import is invisible "
-        "to a header scan either way. Removed by deciding who owns "
-        "_widget_config_by_id: either the overlay server stops reaching into "
-        "the projection, or the config lookup moves down to core/. Behavioural "
-        "question -- deliberately not fixed in the commit that added this test."
-    ),
-}
+# Empty since step 17b, and it should stay that way. The one entry this list
+# ever held -- infra/overlay_server.py importing the private
+# projections.obs._widget_config_by_id from inside a method body -- was paid off
+# by moving the normalization down to core/overlay_config.py, where both the
+# projection and the server may import it. It is the only violation this checker
+# has ever found, and it was found on its first run.
+KNOWN_VIOLATIONS: Dict[Tuple[str, str], str] = {}
 
 # Layered package -> unlayered top-level module. Debt, not violation: the target
 # has no layer yet, so no direction can be assigned to the edge.
@@ -492,24 +487,38 @@ class ImportResolutionTests(unittest.TestCase):
         for name in ("gui_layout", "live_run_tracker", "twitch_bot"):
             self.assertIn(name, roots)
 
-    def test_imports_inside_function_bodies_are_collected(self) -> None:
+    def test_imports_below_the_module_header_are_collected(self) -> None:
         """The walk must not stop at the module header.
 
-        infra/overlay_server.py hides its projections import inside a method,
-        which is exactly how it survived a review that grepped for it.
+        Its original fixture was the real thing: infra/overlay_server.py hid a
+        projections import inside a method body, which is exactly how it
+        survived a review that grepped for it. Step 17b paid that debt off, so
+        the assertion is now made against the nested imports that remain --
+        the TYPE_CHECKING-guarded ones, which are also not module-level
+        statements and which step 16's mutation table already records as being
+        lost when `ast.walk(tree)` is downgraded to `tree.body`.
+
+        Retargeted rather than deleted: this is the property that made the
+        checker find anything at all, and it must outlive the single edge that
+        motivated it.
         """
 
-        hidden = [
+        module_level_linenos = set()
+        for _layer, path in layered_source_files():
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in tree.body:
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    module_level_linenos.add((path.relative_to(SRC_DIR).as_posix(), node.lineno))
+
+        nested = [
             edge
             for edge in collect_edges()
-            if edge.source_path == "infra/overlay_server.py"
-            and edge.target_root == "projections"
+            if (edge.source_path, edge.lineno) not in module_level_linenos
         ]
-        self.assertEqual(
-            1,
-            len(hidden),
-            "the method-body import in infra/overlay_server.py was not seen -- "
-            "the walk is reading file headers, not the whole AST",
+        self.assertTrue(
+            nested,
+            "no import below a module header was collected -- the walk is "
+            "reading file headers, not the whole AST",
         )
 
 

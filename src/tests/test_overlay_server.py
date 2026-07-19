@@ -36,6 +36,71 @@ class OverlayServerTests(unittest.TestCase):
             finally:
                 server.stop()
 
+    def test_api_overlay_state_overrides_widgets_from_current_settings(self) -> None:
+        """The served payload normalizes widget config read at request time.
+
+        Step 17b moved that normalization from projections.obs (reached through
+        a method-body import of a private name) down to core/overlay_config.py.
+        _serve_state had no coverage at all, so nothing here would have noticed
+        the move breaking it.
+
+        The override is the behaviour worth pinning: the overlay editor POSTs new
+        geometry to this same server, so a stale `widgets` value on the cached
+        state must lose to freshly-read settings on the next poll.
+        """
+        overlay_config = {
+            "canvas_width": 2560,
+            "canvas_height": 1440,
+            "widgets": [
+                {"id": "kps", "order": 5, "y": "20", "scale": 9.9,
+                 "selected_kps_metrics": ["current", "bogus", "run_avg"]},
+                {"id": "stats", "order": "not-an-int", "scale": 0.01,
+                 "selected_stats": ["Damage", "  ", "Luck"]},
+                {"id": "  "},
+                "not-a-dict",
+            ],
+        }
+
+        class Settings:
+            def read(self):
+                return overlay_config
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asset_dir = Path(temp_dir)
+            (asset_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            store = OverlayStateStore()
+            store.set_state({
+                "status": "live",
+                "widgets": {"stale": "replaced"},
+                "canvas_width": 1,
+                "canvas_height": 2,
+            })
+            server = LocalOverlayServer(
+                port=free_port(), state_store=store, asset_dir=asset_dir, settings=Settings()
+            )
+            server.start()
+            try:
+                with urlopen(f"http://127.0.0.1:{server.port}/api/overlay-state", timeout=2) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+            finally:
+                server.stop()
+
+        widgets = payload["widgets"]
+        self.assertNotIn("stale", widgets)
+        self.assertEqual(2560, payload["canvas_width"])
+        self.assertEqual(1440, payload["canvas_height"])
+        # Blank ids and non-dict entries are dropped.
+        self.assertEqual({"kps", "stats"}, set(widgets))
+        # Coercions and clamps, so this fails if the normalization is bypassed
+        # rather than merely relocated.
+        self.assertEqual(4.0, widgets["kps"]["scale"])
+        self.assertEqual(0.4, widgets["stats"]["scale"])
+        self.assertEqual(20, widgets["kps"]["y"])
+        self.assertEqual(5, widgets["kps"]["order"])
+        self.assertEqual(20, widgets["stats"]["order"])
+        self.assertEqual(["current", "run_avg"], widgets["kps"]["selected_kps_metrics"])
+        self.assertEqual(["Damage", "Luck"], widgets["stats"]["selected_stats"])
+
     def test_unknown_route_returns_404(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             asset_dir = Path(temp_dir)
