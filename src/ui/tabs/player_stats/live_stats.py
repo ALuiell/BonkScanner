@@ -66,7 +66,13 @@ def pin_for_selection(index: int, snapshot_count: int) -> bool:
 
 
 class LiveStatsTabMixin:
-    def _refresh_live_powerups_label(self) -> None:
+    def refresh_powerups_card(self) -> None:
+        """`PlayerStatsView` operation: repaint the Powerups card.
+
+        Was `_refresh_live_powerups_label`, called on the shared `self` from
+        `app/refresh_tasks.py`. Same body; it now has a name the port declares
+        and one that says what it renders.
+        """
         self._apply_live_powerups_card(None)
 
     def _apply_live_powerups_card(self, stats) -> None:

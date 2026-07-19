@@ -232,12 +232,12 @@ class RefreshTasksMixin:
             )
             record_player_stats_memory_success(self)
             accepted = self.live_run_tracker.update_powerups(snapshot)
-            self._refresh_live_powerups_label()
+            player_stats_view(self).refresh_powerups_card()
             return accepted is not False
         except Exception as exc:
             record_player_stats_memory_failure(self, exc)
             self._mark_fast_feature_failed("powerups", exc)
-            self._refresh_live_powerups_label()
+            player_stats_view(self).refresh_powerups_card()
             return False
 
     def _refresh_expected_chest_inputs_task(self, context: RefreshTickContext) -> bool:

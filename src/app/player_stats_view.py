@@ -83,6 +83,17 @@ class PlayerStatsView(Protocol):
     def set_mob_kills_text(self, text: str) -> None:
         """Set the Live Stats mob-kills line."""
 
+    def refresh_powerups_card(self) -> None:
+        """Re-render the Powerups card from the tracker's current snapshot.
+
+        Added at step 19 alongside `set_stage_summary_rows`, and for the same
+        reason: `app/refresh_tasks.py` called it as `self._refresh_live_powerups_label()`
+        through the shared namespace, which is a UI call the layer table
+        forbids and the port existed to name. Renamed on the way through --
+        it re-renders a card, and has not written a single label since the
+        powerups card replaced the one-line readout.
+        """
+
     def set_stage_summary_rows(self, rows) -> None:
         """Render stage-summary rows into the Live Stats tab.
 

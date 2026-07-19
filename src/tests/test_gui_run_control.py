@@ -3594,7 +3594,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app._get_player_stats_client = lambda: client
         refreshed: list[str] = []
-        app._refresh_live_powerups_label = lambda: refreshed.append("label")
+        app.refresh_powerups_card = lambda: refreshed.append("label")
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda snapshot: powerup_updates.append(snapshot),
             clear_powerups=lambda: None,
@@ -3634,7 +3634,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
         app._get_player_stats_client = lambda: client
-        app._refresh_live_powerups_label = lambda: None
+        app.refresh_powerups_card = lambda: None
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda snapshot: None,
             clear_powerups=lambda: None,
@@ -3716,7 +3716,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_chaos_tracking_state=lambda _owner: (None, {}),
         )
         app._get_player_stats_client = lambda: client
-        app._refresh_live_powerups_label = lambda: None
+        app.refresh_powerups_card = lambda: None
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda _snapshot: None,
             track_expected_key_procs=lambda _bought, _keys: None,
@@ -3743,7 +3743,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_chaos_tracking_state=lambda _owner: (2, {1: ()}),
         )
         app._get_player_stats_client = lambda: client
-        app._refresh_live_powerups_label = lambda: None
+        app.refresh_powerups_card = lambda: None
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda _snapshot: None,
             track_expected_key_procs=lambda bought, keys: expected_updates.append((bought, keys)),

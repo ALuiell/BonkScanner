@@ -3,8 +3,9 @@
 Step 14c named one nine-operation ``PlayerStatsView``. Step 19 measured where
 those nine are implemented and found three features, not one:
 
-* 6 in ``ui/tabs/player_stats/live_stats.py`` (step 19 -- five original,
-  plus ``set_stage_summary_rows``, which closed the last app-to-widget leak)
+* 7 in ``ui/tabs/player_stats/live_stats.py`` (step 19 -- five original, plus
+  ``set_stage_summary_rows`` and ``refresh_powerups_card``, which replaced the
+  last two app-layer calls that reached the UI through the shared namespace)
 * 3 in ``gui_overlay.py`` (step 24)
 * 1 in ``gui_layout.py`` (step 26)
 
@@ -155,8 +156,14 @@ class ViewPortRoutingTests(unittest.TestCase):
             "not every accessor is exercised by the app layer",
         )
 
-    def test_the_three_protocols_partition_the_original_nine(self) -> None:
-        """No operation is dropped, duplicated, or invented by the split."""
+    def test_the_three_protocols_partition_the_declared_surface(self) -> None:
+        """No operation is dropped, duplicated, or invented by the split.
+
+        Eleven now: the original nine, plus `set_stage_summary_rows` and
+        `refresh_powerups_card`, both added at step 19 to replace an app-layer
+        call that reached the UI through the shared namespace instead of
+        through this port.
+        """
         groups = [_protocol_operations(p) for p in ACCESSORS.values()]
         union: set[str] = set()
         for group in groups:
@@ -166,8 +173,8 @@ class ViewPortRoutingTests(unittest.TestCase):
             union |= group
         self.assertEqual(
             len(union),
-            10,
-            f"expected the original nine plus set_stage_summary_rows, got {sorted(union)}",
+            11,
+            f"expected the original nine plus the two step-19 additions, got {sorted(union)}",
         )
 
     def test_the_scheduled_fallbacks_are_the_ones_still_expected(self) -> None:
