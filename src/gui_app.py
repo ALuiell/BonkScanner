@@ -318,6 +318,7 @@ class MegabonkApp(
         self.player_stats_disabled_items_refresh_pending = False
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
+        self.player_stats_snapshot_pinned = False
         self.player_stats_recording_seed = None
         self.player_stats_recording_stage_ptr = 0
         self.player_stats_recording_seed_missing_since = None

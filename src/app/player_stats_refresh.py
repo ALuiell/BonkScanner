@@ -42,6 +42,35 @@ from live_run_tracker import LiveRunSnapshot, PowerupMapContext
 from projections.vod import build_vod_capture_kwargs
 from projections import formatting
 
+def player_stats_snapshot_is_pinned(owner) -> bool:
+    """Has the user scrubbed the Live Stats timeline to a specific snapshot?
+
+    Before this predicate, every live refresh tick ran
+    ``player_stats_selected_snapshot_index = None`` and repainted live values,
+    unconditionally. Dragging the slider mid-recording therefore showed the
+    chosen snapshot for exactly one tick before the Run Summary and stage
+    summary cards reverted to the live run -- reported from a live drive on
+    2026-07-19, and present long before the step-18 pilot that made the path
+    easy to exercise.
+
+    A module-level function rather than a method: this is a decision the app
+    layer makes about its own state, and ``MegabonkApp``'s MRO does not need
+    another name in it.
+
+    The range check is what stops a stale pin from freezing the view. If the
+    snapshot list is emptied (recording stops, a new run starts) the pin cannot
+    be honoured even if the flag were missed, so the display falls back to live
+    rather than sticking.
+    """
+    if not getattr(owner, "player_stats_snapshot_pinned", False):
+        return False
+    index = getattr(owner, "player_stats_selected_snapshot_index", None)
+    if index is None:
+        return False
+    snapshots = getattr(owner, "player_stats_vod_snapshots", None) or ()
+    return 0 <= index < len(snapshots)
+
+
 # The cadence at which the core run-lifecycle probe re-reads runtime state.
 # gui_styles.py's PLAYER_STATS_* comment refers to this value by name.
 CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS = 1.0
@@ -317,11 +346,13 @@ class PlayerStatsRefreshMixin:
                 chaos_tome=chaos_tome_snapshot,
             )
             snapshot = self.player_stats_vod_recorder.capture(**capture_kwargs)
+            pinned = player_stats_snapshot_is_pinned(self)
             self.player_stats_vod_snapshots.append(snapshot)
-            self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
+            if not pinned:
+                self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
             view.refresh_player_stats_timeline_ui()
             view._refresh_vods_list_if_visible()
-            if is_live_tab_active:
+            if is_live_tab_active and not pinned:
                 view.display_player_stats_snapshot(snapshot, items_text=items_text)
             return True
 
@@ -338,6 +369,12 @@ class PlayerStatsRefreshMixin:
                 status_text_val = "Live player stats (recording armed)"
             else:
                 status_text_val = status_text
+            if player_stats_snapshot_is_pinned(self):
+                # The user scrubbed the timeline to a specific snapshot. Leave
+                # their reading on screen instead of repainting live values over
+                # it one tick later. Unpinning is `_select_snapshot` returning to
+                # the newest snapshot, or the recording stopping.
+                return True
             self.player_stats_selected_snapshot_index = None
             view.display_player_stats(
                 stats,

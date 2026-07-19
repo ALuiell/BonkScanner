@@ -135,6 +135,7 @@ class VodCaptureMixin:
         vod_path = self.player_stats_vod_recorder.start(seed=seed)
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
+        self.player_stats_snapshot_pinned = False
         self.player_stats_recording_seed = seed
         self.player_stats_recording_stage_ptr = stage_ptr
         self.player_stats_recording_stage_index = stage_index
@@ -155,6 +156,7 @@ class VodCaptureMixin:
         self.player_stats_vod_recorder.stop()
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
+        self.player_stats_snapshot_pinned = False
         self.player_stats_recording_seed = None
         self.player_stats_recording_stage_ptr = 0
         self.player_stats_recording_stage_index = None

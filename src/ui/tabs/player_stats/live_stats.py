@@ -47,6 +47,16 @@ from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 from projections import formatting
 
 
+def pin_for_selection(index: int, snapshot_count: int) -> bool:
+    """Should scrubbing to `index` pin the view against live repaints?
+
+    Selecting the newest snapshot resumes following the run; anything earlier
+    pins. Module-level and pure so it is directly testable -- the caller is a
+    closure inside `_build_live_stats_tab`, which needs a built Qt tab to reach.
+    """
+    return index < snapshot_count - 1
+
+
 class LiveStatsTabMixin:
     def _refresh_live_powerups_label(self) -> None:
         self._apply_live_powerups_card(None)
@@ -305,6 +315,14 @@ class LiveStatsTabMixin:
         # method so the pilot adds no new name to `MegabonkApp`'s MRO.
         def _select_snapshot(index: int) -> None:
             self.player_stats_selected_snapshot_index = index
+            # Pin, so the next refresh tick does not repaint live values over
+            # the snapshot the user just scrubbed to. Landing on the newest
+            # snapshot un-pins instead: that is the affordance for "resume
+            # following the run", and it means the pin can always be cleared
+            # from the slider alone.
+            self.player_stats_snapshot_pinned = pin_for_selection(
+                index, len(self.player_stats_vod_snapshots)
+            )
             self.display_player_stats_snapshot(self.player_stats_vod_snapshots[index])
 
         self._recording_timeline = RecordingTimelineView(
