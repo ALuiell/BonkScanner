@@ -30,7 +30,6 @@ from gui_scanner import ScannerMixin
 from ui.shared import UiInvoker, _AppWindow, resource_path
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
-from projections.item_sort import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC
 from gui_templates import TemplatesMixin
 from gui_twitch import TwitchBotMixin
 from infra.vod_storage import load_cached_vods
@@ -114,15 +113,8 @@ class MegabonkApp(
         # privately and is constructed in _build_live_stats_tab (step 18 pilot).
         self.player_stats_detail_tabs = None
         self.player_stats_rows = {}
-        self.player_stats_items_group = None
-        self.player_stats_items_label = None
-        self.player_stats_items_rarity_label = None
-        self.player_stats_items_toggle_btn = None
-        self.player_stats_items_sort_combo = None
-        self.player_stats_items_sort_mode = ITEM_SORT_DEFAULT
-        self.player_stats_items_expanded = False
-        self.player_stats_items_current = ()
-        self.player_stats_items_text_current = None
+        # The Items panel's five widgets and four state values are
+        # ItemsSectionView's, built in _build_live_stats_tab.
         # player_stats_last_known_{items,weapons,tomes,damage_sources,banishes}
         # and player_stats_live_banishes now live on LiveSnapshotStore, lazily
         # constructed by _ensure_live_snapshot_store() with the same defaults.
@@ -148,15 +140,7 @@ class MegabonkApp(
         self.vods_slider_time_label = None
         self.vods_detail_tabs = None
         self.vods_rows = {}
-        self.vods_items_group = None
-        self.vods_items_label = None
-        self.vods_items_rarity_label = None
-        self.vods_items_toggle_btn = None
-        self.vods_items_sort_combo = None
-        self.vods_items_sort_mode = ITEM_SORT_DEFAULT
-        self.vods_items_expanded = False
-        self.vods_items_current = ()
-        self.vods_items_text_current = None
+        # Same nine, owned by the Recordings tab's own ItemsSectionView.
         self.vods_banishes_label = None
         self.vods_in_game_time_label = None
         self.vods_chests_per_minute_label = None
@@ -206,14 +190,7 @@ class MegabonkApp(
         self.compare_run_b_items_toggle_btn = None
         self.compare_run_a_items_sort_combo = None
         self.compare_run_b_items_sort_combo = None
-        self.compare_run_a_items_sort_mode = ITEM_SORT_RARITY_DESC
-        self.compare_run_b_items_sort_mode = ITEM_SORT_RARITY_DESC
-        self.compare_run_a_items_expanded = False
-        self.compare_run_b_items_expanded = False
-        self.compare_run_a_items_current = ()
-        self.compare_run_b_items_current = ()
-        self.compare_run_a_items_text_current = None
-        self.compare_run_b_items_text_current = None
+        # And the two compare sides', built by _build_compare_run_panel.
         self.compare_runs_diff_overview_group = None
         self.compare_runs_diff_overview_label = None
         self.compare_runs_diff_stats_group = None
@@ -380,19 +357,6 @@ class MegabonkApp(
         if window is not None and hasattr(window, name):
             return getattr(window, name)
         raise AttributeError(name)
-
-    @staticmethod
-    def _scope_prefix(scope: str) -> str:
-        scope_prefixes = {
-            "live": "player_stats",
-            "vod": "vods",
-            "compare_a": "compare_run_a",
-            "compare_b": "compare_run_b",
-        }
-        try:
-            return scope_prefixes[scope]
-        except KeyError as exc:
-            raise ValueError(f"Unknown UI scope: {scope}") from exc
 
     @property
     def qt_app(self) -> QApplication:

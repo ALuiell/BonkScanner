@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 from app import config
 from core.stats.formats import PlayerStatFormat
 from core.stats.types import PLAYER_STAT_GROUPS
+from projections.item_sort import ITEM_SORT_RARITY_DESC
 
 SUMMARY_LABEL_PADDING_STYLESHEET = "padding-left: 4px;"
 LIVE_STATS_CARD_COLUMNS = 3
@@ -494,34 +495,56 @@ class GuiLayoutMixin:
         summary_layout = QVBoxLayout(summary_group)
         summary_layout.addWidget(summary_label)
         items_group = QGroupBox("Items")
-        setattr(self, f"compare_run_{side}_items_group", items_group)
         items_layout = QVBoxLayout(items_group)
         items_label = QLabel("--")
         items_label.setTextFormat(Qt.RichText)
         items_label.setWordWrap(True)
-        setattr(self, f"compare_run_{side}_items_label", items_label)
         items_layout.addWidget(items_label)
         items_actions = QHBoxLayout()
         items_toggle_btn = QPushButton("Show all")
         items_toggle_btn.setProperty("class", "SmallGhostButton")
         items_toggle_btn.clicked.connect(lambda _checked=False, run_side=side: self.toggle_compare_run_items_expanded(run_side))
         items_toggle_btn.setVisible(False)
-        setattr(self, f"compare_run_{side}_items_toggle_btn", items_toggle_btn)
         items_rarity_label = QLabel("")
         items_rarity_label.setTextFormat(Qt.RichText)
         items_rarity_label.setStyleSheet("font-size: 14px;")
         items_rarity_label.setVisible(False)
-        setattr(self, f"compare_run_{side}_items_rarity_label", items_rarity_label)
         items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             items_sort_combo.addItem(label, mode)
         rarity_desc_index = items_sort_combo.findData("rarity_desc")
         if rarity_desc_index >= 0:
             items_sort_combo.setCurrentIndex(rarity_desc_index)
-        items_sort_combo.currentIndexChanged.connect(
-            lambda _index, run_side=side: self.on_items_sort_changed(f"compare_{run_side}")
+        # Imported in the method body, not at module scope. `gui_layout` is
+        # a top-level module that `ui/tabs/player_stats/live_stats.py`
+        # already imports from, and `ui.tabs.player_stats.__init__` pulls
+        # that module in -- so a module-scope import here closes a cycle:
+        # gui_layout -> ui.tabs.player_stats -> live_stats -> gui_layout.
+        # It stayed invisible to the suite and to the import-direction
+        # checker (both AST, not real imports) because `gui_app` happens to
+        # import the package first; `import gui_layout` on its own raised.
+        # The cycle is a symptom of the compare panel being built here at
+        # all, which is what step 21 moves.
+        from ui.tabs.player_stats.items_section import ItemsSectionView
+
+        # One ordinary ItemsSectionView per compare side. This is not
+        # a step-21 conversion and not an adapter: Compare Runs stays a
+        # mixin, it just holds a view object instead of nine
+        # string-keyed attributes per side. Constructed here because
+        # this is where its widgets are built; step 21 moves the
+        # construction, not the class.
+        items_view = ItemsSectionView(
+            group=items_group,
+            label=items_label,
+            rarity_label=items_rarity_label,
+            toggle_btn=items_toggle_btn,
+            sort_combo=items_sort_combo,
+            initial_sort_mode=ITEM_SORT_RARITY_DESC,
         )
-        setattr(self, f"compare_run_{side}_items_sort_combo", items_sort_combo)
+        setattr(self, f"compare_run_{side}_items_view", items_view)
+        items_sort_combo.currentIndexChanged.connect(
+            lambda _index, view=items_view: view.on_sort_changed()
+        )
         items_actions.addWidget(items_toggle_btn, 0, Qt.AlignLeft)
         items_actions.addWidget(items_rarity_label, 0, Qt.AlignLeft)
         items_actions.addStretch(1)

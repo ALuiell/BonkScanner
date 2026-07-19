@@ -43,6 +43,7 @@ from gui_layout import (
 )
 from ui.shared import _make_scroll_section, _set_text
 from ui.styles import ITEM_SORT_LABELS
+from ui.tabs.player_stats.items_section import ItemsSectionView
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 from ui.tabs.player_stats.stat_cards import StatCardsView
 from projections import formatting
@@ -65,9 +66,9 @@ class LiveStatsTabMixin:
         _set_text(self.player_stats_status_label, status_text)
         for label in self.player_stats_rows.values():
             _set_text(label, "--")
-        self.player_stats_items_expanded = False
+        self._items_section.collapse()
         self._ensure_live_snapshot_store().reset_for_new_match()
-        self._update_items_section("live", items_text=items_text)
+        self._items_section.update((), items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
         self._apply_live_powerups_card(None)
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
@@ -119,7 +120,7 @@ class LiveStatsTabMixin:
             value_label = self.player_stats_rows.get(label)
             if value_label is not None:
                 _set_text(value_label, stat.display_value)
-        self._update_items_section("live", items, items_text=items_text)
+        self._items_section.update(items, items_text=items_text)
         if chests_per_minute is None:
             chests_per_minute = formatting.calculate_player_chests_per_minute(stats)
         _set_text(
@@ -257,12 +258,7 @@ class LiveStatsTabMixin:
         self._recording_timeline.refresh(update_slider=update_slider)
 
     def toggle_player_items_expanded(self) -> None:
-        self.player_stats_items_expanded = not self.player_stats_items_expanded
-        self._update_items_section(
-            "live",
-            self.player_stats_items_current,
-            items_text=self.player_stats_items_text_current,
-        )
+        self._items_section.toggle_expanded()
     def _update_live_chest_summary(self, chest_stats) -> None:
         labels = getattr(self, "player_stats_chests_card_values", None)
         if labels:
@@ -316,33 +312,39 @@ class LiveStatsTabMixin:
         )
         self._recording_timeline.install(player_content_layout)
         items_group = QGroupBox("Items")
-        self.player_stats_items_group = items_group
         items_layout = QVBoxLayout(items_group)
-        self.player_stats_items_label = QLabel("--")
-        self.player_stats_items_label.setTextFormat(Qt.RichText)
-        self.player_stats_items_label.setWordWrap(True)
-        items_layout.addWidget(self.player_stats_items_label)
-        self.player_stats_items_toggle_btn = QPushButton("Show more")
-        self.player_stats_items_toggle_btn.clicked.connect(self.toggle_player_items_expanded)
-        self.player_stats_items_toggle_btn.setProperty("class", "SmallGhostButton")
-        _retain_hidden_widget_size(self.player_stats_items_toggle_btn)
-        self.player_stats_items_toggle_btn.setEnabled(False)
+        items_label = QLabel("--")
+        items_label.setTextFormat(Qt.RichText)
+        items_label.setWordWrap(True)
+        items_layout.addWidget(items_label)
+        items_toggle_btn = QPushButton("Show more")
+        items_toggle_btn.clicked.connect(self.toggle_player_items_expanded)
+        items_toggle_btn.setProperty("class", "SmallGhostButton")
+        _retain_hidden_widget_size(items_toggle_btn)
+        items_toggle_btn.setEnabled(False)
         items_actions = QHBoxLayout()
-        self.player_stats_items_rarity_label = QLabel("")
-        self.player_stats_items_rarity_label.setTextFormat(Qt.RichText)
-        self.player_stats_items_rarity_label.setStyleSheet("font-size: 14px;")
-        self.player_stats_items_rarity_label.setVisible(False)
-        self.player_stats_items_sort_combo = QComboBox()
+        items_rarity_label = QLabel("")
+        items_rarity_label.setTextFormat(Qt.RichText)
+        items_rarity_label.setStyleSheet("font-size: 14px;")
+        items_rarity_label.setVisible(False)
+        items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
-            self.player_stats_items_sort_combo.addItem(label, mode)
-        self.player_stats_items_sort_combo.currentIndexChanged.connect(
-            lambda _index: self.on_items_sort_changed("live")
+            items_sort_combo.addItem(label, mode)
+        self._items_section = ItemsSectionView(
+            group=items_group,
+            label=items_label,
+            rarity_label=items_rarity_label,
+            toggle_btn=items_toggle_btn,
+            sort_combo=items_sort_combo,
         )
-        items_actions.addWidget(self.player_stats_items_toggle_btn, 0, Qt.AlignLeft)
-        items_actions.addWidget(self.player_stats_items_rarity_label, 0, Qt.AlignLeft)
+        items_sort_combo.currentIndexChanged.connect(
+            lambda _index: self._items_section.on_sort_changed()
+        )
+        items_actions.addWidget(items_toggle_btn, 0, Qt.AlignLeft)
+        items_actions.addWidget(items_rarity_label, 0, Qt.AlignLeft)
         items_actions.addStretch(1)
         items_actions.addWidget(QLabel("Sort:"))
-        items_actions.addWidget(self.player_stats_items_sort_combo)
+        items_actions.addWidget(items_sort_combo)
         items_layout.addLayout(items_actions)
         player_content_layout.addWidget(items_group)
         live_summary_grid = QGridLayout()

@@ -214,14 +214,17 @@ class CompareRunsMixin:
         self.refresh_compare_runs_ui()
 
     def toggle_compare_run_items_expanded(self, side: str) -> None:
-        scope = f"compare_{side}"
-        prefix = self._scope_prefix(scope)
-        setattr(self, f"{prefix}_items_expanded", not bool(getattr(self, f"{prefix}_items_expanded", False)))
-        self._update_items_section(
-            scope,
-            getattr(self, f"{prefix}_items_current", ()),
-            items_text=getattr(self, f"{prefix}_items_text_current", None),
-        )
+        self._compare_run_items_view(side).toggle_expanded()
+
+    def _compare_run_items_view(self, side: str):
+        """The `ItemsSectionView` for one compare side.
+
+        Built by `gui_layout._build_compare_run_panel`, which is where
+        the widgets it owns are created. Step 21 moves that
+        construction into this tab; until then the lookup stays here
+        rather than each call site reaching for the attribute.
+        """
+        return getattr(self, f"compare_run_{side}_items_view")
 
     def swap_compare_runs(self):
         self.compare_run_a_vod, self.compare_run_b_vod = self.compare_run_b_vod, self.compare_run_a_vod
@@ -292,12 +295,11 @@ class CompareRunsMixin:
         slider = self._compare_run_slider(side)
         timeline_label = self._compare_run_widget(side, "timeline_label")
         summary_label = self._compare_run_widget(side, "summary_label")
-        items_scope = f"compare_{side}"
         if vod is None:
             _set_text(status_label, "Select a recording")
             _set_text(timeline_label, "Timeline: --")
             _set_text(summary_label, "--")
-            self._update_items_section(items_scope, items_text="--")
+            self._compare_run_items_view(side).update((), items_text="--")
             if slider is not None:
                 slider.setEnabled(False)
                 slider.setMaximum(1)
@@ -309,7 +311,7 @@ class CompareRunsMixin:
             _set_text(status_label, f"{vod.metadata.name} | no snapshots")
             _set_text(timeline_label, "Timeline: --")
             _set_text(summary_label, "No snapshots")
-            self._update_items_section(items_scope, items_text="--")
+            self._compare_run_items_view(side).update((), items_text="--")
             if slider is not None:
                 slider.setEnabled(False)
                 slider.setMaximum(1)
@@ -334,7 +336,7 @@ class CompareRunsMixin:
         _set_text(status_label, f"{vod.metadata.name} | {index + 1}/{snapshot_count}")
         _set_text(timeline_label, f"Timeline: {first} - {last} | Selected: {snapshot.time_label}")
         _set_text(summary_label, self.format_compare_run_snapshot_summary(vod, snapshot, index))
-        self._update_items_section(items_scope, getattr(snapshot, "items", ()))
+        self._compare_run_items_view(side).update(getattr(snapshot, "items", ()))
 
     def _refresh_compare_runs_diff(self) -> None:
         vod_a = self.compare_run_a_vod

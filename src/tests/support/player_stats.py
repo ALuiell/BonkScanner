@@ -15,6 +15,7 @@ Each component gets its own builder, added by the step that converts it.
 
 from __future__ import annotations
 
+from ui.tabs.player_stats.items_section import ItemsSectionView
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 from ui.tabs.player_stats.stat_cards import StatCardsView
 
@@ -54,6 +55,55 @@ class RecordingStatCardsView:
 
     def display_damage_sources(self, damage_sources, *, status_text: str | None = None) -> None:
         self.damage_sources.append((tuple(damage_sources or ()), status_text))
+
+
+class RecordingItemsSectionView:
+    """Records what a tab asked the Items panel to render.
+
+    Same role as `RecordingStatCardsView`, for the surface that
+    `_update_items_section` used to serve. The scope argument is gone: each
+    scope now holds its own view, so "which scope" is answered by *which
+    object* was called rather than by a string passed to a shared one.
+    """
+
+    def __init__(self) -> None:
+        self.updates: list[tuple[tuple, str | None]] = []
+        self.toggles = 0
+        self.collapses = 0
+
+    def update(self, items=(), *, items_text: str | None = None) -> None:
+        self.updates.append((tuple(items or ()), items_text))
+
+    def toggle_expanded(self) -> None:
+        self.toggles += 1
+
+    def collapse(self) -> None:
+        self.collapses += 1
+
+    def on_sort_changed(self) -> None:
+        self.updates.append(("<sort>", None))
+
+
+def items_section_over(label) -> ItemsSectionView:
+    """A real `ItemsSectionView` that writes into `label` and nothing else.
+
+    For the three tests that assert on the *rendered* items text rather than
+    on the call. Before step 19 they reached the renderer through the shared
+    `self`'s widget, so they never named `_update_items_section` and did not
+    show up as coverage in a grep for it -- but they are the only assertions
+    the items path has, and a recording double would silently swallow them.
+
+    The group, rarity label, toggle button and sort combo are absent, which
+    the view already guards for; passing `None` keeps these tests asserting
+    exactly what they asserted before.
+    """
+    return ItemsSectionView(
+        group=None,
+        label=label,
+        rarity_label=None,
+        toggle_btn=None,
+        sort_combo=None,
+    )
 
 
 class FakeCardsLayout:

@@ -30,7 +30,11 @@ import ui.tabs.player_stats.cards as ui_player_stats_cards
 import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
-from tests.support.player_stats import RecordingStatCardsView
+from tests.support.player_stats import (
+    RecordingItemsSectionView,
+    RecordingStatCardsView,
+    items_section_over,
+)
 from ui.tabs.player_stats.stat_cards import StatCardsView, chaos_stats_in_game_order
 from app import config, player_stats_memory, player_stats_refresh
 from gui_app import MegabonkApp
@@ -698,6 +702,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.display_player_stats = lambda *args, **kwargs: None
         app.display_player_stats_snapshot = lambda *args, **kwargs: None
         app._stat_cards = RecordingStatCardsView()
+        app._items_section = RecordingItemsSectionView()
         app.close_player_stats_client = lambda: None
         app.read_player_stats_only = lambda: ({}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ()
@@ -3515,6 +3520,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_new_items_label = FakeLabel()
         app.player_stats_stage_summary_labels = []
         app._stat_cards = RecordingStatCardsView()
+        app._items_section = items_section_over(app.player_stats_items_label)
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -4389,6 +4395,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_new_items_label = FakeLabel()
         app.player_stats_stage_summary_labels = []
         app._stat_cards = RecordingStatCardsView()
+        app._items_section = items_section_over(app.player_stats_items_label)
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -4505,6 +4512,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_stage_summary_labels = []
         app.vods_rows = {"Damage": FakeLabel()}
         app._stat_cards = RecordingStatCardsView()
+        app._items_section = items_section_over(app.vods_items_label)
         app.loaded_vod_snapshot_index = None
         snapshot = SimpleNamespace(
             stats={"Damage": SimpleNamespace(display_value="123", value=1.23)},
@@ -4546,7 +4554,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_stage_summary_labels = []
         app.vods_rows = {}
         app._stat_cards = RecordingStatCardsView()
-        app._update_items_section = lambda *args, **kwargs: None
+        app._items_section = RecordingItemsSectionView()
         app.resolve_snapshot_chests_per_minute = lambda snapshot: getattr(snapshot, "chests_per_minute", None)
         app._set_stage_summary_labels = lambda *args, **kwargs: None
         app._resolve_vod_compare_base_snapshot = lambda index: None
@@ -4638,7 +4646,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.compare_run_a_timeline_label = FakeLabel("Old timeline")
         app.compare_run_a_summary_label = FakeLabel("Old summary")
         app.compare_run_a_slider = MagicMock()
-        app._update_items_section = MagicMock()
+        app.compare_run_a_items_view = RecordingItemsSectionView()
         app._set_compare_runs_diff_cards = MagicMock()
         app._refresh_compare_runs_item_details_button = MagicMock()
         app._refresh_compare_runs_selected_labels = MagicMock()
@@ -4650,7 +4658,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.compare_run_a_timeline_label.text(), "Timeline: --")
         self.assertEqual(app.compare_run_a_summary_label.text(), "--")
         self.assertIn("Could not load recording", app.compare_run_a_status_label.text())
-        app._update_items_section.assert_called_once_with("compare_a", items_text="--")
+        self.assertEqual(app.compare_run_a_items_view.updates, [((), "--")])
         app.compare_run_a_slider.setEnabled.assert_called_once_with(False)
 
     def test_compare_runs_diff_skips_disabled_optional_sections(self) -> None:

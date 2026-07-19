@@ -1,147 +1,33 @@
-"""Row rendering still shared by the Player Stats tabs, and by Compare Runs.
+"""Stage summary, the powerups card and the chests card.
 
-What is left after step 19's first commit: the items section, the stage-summary
-labels, the powerups card and the chests card.
+What is left of `PlayerStatsCardsMixin` after step 19 converted both halves of
+the cards renderer:
 
-Weapons, Tomes, the Chaos Tome panel and Damage Sources are **gone from here** --
-they are ``ui/tabs/player_stats/stat_cards.py``'s ``StatCardsView``, constructed
-once by each tab with its eight widgets as named arguments. That half needed no
-Compare Runs adapter, because the compare scopes never reached it; see that
-module's docstring for the measurement.
+* Weapons/Tomes/Chaos/Damage -> `stat_cards.StatCardsView` (two scopes, no
+  Compare Runs involvement).
+* The Items panel -> `items_section.ItemsSectionView` (four scopes, one
+  ordinary instance each, including the two compare sides).
 
-What still composes attribute names as strings is the **items section**, and
-that one genuinely is four-scope: ``ui/tabs/compare_runs/tab.py`` calls
-``_update_items_section`` for ``compare_a`` and ``compare_b``, and
-``gui_layout._build_compare_run_panel`` builds the widgets it reaches. Its nine
-name templates are the remaining blocker for making a tab's widgets private.
+Neither composes attribute names as strings any more, and `_scope_prefix` --
+the function that turned a scope into an attribute-name prefix -- has no
+callers left and is gone with them.
 
-Still a mixin, for step 9's reason: the suite calls several of these
-class-qualified, which only resolves through the MRO.
-
-The ``format_*`` helpers these call stay on ``PlayerStatsMixin`` -- they are thin
-delegators to ``projections.formatting`` and are not view code. ``_set_items_text``
-came along because it writes a widget and ``_update_items_section`` is its only
-caller; it still routes through ``PlayerStatsMixin`` rather than calling
-``projections.formatting`` directly, so that a test patching the mixin's
-formatter still reaches it.
+These four are what remains, and they are a different shape: `labels` and
+`values` arrive as *arguments*, so they never had the string-keyed lookup
+problem. `_apply_live_powerups_card` and `format_live_powerups_card` still read
+`self` (`player_stats_powerups_group`, `live_run_tracker`), which is why this is
+still a mixin; the powerups card belongs to whichever step converts the Live
+Stats tab itself.
 """
 from __future__ import annotations
 
-from ui.shared import _set_text
-from projections.item_sort import ITEM_SORT_DEFAULT
 from math import isfinite
 
 from projections import formatting
+from ui.shared import _set_text
 
 
 class PlayerStatsCardsMixin:
-    def on_items_sort_changed(self, scope: str) -> None:
-        prefix = self._scope_prefix(scope)
-        combo = self.__dict__.get(f"{prefix}_items_sort_combo")
-        mode = ITEM_SORT_DEFAULT
-        if combo is not None and hasattr(combo, "currentData"):
-            mode = combo.currentData() or ITEM_SORT_DEFAULT
-        setattr(self, f"{prefix}_items_sort_mode", mode)
-        self._update_items_section(
-            scope,
-            self.__dict__.get(f"{prefix}_items_current", ()),
-            items_text=self.__dict__.get(f"{prefix}_items_text_current"),
-        )
-    def _update_items_section(self, scope: str, items=(), *, items_text: str | None = None) -> None:
-        prefix = self._scope_prefix(scope)
-        group = self.__dict__.get(f"{prefix}_items_group")
-        label = self.__dict__.get(f"{prefix}_items_label")
-        rarity_label = self.__dict__.get(f"{prefix}_items_rarity_label")
-        button = self.__dict__.get(f"{prefix}_items_toggle_btn")
-        sort_combo = self.__dict__.get(f"{prefix}_items_sort_combo")
-        expanded = bool(self.__dict__.get(f"{prefix}_items_expanded", False))
-        setattr(self, f"{prefix}_items_current", tuple(items or ()))
-        setattr(self, f"{prefix}_items_text_current", items_text)
-
-        if label is None:
-            return
-
-        if items_text is not None:
-            self._set_items_group_title(group, None)
-            _set_items_text(label, items_text=items_text)
-            self._set_items_rarity_summary_label(rarity_label, ())
-            if button is not None:
-                button.setVisible(True)
-                button.setEnabled(False)
-                button.setText("Show more")
-            if sort_combo is not None:
-                sort_combo.setEnabled(False)
-            return
-
-        items = tuple(items or ())
-        self._set_items_group_title(group, formatting._item_total_count(items))
-        self._set_items_rarity_summary_label(rarity_label, items)
-        sorted_items = formatting.sort_items_for_display(
-            items,
-            self.__dict__.get(f"{prefix}_items_sort_mode", ITEM_SORT_DEFAULT),
-        )
-        preview_items, has_more = self._items_preview(sorted_items)
-        visible_items = sorted_items if expanded or not has_more else preview_items
-        if sort_combo is not None:
-            sort_combo.setEnabled(bool(items))
-        if hasattr(label, "setTextFormat"):
-            text = formatting.format_items_rich_text(visible_items)
-            if has_more and not expanded:
-                text = f'{text} <span style="color:#98A7BA;">...</span>'
-            label.setText(text)
-        else:
-            text = formatting.format_items(visible_items)
-            if has_more and not expanded:
-                text = f"{text} ..."
-            _set_text(label, text)
-
-        if button is not None:
-            button.setVisible(True)
-            button.setEnabled(has_more)
-            button.setText("Show less" if expanded and has_more else "Show more")
-
-    @staticmethod
-    def _set_items_rarity_summary_label(label, items) -> None:
-        if label is None:
-            return
-        text = formatting.format_items_rarity_summary_rich_text(items)
-        label.setVisible(bool(text))
-        label.setText(text)
-
-    @staticmethod
-    def _set_items_group_title(group, total_count: int | None) -> None:
-        if group is None or not hasattr(group, "setTitle"):
-            return
-        title = "Items" if total_count is None else f"Items ({total_count} total)"
-        group.setTitle(title)
-
-    @staticmethod
-    def _items_preview(items) -> tuple[tuple[str, ...], bool]:
-        items = tuple(items or ())
-        if len(items) <= 1:
-            return items, False
-
-        preview: list[str] = []
-        max_chars = 90
-        current_length = 0
-        for item in items:
-            separator_length = 2 if preview else 0
-            projected_length = current_length + separator_length + len(item)
-            if preview and projected_length > max_chars:
-                break
-            preview.append(item)
-            current_length = projected_length
-
-        if not preview:
-            preview.append(items[0])
-        return tuple(preview), len(preview) < len(items)
-
-
-
-
-
-
-
     @staticmethod
     def _set_stage_summary_labels(labels, rows) -> None:
         default_rows = [
@@ -240,13 +126,3 @@ class PlayerStatsCardsMixin:
         values["Shield"] = f"-- ({standard_duration}s)"
         values["Stonks"] = f"-- ({standard_duration}s)"
         return title, values
-
-def _set_items_text(widget, items=(), *, items_text: str | None = None) -> None:
-    text = items_text if items_text is not None else formatting.format_items(items)
-    if widget is None:
-        return
-    if hasattr(widget, "setTextFormat"):
-        widget.setText(formatting.format_items_rich_text(items) if items_text is None else text)
-        return
-    _set_text(widget, text)
-

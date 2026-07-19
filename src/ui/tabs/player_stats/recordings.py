@@ -75,6 +75,7 @@ from ui.shared import (
     _set_text_input,
 )
 from ui.styles import ITEM_SORT_LABELS
+from ui.tabs.player_stats.items_section import ItemsSectionView
 from ui.tabs.player_stats.stat_cards import StatCardsView
 from projections import formatting
 
@@ -269,8 +270,8 @@ class RecordingsTabMixin:
             for label in self.vods_rows.values():
                 _set_text(label, "--")
             _set_text(self.vods_slider_time_label, "Timeline: --")
-            self.vods_items_expanded = False
-            self._update_items_section("vod", items_text="--")
+            self._items_section.collapse()
+            self._items_section.update((), items_text="--")
             _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
             _set_text(self.vods_in_game_time_label, "In-Game Time: --")
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
@@ -316,7 +317,7 @@ class RecordingsTabMixin:
                 if value_label is not None:
                     stat = snapshot.stats.get(spec.label)
                     _set_text(value_label, stat.display_value if stat is not None else "--")
-        self._update_items_section("vod", snapshot.items)
+        self._items_section.update(snapshot.items)
         _set_text(
             self.vods_chests_per_minute_label,
             formatting.format_chests_per_minute(formatting.resolve_snapshot_chests_per_minute(snapshot)),
@@ -487,8 +488,8 @@ class RecordingsTabMixin:
         _set_text(self.vods_slider_time_label, "Timeline: --")
         for label in self.vods_rows.values():
             _set_text(label, "--")
-        self.vods_items_expanded = False
-        self._update_items_section("vod", items_text="--")
+        self._items_section.collapse()
+        self._items_section.update((), items_text="--")
         _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
@@ -554,12 +555,7 @@ class RecordingsTabMixin:
         self._clear_loaded_vod_selection()
         self.refresh_vods_list()
     def toggle_vod_items_expanded(self) -> None:
-        self.vods_items_expanded = not self.vods_items_expanded
-        self._update_items_section(
-            "vod",
-            self.vods_items_current,
-            items_text=self.vods_items_text_current,
-        )
+        self._items_section.toggle_expanded()
     def _update_recorded_chest_summary(self, snapshot) -> None:
         paid = getattr(snapshot, "paid_chests", None)
         key_procs = getattr(snapshot, "key_procs", None)
@@ -629,33 +625,39 @@ class RecordingsTabMixin:
         vod_compare_actions.addStretch(1)
         vods_detail_layout.addLayout(vod_compare_actions)
         vod_items_group = QGroupBox("Items")
-        self.vods_items_group = vod_items_group
         vod_items_layout = QVBoxLayout(vod_items_group)
-        self.vods_items_label = QLabel("--")
-        self.vods_items_label.setTextFormat(Qt.RichText)
-        self.vods_items_label.setWordWrap(True)
-        vod_items_layout.addWidget(self.vods_items_label)
-        self.vods_items_toggle_btn = QPushButton("Show more")
-        self.vods_items_toggle_btn.clicked.connect(self.toggle_vod_items_expanded)
-        self.vods_items_toggle_btn.setProperty("class", "SmallGhostButton")
-        _retain_hidden_widget_size(self.vods_items_toggle_btn)
-        self.vods_items_toggle_btn.setEnabled(False)
+        vods_items_label = QLabel("--")
+        vods_items_label.setTextFormat(Qt.RichText)
+        vods_items_label.setWordWrap(True)
+        vod_items_layout.addWidget(vods_items_label)
+        vods_items_toggle_btn = QPushButton("Show more")
+        vods_items_toggle_btn.clicked.connect(self.toggle_vod_items_expanded)
+        vods_items_toggle_btn.setProperty("class", "SmallGhostButton")
+        _retain_hidden_widget_size(vods_items_toggle_btn)
+        vods_items_toggle_btn.setEnabled(False)
         vod_items_actions = QHBoxLayout()
-        self.vods_items_rarity_label = QLabel("")
-        self.vods_items_rarity_label.setTextFormat(Qt.RichText)
-        self.vods_items_rarity_label.setStyleSheet("font-size: 14px;")
-        self.vods_items_rarity_label.setVisible(False)
-        self.vods_items_sort_combo = QComboBox()
+        vods_items_rarity_label = QLabel("")
+        vods_items_rarity_label.setTextFormat(Qt.RichText)
+        vods_items_rarity_label.setStyleSheet("font-size: 14px;")
+        vods_items_rarity_label.setVisible(False)
+        vods_items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
-            self.vods_items_sort_combo.addItem(label, mode)
-        self.vods_items_sort_combo.currentIndexChanged.connect(
-            lambda _index: self.on_items_sort_changed("vod")
+            vods_items_sort_combo.addItem(label, mode)
+        self._items_section = ItemsSectionView(
+            group=vod_items_group,
+            label=vods_items_label,
+            rarity_label=vods_items_rarity_label,
+            toggle_btn=vods_items_toggle_btn,
+            sort_combo=vods_items_sort_combo,
         )
-        vod_items_actions.addWidget(self.vods_items_toggle_btn, 0, Qt.AlignLeft)
-        vod_items_actions.addWidget(self.vods_items_rarity_label, 0, Qt.AlignLeft)
+        vods_items_sort_combo.currentIndexChanged.connect(
+            lambda _index: self._items_section.on_sort_changed()
+        )
+        vod_items_actions.addWidget(vods_items_toggle_btn, 0, Qt.AlignLeft)
+        vod_items_actions.addWidget(vods_items_rarity_label, 0, Qt.AlignLeft)
         vod_items_actions.addStretch(1)
         vod_items_actions.addWidget(QLabel("Sort:"))
-        vod_items_actions.addWidget(self.vods_items_sort_combo)
+        vod_items_actions.addWidget(vods_items_sort_combo)
         vod_items_layout.addLayout(vod_items_actions)
         vods_detail_layout.addWidget(vod_items_group)
         vod_summary_grid = QGridLayout()
