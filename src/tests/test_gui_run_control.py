@@ -29,10 +29,13 @@ import infra.process as infra_process
 import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
+from ui.tabs.player_stats.live_stats import LiveStatsTab
 from tests.support.player_stats import (
     RecordingItemsSectionView,
     RecordingStatCardsView,
     items_section_over,
+    attach_player_stats_view,
+    build_live_stats_tab,
 )
 from ui.tabs.player_stats.stat_cards import StatCardsView, chaos_stats_in_game_order
 from app import config, player_stats_memory, player_stats_refresh
@@ -695,12 +698,14 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_new_items_label = FakeLabel()
         app.player_stats_stage_summary_labels = []
         app.vods_banishes_label = FakeLabel()
-        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
-        app.display_player_stats = lambda *args, **kwargs: None
-        app.display_player_stats_snapshot = lambda *args, **kwargs: None
+        # Step 19: the Live Stats tab is an injected object, not four loose
+        # stubs standing in for MRO-resolved methods. `RecordingPlayerStatsView`
+        # pins the port's signatures, so an operation added to `PlayerStatsView`
+        # fails here loudly instead of being absorbed.
         app._live_stat_cards = RecordingStatCardsView()
         app._live_items_section = RecordingItemsSectionView()
+        attach_player_stats_view(app)
         app.close_player_stats_client = lambda: None
         app.read_player_stats_only = lambda: ({}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ()
@@ -3525,7 +3530,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_player_level=lambda owner_stats=None: 2,
         )
         app.close_player_stats_client = lambda: None
-        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
+        attach_player_stats_view(app).refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app._is_live_stats_tab_active = lambda: True
         app.read_player_stats_only = lambda: (
@@ -3594,7 +3599,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app._get_player_stats_client = lambda: client
         refreshed: list[str] = []
-        app.refresh_powerups_card = lambda: refreshed.append("label")
+        attach_player_stats_view(app).refresh_powerups_card = lambda: refreshed.append("label")
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda snapshot: powerup_updates.append(snapshot),
             clear_powerups=lambda: None,
@@ -3634,7 +3639,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
         app._get_player_stats_client = lambda: client
-        app.refresh_powerups_card = lambda: None
+        attach_player_stats_view(app).refresh_powerups_card = lambda: None
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda snapshot: None,
             clear_powerups=lambda: None,
@@ -3716,7 +3721,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_chaos_tracking_state=lambda _owner: (None, {}),
         )
         app._get_player_stats_client = lambda: client
-        app.refresh_powerups_card = lambda: None
+        attach_player_stats_view(app).refresh_powerups_card = lambda: None
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda _snapshot: None,
             track_expected_key_procs=lambda _bought, _keys: None,
@@ -3743,7 +3748,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_chaos_tracking_state=lambda _owner: (2, {1: ()}),
         )
         app._get_player_stats_client = lambda: client
-        app.refresh_powerups_card = lambda: None
+        attach_player_stats_view(app).refresh_powerups_card = lambda: None
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda _snapshot: None,
             track_expected_key_procs=lambda bought, keys: expected_updates.append((bought, keys)),
@@ -3884,7 +3889,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
         app.player_stats_mob_kills_label = label
-        app.set_stage_summary_rows = lambda rows: None
+        attach_player_stats_view(app).set_stage_summary_rows = lambda rows: None
         app.update_overlay_state_from_tracker = lambda: None
         app.overlay_server = SimpleNamespace(is_running=False)
         app._get_player_stats_client = lambda: SimpleNamespace(
@@ -4069,8 +4074,8 @@ class GuiRunControlTests(unittest.TestCase):
         )
         timeline_calls: list[str] = []
         snapshot_calls: list[str] = []
-        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: timeline_calls.append("timeline")
-        app.display_player_stats_snapshot = lambda *args, **kwargs: snapshot_calls.append("snapshot")
+        attach_player_stats_view(app).refresh_player_stats_timeline_ui = lambda *args, **kwargs: timeline_calls.append("timeline")
+        attach_player_stats_view(app).display_player_stats_snapshot = lambda *args, **kwargs: snapshot_calls.append("snapshot")
         app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
 
@@ -4176,7 +4181,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_player_level=lambda owner_stats=None: 2,
         )
         display_calls: list[dict[str, object]] = []
-        app.display_player_stats = lambda stats, items=(), **kwargs: display_calls.append(
+        attach_player_stats_view(app).display_player_stats = lambda stats, items=(), **kwargs: display_calls.append(
             {"stats": stats, "items": tuple(items), "kwargs": kwargs}
         )
         app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
@@ -4407,7 +4412,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app.close_player_stats_client = lambda: None
         app.close_player_stats_game_data_client = lambda: None
-        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
+        attach_player_stats_view(app).refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app._is_live_stats_tab_active = lambda: True
         app.log = lambda *args, **kwargs: None
@@ -4452,12 +4457,12 @@ class GuiRunControlTests(unittest.TestCase):
             player_level=4,
             time_label="01:00",
         )
-        app.player_stats_vod_snapshots = [snapshot]
-        app.display_player_stats = lambda stats, items=(), **kwargs: calls.append(
+        view = build_live_stats_tab(vod_snapshots=lambda: [snapshot])
+        view.display_player_stats = lambda stats, items=(), **kwargs: calls.append(
             {"stats": stats, "items": tuple(items), "kwargs": kwargs}
         )
 
-        MegabonkApp.display_player_stats_snapshot(app, snapshot)
+        view.display_player_stats_snapshot(snapshot)
 
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["kwargs"]["status_text"], "Recorded snapshot 1/1 at 01:00 | In-Game Time: 01:21")
@@ -4468,7 +4473,6 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(calls[0]["kwargs"]["banishes"], snapshot.banishes)
 
     def test_display_player_stats_snapshot_uses_compact_segment_compare_text(self) -> None:
-        app = object.__new__(MegabonkApp)
         calls: list[dict[str, object]] = []
         previous = SimpleNamespace(
             stats={},
@@ -4489,12 +4493,12 @@ class GuiRunControlTests(unittest.TestCase):
             player_level=3,
             time_label="01:30",
         )
-        app.player_stats_vod_snapshots = [previous, current]
-        app.display_player_stats = lambda stats, items=(), **kwargs: calls.append(
+        view = build_live_stats_tab(vod_snapshots=lambda: [previous, current])
+        view.display_player_stats = lambda stats, items=(), **kwargs: calls.append(
             {"stats": stats, "items": tuple(items), "kwargs": kwargs}
         )
 
-        MegabonkApp.display_player_stats_snapshot(app, current)
+        view.display_player_stats_snapshot(current)
 
         self.assertIn("+3</span>", calls[0]["kwargs"]["new_items_text"])
         self.assertIn("Time:</span> 00:30", calls[0]["kwargs"]["new_items_text"])
@@ -4560,7 +4564,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._vod_stat_cards = RecordingStatCardsView()
         app._vod_items_section = RecordingItemsSectionView()
         app.resolve_snapshot_chests_per_minute = lambda snapshot: getattr(snapshot, "chests_per_minute", None)
-        app.set_stage_summary_rows = lambda rows: None
+        attach_player_stats_view(app).set_stage_summary_rows = lambda rows: None
         app._resolve_vod_compare_base_snapshot = lambda index: None
         app._vod_compare_segment_snapshots = lambda index: ()
         app._refresh_vod_compare_controls = lambda *args, **kwargs: None
@@ -5561,7 +5565,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app.close_player_stats_client = lambda: None
         app.close_player_stats_game_data_client = lambda: None
-        app.refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
+        attach_player_stats_view(app).refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
@@ -6037,14 +6041,28 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(offenders, [])
 
     def test_rehomed_player_stats_methods_resolve_on_the_app(self) -> None:
-        """Step 15 dissolved `PlayerStatsMixin`; these moved to three new homes."""
-        expected = {
-            "format_live_powerups": "ui.tabs.player_stats.live_stats",
-            "format_live_powerups_card": "ui.tabs.player_stats.live_stats",
-            "_ensure_live_snapshot_store": "app.snapshot_store",
-        }
-        for name, module in expected.items():
-            self.assertEqual(getattr(MegabonkApp, name).__module__, module, name)
+        """Step 15 dissolved `PlayerStatsMixin`; these moved to three new homes.
+
+        Step 19 moved two of the three off the app entirely:
+        `format_live_powerups` and `format_live_powerups_card` are
+        `LiveStatsTab`'s, and the app reaches the tab through the port rather
+        than through its own MRO. Asserting they are *absent* is the same
+        guarantee in the other direction -- if either came back as an app
+        attribute, the mixin would be back with it.
+        """
+        self.assertEqual(
+            MegabonkApp._ensure_live_snapshot_store.__module__, "app.snapshot_store"
+        )
+        for name in ("format_live_powerups", "format_live_powerups_card"):
+            self.assertFalse(
+                hasattr(MegabonkApp, name),
+                f"{name} is on MegabonkApp again; it belongs to LiveStatsTab",
+            )
+            self.assertEqual(
+                getattr(LiveStatsTab, name).__module__,
+                "ui.tabs.player_stats.live_stats",
+                name,
+            )
 
         # the snapshot-store compat properties survived the move as properties
         self.assertIsInstance(
@@ -6084,12 +6102,12 @@ class GuiRunControlTests(unittest.TestCase):
         app._player_stats_view = view
         self.assertIs(player_stats_view(app), view)
 
-        MegabonkApp.refresh_player_stats_timeline_ui = lambda *a, **k: None
-        try:
-            player_stats_view(app).set_recording_status_text("Live player stats (recording)")
-            player_stats_view(app).refresh_player_stats_timeline_ui()
-        finally:
-            del MegabonkApp.refresh_player_stats_timeline_ui
+        # No class-attribute patch any more: before step 19 `MegabonkApp`
+        # itself satisfied the port, so this had to install a method to prove
+        # the *injected* view won. Now the app has no such method at all, which
+        # is a stronger statement of the same thing.
+        player_stats_view(app).set_recording_status_text("Live player stats (recording)")
+        player_stats_view(app).refresh_player_stats_timeline_ui()
 
         self.assertEqual(view.status_texts, ["Live player stats (recording)"])
         self.assertEqual(view.timeline_refreshes, 1)

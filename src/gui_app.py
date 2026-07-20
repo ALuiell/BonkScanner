@@ -17,7 +17,7 @@ from app.refresh_tasks import RefreshTasksMixin
 from app.snapshot_store import LiveSnapshotStoreMixin
 from app.vod_capture import VodCaptureMixin
 from ui.tabs.compare_runs import CompareRunsMixin
-from ui.tabs.player_stats import LiveStatsTabMixin, RecordingsTabMixin
+from ui.tabs.player_stats import RecordingsTabMixin
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
@@ -42,7 +42,6 @@ class MegabonkApp(
     VodCaptureMixin,
     PlayerStatsMemoryMixin,
     CompareRunsMixin,
-    LiveStatsTabMixin,
     RecordingsTabMixin,
     LiveSnapshotStoreMixin,
     ScannerMixin,
@@ -88,7 +87,6 @@ class MegabonkApp(
         self.tabview = None
         self.tab_logs = None
         self.tab_stats = None
-        self.tab_player_stats = None
         self.tab_vods = None
         self.tab_compare_runs = None
         self.log_box = None
@@ -102,28 +100,16 @@ class MegabonkApp(
         self.stats_avg_frame = None
         self.stats_avg_layout = None
         self.stats_avg_labels = {}
-        self.player_stats_status_label = None
-        # player_stats_{record_btn,slider,slider_time_label,timeline_label} are
-        # gone from the shared namespace: RecordingTimelineView owns them
-        # privately and is constructed in _build_live_stats_tab (step 18 pilot).
-        self.player_stats_detail_tabs = None
-        self.player_stats_rows = {}
-        # The Items panel's five widgets and four state values are
-        # ItemsSectionView's, built in _build_live_stats_tab.
-        # player_stats_last_known_{items,weapons,tomes,damage_sources,banishes}
-        # and player_stats_live_banishes now live on LiveSnapshotStore, lazily
-        # constructed by _ensure_live_snapshot_store() with the same defaults.
-        self.player_stats_banishes_label = None
-        self.player_stats_in_game_time_label = None
-        self.player_stats_chests_per_minute_label = None
-        self.player_stats_powerups_duration_label = None
-        self.player_stats_mob_kills_label = None
-        self.player_stats_level_label = None
-        self.player_stats_new_items_label = None
-        self.player_stats_stage_summary_labels = []
-        # The Weapons/Tomes/Chaos/Damage widgets and their four repaint
-        # signatures are StatCardsView's, constructed in _build_live_stats_tab.
-        # 14 names off the shared namespace.
+        # Every Live Stats widget is gone from the shared namespace: step 19
+        # made `LiveStatsTab` an object with its own private widgets, built by
+        # `gui_layout._build_live_stats_view` and reached through the
+        # `PlayerStatsView` port. Twelve slots left here -- the status label,
+        # the detail tabs, the stats-row map, the five run-summary labels, the
+        # stage-summary labels, and the two that were never built at all.
+        # `player_stats_selected_snapshot_index` and
+        # `player_stats_snapshot_pinned` stay: they are app-layer state that
+        # `vod_capture` and `player_stats_refresh` also write, so the tab
+        # reports selections back through a callback rather than owning them.
         self.vods_list_frame = None
         self.vods_chooser_group = None
         self.vods_select_btn = None

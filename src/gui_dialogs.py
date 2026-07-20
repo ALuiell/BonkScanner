@@ -62,6 +62,7 @@ from gui_overlay import OverlayMixin
 from core.stat_labels import abbreviate_stat_label
 
 from app import config
+from app.player_stats_view import player_stats_view
 from ui.update_prompt import start_update_check
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
@@ -1093,8 +1094,14 @@ class SettingsDialog(QDialog):
 
         if hasattr(self.master, "setup_hotkeys"):
             self.master.setup_hotkeys()
-            if hasattr(self.master, "refresh_player_stats_timeline_ui"):
-                self.master.refresh_player_stats_timeline_ui(update_slider=False)
+            # Through the port, not the shared namespace: once `LiveStatsTab`
+            # left `MegabonkApp`'s MRO this `hasattr` would have gone quietly
+            # false and the timeline would have stopped refreshing after a
+            # settings save -- no exception, green suite. The guard stays
+            # because the suite drives this dialog with stand-in masters.
+            timeline = player_stats_view(self.master)
+            if hasattr(timeline, "refresh_player_stats_timeline_ui"):
+                timeline.refresh_player_stats_timeline_ui(update_slider=False)
             self.master.update_status_ui()
             if hasattr(self.master, "apply_run_control_mode"):
                 self.master.apply_run_control_mode()

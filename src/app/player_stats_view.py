@@ -74,8 +74,15 @@ class PlayerStatsView(Protocol):
     def display_player_stats_snapshot(self, snapshot, *, items_text) -> None:
         """Render a captured recording snapshot into the Live Stats tab."""
 
-    def refresh_player_stats_timeline_ui(self) -> None:
-        """Re-render the recording timeline after its snapshot list changed."""
+    def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True) -> None:
+        """Re-render the recording timeline after its snapshot list changed.
+
+        `update_slider` was missing from this declaration until step 19, while
+        two callers -- `gui_scanner.update_timer` and
+        `gui_dialogs.SettingsDialog.save` -- passed it. Both sat outside
+        `app/`, which is the only tree `test_view_ports.py` scans, so nothing
+        reported the gap.
+        """
 
     def set_recording_status_text(self, text: str) -> None:
         """Set the Live Stats status line (recording / paused / armed)."""

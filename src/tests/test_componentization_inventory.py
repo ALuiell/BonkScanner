@@ -61,7 +61,7 @@ failure mode instead of relocating it: the 14b breakage was a call site naming
 a class the method had left, and a free function has no class to leave. The
 production ratchets tightened to 18 sites / 7 names.
 
-**`object.__new__` app doubles: 72, all in one file.** Every one is in
+**`object.__new__` app doubles: 71, all in one file.** Every one is in
 `src/tests/test_gui_run_control.py`. The roadmap's 71 was off by one and did not
 record the confinement, which is the operative fact: the migration is a
 single-module change, not a suite-wide one.
@@ -69,7 +69,7 @@ single-module change, not a suite-wide one.
 Fixture/builder migration plan
 ==============================
 
-The 72 doubles exist to get a `MegabonkApp`-shaped namespace without paying for
+The 71 doubles exist to get a `MegabonkApp`-shaped namespace without paying for
 `__init__` (which builds a `QApplication`, ~166 widgets, an `AppCoordinator`, an
 overlay server and a hotkey manager). They are not testing `MegabonkApp`; they
 are borrowing its MRO to call one method with a hand-stubbed `self`.
@@ -91,7 +91,7 @@ It is two distinct moves, applied per call site:
 
 Migration order follows conversion order: a call site is migrated by the step
 that converts its subject, never in bulk ahead of it. Bulk-migrating first would
-produce 72 builder calls for components that do not exist yet.
+produce 71 builder calls for components that do not exist yet.
 
 Both counts below are ratchets. They may shrink; they may not grow.
 """
@@ -122,7 +122,6 @@ MRO_MODULES = {
     "VodCaptureMixin": "app.vod_capture",
     "PlayerStatsMemoryMixin": "app.player_stats_memory",
     "CompareRunsMixin": "ui.tabs.compare_runs",
-    "LiveStatsTabMixin": "ui.tabs.player_stats",
     "RecordingsTabMixin": "ui.tabs.player_stats",
     "LiveSnapshotStoreMixin": "app.snapshot_store",
     "ScannerMixin": "gui_scanner",
@@ -137,7 +136,7 @@ MRO_MODULES = {
 # moving, which is precisely what broke at 14b.
 MAX_PRODUCTION_CLASS_QUALIFIED_SITES = 18
 MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 7
-MAX_OBJECT_NEW_APP_DOUBLES = 72
+MAX_OBJECT_NEW_APP_DOUBLES = 71
 
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"

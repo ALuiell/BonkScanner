@@ -1,7 +1,7 @@
-from ui.tabs.player_stats.live_stats import LiveStatsTabMixin
+from ui.tabs.player_stats.live_stats import LiveStatsTab
 from ui.tabs.player_stats.recordings import RecordingsTabMixin
 
 __all__ = [
-    "LiveStatsTabMixin",
+    "LiveStatsTab",
     "RecordingsTabMixin",
 ]

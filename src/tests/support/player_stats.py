@@ -16,6 +16,7 @@ Each component gets its own builder, added by the step that converts it.
 from __future__ import annotations
 
 from ui.tabs.player_stats.items_section import ItemsSectionView
+from ui.tabs.player_stats.live_stats import LiveStatsTab
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 from ui.tabs.player_stats.stat_cards import StatCardsView
 
@@ -263,3 +264,170 @@ def build_recording_timeline_view(
     }
     view.attach_widgets(**widgets)
     return RecordingTimelineHarness(view, widgets, state)
+
+
+class RecordingTimeline:
+    """Stands in for the Qt timeline strip on a tab that was never built.
+
+    `build()` is what constructs the real `RecordingTimelineView`, and it needs
+    offscreen Qt. Every test that reaches `refresh_player_stats_timeline_ui`
+    asserts that it was *called*, not what it painted -- the painting is
+    covered by `test_recording_timeline_view.py` and the differential trace --
+    so recording the calls is the honest stand-in. Before step 19 these tests
+    stubbed the method on the app instead, which asserted even less.
+    """
+
+    def __init__(self) -> None:
+        self.refreshes: list[bool] = []
+        self.slider_values: list = []
+
+    def refresh(self, *, update_slider: bool = True) -> None:
+        self.refreshes.append(update_slider)
+
+    def handle_slider_value(self, value) -> None:
+        self.slider_values.append(value)
+
+    def install(self, layout) -> None:  # pragma: no cover -- build() is not run
+        raise AssertionError("RecordingTimeline is for tabs that are never built")
+
+
+class RecordingPlayerStatsView:
+    """Records what the app layer asked the Live Stats tab to render.
+
+    Replaces the loose `app.display_player_stats = lambda *a, **k: None` stubs
+    the suite used while `LiveStatsTabMixin` was a base of `MegabonkApp`. Those
+    stood in for methods that resolved through the MRO; the app now holds a
+    real collaborator at `_player_stats_view`, so the double is one object and
+    the calls it absorbs are assertable instead of discarded.
+
+    Deliberately not a `MagicMock`: every signature here is pinned against
+    `PlayerStatsView`, so adding an operation to the port -- or changing one --
+    fails these tests loudly rather than being silently accepted. That is the
+    same failure-mode argument the module docstring makes for
+    `object.__new__`.
+    """
+
+    def __init__(self) -> None:
+        self.displays: list[dict] = []
+        self.snapshots: list[tuple] = []
+        self.timeline_refreshes: list[bool] = []
+        self.status_texts: list[str] = []
+        self.mob_kills_texts: list[str] = []
+        self.stage_summary_rows: list = []
+        self.powerups_refreshes = 0
+
+    def display_player_stats(self, stats, items=(), **kwargs) -> None:
+        self.displays.append({"stats": stats, "items": tuple(items), "kwargs": kwargs})
+
+    def display_player_stats_snapshot(self, snapshot, *, items_text=None) -> None:
+        self.snapshots.append((snapshot, items_text))
+
+    def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True) -> None:
+        self.timeline_refreshes.append(update_slider)
+
+    def set_recording_status_text(self, text: str) -> None:
+        self.status_texts.append(text)
+
+    def set_mob_kills_text(self, text: str) -> None:
+        self.mob_kills_texts.append(text)
+
+    def set_stage_summary_rows(self, rows) -> None:
+        self.stage_summary_rows.append(rows)
+
+    def refresh_powerups_card(self) -> None:
+        self.powerups_refreshes += 1
+
+
+def build_live_stats_tab(**overrides) -> LiveStatsTab:
+    """Construct `LiveStatsTab` through its **real** constructor.
+
+    The alternative to `object.__new__(MegabonkApp)` for the Live Stats tab,
+    and the reason this module exists: adding a constructor argument breaks
+    every call site here loudly, where `object.__new__` absorbs a new
+    dependency silently and surfaces it as an `AttributeError` in whichever
+    test happens to reach it first.
+
+    `build()` is **not** called -- that needs real offscreen Qt and is covered
+    by `tools/step19_live_stats_smoke.py` and the differential trace. Tests
+    that need widgets assign the private ones they assert on, which is honest
+    about the fact that they are testing a renderer against stand-in widgets.
+    """
+    defaults = {
+        "tabview": None,
+        "live_run_tracker": lambda: None,
+        "vod_recorder": lambda: None,
+        "vod_snapshots": lambda: [],
+        "selected_snapshot_index": lambda: None,
+        "recording_waiting_mode": lambda: None,
+        "ensure_live_snapshot_store": lambda: None,
+        "is_recording_armed": lambda: False,
+        "on_toggle_recording": lambda: None,
+        "on_snapshot_selected": lambda index, *, pinned: None,
+    }
+    unknown = set(overrides) - set(defaults)
+    assert not unknown, f"not LiveStatsTab constructor arguments: {sorted(unknown)}"
+    defaults.update(overrides)
+    view = LiveStatsTab(**defaults)
+    view._recording_timeline = RecordingTimeline()
+    return view
+
+
+#: What an app double calls a Live Stats widget, mapped to what the tab calls
+#: it. Spelled out rather than derived, so renaming one on `LiveStatsTab` fails
+#: here loudly instead of silently dropping a test's only assertion target --
+#: which is the shape of fault step 19 shipped twice.
+ADOPTED_WIDGETS = {
+    "player_stats_status_label": "_status_label",
+    "player_stats_rows": "_stat_value_rows",
+    "player_stats_mob_kills_label": "_mob_kills_label",
+    "player_stats_banishes_label": "_banishes_label",
+    "player_stats_in_game_time_label": "_in_game_time_label",
+    "player_stats_chests_per_minute_label": "_chests_per_minute_label",
+    "player_stats_powerups_duration_label": "_powerups_duration_label",
+    "player_stats_level_label": "_level_label",
+    "player_stats_new_items_label": "_new_items_label",
+    "player_stats_kps_averages_label": "_kps_averages_label",
+    "player_stats_stage_summary_labels": "_stage_summary_labels",
+    "player_stats_chests_card_values": "_chests_card_values",
+    "player_stats_powerups_group": "_powerups_group",
+    "player_stats_live_powerup_labels": "_powerup_labels",
+    "_live_stat_cards": "_stat_cards",
+    "_live_items_section": "_items_section",
+}
+
+
+def attach_player_stats_view(app) -> LiveStatsTab:
+    """Give `app` a **real** `LiveStatsTab`, adopting the widgets it carries.
+
+    Idempotent: a test that stubs two operations gets one view back both
+    times.
+
+    Deliberately the real tab rather than a recording double. Several of these
+    tests assert on the *rendered* text -- "the real formatter, through the
+    real writer" -- and a recorder would swallow those assertions silently.
+    That is the mistake step 19 recorded for the items path: a grep by method
+    name undercounts coverage in a shared-namespace codebase, because the
+    widget is the other way in. Tests that only care that an operation was
+    called still override that one operation on the instance.
+
+    Before step 19 none of this was needed: `LiveStatsTabMixin` was a base of
+    `MegabonkApp`, so the shared namespace *was* the view, and every one of
+    these widgets was a public name on it.
+    """
+    view = app.__dict__.get("_player_stats_view")
+    if view is not None:
+        return view
+    view = build_live_stats_tab(
+        live_run_tracker=lambda: getattr(app, "live_run_tracker", None),
+        vod_snapshots=lambda: getattr(app, "player_stats_vod_snapshots", []),
+        vod_recorder=lambda: getattr(app, "player_stats_vod_recorder", None),
+        selected_snapshot_index=lambda: getattr(
+            app, "player_stats_selected_snapshot_index", None
+        ),
+        ensure_live_snapshot_store=lambda: app._ensure_live_snapshot_store(),
+    )
+    for public, private in ADOPTED_WIDGETS.items():
+        if public in app.__dict__:
+            setattr(view, private, app.__dict__[public])
+    app._player_stats_view = view
+    return view

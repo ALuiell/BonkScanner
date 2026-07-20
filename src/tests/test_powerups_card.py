@@ -9,8 +9,11 @@ Found while routing `refresh_powerups_card` onto `PlayerStatsView` at step 19,
 and closed here rather than carried: this step gave that method a new name and
 a new caller, so leaving it unasserted would mean the rename was unverified.
 
-Unbound calls against plain stubs, which is what the step-18 phase-1 plan
-prescribes while the subject is still a mixin.
+Step 19 converted the subject: these ran class-qualified against
+`LiveStatsTabMixin` while it was a base of `MegabonkApp`, and now build a real
+`LiveStatsTab` through `support.player_stats.build_live_stats_tab` and call it
+bound. Two of the three assertions below are unchanged; only the construction
+moved, which is the point of the builder.
 """
 from __future__ import annotations
 
@@ -19,7 +22,7 @@ from types import SimpleNamespace
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
-from ui.tabs.player_stats.live_stats import LiveStatsTabMixin
+from tests.support.player_stats import build_live_stats_tab
 
 EFFECTS = ("Rage", "Clock", "Shield", "Stonks")
 
@@ -46,24 +49,19 @@ class FakeGroup:
         return self._title
 
 
-class PowerupsHost(LiveStatsTabMixin):
-    """A double over the one mixin under test, not over `MegabonkApp`.
+def owner_with(tracker, *, group=None, labels=None):
+    """A real `LiveStatsTab` wired to `tracker`, with the card's two widgets.
 
     `_apply_live_powerups_card` calls `self.format_live_powerups_card`, so a
-    bare `SimpleNamespace` cannot stand in. Deriving from the single mixin
-    gives the real sibling method without borrowing the app's whole MRO --
-    which is what `object.__new__(MegabonkApp)` does and what the step-18
-    phase-1 ratchet exists to stop spreading.
+    bare `SimpleNamespace` cannot stand in -- and after step 19 it does not
+    have to: the real constructor is cheap, and `build()` is what needs Qt.
+    The two widget attributes are assigned directly because they are exactly
+    what these tests assert on.
     """
-
-    def __init__(self, tracker, *, group=None, labels=None) -> None:
-        self.live_run_tracker = tracker
-        self.player_stats_powerups_group = group
-        self.player_stats_live_powerup_labels = labels
-
-
-def owner_with(tracker, *, group=None, labels=None):
-    return PowerupsHost(tracker, group=group, labels=labels)
+    view = build_live_stats_tab(live_run_tracker=lambda: tracker)
+    view._powerups_group = group
+    view._powerup_labels = labels
+    return view
 
 
 def tracker_without_snapshot():
@@ -78,9 +76,7 @@ def tracker_with_snapshot(**kwargs):
 
 class FormatLivePowerupsCardTests(unittest.TestCase):
     def test_no_snapshot_and_no_stats_leaves_every_effect_dashed(self) -> None:
-        title, values = LiveStatsTabMixin.format_live_powerups_card(
-            owner_with(tracker_without_snapshot()), {}
-        )
+        title, values = owner_with(tracker_without_snapshot()).format_live_powerups_card({})
         self.assertEqual(title, "Powerups")
         self.assertEqual(values, {name: "--" for name in EFFECTS})
 
@@ -94,9 +90,7 @@ class FormatLivePowerupsCardTests(unittest.TestCase):
             "Powerup Multiplier": SimpleNamespace(value=2.0, display_value="2.00x")
         }
 
-        title, values = LiveStatsTabMixin.format_live_powerups_card(
-            owner_with(tracker_without_snapshot()), stats
-        )
+        title, values = owner_with(tracker_without_snapshot()).format_live_powerups_card(stats)
 
         self.assertEqual(title, "Powerups (PM 2.00x)")
         self.assertEqual(values["Clock"], "-- (24s)")
@@ -105,9 +99,7 @@ class FormatLivePowerupsCardTests(unittest.TestCase):
 
     def test_a_non_numeric_multiplier_is_ignored(self) -> None:
         stats = {"Powerup Multiplier": SimpleNamespace(value=None, display_value="--")}
-        title, values = LiveStatsTabMixin.format_live_powerups_card(
-            owner_with(tracker_without_snapshot()), stats
-        )
+        title, values = owner_with(tracker_without_snapshot()).format_live_powerups_card(stats)
         self.assertEqual(title, "Powerups")
         self.assertEqual(values["Rage"], "--")
 
@@ -115,9 +107,7 @@ class FormatLivePowerupsCardTests(unittest.TestCase):
         stats = {
             "Powerup Multiplier": SimpleNamespace(value=float("inf"), display_value="inf")
         }
-        title, values = LiveStatsTabMixin.format_live_powerups_card(
-            owner_with(tracker_without_snapshot()), stats
-        )
+        title, values = owner_with(tracker_without_snapshot()).format_live_powerups_card(stats)
         self.assertEqual(title, "Powerups")
         self.assertEqual(values["Rage"], "--")
 
@@ -131,9 +121,7 @@ class FormatLivePowerupsCardTests(unittest.TestCase):
             "Powerup Multiplier": SimpleNamespace(value=2.0, display_value="2.00x")
         }
 
-        title, values = LiveStatsTabMixin.format_live_powerups_card(
-            owner_with(tracker), stats
-        )
+        title, values = owner_with(tracker).format_live_powerups_card(stats)
 
         self.assertEqual(title, "Powerups (PM 3.00x)")
         self.assertEqual(values["Clock"], "-- (36s)")
@@ -156,9 +144,7 @@ class FormatLivePowerupsCardTests(unittest.TestCase):
             )
         )
 
-        _title, values = LiveStatsTabMixin.format_live_powerups_card(
-            owner_with(tracker), {}
-        )
+        _title, values = owner_with(tracker).format_live_powerups_card({})
 
         self.assertEqual(values["Rage"], "01:00 -> 01:15 (7s)")
         self.assertEqual(values["Shield"], "-- (15s)")
@@ -177,9 +163,7 @@ class FormatLivePowerupsCardTests(unittest.TestCase):
             )
         )
 
-        title, values = LiveStatsTabMixin.format_live_powerups_card(
-            owner_with(tracker), {}
-        )
+        title, values = owner_with(tracker).format_live_powerups_card({})
 
         self.assertEqual(title, "Powerups", "a '--' multiplier must not reach the title")
         self.assertEqual(values["Shield"], "(3s)")
@@ -194,7 +178,7 @@ class ApplyLivePowerupsCardTests(unittest.TestCase):
         }
         owner = owner_with(tracker_without_snapshot(), group=group, labels=labels)
 
-        LiveStatsTabMixin._apply_live_powerups_card(owner, stats)
+        owner._apply_live_powerups_card(stats)
 
         self.assertEqual(group.title(), "Powerups (PM 1.00x)")
         self.assertEqual(labels["Clock"].text(), "Clock: -- (12s)")
@@ -202,12 +186,8 @@ class ApplyLivePowerupsCardTests(unittest.TestCase):
 
     def test_missing_widgets_are_a_no_op(self) -> None:
         """The tab is not built yet during early refresh ticks."""
-        LiveStatsTabMixin._apply_live_powerups_card(
-            owner_with(tracker_without_snapshot(), group=None, labels=None), {}
-        )
-        LiveStatsTabMixin._apply_live_powerups_card(
-            owner_with(tracker_without_snapshot(), group=FakeGroup(), labels=None), {}
-        )
+        owner_with(tracker_without_snapshot(), group=None, labels=None)._apply_live_powerups_card({})
+        owner_with(tracker_without_snapshot(), group=FakeGroup(), labels=None)._apply_live_powerups_card({})
 
 
 class RefreshPowerupsCardPortTests(unittest.TestCase):
@@ -228,7 +208,7 @@ class RefreshPowerupsCardPortTests(unittest.TestCase):
         )
         owner = owner_with(tracker, group=group, labels=labels)
 
-        LiveStatsTabMixin.refresh_powerups_card(owner)
+        owner.refresh_powerups_card()
 
         self.assertEqual(group.title(), "Powerups (PM 2.00x)")
         self.assertEqual(labels["Clock"].text(), "Clock: -- (24s)")
@@ -239,7 +219,7 @@ class RefreshPowerupsCardPortTests(unittest.TestCase):
         labels = {name: FakeLabel() for name in EFFECTS}
         owner = owner_with(tracker_without_snapshot(), group=group, labels=labels)
 
-        LiveStatsTabMixin.refresh_powerups_card(owner)
+        owner.refresh_powerups_card()
 
         self.assertEqual(group.title(), "Powerups")
         self.assertEqual(labels["Rage"].text(), "Rage: --")

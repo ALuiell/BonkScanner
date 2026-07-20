@@ -1,18 +1,55 @@
 """The Live Stats tab: rendering the current run as it is read from memory.
 
-Builds its own widgets (``_build_live_stats_tab``, moved here by step 11b) and
-reads them back, which is why this file's widget reads never counted as hidden
-dependencies -- see the roadmap's step 11b table.
+An object with explicit dependencies, not a base class of ``MegabonkApp``.
+Step 19 finished what the step-18 pilot started: the ten collaborators below
+used to be ambient reads on a shared ``self``, and the eighteen Qt widgets used
+to be public names on it that any of fourteen other mixins could reach.
 
 What is *not* here: acquiring the data. ``refresh_live_player_stats_now`` and the
 memory clients live in ``app/player_stats_memory.py``; this tab only renders what it is
 handed. That boundary is the whole point of step 14 -- it is what let this module
 land under ``ui/`` with no ``infra`` import at all.
 
-Still a mixin (step 9's MRO constraint); ``display_player_stats_snapshot`` and
-friends are called class-qualified from the suite.
+How the app layer reaches it
+============================
+
+Through ``app/player_stats_view.py``'s ``PlayerStatsView`` port, whose seven
+operations this class implements. ``player_stats_view(owner)`` returns the
+instance the composition root stored on ``owner._player_stats_view``; step 19
+is where its ambient ``owner`` fallback stopped being reachable in production,
+which was this step's stated exit criterion.
+
+Two callers are **not** in ``app/`` and were missing from every inventory of
+this conversion, because ``src/tests/test_view_ports.py`` scans ``app/`` alone:
+
+* ``gui_scanner.update_timer`` calls ``refresh_player_stats_timeline_ui`` once
+  a second while recording, on the shared ``self``. Unguarded -- it would have
+  raised ``AttributeError`` on the first tick after the mixin left the MRO.
+* ``gui_dialogs.SettingsDialog.save`` calls the same method on ``self.master``,
+  behind ``hasattr``. That one would **not** have raised: the guard would have
+  gone quietly false and the timeline strip would have stopped refreshing after
+  a settings save, with a green suite and no exception. The same silent-guard
+  shape step 18 recorded as the reason making this tab's widgets private could
+  break four panels without raising.
+
+Both now resolve through ``player_stats_view()``. Neither belongs to step 19's
+feature -- they are the scanner's (25) and the dialogs' -- so they go through
+the declared port rather than reaching for the handle.
+
+Why the collaborators are suppliers
+===================================
+
+The same reason ``RecordingTimelineView`` gives: the app layer rebinds the
+underlying state. ``gui_overlay.initialize_overlay_runtime`` assigns
+``live_run_tracker`` after ``__init__`` starts, ``app/vod_capture.py``
+reassigns the snapshot list, and ``app/player_stats_refresh.py`` moves the
+selected index. A component holding the *value* would go stale exactly where a
+mixin reading ``self`` did not -- which is the kind of difference a shared
+namespace hides until it is removed.
 """
 from __future__ import annotations
+
+from typing import Callable, Sequence
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -32,17 +69,6 @@ from PySide6.QtWidgets import (
 from math import isfinite
 
 from core.stats.types import PLAYER_STAT_GROUPS
-from gui_layout import (
-    LIVE_STATS_CARD_COLUMNS,
-    LIVE_STATS_VALUE_WIDTH,
-    _apply_player_stat_value_baseline,
-    _apply_powerups_card_baselines,
-    _apply_run_summary_baselines,
-    _apply_stage_summary_column_baseline,
-    _apply_summary_label_padding,
-    _build_chests_stats_card,
-    _retain_hidden_widget_size,
-)
 from ui.shared import _make_scroll_section, _set_text
 from ui.styles import ITEM_SORT_LABELS
 from ui.tabs.player_stats.items_section import ItemsSectionView
@@ -60,12 +86,79 @@ def pin_for_selection(index: int, snapshot_count: int) -> bool:
 
     Selecting the newest snapshot resumes following the run; anything earlier
     pins. Module-level and pure so it is directly testable -- the caller is a
-    closure inside `_build_live_stats_tab`, which needs a built Qt tab to reach.
+    closure inside `build`, which needs a built Qt tab to reach.
     """
     return index < snapshot_count - 1
 
 
-class LiveStatsTabMixin:
+class LiveStatsTab:
+    """The Live Stats tab, and the `PlayerStatsView` port's implementation.
+
+    Constructed once by `gui_layout._build_live_stats_view`, which is the
+    composition root for it, and stored as `MegabonkApp._player_stats_view`.
+    """
+
+    def __init__(
+        self,
+        *,
+        tabview,
+        live_run_tracker: Callable[[], object],
+        vod_recorder: Callable[[], object],
+        vod_snapshots: Callable[[], Sequence],
+        selected_snapshot_index: Callable[[], int | None],
+        recording_waiting_mode: Callable[[], object],
+        ensure_live_snapshot_store: Callable[[], object],
+        is_recording_armed: Callable[[], bool],
+        on_toggle_recording: Callable[[], None],
+        on_snapshot_selected: Callable[..., None],
+    ) -> None:
+        self._tabview = tabview
+        self._live_run_tracker = live_run_tracker
+        self._vod_recorder = vod_recorder
+        self._vod_snapshots = vod_snapshots
+        self._selected_snapshot_index = selected_snapshot_index
+        self._recording_waiting_mode = recording_waiting_mode
+        self._ensure_live_snapshot_store = ensure_live_snapshot_store
+        self._is_recording_armed = is_recording_armed
+        self._on_toggle_recording = on_toggle_recording
+        self._on_snapshot_selected = on_snapshot_selected
+
+        # Widgets, all created by `build`. Declared here so the set this tab
+        # owns is readable in one place rather than scattered through 260
+        # lines of builder.
+        self._root = None
+        self._status_label = None
+        self._detail_tabs = None
+        self._stat_value_rows: dict = {}
+        self._chests_per_minute_label = None
+        self._in_game_time_label = None
+        self._mob_kills_label = None
+        self._kps_averages_label = None
+        self._level_label = None
+        self._stage_summary_labels: list = []
+        self._powerups_group = None
+        self._powerup_labels: dict = {}
+        self._banishes_label = None
+        self._chests_card_values = None
+        # These two are never built, here or anywhere else -- they were `None`
+        # on the shared namespace and `_set_text(None, ...)` is a no-op, so
+        # every write to them has always been dead in production. Carried over
+        # rather than deleted: "this looks unreachable" is what step 14c had to
+        # walk back, and keeping the write targets makes the trace identical.
+        self._new_items_label = None
+        self._powerups_duration_label = None
+        # Child components.
+        self._recording_timeline = None
+        self._items_section = None
+        self._stat_cards = None
+
+    @property
+    def root_widget(self):
+        """The tab's own QWidget, for harnesses that need to inspect it."""
+        return self._root
+
+    # -- PlayerStatsView --------------------------------------------------
+
     def refresh_powerups_card(self) -> None:
         """`PlayerStatsView` operation: repaint the Powerups card.
 
@@ -82,8 +175,8 @@ class LiveStatsTabMixin:
         its only caller and it writes two widgets this file builds, so it was
         never shared card rendering.
         """
-        group = getattr(self, "player_stats_powerups_group", None)
-        labels = getattr(self, "player_stats_live_powerup_labels", None)
+        group = self._powerups_group
+        labels = self._powerup_labels
         if group is None or not isinstance(labels, dict):
             return
         title, values = self.format_live_powerups_card(stats)
@@ -95,7 +188,7 @@ class LiveStatsTabMixin:
         values = {name: "--" for name in ("Rage", "Clock", "Shield", "Stonks")}
         title = "Powerups"
 
-        snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+        snapshot_reader = getattr(self._live_run_tracker(), "powerups_snapshot", None)
         snapshot = snapshot_reader() if callable(snapshot_reader) else None
         if getattr(snapshot, "available", False):
             pm_display = str(getattr(snapshot, "powerup_multiplier_display", "--") or "--")
@@ -158,35 +251,36 @@ class LiveStatsTabMixin:
         say; it no longer reaches through the shared namespace to a widget to
         put them there, which is what let these labels stay public.
         """
-        set_stage_summary_labels(self.player_stats_stage_summary_labels, rows)
+        set_stage_summary_labels(self._stage_summary_labels, rows)
 
     def _reset_live_player_stats_ui(self, status_text: str, *, items_text: str = "--") -> None:
-        _set_text(self.player_stats_status_label, status_text)
-        for label in self.player_stats_rows.values():
+        _set_text(self._status_label, status_text)
+        for label in self._stat_value_rows.values():
             _set_text(label, "--")
-        self._live_items_section.collapse()
+        self._items_section.collapse()
         self._ensure_live_snapshot_store().reset_for_new_match()
-        self._live_items_section.update((), items_text=items_text)
-        _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
+        self._items_section.update((), items_text=items_text)
+        _set_text(self._chests_per_minute_label, "Average chests/min: --")
         self._apply_live_powerups_card(None)
-        _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
-        _set_text(self.player_stats_mob_kills_label, "Mob Kills: --")
-        _set_text(getattr(self, "player_stats_kps_averages_label", None), "KPS: --")
-        _set_text(self.player_stats_level_label, "Level: --")
+        _set_text(self._in_game_time_label, "In-Game Time: --")
+        _set_text(self._mob_kills_label, "Mob Kills: --")
+        _set_text(self._kps_averages_label, "KPS: --")
+        _set_text(self._level_label, "Level: --")
         set_chests_card_values(
-            getattr(self, "player_stats_chests_card_values", None),
+            self._chests_card_values,
             None,
         )
-        _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
-        _set_text(self.player_stats_banishes_label, "No banishes yet")
-        set_stage_summary_labels(self.player_stats_stage_summary_labels, None)
-        self._live_stat_cards.invalidate()
-        self._live_stat_cards.display_weapons((), status_text="Waiting for weapon data...")
-        self._live_stat_cards.display_tomes((), status_text="Waiting for tome data...")
-        self._live_stat_cards.display_chaos_tome(None, status_text="Waiting for Chaos Tome data...")
-        self._live_stat_cards.display_damage_sources(
+        _set_text(self._new_items_label, "Live snapshot")
+        _set_text(self._banishes_label, "No banishes yet")
+        set_stage_summary_labels(self._stage_summary_labels, None)
+        self._stat_cards.invalidate()
+        self._stat_cards.display_weapons((), status_text="Waiting for weapon data...")
+        self._stat_cards.display_tomes((), status_text="Waiting for tome data...")
+        self._stat_cards.display_chaos_tome(None, status_text="Waiting for Chaos Tome data...")
+        self._stat_cards.display_damage_sources(
             (), status_text="Waiting for damage source data..."
         )
+
     def display_player_stats(
         self,
         stats,
@@ -213,67 +307,69 @@ class LiveStatsTabMixin:
         stage_summary_rows: list[dict[str, str]] | None = None,
     ):
         if status_text:
-            _set_text(self.player_stats_status_label, status_text)
+            _set_text(self._status_label, status_text)
         for label, stat in stats.items():
-            value_label = self.player_stats_rows.get(label)
+            value_label = self._stat_value_rows.get(label)
             if value_label is not None:
                 _set_text(value_label, stat.display_value)
-        self._live_items_section.update(items, items_text=items_text)
+        self._items_section.update(items, items_text=items_text)
         if chests_per_minute is None:
             chests_per_minute = formatting.calculate_player_chests_per_minute(stats)
         _set_text(
-            self.player_stats_chests_per_minute_label,
+            self._chests_per_minute_label,
             formatting.format_chests_per_minute(chests_per_minute),
         )
         _set_text(
-            getattr(self, "player_stats_powerups_duration_label", None),
+            self._powerups_duration_label,
             self.format_live_powerups(stats),
         )
         self._apply_live_powerups_card(stats)
         _set_text(
-            self.player_stats_in_game_time_label,
+            self._in_game_time_label,
             formatting.format_in_game_time(game_time_seconds),
         )
         _set_text(
-            self.player_stats_mob_kills_label,
+            self._mob_kills_label,
             formatting.format_mob_kills(mob_kills, kps),
         )
         _set_text(
-            getattr(self, "player_stats_kps_averages_label", None),
+            self._kps_averages_label,
             formatting.format_kps_averages(minute_avg_kps, five_minute_avg_kps),
         )
         _set_text(
-            self.player_stats_level_label,
+            self._level_label,
             formatting.format_player_level(player_level),
         )
-        get_chest_stats = getattr(self.live_run_tracker, "get_chest_stats", None)
+        get_chest_stats = getattr(self._live_run_tracker(), "get_chest_stats", None)
         if callable(get_chest_stats):
             self._update_live_chest_summary(get_chest_stats())
         if new_items_text is not None:
-            _set_text(getattr(self, "player_stats_new_items_label", None), new_items_text)
+            _set_text(self._new_items_label, new_items_text)
         else:
-            _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
-        _set_text(self.player_stats_banishes_label, formatting.format_banishes_rich_text(banishes))
-        set_stage_summary_labels(self.player_stats_stage_summary_labels, stage_summary_rows)
-        self._live_stat_cards.display_weapons(
+            _set_text(self._new_items_label, "Live snapshot")
+        _set_text(self._banishes_label, formatting.format_banishes_rich_text(banishes))
+        set_stage_summary_labels(self._stage_summary_labels, stage_summary_rows)
+        self._stat_cards.display_weapons(
             weapons if weapons_available else (),
             status_text=None if weapons_available else "Weapons unavailable",
         )
-        self._live_stat_cards.display_tomes(
+        self._stat_cards.display_tomes(
             tomes if tomes_available else (),
             status_text=None if tomes_available else "Tomes unavailable",
         )
-        self._live_stat_cards.display_chaos_tome(
+        self._stat_cards.display_chaos_tome(
             chaos_tome,
             status_text=None if chaos_tome is not None else "No Chaos Tome data yet",
         )
-        self._live_stat_cards.display_damage_sources(
+        self._stat_cards.display_damage_sources(
             damage_sources if damage_sources_available else (),
             status_text=None if damage_sources_available else "Damage sources unavailable",
         )
+
     def display_player_stats_snapshot(self, snapshot, *, items_text: str | None = None):
-        index = self.player_stats_vod_snapshots.index(snapshot) + 1
-        total = len(self.player_stats_vod_snapshots)
+        snapshots = self._vod_snapshots()
+        index = snapshots.index(snapshot) + 1
+        total = len(snapshots)
         self.display_player_stats(
             snapshot.stats,
             snapshot.items,
@@ -299,66 +395,69 @@ class LiveStatsTabMixin:
                 snapshot,
                 segment_snapshots=self._player_stats_snapshot_segment(snapshot),
             ),
-            stage_summary_rows=formatting.build_stage_summary(
-                self.player_stats_vod_snapshots[:index]
-            ),
+            stage_summary_rows=formatting.build_stage_summary(snapshots[:index]),
         )
+
     def _previous_player_stats_snapshot(self, snapshot):
+        snapshots = self._vod_snapshots()
         try:
-            index = self.player_stats_vod_snapshots.index(snapshot)
+            index = snapshots.index(snapshot)
         except ValueError:
             return None
         if index <= 0:
             return None
-        return self.player_stats_vod_snapshots[index - 1]
+        return snapshots[index - 1]
+
     def _player_stats_snapshot_segment(self, snapshot) -> tuple[object, ...]:
+        snapshots = self._vod_snapshots()
         try:
-            index = self.player_stats_vod_snapshots.index(snapshot)
+            index = snapshots.index(snapshot)
         except ValueError:
             return (snapshot,)
         start_index = max(0, index - 1)
-        return tuple(self.player_stats_vod_snapshots[start_index : index + 1])
+        return tuple(snapshots[start_index : index + 1])
+
     def on_player_stats_slider_changed(self, value):
         self._recording_timeline.handle_slider_value(value)
 
     def set_recording_status_text(self, text: str) -> None:
         """Set the Live Stats status line.
 
-        This mixin builds `player_stats_status_label`, so it is the only place
-        that should write it. `app/vod_capture.py` used to reach in and call
-        `_set_text` on the widget directly -- a Qt write from the app layer,
-        against the widget whose creator had already moved here in step 14b.
-        It now goes through `PlayerStatsView` instead.
+        This tab builds `_status_label`, so it is the only place that should
+        write it. `app/vod_capture.py` used to reach in and call `_set_text` on
+        the widget directly -- a Qt write from the app layer, against the
+        widget whose creator had already moved here in step 14b. It now goes
+        through `PlayerStatsView` instead.
         """
-        _set_text(self.player_stats_status_label, text)
+        _set_text(self._status_label, text)
 
     def set_mob_kills_text(self, text: str) -> None:
         """Set the Live Stats mob-kills line.
 
         Same shape, and the same reason, as `set_recording_status_text` above:
-        this mixin builds `player_stats_mob_kills_label`, so it is the only
-        place that should write it. `app/refresh_tasks.py` used to import
-        `_set_text` from `gui_shared` and write the widget itself -- the last
-        consumer of `gui_shared` outside UI code, outstanding since step 6.
-        The app layer still decides what the line says; it no longer reaches
-        through a Qt helper to put it there.
+        this tab builds `_mob_kills_label`, so it is the only place that should
+        write it. `app/refresh_tasks.py` used to import `_set_text` from
+        `gui_shared` and write the widget itself -- the last consumer of
+        `gui_shared` outside UI code, outstanding since step 6. The app layer
+        still decides what the line says; it no longer reaches through a Qt
+        helper to put it there.
         """
-        _set_text(self.player_stats_mob_kills_label, text)
+        _set_text(self._mob_kills_label, text)
 
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True):
         """Re-render the recording timeline strip.
 
-        Kept on the mixin because it is part of the `PlayerStatsView` protocol
-        and has eight app-layer callers; the rendering itself moved to
-        `RecordingTimelineView`. This is not a new forwarding method -- the name
-        and signature predate the pilot.
+        A `PlayerStatsView` operation with eight app-layer callers plus the two
+        outside `app/` this module's header names; the rendering itself lives
+        in `RecordingTimelineView`. The name and signature predate the pilot.
         """
         self._recording_timeline.refresh(update_slider=update_slider)
 
     def toggle_player_items_expanded(self) -> None:
-        self._live_items_section.toggle_expanded()
+        self._items_section.toggle_expanded()
+
     def _update_live_chest_summary(self, chest_stats) -> None:
-        labels = getattr(self, "player_stats_chests_card_values", None)
+        labels = self._chests_card_values
         if labels:
             set_chests_card_values(
                 labels,
@@ -375,37 +474,70 @@ class LiveStatsTabMixin:
                     chest_stats.total_opened_is_minimum,
                 ),
             )
-    def _build_live_stats_tab(self):
-        self.tab_player_stats = QWidget()
-        player_layout = QVBoxLayout(self.tab_player_stats)
+
+    # -- construction -----------------------------------------------------
+
+    def build(self):
+        """Create this tab's widgets and add it to the parent tab bar.
+
+        Was `_build_live_stats_tab` on the mixin, called from
+        `gui_layout._build_layout`. Same body, same order, same position in the
+        tab bar -- the widgets it assigns are this object's now rather than
+        `MegabonkApp`'s.
+        """
+        # `_build_chests_stats_card` and the four baseline helpers still live
+        # in `gui_layout`, which imports this package. Deferred to the method
+        # body so the cycle `gui_layout -> ui.tabs.player_stats -> live_stats
+        # -> gui_layout` does not exist at import time. Step 19 already shipped
+        # that cycle once: it was invisible to the suite *and* to
+        # `test_import_direction`, because both analyse ASTs rather than
+        # importing. The cycle exists because the compare panel is built in
+        # `gui_layout` at all, which step 21 moves.
+        from gui_layout import (
+            LIVE_STATS_CARD_COLUMNS,
+            LIVE_STATS_VALUE_WIDTH,
+            _apply_player_stat_value_baseline,
+            _apply_powerups_card_baselines,
+            _apply_run_summary_baselines,
+            _apply_stage_summary_column_baseline,
+            _apply_summary_label_padding,
+            _build_chests_stats_card,
+            _retain_hidden_widget_size,
+        )
+
+        self._root = QWidget()
+        player_layout = QVBoxLayout(self._root)
         player_scroll, _player_content, player_content_layout = _make_scroll_section()
         player_layout.addWidget(player_scroll)
-        self.player_stats_status_label = QLabel("Waiting for game...")
-        player_content_layout.addWidget(self.player_stats_status_label)
+        self._status_label = QLabel("Waiting for game...")
+        player_content_layout.addWidget(self._status_label)
         # Step-18 pilot: the timeline strip is a component, not four more
         # attributes on the shared `self`. Its seven collaborators are named
         # here -- this is the composition root for it -- and it owns its Qt
-        # widgets privately. Constructed inline rather than behind a factory
-        # method so the pilot adds no new name to `MegabonkApp`'s MRO.
+        # widgets privately.
         def _select_snapshot(index: int) -> None:
-            self.player_stats_selected_snapshot_index = index
             # Pin, so the next refresh tick does not repaint live values over
             # the snapshot the user just scrubbed to. Landing on the newest
             # snapshot un-pins instead: that is the affordance for "resume
             # following the run", and it means the pin can always be cleared
             # from the slider alone.
-            self.player_stats_snapshot_pinned = pin_for_selection(
-                index, len(self.player_stats_vod_snapshots)
+            #
+            # Both values are app-layer state rather than this tab's --
+            # `vod_capture` and `player_stats_refresh` write them too -- so
+            # they go back through a callback instead of being assigned here.
+            snapshots = self._vod_snapshots()
+            self._on_snapshot_selected(
+                index, pinned=pin_for_selection(index, len(snapshots))
             )
-            self.display_player_stats_snapshot(self.player_stats_vod_snapshots[index])
+            self.display_player_stats_snapshot(snapshots[index])
 
         self._recording_timeline = RecordingTimelineView(
-            recorder=lambda: self.player_stats_vod_recorder,
-            snapshots=lambda: self.player_stats_vod_snapshots,
-            selected_index=lambda: self.player_stats_selected_snapshot_index,
-            recording_armed=self._is_player_stats_recording_armed,
-            waiting_mode=lambda: getattr(self, "player_stats_recording_waiting_mode", None),
-            on_toggle_recording=self.toggle_player_stats_recording,
+            recorder=self._vod_recorder,
+            snapshots=self._vod_snapshots,
+            selected_index=self._selected_snapshot_index,
+            recording_armed=self._is_recording_armed,
+            waiting_mode=self._recording_waiting_mode,
+            on_toggle_recording=self._on_toggle_recording,
             on_snapshot_selected=_select_snapshot,
         )
         self._recording_timeline.install(player_content_layout)
@@ -428,7 +560,7 @@ class LiveStatsTabMixin:
         items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             items_sort_combo.addItem(label, mode)
-        self._live_items_section = ItemsSectionView(
+        self._items_section = ItemsSectionView(
             group=items_group,
             label=items_label,
             rarity_label=items_rarity_label,
@@ -436,7 +568,7 @@ class LiveStatsTabMixin:
             sort_combo=items_sort_combo,
         )
         items_sort_combo.currentIndexChanged.connect(
-            lambda _index: self._live_items_section.on_sort_changed()
+            lambda _index: self._items_section.on_sort_changed()
         )
         items_actions.addWidget(items_toggle_btn, 0, Qt.AlignLeft)
         items_actions.addWidget(items_rarity_label, 0, Qt.AlignLeft)
@@ -451,29 +583,29 @@ class LiveStatsTabMixin:
         live_summary_grid.setVerticalSpacing(8)
         chest_rate_group = QGroupBox("Run Summary")
         chest_rate_layout = QVBoxLayout(chest_rate_group)
-        self.player_stats_chests_per_minute_label = QLabel("Average chests/min: --")
-        chest_rate_layout.addWidget(self.player_stats_chests_per_minute_label)
-        self.player_stats_in_game_time_label = QLabel("In-Game Time: --")
-        chest_rate_layout.addWidget(self.player_stats_in_game_time_label)
-        self.player_stats_mob_kills_label = QLabel("Mob Kills: --")
-        chest_rate_layout.addWidget(self.player_stats_mob_kills_label)
-        self.player_stats_kps_averages_label = QLabel("KPS: --")
-        chest_rate_layout.addWidget(self.player_stats_kps_averages_label)
-        self.player_stats_level_label = QLabel("Level: --")
-        chest_rate_layout.addWidget(self.player_stats_level_label)
+        self._chests_per_minute_label = QLabel("Average chests/min: --")
+        chest_rate_layout.addWidget(self._chests_per_minute_label)
+        self._in_game_time_label = QLabel("In-Game Time: --")
+        chest_rate_layout.addWidget(self._in_game_time_label)
+        self._mob_kills_label = QLabel("Mob Kills: --")
+        chest_rate_layout.addWidget(self._mob_kills_label)
+        self._kps_averages_label = QLabel("KPS: --")
+        chest_rate_layout.addWidget(self._kps_averages_label)
+        self._level_label = QLabel("Level: --")
+        chest_rate_layout.addWidget(self._level_label)
         _apply_summary_label_padding(
-            self.player_stats_chests_per_minute_label,
-            self.player_stats_in_game_time_label,
-            self.player_stats_mob_kills_label,
-            self.player_stats_kps_averages_label,
-            self.player_stats_level_label,
+            self._chests_per_minute_label,
+            self._in_game_time_label,
+            self._mob_kills_label,
+            self._kps_averages_label,
+            self._level_label,
         )
         _apply_run_summary_baselines(
-            self.player_stats_chests_per_minute_label,
-            self.player_stats_in_game_time_label,
-            self.player_stats_mob_kills_label,
-            self.player_stats_kps_averages_label,
-            self.player_stats_level_label,
+            self._chests_per_minute_label,
+            self._in_game_time_label,
+            self._mob_kills_label,
+            self._kps_averages_label,
+            self._level_label,
         )
         live_summary_grid.addWidget(chest_rate_group, 0, 0)
         live_stage_summary_group = QGroupBox("Stage Summary")
@@ -486,7 +618,7 @@ class LiveStatsTabMixin:
             label.setStyleSheet("font-weight: 700; color: #F3F4F6;")
             label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             live_stage_summary_layout.addWidget(label, 0, column)
-        self.player_stats_stage_summary_labels = []
+        self._stage_summary_labels = []
         for index in range(4):
             stage_label = QLabel(str(index + 1))
             time_label = QLabel("--")
@@ -501,7 +633,7 @@ class LiveStatsTabMixin:
             live_stage_summary_layout.addWidget(time_label, index + 1, 1)
             live_stage_summary_layout.addWidget(kills_label, index + 1, 2)
             live_stage_summary_layout.addWidget(items_label, index + 1, 3)
-            self.player_stats_stage_summary_labels.append(
+            self._stage_summary_labels.append(
                 {
                     "stage": stage_label,
                     "time": time_label,
@@ -511,35 +643,35 @@ class LiveStatsTabMixin:
             )
         _apply_stage_summary_column_baseline(
             live_stage_summary_layout,
-            self.player_stats_stage_summary_labels,
+            self._stage_summary_labels,
         )
         live_stage_summary_layout.setColumnStretch(0, 1)
         live_stage_summary_layout.setColumnStretch(1, 2)
         live_stage_summary_layout.setColumnStretch(2, 1)
         live_stage_summary_layout.setColumnStretch(3, 1)
         live_summary_grid.addWidget(live_stage_summary_group, 0, 1)
-        self.player_stats_powerups_group = QGroupBox("Powerups")
-        live_powerups_layout = QVBoxLayout(self.player_stats_powerups_group)
-        self.player_stats_live_powerup_labels = {}
+        self._powerups_group = QGroupBox("Powerups")
+        live_powerups_layout = QVBoxLayout(self._powerups_group)
+        self._powerup_labels = {}
         for effect_name in ("Rage", "Clock", "Shield", "Stonks"):
             label = QLabel(f"{effect_name}: --")
             _apply_summary_label_padding(label)
             live_powerups_layout.addWidget(label)
-            self.player_stats_live_powerup_labels[effect_name] = label
-        _apply_powerups_card_baselines(self.player_stats_live_powerup_labels)
-        live_summary_grid.addWidget(self.player_stats_powerups_group, 0, 2)
+            self._powerup_labels[effect_name] = label
+        _apply_powerups_card_baselines(self._powerup_labels)
+        live_summary_grid.addWidget(self._powerups_group, 0, 2)
         live_banishes_group = QGroupBox("Banishes")
         live_banishes_layout = QVBoxLayout(live_banishes_group)
-        self.player_stats_banishes_label = QLabel("No banishes yet")
-        self.player_stats_banishes_label.setTextFormat(Qt.RichText)
-        self.player_stats_banishes_label.setWordWrap(True)
-        _apply_summary_label_padding(self.player_stats_banishes_label)
-        live_banishes_layout.addWidget(self.player_stats_banishes_label)
+        self._banishes_label = QLabel("No banishes yet")
+        self._banishes_label.setTextFormat(Qt.RichText)
+        self._banishes_label.setWordWrap(True)
+        _apply_summary_label_padding(self._banishes_label)
+        live_banishes_layout.addWidget(self._banishes_label)
         live_summary_grid.addWidget(live_banishes_group, 0, 3)
         for column in range(4):
             live_summary_grid.setColumnStretch(column, 1)
         player_content_layout.addLayout(live_summary_grid)
-        self.player_stats_detail_tabs = QTabWidget()
+        self._detail_tabs = QTabWidget()
         player_stats_tab = QWidget()
         player_stats_tab_layout = QVBoxLayout(player_stats_tab)
         player_stats_scroll, _player_stats_scroll_content, player_stats_scroll_layout = _make_scroll_section()
@@ -560,7 +692,7 @@ class LiveStatsTabMixin:
                 value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
                 _apply_player_stat_value_baseline(value_label, spec.value_format)
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                self.player_stats_rows[spec.label] = value_label
+                self._stat_value_rows[spec.label] = value_label
                 group_layout.addRow(spec.label, value_label)
             player_stats_grid.addWidget(
                 stat_group,
@@ -568,7 +700,7 @@ class LiveStatsTabMixin:
                 index % LIVE_STATS_CARD_COLUMNS,
             )
         placeholder_index = len(PLAYER_STAT_GROUPS)
-        placeholder_group, self.player_stats_chests_card_values = _build_chests_stats_card()
+        placeholder_group, self._chests_card_values = _build_chests_stats_card()
         player_stats_grid.addWidget(
             placeholder_group,
             placeholder_index // LIVE_STATS_CARD_COLUMNS,
@@ -615,7 +747,7 @@ class LiveStatsTabMixin:
         # by composed name from `cards.py` behind guards that returned silently
         # on `None` -- the arrangement step 18 identified as the reason making
         # this tab's widgets private could break four panels without raising.
-        self._live_stat_cards = StatCardsView(
+        self._stat_cards = StatCardsView(
             weapons_layout=player_weapons_scroll_layout,
             weapons_status_label=weapons_status_label,
             tomes_layout=player_tomes_scroll_layout,
@@ -625,22 +757,24 @@ class LiveStatsTabMixin:
             damage_sources_layout=player_damage_sources_scroll_layout,
             damage_sources_status_label=damage_sources_status_label,
         )
-        self.player_stats_detail_tabs.addTab(player_stats_tab, "Stats")
-        self.player_stats_detail_tabs.addTab(weapons_tab, "Weapons")
-        self.player_stats_detail_tabs.addTab(tomes_tab, "Tomes")
-        self.player_stats_detail_tabs.addTab(chaos_tab, "Chaos")
-        self.player_stats_detail_tabs.addTab(damage_sources_tab, "Damage Sources")
-        player_content_layout.addWidget(self.player_stats_detail_tabs)
+        self._detail_tabs.addTab(player_stats_tab, "Stats")
+        self._detail_tabs.addTab(weapons_tab, "Weapons")
+        self._detail_tabs.addTab(tomes_tab, "Tomes")
+        self._detail_tabs.addTab(chaos_tab, "Chaos")
+        self._detail_tabs.addTab(damage_sources_tab, "Damage Sources")
+        player_content_layout.addWidget(self._detail_tabs)
         player_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
         weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
         tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
         chaos_tab_layout.setContentsMargins(0, 0, 0, 0)
         damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
-        self.tabview.addTab(self.tab_player_stats, "Live Stats")
+        self._tabview.addTab(self._root, "Live Stats")
+        return self
 
     def format_live_powerups(self, stats) -> str:
-        formatter = getattr(self.live_run_tracker, "format_powerups_summary", None)
-        snapshot_reader = getattr(self.live_run_tracker, "powerups_snapshot", None)
+        tracker = self._live_run_tracker()
+        formatter = getattr(tracker, "format_powerups_summary", None)
+        snapshot_reader = getattr(tracker, "powerups_snapshot", None)
         if callable(formatter) and callable(snapshot_reader):
             try:
                 if getattr(snapshot_reader(), "available", False) is True:

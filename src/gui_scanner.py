@@ -9,6 +9,7 @@ from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app import config
+from app.player_stats_view import player_stats_view
 from ui.update_prompt import start_update_check
 from infra.memory.game_data_client import GameDataClient
 from ui.shared import _apply_button_icon, _clear_layout, _make_scroll_section, _set_text
@@ -102,7 +103,7 @@ class ScannerMixin:
                 self.stats_rpm_label.setText(f"Rerolls per Minute (RPM): {rpm:.1f}")
 
         if self.player_stats_vod_recorder.is_recording:
-            self.refresh_player_stats_timeline_ui(update_slider=False)
+            player_stats_view(self).refresh_player_stats_timeline_ui(update_slider=False)
 
         self._flush_total_rerolls()
 

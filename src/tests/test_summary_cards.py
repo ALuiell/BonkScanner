@@ -121,32 +121,30 @@ class StageSummaryPortTests(unittest.TestCase):
     """
 
     def test_the_port_operation_writes_the_tabs_own_labels(self) -> None:
-        from types import SimpleNamespace
-
-        from ui.tabs.player_stats.live_stats import LiveStatsTabMixin
+        from tests.support.player_stats import build_live_stats_tab
 
         labels = gridded_labels(2)
-        owner = SimpleNamespace(player_stats_stage_summary_labels=labels)
+        view = build_live_stats_tab()
+        view._stage_summary_labels = labels
         rows = [
             {"label": "Stage 1", "kills": "120", "time": "01:00", "items": "3"},
             {"label": "Stage 2", "kills": "240", "time": "02:00", "items": "5"},
         ]
 
-        LiveStatsTabMixin.set_stage_summary_rows(owner, rows)
+        view.set_stage_summary_rows(rows)
 
         self.assertEqual(labels[0]["kills"].text(), "120")
         self.assertEqual(labels[1]["time"].text(), "02:00")
 
     def test_the_port_operation_resets_to_dashes_with_no_rows(self) -> None:
-        from types import SimpleNamespace
-
-        from ui.tabs.player_stats.live_stats import LiveStatsTabMixin
+        from tests.support.player_stats import build_live_stats_tab
 
         labels = gridded_labels(1)
         labels[0]["kills"].setText("stale")
-        owner = SimpleNamespace(player_stats_stage_summary_labels=labels)
+        view = build_live_stats_tab()
+        view._stage_summary_labels = labels
 
-        LiveStatsTabMixin.set_stage_summary_rows(owner, None)
+        view.set_stage_summary_rows(None)
 
         self.assertEqual(labels[0]["kills"].text(), "--")
 

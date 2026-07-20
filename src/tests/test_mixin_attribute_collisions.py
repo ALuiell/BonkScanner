@@ -65,11 +65,14 @@ PRE_EXISTING_COLLISIONS: dict[str, str] = {
     "player_stats_disabled_items_refresh_pending": "same cache, same pair",
     "player_stats_game_data_client": "client handle, memory + refresh; step 20",
     "player_stats_selected_snapshot_index": (
-        "the timeline selection: written by the tab, the refresh tick and "
-        "vod_capture. Step 18's scrubbing fix added the pin precisely because "
-        "nothing arbitrated between those three writers."
+        "the timeline selection, written by the refresh tick and vod_capture. "
+        "Was three writers until step 19: the Live Stats tab was the third, "
+        "and now reports selections back through a callback instead of "
+        "assigning the shared name. Step 20 owns the remaining pair."
     ),
-    "player_stats_snapshot_pinned": "the pin itself, tab + vod_capture; step 20",
+    # `player_stats_snapshot_pinned` was here until step 19. `LiveStatsTab`
+    # leaving the MRO left `vod_capture` as its only mixin writer, so the
+    # staleness test below deleted it -- which is the register working.
     "compare_runs_list_signature": (
         "recordings-list cache: the Recordings tab's background metadata "
         "refresh invalidates the Compare Runs list too, because both read one "
@@ -112,8 +115,9 @@ def _class_defs() -> dict[str, ast.ClassDef]:
 def _self_assignments(class_def: ast.ClassDef) -> set[str]:
     """Every `self.NAME = ...` a class performs, at any nesting depth.
 
-    Includes assignments inside nested closures, because `_build_live_stats_tab`
-    defines one and it writes `self.player_stats_selected_snapshot_index`.
+    Includes assignments inside nested closures, because
+    `RecordingsTabMixin._ensure_vod_metadata_refresh` defines one and it writes
+    `self.vods_list_signature` from a worker thread.
     """
     names: set[str] = set()
     for node in ast.walk(class_def):
@@ -175,21 +179,32 @@ class MixinAttributeCollisionTests(unittest.TestCase):
     def test_the_two_tabs_own_their_components_separately(self) -> None:
         """The specific regression, pinned by name.
 
-        The structural check above would catch it again, but this one names it,
-        so a future reader sees what the general rule is protecting.
+        Step 19 removed one half of it structurally: `LiveStatsTab` is not a
+        base of `MegabonkApp` any more, so its `_stat_cards` and
+        `_items_section` are on its own object and *cannot* collide with the
+        Recordings tab's. That is the fix the underscore was mistaken for.
+
+        `RecordingsTabMixin` is still a mixin, so its two handles still have to
+        be prefixed, and no mixin may introduce the un-prefixed names while it
+        is. Step 21/26 retires the last of this.
         """
         assignments = _assignments_by_mixin()
-        live = assignments["LiveStatsTabMixin"]
-        vod = assignments["RecordingsTabMixin"]
 
-        self.assertIn("_live_stat_cards", live)
-        self.assertIn("_live_items_section", live)
+        self.assertNotIn(
+            "LiveStatsTabMixin",
+            assignments,
+            "the Live Stats mixin is back in MegabonkApp's bases",
+        )
+        vod = assignments["RecordingsTabMixin"]
         self.assertIn("_vod_stat_cards", vod)
         self.assertIn("_vod_items_section", vod)
+
+        everywhere = set().union(*assignments.values())
         self.assertEqual(
-            {"_stat_cards", "_items_section"} & (live | vod),
+            {"_stat_cards", "_items_section"} & everywhere,
             set(),
-            "the un-prefixed handles are back; they collide across the two tabs",
+            "the un-prefixed handles are on a mixin again; on the shared "
+            "object they collide with whatever else claims them",
         )
 
     def test_the_scan_actually_reads_the_mixins(self) -> None:
@@ -204,8 +219,8 @@ class MixinAttributeCollisionTests(unittest.TestCase):
         # A name assigned inside a nested closure must be seen, or the walk is
         # shallower than the code it checks.
         self.assertIn(
-            "player_stats_snapshot_pinned",
-            assignments["LiveStatsTabMixin"],
+            "vods_list_signature",
+            assignments["RecordingsTabMixin"],
             "assignments inside nested functions are being missed",
         )
 

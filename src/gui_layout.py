@@ -186,7 +186,7 @@ class GuiLayoutMixin:
         right_layout = self._build_right_panel(splitter)
         self._build_logs_tab()
         self._build_session_stats_tab()
-        self._build_live_stats_tab()
+        self._player_stats_view = _build_live_stats_view(self)
         self._build_recordings_tab()
         self._build_compare_runs_tab()
         self._build_overlay_tab()
@@ -640,3 +640,43 @@ class GuiLayoutMixin:
             self.refresh_vods_list()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
+
+
+def _build_live_stats_view(app):
+    """Construct the Live Stats tab and name its ten collaborators.
+
+    The composition root for `LiveStatsTab`, kept at the exact point in
+    `_build_layout` where `_build_live_stats_tab()` used to be called so the
+    tab keeps its position in the tab bar.
+
+    Every argument is a supplier rather than a value, for the reason
+    `RecordingTimelineView` records: `live_run_tracker` is assigned by
+    `initialize_overlay_runtime` after `__init__` starts, `vod_capture`
+    reassigns the snapshot list, and `player_stats_refresh` moves the selected
+    index. A component holding the value would go stale exactly where the
+    mixin reading `self` did not.
+
+    Imported inside the function body: `live_stats` imports this module for its
+    layout helpers, so a module-scope import here is the cycle step 19 already
+    shipped once -- invisible to the suite and to `test_import_direction`,
+    because both analyse ASTs rather than importing.
+    """
+    from ui.tabs.player_stats import LiveStatsTab
+
+    def _select_snapshot(index, *, pinned):
+        app.player_stats_selected_snapshot_index = index
+        app.player_stats_snapshot_pinned = pinned
+
+    view = LiveStatsTab(
+        tabview=app.tabview,
+        live_run_tracker=lambda: app.live_run_tracker,
+        vod_recorder=lambda: app.player_stats_vod_recorder,
+        vod_snapshots=lambda: app.player_stats_vod_snapshots,
+        selected_snapshot_index=lambda: app.player_stats_selected_snapshot_index,
+        recording_waiting_mode=lambda: getattr(app, "player_stats_recording_waiting_mode", None),
+        ensure_live_snapshot_store=app._ensure_live_snapshot_store,
+        is_recording_armed=app._is_player_stats_recording_armed,
+        on_toggle_recording=app.toggle_player_stats_recording,
+        on_snapshot_selected=_select_snapshot,
+    )
+    return view.build()
