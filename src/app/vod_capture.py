@@ -339,6 +339,29 @@ class VodCaptureMixin:
             return True
         return bool(stats)
 
+    def note_run_not_in_game(self) -> None:
+        """The run is not IN_GAME this tick, so the auto-start streak restarts.
+
+        Was `app/player_stats_refresh.py` assigning
+        `self.player_stats_auto_start_detection_streak = 0` directly. That
+        counter is this module's -- every other read and write of it is here,
+        and `_maybe_auto_start_player_stats_recording` is the only thing that
+        interprets it -- so the refresh tick was reaching across a boundary to
+        reset another feature's state.
+
+        Worth noting what the headline metric says about this change: it says
+        it made things *worse*. `arch_metrics` scores a write as "owned" and a
+        method call as a hidden read, so trading the assignment for this call
+        moves `app/player_stats_refresh.py` from 10 to 11. That is the same
+        blind spot `test_mixin_attribute_collisions.py` was written for --
+        "a collision looks like good hygiene to that metric, because the file
+        that reads them also assigns them". Writing another service's state is
+        strictly worse than calling its method, and the cluster scan
+        (`tools/step20_metrics.py --clusters`) is the measure that says so:
+        unowned state 2 -> 1.
+        """
+        self.player_stats_auto_start_detection_streak = 0
+
     def _maybe_auto_start_player_stats_recording(
         self,
         *,

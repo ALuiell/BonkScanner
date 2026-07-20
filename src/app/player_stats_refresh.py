@@ -348,7 +348,7 @@ class PlayerStatsRefreshMixin:
                 stage_index=runtime_state.current_stage_index,
             )
         else:
-            self.player_stats_auto_start_detection_streak = 0
+            self.note_run_not_in_game()
 
         can_capture_recording = (
             self.player_stats_vod_recorder.is_recording

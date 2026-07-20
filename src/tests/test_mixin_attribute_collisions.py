@@ -64,7 +64,11 @@ PRE_EXISTING_COLLISIONS: dict[str, str] = {
     # written by `player_stats_refresh` and `vod_capture` and read by
     # `refresh_tasks` as well -- so the staleness test below deleted it.
     # That is the register working, and the debt it named being paid.
-    "player_stats_auto_start_detection_streak": "recording lifecycle; step 20",
+    # `player_stats_auto_start_detection_streak` was here until step 20.
+    # The refresh tick reset it directly; it calls
+    # `VodCaptureMixin.note_run_not_in_game()` now, so vod_capture is the
+    # only writer and the staleness test deleted the entry. Third
+    # consecutive step in which this register has shrunk on its own.
     "player_stats_disabled_items_cache": "memory cache also written by Twitch",
     "player_stats_disabled_items_refresh_pending": "same cache, same pair",
     "player_stats_game_data_client": "client handle, memory + refresh; step 20",
