@@ -14,7 +14,6 @@ from app.version import CURRENT_VERSION
 from app.player_stats_memory import PlayerStatsMemoryMixin
 from app.player_stats_refresh import PlayerStatsRefreshMixin
 from app.refresh_tasks import RefreshTasksMixin
-from app.snapshot_store import LiveSnapshotStoreMixin
 from app.vod_capture import VodCaptureMixin
 from ui.tabs.compare_runs import CompareRunsMixin
 from ui.tabs.player_stats import RecordingsTabMixin
@@ -43,7 +42,6 @@ class MegabonkApp(
     PlayerStatsMemoryMixin,
     CompareRunsMixin,
     RecordingsTabMixin,
-    LiveSnapshotStoreMixin,
     ScannerMixin,
     TwitchBotMixin,
 ):

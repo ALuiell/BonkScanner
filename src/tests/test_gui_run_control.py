@@ -28,6 +28,7 @@ import gui_templates
 import infra.process as infra_process
 import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
+from app.snapshot_store import live_snapshot_store
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
 from ui.tabs.player_stats.live_stats import LiveStatsTab
 from tests.support.player_stats import (
@@ -689,7 +690,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_rows = {}
         app.player_stats_items_label = FakeLabel()
         app.player_stats_banishes_label = FakeLabel()
-        app.player_stats_live_banishes = ()
+        live_snapshot_store(app).live_banishes = ()
         app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
         app.player_stats_powerups_duration_label = FakeLabel()
@@ -3514,7 +3515,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_rows = {"Damage": stat_label}
         app.player_stats_items_label = FakeLabel()
         app.player_stats_banishes_label = FakeLabel()
-        app.player_stats_live_banishes = ()
+        live_snapshot_store(app).live_banishes = ()
         app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
         app.player_stats_powerups_duration_label = FakeLabel()
@@ -3767,8 +3768,8 @@ class GuiRunControlTests(unittest.TestCase):
         app = object.__new__(MegabonkApp)
         closed: list[str] = []
         app.player_stats_client = SimpleNamespace(close=lambda: closed.append("closed"))
-        app.player_stats_last_seed = 1
-        app.player_stats_last_run_timer = 2.0
+        live_snapshot_store(app).last_seed = 1
+        live_snapshot_store(app).last_run_timer = 2.0
         app.live_run_tracker = SimpleNamespace(
             mark_feature_failed=lambda *_args: (_ for _ in ()).throw(
                 RuntimeError("feature-state update failed")
@@ -4301,14 +4302,14 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
-        app.player_stats_last_known_items = ("Wrench x2", "Clover x1")
+        live_snapshot_store(app).last_known_items = ("Wrench x2", "Clover x1")
         weapon = SimpleNamespace(weapon_id=1, name="Bone")
         tome = SimpleNamespace(tome_id=0, name="Damage")
         damage = SimpleNamespace(source_key="Bone", source_name="Bone", damage=123.0)
-        app.player_stats_last_known_weapons = (weapon,)
-        app.player_stats_last_known_tomes = (tome,)
-        app.player_stats_last_known_damage_sources = (damage,)
-        app.player_stats_last_known_banishes = ("Clover",)
+        live_snapshot_store(app).last_known_weapons = (weapon,)
+        live_snapshot_store(app).last_known_tomes = (tome,)
+        live_snapshot_store(app).last_known_damage_sources = (damage,)
+        live_snapshot_store(app).last_known_banishes = ("Clover",)
         app._is_live_stats_tab_active = lambda: False
         app.read_player_stats_only = lambda: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
@@ -4349,7 +4350,7 @@ class GuiRunControlTests(unittest.TestCase):
         app = self.build_recording_app()
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)
         app.player_stats_vod_snapshots = []
-        app.player_stats_last_known_items = ("Wrench x2", "Clover x1")
+        live_snapshot_store(app).last_known_items = ("Wrench x2", "Clover x1")
         app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
         app.read_passive_items_only = lambda owner_stats=None: ()
 
@@ -4360,13 +4361,13 @@ class GuiRunControlTests(unittest.TestCase):
             app.player_stats_vod_recorder.capture_calls[0]["items"],
             ("Wrench x2", "Clover x1"),
         )
-        self.assertEqual(app.player_stats_last_known_items, ("Wrench x2", "Clover x1"))
+        self.assertEqual(live_snapshot_store(app).last_known_items, ("Wrench x2", "Clover x1"))
 
     def test_read_live_player_stats_data_accepts_empty_inventory_at_new_match_start(self) -> None:
         app = self.build_recording_app()
-        app.player_stats_last_known_items = ("Wrench x2",)
-        app.player_stats_last_seed = 123
-        app.player_stats_last_run_timer = 45.0
+        live_snapshot_store(app).last_known_items = ("Wrench x2",)
+        live_snapshot_store(app).last_seed = 123
+        live_snapshot_store(app).last_run_timer = 45.0
         app.read_passive_items_only = lambda owner_stats=None: ()
         app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
         app._get_player_stats_client = lambda: SimpleNamespace(
@@ -4380,7 +4381,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(result[1], ())
         self.assertTrue(result[2])
-        self.assertEqual(app.player_stats_last_known_items, None)
+        self.assertEqual(live_snapshot_store(app).last_known_items, None)
 
     def test_stop_player_stats_recording_refreshes_live_stats_without_items(self) -> None:
         app = object.__new__(MegabonkApp)
@@ -4396,7 +4397,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_rows = {"Damage": stat_label}
         app.player_stats_items_label = FakeLabel()
         app.player_stats_banishes_label = FakeLabel()
-        app.player_stats_live_banishes = ()
+        live_snapshot_store(app).live_banishes = ()
         app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
         app.player_stats_mob_kills_label = FakeLabel()
@@ -5551,7 +5552,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_rows = {}
         app.player_stats_items_label = FakeLabel()
         app.player_stats_banishes_label = FakeLabel()
-        app.player_stats_live_banishes = ()
+        live_snapshot_store(app).live_banishes = ()
         app.player_stats_in_game_time_label = FakeLabel()
         app.player_stats_chests_per_minute_label = FakeLabel()
         app.player_stats_mob_kills_label = FakeLabel()
@@ -6050,9 +6051,16 @@ class GuiRunControlTests(unittest.TestCase):
         guarantee in the other direction -- if either came back as an app
         attribute, the mixin would be back with it.
         """
-        self.assertEqual(
-            MegabonkApp._ensure_live_snapshot_store.__module__, "app.snapshot_store"
+        # Step 20 retired `LiveSnapshotStoreMixin`, so the guarantee inverts the
+        # same way the Live Stats one did at step 19: assert the accessor is
+        # *absent* from the app and resolves as a module-level function. If it
+        # came back as an app attribute, the mixin would be back with it.
+        self.assertFalse(
+            hasattr(MegabonkApp, "_ensure_live_snapshot_store"),
+            "_ensure_live_snapshot_store is on MegabonkApp again; "
+            "app.snapshot_store.live_snapshot_store replaced it",
         )
+        self.assertEqual(live_snapshot_store.__module__, "app.snapshot_store")
         for name in ("format_live_powerups", "format_live_powerups_card"):
             self.assertFalse(
                 hasattr(MegabonkApp, name),
@@ -6064,10 +6072,24 @@ class GuiRunControlTests(unittest.TestCase):
                 name,
             )
 
-        # the snapshot-store compat properties survived the move as properties
-        self.assertIsInstance(
-            MegabonkApp.player_stats_last_known_items, property
-        )
+        # The eight snapshot-store compat properties are gone, not relocated.
+        # They had zero production readers -- only the suite poked them -- so
+        # they were a compatibility surface for test doubles rather than a
+        # layer, and the tests that used them now hold the store itself.
+        for name in (
+            "player_stats_last_known_items",
+            "player_stats_last_known_weapons",
+            "player_stats_last_known_tomes",
+            "player_stats_last_known_damage_sources",
+            "player_stats_last_known_banishes",
+            "player_stats_live_banishes",
+            "player_stats_last_seed",
+            "player_stats_last_run_timer",
+        ):
+            self.assertFalse(
+                hasattr(MegabonkApp, name),
+                f"{name} is back on MegabonkApp; it belongs to LiveSnapshotStore",
+            )
 
     def test_player_stats_view_defaults_to_the_app_itself(self) -> None:
         """The default view must be the app object, or step 14c's inversion would

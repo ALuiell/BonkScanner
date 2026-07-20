@@ -119,7 +119,8 @@ def build_refresh_app(*, snapshots, selected, pinned, should_capture=False):
     # "was this test asserting a fiction?" rule applies to exactly this kind
     # of collaborator.
     store = LiveSnapshotStore()
-    app._ensure_live_snapshot_store = lambda: store
+    # No coordinator on an app double, so this is where the resolver looks.
+    app._live_snapshot_store = store
     app.log = lambda *a, **k: None
     app.overlay_state_store = None
     return app

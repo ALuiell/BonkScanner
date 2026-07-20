@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
+from app.snapshot_store import live_snapshot_store
 from core.stats.formats import PlayerStatFormat
 from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
@@ -674,7 +675,7 @@ def _build_live_stats_view(app):
         vod_snapshots=lambda: app.player_stats_vod_snapshots,
         selected_snapshot_index=lambda: app.player_stats_selected_snapshot_index,
         recording_waiting_mode=lambda: getattr(app, "player_stats_recording_waiting_mode", None),
-        ensure_live_snapshot_store=app._ensure_live_snapshot_store,
+        ensure_live_snapshot_store=lambda: live_snapshot_store(app),
         is_recording_armed=app._is_player_stats_recording_armed,
         on_toggle_recording=app.toggle_player_stats_recording,
         on_snapshot_selected=_select_snapshot,

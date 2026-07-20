@@ -123,7 +123,6 @@ MRO_MODULES = {
     "PlayerStatsMemoryMixin": "app.player_stats_memory",
     "CompareRunsMixin": "ui.tabs.compare_runs",
     "RecordingsTabMixin": "ui.tabs.player_stats",
-    "LiveSnapshotStoreMixin": "app.snapshot_store",
     "ScannerMixin": "gui_scanner",
     "TwitchBotMixin": "gui_twitch",
 }

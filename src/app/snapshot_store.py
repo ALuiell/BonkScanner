@@ -22,6 +22,13 @@ changed the *reset* path to ``None``) and changes first-read behaviour if
 
 Qt-free and I/O-free: no widget reads, no memory client calls. Callers pass
 in whatever they already read and get back the effective value to display.
+
+**Step 20 removed the owner-side mixin.** ``LiveSnapshotStoreMixin`` was the
+first of the five app-side MRO bases to go, and the cheapest, because the
+store was already a constructed object -- the mixin held only an accessor and
+eight compatibility properties over fields the store already exposes. See
+``live_snapshot_store`` below for what replaced the accessor and why the
+properties were deleted rather than moved.
 """
 from __future__ import annotations
 
@@ -201,92 +208,41 @@ class LiveSnapshotStore:
         return MergedBanishes(banishes=banishes, available=banishes_available)
 
 
-class LiveSnapshotStoreMixin:
-    """Owner-side access to the LiveSnapshotStore.
+def live_snapshot_store(owner) -> LiveSnapshotStore:
+    """Resolve the store an owner should merge into.
 
-    Was PlayerStatsMixin until step 15 dissolved it. The properties are a
-    compatibility surface, not the production path: production code calls
-    _ensure_live_snapshot_store() and uses the store's own methods. They
-    exist so external pokes -- the suite, and any object.__new__()-built app
-    double that never runs __init__ -- keep working unchanged.
+    Step 20 retired ``LiveSnapshotStoreMixin``, which held this as a method
+    plus eight read/write properties over the store's own fields. The
+    properties had **zero production readers** -- only the suite poked them --
+    so they were a compatibility surface for test doubles, not a layer, and
+    removing them retires that surface rather than relocating it. The tests
+    that used them now hold the store itself, which is the thing they were
+    always talking about.
+
+    A module-level function taking the owner explicitly, matching
+    ``record_player_stats_memory_success``/``_failure`` in
+    ``app/refresh_tasks.py`` and ``player_stats_snapshot_is_pinned`` in
+    ``app/player_stats_refresh.py``: this module already established that a
+    helper with callers in other modules is a function, because a mixin method
+    reachable only through the shared ``self`` scores as a hidden cross-mixin
+    read the moment its caller lives in a different file.
+
+    This is deliberately still an owner-taking resolver rather than a
+    constructor argument. The services that will hold the store outright do not
+    exist yet; the later step-20 commits that build them take it from
+    ``AppCoordinator`` and this function loses its last caller then.
     """
-    def _ensure_live_snapshot_store(self) -> LiveSnapshotStore:
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            return coordinator.snapshot_store
-        # No coordinator means an app double built without __init__. Constructing
-        # one here would bind an overlay HTTP port, so those keep a bare store.
-        store = self.__dict__.get("_live_snapshot_store")
-        if store is None:
-            store = LiveSnapshotStore()
-            self.__dict__["_live_snapshot_store"] = store
-        return store
-
-    # Backward-compatible attribute access over LiveSnapshotStore's fields.
-    # Production code should call _ensure_live_snapshot_store() and use its
-    # methods directly; these properties exist so external pokes (tests, and
-    # any object.__new__()-built app double that never runs __init__) keep
-    # working unchanged.
-    @property
-    def player_stats_last_known_items(self):
-        return self._ensure_live_snapshot_store().last_known_items
-
-    @player_stats_last_known_items.setter
-    def player_stats_last_known_items(self, value) -> None:
-        self._ensure_live_snapshot_store().last_known_items = value
-
-    @property
-    def player_stats_last_known_weapons(self):
-        return self._ensure_live_snapshot_store().last_known_weapons
-
-    @player_stats_last_known_weapons.setter
-    def player_stats_last_known_weapons(self, value) -> None:
-        self._ensure_live_snapshot_store().last_known_weapons = value
-
-    @property
-    def player_stats_last_known_tomes(self):
-        return self._ensure_live_snapshot_store().last_known_tomes
-
-    @player_stats_last_known_tomes.setter
-    def player_stats_last_known_tomes(self, value) -> None:
-        self._ensure_live_snapshot_store().last_known_tomes = value
-
-    @property
-    def player_stats_last_known_damage_sources(self):
-        return self._ensure_live_snapshot_store().last_known_damage_sources
-
-    @player_stats_last_known_damage_sources.setter
-    def player_stats_last_known_damage_sources(self, value) -> None:
-        self._ensure_live_snapshot_store().last_known_damage_sources = value
-
-    @property
-    def player_stats_last_known_banishes(self):
-        return self._ensure_live_snapshot_store().last_known_banishes
-
-    @player_stats_last_known_banishes.setter
-    def player_stats_last_known_banishes(self, value) -> None:
-        self._ensure_live_snapshot_store().last_known_banishes = value
-
-    @property
-    def player_stats_live_banishes(self):
-        return self._ensure_live_snapshot_store().live_banishes
-
-    @player_stats_live_banishes.setter
-    def player_stats_live_banishes(self, value) -> None:
-        self._ensure_live_snapshot_store().live_banishes = value
-
-    @property
-    def player_stats_last_seed(self):
-        return self._ensure_live_snapshot_store().last_seed
-
-    @player_stats_last_seed.setter
-    def player_stats_last_seed(self, value) -> None:
-        self._ensure_live_snapshot_store().last_seed = value
-
-    @property
-    def player_stats_last_run_timer(self):
-        return self._ensure_live_snapshot_store().last_run_timer
-
-    @player_stats_last_run_timer.setter
-    def player_stats_last_run_timer(self, value) -> None:
-        self._ensure_live_snapshot_store().last_run_timer = value
+    # `__dict__`, not `getattr`: `MegabonkApp.__getattr__` forwards unknown
+    # names to its `window`, so a `getattr` here would consult the widget for a
+    # `coordinator` before deciding there is none. The mixin read `__dict__`
+    # for that reason and this keeps it.
+    coordinator = owner.__dict__.get("coordinator")
+    if coordinator is not None:
+        return coordinator.snapshot_store
+    # No coordinator means an app double built without __init__. Constructing
+    # one here would bind an overlay HTTP port, so those keep a bare store.
+    store = owner.__dict__.get("_live_snapshot_store")
+    if store is None:
+        store = LiveSnapshotStore()
+        owner.__dict__["_live_snapshot_store"] = store
+    return store

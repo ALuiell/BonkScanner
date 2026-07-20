@@ -33,6 +33,7 @@ from app.player_stats_view import (
     player_stats_view,
     recordings_list_view,
 )
+from app.snapshot_store import live_snapshot_store
 from app.refresh_tasks import (
     ensure_refresh_coordinator,
     overlay_widget_refresh_active,
@@ -181,7 +182,7 @@ class PlayerStatsRefreshMixin:
 
         chests_per_minute = formatting.calculate_player_chests_per_minute(stats)
         items_text = None if items_available else "Items unavailable"
-        snapshot_store = self._ensure_live_snapshot_store()
+        snapshot_store = live_snapshot_store(self)
 
         merged_items = snapshot_store.merge_items(items, items_available)
         effective_items = merged_items.effective

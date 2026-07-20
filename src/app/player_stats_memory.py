@@ -25,6 +25,7 @@ from app.refresh_tasks import (
     record_player_stats_memory_failure,
     record_player_stats_memory_success,
 )
+from app.snapshot_store import live_snapshot_store
 from core.stats.types import DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot
 from infra.memory.game_data_client import GameDataClient
 from infra.memory.player_stats_client import PlayerStatsClient
@@ -161,7 +162,7 @@ class PlayerStatsMemoryMixin:
             stage_ptr = 0
 
         # 3. Detect match start
-        snapshot_store = self._ensure_live_snapshot_store()
+        snapshot_store = live_snapshot_store(self)
         is_new_match = snapshot_store.is_new_match(map_seed=map_seed, run_timer_seconds=run_timer_seconds)
 
         if is_new_match:
@@ -367,7 +368,7 @@ class PlayerStatsMemoryMixin:
             except Exception:
                 pass
             self.player_stats_client = None
-        self._ensure_live_snapshot_store().reset_match_metadata()
+        live_snapshot_store(self).reset_match_metadata()
         self._player_stats_memory_error_streak = 0
 
     def close_player_stats_game_data_client(self):
