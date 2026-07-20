@@ -1,6 +1,6 @@
 # Functional Updates
 
-Date: 2026-06-04
+Date: 2026-07-20
 
 This file tracks open and partially completed functional/runtime work that does not fit cleanly into UI-only or performance-only buckets.
 
@@ -169,6 +169,52 @@ Open product decision:
   - the current run only;
   - the whole app session;
   - or both, with one of them clearly marked as the default/stat-friendly view.
+
+#### 5. Free-Chest Loot Tracking and `!chestloot`
+
+Status: `[Open]`
+
+Goal:
+
+- Add a Twitch command (working name: `!chestloot`) and a future in-game overlay
+  widget that compare the expected and actually received Epic/Legendary loot
+  from free chests dropped by enemies.
+- Keep this separate from the existing `!chests` / key-proc statistics: those
+  counters describe paid/key chest opens and cannot be treated as the source of
+  enemy-dropped chest rewards.
+
+Required investigation and implementation work:
+
+- Find and validate a memory-backed source that reliably signals a *free* chest
+  opening after it happens; identify its update timing, reset behavior, and
+  whether it can distinguish a free chest from paid, key-proc, reward, or other
+  chest-like interactions.
+- Record every detected chest-open event with its classified source, at minimum
+  `free` versus `paid/key`, so later loot accounting never has to infer the
+  source from aggregate counters alone.
+- When an item is gained, retain the item event together with its attributed
+  source. Attribute it to a chest only when a validated chest-open event and
+  the item gain can be matched; leave ambiguous gains explicitly unclassified
+  instead of counting them as chest loot.
+- Preserve the item's canonical rarity with the attributed event, allowing
+  actual Epic and Legendary counts to be calculated from confirmed free-chest
+  rewards.
+- Capture the Luck-derived rarity probabilities at each confirmed free-chest
+  open. Calculate expected Epic/Legendary counts as the sum of those per-open
+  probabilities, rather than applying the current Luck value retrospectively
+  to all opened chests.
+- Define reset and stage-transition behavior, and ensure the command, any
+  overlay widget, recordings, and later summaries consume the same event
+  ledger.
+
+Validation requirements:
+
+- Produce controlled captures covering a free chest, a paid chest, a key-proc
+  chest, and an item gain unrelated to a chest.
+- Verify that each capture produces the correct source classification and that
+  ambiguous timing does not inflate actual free-chest loot counts.
+- Do not ship expected-versus-actual rarity output until the free-chest signal
+  and item-source attribution are validated in live runs.
 
 ### In-Game Overlay
 
