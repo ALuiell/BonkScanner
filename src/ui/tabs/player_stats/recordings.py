@@ -274,8 +274,8 @@ class RecordingsTabMixin:
             for label in self.vods_rows.values():
                 _set_text(label, "--")
             _set_text(self.vods_slider_time_label, "Timeline: --")
-            self._items_section.collapse()
-            self._items_section.update((), items_text="--")
+            self._vod_items_section.collapse()
+            self._vod_items_section.update((), items_text="--")
             _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
             _set_text(self.vods_in_game_time_label, "In-Game Time: --")
             _set_text(self.vods_mob_kills_label, "Mob Kills: --")
@@ -290,13 +290,13 @@ class RecordingsTabMixin:
             self._refresh_vod_compare_details(None, None, index=None)
             _set_text(self.vods_banishes_label, "No banishes yet")
             set_stage_summary_labels(self.vods_stage_summary_labels, None)
-            self._stat_cards.invalidate()
-            self._stat_cards.display_weapons((), status_text="No weapon data in this recording")
-            self._stat_cards.display_tomes((), status_text="No tome data in this recording")
-            self._stat_cards.display_chaos_tome(
+            self._vod_stat_cards.invalidate()
+            self._vod_stat_cards.display_weapons((), status_text="No weapon data in this recording")
+            self._vod_stat_cards.display_tomes((), status_text="No tome data in this recording")
+            self._vod_stat_cards.display_chaos_tome(
                 None, status_text="No Chaos Tome data in this recording"
             )
-            self._stat_cards.display_damage_sources(
+            self._vod_stat_cards.display_damage_sources(
                 (), status_text="No damage source data in this recording"
             )
     def display_loaded_vod_snapshot(self, index: int):
@@ -321,7 +321,7 @@ class RecordingsTabMixin:
                 if value_label is not None:
                     stat = snapshot.stats.get(spec.label)
                     _set_text(value_label, stat.display_value if stat is not None else "--")
-        self._items_section.update(snapshot.items)
+        self._vod_items_section.update(snapshot.items)
         _set_text(
             self.vods_chests_per_minute_label,
             formatting.format_chests_per_minute(formatting.resolve_snapshot_chests_per_minute(snapshot)),
@@ -365,13 +365,13 @@ class RecordingsTabMixin:
             self.vods_banishes_label,
             formatting.format_banishes_rich_text(getattr(snapshot, "banishes", ())),
         )
-        self._stat_cards.display_weapons(getattr(snapshot, "weapons", ()))
-        self._stat_cards.display_tomes(getattr(snapshot, "tomes", ()))
-        self._stat_cards.display_chaos_tome(
+        self._vod_stat_cards.display_weapons(getattr(snapshot, "weapons", ()))
+        self._vod_stat_cards.display_tomes(getattr(snapshot, "tomes", ()))
+        self._vod_stat_cards.display_chaos_tome(
             getattr(snapshot, "chaos_tome", None),
             status_text=None if getattr(snapshot, "chaos_tome", None) is not None else "No Chaos Tome data in this snapshot",
         )
-        self._stat_cards.display_damage_sources(getattr(snapshot, "damage_sources", ()))
+        self._vod_stat_cards.display_damage_sources(getattr(snapshot, "damage_sources", ()))
     def on_vods_slider_changed(self, value):
         if self.loaded_vod is None or not self.loaded_vod.snapshots:
             return
@@ -492,8 +492,8 @@ class RecordingsTabMixin:
         _set_text(self.vods_slider_time_label, "Timeline: --")
         for label in self.vods_rows.values():
             _set_text(label, "--")
-        self._items_section.collapse()
-        self._items_section.update((), items_text="--")
+        self._vod_items_section.collapse()
+        self._vod_items_section.update((), items_text="--")
         _set_text(self.vods_chests_per_minute_label, "Average chests/min: --")
         _set_text(self.vods_in_game_time_label, "In-Game Time: --")
         _set_text(self.vods_mob_kills_label, "Mob Kills: --")
@@ -508,11 +508,11 @@ class RecordingsTabMixin:
         self._refresh_vod_compare_details(None, None, index=None)
         _set_text(self.vods_banishes_label, "No banishes yet")
         set_stage_summary_labels(self.vods_stage_summary_labels, None)
-        self._stat_cards.invalidate()
-        self._stat_cards.display_weapons((), status_text="Select a recording")
-        self._stat_cards.display_tomes((), status_text="Select a recording")
-        self._stat_cards.display_chaos_tome(None, status_text="Select a recording")
-        self._stat_cards.display_damage_sources((), status_text="Select a recording")
+        self._vod_stat_cards.invalidate()
+        self._vod_stat_cards.display_weapons((), status_text="Select a recording")
+        self._vod_stat_cards.display_tomes((), status_text="Select a recording")
+        self._vod_stat_cards.display_chaos_tome(None, status_text="Select a recording")
+        self._vod_stat_cards.display_damage_sources((), status_text="Select a recording")
     def cleanup_recordings_by_snapshot_count(self):
         dialog = CleanupRecordingsDialog(self.window)
         if dialog.exec() != QDialog.Accepted or dialog.threshold is None:
@@ -559,7 +559,7 @@ class RecordingsTabMixin:
         self._clear_loaded_vod_selection()
         self.refresh_vods_list()
     def toggle_vod_items_expanded(self) -> None:
-        self._items_section.toggle_expanded()
+        self._vod_items_section.toggle_expanded()
     def _update_recorded_chest_summary(self, snapshot) -> None:
         paid = getattr(snapshot, "paid_chests", None)
         key_procs = getattr(snapshot, "key_procs", None)
@@ -647,7 +647,7 @@ class RecordingsTabMixin:
         vods_items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             vods_items_sort_combo.addItem(label, mode)
-        self._items_section = ItemsSectionView(
+        self._vod_items_section = ItemsSectionView(
             group=vod_items_group,
             label=vods_items_label,
             rarity_label=vods_items_rarity_label,
@@ -655,7 +655,7 @@ class RecordingsTabMixin:
             sort_combo=vods_items_sort_combo,
         )
         vods_items_sort_combo.currentIndexChanged.connect(
-            lambda _index: self._items_section.on_sort_changed()
+            lambda _index: self._vod_items_section.on_sort_changed()
         )
         vod_items_actions.addWidget(vods_items_toggle_btn, 0, Qt.AlignLeft)
         vod_items_actions.addWidget(vods_items_rarity_label, 0, Qt.AlignLeft)
@@ -857,7 +857,7 @@ class RecordingsTabMixin:
         # `ui/tabs/player_stats/stat_cards.py` for why this half of the
         # cards renderer needs no Compare Runs adapter: the compare scopes
         # never reach these four sections.
-        self._stat_cards = StatCardsView(
+        self._vod_stat_cards = StatCardsView(
             weapons_layout=vod_weapons_scroll_layout,
             weapons_status_label=vods_weapons_status_label,
             tomes_layout=vod_tomes_scroll_layout,

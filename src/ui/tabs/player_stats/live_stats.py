@@ -164,9 +164,9 @@ class LiveStatsTabMixin:
         _set_text(self.player_stats_status_label, status_text)
         for label in self.player_stats_rows.values():
             _set_text(label, "--")
-        self._items_section.collapse()
+        self._live_items_section.collapse()
         self._ensure_live_snapshot_store().reset_for_new_match()
-        self._items_section.update((), items_text=items_text)
+        self._live_items_section.update((), items_text=items_text)
         _set_text(self.player_stats_chests_per_minute_label, "Average chests/min: --")
         self._apply_live_powerups_card(None)
         _set_text(self.player_stats_in_game_time_label, "In-Game Time: --")
@@ -180,11 +180,11 @@ class LiveStatsTabMixin:
         _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, "No banishes yet")
         set_stage_summary_labels(self.player_stats_stage_summary_labels, None)
-        self._stat_cards.invalidate()
-        self._stat_cards.display_weapons((), status_text="Waiting for weapon data...")
-        self._stat_cards.display_tomes((), status_text="Waiting for tome data...")
-        self._stat_cards.display_chaos_tome(None, status_text="Waiting for Chaos Tome data...")
-        self._stat_cards.display_damage_sources(
+        self._live_stat_cards.invalidate()
+        self._live_stat_cards.display_weapons((), status_text="Waiting for weapon data...")
+        self._live_stat_cards.display_tomes((), status_text="Waiting for tome data...")
+        self._live_stat_cards.display_chaos_tome(None, status_text="Waiting for Chaos Tome data...")
+        self._live_stat_cards.display_damage_sources(
             (), status_text="Waiting for damage source data..."
         )
     def display_player_stats(
@@ -218,7 +218,7 @@ class LiveStatsTabMixin:
             value_label = self.player_stats_rows.get(label)
             if value_label is not None:
                 _set_text(value_label, stat.display_value)
-        self._items_section.update(items, items_text=items_text)
+        self._live_items_section.update(items, items_text=items_text)
         if chests_per_minute is None:
             chests_per_minute = formatting.calculate_player_chests_per_minute(stats)
         _set_text(
@@ -255,19 +255,19 @@ class LiveStatsTabMixin:
             _set_text(getattr(self, "player_stats_new_items_label", None), "Live snapshot")
         _set_text(self.player_stats_banishes_label, formatting.format_banishes_rich_text(banishes))
         set_stage_summary_labels(self.player_stats_stage_summary_labels, stage_summary_rows)
-        self._stat_cards.display_weapons(
+        self._live_stat_cards.display_weapons(
             weapons if weapons_available else (),
             status_text=None if weapons_available else "Weapons unavailable",
         )
-        self._stat_cards.display_tomes(
+        self._live_stat_cards.display_tomes(
             tomes if tomes_available else (),
             status_text=None if tomes_available else "Tomes unavailable",
         )
-        self._stat_cards.display_chaos_tome(
+        self._live_stat_cards.display_chaos_tome(
             chaos_tome,
             status_text=None if chaos_tome is not None else "No Chaos Tome data yet",
         )
-        self._stat_cards.display_damage_sources(
+        self._live_stat_cards.display_damage_sources(
             damage_sources if damage_sources_available else (),
             status_text=None if damage_sources_available else "Damage sources unavailable",
         )
@@ -356,7 +356,7 @@ class LiveStatsTabMixin:
         self._recording_timeline.refresh(update_slider=update_slider)
 
     def toggle_player_items_expanded(self) -> None:
-        self._items_section.toggle_expanded()
+        self._live_items_section.toggle_expanded()
     def _update_live_chest_summary(self, chest_stats) -> None:
         labels = getattr(self, "player_stats_chests_card_values", None)
         if labels:
@@ -428,7 +428,7 @@ class LiveStatsTabMixin:
         items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             items_sort_combo.addItem(label, mode)
-        self._items_section = ItemsSectionView(
+        self._live_items_section = ItemsSectionView(
             group=items_group,
             label=items_label,
             rarity_label=items_rarity_label,
@@ -436,7 +436,7 @@ class LiveStatsTabMixin:
             sort_combo=items_sort_combo,
         )
         items_sort_combo.currentIndexChanged.connect(
-            lambda _index: self._items_section.on_sort_changed()
+            lambda _index: self._live_items_section.on_sort_changed()
         )
         items_actions.addWidget(items_toggle_btn, 0, Qt.AlignLeft)
         items_actions.addWidget(items_rarity_label, 0, Qt.AlignLeft)
@@ -615,7 +615,7 @@ class LiveStatsTabMixin:
         # by composed name from `cards.py` behind guards that returned silently
         # on `None` -- the arrangement step 18 identified as the reason making
         # this tab's widgets private could break four panels without raising.
-        self._stat_cards = StatCardsView(
+        self._live_stat_cards = StatCardsView(
             weapons_layout=player_weapons_scroll_layout,
             weapons_status_label=weapons_status_label,
             tomes_layout=player_tomes_scroll_layout,

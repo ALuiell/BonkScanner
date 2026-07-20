@@ -699,8 +699,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._refresh_vods_list_if_visible = lambda: None
         app.display_player_stats = lambda *args, **kwargs: None
         app.display_player_stats_snapshot = lambda *args, **kwargs: None
-        app._stat_cards = RecordingStatCardsView()
-        app._items_section = RecordingItemsSectionView()
+        app._live_stat_cards = RecordingStatCardsView()
+        app._live_items_section = RecordingItemsSectionView()
         app.close_player_stats_client = lambda: None
         app.read_player_stats_only = lambda: ({}, 0x1234)
         app.read_passive_items_only = lambda owner_stats=None: ()
@@ -3517,8 +3517,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
         app.player_stats_stage_summary_labels = []
-        app._stat_cards = RecordingStatCardsView()
-        app._items_section = items_section_over(app.player_stats_items_label)
+        app._live_stat_cards = RecordingStatCardsView()
+        app._live_items_section = items_section_over(app.player_stats_items_label)
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -4398,8 +4398,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
         app.player_stats_stage_summary_labels = []
-        app._stat_cards = RecordingStatCardsView()
-        app._items_section = items_section_over(app.player_stats_items_label)
+        app._live_stat_cards = RecordingStatCardsView()
+        app._live_items_section = items_section_over(app.player_stats_items_label)
         app._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -4515,8 +4515,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_banishes_label = FakeLabel()
         app.vods_stage_summary_labels = []
         app.vods_rows = {"Damage": FakeLabel()}
-        app._stat_cards = RecordingStatCardsView()
-        app._items_section = items_section_over(app.vods_items_label)
+        app._vod_stat_cards = RecordingStatCardsView()
+        app._vod_items_section = items_section_over(app.vods_items_label)
         app.loaded_vod_snapshot_index = None
         snapshot = SimpleNamespace(
             stats={"Damage": SimpleNamespace(display_value="123", value=1.23)},
@@ -4557,8 +4557,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.vods_banishes_label = FakeLabel()
         app.vods_stage_summary_labels = []
         app.vods_rows = {}
-        app._stat_cards = RecordingStatCardsView()
-        app._items_section = RecordingItemsSectionView()
+        app._vod_stat_cards = RecordingStatCardsView()
+        app._vod_items_section = RecordingItemsSectionView()
         app.resolve_snapshot_chests_per_minute = lambda snapshot: getattr(snapshot, "chests_per_minute", None)
         app.set_stage_summary_rows = lambda rows: None
         app._resolve_vod_compare_base_snapshot = lambda index: None
@@ -4589,8 +4589,8 @@ class GuiRunControlTests(unittest.TestCase):
 
         MegabonkApp.display_loaded_vod_snapshot(app, 0)
 
-        self.assertEqual(len(app._stat_cards.damage_sources), 1)
-        sources, status_text = app._stat_cards.damage_sources[0]
+        self.assertEqual(len(app._vod_stat_cards.damage_sources), 1)
+        sources, status_text = app._vod_stat_cards.damage_sources[0]
         self.assertIsNone(status_text)
         self.assertEqual(sources[0].source_name, "Katana")
         self.assertEqual(app.vods_mob_kills_label.text(), "Mob Kills: 10 (150/s)")
