@@ -266,7 +266,7 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
     def build_owner(self, *, pinned: bool):
         from app.refresh_tasks import RefreshTasksMixin
 
-        recorded = {"stage_rows": [], "mob_kills": []}
+        recorded = {"stage_rows": [], "mob_kills": [], "powerups": []}
 
         class Owner(RefreshTasksMixin):
             def __init__(self) -> None:
@@ -295,12 +295,32 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
                     get_run_timer=lambda: 30.0,
                     get_killed_mobs=lambda: 100,
                     get_stage_timer_context=lambda: (25.0, 2, 480.0),
+                    resolve_owner_stats=lambda: 0x1234,
+                    get_powerup_tracking_snapshot=lambda owner_stats: SimpleNamespace(),
                 )
 
             def update_overlay_state_from_tracker(self) -> None:
                 pass
 
         return Owner(), recorded
+
+    def test_powerups_task_does_not_repaint_the_card_while_pinned(self) -> None:
+        """The third writer, found by counting them rather than by the report.
+
+        `display_player_stats` paints the Powerups card from the *snapshot's*
+        stats; `refresh_powerups_card` repaints it from the live tracker. Both
+        the success and the failure path of the task called it unguarded.
+        """
+        from app.refresh_coordinator import RefreshTickContext
+
+        for pinned, expected in ((True, 0), (False, 1)):
+            owner, recorded = self.build_owner(pinned=pinned)
+            owner.live_run_tracker.update_powerups = lambda snapshot: True
+            owner._player_stats_view.refresh_powerups_card = (
+                lambda: recorded["powerups"].append(1)
+            )
+            owner._refresh_powerups_task(RefreshTickContext())
+            self.assertEqual(expected, len(recorded["powerups"]))
 
     def test_event_timer_task_does_not_repaint_stage_summary_while_pinned(self) -> None:
         from app.refresh_coordinator import RefreshTickContext

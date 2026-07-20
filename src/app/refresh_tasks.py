@@ -235,12 +235,20 @@ class RefreshTasksMixin:
             )
             record_player_stats_memory_success(self)
             accepted = self.live_run_tracker.update_powerups(snapshot)
-            player_stats_view(self).refresh_powerups_card()
+            # The tracker always updates; only the *repaint* is gated. The
+            # Powerups card is painted from the snapshot's stats by
+            # `display_player_stats`, and `refresh_powerups_card` repaints it
+            # from the live tracker -- so unguarded it is the third writer of
+            # a panel a pinned scrub owns, alongside the two stage-summary
+            # writes. Found by counting the writers rather than by the report.
+            if not player_stats_snapshot_is_pinned(self):
+                player_stats_view(self).refresh_powerups_card()
             return accepted is not False
         except Exception as exc:
             record_player_stats_memory_failure(self, exc)
             self._mark_fast_feature_failed("powerups", exc)
-            player_stats_view(self).refresh_powerups_card()
+            if not player_stats_snapshot_is_pinned(self):
+                player_stats_view(self).refresh_powerups_card()
             return False
 
     def _refresh_expected_chest_inputs_task(self, context: RefreshTickContext) -> bool:
