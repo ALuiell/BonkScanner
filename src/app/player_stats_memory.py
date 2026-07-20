@@ -21,6 +21,14 @@ converting this mixin, and the one with a live precedent: the same spelling
 stranded the Chaos Tome panel for two commits at step 14b, through a green
 suite and a working exe.
 
+Their player-stats siblings, ``record_player_stats_memory_success``/``_failure``
+and ``PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD``, moved here from
+``app/refresh_tasks.py`` in the prep commit for that conversion. One reconnect
+policy over two clients now lives in one place, and -- the point of doing it
+first -- the move deletes the ``player_stats_memory -> refresh_tasks`` import
+edge, so ``refresh_tasks`` can later import this module to resolve the memory
+service without closing an import cycle.
+
 ``ModuleNotFoundError`` below is deliberately ``infra.memory.reader``'s, not the
 builtin -- it shadows it, and the ``except`` clauses here depend on that. Do not
 'clean up' the import.
@@ -28,16 +36,21 @@ builtin -- it shadows it, and the ``except`` clauses here depend on that. Do not
 from __future__ import annotations
 
 from app import config
-from app.refresh_tasks import (
-    PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD,
-    record_player_stats_memory_failure,
-    record_player_stats_memory_success,
-)
 from app.snapshot_store import live_snapshot_store
 from core.stats.types import DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot
 from infra.memory.game_data_client import GameDataClient
 from infra.memory.player_stats_client import PlayerStatsClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+
+# The reconnect threshold and the two ``record_player_stats_memory_*`` streak
+# recorders (below) moved here from ``app/refresh_tasks.py`` alongside their
+# game-data siblings. They read no widget -- only memory state and the memory
+# client -- so this is their home. Keeping them here also breaks the
+# ``player_stats_memory -> refresh_tasks`` import edge, which the later service
+# conversion needs gone: once ``refresh_tasks`` must import this module to reach
+# ``_get_player_stats_client`` through a resolver, the old edge would have closed
+# a module-level import cycle.
+PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD = 3
 
 
 def record_player_stats_game_data_memory_success(owner) -> None:
@@ -83,6 +96,40 @@ def record_player_stats_game_data_memory_failure(owner, error: Exception) -> Non
         owner.close_player_stats_game_data_client()
     finally:
         owner._player_stats_game_data_memory_error_streak = 0
+
+
+def record_player_stats_memory_success(owner) -> None:
+    """Reset the player-stats client's read-failure streak.
+
+    The sibling of ``record_player_stats_game_data_memory_success`` above --
+    one reconnect policy over the two memory clients. It lived in
+    ``app/refresh_tasks.py`` until this commit; moving it here (with its failure
+    partner and the threshold) is what lets the coming service conversion have
+    ``refresh_tasks`` import ``player_stats_memory`` without closing an import
+    cycle. ``refresh_tasks`` and ``app/player_stats_refresh.py`` still call it,
+    now via that import.
+    """
+    owner._player_stats_memory_error_streak = 0
+
+
+def record_player_stats_memory_failure(owner, error: Exception) -> None:
+    """Count a player-stats read failure, reconnecting the client at the threshold.
+
+    Same discrimination as the game-data sibling: only the three memory error
+    types count. Anything else returns silently and is left to the paired
+    ``except Exception`` branches in the ``_read_*_safe`` wrappers, which close
+    the client outright instead.
+    """
+    if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
+        return
+    streak = int(getattr(owner, "_player_stats_memory_error_streak", 0)) + 1
+    owner._player_stats_memory_error_streak = streak
+    if streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
+        return
+    try:
+        owner.close_player_stats_client()
+    finally:
+        owner._player_stats_memory_error_streak = 0
 
 
 class PlayerStatsMemoryMixin:

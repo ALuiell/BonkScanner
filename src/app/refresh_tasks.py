@@ -15,15 +15,20 @@ task of its own would have run it 20x more often. Having its own task is what
 later let step 8b move it to 1 s on its own merits, without dragging the 10 s
 snapshot along.
 
-``ensure_refresh_coordinator``, ``overlay_widget_refresh_active`` and the two
-``record_player_stats_memory_*`` helpers are plain functions, not mixin
-methods: each also has callers outside this module (the timer driver,
-``_overlay_requires_player_snapshot``, and five memory-read call sites --
-all of which step 14c moved on to ``app/player_stats_refresh.py`` and
-``app/player_stats_memory.py``). A mixin method reachable only via the shared
-``self`` would show up as a new hidden cross-mixin read the moment its
-caller and its definition live in different files -- passing the owner
-explicitly avoids that without changing behaviour.
+``ensure_refresh_coordinator`` and ``overlay_widget_refresh_active`` are plain
+functions, not mixin methods: each also has callers outside this module (the
+timer driver and ``_overlay_requires_player_snapshot``). A mixin method
+reachable only via the shared ``self`` would show up as a new hidden cross-mixin
+read the moment its caller and its definition live in different files -- passing
+the owner explicitly avoids that without changing behaviour.
+
+The two ``record_player_stats_memory_*`` streak recorders and the reconnect
+threshold used to live here for that same reason, but they moved to
+``app/player_stats_memory.py`` (joining their game-data siblings) to delete the
+``player_stats_memory -> refresh_tasks`` import edge. This module still calls
+them -- now via that import -- and that is the point: the coming service
+conversion needs ``refresh_tasks`` to import ``player_stats_memory``, and the old
+edge would have closed a cycle.
 
 Everything else here (the six ``_should_refresh_*``/``_refresh_*_task``
 pairs and their private helpers) has no caller outside this module, so it
@@ -37,19 +42,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app import config
+from app.player_stats_memory import (
+    record_player_stats_memory_failure,
+    record_player_stats_memory_success,
+)
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from app.run_lifecycle import run_lifecycle
 from app.player_stats_view import player_stats_view
 from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.vod_capture import vod_capture
-from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from projections import formatting
 
 if TYPE_CHECKING:
     from infra.memory.player_stats_client import PlayerStatsClient
 
-
-PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD = 3
 
 # The two refresh cadences, moved here from gui_styles.py in step 17a: this
 # module is what turns them into RefreshTask intervals, and is the only consumer
@@ -166,23 +172,6 @@ def overlay_widget_refresh_active(owner, widget_id: str) -> bool:
         and bool(widget.get("enabled", False))
         for widget in overlay.get("widgets", ()) or ()
     )
-
-
-def record_player_stats_memory_success(owner) -> None:
-    owner._player_stats_memory_error_streak = 0
-
-
-def record_player_stats_memory_failure(owner, error: Exception) -> None:
-    if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
-        return
-    streak = int(getattr(owner, "_player_stats_memory_error_streak", 0)) + 1
-    owner._player_stats_memory_error_streak = streak
-    if streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
-        return
-    try:
-        owner.close_player_stats_client()
-    finally:
-        owner._player_stats_memory_error_streak = 0
 
 
 class RefreshTasksMixin:

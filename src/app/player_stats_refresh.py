@@ -32,6 +32,8 @@ from app import config
 from app.player_stats_memory import (
     record_player_stats_game_data_memory_failure,
     record_player_stats_game_data_memory_success,
+    record_player_stats_memory_failure,
+    record_player_stats_memory_success,
 )
 from app.player_stats_view import (
     overlay_view,
@@ -45,8 +47,6 @@ from app.vod_capture import vod_capture
 from app.refresh_tasks import (
     ensure_refresh_coordinator,
     overlay_widget_refresh_active,
-    record_player_stats_memory_failure,
-    record_player_stats_memory_success,
 )
 from core.game_state import MapStat, RuntimeGameMode
 from infra.memory.game_data_client import GameDataClient
