@@ -14,7 +14,6 @@ from app.version import CURRENT_VERSION
 from app.player_stats_memory import PlayerStatsMemoryMixin
 from app.player_stats_refresh import PlayerStatsRefreshMixin
 from app.refresh_tasks import RefreshTasksMixin
-from app.vod_capture import VodCaptureMixin
 from ui.tabs.compare_runs import CompareRunsMixin
 from ui.tabs.player_stats import RecordingsTabMixin
 from gui_layout import GuiLayoutMixin
@@ -38,7 +37,6 @@ class MegabonkApp(
     InGameOverlayMixin,
     RefreshTasksMixin,
     PlayerStatsRefreshMixin,
-    VodCaptureMixin,
     PlayerStatsMemoryMixin,
     CompareRunsMixin,
     RecordingsTabMixin,
@@ -251,14 +249,10 @@ class MegabonkApp(
         self.player_stats_vod_snapshots = []
         self.player_stats_selected_snapshot_index = None
         self.player_stats_snapshot_pinned = False
-        self.player_stats_recording_seed = None
-        self.player_stats_recording_stage_ptr = 0
-        self.player_stats_recording_seed_missing_since = None
-        self.player_stats_recording_run_time_seconds = None
-        self.player_stats_recording_armed = False
-        self.player_stats_recording_waiting_mode = None
-        self.player_stats_auto_recording_suppressed = False
-        self.player_stats_auto_start_detection_streak = 0
+        # The eight recording-lifecycle names that stood here are
+        # `VodCapture`'s fields now (step 20). The three above stay: their
+        # readers are the Live Stats tab and `gui_layout`, and the tab writes
+        # two of them back through its selection callback.
         self.loaded_vod = None
         self.loaded_vod_snapshot_index = None
         self.loaded_vod_compare_start_index = None

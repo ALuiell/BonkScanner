@@ -6,6 +6,7 @@ import time
 from ctypes import wintypes
 
 from app import config
+from app.vod_capture import vod_capture
 from infra.hotkeys import HotkeyBinding, ModifierAwareHotkeyManager
 from infra.keyboard_run_control import KeyboardRunControlProvider
 from infra import process
@@ -102,7 +103,7 @@ class RunControlMixin:
         self.update_status_ui()
 
     def hotkey_toggle_player_stats_recording(self):
-        self.after(0, self.toggle_player_stats_recording)
+        self.after(0, vod_capture(self).toggle_recording)
 
     def get_game_process_id(self) -> int | None:
         process_id = self._attached_game_process_id()

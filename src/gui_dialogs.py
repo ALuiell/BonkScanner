@@ -63,6 +63,7 @@ from core.stat_labels import abbreviate_stat_label
 
 from app import config
 from app.player_stats_view import player_stats_view
+from app.vod_capture import vod_capture
 from ui.update_prompt import start_update_check
 
 PATREON_SUPPORT_URL = config.PATREON_SUPPORT_URL
@@ -1048,8 +1049,12 @@ class SettingsDialog(QDialog):
         config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
         config.AUTO_START_RECORDING = auto_start_recording
         config.SHOW_OBS_REMINDER_ON_START_SCANNER = show_obs_reminder_on_start_scanner
-        if auto_start_recording and hasattr(self.master, "player_stats_auto_recording_suppressed"):
-            self.master.player_stats_auto_recording_suppressed = False
+        if auto_start_recording:
+            # Was `hasattr(self.master, ...)` + a direct assignment. The service
+            # always has the flag, so the guard is gone -- and with it the
+            # step-19 failure shape where a `hasattr` goes quietly false and
+            # re-enabling auto-start silently stops clearing a suppression.
+            vod_capture(self.master).clear_auto_recording_suppression()
 
         def _read_numeric(entry) -> float:
             if entry is None:

@@ -40,6 +40,7 @@ from app.player_stats_view import (
 )
 from app.run_lifecycle import run_lifecycle
 from app.snapshot_store import live_snapshot_store
+from app.vod_capture import vod_capture
 from app.refresh_tasks import (
     ensure_refresh_coordinator,
     overlay_widget_refresh_active,
@@ -127,7 +128,7 @@ class PlayerStatsRefreshMixin:
         return not run_lifecycle(self).completed_run and (
             self._is_live_stats_tab_active()
             or self.player_stats_vod_recorder.is_recording
-            or self._is_player_stats_recording_armed()
+            or vod_capture(self).is_recording_armed()
             or bool(getattr(config, "AUTO_START_RECORDING", False))
             or self._overlay_requires_player_snapshot()
             or self._in_game_overlay_requires_player_stats_refresh()
@@ -339,7 +340,7 @@ class PlayerStatsRefreshMixin:
         live_stage_summary_rows = self.live_run_tracker.stage_summary_rows()
         runtime_state = run_lifecycle(self).state_for_refresh()
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
-            self._maybe_auto_start_player_stats_recording(
+            vod_capture(self).maybe_auto_start(
                 stats=stats,
                 run_timer_seconds=run_timer_seconds,
                 player_level=player_level,
@@ -348,7 +349,7 @@ class PlayerStatsRefreshMixin:
                 stage_index=runtime_state.current_stage_index,
             )
         else:
-            self.note_run_not_in_game()
+            vod_capture(self).note_run_not_in_game()
 
         can_capture_recording = (
             self.player_stats_vod_recorder.is_recording
@@ -379,7 +380,7 @@ class PlayerStatsRefreshMixin:
                     status_text_val = "Live player stats (recording paused)"
                 else:
                     status_text_val = "Live player stats (recording)"
-            elif self._is_player_stats_recording_armed():
+            elif vod_capture(self).is_recording_armed():
                 status_text_val = "Live player stats (recording armed)"
             else:
                 status_text_val = status_text

@@ -49,7 +49,12 @@ from gui_dialogs import (
     TwitchCommandSettingsDialog,
 )
 from gui_overlay import OverlayMixin
-from app.vod_capture import PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS
+from app.vod_capture import (
+    PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
+    _stage_index_signals_new_run,
+    vod_capture,
+)
+from tests.support.vod_capture import build_vod_capture
 from projections.item_sort import (
     ITEM_SORT_DEFAULT,
     ITEM_SORT_RARITY_ASC,
@@ -674,16 +679,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = FakeRecordingRecorder()
         app.player_stats_vod_snapshots = ["snapshot"]
         app.player_stats_selected_snapshot_index = 0
-        app.player_stats_recording_seed = None
-        app.player_stats_recording_stage_ptr = 0
-        app.player_stats_recording_stage_index = None
-        app.player_stats_recording_seed_missing_since = None
-        app.player_stats_recording_run_time_seconds = None
-        app.player_stats_recording_armed = False
-        app.player_stats_recording_waiting_mode = None
-        app.player_stats_auto_recording_suppressed = False
-        app.player_stats_auto_start_detection_streak = 0
         app.player_stats_game_data_client = None
+        # The nine recording-lifecycle names that stood here are
+        # `VodCapture`'s fields now; tests that poke them reach the
+        # service through `vod_capture(app)`.
         app.player_stats_client = SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
@@ -973,7 +972,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_settings_save_updates_community_settings_and_applies_run_control_mode(self) -> None:
         master = FakeSettingsMaster()
-        master.player_stats_auto_recording_suppressed = True
+        vod_capture(master).player_stats_auto_recording_suppressed = True
         destroyed: list[bool] = []
         dialog = types.SimpleNamespace(
             hotkey_entry=FakeEntry("f7"),
@@ -994,7 +993,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertTrue(config.AUTO_START_RECORDING)
         self.assertTrue(config.SHOW_OBS_REMINDER_ON_START_SCANNER)
-        self.assertFalse(master.player_stats_auto_recording_suppressed)
+        self.assertFalse(vod_capture(master).player_stats_auto_recording_suppressed)
         self.assertTrue(config.user_config["AUTO_START_RECORDING"])
         self.assertTrue(config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
         self.assertIn("apply_run_control_mode", master.events)
@@ -1933,22 +1932,22 @@ class GuiRunControlTests(unittest.TestCase):
         # "new run" under the pre-8b heuristic. Kept low here specifically so
         # this test cannot pass by accident if the tie-break path is reached.
         app = self.build_recording_app()
-        app.player_stats_recording_seed = 111
-        app.player_stats_recording_stage_ptr = 0x1000
-        app.player_stats_recording_stage_index = 2
-        app.player_stats_recording_run_time_seconds = 120.0
+        vod_capture(app).player_stats_recording_seed = 111
+        vod_capture(app).player_stats_recording_stage_ptr = 0x1000
+        vod_capture(app).player_stats_recording_stage_index = 2
+        vod_capture(app).player_stats_recording_run_time_seconds = 120.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 4.0, get_killed_mobs=lambda: 37)
         app.player_stats_game_data_client = FakeSeedStateClient(
             [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000, stage_index=0)]
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertEqual(action, "split")
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [{"name": None, "seed": 222}])
-        self.assertEqual(app.player_stats_recording_seed, 222)
-        self.assertEqual(app.player_stats_recording_stage_index, 0)
+        self.assertEqual(vod_capture(app).player_stats_recording_seed, 222)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_index, 0)
         self.assertEqual(app.player_stats_vod_snapshots, [])
         self.assertIn("auto-split", app.log_messages[0][0])
 
@@ -1959,48 +1958,48 @@ class GuiRunControlTests(unittest.TestCase):
         # unreadable-timer variant below for the case that used to get this
         # wrong.
         app = self.build_recording_app()
-        app.player_stats_recording_seed = 111
-        app.player_stats_recording_stage_ptr = 0x1000
-        app.player_stats_recording_stage_index = 0
-        app.player_stats_recording_run_time_seconds = 120.0
+        vod_capture(app).player_stats_recording_seed = 111
+        vod_capture(app).player_stats_recording_stage_ptr = 0x1000
+        vod_capture(app).player_stats_recording_stage_index = 0
+        vod_capture(app).player_stats_recording_run_time_seconds = 120.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 123.0, get_killed_mobs=lambda: 37)
         app.player_stats_game_data_client = FakeSeedStateClient(
             [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000, stage_index=1)]
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertIsNone(action)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
-        self.assertEqual(app.player_stats_recording_seed, 222)
-        self.assertEqual(app.player_stats_recording_stage_ptr, 0x2000)
-        self.assertEqual(app.player_stats_recording_stage_index, 1)
-        self.assertEqual(app.player_stats_recording_run_time_seconds, 123.0)
+        self.assertEqual(vod_capture(app).player_stats_recording_seed, 222)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_ptr, 0x2000)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_index, 1)
+        self.assertEqual(vod_capture(app).player_stats_recording_run_time_seconds, 123.0)
         self.assertEqual(app.log_messages, [])
 
     def test_recording_run_state_does_not_split_when_stage_ptr_changes_inside_same_run(self) -> None:
         # Forest/Desert shape: seed constant, stage_ptr changes at 1 -> 2 -> 3,
         # stage_index increments cleanly alongside it.
         app = self.build_recording_app()
-        app.player_stats_recording_seed = 111
-        app.player_stats_recording_stage_ptr = 0x1000
-        app.player_stats_recording_stage_index = 0
-        app.player_stats_recording_run_time_seconds = 120.0
+        vod_capture(app).player_stats_recording_seed = 111
+        vod_capture(app).player_stats_recording_stage_ptr = 0x1000
+        vod_capture(app).player_stats_recording_stage_index = 0
+        vod_capture(app).player_stats_recording_run_time_seconds = 120.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 123.0, get_killed_mobs=lambda: 37)
         app.player_stats_game_data_client = FakeSeedStateClient(
             [SimpleNamespace(map_seed=111, current_stage_ptr=0x2000, stage_index=1)]
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertIsNone(action)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
-        self.assertEqual(app.player_stats_recording_seed, 111)
-        self.assertEqual(app.player_stats_recording_stage_ptr, 0x2000)
-        self.assertEqual(app.player_stats_recording_stage_index, 1)
-        self.assertEqual(app.player_stats_recording_run_time_seconds, 123.0)
+        self.assertEqual(vod_capture(app).player_stats_recording_seed, 111)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_ptr, 0x2000)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_index, 1)
+        self.assertEqual(vod_capture(app).player_stats_recording_run_time_seconds, 123.0)
         self.assertEqual(app.log_messages, [])
 
     def test_recording_run_state_does_not_split_when_run_timer_read_fails_mid_transition(self) -> None:
@@ -2013,10 +2012,10 @@ class GuiRunControlTests(unittest.TestCase):
         and says plainly that this is the same run.
         """
         app = self.build_recording_app()
-        app.player_stats_recording_seed = 111
-        app.player_stats_recording_stage_ptr = 0x1000
-        app.player_stats_recording_stage_index = 0
-        app.player_stats_recording_run_time_seconds = 120.0
+        vod_capture(app).player_stats_recording_seed = 111
+        vod_capture(app).player_stats_recording_stage_ptr = 0x1000
+        vod_capture(app).player_stats_recording_stage_index = 0
+        vod_capture(app).player_stats_recording_run_time_seconds = 120.0
         app.player_stats_client = SimpleNamespace(
             get_run_timer=lambda: None,  # the failed read
             get_killed_mobs=lambda: 37,
@@ -2025,12 +2024,12 @@ class GuiRunControlTests(unittest.TestCase):
             [SimpleNamespace(map_seed=222, current_stage_ptr=0x2000, stage_index=1)]
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertIsNone(action)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
-        self.assertEqual(app.player_stats_recording_stage_index, 1)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_index, 1)
         self.assertEqual(app.log_messages, [])
 
     def test_recording_run_state_does_not_split_when_stage_index_is_unreadable(self) -> None:
@@ -2039,25 +2038,25 @@ class GuiRunControlTests(unittest.TestCase):
         # but stage_index came back None -- the guard must wait for the next
         # tick rather than fall back to any other signal.
         app = self.build_recording_app()
-        app.player_stats_recording_seed = 111
-        app.player_stats_recording_stage_ptr = 0x1000
-        app.player_stats_recording_stage_index = 1
-        app.player_stats_recording_run_time_seconds = 120.0
+        vod_capture(app).player_stats_recording_seed = 111
+        vod_capture(app).player_stats_recording_stage_ptr = 0x1000
+        vod_capture(app).player_stats_recording_stage_index = 1
+        vod_capture(app).player_stats_recording_run_time_seconds = 120.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 4.0, get_killed_mobs=lambda: 37)
         app.player_stats_game_data_client = FakeSeedStateClient(
             [SimpleNamespace(map_seed=111, current_stage_ptr=0x2000, stage_index=None)]
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertIsNone(action)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
         # State must be untouched, not adopted -- there was nothing to decide.
-        self.assertEqual(app.player_stats_recording_seed, 111)
-        self.assertEqual(app.player_stats_recording_stage_ptr, 0x1000)
-        self.assertEqual(app.player_stats_recording_stage_index, 1)
-        self.assertEqual(app.player_stats_recording_run_time_seconds, 120.0)
+        self.assertEqual(vod_capture(app).player_stats_recording_seed, 111)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_ptr, 0x1000)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_index, 1)
+        self.assertEqual(vod_capture(app).player_stats_recording_run_time_seconds, 120.0)
         self.assertEqual(app.log_messages, [])
 
     def test_recording_run_state_splits_when_stage_index_unchanged_and_timer_regresses(self) -> None:
@@ -2065,43 +2064,43 @@ class GuiRunControlTests(unittest.TestCase):
         # per the Graveyard live check) -- the tie-break the four rules
         # reserve for "unchanged".
         app = self.build_recording_app()
-        app.player_stats_recording_seed = 111
-        app.player_stats_recording_stage_ptr = 0x1000
-        app.player_stats_recording_stage_index = 0
-        app.player_stats_recording_run_time_seconds = 400.0
+        vod_capture(app).player_stats_recording_seed = 111
+        vod_capture(app).player_stats_recording_stage_ptr = 0x1000
+        vod_capture(app).player_stats_recording_stage_index = 0
+        vod_capture(app).player_stats_recording_run_time_seconds = 400.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: 2.0, get_killed_mobs=lambda: 0)
         app.player_stats_game_data_client = FakeSeedStateClient(
             [SimpleNamespace(map_seed=999, current_stage_ptr=0x9000, stage_index=0)]
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertEqual(action, "split")
-        self.assertEqual(app.player_stats_recording_seed, 999)
-        self.assertEqual(app.player_stats_recording_stage_index, 0)
+        self.assertEqual(vod_capture(app).player_stats_recording_seed, 999)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_index, 0)
 
     def test_recording_run_state_does_not_split_when_stage_index_unchanged_and_timer_unreadable(self) -> None:
         # Unspecified by the four documented rules, so the conservative default
         # applies: missing timer data must not manufacture a split either.
         app = self.build_recording_app()
-        app.player_stats_recording_seed = 111
-        app.player_stats_recording_stage_ptr = 0x1000
-        app.player_stats_recording_stage_index = 0
-        app.player_stats_recording_run_time_seconds = 400.0
+        vod_capture(app).player_stats_recording_seed = 111
+        vod_capture(app).player_stats_recording_stage_ptr = 0x1000
+        vod_capture(app).player_stats_recording_stage_index = 0
+        vod_capture(app).player_stats_recording_run_time_seconds = 400.0
         app.player_stats_client = SimpleNamespace(get_run_timer=lambda: None, get_killed_mobs=lambda: 0)
         app.player_stats_game_data_client = FakeSeedStateClient(
             [SimpleNamespace(map_seed=999, current_stage_ptr=0x9000, stage_index=0)]
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertIsNone(action)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
-        self.assertEqual(app.player_stats_recording_seed, 999)
-        self.assertEqual(app.player_stats_recording_stage_index, 0)
+        self.assertEqual(vod_capture(app).player_stats_recording_seed, 999)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_index, 0)
 
     def test_stage_index_signals_new_run_direct(self) -> None:
-        signals = MegabonkApp._stage_index_signals_new_run
+        signals = _stage_index_signals_new_run
         # index unreadable -> do not decide
         self.assertIsNone(signals(1, None, 100.0, 50.0))
         # no baseline yet -> adopt without splitting
@@ -2120,24 +2119,24 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_recording_run_state_stops_after_seed_missing_grace_period(self) -> None:
         app = self.build_recording_app()
-        app.player_stats_recording_seed = 111
+        vod_capture(app).player_stats_recording_seed = 111
         app.player_stats_game_data_client = FakeSeedStateClient([None, None])
 
         with patch.object(time, "monotonic", return_value=100.0):
-            first_action = MegabonkApp._sync_player_stats_recording_run_state(app)
+            first_action = vod_capture(app).sync_run_state()
 
         with patch.object(
             time,
             "monotonic",
             return_value=100.0 + PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS + 1.0,
         ):
-            second_action = MegabonkApp._sync_player_stats_recording_run_state(app)
+            second_action = vod_capture(app).sync_run_state()
 
         self.assertIsNone(first_action)
         self.assertEqual(second_action, "stopped")
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
-        self.assertIsNone(app.player_stats_recording_seed)
+        self.assertIsNone(vod_capture(app).player_stats_recording_seed)
         self.assertIn("auto-stopped", app.log_messages[0][0])
 
     def test_recording_run_state_keeps_file_open_while_paused(self) -> None:
@@ -2148,12 +2147,12 @@ class GuiRunControlTests(unittest.TestCase):
             is_paused=True,
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertEqual(action, "paused")
         self.assertTrue(app.player_stats_vod_recorder.is_recording)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 0)
-        self.assertEqual(app.player_stats_recording_waiting_mode, RuntimeGameMode.PAUSED_IN_GAME.value)
+        self.assertEqual(vod_capture(app).player_stats_recording_waiting_mode, RuntimeGameMode.PAUSED_IN_GAME.value)
 
     def test_pausing_writes_the_status_line_through_the_view(self) -> None:
         """Covers the branch step 14c re-routed and the suite never asserted.
@@ -2172,7 +2171,7 @@ class GuiRunControlTests(unittest.TestCase):
             is_paused=True,
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertEqual(action, "paused")
         self.assertEqual(
@@ -2182,41 +2181,41 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_recording_run_state_waits_after_game_over_without_disarming(self) -> None:
         app = self.build_recording_app()
-        app.player_stats_recording_armed = True
+        vod_capture(app).player_stats_recording_armed = True
         app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.GAME_OVER,
             is_playing=True,
             is_game_over=True,
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertEqual(action, "waiting")
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
-        self.assertTrue(app.player_stats_recording_armed)
-        self.assertEqual(app.player_stats_recording_waiting_mode, RuntimeGameMode.GAME_OVER.value)
+        self.assertTrue(vod_capture(app).player_stats_recording_armed)
+        self.assertEqual(vod_capture(app).player_stats_recording_waiting_mode, RuntimeGameMode.GAME_OVER.value)
 
     def test_recording_run_state_waits_after_manual_menu_without_disarming(self) -> None:
         app = self.build_recording_app()
-        app.player_stats_recording_armed = True
+        vod_capture(app).player_stats_recording_armed = True
         app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertEqual(action, "waiting")
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
-        self.assertTrue(app.player_stats_recording_armed)
-        self.assertEqual(app.player_stats_recording_waiting_mode, RuntimeGameMode.MAIN_MENU.value)
+        self.assertTrue(vod_capture(app).player_stats_recording_armed)
+        self.assertEqual(vod_capture(app).player_stats_recording_waiting_mode, RuntimeGameMode.MAIN_MENU.value)
 
     def test_recording_run_state_starts_new_file_from_waiting_when_game_resumes(self) -> None:
         app = self.build_recording_app()
         app.player_stats_vod_recorder.is_recording = False
-        app.player_stats_recording_armed = True
-        app.player_stats_recording_waiting_mode = RuntimeGameMode.MAIN_MENU.value
+        vod_capture(app).player_stats_recording_armed = True
+        vod_capture(app).player_stats_recording_waiting_mode = RuntimeGameMode.MAIN_MENU.value
         app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.IN_GAME,
             is_playing=True,
@@ -2226,43 +2225,47 @@ class GuiRunControlTests(unittest.TestCase):
             current_stage_ptr=0x3000,
         )
 
-        action = MegabonkApp._sync_player_stats_recording_run_state(app)
+        action = vod_capture(app).sync_run_state()
 
         self.assertEqual(action, "started")
         self.assertTrue(app.player_stats_vod_recorder.is_recording)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [{"name": None, "seed": 333}])
-        self.assertEqual(app.player_stats_recording_stage_ptr, 0x3000)
-        self.assertIsNone(app.player_stats_recording_waiting_mode)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_ptr, 0x3000)
+        self.assertIsNone(vod_capture(app).player_stats_recording_waiting_mode)
 
     def test_toggle_recording_stops_auto_recording_waiting_mode_for_session(self) -> None:
         app = self.build_recording_app()
         app.player_stats_vod_recorder.is_recording = False
-        app.player_stats_recording_armed = False
-        app.player_stats_recording_waiting_mode = RuntimeGameMode.MAIN_MENU.value
+        vod_capture(app).player_stats_recording_armed = False
+        vod_capture(app).player_stats_recording_waiting_mode = RuntimeGameMode.MAIN_MENU.value
         app.refresh_live_player_stats_now = lambda *args, **kwargs: None
 
         with patch.object(config, "AUTO_START_RECORDING", True):
-            self.assertTrue(MegabonkApp._is_player_stats_recording_armed(app))
+            self.assertTrue(vod_capture(app).is_recording_armed())
 
-            MegabonkApp.toggle_player_stats_recording(app)
+            vod_capture(app).toggle_recording()
 
-            self.assertFalse(MegabonkApp._is_player_stats_recording_armed(app))
+            self.assertFalse(vod_capture(app).is_recording_armed())
 
-        self.assertTrue(app.player_stats_auto_recording_suppressed)
-        self.assertFalse(app.player_stats_recording_armed)
+        self.assertTrue(vod_capture(app).player_stats_auto_recording_suppressed)
+        self.assertFalse(vod_capture(app).player_stats_recording_armed)
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
         self.assertIn(("[*] Player stats recording stopped.", None), app.log_messages)
 
     def test_auto_start_recording_respects_session_suppression(self) -> None:
-        app = self.build_recording_app()
-        app.player_stats_vod_recorder.is_recording = False
-        app.player_stats_auto_recording_suppressed = True
+        # The real constructor with explicit fakes, not `object.__new__`.
+        # `maybe_auto_start` takes every input as a keyword argument and does
+        # no memory reads, so there is no real collaborator to lose here --
+        # which is what makes this one honest to migrate and the
+        # `_sync_run_state` scenarios above not. See
+        # `tests/support/vod_capture.py`.
+        service, world = build_vod_capture()
+        service.player_stats_auto_recording_suppressed = True
 
         with patch.object(config, "AUTO_START_RECORDING", True):
-            started = MegabonkApp._maybe_auto_start_player_stats_recording(
-                app,
+            started = service.maybe_auto_start(
                 stats={"Damage": SimpleNamespace(display_value="123", value=1.23)},
                 run_timer_seconds=21.5,
                 player_level=2,
@@ -2271,8 +2274,8 @@ class GuiRunControlTests(unittest.TestCase):
             )
 
         self.assertFalse(started)
-        self.assertEqual(app.player_stats_auto_start_detection_streak, 0)
-        self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
+        self.assertEqual(service.player_stats_auto_start_detection_streak, 0)
+        self.assertEqual(world.recorder.start_calls, [])
 
     def test_build_stage_summary_tracks_stage_transitions_and_item_stack_gains(self) -> None:
         snapshots = [
@@ -3130,7 +3133,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_shutting_down = False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        app.player_stats_recording_seed = 111
+        vod_capture(app).player_stats_recording_seed = 111
         app.player_stats_game_data_client = FakeSeedStateClient([None, None])
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
@@ -3217,7 +3220,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app.after = lambda delay, callback: None
         sync_calls: list[int] = []
-        app._sync_player_stats_recording_run_state = lambda: sync_calls.append(1) and None
+        vod_capture(app).sync_run_state = lambda: sync_calls.append(1) and None
 
         now = [1000.0]
         with patch.object(time, "monotonic", side_effect=lambda: now[0]), \
@@ -3273,7 +3276,7 @@ class GuiRunControlTests(unittest.TestCase):
         app = self.build_recording_app()
         app._is_shutting_down = False
         app.after = lambda delay, callback: None
-        app._sync_player_stats_recording_run_state = lambda: (_ for _ in ()).throw(
+        vod_capture(app).sync_run_state = lambda: (_ for _ in ()).throw(
             RuntimeError("lifecycle failed")
         )
 
@@ -3323,7 +3326,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        app._sync_player_stats_recording_run_state = lambda: None
+        vod_capture(app).sync_run_state = lambda: None
         refresh_calls: list[str] = []
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 
@@ -3340,7 +3343,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_twitch_bot_active = lambda: False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        app._sync_player_stats_recording_run_state = lambda: None
+        vod_capture(app).sync_run_state = lambda: None
         refresh_calls: list[str] = []
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 
@@ -3364,7 +3367,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_twitch_bot_active = lambda: False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        app._sync_player_stats_recording_run_state = lambda: None
+        vod_capture(app).sync_run_state = lambda: None
         refresh_calls: list[str] = []
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 
@@ -3388,7 +3391,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_twitch_bot_active = lambda: False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        app._sync_player_stats_recording_run_state = lambda: None
+        vod_capture(app).sync_run_state = lambda: None
         refresh_calls: list[str] = []
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 
@@ -3512,8 +3515,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
-        app.player_stats_recording_armed = False
-        app.player_stats_auto_recording_suppressed = True
+        vod_capture(app).player_stats_recording_armed = False
+        vod_capture(app).player_stats_auto_recording_suppressed = True
         app.player_stats_status_label = FakeLabel()
         stat_label = FakeLabel()
         app.player_stats_rows = {"Damage": stat_label}
@@ -4225,8 +4228,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(second)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [{"name": None, "seed": 777}])
         self.assertTrue(app.player_stats_vod_recorder.is_recording)
-        self.assertEqual(app.player_stats_recording_stage_ptr, 2)
-        self.assertEqual(app.player_stats_recording_run_time_seconds, 21.5)
+        self.assertEqual(vod_capture(app).player_stats_recording_stage_ptr, 2)
+        self.assertEqual(vod_capture(app).player_stats_recording_run_time_seconds, 21.5)
         self.assertIn(("[*] Player stats recording auto-started: recording-1.jsonl", "success"), app.log_messages)
 
     def test_refresh_live_player_stats_now_does_not_auto_start_without_active_run_signal(self) -> None:
@@ -4278,7 +4281,7 @@ class GuiRunControlTests(unittest.TestCase):
             result = MegabonkApp.refresh_live_player_stats_now(app)
 
         self.assertTrue(result)
-        self.assertEqual(app.player_stats_auto_start_detection_streak, 0)
+        self.assertEqual(vod_capture(app).player_stats_auto_start_detection_streak, 0)
         self.assertEqual(app.player_stats_vod_recorder.start_calls, [])
         self.assertFalse(app.player_stats_vod_recorder.is_recording)
 
@@ -4296,7 +4299,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.read_passive_items_only = fail_items
 
         with patch.object(config, "AUTO_START_RECORDING", False):
-            MegabonkApp.toggle_player_stats_recording(app)
+            vod_capture(app).toggle_recording()
 
         self.assertEqual(len(app.player_stats_vod_recorder.capture_calls), 1)
         self.assertEqual(app.player_stats_vod_recorder.capture_calls[0]["items"], ())
@@ -4392,10 +4395,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True)
         app.player_stats_vod_snapshots = ["snapshot"]
         app.player_stats_selected_snapshot_index = 0
-        app.player_stats_recording_seed = 111
-        app.player_stats_recording_seed_missing_since = 200.0
-        app.player_stats_recording_armed = False
-        app.player_stats_auto_recording_suppressed = True
+        vod_capture(app).player_stats_recording_seed = 111
+        vod_capture(app).player_stats_recording_seed_missing_since = 200.0
+        vod_capture(app).player_stats_recording_armed = False
+        vod_capture(app).player_stats_auto_recording_suppressed = True
         app.player_stats_status_label = FakeLabel()
         stat_label = FakeLabel()
         app.player_stats_rows = {"Damage": stat_label}
@@ -4436,7 +4439,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app.overlay_state_store = None
         with patch.object(config, "AUTO_START_RECORDING", False):
-            MegabonkApp._stop_player_stats_recording(app)
+            vod_capture(app).stop_recording()
 
         self.assertEqual(app.player_stats_vod_recorder.stop_calls, 1)
         self.assertEqual(app.player_stats_status_label.text(), "Live player stats")
@@ -5582,7 +5585,7 @@ class GuiRunControlTests(unittest.TestCase):
             current_stage_ptr=0,
         )
         app._read_player_stats_runtime_game_state_safe = lambda: None
-        app._maybe_auto_start_player_stats_recording = lambda **kwargs: None
+        vod_capture(app).maybe_auto_start = lambda **kwargs: None
         app.mark_overlay_read_failed = lambda *args, **kwargs: None
         app.update_overlay_state_from_tracker = lambda: None
         app.refresh_session_tracked_item_stats_ui = lambda: None

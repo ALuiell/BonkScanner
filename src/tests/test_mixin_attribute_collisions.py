@@ -72,12 +72,13 @@ PRE_EXISTING_COLLISIONS: dict[str, str] = {
     "player_stats_disabled_items_cache": "memory cache also written by Twitch",
     "player_stats_disabled_items_refresh_pending": "same cache, same pair",
     "player_stats_game_data_client": "client handle, memory + refresh; step 20",
-    "player_stats_selected_snapshot_index": (
-        "the timeline selection, written by the refresh tick and vod_capture. "
-        "Was three writers until step 19: the Live Stats tab was the third, "
-        "and now reports selections back through a callback instead of "
-        "assigning the shared name. Step 20 owns the remaining pair."
-    ),
+    # `player_stats_selected_snapshot_index` left this register when step 20
+    # converted `VodCaptureMixin` into `VodCapture`. It had two writers, the
+    # refresh tick and vod_capture; the service does not write it at all --
+    # its three writes to the snapshot buffer were one semantic act and became
+    # the injected `reset_snapshot_buffer` command. **Fourth** consecutive
+    # step in which this register has shrunk because the staleness test
+    # demanded it, not because anyone remembered.
     # `player_stats_snapshot_pinned` was here until step 19. `LiveStatsTab`
     # leaving the MRO left `vod_capture` as its only mixin writer, so the
     # staleness test below deleted it -- which is the register working.

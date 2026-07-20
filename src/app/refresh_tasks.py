@@ -40,6 +40,7 @@ from app import config
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from app.run_lifecycle import run_lifecycle
 from app.player_stats_view import player_stats_view
+from app.vod_capture import vod_capture
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from projections import formatting
 
@@ -193,7 +194,7 @@ class RefreshTasksMixin:
         stay a pure refactor; step 8b then moved it to 1 s on its own merits,
         which is what having a task made possible.
         """
-        recording_state_action = self._sync_player_stats_recording_run_state()
+        recording_state_action = vod_capture(self).sync_run_state()
         self._player_stats_refresh_status_text = (
             "Live player stats"
             if recording_state_action != "stopped"
