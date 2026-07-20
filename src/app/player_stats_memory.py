@@ -10,8 +10,16 @@ up on a client*; it does not decide what to do with the values -- that is
 
 Still a mixin on ``MegabonkApp``: 20-odd of these methods are called
 class-qualified from the suite (``gui.MegabonkApp.read_player_stats_only(app)``),
-which resolves only through the MRO. Tabs-as-classes is a behaviour change and
-belongs to step 15.
+which resolves only through the MRO. Converting it into a constructed service
+is the rest of step 20.
+
+**The two streak recorders are no longer part of that.** Step 20 made both
+module-level functions (below), retiring the twelve class-qualified production
+call sites that named this class -- ten here and two in
+``app/player_stats_refresh.py``. That was the largest single obstacle to
+converting this mixin, and the one with a live precedent: the same spelling
+stranded the Chaos Tome panel for two commits at step 14b, through a green
+suite and a working exe.
 
 ``ModuleNotFoundError`` below is deliberately ``infra.memory.reader``'s, not the
 builtin -- it shadows it, and the ``except`` clauses here depend on that. Do not
@@ -30,6 +38,51 @@ from core.stats.types import DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot
 from infra.memory.game_data_client import GameDataClient
 from infra.memory.player_stats_client import PlayerStatsClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
+
+
+def record_player_stats_game_data_memory_success(owner) -> None:
+    """Reset the game-data client's read-failure streak.
+
+    A module-level function taking the owner, not a method. Until step 20 this
+    was ``PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success``
+    and every one of its ten call sites -- plus two in
+    ``app/player_stats_refresh.py`` -- named the class explicitly, because a
+    plain ``self.`` call would have been a hidden cross-mixin read.
+
+    That spelling is the exact failure mode step 14b shipped: a class-qualified
+    call site resolves through ``MegabonkApp``'s MRO, does **not** follow its
+    target when the method moves onto a component, and is invisible to the MRO
+    resolution check. The Chaos Tome panel was broken for two commits through a
+    green suite and a reported-working exe.
+
+    A free function has no class to be orphaned from, so this **retires** the
+    failure mode rather than relocating it -- the same move step 19 made for
+    ``_chaos_stats_in_game_order``. It is also the shape the sibling pair in
+    ``app/refresh_tasks.py`` already had; the two are one policy over two
+    clients, and until now only one of them looked it.
+    """
+    owner._player_stats_game_data_memory_error_streak = 0
+
+
+def record_player_stats_game_data_memory_failure(owner, error: Exception) -> None:
+    """Count a game-data read failure, reconnecting the client at the threshold.
+
+    Only the three memory error types count. Anything else returns silently and
+    is deliberately not a reconnect reason -- see the paired
+    ``except Exception`` branches in the ``_read_*_safe`` wrappers, which close
+    the client outright instead. Two different policies, and the discrimination
+    between them is this one ``isinstance`` check.
+    """
+    if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
+        return
+    streak = int(getattr(owner, "_player_stats_game_data_memory_error_streak", 0)) + 1
+    owner._player_stats_game_data_memory_error_streak = streak
+    if streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
+        return
+    try:
+        owner.close_player_stats_game_data_client()
+    finally:
+        owner._player_stats_game_data_memory_error_streak = 0
 
 
 class PlayerStatsMemoryMixin:
@@ -149,11 +202,11 @@ class PlayerStatsMemoryMixin:
         stage_ptr = 0
         try:
             recording_state = self.read_player_stats_recording_state()
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success(self)
+            record_player_stats_game_data_memory_success(self)
             map_seed = recording_state.map_seed
             stage_ptr = recording_state.current_stage_ptr
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_failure(self, exc)
+            record_player_stats_game_data_memory_failure(self, exc)
             map_seed = None
             stage_ptr = 0
         except Exception:
@@ -301,10 +354,10 @@ class PlayerStatsMemoryMixin:
     def _read_player_stats_recording_seed_safe(self) -> int | None:
         try:
             result = self.read_player_stats_recording_seed()
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success(self)
+            record_player_stats_game_data_memory_success(self)
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_failure(self, exc)
+            record_player_stats_game_data_memory_failure(self, exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -313,10 +366,10 @@ class PlayerStatsMemoryMixin:
     def _read_player_stats_recording_state_safe(self):
         try:
             result = self.read_player_stats_recording_state()
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success(self)
+            record_player_stats_game_data_memory_success(self)
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_failure(self, exc)
+            record_player_stats_game_data_memory_failure(self, exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -325,10 +378,10 @@ class PlayerStatsMemoryMixin:
     def _read_player_stats_runtime_game_state_safe(self):
         try:
             result = self.read_player_stats_runtime_game_state()
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success(self)
+            record_player_stats_game_data_memory_success(self)
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_failure(self, exc)
+            record_player_stats_game_data_memory_failure(self, exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -337,10 +390,10 @@ class PlayerStatsMemoryMixin:
     def _read_player_stats_runtime_activity_state_safe(self):
         try:
             result = self.read_player_stats_runtime_activity_state()
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success(self)
+            record_player_stats_game_data_memory_success(self)
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_failure(self, exc)
+            record_player_stats_game_data_memory_failure(self, exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -381,17 +434,3 @@ class PlayerStatsMemoryMixin:
             self.player_stats_game_data_client = None
         self._player_stats_game_data_memory_error_streak = 0
 
-    def _record_player_stats_game_data_memory_success(self) -> None:
-        self._player_stats_game_data_memory_error_streak = 0
-
-    def _record_player_stats_game_data_memory_failure(self, error: Exception) -> None:
-        if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
-            return
-        streak = int(getattr(self, "_player_stats_game_data_memory_error_streak", 0)) + 1
-        self._player_stats_game_data_memory_error_streak = streak
-        if streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
-            return
-        try:
-            self.close_player_stats_game_data_client()
-        finally:
-            self._player_stats_game_data_memory_error_streak = 0

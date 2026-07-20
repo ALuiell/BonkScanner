@@ -41,12 +41,20 @@ is eight names:
     OverlayMixin._tracked_rule_color               gui_dialogs.py:1583
     OverlayMixin._tracked_rule_tag_label           gui_dialogs.py:1586
     OverlayMixin._tracked_item_rules_from_config   gui_overlay.py:1344,1348
-    PlayerStatsMemoryMixin._record_player_stats_game_data_memory_failure
-                                                   app/player_stats_memory.py:155,306,318,330,342
-                                                   app/player_stats_refresh.py:208
-    PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success
-                                                   app/player_stats_memory.py:151,303,315,327,339
-                                                   app/player_stats_refresh.py:191
+
+**Step 20 removed both `PlayerStatsMemoryMixin` entries**, which were twelve of
+the eighteen sites -- ten in `app/player_stats_memory.py` and two in
+`app/player_stats_refresh.py`. Both are now the module-level
+`record_player_stats_game_data_memory_success` / `_failure`, matching the
+sibling pair in `app/refresh_tasks.py` that always had that shape. The two are
+one policy over two clients and only one of them looked it.
+
+Like step 19's `_chaos_stats_in_game_order`, this **retires** the failure mode
+rather than relocating it: a free function has no class to be orphaned from, so
+the conversion of `PlayerStatsMemoryMixin` into a service can no longer strand
+a call site the way 14b stranded the Chaos Tome panel. The production ratchets
+tightened to 6 sites / 5 names, and all five that remain are `OverlayMixin`'s,
+owned by step 24.
 
 Note what is *not* in that list: the Player Stats view mixins
 (`LiveStatsTabMixin`, `RecordingsTabMixin`) have **zero** production
@@ -133,8 +141,8 @@ MRO_MODULES = {
 # `ui/tabs/player_stats/stat_cards.py`, which is what retires the failure mode
 # rather than relocating it -- a free function cannot be orphaned by its class
 # moving, which is precisely what broke at 14b.
-MAX_PRODUCTION_CLASS_QUALIFIED_SITES = 18
-MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 7
+MAX_PRODUCTION_CLASS_QUALIFIED_SITES = 6
+MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 5
 MAX_OBJECT_NEW_APP_DOUBLES = 71
 
 # The one module allowed to build app doubles without `__init__`.
@@ -146,8 +154,6 @@ PRODUCTION_CLASS_QUALIFIED_NAMES = {
     "OverlayMixin._tracked_item_rules_from_config",
     "OverlayMixin._tracked_rule_color",
     "OverlayMixin._tracked_rule_tag_label",
-    "PlayerStatsMemoryMixin._record_player_stats_game_data_memory_failure",
-    "PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success",
 }
 
 

@@ -4,11 +4,13 @@ predicates that decide whether a refresh is owed, and
 tracker update and a UI render.
 
 Split out of ``PlayerStatsMixin`` in step 14c, alongside
-``app/player_stats_memory.py``; the two moved together because the twelve
-``PlayerStatsMixin._record_player_stats_game_data_memory_*`` class-qualified
-call sites span both, and a qualified call left pointing at a class its target
-has left is a silent ``AttributeError`` (see the Chaos Tome regression fixed
-earlier in this step).
+``app/player_stats_memory.py``; the two moved together because twelve
+class-qualified ``_record_player_stats_game_data_memory_*`` call sites spanned
+both, and a qualified call left pointing at a class its target has left is a
+silent ``AttributeError`` (see the Chaos Tome regression fixed earlier in that
+step). **Step 20 retired all twelve**: both recorders are module-level
+functions now, so the two modules are no longer welded together by a call
+spelling.
 
 **Known debt, carried not deepened:** ``refresh_live_player_stats_now`` still
 calls seven UI methods through the shared ``self`` --
@@ -27,7 +29,10 @@ from __future__ import annotations
 import time
 
 from app import config
-from app.player_stats_memory import PlayerStatsMemoryMixin
+from app.player_stats_memory import (
+    record_player_stats_game_data_memory_failure,
+    record_player_stats_game_data_memory_success,
+)
 from app.player_stats_view import (
     overlay_view,
     player_stats_view,
@@ -222,7 +227,7 @@ class PlayerStatsRefreshMixin:
             map_activity_values = (
                 self.player_stats_game_data_client.get_map_activity_values() or {}
             )
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success(self)
+            record_player_stats_game_data_memory_success(self)
             map_activity_max = {
                 label: int(value.max)
                 for label, value in map_activity_values.items()
@@ -239,7 +244,7 @@ class PlayerStatsRefreshMixin:
             if pots_stat is not None:
                 map_pots_total = pots_stat.max
         except Exception as exc:
-            PlayerStatsMemoryMixin._record_player_stats_game_data_memory_failure(self, exc)
+            record_player_stats_game_data_memory_failure(self, exc)
             map_stats = {}
             map_activity_max = {}
         if map_activity_max and hasattr(
