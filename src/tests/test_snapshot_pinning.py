@@ -27,6 +27,7 @@ import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 from app import config
 from app.player_stats_refresh import player_stats_snapshot_is_pinned
 from app.snapshot_store import LiveSnapshotStore
+from tests.support.run_lifecycle import install_run_lifecycle
 from core.game_state import RuntimeGameMode, RuntimeGameState
 from gui_app import MegabonkApp
 from ui.tabs.player_stats.live_stats import pin_for_selection
@@ -104,7 +105,13 @@ def build_refresh_app(*, snapshots, selected, pinned, should_capture=False):
         {}, (), True, (), True, (), True, (), True, (), True,
         21.5, None, None, 37, 2, 111, 0, None, (), True,
     )
-    app._runtime_state_for_refresh = lambda: RuntimeGameState(mode=RuntimeGameMode.IN_GAME)
+    # A real `RunLifecycle` with its game-state read faked, not a stubbed
+    # method: `state_for_refresh` with a cold cache falls through to the
+    # uncached read, so this drives the service's own branch rather than
+    # replacing it.
+    install_run_lifecycle(
+        app, game_states=lambda: RuntimeGameState(mode=RuntimeGameMode.IN_GAME)
+    )
     app._maybe_auto_start_player_stats_recording = lambda **k: None
     app.live_run_tracker = SimpleNamespace(
         update=lambda *a, **k: None,

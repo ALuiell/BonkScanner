@@ -59,7 +59,11 @@ PRE_EXISTING_COLLISIONS: dict[str, str] = {
     "is_running": "scan lifecycle, co-owned by RunControl and Scanner",
     "active_templates": "template state, co-owned by Scanner and Templates",
     "template_stats": "template state, co-owned by Scanner and Templates",
-    "_player_stats_completed_run": "recording lifecycle; step 20 owns this",
+    # `_player_stats_completed_run` was here until step 20. It is
+    # `RunLifecycle`'s now -- the service extracted precisely because it was
+    # written by `player_stats_refresh` and `vod_capture` and read by
+    # `refresh_tasks` as well -- so the staleness test below deleted it.
+    # That is the register working, and the debt it named being paid.
     "player_stats_auto_start_detection_streak": "recording lifecycle; step 20",
     "player_stats_disabled_items_cache": "memory cache also written by Twitch",
     "player_stats_disabled_items_refresh_pending": "same cache, same pair",

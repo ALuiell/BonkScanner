@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 
 from app import config
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
+from app.run_lifecycle import run_lifecycle
 from app.player_stats_view import player_stats_view
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from projections import formatting
@@ -338,7 +339,7 @@ class RefreshTasksMixin:
             return False
 
     def _should_refresh_powerup_tracker(self) -> bool:
-        if bool(getattr(self, "_player_stats_completed_run", False)):
+        if run_lifecycle(self).completed_run:
             return False
         is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
         if callable(is_live_stats_tab_active):
@@ -362,7 +363,7 @@ class RefreshTasksMixin:
         return False
 
     def _should_refresh_fast_kps(self, _now: float | None = None) -> bool:
-        if bool(getattr(self, "_player_stats_completed_run", False)):
+        if run_lifecycle(self).completed_run:
             return False
         is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
         if callable(is_live_stats_tab_active):
@@ -395,25 +396,20 @@ class RefreshTasksMixin:
         return False
 
     def _should_refresh_expected_chest_inputs(self) -> bool:
-        core_run_active = getattr(self, "_core_run_active", None)
-        if callable(core_run_active) and core_run_active():
+        lifecycle = run_lifecycle(self)
+        if lifecycle.is_active_run():
             return True
-        if bool(getattr(self, "_player_stats_completed_run", False)):
+        if lifecycle.completed_run:
             return False
         if self._is_live_stats_tab_active() or self._is_vod_recording():
             return True
         return self._twitch_command_refresh_active("chests")
 
     def _should_refresh_full_player_snapshot(self) -> bool:
-        core_run_active = getattr(self, "_core_run_active", None)
-        return bool(callable(core_run_active) and core_run_active()) or self._player_stats_refresh_required()
-
-    def _core_run_active(self) -> bool:
-        state = getattr(self, "_core_runtime_game_state", None)
-        return bool(state is not None and state.is_active_run)
+        return run_lifecycle(self).is_active_run() or self._player_stats_refresh_required()
 
     def _should_refresh_chaos_tome(self) -> bool:
-        if bool(getattr(self, "_player_stats_completed_run", False)):
+        if run_lifecycle(self).completed_run:
             return False
         if self._is_live_stats_tab_active() or self._is_vod_recording():
             return True
@@ -437,7 +433,7 @@ class RefreshTasksMixin:
         return bool(recorder is not None and getattr(recorder, "is_recording", False))
 
     def _should_refresh_fast_stage_timer(self) -> bool:
-        if bool(getattr(self, "_player_stats_completed_run", False)):
+        if run_lifecycle(self).completed_run:
             return False
         is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
         if callable(is_live_stats_tab_active):

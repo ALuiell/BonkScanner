@@ -29,6 +29,8 @@ import infra.process as infra_process
 import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
 from app.snapshot_store import live_snapshot_store
+from app.run_lifecycle import run_lifecycle
+from tests.support.run_lifecycle import build_run_lifecycle, install_run_lifecycle
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
 from ui.tabs.player_stats.live_stats import LiveStatsTab
 from tests.support.player_stats import (
@@ -528,7 +530,6 @@ class FakeForegroundProcess:
 class GuiRunControlTests(unittest.TestCase):
     def test_completed_run_blocks_all_refresh_demands(self) -> None:
         app = SimpleNamespace(
-            _player_stats_completed_run=True,
             _is_live_stats_tab_active=lambda: True,
             player_stats_vod_recorder=SimpleNamespace(is_recording=True),
             _is_player_stats_recording_armed=lambda: True,
@@ -538,6 +539,8 @@ class GuiRunControlTests(unittest.TestCase):
             _is_twitch_bot_active=lambda: True,
         )
 
+        install_run_lifecycle(app, completed_run=True)
+
         self.assertFalse(MegabonkApp._player_stats_refresh_required(app))
         self.assertFalse(MegabonkApp._should_refresh_fast_kps(app))
         self.assertFalse(MegabonkApp._should_refresh_powerup_tracker(app))
@@ -546,8 +549,6 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_core_run_demand_keeps_snapshot_and_expected_chests_active(self) -> None:
         app = SimpleNamespace(
-            _core_runtime_game_state=RuntimeGameState(mode=RuntimeGameMode.PAUSED_IN_GAME),
-            _player_stats_completed_run=True,
             _is_live_stats_tab_active=lambda: False,
             player_stats_vod_recorder=SimpleNamespace(is_recording=False),
             _is_player_stats_recording_armed=lambda: False,
@@ -556,7 +557,15 @@ class GuiRunControlTests(unittest.TestCase):
             _is_twitch_bot_active=lambda: False,
             _twitch_command_refresh_active=lambda _command: False,
         )
-        app._core_run_active = lambda: MegabonkApp._core_run_active(app)
+        # Pause is an active run: `is_active_run` covers PAUSED_IN_GAME, which
+        # is what keeps the snapshot cadence alive through a pause even though
+        # `completed_run` is set.
+        install_run_lifecycle(
+            app,
+            cached_state=RuntimeGameState(mode=RuntimeGameMode.PAUSED_IN_GAME),
+            checked_at=10.0,
+            completed_run=True,
+        )
         app._player_stats_refresh_required = lambda: MegabonkApp._player_stats_refresh_required(app)
 
         self.assertTrue(MegabonkApp._should_refresh_full_player_snapshot(app))
@@ -564,7 +573,6 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_core_lifecycle_probe_is_cached_and_marks_game_over_once(self) -> None:
         app = SimpleNamespace(
-            _player_stats_completed_run=True,
             live_run_tracker=SimpleNamespace(mark_run_completed=MagicMock()),
         )
         states = iter(
@@ -584,37 +592,33 @@ class GuiRunControlTests(unittest.TestCase):
         app._read_player_stats_runtime_activity_state_safe = (
             lambda: MegabonkApp._read_player_stats_runtime_activity_state_safe(app)
         )
+        # The real service, resolved the way production resolves it -- there is
+        # no coordinator on an app double, so this takes the `__dict__` branch
+        # and binds the reader above.
+        lifecycle = run_lifecycle(app)
+        lifecycle.set_completed(True)
 
         with patch.object(time, "monotonic", side_effect=(10.0, 10.5, 11.0)):
-            self.assertEqual(
-                MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
-                RuntimeGameMode.IN_GAME,
-            )
-            self.assertFalse(app._player_stats_completed_run)
-            self.assertEqual(
-                MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
-                RuntimeGameMode.IN_GAME,
-            )
-            self.assertEqual(
-                MegabonkApp._refresh_core_run_lifecycle_state(app).mode,
-                RuntimeGameMode.GAME_OVER,
-            )
+            self.assertEqual(lifecycle.refresh().mode, RuntimeGameMode.IN_GAME)
+            self.assertFalse(lifecycle.completed_run)
+            self.assertEqual(lifecycle.refresh().mode, RuntimeGameMode.IN_GAME)
+            self.assertEqual(lifecycle.refresh().mode, RuntimeGameMode.GAME_OVER)
 
         self.assertEqual(reads, ["read", "read"])
-        self.assertTrue(app._player_stats_completed_run)
+        self.assertTrue(lifecycle.completed_run)
         app.live_run_tracker.mark_run_completed.assert_called_once_with()
 
     def test_refresh_uses_fresh_core_lifecycle_state_for_vod_gate(self) -> None:
-        app = SimpleNamespace(
-            _core_runtime_game_state=RuntimeGameState(mode=RuntimeGameMode.PAUSED_IN_GAME),
-            _core_runtime_game_state_checked_at=10.0,
-            _runtime_game_state_or_unknown=lambda: (_ for _ in ()).throw(
+        lifecycle = build_run_lifecycle(
+            cached_state=RuntimeGameState(mode=RuntimeGameMode.PAUSED_IN_GAME),
+            checked_at=10.0,
+            game_states=lambda: (_ for _ in ()).throw(
                 AssertionError("VOD refresh should use the cached lifecycle state")
             ),
         )
 
         with patch.object(time, "monotonic", return_value=10.5):
-            state = MegabonkApp._runtime_state_for_refresh(app)
+            state = lifecycle.state_for_refresh()
 
         self.assertEqual(state.mode, RuntimeGameMode.PAUSED_IN_GAME)
 

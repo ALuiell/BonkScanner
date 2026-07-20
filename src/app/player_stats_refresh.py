@@ -38,6 +38,7 @@ from app.player_stats_view import (
     player_stats_view,
     recordings_list_view,
 )
+from app.run_lifecycle import run_lifecycle
 from app.snapshot_store import live_snapshot_store
 from app.refresh_tasks import (
     ensure_refresh_coordinator,
@@ -45,7 +46,7 @@ from app.refresh_tasks import (
     record_player_stats_memory_failure,
     record_player_stats_memory_success,
 )
-from core.game_state import MapStat, RuntimeGameMode, RuntimeGameState
+from core.game_state import MapStat, RuntimeGameMode
 from infra.memory.game_data_client import GameDataClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from live_run_tracker import LiveRunSnapshot, PowerupMapContext
@@ -81,9 +82,11 @@ def player_stats_snapshot_is_pinned(owner) -> bool:
     return 0 <= index < len(snapshots)
 
 
-# The cadence at which the core run-lifecycle probe re-reads runtime state.
-# gui_styles.py's PLAYER_STATS_* comment refers to this value by name.
-CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS = 1.0
+# `CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS` moved to `app/run_lifecycle.py`,
+# with the probe that applies it. It is deliberately **not** re-exported
+# here: nothing imported it from this module, and a re-export with no
+# consumer is the kind of compatibility surface step 20 has been deleting.
+# `app/refresh_tasks.py` names it in a comment only.
 
 
 class PlayerStatsRefreshMixin:
@@ -117,11 +120,11 @@ class PlayerStatsRefreshMixin:
         """
         if self._is_shutting_down:
             return
-        self._refresh_core_run_lifecycle_state()
+        run_lifecycle(self).refresh()
         ensure_refresh_coordinator(self).tick()
 
     def _player_stats_refresh_required(self) -> bool:
-        return not bool(getattr(self, "_player_stats_completed_run", False)) and (
+        return not run_lifecycle(self).completed_run and (
             self._is_live_stats_tab_active()
             or self.player_stats_vod_recorder.is_recording
             or self._is_player_stats_recording_armed()
@@ -334,7 +337,7 @@ class PlayerStatsRefreshMixin:
         chaos_tome_snapshot = chaos_snapshot_reader() if callable(chaos_snapshot_reader) else None
         overlay.update_overlay_state_from_tracker()
         live_stage_summary_rows = self.live_run_tracker.stage_summary_rows()
-        runtime_state = self._runtime_state_for_refresh()
+        runtime_state = run_lifecycle(self).state_for_refresh()
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
             self._maybe_auto_start_player_stats_recording(
                 stats=stats,
@@ -415,44 +418,3 @@ class PlayerStatsRefreshMixin:
             )
         return True
 
-    def _refresh_core_run_lifecycle_state(self) -> RuntimeGameState:
-        now = time.monotonic()
-        last_checked_at = getattr(self, "_core_runtime_game_state_checked_at", None)
-        cached_state = getattr(self, "_core_runtime_game_state", None)
-        if (
-            cached_state is not None
-            and last_checked_at is not None
-            and now - last_checked_at < CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS
-        ):
-            return cached_state
-
-        state = self._read_player_stats_runtime_activity_state_safe()
-        if state is None:
-            state = RuntimeGameState(mode=RuntimeGameMode.UNKNOWN)
-        self._core_runtime_game_state = state
-        self._core_runtime_game_state_checked_at = now
-
-        if state.is_active_run:
-            self._player_stats_completed_run = False
-        elif state.mode is RuntimeGameMode.GAME_OVER and not bool(
-            getattr(self, "_player_stats_completed_run", False)
-        ):
-            self._player_stats_completed_run = True
-            mark_completed = getattr(self.live_run_tracker, "mark_run_completed", None)
-            if callable(mark_completed):
-                mark_completed()
-        return state
-
-    def _runtime_game_state_or_unknown(self):
-        state = self._read_player_stats_runtime_game_state_safe()
-        if state is None:
-            return RuntimeGameState(mode=RuntimeGameMode.UNKNOWN)
-        return state
-
-    def _runtime_state_for_refresh(self) -> RuntimeGameState:
-        cached_state = getattr(self, "_core_runtime_game_state", None)
-        checked_at = getattr(self, "_core_runtime_game_state_checked_at", None)
-        if cached_state is not None and checked_at is not None:
-            if time.monotonic() - checked_at <= CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS:
-                return cached_state
-        return self._runtime_game_state_or_unknown()

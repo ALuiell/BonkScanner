@@ -29,6 +29,7 @@ import time
 
 from app import config
 from app.player_stats_view import player_stats_view, recordings_list_view
+from app.run_lifecycle import run_lifecycle
 from core.game_state import RuntimeGameMode
 from core.run_summary import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
 
@@ -61,7 +62,7 @@ class VodCaptureMixin:
             stage_ptr = state.current_stage_ptr if state is not None else 0
             stage_index = state.stage_index if state is not None else None
             run_time_seconds = self._read_player_stats_recording_run_timer_safe()
-            runtime_state = self._runtime_game_state_or_unknown()
+            runtime_state = run_lifecycle(self).state_or_unknown()
             if runtime_state.mode is RuntimeGameMode.IN_GAME:
                 vod_path = self._start_player_stats_recording(
                     seed=seed,
@@ -180,14 +181,16 @@ class VodCaptureMixin:
         # reader computes identically (verified exhaustively -- the extra
         # `and not is_game_over` in get_runtime_game_state is unreachable).
         # Only `.mode` is used here, which is all the cached state carries.
-        runtime_state = self._runtime_state_for_refresh()
+        runtime_state = run_lifecycle(self).state_for_refresh()
+        lifecycle = run_lifecycle(self)
         if runtime_state.mode is RuntimeGameMode.GAME_OVER:
-            self._player_stats_completed_run = True
-            mark_completed = getattr(self.live_run_tracker, "mark_run_completed", None)
-            if callable(mark_completed):
-                mark_completed()
+            lifecycle.set_completed(True)
+            # Unguarded, unlike `RunLifecycle.refresh()`, which marks only on
+            # the transition. Inherited verbatim: making the two symmetric is a
+            # behaviour change and this commit is not one.
+            lifecycle.mark_completed_on_tracker()
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
-            self._player_stats_completed_run = False
+            lifecycle.set_completed(False)
             was_paused = self.player_stats_recording_waiting_mode == RuntimeGameMode.PAUSED_IN_GAME.value
             self.player_stats_recording_waiting_mode = None
             if was_paused and self.player_stats_vod_recorder.is_recording:
