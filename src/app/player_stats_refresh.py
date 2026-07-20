@@ -39,6 +39,7 @@ from app.player_stats_view import (
     recordings_list_view,
 )
 from app.run_lifecycle import run_lifecycle
+from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.snapshot_store import live_snapshot_store
 from app.vod_capture import vod_capture
 from app.refresh_tasks import (
@@ -53,35 +54,6 @@ from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNot
 from live_run_tracker import LiveRunSnapshot, PowerupMapContext
 from projections.vod import build_vod_capture_kwargs
 from projections import formatting
-
-def player_stats_snapshot_is_pinned(owner) -> bool:
-    """Has the user scrubbed the Live Stats timeline to a specific snapshot?
-
-    Before this predicate, every live refresh tick ran
-    ``player_stats_selected_snapshot_index = None`` and repainted live values,
-    unconditionally. Dragging the slider mid-recording therefore showed the
-    chosen snapshot for exactly one tick before the Run Summary and stage
-    summary cards reverted to the live run -- reported from a live drive on
-    2026-07-19, and present long before the step-18 pilot that made the path
-    easy to exercise.
-
-    A module-level function rather than a method: this is a decision the app
-    layer makes about its own state, and ``MegabonkApp``'s MRO does not need
-    another name in it.
-
-    The range check is what stops a stale pin from freezing the view. If the
-    snapshot list is emptied (recording stops, a new run starts) the pin cannot
-    be honoured even if the flag were missed, so the display falls back to live
-    rather than sticking.
-    """
-    if not getattr(owner, "player_stats_snapshot_pinned", False):
-        return False
-    index = getattr(owner, "player_stats_selected_snapshot_index", None)
-    if index is None:
-        return False
-    snapshots = getattr(owner, "player_stats_vod_snapshots", None) or ()
-    return 0 <= index < len(snapshots)
-
 
 # `CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS` moved to `app/run_lifecycle.py`,
 # with the probe that applies it. It is deliberately **not** re-exported

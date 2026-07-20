@@ -25,7 +25,7 @@ from unittest.mock import patch
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from app import config
-from app.player_stats_refresh import player_stats_snapshot_is_pinned
+from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.snapshot_store import LiveSnapshotStore
 from tests.support.run_lifecycle import install_run_lifecycle
 from core.game_state import RuntimeGameMode, RuntimeGameState
@@ -242,3 +242,86 @@ class SliderPinsAndUnpinsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FastTaskStageSummaryPinTests(unittest.TestCase):
+    """The *fast* tasks must honour the pin too, not just the refresh tick.
+
+    Reported from a live drive on 2026-07-20: with a recording running,
+    scrubbing the timeline left showed the historical stage summary and then it
+    "flickered" back to live values, while every other panel stayed put.
+
+    Cause: `d7d1350` put the pin guard on `refresh_live_player_stats_now`, and
+    `9c59abd` -- which moved these two stage-summary writes out of the widget
+    and behind `PlayerStatsView` -- created two more writers that never got it.
+    They run at the fast cadence, so they repainted live rows roughly once a
+    second. Only the stage summary and the mob-kills line misbehaved because
+    those are the only two things the fast tasks write.
+
+    Driving the tasks rather than the predicate, for the reason this module's
+    header already gives: a correct predicate proves nothing about a call site
+    that does not consult it. Before the fix both tests below fail.
+    """
+
+    def build_owner(self, *, pinned: bool):
+        from app.refresh_tasks import RefreshTasksMixin
+
+        recorded = {"stage_rows": [], "mob_kills": []}
+
+        class Owner(RefreshTasksMixin):
+            def __init__(self) -> None:
+                self.player_stats_vod_snapshots = [snap("00:10"), snap("00:20")]
+                self.player_stats_selected_snapshot_index = 0
+                self.player_stats_snapshot_pinned = pinned
+                self._player_stats_game_data_memory_error_streak = 0
+                self._player_stats_memory_error_streak = 0
+                self.live_run_tracker = SimpleNamespace(
+                    track_kills=lambda *a: None,
+                    current_ui_kps=lambda: 12,
+                    stage_summary_rows=lambda: [{"stage": "live"}],
+                    update_fast_stage_timer=lambda **k: None,
+                    mark_feature_available=lambda feature: None,
+                )
+                self._player_stats_view = SimpleNamespace(
+                    set_stage_summary_rows=lambda rows: recorded["stage_rows"].append(rows),
+                    set_mob_kills_text=lambda text: recorded["mob_kills"].append(text),
+                )
+
+            def _is_live_stats_tab_active(self) -> bool:
+                return True
+
+            def _get_player_stats_client(self):
+                return SimpleNamespace(
+                    get_run_timer=lambda: 30.0,
+                    get_killed_mobs=lambda: 100,
+                    get_stage_timer_context=lambda: (25.0, 2, 480.0),
+                )
+
+            def update_overlay_state_from_tracker(self) -> None:
+                pass
+
+        return Owner(), recorded
+
+    def test_event_timer_task_does_not_repaint_stage_summary_while_pinned(self) -> None:
+        from app.refresh_coordinator import RefreshTickContext
+
+        owner, recorded = self.build_owner(pinned=True)
+        owner._refresh_event_timer_task(RefreshTickContext())
+        self.assertEqual([], recorded["stage_rows"])
+
+        owner, recorded = self.build_owner(pinned=False)
+        owner._refresh_event_timer_task(RefreshTickContext())
+        self.assertEqual([[{"stage": "live"}]], recorded["stage_rows"])
+
+    def test_combat_metrics_task_does_not_repaint_stage_summary_while_pinned(self) -> None:
+        from app.refresh_coordinator import RefreshTickContext
+
+        owner, recorded = self.build_owner(pinned=True)
+        owner._refresh_combat_metrics_task(RefreshTickContext())
+        self.assertEqual([], recorded["stage_rows"])
+        self.assertEqual([], recorded["mob_kills"])
+
+        owner, recorded = self.build_owner(pinned=False)
+        owner._refresh_combat_metrics_task(RefreshTickContext())
+        self.assertEqual([[{"stage": "live"}]], recorded["stage_rows"])
+        self.assertEqual(1, len(recorded["mob_kills"]))

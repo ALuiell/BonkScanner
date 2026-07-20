@@ -40,6 +40,7 @@ from app import config
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from app.run_lifecycle import run_lifecycle
 from app.player_stats_view import player_stats_view
+from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.vod_capture import vod_capture
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from projections import formatting
@@ -273,7 +274,14 @@ class RefreshTasksMixin:
             record_player_stats_memory_success(self)
             self.live_run_tracker.track_kills(run_timer_seconds, mob_kills)
             self._last_fast_kps_game_time_seconds = run_timer_seconds
-            if self._is_live_stats_tab_active():
+            # `not pinned`: the user may have scrubbed the timeline to an
+            # earlier snapshot, and these two writes are live values. The slow
+            # refresh tick has honoured the pin since `d7d1350`; these were
+            # created by `9c59abd` in the same window and never got the guard,
+            # so at this task's fast cadence they repainted live rows over the
+            # scrubbed reading about once a second. That was the "stage summary
+            # flickers" report of 2026-07-20.
+            if self._is_live_stats_tab_active() and not player_stats_snapshot_is_pinned(self):
                 player_stats_view(self).set_mob_kills_text(
                     formatting.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps()),
                 )
@@ -306,7 +314,8 @@ class RefreshTasksMixin:
                 stage_duration_seconds=stage_duration_seconds,
             )
             self._mark_fast_feature_available("stage_timer")
-            if self._is_live_stats_tab_active():
+            # Same guard, same reason: see `_refresh_fast_kps_task` above.
+            if self._is_live_stats_tab_active() and not player_stats_snapshot_is_pinned(self):
                 player_stats_view(self).set_stage_summary_rows(
                     self.live_run_tracker.stage_summary_rows(),
                 )
