@@ -129,8 +129,11 @@ MRO_MODULES = {
     # `PlayerStatsRefresh` service, taking `MegabonkApp` to nine bases and the
     # app-layer slice to zero. It was the last of the five app-side bases the
     # step named.
+    # `RecordingsTabMixin` was here until step 21c converted it into
+    # `RecordingsTab`, an object built by `gui_layout._build_recordings_view`.
+    # It is the first of step 21's two subjects and took `MegabonkApp` to eight
+    # bases; `CompareRunsMixin` follows in 21d.
     "CompareRunsMixin": "ui.tabs.compare_runs",
-    "RecordingsTabMixin": "ui.tabs.player_stats",
     "ScannerMixin": "gui_scanner",
     "TwitchBotMixin": "gui_twitch",
 }
@@ -143,7 +146,13 @@ MRO_MODULES = {
 # moving, which is precisely what broke at 14b.
 MAX_PRODUCTION_CLASS_QUALIFIED_SITES = 6
 MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 5
-MAX_OBJECT_NEW_APP_DOUBLES = 60
+# Tightened at step 21c (60 -> 55): the five doubles whose subject was
+# `RecordingsTabMixin` now call `tests/support/player_stats.build_recordings_tab`,
+# the component builder its conversion added. Step 20h recorded that 60 would
+# hold until steps 21-26; this is the first step to move it, and it is the
+# migration order this file's header states -- a call site is migrated by the
+# step that converts its subject.
+MAX_OBJECT_NEW_APP_DOUBLES = 55
 
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"

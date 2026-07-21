@@ -188,7 +188,7 @@ class GuiLayoutMixin:
         self._build_logs_tab()
         self._build_session_stats_tab()
         self._player_stats_view = _build_live_stats_view(self)
-        self._build_recordings_tab()
+        self._recordings_view = _build_recordings_view(self)
         self._build_compare_runs_tab()
         self._build_overlay_tab()
         self._build_twitch_bot_tab()
@@ -641,6 +641,49 @@ class GuiLayoutMixin:
             self.refresh_vods_list()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
+
+
+def _build_recordings_view(app):
+    """Construct the Recordings tab and name its six collaborators.
+
+    The composition root for `RecordingsTab` (step 21c), kept at the exact point
+    in `setup_ui` where `self._build_recordings_tab()` used to be called so the
+    tab keeps its position in the tab bar.
+
+    This is also where the tab is registered with `VodLibrary`. Registration
+    cannot happen in `MegabonkApp.__init__` alongside the library itself: the
+    tabs do not exist until `setup_ui` runs, and a subscriber list built before
+    its subscribers is the ambient-namespace habit in a new spelling.
+
+    `is_active` hands the tab the tab-bar question without handing it the
+    router: `on_right_tab_changed` and `_refresh_vods_list_if_visible` stay
+    `gui_layout`'s until step 26.
+
+    Imported inside the function body for the reason `_build_live_stats_view`
+    records: `recordings` imports this module for its layout helpers, so a
+    module-scope import here is a cycle -- invisible to the suite and to
+    `test_import_direction`, because both analyse ASTs rather than importing.
+    """
+    from ui.tabs.player_stats import RecordingsTab
+
+    view = RecordingsTab(
+        tabview=app.tabview,
+        vod_library=app.vod_library,
+        window=lambda: app.window,
+        vod_recorder=lambda: app.player_stats_vod_recorder,
+        is_active=app._is_recordings_tab_active,
+        log=app.log,
+        schedule=lambda callback: (
+            app.after(0, callback) if app._invoker is not None else callback()
+        ),
+    )
+    view.build()
+    app.vod_library.subscribe(
+        invalidate=view.invalidate_vods_list,
+        repaint=view.refresh_vods_list,
+        failed=view.on_vod_metadata_refresh_failed,
+    )
+    return view
 
 
 def _build_live_stats_view(app):

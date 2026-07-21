@@ -45,6 +45,7 @@ from tests.support.player_stats import (
     items_section_over,
     attach_player_stats_view,
     build_live_stats_tab,
+    build_recordings_tab,
 )
 from ui.tabs.player_stats.stat_cards import StatCardsView, chaos_stats_in_game_order
 from app import config, player_stats_refresh
@@ -1616,18 +1617,18 @@ class GuiRunControlTests(unittest.TestCase):
             metadata=types.SimpleNamespace(path=Path("run.jsonl"), name="Run"),
             snapshots=(),
         )
-        app = object.__new__(MegabonkApp)
-        app.loaded_vod = None
-        app.loaded_vod_snapshot_index = None
-        app.vods_name_entry = None
+        app = build_recordings_tab()
+        app._loaded_vod = None
+        app._snapshot_index = None
+        app._name_entry = None
         app.refresh_loaded_vod_ui = lambda: None
         app.refresh_vods_list = lambda: None
 
         with patch_everywhere("load_vod", return_value=loaded_vod) as load_vod:
-            MegabonkApp.load_selected_vod(app, "C:/tmp/run.jsonl")
+            app.load_selected_vod("C:/tmp/run.jsonl")
 
         load_vod.assert_called_once_with(Path("C:/tmp/run.jsonl"))
-        self.assertIs(app.loaded_vod, loaded_vod)
+        self.assertIs(app._loaded_vod, loaded_vod)
 
     def test_load_selected_vod_disables_old_recording_actions_until_background_load_finishes(self) -> None:
         old_vod = types.SimpleNamespace(
@@ -1638,23 +1639,25 @@ class GuiRunControlTests(unittest.TestCase):
             metadata=types.SimpleNamespace(path=Path("new.jsonl"), name="New"),
             snapshots=(object(),),
         )
-        app = object.__new__(MegabonkApp)
-        app.loaded_vod = old_vod
-        app.loaded_vod_snapshot_index = 0
-        app.loaded_vod_compare_start_index = None
-        app.vods_name_entry = FakeEntry("Old")
-        app.vods_name_entry.setEnabled = lambda enabled: setattr(app.vods_name_entry, "enabled", bool(enabled))
-        app.vods_rename_btn = FakeControl()
-        app.vods_cleanup_btn = FakeControl()
-        app.vods_delete_btn = FakeControl()
-        app.vods_slider = FakeControl()
-        app.vods_compare_set_btn = FakeControl()
-        app.vods_compare_clear_btn = FakeControl()
-        app.vods_status_label = FakeLabel()
+        # `schedule=` is what puts the load on a worker thread: the mixin read
+        # `self.after` and `self._invoker` off the shared namespace to decide,
+        # and `RecordingsTab` takes one injected callable instead. Passing it is
+        # how this test still exercises the *background* branch it is named for.
+        app = build_recordings_tab(schedule=lambda callback: callback())
+        app._loaded_vod = old_vod
+        app._snapshot_index = 0
+        app._compare_start_index = None
+        app._name_entry = FakeEntry("Old")
+        app._name_entry.setEnabled = lambda enabled: setattr(app._name_entry, "enabled", bool(enabled))
+        app._rename_btn = FakeControl()
+        app._cleanup_btn = FakeControl()
+        app._delete_btn = FakeControl()
+        app._slider = FakeControl()
+        app._compare_set_btn = FakeControl()
+        app._compare_clear_btn = FakeControl()
+        app._status_label = FakeLabel()
         app.refresh_loaded_vod_ui = lambda: None
         app.refresh_vods_list = lambda: None
-        app.after = lambda _delay, callback: callback()
-        app._invoker = object()
         threads: list[object] = []
 
         def make_thread(*, target, name, daemon):
@@ -1665,59 +1668,59 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch_everywhere("load_vod", return_value=loaded_vod):
             with patch.object(threading, "Thread", side_effect=make_thread):
-                MegabonkApp.load_selected_vod(app, "C:/tmp/new.jsonl")
+                app.load_selected_vod("C:/tmp/new.jsonl")
 
-                self.assertIsNone(app.loaded_vod)
-                self.assertFalse(app.vods_name_entry.enabled)
-                self.assertFalse(app.vods_rename_btn.isEnabled())
-                self.assertFalse(app.vods_cleanup_btn.isEnabled())
-                self.assertFalse(app.vods_delete_btn.isEnabled())
-                self.assertFalse(app.vods_slider.isEnabled())
-                self.assertFalse(app.vods_compare_set_btn.isEnabled())
-                self.assertFalse(app.vods_compare_clear_btn.isEnabled())
+                self.assertIsNone(app._loaded_vod)
+                self.assertFalse(app._name_entry.enabled)
+                self.assertFalse(app._rename_btn.isEnabled())
+                self.assertFalse(app._cleanup_btn.isEnabled())
+                self.assertFalse(app._delete_btn.isEnabled())
+                self.assertFalse(app._slider.isEnabled())
+                self.assertFalse(app._compare_set_btn.isEnabled())
+                self.assertFalse(app._compare_clear_btn.isEnabled())
 
                 with patch_everywhere("rename_vod") as rename_vod:
-                    MegabonkApp.rename_selected_vod(app)
+                    app.rename_selected_vod()
                 rename_vod.assert_not_called()
 
                 threads[0].target()
 
-        self.assertIs(app.loaded_vod, loaded_vod)
-        self.assertTrue(app.vods_name_entry.enabled)
-        self.assertTrue(app.vods_rename_btn.isEnabled())
-        self.assertTrue(app.vods_cleanup_btn.isEnabled())
-        self.assertTrue(app.vods_delete_btn.isEnabled())
-        self.assertTrue(app.vods_slider.isEnabled())
-        self.assertTrue(app.vods_compare_set_btn.isEnabled())
-        self.assertFalse(app.vods_compare_clear_btn.isEnabled())
+        self.assertIs(app._loaded_vod, loaded_vod)
+        self.assertTrue(app._name_entry.enabled)
+        self.assertTrue(app._rename_btn.isEnabled())
+        self.assertTrue(app._cleanup_btn.isEnabled())
+        self.assertTrue(app._delete_btn.isEnabled())
+        self.assertTrue(app._slider.isEnabled())
+        self.assertTrue(app._compare_set_btn.isEnabled())
+        self.assertFalse(app._compare_clear_btn.isEnabled())
 
     def test_load_selected_vod_clears_old_ui_when_load_fails(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.loaded_vod = types.SimpleNamespace(snapshots=(object(),))
-        app.loaded_vod_snapshot_index = 0
-        app.loaded_vod_compare_start_index = None
-        app.vods_name_entry = FakeEntry("Old")
-        app.vods_name_entry.setEnabled = lambda enabled: setattr(app.vods_name_entry, "enabled", bool(enabled))
-        app.vods_rename_btn = FakeControl()
-        app.vods_cleanup_btn = FakeControl()
-        app.vods_delete_btn = FakeControl()
-        app.vods_slider = FakeControl()
-        app.vods_compare_set_btn = FakeControl()
-        app.vods_compare_clear_btn = FakeControl()
-        app.vods_status_label = FakeLabel()
+        app = build_recordings_tab()
+        app._loaded_vod = types.SimpleNamespace(snapshots=(object(),))
+        app._snapshot_index = 0
+        app._compare_start_index = None
+        app._name_entry = FakeEntry("Old")
+        app._name_entry.setEnabled = lambda enabled: setattr(app._name_entry, "enabled", bool(enabled))
+        app._rename_btn = FakeControl()
+        app._cleanup_btn = FakeControl()
+        app._delete_btn = FakeControl()
+        app._slider = FakeControl()
+        app._compare_set_btn = FakeControl()
+        app._compare_clear_btn = FakeControl()
+        app._status_label = FakeLabel()
         app._clear_loaded_vod_selection = MagicMock()
 
         with patch_everywhere("load_vod", side_effect=ValueError("broken file")):
-            MegabonkApp.load_selected_vod(app, "C:/tmp/broken.jsonl")
+            app.load_selected_vod("C:/tmp/broken.jsonl")
 
         app._clear_loaded_vod_selection.assert_called_once_with()
-        self.assertIsNone(app.loaded_vod)
-        self.assertEqual(app.vods_status_label.text(), "Could not load recording: broken file")
-        self.assertFalse(app.vods_name_entry.enabled)
-        self.assertFalse(app.vods_rename_btn.isEnabled())
-        self.assertTrue(app.vods_cleanup_btn.isEnabled())
-        self.assertFalse(app.vods_delete_btn.isEnabled())
-        self.assertFalse(app.vods_slider.isEnabled())
+        self.assertIsNone(app._loaded_vod)
+        self.assertEqual(app._status_label.text(), "Could not load recording: broken file")
+        self.assertFalse(app._name_entry.enabled)
+        self.assertFalse(app._rename_btn.isEnabled())
+        self.assertTrue(app._cleanup_btn.isEnabled())
+        self.assertFalse(app._delete_btn.isEnabled())
+        self.assertFalse(app._slider.isEnabled())
 
     def test_edit_template_dialog_opens_template_manager(self) -> None:
         opened: list[object] = []
@@ -4470,22 +4473,22 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertNotIn("Za Warudo +1", calls[0]["kwargs"]["new_items_text"])
 
     def test_display_loaded_vod_snapshot_shows_legacy_in_game_fallback(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.vods_status_label = FakeLabel()
-        app.vods_slider_time_label = FakeLabel()
+        app = build_recordings_tab()
+        app._status_label = FakeLabel()
+        app._slider_time_label = FakeLabel()
         app.vods_items_label = FakeLabel()
-        app.vods_in_game_time_label = FakeLabel()
-        app.vods_chests_per_minute_label = FakeLabel()
-        app.vods_mob_kills_label = FakeLabel()
-        app.vods_kps_averages_label = FakeLabel()
-        app.vods_level_label = FakeLabel()
-        app.vods_new_items_label = FakeLabel()
-        app.vods_banishes_label = FakeLabel()
-        app.vods_stage_summary_labels = []
-        app.vods_rows = {"Damage": FakeLabel()}
-        app._vod_stat_cards = RecordingStatCardsView()
-        app._vod_items_section = items_section_over(app.vods_items_label)
-        app.loaded_vod_snapshot_index = None
+        app._in_game_time_label = FakeLabel()
+        app._chests_per_minute_label = FakeLabel()
+        app._mob_kills_label = FakeLabel()
+        app._kps_averages_label = FakeLabel()
+        app._level_label = FakeLabel()
+        app._new_items_label = FakeLabel()
+        app._banishes_label = FakeLabel()
+        app._stage_summary_labels = []
+        app._rows = {"Damage": FakeLabel()}
+        app._stat_cards = RecordingStatCardsView()
+        app._items_section = items_section_over(app.vods_items_label)
+        app._snapshot_index = None
         snapshot = SimpleNamespace(
             stats={"Damage": SimpleNamespace(display_value="123", value=1.23)},
             items=("Wrench x1",),
@@ -4498,43 +4501,43 @@ class GuiRunControlTests(unittest.TestCase):
             time_label="00:00",
         )
         metadata = SimpleNamespace(name="Legacy run")
-        app.loaded_vod = SimpleNamespace(metadata=metadata, snapshots=[snapshot])
+        app._loaded_vod = SimpleNamespace(metadata=metadata, snapshots=[snapshot])
 
-        MegabonkApp.display_loaded_vod_snapshot(app, 0)
+        app.display_loaded_vod_snapshot(0)
 
-        self.assertEqual(app.vods_status_label.text(), "Legacy run | 1/1 at 00:00 | In-Game Time: --")
-        self.assertEqual(app.vods_in_game_time_label.text(), "In-Game Time: --")
-        self.assertEqual(app.vods_mob_kills_label.text(), "Mob Kills: --")
-        self.assertEqual(app.vods_kps_averages_label.text(), "KPS: 60s -- | 5m --")
-        self.assertEqual(app.vods_level_label.text(), "Level: --")
-        self.assertEqual(app.vods_new_items_label.text(), "No previous snapshot")
-        self.assertEqual(app.vods_banishes_label.text(), "No banishes yet")
+        self.assertEqual(app._status_label.text(), "Legacy run | 1/1 at 00:00 | In-Game Time: --")
+        self.assertEqual(app._in_game_time_label.text(), "In-Game Time: --")
+        self.assertEqual(app._mob_kills_label.text(), "Mob Kills: --")
+        self.assertEqual(app._kps_averages_label.text(), "KPS: 60s -- | 5m --")
+        self.assertEqual(app._level_label.text(), "Level: --")
+        self.assertEqual(app._new_items_label.text(), "No previous snapshot")
+        self.assertEqual(app._banishes_label.text(), "No banishes yet")
         self.assertEqual(app.vods_items_label.text(), "Wrench x1")
 
     def test_display_loaded_vod_snapshot_updates_damage_sources_tab(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.vods_status_label = FakeLabel()
-        app.vods_slider_time_label = FakeLabel()
+        app = build_recordings_tab()
+        app._status_label = FakeLabel()
+        app._slider_time_label = FakeLabel()
         app.vods_items_label = FakeLabel()
-        app.vods_in_game_time_label = FakeLabel()
-        app.vods_chests_per_minute_label = FakeLabel()
-        app.vods_mob_kills_label = FakeLabel()
-        app.vods_kps_averages_label = FakeLabel()
-        app.vods_level_label = FakeLabel()
-        app.vods_new_items_label = FakeLabel()
-        app.vods_banishes_label = FakeLabel()
-        app.vods_stage_summary_labels = []
-        app.vods_rows = {}
-        app._vod_stat_cards = RecordingStatCardsView()
-        app._vod_items_section = RecordingItemsSectionView()
+        app._in_game_time_label = FakeLabel()
+        app._chests_per_minute_label = FakeLabel()
+        app._mob_kills_label = FakeLabel()
+        app._kps_averages_label = FakeLabel()
+        app._level_label = FakeLabel()
+        app._new_items_label = FakeLabel()
+        app._banishes_label = FakeLabel()
+        app._stage_summary_labels = []
+        app._rows = {}
+        app._stat_cards = RecordingStatCardsView()
+        app._items_section = RecordingItemsSectionView()
         app.resolve_snapshot_chests_per_minute = lambda snapshot: getattr(snapshot, "chests_per_minute", None)
         attach_player_stats_view(app).set_stage_summary_rows = lambda rows: None
         app._resolve_vod_compare_base_snapshot = lambda index: None
         app._vod_compare_segment_snapshots = lambda index: ()
         app._refresh_vod_compare_controls = lambda *args, **kwargs: None
         app._refresh_vod_compare_details = lambda *args, **kwargs: None
-        app.loaded_vod_compare_start_index = None
-        app.vods_compare_details_expanded = False
+        app._compare_start_index = None
+        app._compare_details_expanded = False
         snapshot = SimpleNamespace(
             stats={},
             items=(),
@@ -4553,16 +4556,16 @@ class GuiRunControlTests(unittest.TestCase):
             time_label="01:00",
         )
         metadata = SimpleNamespace(name="Run")
-        app.loaded_vod = SimpleNamespace(metadata=metadata, snapshots=[snapshot])
+        app._loaded_vod = SimpleNamespace(metadata=metadata, snapshots=[snapshot])
 
-        MegabonkApp.display_loaded_vod_snapshot(app, 0)
+        app.display_loaded_vod_snapshot(0)
 
-        self.assertEqual(len(app._vod_stat_cards.damage_sources), 1)
-        sources, status_text = app._vod_stat_cards.damage_sources[0]
+        self.assertEqual(len(app._stat_cards.damage_sources), 1)
+        sources, status_text = app._stat_cards.damage_sources[0]
         self.assertIsNone(status_text)
         self.assertEqual(sources[0].source_name, "Katana")
-        self.assertEqual(app.vods_mob_kills_label.text(), "Mob Kills: 10 (150/s)")
-        self.assertEqual(app.vods_kps_averages_label.text(), "KPS: 60s 243/s | 5m 221/s")
+        self.assertEqual(app._mob_kills_label.text(), "Mob Kills: 10 (150/s)")
+        self.assertEqual(app._kps_averages_label.text(), "KPS: 60s 243/s | 5m 221/s")
 
     def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
         self.assertEqual(formatting.format_in_game_time(None), "In-Game Time: --")

@@ -13,7 +13,6 @@ from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
 from app.player_stats_refresh import player_stats_refresh
 from ui.tabs.compare_runs import CompareRunsMixin
-from ui.tabs.player_stats import RecordingsTabMixin
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
@@ -34,7 +33,6 @@ class MegabonkApp(
     OverlayMixin,
     InGameOverlayMixin,
     CompareRunsMixin,
-    RecordingsTabMixin,
     ScannerMixin,
     TwitchBotMixin,
 ):
@@ -101,34 +99,14 @@ class MegabonkApp(
         # `player_stats_snapshot_pinned` stay: they are app-layer state that
         # `vod_capture` and `player_stats_refresh` also write, so the tab
         # reports selections back through a callback rather than owning them.
-        self.vods_list_frame = None
-        self.vods_chooser_group = None
-        self.vods_select_btn = None
-        self.vods_status_label = None
-        self.vods_name_entry = None
-        self.vods_rename_btn = None
-        self.vods_delete_btn = None
-        self.vods_slider = None
-        self.vods_slider_time_label = None
-        self.vods_detail_tabs = None
-        self.vods_rows = {}
-        # Same nine, owned by the Recordings tab's own ItemsSectionView.
-        self.vods_banishes_label = None
-        self.vods_in_game_time_label = None
-        self.vods_chests_per_minute_label = None
-        self.vods_mob_kills_label = None
-        self.vods_level_label = None
-        self.vods_new_items_label = None
-        self.vods_compare_set_btn = None
-        self.vods_compare_clear_btn = None
-        self.vods_compare_details_btn = None
-        self.vods_compare_details_group = None
-        self.vods_compare_details_summary_label = None
-        self.vods_compare_details_items_label = None
-        self.vods_stage_summary_labels = []
-        # Same 14, owned by the Recordings tab's own StatCardsView.
-        self.recordings_chooser_expanded = False
-        self.recordings_guided_selection_active = False
+        # Every Recordings widget is gone from the shared namespace too: step
+        # 21c made `RecordingsTab` an object with its own private widgets, built
+        # by `gui_layout._build_recordings_view`. Twenty-four slots left here,
+        # plus the two chooser flags and, below, the four selection names and
+        # the list signature. None of them had a production reader outside the
+        # tab module -- these `= None` lines were their only other mention,
+        # which is the measurement that let them move whole rather than stay as
+        # app surface behind a port.
         self.compare_run_a_list_frame = None
         self.compare_run_b_list_frame = None
         self.compare_runs_chooser_group = None
@@ -248,10 +226,6 @@ class MegabonkApp(
         # `VodCapture`'s fields now (step 20). The three above stay: their
         # readers are the Live Stats tab and `gui_layout`, and the tab writes
         # two of them back through its selection callback.
-        self.loaded_vod = None
-        self.loaded_vod_snapshot_index = None
-        self.loaded_vod_compare_start_index = None
-        self.vods_compare_details_expanded = False
         self.compare_run_a_vod = None
         self.compare_run_b_vod = None
         self.compare_run_a_snapshot_index = None
@@ -292,9 +266,7 @@ class MegabonkApp(
             "tracked_rows": (),
         }
         self._twitch_session_snapshot_lock = threading.Lock()
-        self._vod_load_generation = 0
         self._compare_run_load_generations = {}
-        self.vods_list_signature = None
         # The recording-metadata index, its refresh cycle and its two guards,
         # in one named object (step 21). They were four attributes here, read by
         # both recording tabs and written by one of them, whose completion
@@ -309,11 +281,6 @@ class MegabonkApp(
             schedule=lambda callback: (
                 self.after(0, callback) if self._invoker is not None else callback()
             ),
-        )
-        self.vod_library.subscribe(
-            invalidate=self.invalidate_vods_list,
-            repaint=self.refresh_vods_list,
-            failed=self.on_vod_metadata_refresh_failed,
         )
         self.vod_library.subscribe(
             invalidate=self.invalidate_compare_runs_list,
@@ -414,6 +381,24 @@ class MegabonkApp(
 
     def refresh_live_player_stats_now(self, **kwargs) -> bool:
         return player_stats_refresh(self).refresh_now(**kwargs)
+
+    # -- Recordings tab (step 21c) ----------------------------------------
+    #
+    # Two one-line delegators, for the same reason `refresh_live_player_stats_now`
+    # above keeps one: both are called *on the app* by the tab-switch router in
+    # `gui_layout` (`on_right_tab_changed`, `_refresh_right_tab_after_switch`,
+    # `_refresh_vods_list_if_visible`), and that router is **step 26's**. Step 21
+    # may not assign it to a tab, so the app keeps the surface the router calls
+    # and forwards it to the view it built.
+    #
+    # `hasattr(self, "ensure_recordings_chooser_for_empty_selection")` in
+    # `gui_layout` guards both call sites. That guard going quietly false is the
+    # silent-failure shape step 19's header records, so the name stays.
+    def refresh_vods_list(self) -> None:
+        return self._recordings_view.refresh_vods_list()
+
+    def ensure_recordings_chooser_for_empty_selection(self) -> None:
+        return self._recordings_view.ensure_recordings_chooser_for_empty_selection()
 
     @property
     def qt_app(self) -> QApplication:

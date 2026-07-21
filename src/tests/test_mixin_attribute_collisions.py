@@ -133,9 +133,11 @@ def _class_defs() -> dict[str, ast.ClassDef]:
 def _self_assignments(class_def: ast.ClassDef) -> set[str]:
     """Every `self.NAME = ...` a class performs, at any nesting depth.
 
-    Includes assignments inside nested closures, because
-    `RecordingsTabMixin._ensure_vod_metadata_refresh` defines one and it writes
-    `self.vods_list_signature` from a worker thread.
+    Includes assignments inside nested closures, because the VOD load and
+    metadata-refresh completion callbacks are closures that write selection
+    state from a worker thread. Step 21c moved both off the MRO into
+    `RecordingsTab`, which is why the depth guard below scans that class by
+    name rather than through `MegabonkApp`'s bases.
     """
     names: set[str] = set()
     for node in ast.walk(class_def):
@@ -195,27 +197,35 @@ class MixinAttributeCollisionTests(unittest.TestCase):
         )
 
     def test_the_two_tabs_own_their_components_separately(self) -> None:
-        """The specific regression, pinned by name.
+        """The specific regression, now retired rather than guarded.
 
-        Step 19 removed one half of it structurally: `LiveStatsTab` is not a
-        base of `MegabonkApp` any more, so its `_stat_cards` and
-        `_items_section` are on its own object and *cannot* collide with the
-        Recordings tab's. That is the fix the underscore was mistaken for.
+        Step 19 removed one half structurally: `LiveStatsTab` stopped being a
+        base of `MegabonkApp`, so its `_stat_cards` and `_items_section` sit on
+        its own object and *cannot* collide. That is the fix the underscore
+        prefix was mistaken for.
 
-        `RecordingsTabMixin` is still a mixin, so its two handles still have to
-        be prefixed, and no mixin may introduce the un-prefixed names while it
-        is. Step 21/26 retires the last of this.
+        **Step 21c removed the other half.** `RecordingsTab` is an object too,
+        so its two handles went back to the un-prefixed `_stat_cards` /
+        `_items_section` -- which is now correct, not a regression: two private
+        attributes on two different objects are not one namespace. The
+        `_vod_`-prefix that used to be required is exactly the workaround a real
+        conversion retires.
+
+        What remains checkable is that neither tab has come back onto the MRO,
+        and that no *mixin* claims the un-prefixed names while it is one.
         """
         assignments = _assignments_by_mixin()
 
-        self.assertNotIn(
-            "LiveStatsTabMixin",
-            assignments,
-            "the Live Stats mixin is back in MegabonkApp's bases",
-        )
-        vod = assignments["RecordingsTabMixin"]
-        self.assertIn("_vod_stat_cards", vod)
-        self.assertIn("_vod_items_section", vod)
+        for gone in ("LiveStatsTabMixin", "RecordingsTabMixin"):
+            self.assertNotIn(
+                gone,
+                assignments,
+                f"{gone} is back in MegabonkApp's bases",
+            )
+
+        tab = _self_assignments(_class_defs()["RecordingsTab"])
+        self.assertIn("_stat_cards", tab)
+        self.assertIn("_items_section", tab)
 
         everywhere = set().union(*assignments.values())
         self.assertEqual(
@@ -228,24 +238,29 @@ class MixinAttributeCollisionTests(unittest.TestCase):
     def test_the_scan_actually_reads_the_mixins(self) -> None:
         """Step 13's guard: a scan that finds nothing passes trivially."""
         assignments = _assignments_by_mixin()
-        # `> 8`, not `> 10`: this counts `MegabonkApp`'s bases, and step 20 is
-        # deliberately retiring them one per commit (20f took `RefreshTasksMixin`
-        # to 10; 20g takes `PlayerStatsRefreshMixin` to 9). The guard exists to
-        # catch a scan that reads *nothing*, so it must track the shrinking MRO
-        # rather than pin it -- the MRO itself is ratcheted by
+        # This counts `MegabonkApp`'s bases, and they are being retired one per
+        # commit (20f -> 10, 20g -> 9, 21c -> 8, 21d -> 7). The guard exists to
+        # catch a scan that reads *nothing*, so it tracks the shrinking MRO
+        # rather than pinning it -- the MRO itself is ratcheted by
         # `test_componentization_inventory`'s `MRO_MODULES`, which is where a
         # base reappearing gets caught.
-        self.assertGreater(len(assignments), 8, "found almost no mixins")
+        self.assertGreater(len(assignments), 3, "found almost no mixins")
+        # Shrinks with the MRO for the same reason the base count does: step
+        # 21c took `RecordingsTabMixin`'s ~40 assignments off it (231 -> 195).
         self.assertGreater(
             sum(len(names) for names in assignments.values()),
-            200,
+            150,
             "found almost no assignments; the walk is not reaching method bodies",
         )
         # A name assigned inside a nested closure must be seen, or the walk is
-        # shallower than the code it checks.
+        # shallower than the code it checks. Anchored on `RecordingsTab` by name
+        # rather than through the MRO: step 21c took it off `MegabonkApp`'s
+        # bases, and after that **no remaining mixin assigns `self.X` inside a
+        # nested function at all** (measured), so routing this guard through
+        # `_assignments_by_mixin` would leave it asserting nothing.
         self.assertIn(
-            "vods_list_signature",
-            assignments["RecordingsTabMixin"],
+            "_list_signature",
+            _self_assignments(_class_defs()["RecordingsTab"]),
             "assignments inside nested functions are being missed",
         )
 

@@ -16,7 +16,9 @@ Each component gets its own builder, added by the step that converts it.
 from __future__ import annotations
 
 from ui.tabs.player_stats.items_section import ItemsSectionView
+from app.vod_library import VodLibrary
 from ui.tabs.player_stats.live_stats import LiveStatsTab
+from ui.tabs.player_stats.recordings import RecordingsTab
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 from ui.tabs.player_stats.stat_cards import StatCardsView
 
@@ -431,3 +433,36 @@ def attach_player_stats_view(app) -> LiveStatsTab:
             setattr(view, private, app.__dict__[public])
     app._player_stats_view = view
     return view
+
+
+def build_recordings_tab(**overrides) -> RecordingsTab:
+    """Construct `RecordingsTab` through its **real** constructor.
+
+    Added by step 21c, the step that converted the tab -- the migration order
+    this module's header states: a call site is migrated by the step that
+    converts its subject, never in bulk ahead of it.
+
+    `build()` is **not** called, for the same reason `build_live_stats_tab`
+    does not call it: that needs real offscreen Qt. Tests that need widgets
+    assign the private ones they assert on, and the *built* tab is covered by
+    `tools/step21_vod_trace.py`, which drives it offscreen through seventeen
+    scenarios.
+
+    `vod_library` defaults to a real `VodLibrary` over an empty index, not a
+    stub: it is the object step 21 exists to introduce, and a test that stubs
+    it proves nothing about the wiring. Pass one built over a fake
+    `load_cached`/`refresh_index` to drive the index.
+    """
+    defaults = {
+        "tabview": None,
+        "vod_library": VodLibrary(load_cached=tuple, refresh_index=tuple),
+        "window": lambda: None,
+        "vod_recorder": lambda: None,
+        "is_active": lambda: True,
+        "log": lambda *args, **kwargs: None,
+        "schedule": None,
+    }
+    unknown = set(overrides) - set(defaults)
+    assert not unknown, f"not RecordingsTab constructor arguments: {sorted(unknown)}"
+    defaults.update(overrides)
+    return RecordingsTab(**defaults)
