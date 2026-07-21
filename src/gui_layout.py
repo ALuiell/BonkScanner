@@ -187,6 +187,16 @@ class GuiLayoutMixin:
         self._compare_runs_view = _build_compare_runs_view(self)
         self._build_overlay_tab()
         self._build_twitch_bot_tab()
+        # These two lines were the last two of `_build_twitch_bot_tab` (step
+        # 23a). The Twitch tab builder built the In-Game Overlay tab as well and
+        # added it to the tab bar, which is where two of `gui_twitch.py`'s nine
+        # hidden reads came from -- `_build_in_game_overlay_tab` and
+        # `tab_in_game_overlay`. The in-game overlay is step 24's subject, so
+        # nothing about it moves here: only the call site, hoisted to the
+        # builder list it belongs in, in the position that keeps the tab bar's
+        # order identical.
+        self._build_in_game_overlay_tab()
+        self.tabview.addTab(self.tab_in_game_overlay, "In-Game Overlay")
         self._build_footer_controls(right_layout)
 
     def _build_header(self, root_layout):
