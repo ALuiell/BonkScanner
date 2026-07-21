@@ -132,7 +132,6 @@ MRO_MODULES = {
     "MegabonkApp": "gui_app",
     "GuiLayoutMixin": "gui_layout",
     "RunControlMixin": "gui_run_control",
-    "OverlayMixin": "gui_overlay",
     # `PlayerStatsRefreshMixin` was here until step 20g converted it into the
     # `PlayerStatsRefresh` service, taking `MegabonkApp` to nine bases and the
     # app-layer slice to zero. It was the last of the five app-side bases the
@@ -158,6 +157,10 @@ MRO_MODULES = {
     # and settings tab now belong to `gui_in_game_overlay.InGameOverlay`, wired
     # by `build_in_game_overlay`; the app retains only the layout, hotkey and
     # shutdown delegators required by steps 26/25. The app is at **four** bases.
+    # `OverlayMixin` followed in step 24c. `gui_overlay.Overlay` owns the OBS
+    # view/runtime and the Twitch session snapshot; app methods left behind are
+    # only the measured step-25/26 and app-service forwarding surface. The app
+    # is at **three** bases.
     "ScannerMixin": "gui_scanner",
 }
 
@@ -217,7 +220,10 @@ MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 0
 # in-game overlay now construct `InGameOverlay` through an explicit-port test
 # builder. The other five tests whose fixtures happen to mention overlay state
 # still exercise refresh or shutdown owners and therefore remain app doubles.
-MAX_OBJECT_NEW_APP_DOUBLES = 35
+# Tightened again at step 24c (35 -> 34): the session tracked-items formatter
+# test now constructs `Overlay`; the refresh/shutdown tests remain app doubles
+# because overlay state is only incidental setup for their actual subject.
+MAX_OBJECT_NEW_APP_DOUBLES = 34
 
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"

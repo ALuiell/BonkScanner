@@ -185,7 +185,7 @@ class GuiLayoutMixin:
         self._player_stats_view = _build_live_stats_view(self)
         self._recordings_view = _build_recordings_view(self)
         self._compare_runs_view = _build_compare_runs_view(self)
-        self._build_overlay_tab()
+        self.tabview.addTab(self._build_overlay_tab(), "OBS Overlay")
         # The ~240 lines that built the Twitch tab's widgets are
         # `TwitchTab.build()`'s now (step 23b).
         self._twitch_tab = _build_twitch_tab(self)

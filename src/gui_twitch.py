@@ -85,7 +85,7 @@ class TwitchTokenRevokeWorker(QThread):
         self.revoke_finished.emit(revoked, message)
 
 
-def build_twitch_session(app, view):
+def build_twitch_session(app, view, *, session_stats_provider):
     """Construct `TwitchSession` and name its fourteen collaborators.
 
     The composition root for step 23c, called from `gui_app.__init__` at the
@@ -103,18 +103,10 @@ def build_twitch_session(app, view):
     services and `_build_recordings_view` both follow: this runs during
     `__init__`, and a captured `app.window` would freeze whatever it was then.
 
-    `tracker` and `session_stats_provider` are suppliers for the same reason.
-    `live_run_tracker` is `None` until `gui_overlay` builds it, and the bot
-    worker is created much later, on demand -- reading either eagerly here
-    would hand the worker a `None` it never had before.
-
-    `session_stats_provider` supplies the **application**, and that is
-    deliberate: `TwitchBotWorker` answers `!session` through
-    `getattr(provider, "format_twitch_session_summary", None)`, and that
-    formatter is `OverlayMixin`'s. Passing the session or the tab here would
-    turn `!session` into a silent empty answer -- no exception, green suite --
-    which is the step-19 failure shape. Step 24 owns the overlay and re-points
-    this one argument.
+    `tracker` remains a supplier because the bot worker is created later, on
+    demand. `session_stats_provider` is the explicit step-24 owner of both the
+    snapshot and `format_twitch_session_summary`; passing the application here
+    was the last silent `!session` dependency left by step 23.
     """
     from app.player_stats_memory import player_stats_memory
     from app.twitch_session import TwitchSession
@@ -146,7 +138,7 @@ def build_twitch_session(app, view):
         # and silently ignore a later reassignment.
         log=lambda *args, **kwargs: app.log(*args, **kwargs),
         tracker=lambda: app.live_run_tracker,
-        session_stats_provider=lambda: app,
+        session_stats_provider=lambda: session_stats_provider,
         timer_factory=lambda: QTimer(app.window),
         auth_thread_factory=lambda: TwitchAuthThread(app.window),
         bot_worker_factory=lambda tracker, provider: TwitchBotWorker(

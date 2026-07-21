@@ -21,22 +21,21 @@ concern, so the factories close over it and the word `window` does not occur in
 this file. That is step 23's third exit criterion, and it is checked
 structurally by `test_twitch_component.py` rather than by reading.
 
-`session_stats_provider` is the one port that still hands out the application
--------------------------------------------------------------------------------
+`session_stats_provider` is the explicit session-summary owner
+---------------------------------------------------------------
 `TwitchBotWorker` answers `!session` by doing
 `getattr(self.session_stats_provider, "format_twitch_session_summary", None)`
-in its worker thread (`twitch_bot.py:377`). That formatter is **`OverlayMixin`'s**
+in its worker thread (`twitch_bot.py:377`). That formatter is owned by the
+explicit `gui_overlay.Overlay` session-stats provider
 (`gui_overlay.py:1048`), not Twitch's, and it reads a snapshot that
 `gui_overlay` writes and `gui_scanner` triggers -- not one line of which was
 ever in `gui_twitch.py`. Measured, not assumed by name.
 
-So the provider cannot become this object: the `getattr` would return `None`,
+The provider cannot become this object: the `getattr` would return `None`,
 `!session` would answer with nothing, and it would do so with no exception and
-a green suite. That is precisely the step-19 failure shape. Until step 24 moves
-the overlay, the composition root passes the application here as an explicit
-supplier, and step 24 re-points this one argument at the overlay component. The
-coupling is unchanged; what changed is that it is now named in a signature
-instead of being `self`.
+a green suite. Step 24 therefore gives the snapshot and formatter one owner,
+`gui_overlay.Overlay`, and the composition root supplies that object directly;
+the application is no longer exposed through this port.
 """
 
 from __future__ import annotations

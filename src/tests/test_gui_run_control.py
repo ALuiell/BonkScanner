@@ -59,7 +59,6 @@ from gui_dialogs import (
     TemplateManagerDialog,
     TwitchCommandSettingsDialog,
 )
-from gui_overlay import OverlayMixin
 from app.vod_capture import (
     PLAYER_STATS_RECORDING_SEED_GRACE_SECONDS,
     _stage_index_signals_new_run,
@@ -283,6 +282,41 @@ class FakeOverlayTimer:
 
     def stop(self) -> None:
         self.stop_calls += 1
+
+
+class FakeOverlayServer:
+    def __init__(self, *, port: int = 17845) -> None:
+        self.port = port
+        self.is_running = False
+        self.last_error = None
+
+    def start(self) -> None:
+        self.is_running = True
+
+    def stop(self) -> None:
+        self.is_running = False
+
+
+def build_overlay_test_component(*, template_stats=None, session_rerolls: int = 0):
+    tracker = LiveRunTracker()
+    server = FakeOverlayServer()
+    state_store = SimpleNamespace(set_state=MagicMock())
+    coordinator = SimpleNamespace(
+        live_run_tracker=tracker,
+        overlay_server=server,
+        overlay_state_store=state_store,
+        rebuild_overlay_server=lambda **kwargs: FakeOverlayServer(port=kwargs["port"]),
+    )
+    overlay = gui_overlay.Overlay(
+        coordinator,
+        stats_tab=lambda: None,
+        stats_tracked_items_label=lambda: None,
+        template_stats=lambda: template_stats or {},
+        session_rerolls=lambda: session_rerolls,
+        overlay_tab_active=lambda: True,
+        server_rebuilt=lambda _server: None,
+    )
+    return overlay
 
 
 def build_in_game_overlay_test_component(
@@ -5097,46 +5131,40 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(formatting._normalize_item_name_for_rarity("Wrench"), "Wrench")
 
     def test_overlay_settings_persist_auto_start_checkbox(self) -> None:
-        app = types.SimpleNamespace(
-            overlay_port_entry=FakeEntry("17845"),
-            overlay_auto_start_cb=FakeCheckbox(True),
-            overlay_widget_checkboxes={},
-            overlay_stats_checkboxes=None,
-            overlay_stage_summary_bg_checkbox=None,
-            overlay_banishes_bg_checkbox=None,
-            overlay_tracked_rules_list=None,
-            overlay_server=types.SimpleNamespace(is_running=False),
-            live_run_tracker=MagicMock(),
-            _overlay_widget_config_by_id=lambda: {},
-            _combined_tracked_item_rules=lambda: [],
-            update_overlay_state_from_tracker=MagicMock(),
-            refresh_overlay_ui=MagicMock(),
-        )
-        overlay = deepcopy(config.DEFAULT_OVERLAY)
+        component = build_overlay_test_component()
+        component.overlay_port_entry = FakeEntry("17845")
+        component.overlay_auto_start_cb = FakeCheckbox(True)
+        component.overlay_widget_checkboxes = {}
+        component.overlay_stats_checkboxes = None
+        component.overlay_stage_summary_bg_checkbox = None
+        component.overlay_banishes_bg_checkbox = None
+        component.overlay_tracked_rules_list = None
+        component.update_overlay_state_from_tracker = MagicMock()
+        component.refresh_overlay_ui = MagicMock()
+        overlay_cfg = deepcopy(config.DEFAULT_OVERLAY)
 
-        with patch.object(config, "OVERLAY", overlay), \
+        with patch.object(config, "OVERLAY", overlay_cfg), \
              patch.object(config, "user_config", {}), \
              patch.object(config, "save_config") as save_config:
-            OverlayMixin.save_overlay_settings_from_ui(app)
+            component.save_overlay_settings_from_ui()
 
             self.assertTrue(config.OVERLAY["auto_start"])
             self.assertTrue(config.user_config["OVERLAY"]["auto_start"])
             save_config.assert_called_once_with(config.user_config)
 
     def test_overlay_autostart_uses_auto_start_setting(self) -> None:
-        app = types.SimpleNamespace(
-            start_overlay_server=MagicMock(),
-            update_overlay_state_from_tracker=MagicMock(),
-        )
+        component = build_overlay_test_component()
+        component.start_overlay_server = MagicMock()
+        component.update_overlay_state_from_tracker = MagicMock()
 
         with patch.object(config, "OVERLAY", {"enabled": True, "auto_start": False}):
-            OverlayMixin.apply_overlay_autostart(app)
-        app.start_overlay_server.assert_not_called()
+            component.apply_overlay_autostart()
+        component.start_overlay_server.assert_not_called()
 
         with patch.object(config, "OVERLAY", {"enabled": False, "auto_start": True}):
-            OverlayMixin.apply_overlay_autostart(app)
-        app.start_overlay_server.assert_called_once_with()
-        self.assertEqual(app.update_overlay_state_from_tracker.call_count, 2)
+            component.apply_overlay_autostart()
+        component.start_overlay_server.assert_called_once_with()
+        self.assertEqual(component.update_overlay_state_from_tracker.call_count, 2)
 
     def test_normalize_item_name_for_display_replaces_no_implementation(self) -> None:
         self.assertEqual(formatting._normalize_item_name_for_display("No Implementation"), "The One Ring")
@@ -5291,12 +5319,11 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(chests_and_keys_args, [(12, 50, 1)])
 
     def test_session_tracked_items_stats_tab_includes_seed_percent(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.template_stats = {
+        component = build_overlay_test_component(template_stats={
             "template_a": {"history": [1, 2]},
             "template_b": {"history": [3, 4]},
-        }
-        app.live_run_tracker = SimpleNamespace(
+        })
+        component.live_run_tracker = SimpleNamespace(
             tracked_item_rows_for_rules=lambda _rules: [
                 {
                     "id": "kevin_plug",
@@ -5307,7 +5334,7 @@ class GuiRunControlTests(unittest.TestCase):
             ]
         )
 
-        text = MegabonkApp.format_session_tracked_items_for_stats_tab(app)
+        text = component.format_session_tracked_items_for_stats_tab()
 
         self.assertEqual(text, "Kevin + Electric Plug T1: 2 (50.00%)")
 

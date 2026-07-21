@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
+import threading
+from typing import Any, Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor
@@ -35,7 +36,6 @@ from ui.shared import (
     _set_text,
     _set_text_input,
 )
-from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import _button_state_stylesheet
 from projections.tracked_items import (
     available_tracked_item_names,
@@ -117,31 +117,92 @@ OVERLAY_KPS_METRIC_LABELS = (
     ("run_avg", "Run Avg"),
 )
 
-class OverlayMixin:
-    def initialize_overlay_runtime(self) -> None:
-        # Construction moved to AppCoordinator (step 11); these are aliases onto
-        # the instances it owns. Kept as a mixin method because tests that build
-        # an app double without __init__ call it directly to get a runtime.
-        coordinator = self._ensure_app_coordinator()
+class Overlay:
+    """OBS overlay runtime, settings view and tracked-item configuration."""
+
+    def __init__(
+        self,
+        coordinator: AppCoordinator,
+        *,
+        stats_tab: Callable[[], QWidget | None],
+        stats_tracked_items_label: Callable[[], Any],
+        template_stats: Callable[[], dict[str, Any]],
+        session_rerolls: Callable[[], int],
+        overlay_tab_active: Callable[[], bool],
+        server_rebuilt: Callable[[Any], None],
+    ) -> None:
+        self.coordinator = coordinator
+        self._stats_tab = stats_tab
+        self._stats_tracked_items_label = stats_tracked_items_label
+        self._template_stats = template_stats
+        self._session_rerolls = session_rerolls
+        self._overlay_tab_active = overlay_tab_active
+        self._server_rebuilt = server_rebuilt
+
         self.overlay_state_store = coordinator.overlay_state_store
         self.live_run_tracker = coordinator.live_run_tracker
         self.overlay_server = coordinator.overlay_server
-        self.overlay_state_store.set_state(build_overlay_state(self.live_run_tracker, self._effective_overlay_config()))
 
-    def _ensure_app_coordinator(self) -> AppCoordinator:
-        coordinator = getattr(self, "coordinator", None)
-        if coordinator is None:
-            coordinator = AppCoordinator(
-                tracked_item_rules=self._combined_tracked_item_rules(),
-                stale_after_seconds=max(25.0, (float(PLAYER_STATS_REFRESH_MS) / 1000.0) * 2.5),
-                overlay_host=config.OVERLAY.get("host", "127.0.0.1"),
-                overlay_port=int(config.OVERLAY.get("port", 17845)),
-                vod_interval_seconds=getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30),
-            )
-            self.coordinator = coordinator
-        return coordinator
+        self.tab_overlay: QWidget | None = None
+        self.overlay_enabled_checkbox = None
+        self.overlay_status_label = None
+        self.overlay_server_toggle_btn = None
+        self.overlay_url_entry = None
+        self.overlay_widget_url_combo = None
+        self.overlay_widget_url_entry = None
+        self.overlay_port_entry = None
+        self.overlay_template_combo = None
+        self.overlay_widget_checkboxes = {}
+        self.overlay_stats_checkboxes = {}
+        self.overlay_stats_content = None
+        self.overlay_tracked_items_label = None
+        self.overlay_tracked_items_content = None
+        self.overlay_tracked_items_toggle_btn = None
+        self.overlay_item_names = ()
+        self.overlay_item_search_entry = None
+        self.overlay_item_selector = None
+        self.overlay_map_one_only_checkbox = None
+        self.overlay_add_tracked_item_btn = None
+        self.overlay_tracked_rules_list = None
+        self.overlay_remove_tracked_item_btn = None
+        self.session_item_names = ()
+        self.session_item_search_entry = None
+        self.session_item_selector = None
+        self.session_map_one_only_checkbox = None
+        self.session_add_tracked_item_btn = None
+        self.session_tracked_rules_list = None
+        self.session_remove_tracked_item_btn = None
 
-    def _build_overlay_tab(self) -> None:
+        self._twitch_session_snapshot = {
+            "rerolls": 0,
+            "seeds_found": 0,
+            "tracked_rows": (),
+        }
+        self._twitch_session_snapshot_lock = threading.Lock()
+        self.overlay_state_store.set_state(
+            build_overlay_state(self.live_run_tracker, self._effective_overlay_config())
+        )
+
+    @property
+    def tab_stats(self):
+        return self._stats_tab()
+
+    @property
+    def stats_tracked_items_label(self):
+        return self._stats_tracked_items_label()
+
+    @property
+    def template_stats(self):
+        return self._template_stats()
+
+    @property
+    def session_rerolls(self):
+        return self._session_rerolls()
+
+    def _is_overlay_tab_active(self) -> bool:
+        return self._overlay_tab_active()
+
+    def build(self) -> QWidget:
         self.tab_overlay = QWidget()
         tab_layout = QVBoxLayout(self.tab_overlay)
         tab_layout.setContentsMargins(0, 0, 0, 0)
@@ -313,10 +374,10 @@ class OverlayMixin:
         self.overlay_tracked_items_label = None
 
         layout.addStretch(1)
-        self.tabview.addTab(self.tab_overlay, "OBS Overlay")
         self.refresh_overlay_item_selector()
         self.refresh_overlay_tracked_items_ui()
         self.refresh_overlay_ui()
+        return self.tab_overlay
 
     def _copy_to_clipboard(self, text: str, button: QPushButton) -> None:
         from PySide6.QtGui import QGuiApplication
@@ -607,10 +668,11 @@ class OverlayMixin:
         self.save_overlay_settings_from_ui(persist=False)
         if self.overlay_server.is_running:
             return True
-        self.overlay_server = self._ensure_app_coordinator().rebuild_overlay_server(
+        self.overlay_server = self.coordinator.rebuild_overlay_server(
             host="127.0.0.1",
             port=int(config.OVERLAY.get("port", 17845)),
         )
+        self._server_rebuilt(self.overlay_server)
         try:
             self.overlay_server.start()
         except OSError:
@@ -1370,12 +1432,26 @@ class OverlayMixin:
         return overlay
 
     def _combined_tracked_item_rules(self) -> tuple[TrackedItemRule, ...]:
-        combined: dict[str, TrackedItemRule] = {}
-        for rule in tracked_item_rules_from_config(config.OVERLAY):
+        return combined_tracked_item_rules()
+
+
+def combined_tracked_item_rules() -> tuple[TrackedItemRule, ...]:
+    combined: dict[str, TrackedItemRule] = {}
+    for rule_config in (config.OVERLAY, config.SESSION_TRACKED_ITEMS, config.TWITCH_BOT):
+        for rule in tracked_item_rules_from_config(rule_config):
             combined[rule.id] = rule
-        for rule in tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS):
-            combined[rule.id] = rule
-        for rule in tracked_item_rules_from_config(config.TWITCH_BOT):
-            combined[rule.id] = rule
-        return tuple(combined.values())
+    return tuple(combined.values())
+
+
+def build_overlay(app: Any, coordinator: AppCoordinator) -> Overlay:
+    """Wire the overlay to its measured owners without giving it the app."""
+    return Overlay(
+        coordinator,
+        stats_tab=lambda: app.tab_stats,
+        stats_tracked_items_label=lambda: app.stats_tracked_items_label,
+        template_stats=lambda: app.template_stats,
+        session_rerolls=lambda: app.session_rerolls,
+        overlay_tab_active=lambda: app._is_overlay_tab_active(),
+        server_rebuilt=lambda server: setattr(app, "overlay_server", server),
+    )
 

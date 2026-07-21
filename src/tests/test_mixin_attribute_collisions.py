@@ -261,15 +261,16 @@ class MixinAttributeCollisionTests(unittest.TestCase):
         # rather than pinning it -- the MRO itself is ratcheted by
         # `test_componentization_inventory`'s `MRO_MODULES`, which is where a
         # base reappearing gets caught.
-        self.assertGreater(len(assignments), 3, "found almost no mixins")
+        self.assertGreater(len(assignments), 2, "found almost no mixins")
         # Shrinks with the MRO for the same reason the base count does: steps
         # 21c and 21d took the two recording tabs' assignments off it
         # (231 -> 195 -> 143), and step 23 took `TwitchBotMixin`'s 43 with it
-        # (143 -> 95, measured). This is a vacuity guard, not a ratchet: it only
+        # (143 -> 95, measured), and step 24 took both overlay components out
+        # (95 -> 45, measured). This is a vacuity guard, not a ratchet: it only
         # has to be far enough above zero to catch a walk that reads nothing.
         self.assertGreater(
             sum(len(names) for names in assignments.values()),
-            80,
+            40,
             "found almost no assignments; the walk is not reaching method bodies",
         )
         # A name assigned inside a nested closure must be seen, or the walk is

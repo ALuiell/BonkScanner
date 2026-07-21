@@ -14,7 +14,7 @@ from app.version import CURRENT_VERSION
 from app.player_stats_refresh import player_stats_refresh
 from gui_dialogs import HelpDialog, SettingsDialog
 from gui_layout import GuiLayoutMixin
-from gui_overlay import OverlayMixin
+from gui_overlay import build_overlay, combined_tracked_item_rules
 from gui_in_game_overlay import build_in_game_overlay
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
@@ -29,7 +29,6 @@ from app.vod_library import VodLibrary
 class MegabonkApp(
     GuiLayoutMixin,
     RunControlMixin,
-    OverlayMixin,
     ScannerMixin,
 ):
     _qt_app: QApplication | None = None
@@ -115,7 +114,6 @@ class MegabonkApp(
         self.status_label = None
         self.toggle_btn = None
         self.logo_label = None
-        self.tab_overlay = None
         # Every Twitch widget is gone from the shared namespace: step 23b made
         # `TwitchTab` an object with its own private widgets, built by
         # `gui_layout._build_twitch_tab`. Twenty-two names left, and
@@ -132,34 +130,6 @@ class MegabonkApp(
         self.overlay_state_store = None
         self.overlay_server = None
         self.live_run_tracker = None
-        self.overlay_enabled_checkbox = None
-        self.overlay_status_label = None
-        self.overlay_server_toggle_btn = None
-        self.overlay_url_entry = None
-        self.overlay_widget_url_combo = None
-        self.overlay_widget_url_entry = None
-        self.overlay_port_entry = None
-        self.overlay_template_combo = None
-        self.overlay_widget_checkboxes = {}
-        self.overlay_stats_checkboxes = {}
-        self.overlay_stats_content = None
-        self.overlay_tracked_items_label = None
-        self.overlay_tracked_items_content = None
-        self.overlay_tracked_items_toggle_btn = None
-        self.overlay_item_names = ()
-        self.overlay_item_search_entry = None
-        self.overlay_item_selector = None
-        self.overlay_map_one_only_checkbox = None
-        self.overlay_add_tracked_item_btn = None
-        self.overlay_tracked_rules_list = None
-        self.overlay_remove_tracked_item_btn = None
-        self.session_item_names = ()
-        self.session_item_search_entry = None
-        self.session_item_selector = None
-        self.session_map_one_only_checkbox = None
-        self.session_add_tracked_item_btn = None
-        self.session_tracked_rules_list = None
-        self.session_remove_tracked_item_btn = None
 
         self.is_running = False
         self.is_ready_to_start = False
@@ -201,7 +171,7 @@ class MegabonkApp(
         # fields now (step 20): nothing outside its reconnect policy read them.
         # The coordinator is built a few lines below.
         self.coordinator = AppCoordinator(
-            tracked_item_rules=self._combined_tracked_item_rules(),
+            tracked_item_rules=combined_tracked_item_rules(),
             stale_after_seconds=max(25.0, (float(PLAYER_STATS_REFRESH_MS) / 1000.0) * 2.5),
             overlay_host=config.OVERLAY.get("host", "127.0.0.1"),
             overlay_port=int(config.OVERLAY.get("port", 17845)),
@@ -210,7 +180,10 @@ class MegabonkApp(
         # Aliases, not copies: the coordinator owns these, the mixins still reach
         # them through the shared `self`. Step 12 removes the aliases.
         self.player_stats_vod_recorder = self.coordinator.vod_recorder
-        self.initialize_overlay_runtime()
+        self.overlay_state_store = self.coordinator.overlay_state_store
+        self.live_run_tracker = self.coordinator.live_run_tracker
+        self.overlay_server = self.coordinator.overlay_server
+        self._overlay = build_overlay(self, self.coordinator)
         self._in_game_overlay = build_in_game_overlay(self)
         self._in_game_overlay.start_runtime()
         self.player_stats_last_run_id = None
@@ -239,12 +212,6 @@ class MegabonkApp(
         self.worst_map_stats = None
         self.worst_map_score = float("inf")
         # `template_stats` is `TemplateRuntimeFilters`' field (step 22b).
-        self._twitch_session_snapshot = {
-            "rerolls": 0,
-            "seeds_found": 0,
-            "tracked_rows": (),
-        }
-        self._twitch_session_snapshot_lock = threading.Lock()
         # The recording-metadata index, its refresh cycle and its two guards,
         # in one named object (step 21). They were four attributes here, read by
         # both recording tabs and written by one of them, whose completion
@@ -262,7 +229,11 @@ class MegabonkApp(
         )
 
         self.setup_ui()
-        self._twitch_session = build_twitch_session(self, self._twitch_tab)
+        self._twitch_session = build_twitch_session(
+            self,
+            self._twitch_tab,
+            session_stats_provider=self._overlay,
+        )
         self._twitch_session.start()
         self.apply_overlay_autostart()
         self._templates_panel.refresh_templates()
@@ -425,6 +396,65 @@ class MegabonkApp(
     def twitch_auth_thread(self):
         session = self.__dict__.get("_twitch_session")
         return None if session is None else session.auth_thread
+
+    # -- OBS overlay surface (step 24c) -----------------------------------
+    #
+    # Layout routing (step 26), scanner shutdown/session updates (step 25)
+    # and the app-layer refresh services still invoke these names on the app.
+    # The behaviour and every widget live on `gui_overlay.Overlay`; this is the
+    # measured compatibility surface that lets those later boundaries stay put.
+    def _build_overlay_tab(self):
+        return self._overlay.build()
+
+    def refresh_overlay_ui(self) -> None:
+        self._overlay.refresh_overlay_ui()
+
+    def apply_overlay_autostart(self) -> None:
+        self._overlay.apply_overlay_autostart()
+
+    def close_overlay_server(self) -> None:
+        overlay = self.__dict__.get("_overlay")
+        if overlay is not None:
+            overlay.close_overlay_server()
+
+    def update_overlay_state_from_tracker(self) -> None:
+        overlay = self.__dict__.get("_overlay")
+        if overlay is not None:
+            overlay.update_overlay_state_from_tracker()
+
+    def mark_overlay_read_failed(self, *, no_game: bool = False) -> None:
+        overlay = self.__dict__.get("_overlay")
+        if overlay is not None:
+            overlay.mark_overlay_read_failed(no_game=no_game)
+            return
+        tracker = self.__dict__.get("live_run_tracker")
+        if tracker is not None:
+            tracker.mark_read_failed(no_game=no_game)
+
+    def overlay_should_refresh_live_stats(self) -> bool:
+        overlay = self.__dict__.get("_overlay")
+        if overlay is not None:
+            return overlay.overlay_should_refresh_live_stats()
+        server = self.__dict__.get("overlay_server")
+        return bool(
+            config.OVERLAY.get("enabled", False)
+            or (server is not None and server.is_running)
+        )
+
+    def refresh_session_tracked_item_stats_ui(self) -> None:
+        overlay = self.__dict__.get("_overlay")
+        if overlay is not None:
+            overlay.refresh_session_tracked_item_stats_ui()
+
+    def _refresh_twitch_session_snapshot(self) -> None:
+        overlay = self.__dict__.get("_overlay")
+        if overlay is not None:
+            overlay._refresh_twitch_session_snapshot()
+
+    def open_session_tracked_item_settings_dialog(self) -> None:
+        overlay = self.__dict__.get("_overlay")
+        if overlay is not None:
+            overlay.open_session_tracked_item_settings_dialog()
 
     # -- in-game overlay surface (step 24b) -------------------------------
     #

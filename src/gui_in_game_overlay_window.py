@@ -24,7 +24,7 @@ from projections.in_game_html import (
 from core.item_metadata import ITEM_RARITY_COLOR_MAP
 
 if TYPE_CHECKING:
-    from gui_in_game_overlay import InGameOverlayMixin
+    from gui_in_game_overlay import InGameOverlay
 
 
 class DraggableOverlayWidget(QWidget):
@@ -234,7 +234,7 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
 
 
 class InGameOverlayWindow(QWidget):
-    def __init__(self, parent_mixin: InGameOverlayMixin, parent: QWidget | None = None):
+    def __init__(self, parent_mixin: InGameOverlay, parent: QWidget | None = None):
         super().__init__(parent)
         self.parent_mixin = parent_mixin
         self.edit_mode = False
