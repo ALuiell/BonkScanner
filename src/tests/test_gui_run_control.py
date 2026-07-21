@@ -799,217 +799,14 @@ class GuiRunControlTests(unittest.TestCase):
         config.user_config.clear()
         config.user_config.update(self.original_user_config)
 
-    def test_enabling_twitch_help_shows_alias_dialog(self) -> None:
-        import gui_dialogs
 
-        shown = []
-        saved = []
 
-        class FakeAliasDialog:
-            def __init__(self, parent):
-                shown.append(parent)
-                self.dont_show_again = True
 
-            def exec(self):
-                return 1
 
-        app = object.__new__(MegabonkApp)
-        app.window = object()
-        app.twitch_cmd_commands_cb = FakeCheckbox(True)
-        app.save_twitch_settings = lambda *args: saved.append(True)
-        config.user_config["SKIP_TWITCH_HELP_WARNING"] = False
 
-        with patch.object(gui_dialogs, "TwitchCommandsHelpDialog", FakeAliasDialog), patch.object(
-            config, "save_config"
-        ):
-            MegabonkApp.on_twitch_commands_toggled(app)
 
-        self.assertEqual(shown, [app.window])
-        self.assertTrue(config.user_config["SKIP_TWITCH_HELP_WARNING"])
-        self.assertEqual(saved, [True])
 
-    def test_save_twitch_settings_does_not_depend_on_main_interval_widget(self) -> None:
-        app = types.SimpleNamespace(
-            twitch_tier_combo=FakeComboBox("Everyone"),
-            twitch_target_channel_entry=types.SimpleNamespace(text=lambda: "#bonk"),
-            twitch_global_cooldown_spin=FakeSpinBox(5),
-            twitch_cooldown_spin=FakeSpinBox(7),
-            twitch_stage_announcements_cb=FakeCheckbox(True),
-            twitch_commands_announcements_cb=FakeCheckbox(True),
-            twitch_cmd_stats_cb=FakeCheckbox(True),
-            twitch_cmd_session_cb=FakeCheckbox(True),
-            twitch_cmd_bans_cb=FakeCheckbox(False),
-            twitch_cmd_items_cb=FakeCheckbox(True),
-            twitch_cmd_weapons_cb=FakeCheckbox(True),
-            twitch_cmd_tomes_cb=FakeCheckbox(True),
-            twitch_cmd_chaos_cb=FakeCheckbox(True),
-            twitch_cmd_stages_cb=FakeCheckbox(True),
-            twitch_cmd_powerups_cb=FakeCheckbox(True),
-            twitch_cmd_kps_cb=FakeCheckbox(True),
-            twitch_cmd_scanner_cb=FakeCheckbox(True),
-            twitch_cmd_chests_cb=FakeCheckbox(True),
-            twitch_cmd_presets_cb=FakeCheckbox(True),
-            twitch_cmd_commands_cb=FakeCheckbox(True),
-            twitch_cmd_disabled_cb=FakeCheckbox(False),
-        )
 
-        with patch.object(config, "save_config") as save_config:
-            MegabonkApp.save_twitch_settings(app)
-
-        self.assertEqual(config.TWITCH_BOT["target_channel"], "bonk")
-        self.assertEqual(config.TWITCH_BOT["global_cooldown_seconds"], 5)
-        self.assertEqual(config.TWITCH_BOT["cooldown_seconds"], 7)
-        self.assertTrue(config.TWITCH_BOT["commands_announcements"])
-        self.assertTrue(save_config.called)
-
-    def test_save_twitch_auto_connect_persists_checkbox_state(self) -> None:
-        app = types.SimpleNamespace(twitch_auto_connect_cb=FakeCheckbox(True))
-
-        with patch.dict(config.TWITCH_BOT, {"auto_connect": False}), patch.object(
-            config, "save_config"
-        ) as save_config:
-            MegabonkApp.save_twitch_auto_connect(app)
-
-            self.assertTrue(config.TWITCH_BOT["auto_connect"])
-            save_config.assert_called_once_with(config.user_config)
-
-    def test_twitch_auth_success_starts_bot_when_auto_connect_is_enabled(self) -> None:
-        app = types.SimpleNamespace(
-            twitch_connect_btn=MagicMock(),
-            twitch_disconnect_btn=MagicMock(),
-            twitch_auth_status_label=MagicMock(),
-            twitch_target_channel_entry=MagicMock(),
-            twitch_token_validation_timer=MagicMock(),
-            log=MagicMock(),
-            validate_twitch_session_async=MagicMock(return_value=True),
-        )
-        app._set_twitch_connected_ui = lambda username: MegabonkApp._set_twitch_connected_ui(app, username)
-        app._set_twitch_disconnected_ui = lambda: MegabonkApp._set_twitch_disconnected_ui(app)
-
-        with patch.dict(config.TWITCH_BOT, {"auto_connect": True}), patch(
-            "gui_twitch.set_twitch_oauth_token"
-        ), patch.object(config, "save_config"):
-            MegabonkApp.on_twitch_auth_success(app, "bonk", "token")
-
-            app.validate_twitch_session_async.assert_called_once_with(
-                log_on_success=False,
-                start_bot_on_success=True,
-                fallback_username="bonk",
-                context="auth",
-            )
-
-    def test_twitch_validation_success_starts_bot_when_requested(self) -> None:
-        app = types.SimpleNamespace(
-            twitch_connect_btn=MagicMock(),
-            twitch_disconnect_btn=MagicMock(),
-            twitch_auth_status_label=MagicMock(),
-            twitch_target_channel_entry=MagicMock(),
-            twitch_token_validation_timer=MagicMock(),
-            _twitch_start_bot_after_validation=False,
-            _start_twitch_bot_worker=MagicMock(),
-            log=MagicMock(),
-        )
-        app._set_twitch_connected_ui = lambda username: MegabonkApp._set_twitch_connected_ui(app, username)
-
-        with patch.dict(config.TWITCH_BOT, {"username": "", "auto_connect": True}), patch(
-            "gui_twitch.get_twitch_oauth_token", return_value="token"
-        ), patch.object(config, "save_config"):
-            MegabonkApp._on_twitch_token_validation_finished(
-                app,
-                "token",
-                types.SimpleNamespace(valid=True, login="bonk"),
-                False,
-                True,
-                "fallback",
-                "auth",
-            )
-            self.assertEqual(config.TWITCH_BOT["username"], "bonk")
-
-        app.twitch_token_validation_timer.start.assert_called_once_with()
-        app._start_twitch_bot_worker.assert_called_once_with()
-
-    def test_stale_twitch_validation_does_not_keep_pending_bot_start(self) -> None:
-        app = types.SimpleNamespace(
-            twitch_connect_btn=MagicMock(),
-            _twitch_start_bot_after_validation=True,
-            _start_twitch_bot_worker=MagicMock(),
-        )
-
-        with patch("gui_twitch.get_twitch_oauth_token", return_value="new-token"):
-            MegabonkApp._on_twitch_token_validation_finished(
-                app,
-                "old-token",
-                types.SimpleNamespace(valid=True, login="bonk"),
-                False,
-                True,
-                "fallback",
-                "start_bot",
-            )
-
-        self.assertFalse(app._twitch_start_bot_after_validation)
-        app._start_twitch_bot_worker.assert_not_called()
-
-    def test_validate_twitch_session_clears_invalid_token(self) -> None:
-        app = types.SimpleNamespace(
-            twitch_connect_btn=MagicMock(),
-            twitch_disconnect_btn=MagicMock(),
-            twitch_auth_status_label=MagicMock(),
-            twitch_target_channel_entry=MagicMock(),
-            twitch_token_validation_timer=MagicMock(),
-            stop_twitch_bot=MagicMock(),
-            log=MagicMock(),
-        )
-        app._clear_twitch_session_state = lambda: MegabonkApp._clear_twitch_session_state(app)
-        app._set_twitch_disconnected_ui = lambda: MegabonkApp._set_twitch_disconnected_ui(app)
-
-        with patch.dict(config.TWITCH_BOT, {"username": "bonk"}), patch(
-            "gui_twitch.get_twitch_oauth_token", return_value="token"
-        ), patch(
-            "gui_twitch.validate_twitch_access_token",
-            return_value=types.SimpleNamespace(valid=False, transient_error=False, error_message="Token is no longer valid."),
-        ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch.object(config, "save_config"):
-            valid = MegabonkApp.validate_twitch_session(app, log_on_success=False)
-            self.assertEqual(config.TWITCH_BOT["username"], "")
-
-        self.assertFalse(valid)
-        delete_token.assert_called_once_with()
-        app.stop_twitch_bot.assert_called_once_with()
-        app.twitch_connect_btn.setVisible.assert_called_with(True)
-
-    def test_disconnect_twitch_logs_revoke_warning_without_restoring_token(self) -> None:
-        app = types.SimpleNamespace(
-            twitch_connect_btn=MagicMock(),
-            twitch_disconnect_btn=MagicMock(),
-            twitch_auth_status_label=MagicMock(),
-            twitch_token_validation_timer=MagicMock(),
-            stop_twitch_bot=MagicMock(),
-            _start_twitch_token_revoke=MagicMock(),
-            log=MagicMock(),
-        )
-        app._clear_twitch_session_state = lambda: MegabonkApp._clear_twitch_session_state(app)
-        app._set_twitch_disconnected_ui = lambda: MegabonkApp._set_twitch_disconnected_ui(app)
-
-        with patch.dict(config.TWITCH_BOT, {"username": "bonk"}), patch(
-            "gui_twitch.get_twitch_oauth_token", return_value="token"
-        ), patch("gui_twitch.delete_twitch_oauth_token") as delete_token, patch.object(config, "save_config"):
-            MegabonkApp.disconnect_twitch(app)
-            MegabonkApp._on_twitch_token_revoke_finished(app, False, "timeout")
-            self.assertEqual(config.TWITCH_BOT["username"], "")
-
-        delete_token.assert_called_once_with()
-        app.stop_twitch_bot.assert_called_once_with()
-        app._start_twitch_token_revoke.assert_called_once_with("token")
-        app.log.assert_called_with("Twitch token revoke warning: timeout", tag="warning")
-
-    def test_twitch_bot_status_value_does_not_repeat_status_label(self) -> None:
-        status_label = MagicMock()
-        app = types.SimpleNamespace(twitch_bot_status_label=status_label)
-
-        MegabonkApp._update_twitch_bot_status_ui(app, "Connected")
-
-        formatted = status_label.setText.call_args.args[0]
-        self.assertNotIn("Status:", formatted)
-        self.assertIn("Connected", formatted)
 
     def test_settings_save_updates_community_settings_and_applies_run_control_mode(self) -> None:
         master = FakeSettingsMaster()
@@ -5380,7 +5177,6 @@ class GuiRunControlTests(unittest.TestCase):
         app.close_overlay_server = lambda: closed.append("overlay")
         app.stop_in_game_overlay = lambda: closed.append("in_game_overlay")
         app.stop_twitch_bot = lambda: closed.append("twitch")
-        app.twitch_auth_thread = None
         app.player_stats_vod_recorder = None
         app._hotkey_manager = None
 
@@ -5435,7 +5231,6 @@ class GuiRunControlTests(unittest.TestCase):
         app.close_overlay_server = lambda: None
         app.stop_in_game_overlay = lambda: None
         app.stop_twitch_bot = lambda: None
-        app.twitch_auth_thread = None
         app.player_stats_vod_recorder = None
         app._hotkey_manager = None
 

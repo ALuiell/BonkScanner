@@ -18,11 +18,11 @@ from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
+from gui_twitch import build_twitch_session
 from app.template_filters import TemplateRuntimeFilters
 from ui.shared import UiInvoker, _AppWindow, resource_path
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
-from gui_twitch import TwitchBotMixin
 from app.vod_library import VodLibrary
 
 
@@ -32,7 +32,6 @@ class MegabonkApp(
     OverlayMixin,
     InGameOverlayMixin,
     ScannerMixin,
-    TwitchBotMixin,
 ):
     _qt_app: QApplication | None = None
 
@@ -118,7 +117,19 @@ class MegabonkApp(
         self.toggle_btn = None
         self.logo_label = None
         self.tab_overlay = None
-        self.twitch_target_channel_entry = None
+        # Every Twitch widget is gone from the shared namespace: step 23b made
+        # `TwitchTab` an object with its own private widgets, built by
+        # `gui_layout._build_twitch_tab`. Twenty-two names left, and
+        # `twitch_target_channel_entry` -- this line -- was the only one of them
+        # mentioned anywhere outside `gui_twitch.py`. Measured before the move,
+        # as steps 21c/21d/22c measured theirs: none had a production reader
+        # outside the module, which is what let them move whole rather than stay
+        # as app surface behind a port.
+        self._twitch_tab = None
+        # `None` until the composition root runs at the end of `__init__`. The
+        # two delegators below read it out of `__dict__` for that window, and so
+        # that a missing session cannot fall through `__getattr__` to the window.
+        self._twitch_session = None
         self.overlay_state_store = None
         self.overlay_server = None
         self.live_run_tracker = None
@@ -251,7 +262,8 @@ class MegabonkApp(
         )
 
         self.setup_ui()
-        self.setup_twitch_bot_ui()
+        self._twitch_session = build_twitch_session(self, self._twitch_tab)
+        self._twitch_session.start()
         self.apply_overlay_autostart()
         self._templates_panel.refresh_templates()
         self._templates_panel.refresh_scores_templates_list()
@@ -390,6 +402,29 @@ class MegabonkApp(
         if self._templates_panel is None:
             return
         self._templates_panel.refresh_scores_ui()
+
+    # -- Twitch shutdown surface (step 23c) --------------------------------
+    #
+    # `gui_scanner.on_closing` stops the bot and joins the auth thread
+    # (`gui_scanner.py:554-558`). The scanner is **step 25's** subject, so not a
+    # line of it changes here: these two forward to the component, exactly as
+    # steps 20g, 21 and 22c left thin delegators for what a not-yet-converted
+    # caller invokes on the app.
+    #
+    # Both guard on the session being absent. `on_closing` runs on app doubles
+    # in the suite and can run before `__init__` finished on a construction
+    # fault, and `stop_twitch_bot` was reached under `hasattr` before -- a
+    # delegator that raised where the mixin's method did not would be a
+    # behaviour change smuggled in as plumbing.
+    def stop_twitch_bot(self) -> None:
+        session = self.__dict__.get("_twitch_session")
+        if session is not None:
+            session.stop_bot()
+
+    @property
+    def twitch_auth_thread(self):
+        session = self.__dict__.get("_twitch_session")
+        return None if session is None else session.auth_thread
 
     # -- footer dialogs (step 22c) ----------------------------------------
     #

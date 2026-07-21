@@ -149,8 +149,13 @@ MRO_MODULES = {
     # `gui_layout`. `MegabonkApp` went 9 -> 8 -> **7** bases, and the two
     # recording tabs are gone from this map for good: neither has a class to be
     # qualified through any more.
+    # `TwitchBotMixin` was here until step 23. Its widgets became
+    # `ui.tabs.twitch.TwitchTab` (23b) and its behaviour became
+    # `app.twitch_session.TwitchSession` (23c), wired by `build_twitch_session`
+    # in `gui_twitch.py` -- which survives holding only the two token `QThread`
+    # classes, because neither `ui/` nor `app/` may import `twitch_auth`.
+    # `MegabonkApp` is at **five** bases.
     "ScannerMixin": "gui_scanner",
-    "TwitchBotMixin": "gui_twitch",
 }
 
 # Ratchets, measured 2026-07-19 at 84291cb. These may only shrink.
@@ -186,7 +191,7 @@ MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 5
 # 48 is measured, not rounded down to a safe number. The step-22 inventory found
 # 21d had reported 52 while leaving the constant at 55, and the `<=` comparison
 # hid it; repeating that here would be repeating the thing that fix was for.
-MAX_OBJECT_NEW_APP_DOUBLES = 48
+MAX_OBJECT_NEW_APP_DOUBLES = 47
 
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"

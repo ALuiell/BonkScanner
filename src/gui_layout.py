@@ -186,7 +186,9 @@ class GuiLayoutMixin:
         self._recordings_view = _build_recordings_view(self)
         self._compare_runs_view = _build_compare_runs_view(self)
         self._build_overlay_tab()
-        self._build_twitch_bot_tab()
+        # The ~240 lines that built the Twitch tab's widgets are
+        # `TwitchTab.build()`'s now (step 23b).
+        self._twitch_tab = _build_twitch_tab(self)
         # These two lines were the last two of `_build_twitch_bot_tab` (step
         # 23a). The Twitch tab builder built the In-Game Overlay tab as well and
         # added it to the tab bar, which is where two of `gui_twitch.py`'s nine
@@ -357,6 +359,30 @@ class GuiLayoutMixin:
             self.refresh_vods_list()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
+
+
+def _build_twitch_tab(app):
+    """Construct the Twitch tab and add it to the right-hand tab bar.
+
+    The composition root for `TwitchTab` (step 23b), kept at the exact point in
+    `setup_ui` where `self._build_twitch_bot_tab()` used to be called, so the
+    tab keeps its position and label in the tab bar.
+
+    The tab takes no collaborators. It builds widgets and reports what is on
+    them; every decision -- which config key a value lands in, whether a token
+    is valid, when a worker starts -- belongs to the session object that step
+    23c introduces, and `bind()` hands it the handlers later, from
+    `gui_app.__init__`, where `setup_twitch_bot_ui` connected them before.
+
+    `addTab` is here rather than in `build()` because the tab bar is not the
+    tab's to know about: reaching `self.tabview` from inside the Twitch code is
+    one of the seven ambient reads step 23 exists to remove.
+    """
+    from ui.tabs.twitch import TwitchTab
+
+    view = TwitchTab()
+    app.tabview.addTab(view.build(), "Twitch Bot")
+    return view
 
 
 def _build_templates_panel(app):

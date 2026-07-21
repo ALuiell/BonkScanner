@@ -90,7 +90,9 @@ PRE_EXISTING_COLLISIONS: dict[str, str] = {
     # The service no longer *assigns* the cache on the shared `self` -- it reads
     # and writes the app-owned cache through injected accessors -- so
     # `TwitchBotMixin` is the only remaining mixin writer and the staleness test
-    # deleted both entries.
+    # deleted both entries. (Step 23 retired that mixin too: both attributes are
+    # written by the Twitch composition root in `gui_twitch.build_twitch_session`
+    # now, on the app it is handed. No mixin writes them at all.)
     # `player_stats_game_data_client` was here too: its coordinator-delegating
     # property moved to `MegabonkApp` (a `__dict__` write, not the `self.x = `
     # assignment the scanner counts), leaving `player_stats_refresh` its only
@@ -262,10 +264,12 @@ class MixinAttributeCollisionTests(unittest.TestCase):
         self.assertGreater(len(assignments), 3, "found almost no mixins")
         # Shrinks with the MRO for the same reason the base count does: steps
         # 21c and 21d took the two recording tabs' assignments off it
-        # (231 -> 195 -> 143).
+        # (231 -> 195 -> 143), and step 23 took `TwitchBotMixin`'s 43 with it
+        # (143 -> 95, measured). This is a vacuity guard, not a ratchet: it only
+        # has to be far enough above zero to catch a walk that reads nothing.
         self.assertGreater(
             sum(len(names) for names in assignments.values()),
-            100,
+            80,
             "found almost no assignments; the walk is not reaching method bodies",
         )
         # A name assigned inside a nested closure must be seen, or the walk is
