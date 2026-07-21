@@ -9,6 +9,7 @@ from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app import config
+from app.player_stats_memory import player_stats_memory
 from app.player_stats_view import player_stats_view
 from ui.update_prompt import start_update_check
 from infra.memory.game_data_client import GameDataClient
@@ -543,8 +544,8 @@ class ScannerMixin:
             coordinator.shutdown()
         else:
             self.close_client()
-            self.close_player_stats_client()
-            self.close_player_stats_game_data_client()
+            player_stats_memory(self).close_player_stats_client()
+            player_stats_memory(self).close_player_stats_game_data_client()
         if hasattr(self, "close_overlay_server"):
             self.close_overlay_server()
         if hasattr(self, "stop_in_game_overlay"):

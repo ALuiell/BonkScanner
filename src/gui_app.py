@@ -11,7 +11,6 @@ from PySide6.QtWidgets import QApplication
 from app import config
 from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
-from app.player_stats_memory import PlayerStatsMemoryMixin
 from app.player_stats_refresh import PlayerStatsRefreshMixin
 from app.refresh_tasks import RefreshTasksMixin
 from ui.tabs.compare_runs import CompareRunsMixin
@@ -37,7 +36,6 @@ class MegabonkApp(
     InGameOverlayMixin,
     RefreshTasksMixin,
     PlayerStatsRefreshMixin,
-    PlayerStatsMemoryMixin,
     CompareRunsMixin,
     RecordingsTabMixin,
     ScannerMixin,
@@ -227,10 +225,10 @@ class MegabonkApp(
         self.scanner_thread = None
         # client / player_stats_client / player_stats_game_data_client are owned by
         # AppCoordinator (step 12b); it initialises them to None in its __init__,
-        # reached here through the property delegation on the scanner/player-stats
-        # mixins. The coordinator is built a few lines below.
-        self._player_stats_memory_error_streak = 0
-        self._player_stats_game_data_memory_error_streak = 0
+        # reached here through the client properties below and the scanner mixin.
+        # The two memory-reconnect streaks that stood here are `PlayerStatsMemory`'s
+        # fields now (step 20): nothing outside its reconnect policy read them.
+        # The coordinator is built a few lines below.
         self.coordinator = AppCoordinator(
             tracked_item_rules=self._combined_tracked_item_rules(),
             stale_after_seconds=max(25.0, (float(PLAYER_STATS_REFRESH_MS) / 1000.0) * 2.5),
@@ -330,6 +328,46 @@ class MegabonkApp(
         if window is not None and hasattr(window, name):
             return getattr(window, name)
         raise AttributeError(name)
+
+    # -- coordinator-owned memory clients (step 12b) ----------------------
+    #
+    # These delegate to the AppCoordinator, with a __dict__ fallback so app
+    # doubles built with object.__new__ (no coordinator) keep working: a test
+    # that sets app.player_stats_client = <fake> round-trips through
+    # _player_stats_client with zero test changes. They lived on
+    # PlayerStatsMemoryMixin until step 20 converted it to a service; the clients
+    # are app-instance surface (gui_scanner, gui_twitch, player_stats_refresh and
+    # the memory service all reach them), so they moved here rather than into the
+    # service that no longer defines them.
+    @property
+    def player_stats_client(self):
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            return coordinator.player_stats_client
+        return self.__dict__.get("_player_stats_client")
+
+    @player_stats_client.setter
+    def player_stats_client(self, value) -> None:
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            coordinator.player_stats_client = value
+        else:
+            self.__dict__["_player_stats_client"] = value
+
+    @property
+    def player_stats_game_data_client(self):
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            return coordinator.player_stats_game_data_client
+        return self.__dict__.get("_player_stats_game_data_client")
+
+    @player_stats_game_data_client.setter
+    def player_stats_game_data_client(self, value) -> None:
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            coordinator.player_stats_game_data_client = value
+        else:
+            self.__dict__["_player_stats_game_data_client"] = value
 
     @property
     def qt_app(self) -> QApplication:

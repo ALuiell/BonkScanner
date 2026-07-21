@@ -1,4 +1,5 @@
 from app import config
+from app.player_stats_memory import player_stats_memory
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -461,7 +462,7 @@ class TwitchBotMixin:
     def open_twitch_command_settings_dialog(self):
         from gui_dialogs import TwitchCommandSettingsDialog
         try:
-            client = self._get_player_stats_client()
+            client = player_stats_memory(self)._get_player_stats_client()
             result = client.get_disabled_items()
             if result.available:
                 self.player_stats_disabled_items_cache = result.items

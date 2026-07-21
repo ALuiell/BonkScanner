@@ -25,6 +25,7 @@ from unittest.mock import patch
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from app import config
+from app.player_stats_memory import player_stats_memory
 from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.snapshot_store import LiveSnapshotStore
 from tests.support.run_lifecycle import install_run_lifecycle
@@ -101,7 +102,11 @@ def build_refresh_app(*, snapshots, selected, pinned, should_capture=False):
     app.rendered = rendered
 
     app._is_live_stats_tab_active = lambda: True
-    app._read_live_player_stats_data = lambda: (
+    # `refresh_live_player_stats_now` reads through `player_stats_memory(app)`
+    # now, so the whole-tuple stub lands on the resolved service rather than the
+    # app double. The resolver takes the `__dict__` branch (no coordinator) and
+    # caches the same instance the refresh path re-resolves.
+    player_stats_memory(app)._read_live_player_stats_data = lambda: (
         {}, (), True, (), True, (), True, (), True, (), True,
         21.5, None, None, 37, 2, 111, 0, None, (), True,
     )
@@ -273,8 +278,19 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
                 self.player_stats_vod_snapshots = [snap("00:10"), snap("00:20")]
                 self.player_stats_selected_snapshot_index = 0
                 self.player_stats_snapshot_pinned = pinned
-                self._player_stats_game_data_memory_error_streak = 0
-                self._player_stats_memory_error_streak = 0
+                # The fast tasks reach the client through
+                # `player_stats_memory(self)._get_player_stats_client()`, whose
+                # service reads `self.player_stats_client`. Feeding the fake here
+                # (rather than overriding the method) drives the real service
+                # path. The two reconnect streaks that stood here are the
+                # service's fields now (step 20).
+                self.player_stats_client = SimpleNamespace(
+                    get_run_timer=lambda: 30.0,
+                    get_killed_mobs=lambda: 100,
+                    get_stage_timer_context=lambda: (25.0, 2, 480.0),
+                    resolve_owner_stats=lambda: 0x1234,
+                    get_powerup_tracking_snapshot=lambda owner_stats: SimpleNamespace(),
+                )
                 self.live_run_tracker = SimpleNamespace(
                     track_kills=lambda *a: None,
                     current_ui_kps=lambda: 12,
@@ -289,15 +305,6 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
 
             def _is_live_stats_tab_active(self) -> bool:
                 return True
-
-            def _get_player_stats_client(self):
-                return SimpleNamespace(
-                    get_run_timer=lambda: 30.0,
-                    get_killed_mobs=lambda: 100,
-                    get_stage_timer_context=lambda: (25.0, 2, 480.0),
-                    resolve_owner_stats=lambda: 0x1234,
-                    get_powerup_tracking_snapshot=lambda owner_stats: SimpleNamespace(),
-                )
 
             def update_overlay_state_from_tracker(self) -> None:
                 pass

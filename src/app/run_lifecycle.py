@@ -57,6 +57,7 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
+from app.player_stats_memory import player_stats_memory
 from core.game_state import RuntimeGameMode, RuntimeGameState
 
 # The cadence at which the core run-lifecycle probe re-reads runtime state.
@@ -253,8 +254,8 @@ def run_lifecycle(owner) -> RunLifecycle:
     # only ever calls one. The suite has such owners, and one of them found
     # this within a minute of it being written.
     lifecycle = RunLifecycle(
-        read_activity_state=lambda: owner._read_player_stats_runtime_activity_state_safe(),
-        read_game_state=lambda: owner._read_player_stats_runtime_game_state_safe(),
+        read_activity_state=lambda: player_stats_memory(owner)._read_player_stats_runtime_activity_state_safe(),
+        read_game_state=lambda: player_stats_memory(owner)._read_player_stats_runtime_game_state_safe(),
         live_run_tracker=lambda: owner.live_run_tracker,
     )
     if coordinator is not None:

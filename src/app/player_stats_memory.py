@@ -1,39 +1,54 @@
-"""Player-stats memory acquisition -- the reads themselves, and the client
-lifecycle they lazily drive.
+"""Player-stats memory acquisition -- the reads themselves, the client lifecycle
+they lazily drive, and the read-failure reconnect policy.
 
-Split out of ``PlayerStatsMixin`` in step 14c. This is the layer that talks to
+Split out of ``PlayerStatsMixin`` in step 14c and converted from
+``PlayerStatsMemoryMixin`` into an ordinary constructed service in step 20 --
+the last of the five app-side MRO bases. This is the layer that talks to
 ``infra.memory``: every ``read_*`` entry point, the ``_read_*_safe`` wrappers
-that translate a memory error into a reconnect decision, and the close/record
-helpers that own the error streaks. It decides *what to read and when to give
-up on a client*; it does not decide what to do with the values -- that is
+that translate a memory error into a reconnect decision, the two close helpers,
+and the error streaks they drive. It decides *what to read and when to give up
+on a client*; it does not decide what to do with the values -- that is
 ``app/player_stats_refresh.py``.
 
-Still a mixin on ``MegabonkApp``: 20-odd of these methods are called
-class-qualified from the suite (``gui.MegabonkApp.read_player_stats_only(app)``),
-which resolves only through the MRO. Converting it into a constructed service
-is the rest of step 20.
+**Every dependency is a callable, and that is not decoration.** A mixin method
+read ``self`` late, on each call; a constructor argument reads it once. Step 20
+was bitten by exactly this twice in one commit, so the two clients, the snapshot
+store, the four demand predicates and the disabled-items cache all arrive as
+callables that re-resolve per call, which is what ``self.<name>`` did. The two
+``PlayerStatsClient``/``GameDataClient`` factories are *not*
+injected: the service imports them and ``config`` directly, because a lazily
+constructed client is this module's own decision, not a collaborator.
 
-**The two streak recorders are no longer part of that.** Step 20 made both
-module-level functions (below), retiring the twelve class-qualified production
-call sites that named this class -- ten here and two in
-``app/player_stats_refresh.py``. That was the largest single obstacle to
-converting this mixin, and the one with a live precedent: the same spelling
-stranded the Chaos Tome panel for two commits at step 14b, through a green
-suite and a working exe.
+**What this service owns: the two reconnect streaks.** ``_player_stats_memory_
+error_streak`` and ``_player_stats_game_data_memory_error_streak`` were app
+state, but nothing outside the reconnect policy ever touched them -- only the
+four ``record_*`` recorders and the two close helpers, all of which are this
+module's. So they move in, exactly as ``VodCapture`` pulled in its nine
+recording-lifecycle fields. The four module-level ``record_*`` functions survive
+as **thin owner-taking adapters** (``refresh_tasks`` and
+``player_stats_refresh`` call them ~14 times and pass the app), each resolving
+the service and delegating; the streak now lives in one place instead of on a
+shared ``self`` two other modules also wrote.
 
-Their player-stats siblings, ``record_player_stats_memory_success``/``_failure``
-and ``PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD``, moved here from
-``app/refresh_tasks.py`` in the prep commit for that conversion. One reconnect
-policy over two clients now lives in one place, and -- the point of doing it
-first -- the move deletes the ``player_stats_memory -> refresh_tasks`` import
-edge, so ``refresh_tasks`` can later import this module to resolve the memory
-service without closing an import cycle.
+**What this service does *not* own: the two clients or the disabled-items
+cache.** ``player_stats_client``/``player_stats_game_data_client`` are the
+``AppCoordinator``'s (step 12b); they arrive as read/write callables that hit
+the coordinator-delegating properties, which moved to ``MegabonkApp`` when this
+mixin left its bases. ``player_stats_disabled_items_cache`` and its
+``_refresh_pending`` flag are app state whose *other* readers and writers are
+``gui_twitch`` (``open_twitch_command_settings_dialog``) and ``gui_dialogs`` --
+neither in any step-20 metric, because ``--clusters`` scans only the five app
+modules. Pulling the cache in here would silently desync those two, so it stays
+app-owned and this service reads and writes it through injected accessors, the
+same shape ``VodCapture`` used for the snapshot buffer.
 
 ``ModuleNotFoundError`` below is deliberately ``infra.memory.reader``'s, not the
 builtin -- it shadows it, and the ``except`` clauses here depend on that. Do not
 'clean up' the import.
 """
 from __future__ import annotations
+
+from typing import Any, Callable
 
 from app import config
 from app.snapshot_store import live_snapshot_store
@@ -42,135 +57,101 @@ from infra.memory.game_data_client import GameDataClient
 from infra.memory.player_stats_client import PlayerStatsClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 
-# The reconnect threshold and the two ``record_player_stats_memory_*`` streak
-# recorders (below) moved here from ``app/refresh_tasks.py`` alongside their
-# game-data siblings. They read no widget -- only memory state and the memory
-# client -- so this is their home. Keeping them here also breaks the
-# ``player_stats_memory -> refresh_tasks`` import edge, which the later service
-# conversion needs gone: once ``refresh_tasks`` must import this module to reach
-# ``_get_player_stats_client`` through a resolver, the old edge would have closed
-# a module-level import cycle.
 PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD = 3
 
 
-def record_player_stats_game_data_memory_success(owner) -> None:
-    """Reset the game-data client's read-failure streak.
+class PlayerStatsMemory:
+    """The memory-read layer, constructible without Qt or ``MegabonkApp``.
 
-    A module-level function taking the owner, not a method. Until step 20 this
-    was ``PlayerStatsMemoryMixin._record_player_stats_game_data_memory_success``
-    and every one of its ten call sites -- plus two in
-    ``app/player_stats_refresh.py`` -- named the class explicitly, because a
-    plain ``self.`` call would have been a hidden cross-mixin read.
-
-    That spelling is the exact failure mode step 14b shipped: a class-qualified
-    call site resolves through ``MegabonkApp``'s MRO, does **not** follow its
-    target when the method moves onto a component, and is invisible to the MRO
-    resolution check. The Chaos Tome panel was broken for two commits through a
-    green suite and a reported-working exe.
-
-    A free function has no class to be orphaned from, so this **retires** the
-    failure mode rather than relocating it -- the same move step 19 made for
-    ``_chaos_stats_in_game_order``. It is also the shape the sibling pair in
-    ``app/refresh_tasks.py`` already had; the two are one policy over two
-    clients, and until now only one of them looked it.
+    The two streak fields below keep their old ``_player_stats_*`` spellings
+    deliberately: they moved owner (app -> service) but not meaning, and the
+    differential trace and the mutation harness both anchor on the policy that
+    drives them.
     """
-    owner._player_stats_game_data_memory_error_streak = 0
 
+    def __init__(
+        self,
+        *,
+        read_stats_client: Callable[[], Any],
+        write_stats_client: Callable[[Any], None],
+        read_game_data_client: Callable[[], Any],
+        write_game_data_client: Callable[[Any], None],
+        snapshot_store: Callable[[], Any],
+        recording_active: Callable[[], bool],
+        live_stats_tab_active: Callable[[], bool],
+        twitch_bot_active: Callable[[], bool],
+        overlay_refresh_wanted: Callable[[], bool],
+        read_disabled_items_cache: Callable[[], Any],
+        write_disabled_items_cache: Callable[[Any], None],
+        read_disabled_items_refresh_pending: Callable[[], bool],
+        write_disabled_items_refresh_pending: Callable[[bool], None],
+    ) -> None:
+        self._read_stats_client = read_stats_client
+        self._write_stats_client = write_stats_client
+        self._read_game_data_client = read_game_data_client
+        self._write_game_data_client = write_game_data_client
+        self._snapshot_store = snapshot_store
+        # Distinct private names -- not `_recorder`/`_is_live_stats_tab_active`,
+        # which are `VodCapture`'s injected-attr spellings and the app's own
+        # method names. Sharing them tripped `step20_metrics --clusters` into
+        # reporting two services' private callables as one piece of unowned
+        # state. Memory also needs only the recording *boolean*, not the
+        # recorder object, so it injects a predicate.
+        self._recording_active = recording_active
+        self._live_stats_tab_active = live_stats_tab_active
+        self._twitch_bot_active = twitch_bot_active
+        self._overlay_refresh_wanted = overlay_refresh_wanted
+        self._read_disabled_items_cache = read_disabled_items_cache
+        self._write_disabled_items_cache = write_disabled_items_cache
+        self._read_disabled_items_refresh_pending = read_disabled_items_refresh_pending
+        self._write_disabled_items_refresh_pending = write_disabled_items_refresh_pending
 
-def record_player_stats_game_data_memory_failure(owner, error: Exception) -> None:
-    """Count a game-data read failure, reconnecting the client at the threshold.
+        self._player_stats_memory_error_streak = 0
+        self._player_stats_game_data_memory_error_streak = 0
 
-    Only the three memory error types count. Anything else returns silently and
-    is deliberately not a reconnect reason -- see the paired
-    ``except Exception`` branches in the ``_read_*_safe`` wrappers, which close
-    the client outright instead. Two different policies, and the discrimination
-    between them is this one ``isinstance`` check.
-    """
-    if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
-        return
-    streak = int(getattr(owner, "_player_stats_game_data_memory_error_streak", 0)) + 1
-    owner._player_stats_game_data_memory_error_streak = streak
-    if streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
-        return
-    try:
-        owner.close_player_stats_game_data_client()
-    finally:
-        owner._player_stats_game_data_memory_error_streak = 0
+    # -- the read-failure reconnect policy --------------------------------
+    #
+    # The single most invisible code in this layer: a counter nobody displays,
+    # driving a reconnect nobody sees. A success resets the streak; a failure
+    # counts **only** the three memory error types (any other exception is
+    # ignored -- a silent ``return``); the client is closed and the streak reset
+    # only at the threshold. These were the module-level ``record_*`` bodies;
+    # the streak they mutated moved in with them.
 
+    def record_memory_success(self) -> None:
+        self._player_stats_memory_error_streak = 0
 
-def record_player_stats_memory_success(owner) -> None:
-    """Reset the player-stats client's read-failure streak.
+    def record_memory_failure(self, error: Exception) -> None:
+        if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
+            return
+        self._player_stats_memory_error_streak = int(self._player_stats_memory_error_streak) + 1
+        if self._player_stats_memory_error_streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
+            return
+        try:
+            self.close_player_stats_client()
+        finally:
+            self._player_stats_memory_error_streak = 0
 
-    The sibling of ``record_player_stats_game_data_memory_success`` above --
-    one reconnect policy over the two memory clients. It lived in
-    ``app/refresh_tasks.py`` until this commit; moving it here (with its failure
-    partner and the threshold) is what lets the coming service conversion have
-    ``refresh_tasks`` import ``player_stats_memory`` without closing an import
-    cycle. ``refresh_tasks`` and ``app/player_stats_refresh.py`` still call it,
-    now via that import.
-    """
-    owner._player_stats_memory_error_streak = 0
+    def record_game_data_success(self) -> None:
+        self._player_stats_game_data_memory_error_streak = 0
 
+    def record_game_data_failure(self, error: Exception) -> None:
+        if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
+            return
+        self._player_stats_game_data_memory_error_streak = int(self._player_stats_game_data_memory_error_streak) + 1
+        if self._player_stats_game_data_memory_error_streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
+            return
+        try:
+            self.close_player_stats_game_data_client()
+        finally:
+            self._player_stats_game_data_memory_error_streak = 0
 
-def record_player_stats_memory_failure(owner, error: Exception) -> None:
-    """Count a player-stats read failure, reconnecting the client at the threshold.
-
-    Same discrimination as the game-data sibling: only the three memory error
-    types count. Anything else returns silently and is left to the paired
-    ``except Exception`` branches in the ``_read_*_safe`` wrappers, which close
-    the client outright instead.
-    """
-    if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
-        return
-    streak = int(getattr(owner, "_player_stats_memory_error_streak", 0)) + 1
-    owner._player_stats_memory_error_streak = streak
-    if streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
-        return
-    try:
-        owner.close_player_stats_client()
-    finally:
-        owner._player_stats_memory_error_streak = 0
-
-
-class PlayerStatsMemoryMixin:
-    # Owned by AppCoordinator (step 12b). These properties delegate to it, with a
-    # __dict__ fallback so app doubles built with object.__new__ (no coordinator)
-    # keep working: a test that sets app.player_stats_client = <fake> round-trips
-    # through _player_stats_client with zero test changes.
-    @property
-    def player_stats_client(self):
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            return coordinator.player_stats_client
-        return self.__dict__.get("_player_stats_client")
-
-    @player_stats_client.setter
-    def player_stats_client(self, value) -> None:
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            coordinator.player_stats_client = value
-        else:
-            self.__dict__["_player_stats_client"] = value
-
-    @property
-    def player_stats_game_data_client(self):
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            return coordinator.player_stats_game_data_client
-        return self.__dict__.get("_player_stats_game_data_client")
-
-    @player_stats_game_data_client.setter
-    def player_stats_game_data_client(self, value) -> None:
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            coordinator.player_stats_game_data_client = value
-        else:
-            self.__dict__["_player_stats_game_data_client"] = value
+    # -- client lifecycle -------------------------------------------------
 
     def _get_player_stats_client(self) -> PlayerStatsClient:
-        if self.player_stats_client is None:
-            self.player_stats_client = PlayerStatsClient(config.PROCESS_NAME)
-        return self.player_stats_client
+        if self._read_stats_client() is None:
+            self._write_stats_client(PlayerStatsClient(config.PROCESS_NAME))
+        return self._read_stats_client()
 
     def read_player_stats_only(self):
         client = self._get_player_stats_client()
@@ -182,22 +163,22 @@ class PlayerStatsMemoryMixin:
         return client.get_passive_items(owner_stats)
 
     def read_player_stats_recording_state(self):
-        if self.player_stats_game_data_client is None:
-            self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
-        return self.player_stats_game_data_client.get_map_generation_state()
+        if self._read_game_data_client() is None:
+            self._write_game_data_client(GameDataClient(config.PROCESS_NAME))
+        return self._read_game_data_client().get_map_generation_state()
 
     def read_player_stats_runtime_game_state(self):
-        if self.player_stats_game_data_client is None:
-            self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
-        return self.player_stats_game_data_client.get_runtime_game_state()
+        if self._read_game_data_client() is None:
+            self._write_game_data_client(GameDataClient(config.PROCESS_NAME))
+        return self._read_game_data_client().get_runtime_game_state()
 
     def read_player_stats_runtime_activity_state(self):
-        if self.player_stats_game_data_client is None:
-            self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
-        reader = getattr(self.player_stats_game_data_client, "get_runtime_activity_state", None)
+        if self._read_game_data_client() is None:
+            self._write_game_data_client(GameDataClient(config.PROCESS_NAME))
+        reader = getattr(self._read_game_data_client(), "get_runtime_activity_state", None)
         if callable(reader):
             return reader()
-        return self.player_stats_game_data_client.get_runtime_game_state()
+        return self._read_game_data_client().get_runtime_game_state()
 
     def read_player_stats_recording_seed(self) -> int | None:
         return self.read_player_stats_recording_state().map_seed
@@ -249,11 +230,11 @@ class PlayerStatsMemoryMixin:
         stage_ptr = 0
         try:
             recording_state = self.read_player_stats_recording_state()
-            record_player_stats_game_data_memory_success(self)
+            self.record_game_data_success()
             map_seed = recording_state.map_seed
             stage_ptr = recording_state.current_stage_ptr
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            record_player_stats_game_data_memory_failure(self, exc)
+            self.record_game_data_failure(exc)
             map_seed = None
             stage_ptr = 0
         except Exception:
@@ -262,11 +243,11 @@ class PlayerStatsMemoryMixin:
             stage_ptr = 0
 
         # 3. Detect match start
-        snapshot_store = live_snapshot_store(self)
+        snapshot_store = self._snapshot_store()
         is_new_match = snapshot_store.is_new_match(map_seed=map_seed, run_timer_seconds=run_timer_seconds)
 
         if is_new_match:
-            self.player_stats_disabled_items_refresh_pending = True
+            self._write_disabled_items_refresh_pending(True)
             snapshot_store.reset_for_new_match()
 
         # 4. Read passive items
@@ -279,10 +260,10 @@ class PlayerStatsMemoryMixin:
 
         # 5. Read optional live stats if relevant tabs/features are active
         if (
-            self.player_stats_vod_recorder.is_recording
-            or self._is_live_stats_tab_active()
-            or self.overlay_should_refresh_live_stats()
-            or self._is_twitch_bot_active()
+            self._recording_active()
+            or self._live_stats_tab_active()
+            or self._overlay_refresh_wanted()
+            or self._twitch_bot_active()
         ):
             try:
                 client = self._get_player_stats_client()
@@ -320,21 +301,21 @@ class PlayerStatsMemoryMixin:
             # Refresh once per run, retrying until memory exposes a complete pool.
             try:
                 should_read_disabled = (
-                    getattr(self, "player_stats_disabled_items_refresh_pending", False)
-                    or getattr(self, "player_stats_disabled_items_cache", None) is None
+                    self._read_disabled_items_refresh_pending()
+                    or self._read_disabled_items_cache() is None
                 )
                 if should_read_disabled:
                     client = self._get_player_stats_client()
                     result = client.get_disabled_items()
                     if result.available:
-                        self.player_stats_disabled_items_cache = result.items
-                        self.player_stats_disabled_items_refresh_pending = False
-                    cache = getattr(self, "player_stats_disabled_items_cache", None)
+                        self._write_disabled_items_cache(result.items)
+                        self._write_disabled_items_refresh_pending(False)
+                    cache = self._read_disabled_items_cache()
                     if cache is not None:
                         disabled_items = cache
                         disabled_items_available = True
                 else:
-                    disabled_items = getattr(self, "player_stats_disabled_items_cache", ())
+                    disabled_items = self._read_disabled_items_cache()
                     disabled_items_available = True
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
                 disabled_items = ()
@@ -401,10 +382,10 @@ class PlayerStatsMemoryMixin:
     def _read_player_stats_recording_seed_safe(self) -> int | None:
         try:
             result = self.read_player_stats_recording_seed()
-            record_player_stats_game_data_memory_success(self)
+            self.record_game_data_success()
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            record_player_stats_game_data_memory_failure(self, exc)
+            self.record_game_data_failure(exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -413,10 +394,10 @@ class PlayerStatsMemoryMixin:
     def _read_player_stats_recording_state_safe(self):
         try:
             result = self.read_player_stats_recording_state()
-            record_player_stats_game_data_memory_success(self)
+            self.record_game_data_success()
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            record_player_stats_game_data_memory_failure(self, exc)
+            self.record_game_data_failure(exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -425,10 +406,10 @@ class PlayerStatsMemoryMixin:
     def _read_player_stats_runtime_game_state_safe(self):
         try:
             result = self.read_player_stats_runtime_game_state()
-            record_player_stats_game_data_memory_success(self)
+            self.record_game_data_success()
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            record_player_stats_game_data_memory_failure(self, exc)
+            self.record_game_data_failure(exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -437,10 +418,10 @@ class PlayerStatsMemoryMixin:
     def _read_player_stats_runtime_activity_state_safe(self):
         try:
             result = self.read_player_stats_runtime_activity_state()
-            record_player_stats_game_data_memory_success(self)
+            self.record_game_data_success()
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            record_player_stats_game_data_memory_failure(self, exc)
+            self.record_game_data_failure(exc)
             return None
         except Exception:
             self.close_player_stats_game_data_client()
@@ -449,35 +430,116 @@ class PlayerStatsMemoryMixin:
     def _read_player_stats_recording_run_timer_safe(self) -> float | None:
         try:
             result = self._get_player_stats_client().get_run_timer()
-            record_player_stats_memory_success(self)
+            self.record_memory_success()
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            record_player_stats_memory_failure(self, exc)
+            self.record_memory_failure(exc)
             return None
         except Exception:
             self.close_player_stats_client()
             return None
 
     def close_player_stats_client(self):
-        # The instance is owned by the coordinator now (step 12b); reach it through
-        # the property rather than __dict__, which no longer holds it.
-        player_stats_client = self.player_stats_client
+        # The instance is owned by the coordinator (step 12b); reach it through
+        # the injected accessor, which delegates to the coordinator-owned property.
+        player_stats_client = self._read_stats_client()
         if player_stats_client:
             try:
                 player_stats_client.close()
             except Exception:
                 pass
-            self.player_stats_client = None
-        live_snapshot_store(self).reset_match_metadata()
+            self._write_stats_client(None)
+        self._snapshot_store().reset_match_metadata()
         self._player_stats_memory_error_streak = 0
 
     def close_player_stats_game_data_client(self):
-        game_data_client = self.player_stats_game_data_client
+        game_data_client = self._read_game_data_client()
         if game_data_client:
             try:
                 game_data_client.close()
             except Exception:
                 pass
-            self.player_stats_game_data_client = None
+            self._write_game_data_client(None)
         self._player_stats_game_data_memory_error_streak = 0
 
+
+def player_stats_memory(owner) -> PlayerStatsMemory:
+    """Resolve the owner's ``PlayerStatsMemory``, building it on first use.
+
+    The same shape as ``vod_capture`` and ``run_lifecycle``: the service's
+    dependencies are the owner's clients, snapshot store, recorder, demand
+    predicates and disabled-items cache, so ``AppCoordinator`` cannot construct
+    it in its own ``__init__``. The coordinator caches it when there is one; an
+    app double built with ``object.__new__`` has none and keeps it in
+    ``__dict__``.
+
+    ``__dict__``, not ``getattr``: ``MegabonkApp.__getattr__`` forwards unknown
+    names to its ``window``, so a ``getattr`` would consult the widget before
+    deciding there is no coordinator.
+
+    Every argument is a lambda rather than a bound method or attribute grab:
+    ``self.player_stats_client`` resolved late, on every call; capturing the
+    client here would freeze whichever one happened to exist when the service
+    was first touched. Step 20 shipped that difference as a bug twice.
+    """
+    coordinator = owner.__dict__.get("coordinator")
+    if coordinator is not None:
+        existing = getattr(coordinator, "player_stats_memory", None)
+        if existing is not None:
+            return existing
+
+    existing = owner.__dict__.get("_player_stats_memory")
+    if existing is not None:
+        return existing
+
+    service = PlayerStatsMemory(
+        read_stats_client=lambda: owner.player_stats_client,
+        write_stats_client=lambda value: setattr(owner, "player_stats_client", value),
+        read_game_data_client=lambda: owner.player_stats_game_data_client,
+        write_game_data_client=lambda value: setattr(owner, "player_stats_game_data_client", value),
+        snapshot_store=lambda: live_snapshot_store(owner),
+        recording_active=lambda: owner.player_stats_vod_recorder.is_recording,
+        live_stats_tab_active=lambda: owner._is_live_stats_tab_active(),
+        twitch_bot_active=lambda: owner._is_twitch_bot_active(),
+        overlay_refresh_wanted=lambda: owner.overlay_should_refresh_live_stats(),
+        read_disabled_items_cache=lambda: getattr(owner, "player_stats_disabled_items_cache", None),
+        write_disabled_items_cache=lambda value: setattr(
+            owner, "player_stats_disabled_items_cache", value
+        ),
+        read_disabled_items_refresh_pending=lambda: getattr(
+            owner, "player_stats_disabled_items_refresh_pending", False
+        ),
+        write_disabled_items_refresh_pending=lambda value: setattr(
+            owner, "player_stats_disabled_items_refresh_pending", value
+        ),
+    )
+    if coordinator is not None:
+        coordinator.player_stats_memory = service
+    else:
+        owner.__dict__["_player_stats_memory"] = service
+    return service
+
+
+# The four module-level recorders survive as thin owner-taking adapters. Their
+# ~14 call sites in ``refresh_tasks`` and ``player_stats_refresh`` pass the app
+# and stay unchanged; each resolves the service and delegates to the streak
+# policy that now lives there. The game-data pair became module-level in step
+# 20's second commit (1d09c1b) to retire twelve class-qualified call sites that
+# named this class -- the exact spelling that stranded the Chaos Tome panel for
+# two commits at step 14b, through a green suite and a working exe.
+
+
+def record_player_stats_game_data_memory_success(owner) -> None:
+    player_stats_memory(owner).record_game_data_success()
+
+
+def record_player_stats_game_data_memory_failure(owner, error: Exception) -> None:
+    player_stats_memory(owner).record_game_data_failure(error)
+
+
+def record_player_stats_memory_success(owner) -> None:
+    player_stats_memory(owner).record_memory_success()
+
+
+def record_player_stats_memory_failure(owner, error: Exception) -> None:
+    player_stats_memory(owner).record_memory_failure(error)

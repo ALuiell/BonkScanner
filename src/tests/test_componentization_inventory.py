@@ -127,7 +127,6 @@ MRO_MODULES = {
     "InGameOverlayMixin": "gui_in_game_overlay",
     "RefreshTasksMixin": "app.refresh_tasks",
     "PlayerStatsRefreshMixin": "app.player_stats_refresh",
-    "PlayerStatsMemoryMixin": "app.player_stats_memory",
     "CompareRunsMixin": "ui.tabs.compare_runs",
     "RecordingsTabMixin": "ui.tabs.player_stats",
     "ScannerMixin": "gui_scanner",

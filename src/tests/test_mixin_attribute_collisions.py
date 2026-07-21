@@ -69,9 +69,18 @@ PRE_EXISTING_COLLISIONS: dict[str, str] = {
     # `VodCaptureMixin.note_run_not_in_game()` now, so vod_capture is the
     # only writer and the staleness test deleted the entry. Third
     # consecutive step in which this register has shrunk on its own.
-    "player_stats_disabled_items_cache": "memory cache also written by Twitch",
-    "player_stats_disabled_items_refresh_pending": "same cache, same pair",
-    "player_stats_game_data_client": "client handle, memory + refresh; step 20",
+    # `player_stats_disabled_items_cache` and
+    # `player_stats_disabled_items_refresh_pending` were here until step 20
+    # converted `PlayerStatsMemoryMixin` into the `PlayerStatsMemory` service.
+    # The service no longer *assigns* the cache on the shared `self` -- it reads
+    # and writes the app-owned cache through injected accessors -- so
+    # `TwitchBotMixin` is the only remaining mixin writer and the staleness test
+    # deleted both entries.
+    # `player_stats_game_data_client` was here too: its coordinator-delegating
+    # property moved to `MegabonkApp` (a `__dict__` write, not the `self.x = `
+    # assignment the scanner counts), leaving `player_stats_refresh` its only
+    # mixin writer. Fifth consecutive step in which this register shrank because
+    # the staleness test demanded it, not because anyone remembered.
     # `player_stats_selected_snapshot_index` left this register when step 20
     # converted `VodCaptureMixin` into `VodCapture`. It had two writers, the
     # refresh tick and vod_capture; the service does not write it at all --

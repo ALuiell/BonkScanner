@@ -30,6 +30,7 @@ import time
 
 from app import config
 from app.player_stats_memory import (
+    player_stats_memory,
     record_player_stats_game_data_memory_failure,
     record_player_stats_game_data_memory_success,
     record_player_stats_memory_failure,
@@ -143,7 +144,7 @@ class PlayerStatsRefreshMixin:
                 stage_index,
                 disabled_items,
                 disabled_items_available,
-            ) = self._read_live_player_stats_data()
+            ) = player_stats_memory(self)._read_live_player_stats_data()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
             record_player_stats_memory_failure(self, exc)
             try:
@@ -293,7 +294,7 @@ class PlayerStatsRefreshMixin:
             self.live_run_tracker.update_chests_and_keys(chests_opened, chests_total, keys_count)
 
         try:
-            client = self._get_player_stats_client()
+            client = player_stats_memory(self)._get_player_stats_client()
             chests_bought, chests_purchased = client.get_chest_counters()
             self.live_run_tracker.update_chest_counters(
                 chests_bought,

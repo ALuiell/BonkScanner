@@ -68,6 +68,7 @@ import time
 from typing import Any, Callable
 
 from app import config
+from app.player_stats_memory import player_stats_memory
 from app.player_stats_view import player_stats_view, recordings_list_view
 from app.run_lifecycle import run_lifecycle as resolve_run_lifecycle
 from core.game_state import RuntimeGameMode
@@ -584,9 +585,9 @@ def vod_capture(owner) -> VodCapture:
 
     service = VodCapture(
         recorder=lambda: owner.player_stats_vod_recorder,
-        read_recording_state=lambda: owner._read_player_stats_recording_state_safe(),
-        read_run_timer=lambda: owner._read_player_stats_recording_run_timer_safe(),
-        close_game_data_client=lambda: owner.close_player_stats_game_data_client(),
+        read_recording_state=lambda: player_stats_memory(owner)._read_player_stats_recording_state_safe(),
+        read_run_timer=lambda: player_stats_memory(owner)._read_player_stats_recording_run_timer_safe(),
+        close_game_data_client=lambda: player_stats_memory(owner).close_player_stats_game_data_client(),
         run_lifecycle=lambda: resolve_run_lifecycle(owner),
         refresh_now=lambda **kwargs: owner.refresh_live_player_stats_now(**kwargs),
         player_stats_view=lambda: player_stats_view(owner),

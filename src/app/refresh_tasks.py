@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING
 
 from app import config
 from app.player_stats_memory import (
+    player_stats_memory,
     record_player_stats_memory_failure,
     record_player_stats_memory_success,
 )
@@ -193,7 +194,9 @@ class RefreshTasksMixin:
         return True
 
     def _fast_task_client(self, context: RefreshTickContext) -> PlayerStatsClient:
-        return context.get_or_create("player_stats_client", self._get_player_stats_client)
+        return context.get_or_create(
+            "player_stats_client", player_stats_memory(self)._get_player_stats_client
+        )
 
     def _fast_task_owner_stats(self, context: RefreshTickContext) -> int:
         return context.get_or_create(

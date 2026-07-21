@@ -41,7 +41,8 @@ from tests.support.player_stats import (
     build_live_stats_tab,
 )
 from ui.tabs.player_stats.stat_cards import StatCardsView, chaos_stats_in_game_order
-from app import config, player_stats_memory, player_stats_refresh
+from app import config, player_stats_refresh
+from app.player_stats_memory import player_stats_memory
 from gui_app import MegabonkApp
 from gui_dialogs import (
     SettingsDialog,
@@ -592,14 +593,14 @@ class GuiRunControlTests(unittest.TestCase):
             reads.append("read")
             return next(states)
 
-        app.read_player_stats_runtime_activity_state = read_activity_state
-        app.close_player_stats_game_data_client = lambda: None
-        app._read_player_stats_runtime_activity_state_safe = (
-            lambda: MegabonkApp._read_player_stats_runtime_activity_state_safe(app)
-        )
-        # The real service, resolved the way production resolves it -- there is
-        # no coordinator on an app double, so this takes the `__dict__` branch
-        # and binds the reader above.
+        player_stats_memory(app).read_player_stats_runtime_activity_state = read_activity_state
+        player_stats_memory(app).close_player_stats_game_data_client = lambda: None
+        # `run_lifecycle`'s activity reader now calls the real
+        # `player_stats_memory(app)._read_player_stats_runtime_activity_state_safe`,
+        # so the underlying read is stubbed on the service and the safe wrapper
+        # is the genuine code under test rather than a hand-rolled forward.
+        # The service, resolved the way production resolves it -- there is no
+        # coordinator on an app double, so this takes the `__dict__` branch.
         lifecycle = run_lifecycle(app)
         lifecycle.set_completed(True)
 
@@ -710,9 +711,9 @@ class GuiRunControlTests(unittest.TestCase):
         app._live_stat_cards = RecordingStatCardsView()
         app._live_items_section = RecordingItemsSectionView()
         attach_player_stats_view(app)
-        app.close_player_stats_client = lambda: None
-        app.read_player_stats_only = lambda: ({}, 0x1234)
-        app.read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).close_player_stats_client = lambda: None
+        player_stats_memory(app).read_player_stats_only = lambda: ({}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
         # Both lifecycle readers, and deliberately the same value: production
         # computes `mode` identically in get_runtime_game_state and the cheaper
         # cached get_runtime_activity_state (verified exhaustively over every
@@ -723,8 +724,8 @@ class GuiRunControlTests(unittest.TestCase):
             mode=RuntimeGameMode.IN_GAME,
             is_playing=True,
         )
-        app.read_player_stats_runtime_game_state = lambda: _runtime_state
-        app.read_player_stats_runtime_activity_state = lambda: _runtime_state
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: _runtime_state
+        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda: _runtime_state
         app._is_live_stats_tab_active = lambda: True
         app.log_messages = []
         app.log = lambda message, tag=None: app.log_messages.append((message, tag))
@@ -2141,7 +2142,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_recording_run_state_keeps_file_open_while_paused(self) -> None:
         app = self.build_recording_app()
-        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.PAUSED_IN_GAME,
             is_playing=True,
             is_paused=True,
@@ -2165,7 +2166,7 @@ class GuiRunControlTests(unittest.TestCase):
         """
         app = self.build_recording_app()
         app._is_live_stats_tab_active = lambda: True
-        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.PAUSED_IN_GAME,
             is_playing=True,
             is_paused=True,
@@ -2182,7 +2183,7 @@ class GuiRunControlTests(unittest.TestCase):
     def test_recording_run_state_waits_after_game_over_without_disarming(self) -> None:
         app = self.build_recording_app()
         vod_capture(app).player_stats_recording_armed = True
-        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.GAME_OVER,
             is_playing=True,
             is_game_over=True,
@@ -2199,7 +2200,7 @@ class GuiRunControlTests(unittest.TestCase):
     def test_recording_run_state_waits_after_manual_menu_without_disarming(self) -> None:
         app = self.build_recording_app()
         vod_capture(app).player_stats_recording_armed = True
-        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
 
@@ -2216,11 +2217,11 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder.is_recording = False
         vod_capture(app).player_stats_recording_armed = True
         vod_capture(app).player_stats_recording_waiting_mode = RuntimeGameMode.MAIN_MENU.value
-        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.IN_GAME,
             is_playing=True,
         )
-        app.read_player_stats_recording_state = lambda: SimpleNamespace(
+        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(
             map_seed=333,
             current_stage_ptr=0x3000,
         )
@@ -3141,7 +3142,7 @@ class GuiRunControlTests(unittest.TestCase):
         def failing_read_player_stats_only() -> tuple[dict[str, object], int]:
             raise ProcessNotFoundError("game closed")
 
-        app.read_player_stats_only = failing_read_player_stats_only
+        player_stats_memory(app).read_player_stats_only = failing_read_player_stats_only
 
         fallback_client = FakeSeedStateClient([None, None])
         # Step 14c moved the lazy `GameDataClient(...)` construction out of
@@ -3149,7 +3150,7 @@ class GuiRunControlTests(unittest.TestCase):
         # `refresh_live_player_stats_now` each build one. Patch both, so this test
         # keeps asserting "no lazily-created client can reach the real game",
         # which is the whole point of the fallback.
-        with patch.object(player_stats_memory, "GameDataClient", return_value=fallback_client), \
+        with patch("app.player_stats_memory.GameDataClient", return_value=fallback_client), \
              patch.object(player_stats_refresh, "GameDataClient", return_value=fallback_client):
             with patch.object(config, "AUTO_START_RECORDING", False), \
                  patch.object(time, "monotonic", return_value=100.0):
@@ -3215,7 +3216,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
-        app.read_player_stats_runtime_activity_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
         app.after = lambda delay, callback: None
@@ -3248,11 +3249,11 @@ class GuiRunControlTests(unittest.TestCase):
         app.after = lambda delay, callback: None
 
         heavy_reads: list[int] = []
-        app.read_player_stats_runtime_game_state = lambda: heavy_reads.append(1) or RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: heavy_reads.append(1) or RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
         cheap_reads: list[int] = []
-        app.read_player_stats_runtime_activity_state = lambda: cheap_reads.append(1) or RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda: cheap_reads.append(1) or RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
 
@@ -3306,13 +3307,13 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
-        app.read_player_stats_runtime_activity_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
         read_calls: list[str] = []
-        app.read_player_stats_only = lambda: read_calls.append("stats") or ({}, 0x1234)
+        player_stats_memory(app).read_player_stats_only = lambda: read_calls.append("stats") or ({}, 0x1234)
 
         with patch.object(config, "AUTO_START_RECORDING", False), \
              patch.object(config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
@@ -3532,16 +3533,16 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_stage_summary_labels = []
         app._live_stat_cards = RecordingStatCardsView()
         app._live_items_section = items_section_over(app.player_stats_items_label)
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
             get_player_level=lambda owner_stats=None: 2,
         )
-        app.close_player_stats_client = lambda: None
+        player_stats_memory(app).close_player_stats_client = lambda: None
         attach_player_stats_view(app).refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app._is_live_stats_tab_active = lambda: True
-        app.read_player_stats_only = lambda: (
+        player_stats_memory(app).read_player_stats_only = lambda: (
             {
                 "Damage": SimpleNamespace(display_value="123", value=1.23),
                 "Powerup Multiplier": SimpleNamespace(display_value="1.5x", value=1.5),
@@ -3552,7 +3553,7 @@ class GuiRunControlTests(unittest.TestCase):
         def fail_items(owner_stats=None):
             raise MemoryReadError("items missing")
 
-        app.read_passive_items_only = fail_items
+        player_stats_memory(app).read_passive_items_only = fail_items
         app.live_run_tracker = SimpleNamespace(
             update=lambda *args, **kwargs: None,
             update_chests_and_keys=lambda *args, **kwargs: None,
@@ -3580,7 +3581,7 @@ class GuiRunControlTests(unittest.TestCase):
         app = self.build_recording_app()
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True)
         app.player_stats_status_label.setText("Live player stats (recording)")
-        app._read_live_player_stats_data = lambda: (_ for _ in ()).throw(
+        player_stats_memory(app)._read_live_player_stats_data = lambda: (_ for _ in ()).throw(
             MemoryReadError("transient player read")
         )
 
@@ -3605,7 +3606,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_expected_chest_inputs=lambda owner_stats: (7, 3),
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        app._get_player_stats_client = lambda: client
+        player_stats_memory(app)._get_player_stats_client = lambda: client
         refreshed: list[str] = []
         attach_player_stats_view(app).refresh_powerups_card = lambda: refreshed.append("label")
         app.live_run_tracker = SimpleNamespace(
@@ -3646,7 +3647,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_stage_timer_context=lambda: (25.0, 2, 480.0),
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        app._get_player_stats_client = lambda: client
+        player_stats_memory(app)._get_player_stats_client = lambda: client
         attach_player_stats_view(app).refresh_powerups_card = lambda: None
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda snapshot: None,
@@ -3696,7 +3697,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_killed_mobs=lambda: mob_kill_reads.append(1) or 37,
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        app._get_player_stats_client = lambda: client
+        player_stats_memory(app)._get_player_stats_client = lambda: client
         app.live_run_tracker = SimpleNamespace(
             track_expected_key_procs=lambda bought, keys: None,
             update_chaos_tome=lambda **kwargs: None,
@@ -3728,7 +3729,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_expected_chest_inputs=lambda _owner: (7, 3),
             get_chaos_tracking_state=lambda _owner: (None, {}),
         )
-        app._get_player_stats_client = lambda: client
+        player_stats_memory(app)._get_player_stats_client = lambda: client
         attach_player_stats_view(app).refresh_powerups_card = lambda: None
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda _snapshot: None,
@@ -3755,7 +3756,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_expected_chest_inputs=lambda _owner: (7, 3),
             get_chaos_tracking_state=lambda _owner: (2, {1: ()}),
         )
-        app._get_player_stats_client = lambda: client
+        player_stats_memory(app)._get_player_stats_client = lambda: client
         attach_player_stats_view(app).refresh_powerups_card = lambda: None
         app.live_run_tracker = SimpleNamespace(
             update_powerups=lambda _snapshot: None,
@@ -3798,7 +3799,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_successful_memory_read_resets_error_streak(self) -> None:
         app = object.__new__(MegabonkApp)
-        app._player_stats_memory_error_streak = 2
+        player_stats_memory(app)._player_stats_memory_error_streak = 2
         app.player_stats_client = SimpleNamespace(
             resolve_owner_stats=lambda: 0x1234,
             get_chaos_tracking_state=lambda _owner: (2, {}),
@@ -3808,7 +3809,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         self.assertTrue(MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
-        self.assertEqual(app._player_stats_memory_error_streak, 0)
+        self.assertEqual(player_stats_memory(app)._player_stats_memory_error_streak, 0)
 
     def test_chaos_refresh_throttles_expected_chest_reads_to_500ms(self) -> None:
         app = object.__new__(MegabonkApp)
@@ -3822,7 +3823,7 @@ class GuiRunControlTests(unittest.TestCase):
             ),
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        app._get_player_stats_client = lambda: client
+        player_stats_memory(app)._get_player_stats_client = lambda: client
         app.live_run_tracker = SimpleNamespace(
             track_expected_key_procs=lambda bought, keys: tracked.append(
                 (bought, keys)
@@ -3862,7 +3863,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
         run_timer_values = iter((21.5, 21.5, 22.5))
-        app._get_player_stats_client = lambda: client
+        player_stats_memory(app)._get_player_stats_client = lambda: client
         app.live_run_tracker = SimpleNamespace(
             track_expected_key_procs=lambda bought, keys: None,
             update_chaos_tome=lambda **kwargs: None,
@@ -3900,7 +3901,7 @@ class GuiRunControlTests(unittest.TestCase):
         attach_player_stats_view(app).set_stage_summary_rows = lambda rows: None
         app.update_overlay_state_from_tracker = lambda: None
         app.overlay_server = SimpleNamespace(is_running=False)
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             resolve_owner_stats=lambda: 0x1234,
             get_expected_chest_inputs=lambda owner_stats: (7, 3),
             get_run_timer=lambda: 21.5,
@@ -3978,7 +3979,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_killed_mobs=lambda: mob_kill_reads.append(1) or 37,
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        app._get_player_stats_client = lambda: client
+        player_stats_memory(app)._get_player_stats_client = lambda: client
         app.live_run_tracker = SimpleNamespace(
             track_expected_key_procs=lambda bought, keys: None,
             update_chaos_tome=lambda **kwargs: None,
@@ -4024,7 +4025,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_killed_mobs=lambda: mob_kill_reads.append(1) or 37,
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        app._get_player_stats_client = lambda: client
+        player_stats_memory(app)._get_player_stats_client = lambda: client
         app.live_run_tracker = SimpleNamespace(
             track_expected_key_procs=lambda bought, keys: None,
             update_chaos_tome=lambda **kwargs: None,
@@ -4060,7 +4061,7 @@ class GuiRunControlTests(unittest.TestCase):
             display_value="1.25x",
             tome_id=0,
         )
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_live_weapons=lambda owner_stats=None: (),
             get_live_tomes=lambda owner_stats=None: (tome,),
             get_live_banishes=lambda: ("Clover", "Golden Tome"),
@@ -4084,8 +4085,8 @@ class GuiRunControlTests(unittest.TestCase):
         snapshot_calls: list[str] = []
         attach_player_stats_view(app).refresh_player_stats_timeline_ui = lambda *args, **kwargs: timeline_calls.append("timeline")
         attach_player_stats_view(app).display_player_stats_snapshot = lambda *args, **kwargs: snapshot_calls.append("snapshot")
-        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
-        app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+        player_stats_memory(app).read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -4109,12 +4110,12 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
-        app.read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
             mode=RuntimeGameMode.PAUSED_IN_GAME,
             is_playing=True,
             is_paused=True,
         )
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_live_weapons=lambda owner_stats=None: (),
             get_live_tomes=lambda owner_stats=None: (),
             get_live_banishes=lambda: (),
@@ -4123,11 +4124,11 @@ class GuiRunControlTests(unittest.TestCase):
             get_killed_mobs=lambda: 37,
             get_player_level=lambda owner_stats=None: 2,
         )
-        app.read_player_stats_only = lambda: (
+        player_stats_memory(app).read_player_stats_only = lambda: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
             0x1234,
         )
-        app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -4141,10 +4142,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
-        app.read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
             MemoryReadError("runtime state unavailable")
         )
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_live_weapons=lambda owner_stats=None: (),
             get_live_tomes=lambda owner_stats=None: (),
             get_live_banishes=lambda: (),
@@ -4153,11 +4154,11 @@ class GuiRunControlTests(unittest.TestCase):
             get_killed_mobs=lambda: 37,
             get_player_level=lambda owner_stats=None: 2,
         )
-        app.read_player_stats_only = lambda: (
+        player_stats_memory(app).read_player_stats_only = lambda: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
             0x1234,
         )
-        app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -4179,7 +4180,7 @@ class GuiRunControlTests(unittest.TestCase):
             display_value="20%",
             tome_id=5,
         )
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_live_weapons=lambda owner_stats=None: (),
             get_live_tomes=lambda owner_stats=None: (tome,),
             get_live_banishes=lambda: ("Clover", "Golden Tome"),
@@ -4192,8 +4193,8 @@ class GuiRunControlTests(unittest.TestCase):
         attach_player_stats_view(app).display_player_stats = lambda stats, items=(), **kwargs: display_calls.append(
             {"stats": stats, "items": tuple(items), "kwargs": kwargs}
         )
-        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
-        app.read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+        player_stats_memory(app).read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -4210,10 +4211,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
-        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
-        app.read_passive_items_only = lambda owner_stats=None: ()
-        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app).read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_stage_timer=lambda: 9.0,
             get_killed_mobs=lambda: 37,
@@ -4238,10 +4239,10 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
-        app.read_player_stats_only = lambda: ({}, 0x1234)
-        app.read_passive_items_only = lambda owner_stats=None: ()
-        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=None, current_stage_ptr=0)
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app).read_player_stats_only = lambda: ({}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=None, current_stage_ptr=0)
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 0.0,
             get_stage_timer=lambda: None,
             get_killed_mobs=lambda: None,
@@ -4261,16 +4262,16 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
-        app.read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
             MemoryReadError("runtime state unavailable")
         )
-        app.read_player_stats_only = lambda: (
+        player_stats_memory(app).read_player_stats_only = lambda: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
             0x1234,
         )
-        app.read_passive_items_only = lambda owner_stats=None: ()
-        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_stage_timer=lambda: 9.0,
             get_killed_mobs=lambda: 37,
@@ -4290,13 +4291,13 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False, should_capture=True)
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
-        app._read_player_stats_recording_seed_safe = lambda: 321
-        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app)._read_player_stats_recording_seed_safe = lambda: 321
+        player_stats_memory(app).read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
 
         def fail_items(owner_stats=None):
             raise MemoryReadError("items missing")
 
-        app.read_passive_items_only = fail_items
+        player_stats_memory(app).read_passive_items_only = fail_items
 
         with patch.object(config, "AUTO_START_RECORDING", False):
             vod_capture(app).toggle_recording()
@@ -4318,7 +4319,7 @@ class GuiRunControlTests(unittest.TestCase):
         live_snapshot_store(app).last_known_damage_sources = (damage,)
         live_snapshot_store(app).last_known_banishes = ("Clover",)
         app._is_live_stats_tab_active = lambda: False
-        app.read_player_stats_only = lambda: (
+        player_stats_memory(app).read_player_stats_only = lambda: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
             0x1234,
         )
@@ -4326,10 +4327,10 @@ class GuiRunControlTests(unittest.TestCase):
         def fail_items(owner_stats=None):
             raise MemoryReadError("items missing")
 
-        app.read_passive_items_only = fail_items
-        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        player_stats_memory(app).read_passive_items_only = fail_items
+        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
 
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_stage_timer=lambda: 9.0,
             get_killed_mobs=lambda: 37,
@@ -4358,8 +4359,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)
         app.player_stats_vod_snapshots = []
         live_snapshot_store(app).last_known_items = ("Wrench x2", "Clover x1")
-        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
-        app.read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -4375,16 +4376,16 @@ class GuiRunControlTests(unittest.TestCase):
         live_snapshot_store(app).last_known_items = ("Wrench x2",)
         live_snapshot_store(app).last_seed = 123
         live_snapshot_store(app).last_run_timer = 45.0
-        app.read_passive_items_only = lambda owner_stats=None: ()
-        app.read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 2.0,
             get_stage_timer_context=lambda: (2.0, 0, 600.0),
             get_killed_mobs=lambda: 0,
             get_player_level=lambda owner_stats=None: 1,
         )
 
-        result = MegabonkApp._read_live_player_stats_data(app)
+        result = player_stats_memory(app)._read_live_player_stats_data()
 
         self.assertEqual(result[1], ())
         self.assertTrue(result[2])
@@ -4413,23 +4414,23 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_stage_summary_labels = []
         app._live_stat_cards = RecordingStatCardsView()
         app._live_items_section = items_section_over(app.player_stats_items_label)
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
             get_player_level=lambda owner_stats=None: 2,
         )
-        app.close_player_stats_client = lambda: None
-        app.close_player_stats_game_data_client = lambda: None
+        player_stats_memory(app).close_player_stats_client = lambda: None
+        player_stats_memory(app).close_player_stats_game_data_client = lambda: None
         attach_player_stats_view(app).refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app._is_live_stats_tab_active = lambda: True
         app.log = lambda *args, **kwargs: None
-        app.read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app).read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
 
         def fail_items(owner_stats=None):
             raise MemoryReadError("items missing")
 
-        app.read_passive_items_only = fail_items
+        player_stats_memory(app).read_passive_items_only = fail_items
         app.live_run_tracker = SimpleNamespace(
             update=lambda *args, **kwargs: None,
             update_chests_and_keys=lambda *args, **kwargs: None,
@@ -5480,8 +5481,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_shutting_down = False
         app._cancel_right_tab_transition = lambda: closed.append("transition")
         app.close_client = lambda: closed.append("client")
-        app.close_player_stats_client = lambda: closed.append("player_stats")
-        app.close_player_stats_game_data_client = lambda: closed.append("player_stats_game_data")
+        player_stats_memory(app).close_player_stats_client = lambda: closed.append("player_stats")
+        player_stats_memory(app).close_player_stats_game_data_client = lambda: closed.append("player_stats_game_data")
         app.close_overlay_server = lambda: closed.append("overlay")
         app.stop_in_game_overlay = lambda: closed.append("in_game_overlay")
         app.stop_twitch_bot = lambda: closed.append("twitch")
@@ -5535,8 +5536,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._cancel_right_tab_transition = lambda: None
         app._flush_total_rerolls = lambda *args, **kwargs: None
         app.close_client = lambda: closed.append("mixin_client")
-        app.close_player_stats_client = lambda: closed.append("mixin_player_stats")
-        app.close_player_stats_game_data_client = lambda: closed.append("mixin_game_data")
+        player_stats_memory(app).close_player_stats_client = lambda: closed.append("mixin_player_stats")
+        player_stats_memory(app).close_player_stats_game_data_client = lambda: closed.append("mixin_game_data")
         app.close_overlay_server = lambda: None
         app.stop_in_game_overlay = lambda: None
         app.stop_twitch_bot = lambda: None
@@ -5566,25 +5567,25 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_level_label = FakeLabel()
         app.player_stats_new_items_label = FakeLabel()
         app.player_stats_stage_summary_labels = []
-        app._get_player_stats_client = lambda: SimpleNamespace(
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_killed_mobs=lambda: 37,
             get_player_level=lambda owner_stats=None: 2,
         )
-        app.close_player_stats_client = lambda: None
-        app.close_player_stats_game_data_client = lambda: None
+        player_stats_memory(app).close_player_stats_client = lambda: None
+        player_stats_memory(app).close_player_stats_game_data_client = lambda: None
         attach_player_stats_view(app).refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
-        app.read_player_stats_only = lambda: ({}, 0x1234)
-        app.read_passive_items_only = lambda owner_stats=None: ("Key",)
-        app.read_player_stats_recording_state = lambda: SimpleNamespace(
+        player_stats_memory(app).read_player_stats_only = lambda: ({}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ("Key",)
+        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(
             map_seed=None,
             current_stage_ptr=0,
         )
-        app._read_player_stats_runtime_game_state_safe = lambda: None
+        player_stats_memory(app)._read_player_stats_runtime_game_state_safe = lambda: None
         vod_capture(app).maybe_auto_start = lambda **kwargs: None
         app.mark_overlay_read_failed = lambda *args, **kwargs: None
         app.update_overlay_state_from_tracker = lambda: None
