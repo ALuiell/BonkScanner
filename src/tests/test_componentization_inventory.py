@@ -157,13 +157,18 @@ MRO_MODULES = {
 # moving, which is precisely what broke at 14b.
 MAX_PRODUCTION_CLASS_QUALIFIED_SITES = 6
 MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 5
-# Tightened at step 21c (60 -> 55): the five doubles whose subject was
-# `RecordingsTabMixin` now call `tests/support/player_stats.build_recordings_tab`,
-# the component builder its conversion added. Step 20h recorded that 60 would
-# hold until steps 21-26; this is the first step to move it, and it is the
+# Tightened at step 21c (60 -> 55) and 21d (55 -> 52). The eight doubles whose
+# subject was one of the two recording tabs now call the component builders those
+# conversions added: `tests/support/player_stats.build_recordings_tab` (5) and
+# `tests/support/compare_runs.build_compare_runs_tab` (3). Step 20h recorded that
+# 60 would hold until steps 21-26; step 21 is the first to move it, and it is the
 # migration order this file's header states -- a call site is migrated by the
 # step that converts its subject.
-MAX_OBJECT_NEW_APP_DOUBLES = 55
+#
+# 52 is the *measured* count, not a margin. It was left at 55 for one commit
+# after 21d had already reached 52, which is the failure mode a ratchet is meant
+# to prevent: three doubles of slack is three that can be added back for free.
+MAX_OBJECT_NEW_APP_DOUBLES = 52
 
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"
