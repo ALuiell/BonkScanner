@@ -24,10 +24,10 @@ import gui_run_control
 import gui_scanner
 from ui import shared as gui_shared
 from ui import styles as gui_styles
-import gui_templates
 import infra.process as infra_process
 import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
+import ui.tabs.templates.panel as ui_tabs_templates_panel
 from app.snapshot_store import LiveSnapshotStore, live_snapshot_store
 from app.run_lifecycle import run_lifecycle
 from app.refresh_tasks import (
@@ -94,7 +94,7 @@ _PATCH_TARGETS = (
     gui_scanner,
     gui_shared,
     gui_styles,
-    gui_templates,
+    ui_tabs_templates_panel,
     infra_process,
     ui_player_stats_live,
     ui_player_stats_recordings,
@@ -1737,21 +1737,6 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(app._delete_btn.isEnabled())
         self.assertFalse(app._slider.isEnabled())
 
-    def test_edit_template_dialog_opens_template_manager(self) -> None:
-        opened: list[object] = []
-        fake_dialog = types.SimpleNamespace(exec=lambda: opened.append("exec"))
-        app = object.__new__(MegabonkApp)
-        app.window = object()
-        app.apply_template_edit = lambda original, updated: opened.append((original, updated))
-        templates = [{"id": 1, "name": "LIGHT"}]
-
-        with patch.object(config, "TEMPLATES", templates):
-            with patch_everywhere("TemplateManagerDialog", return_value=fake_dialog) as dialog_cls:
-                MegabonkApp.edit_template_dialog(app)
-
-        dialog_cls.assert_called_once_with(app.window, templates, app.apply_template_edit)
-        self.assertEqual(opened, ["exec"])
-
     def test_template_manager_dialog_expands_selected_template(self) -> None:
         MegabonkApp._ensure_qt_application()
         templates = [
@@ -1819,86 +1804,18 @@ class GuiRunControlTests(unittest.TestCase):
                 MegabonkApp._flush_total_rerolls(app, force=True)
                 save_config.assert_called_once_with(config.user_config)
 
-    def test_save_checkbox_state_updates_runtime_templates_without_restart(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.checkboxes = {
-            "Alpha": FakeCheckbox(True),
-            "Beta": FakeCheckbox(False),
-            "Gamma": FakeCheckbox(True),
-        }
-        app.active_templates = ["Alpha"]
-        app.template_stats = {
-            "Alpha": {"rerolls_since_last": 2, "history": [3]},
-            "Beta": {"rerolls_since_last": 1, "history": [4]},
-        }
-        app.session_rerolls = 7
-        app.scanner_thread = FakeAliveThread()
-        app.stats_avg_labels = {}
-        app.stats_avg_layout = SimpleNamespace(removeWidget=lambda _widget: None)
-        app.refresh_stats_ui = lambda: None
-        logs: list[tuple[str, str | None]] = []
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        attach_template_filters(app)
-
-        with patch.object(config, "EVALUATION_MODE", "templates"):
-            with patch.object(config, "save_config") as save_config:
-                MegabonkApp.save_checkbox_state(app)
-
-        self.assertEqual(config.ACTIVE_TEMPLATES, ["Alpha", "Gamma"])
-        self.assertEqual(app.active_templates, ["Alpha", "Gamma"])
-        self.assertEqual(app.template_stats["Alpha"]["history"], [3])
-        self.assertEqual(app.template_stats["Gamma"], {"rerolls_since_last": 0, "history": []})
-        self.assertEqual(app.template_stats["Beta"], {"rerolls_since_last": 1, "history": [4]})
-        self.assertEqual(logs, [("[*] Active templates updated live: Alpha, Gamma", None)])
-        save_config.assert_called_once_with(config.user_config)
-
     # `test_format_stats_includes_bald_heads_when_active_template_requires_it`
     # stood here until step 22a. `format_stats` is `app.map_scoring`'s now, and
     # a free function needs no app double at all -- the test moved whole to
     # `test_map_scoring.py` and took one `object.__new__(MegabonkApp)` with it.
 
-    def test_refresh_scores_ui_updates_runtime_tiers_without_restart(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.scores_desc_label = SimpleNamespace(setHtml=lambda _text: None)
-        app.scores_checkboxes = {
-            "Light": FakeCheckbox(True),
-            "Good": FakeCheckbox(False),
-            "Perfect": FakeCheckbox(True),
-            "Perfect+": FakeCheckbox(False),
-        }
-        app.template_stats = {"Good": {"rerolls_since_last": 4, "history": [2]}}
-        app.scanner_thread = FakeAliveThread()
-        app.stats_avg_labels = {}
-        app.stats_avg_layout = SimpleNamespace(removeWidget=lambda _widget: None)
-        app.refresh_stats_ui = lambda: None
-        logs: list[tuple[str, str | None]] = []
-        app.log = lambda message, tag=None: logs.append((message, tag))
-
-        attach_template_filters(app)
-
-        original_scores = deepcopy(config.SCORES_SYSTEM)
-        updated_scores = deepcopy(config.SCORES_SYSTEM)
-        updated_scores["active_tiers"] = ["Good"]
-        config.SCORES_SYSTEM = updated_scores
-        config.user_config["SCORES_SYSTEM"] = updated_scores
-
-        with patch.object(config, "EVALUATION_MODE", "scores"):
-            with patch.object(config, "save_config") as save_config:
-                MegabonkApp.refresh_scores_ui(app)
-
-        self.assertEqual(config.SCORES_SYSTEM["active_tiers"], ["Light", "Perfect"])
-        self.assertEqual(
-            app.template_stats,
-            {
-                "Good": {"rerolls_since_last": 4, "history": [2]},
-                "Light": {"rerolls_since_last": 0, "history": []},
-                "Perfect": {"rerolls_since_last": 0, "history": []},
-            },
-        )
-        self.assertEqual(logs, [("[*] Active tiers updated live: Light, Perfect", None)])
-        save_config.assert_called_once_with(config.user_config)
-        config.SCORES_SYSTEM = original_scores
-        config.user_config["SCORES_SYSTEM"] = original_scores
+    # Three template doubles stood here until step 22c:
+    # `test_edit_template_dialog_opens_template_manager`,
+    # `test_save_checkbox_state_updates_runtime_templates_without_restart` and
+    # `test_refresh_scores_ui_updates_runtime_tiers_without_restart`. Their
+    # subject is `ui.tabs.templates.TemplatesPanel` now, so they call its real
+    # constructor in `test_templates_panel.py` -- the migration order this
+    # file's header states.
 
     def test_background_loop_cleanup_clears_scan_event_after_stop_wake(self) -> None:
         app = object.__new__(MegabonkApp)

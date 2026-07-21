@@ -132,13 +132,17 @@ MRO_MODULES = {
     "MegabonkApp": "gui_app",
     "GuiLayoutMixin": "gui_layout",
     "RunControlMixin": "gui_run_control",
-    "TemplatesMixin": "gui_templates",
     "OverlayMixin": "gui_overlay",
     "InGameOverlayMixin": "gui_in_game_overlay",
     # `PlayerStatsRefreshMixin` was here until step 20g converted it into the
     # `PlayerStatsRefresh` service, taking `MegabonkApp` to nine bases and the
     # app-layer slice to zero. It was the last of the five app-side bases the
     # step named.
+    # `TemplatesMixin` was here until step 22c. `gui_templates.py` held three
+    # unrelated things: 22a took map evaluation to `app.map_scoring`, 22b took
+    # the runtime filter state to `app.template_filters`, 22c made the rest
+    # `ui.tabs.templates.TemplatesPanel` and moved the two footer dialogs to
+    # `MegabonkApp`. The module is deleted; `MegabonkApp` is at **six** bases.
     # Both of step 21's subjects were here. 21c converted `RecordingsTabMixin`
     # into `RecordingsTab` and 21d converted `CompareRunsMixin` into
     # `CompareRunsTab`, each an object built by its own composition root in
@@ -168,7 +172,21 @@ MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 5
 # 52 is the *measured* count, not a margin. It was left at 55 for one commit
 # after 21d had already reached 52, which is the failure mode a ratchet is meant
 # to prevent: three doubles of slack is three that can be added back for free.
-MAX_OBJECT_NEW_APP_DOUBLES = 52
+#
+# Tightened at step 22 (52 -> 48). Four doubles retired, each because its
+# subject stopped being a mixin method:
+#   22a  test_format_stats_includes_bald_heads_...  -> tests/test_map_scoring.py
+#          (a free function needs no app at all)
+#   22c  test_edit_template_dialog_opens_template_manager
+#        test_save_checkbox_state_updates_runtime_templates_without_restart
+#        test_refresh_scores_ui_updates_runtime_tiers_without_restart
+#          -> tests/test_templates_panel.py, via
+#             tests/support/templates_panel.build_templates_panel
+#
+# 48 is measured, not rounded down to a safe number. The step-22 inventory found
+# 21d had reported 52 while leaving the constant at 55, and the `<=` comparison
+# hid it; repeating that here would be repeating the thing that fix was for.
+MAX_OBJECT_NEW_APP_DOUBLES = 48
 
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"

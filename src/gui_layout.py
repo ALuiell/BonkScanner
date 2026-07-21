@@ -4,7 +4,6 @@ import os
 
 from ui.shared import (
     _apply_button_icon,
-    _make_scroll_section,
     resource_path,
 )
 
@@ -13,15 +12,22 @@ from PySide6.QtGui import QFont, QFontMetrics, QPixmap
 from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
+)
+
+from gui_dialogs import (
+    DeleteDialog,
+    ScoresSettingsDialog,
+    TemplateDialog,
+    TemplateManagerDialog,
 )
 
 from app import config
@@ -223,41 +229,10 @@ class GuiLayoutMixin:
         self.left_tabview.currentChanged.connect(self.on_left_tab_changed)
         left_layout.addWidget(self.left_tabview)
 
-        self.tab_templates = QWidget()
-        templates_layout = QVBoxLayout(self.tab_templates)
-        self.scrollable_templates, _templates_content, self.template_layout = _make_scroll_section()
-        templates_layout.addWidget(self.scrollable_templates, 1)
-        template_buttons = QHBoxLayout()
-        self.add_btn = QPushButton("+ Add")
-        self.add_btn.clicked.connect(self.add_template_dialog)
-        self.edit_btn = QPushButton("Edit")
-        self.edit_btn.clicked.connect(self.edit_template_dialog)
-        self.del_btn = QPushButton("Delete")
-        self.del_btn.setObjectName("DangerButton")
-        self.del_btn.clicked.connect(self.del_template_dialog)
-        template_buttons.addWidget(self.add_btn)
-        template_buttons.addWidget(self.edit_btn)
-        template_buttons.addWidget(self.del_btn)
-        template_buttons.addStretch(1)
-        templates_layout.addLayout(template_buttons)
-        self.left_tabview.addTab(self.tab_templates, "Templates")
-
-        self.tab_scores = QWidget()
-        scores_layout = QVBoxLayout(self.tab_scores)
-        scores_group = QGroupBox("Active Tiers")
-        self.scores_templates_layout = QVBoxLayout(scores_group)
-        scores_layout.addWidget(scores_group)
-        self.scores_desc_label = QTextEdit()
-        self.scores_desc_label.setReadOnly(True)
-        scores_layout.addWidget(self.scores_desc_label, 1)
-        scores_buttons = QHBoxLayout()
-        self.edit_scores_btn = QPushButton("Edit Settings")
-        _apply_button_icon(self.edit_scores_btn, "media/settings_icon.png", 18)
-        self.edit_scores_btn.clicked.connect(self.open_scores_settings_dialog)
-        scores_buttons.addWidget(self.edit_scores_btn)
-        scores_buttons.addStretch(1)
-        scores_layout.addLayout(scores_buttons)
-        self.left_tabview.addTab(self.tab_scores, "Scores")
+        # The ~34 lines that built both left tabs are `TemplatesPanel.build()`'s
+        # now (step 22c). Which tab opens stays here: that is a router question,
+        # and the router is step 26's.
+        self._templates_panel = _build_templates_panel(self)
         self.left_tabview.setCurrentIndex(1 if config.EVALUATION_MODE == "scores" else 0)
 
 
@@ -372,6 +347,48 @@ class GuiLayoutMixin:
             self.refresh_vods_list()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
+
+
+def _build_templates_panel(app):
+    """Construct the templates panel and name its eight collaborators.
+
+    The composition root for `TemplatesPanel` (step 22c), kept at the exact
+    point in `_build_left_panel` where the two tabs used to be built inline, so
+    they keep their position and order in the left tab bar.
+
+    Five of the eight are dialog factories. That is not ceremony: the layer
+    table lets `ui/` import `app`, `projections` and `core`, and `gui_dialogs`
+    is none of those. `ui/tabs/player_stats/recordings.py` reaches it through a
+    `TOPLEVEL_DEBT` entry and that allowlist may only shrink, so the panel takes
+    the dialogs as arguments and this module -- which is top-level and may
+    import them freely -- supplies them. It is also what the roadmap asks for in
+    as many words: shared dialogs passed as narrow UI dependencies rather than
+    discovered through `self`.
+
+    `sync_filters` points at the step-22b owner, not at the app's delegator, so
+    the panel does not reach back through `MegabonkApp` to get to an object the
+    app already holds.
+
+    `window` is a supplier rather than the widget, for the reason
+    `_build_recordings_view` records: this runs during `setup_ui`, and a
+    captured `app.window` would freeze whatever it was at that moment.
+    """
+    from ui.tabs.templates import TemplatesPanel
+
+    view = TemplatesPanel(
+        left_tabview=app.left_tabview,
+        window=lambda: app.window,
+        sync_filters=app._template_filters.sync,
+        template_dialog=TemplateDialog,
+        template_manager_dialog=TemplateManagerDialog,
+        delete_dialog=DeleteDialog,
+        scores_settings_dialog=ScoresSettingsDialog,
+        no_custom_templates_message=lambda parent: QMessageBox.information(
+            parent, "No Custom Templates", "There are no custom templates to delete."
+        ),
+    )
+    view.build()
+    return view
 
 
 def _build_compare_runs_view(app):

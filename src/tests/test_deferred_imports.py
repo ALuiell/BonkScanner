@@ -72,7 +72,6 @@ LOCAL_ROOTS = {
     "gui_overlay",
     "gui_run_control",
     "gui_scanner",
-    "gui_templates",
     "gui_twitch",
     "live_run_tracker",
     "twitch_auth",

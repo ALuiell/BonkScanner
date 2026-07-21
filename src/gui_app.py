@@ -12,16 +12,16 @@ from app import config
 from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
 from app.player_stats_refresh import player_stats_refresh
+from gui_dialogs import HelpDialog, SettingsDialog
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
 from app.template_filters import TemplateRuntimeFilters
-from ui.shared import UiInvoker, _AppWindow, _read_bool, resource_path
+from ui.shared import UiInvoker, _AppWindow, resource_path
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
-from gui_templates import TemplatesMixin
 from gui_twitch import TwitchBotMixin
 from app.vod_library import VodLibrary
 
@@ -29,7 +29,6 @@ from app.vod_library import VodLibrary
 class MegabonkApp(
     GuiLayoutMixin,
     RunControlMixin,
-    TemplatesMixin,
     OverlayMixin,
     InGameOverlayMixin,
     ScannerMixin,
@@ -65,13 +64,17 @@ class MegabonkApp(
             self.setWindowIcon(QIcon(icon_path))
 
         self.left_tabview = None
-        self.tab_templates = None
-        self.tab_scores = None
-        self.scrollable_templates = None
-        self.template_layout = None
-        self.scores_templates_frame = None
-        self.scores_templates_layout = None
-        self.scores_desc_label = None
+        # `None` until `setup_ui` builds it, and the two delegators below guard
+        # on that. Not defensive habit -- `_build_left_tabs` connects
+        # `currentChanged` to `on_left_tab_changed` *before* the panel exists,
+        # so `addTab` fires the router during construction. The mixin absorbed
+        # this because `refresh_scores_ui` began `if self.scores_desc_label is
+        # None: return` and the checkbox dicts were empty. Removing those slots
+        # removed the guard with them, and Qt swallows exceptions raised inside
+        # a slot: the app came up with a traceback on stderr and no other
+        # symptom. Found by constructing the real app, not by the suite -- the
+        # same way, and for the same reason, step 21's startup crash was found.
+        self._templates_panel = None
         self.tabview = None
         self.tab_logs = None
         self.tab_stats = None
@@ -159,11 +162,13 @@ class MegabonkApp(
         # the delegating properties above; every port is a late-bound lambda, so
         # the collaborators it names need not exist yet.
         self._template_filters = TemplateRuntimeFilters(
-            # Reads the checkboxes directly for now. Step 22c hands this port to
-            # the templates panel, which is what will own them.
-            selected_template_names=lambda: [
-                name for name, cb in getattr(self, "checkboxes", {}).items() if _read_bool(cb)
-            ],
+            # Late-bound: the panel does not exist until `setup_ui` runs, well
+            # after this. Nothing asks the question before then.
+            selected_template_names=lambda: (
+                []
+                if self._templates_panel is None
+                else self._templates_panel.selected_template_names()
+            ),
             # The guard is here, not in the service: "have the session-stats
             # widgets been built yet" is a question about this class's
             # construction order, which is exactly what `_sync_runtime_filters`
@@ -209,8 +214,6 @@ class MegabonkApp(
         # two of them back through its selection callback.
         self.run_control_provider = None
         self._hotkey_manager = None
-        self.checkboxes = {}
-        self.scores_checkboxes = {}
         self.animation_active = False
         self.animation_frame = 0
         self.stop_event = threading.Event()
@@ -250,9 +253,9 @@ class MegabonkApp(
         self.setup_ui()
         self.setup_twitch_bot_ui()
         self.apply_overlay_autostart()
-        self.refresh_templates()
-        self.refresh_scores_templates_list()
-        self.refresh_scores_ui()
+        self._templates_panel.refresh_templates()
+        self._templates_panel.refresh_scores_templates_list()
+        self._templates_panel.refresh_scores_ui()
         self.setup_hotkeys()
         self.update_timer()
         self.coordinator.start_refresh_loop(
@@ -378,6 +381,40 @@ class MegabonkApp(
 
     def _get_selected_template_names(self) -> list[str]:
         return self._template_filters.selected_template_names()
+
+    # `gui_layout.on_left_tab_changed` calls this *on the app* when the user
+    # switches between the Templates and Scores tabs. Same shape and same reason
+    # as the delegators above: the router is step 26's subject, so the panel
+    # gets the work and the app keeps the one-line entry point.
+    def refresh_scores_ui(self) -> None:
+        if self._templates_panel is None:
+            return
+        self._templates_panel.refresh_scores_ui()
+
+    # -- footer dialogs (step 22c) ----------------------------------------
+    #
+    # These two sat in `gui_templates.py` and have nothing to do with templates:
+    # they hang off the footer buttons, next to Start/Stop. They are here rather
+    # than in `TemplatesPanel` because of what the first one does --
+    # `SettingsDialog(window, master=self)`. The dialog reaches `master` for
+    # about ten things and several of those reads are under `hasattr`
+    # (`setup_hotkeys`, `apply_run_control_mode`, `player_stats_vod_recorder`,
+    # `player_stats_view(master)`, `log`, `update_status_ui`,
+    # `vod_capture(master)`).
+    #
+    # Had they moved to the panel, `master` would be the panel, every `hasattr`
+    # branch would go quietly false, and hotkeys would stop re-registering after
+    # a settings save -- with a green suite and no exception anywhere. That is
+    # precisely the failure step 19 recorded for
+    # `SettingsDialog.save -> refresh_player_stats_timeline_ui`. `master=self`
+    # here still means the application.
+    def open_settings_dialog(self) -> None:
+        dialog = SettingsDialog(self.window, master=self)
+        dialog.exec()
+
+    def open_help_dialog(self) -> None:
+        dialog = HelpDialog(self.window)
+        dialog.exec()
 
     # -- player-stats refresh (step 20g) ----------------------------------
     #
