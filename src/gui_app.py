@@ -328,43 +328,49 @@ class MegabonkApp(
 
     # -- coordinator-owned memory clients (step 12b) ----------------------
     #
-    # These delegate to the AppCoordinator, with a __dict__ fallback so app
-    # doubles built with object.__new__ (no coordinator) keep working: a test
-    # that sets app.player_stats_client = <fake> round-trips through
-    # _player_stats_client with zero test changes. They lived on
+    # These are pure delegation to the AppCoordinator. They lived on
     # PlayerStatsMemoryMixin until step 20 converted it to a service; the clients
     # are app-instance surface (gui_scanner, gui_twitch, player_stats_refresh and
     # the memory service all reach them), so they moved here rather than into the
     # service that no longer defines them.
+    #
+    # Step 20h removed the `__dict__` fallback that used to stand in for a
+    # missing coordinator, which is step 20's third exit criterion: an app
+    # double built with `object.__new__` must be *given* its clients, not have
+    # the property quietly invent shadow storage for them. Doubles that assign
+    # a client now install a coordinator first (`make_client_coordinator` in
+    # `tests/test_gui_run_control.py`) -- the same carrier production uses, so
+    # the four service resolvers cache in the same place for both.
+    #
+    # `__dict__`, not `getattr`: `MegabonkApp.__getattr__` forwards unknown
+    # names to its `window`, so a `getattr` would consult the widget before
+    # deciding there is no coordinator. `_client_owner` raises AttributeError
+    # rather than letting a KeyError out, so an owner with no coordinator fails
+    # the way a missing attribute is supposed to -- `hasattr` and
+    # `getattr(app, ..., default)` keep behaving.
+    def _client_owner(self):
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is None:
+            raise AttributeError(
+                "memory clients live on the AppCoordinator; this owner has none"
+            )
+        return coordinator
+
     @property
     def player_stats_client(self):
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            return coordinator.player_stats_client
-        return self.__dict__.get("_player_stats_client")
+        return self._client_owner().player_stats_client
 
     @player_stats_client.setter
     def player_stats_client(self, value) -> None:
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            coordinator.player_stats_client = value
-        else:
-            self.__dict__["_player_stats_client"] = value
+        self._client_owner().player_stats_client = value
 
     @property
     def player_stats_game_data_client(self):
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            return coordinator.player_stats_game_data_client
-        return self.__dict__.get("_player_stats_game_data_client")
+        return self._client_owner().player_stats_game_data_client
 
     @player_stats_game_data_client.setter
     def player_stats_game_data_client(self, value) -> None:
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            coordinator.player_stats_game_data_client = value
-        else:
-            self.__dict__["_player_stats_game_data_client"] = value
+        self._client_owner().player_stats_game_data_client = value
 
     # -- player-stats refresh (step 20g) ----------------------------------
     #

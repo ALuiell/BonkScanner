@@ -28,9 +28,13 @@ import gui_templates
 import infra.process as infra_process
 import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
-from app.snapshot_store import live_snapshot_store
+from app.snapshot_store import LiveSnapshotStore, live_snapshot_store
 from app.run_lifecycle import run_lifecycle
-from app.refresh_tasks import player_stats_refresh_required, refresh_tasks
+from app.refresh_tasks import (
+    ensure_refresh_coordinator,
+    player_stats_refresh_required,
+    refresh_tasks,
+)
 from tests.support.refresh_tasks import build_refresh_tasks
 from tests.support.run_lifecycle import build_run_lifecycle, install_run_lifecycle
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
@@ -91,6 +95,31 @@ _PATCH_TARGETS = (
     ui_player_stats_live,
     ui_player_stats_recordings,
 )
+
+
+def make_client_coordinator() -> SimpleNamespace:
+    """A minimal `AppCoordinator` stand-in for `object.__new__` app doubles.
+
+    Step 20h removed the `__dict__` fallback from `MegabonkApp`'s two client
+    properties, so a double that assigns `player_stats_client` needs a real
+    carrier for it. The fields here are exactly the `AppCoordinator.__init__`
+    ones the owner-taking resolvers read *unconditionally* once a coordinator
+    exists: `snapshot_store` (`app/snapshot_store.py`) and `refresh_coordinator`
+    (`app/refresh_tasks.py`), plus the two clients. The other six resolvers
+    `getattr(..., None)` first and then `setattr` their service, and a
+    `SimpleNamespace` takes that write exactly like `AppCoordinator` does.
+
+    A real `AppCoordinator` would also build a `LiveRunTracker`, a
+    `LocalOverlayServer` and a `VodRecorder`, and would rewire
+    `vod_storage`'s settings as a side effect -- none of which these doubles
+    want, and the recorder in particular is the fake they install themselves.
+    """
+    return SimpleNamespace(
+        player_stats_client=None,
+        player_stats_game_data_client=None,
+        snapshot_store=LiveSnapshotStore(),
+        refresh_coordinator=None,
+    )
 
 
 @contextmanager
@@ -683,6 +712,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def build_recording_app(self) -> MegabonkApp:
         app = object.__new__(MegabonkApp)
+        app.__dict__["coordinator"] = make_client_coordinator()
         app.player_stats_vod_recorder = FakeRecordingRecorder()
         app.player_stats_vod_snapshots = ["snapshot"]
         app.player_stats_selected_snapshot_index = 0
@@ -3291,7 +3321,10 @@ class GuiRunControlTests(unittest.TestCase):
 
         diagnostics = {
             entry.task_id: entry
-            for entry in app._refresh_coordinator.diagnostics()
+            # Not `app._refresh_coordinator`: this double has a coordinator
+            # now (step 20h), so that is where `ensure_refresh_coordinator`
+            # stored it -- the same accessor production reads it through.
+            for entry in ensure_refresh_coordinator(app).diagnostics()
         }
         self.assertIn("lifecycle failed", diagnostics["recording_lifecycle"].last_error or "")
 
@@ -3519,6 +3552,10 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_refresh_live_player_stats_now_keeps_stats_when_items_fail(self) -> None:
         app = object.__new__(MegabonkApp)
+        # Assigns no client, but the refresh reads `player_stats_game_data_client`
+        # on the way to the map stats; it wants that read to answer `None`, not
+        # to raise. The coordinator is where a `None` client lives now.
+        app.__dict__["coordinator"] = make_client_coordinator()
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
@@ -5471,6 +5508,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_refresh_live_player_stats_now_parses_single_key(self) -> None:
         app = object.__new__(MegabonkApp)
+        app.__dict__["coordinator"] = make_client_coordinator()
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=False)
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
