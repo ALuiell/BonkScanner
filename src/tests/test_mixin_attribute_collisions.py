@@ -228,7 +228,14 @@ class MixinAttributeCollisionTests(unittest.TestCase):
     def test_the_scan_actually_reads_the_mixins(self) -> None:
         """Step 13's guard: a scan that finds nothing passes trivially."""
         assignments = _assignments_by_mixin()
-        self.assertGreater(len(assignments), 10, "found almost no mixins")
+        # `> 8`, not `> 10`: this counts `MegabonkApp`'s bases, and step 20 is
+        # deliberately retiring them one per commit (20f took `RefreshTasksMixin`
+        # to 10; 20g takes `PlayerStatsRefreshMixin` to 9). The guard exists to
+        # catch a scan that reads *nothing*, so it must track the shrinking MRO
+        # rather than pin it -- the MRO itself is ratcheted by
+        # `test_componentization_inventory`'s `MRO_MODULES`, which is where a
+        # base reappearing gets caught.
+        self.assertGreater(len(assignments), 8, "found almost no mixins")
         self.assertGreater(
             sum(len(names) for names in assignments.values()),
             200,

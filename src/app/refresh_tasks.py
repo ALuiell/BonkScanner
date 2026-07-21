@@ -32,28 +32,53 @@ against the import arrow. They are the same shape as the pair above now.
 The two ``record_player_stats_memory_*`` streak recorders and the reconnect
 threshold used to live here for that same reason, but they moved to
 ``app/player_stats_memory.py`` (joining their game-data siblings) to delete the
-``player_stats_memory -> refresh_tasks`` import edge. This module still calls
-them -- now via that import -- and that is the point: the coming service
-conversion needs ``refresh_tasks`` to import ``player_stats_memory``, and the old
-edge would have closed a cycle.
+``player_stats_memory -> refresh_tasks`` import edge, and that is the point: the
+service conversion below needs ``refresh_tasks`` to import
+``player_stats_memory``, and the old edge would have closed a cycle. Step 20f
+then stopped calling the owner-taking ``record_player_stats_memory_*`` adapters
+altogether -- the service holds the memory service directly, so it calls
+``record_memory_success``/``record_memory_failure`` on it and the adapter import
+is gone from this file.
 
-Everything else here (the six ``_should_refresh_*``/``_refresh_*_task``
-pairs and their private helpers) has no caller outside this module, so it
-stays as ``RefreshTasksMixin`` methods, mixed into ``MegabonkApp`` alongside
-the other seven GUI mixins -- unlike steps 1-5's moves, this one still reads
-the shared ``self`` it always did. Explicit dependency injection for *this*
-code is step 11's job (``AppCoordinator``), not this one's.
+Step 20f converted the rest -- the six ``_should_refresh_*``/``_refresh_*_task``
+pairs and their private helpers -- from ``RefreshTasksMixin`` into the
+``RefreshTasks`` service below, the sixth of the seven app-side MRO bases and
+the last one that had no caller outside this module. Every dependency is an
+injected zero-argument callable for the reason ``player_stats_memory.py``'s
+header spells out: a mixin method resolves ``self`` late, on every call, and a
+constructor argument resolves it once. Step 20 shipped that difference as a bug
+twice, so nothing here is captured -- only re-resolved.
+
+**The injected attribute names are deliberately distinct from the other two
+services'.** ``PlayerStatsMemory`` and ``VodCapture`` both spell a live-stats-tab
+predicate, and when the memory conversion reused ``VodCapture``'s
+``_is_live_stats_tab_active`` the cluster scanner reported two services' private
+callables as one piece of unowned state. ``_tab_active``/``_twitch_active``/
+``_tracker`` and friends below are checked against both.
+
+**What this service owns: two fields, decided by counting.**
+``_player_stats_refresh_status_text`` and ``_last_fast_kps_game_time_seconds``
+had every reader and writer inside this file -- nothing in ``src/`` else touches
+either -- so they move in, exactly as the two reconnect streaks moved into
+``PlayerStatsMemory``. Both keep their old spellings and both are initialised to
+the value the ``getattr`` default used to supply, so the pre-first-write read is
+unchanged. ``_refresh_coordinator`` does **not** move: it stays behind
+``ensure_refresh_coordinator`` because the coordinator owns it and a test reads
+``app._refresh_coordinator.diagnostics()``.
+
+**The seven ``getattr``/``callable`` demand guards are gone, and dropping them
+changed nothing.** Each guarded site kept its ``try``/``except`` and the injected
+callable raises ``AttributeError`` on an owner missing the predicate -- which
+takes the same branch the ``callable()`` fallthrough took. The two direct,
+unguarded call sites (``_should_refresh_expected_chest_inputs`` and
+``_should_refresh_chaos_tome``) still propagate, exactly as before.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from app import config
-from app.player_stats_memory import (
-    player_stats_memory,
-    record_player_stats_memory_failure,
-    record_player_stats_memory_success,
-)
+from app.player_stats_memory import player_stats_memory
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from app.run_lifecycle import run_lifecycle
 from app.player_stats_view import player_stats_view
@@ -86,6 +111,11 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
     if coordinator is not None:
         return coordinator
     coordinator = RefreshCoordinator()
+    # The tasks are the **service's** bound methods now, not ``owner._refresh_*``.
+    # Resolved once here because a RefreshTask holds the callable it was given;
+    # the service itself re-resolves every collaborator per call, so nothing is
+    # frozen by binding it here.
+    service = refresh_tasks(owner)
     # Registered first, and deliberately so: ``tick`` runs tasks in registration
     # order, and ``full_player_snapshot`` below reads the status text this task
     # writes. Before the timers were collapsed this ordering was implicit -- the
@@ -105,20 +135,21 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
             # Unconditional: this is what auto-stops a recording once the game is
             # gone, so it must keep running when every consumer has lost demand.
             required=lambda: True,
-            run=owner._refresh_recording_lifecycle_task,
+            run=service._refresh_recording_lifecycle_task,
         )
     )
     coordinator.register(
         RefreshTask(
             task_id="full_player_snapshot",
             interval_ms=PLAYER_STATS_REFRESH_MS,
-            required=owner._should_refresh_full_player_snapshot,
+            required=service._should_refresh_full_player_snapshot,
+            # ``refresh_live_player_stats_now`` stays ``owner``-resolved: it is
+            # genuine ``MegabonkApp`` surface (``gui_layout``/``gui_twitch`` call
+            # it), the same finding the ``player_stats_client`` properties got.
+            # The status text it passes is the service's field now, initialised
+            # to the string this ``getattr`` used to default to.
             run=lambda _context: owner.refresh_live_player_stats_now(
-                status_text=getattr(
-                    owner,
-                    "_player_stats_refresh_status_text",
-                    "Live player stats",
-                )
+                status_text=service._player_stats_refresh_status_text
             ),
         )
     )
@@ -126,40 +157,40 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
         RefreshTask(
             task_id="combat_metrics",
             interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
-            required=owner._should_refresh_fast_kps,
-            run=owner._refresh_combat_metrics_task,
+            required=service._should_refresh_fast_kps,
+            run=service._refresh_combat_metrics_task,
         )
     )
     coordinator.register(
         RefreshTask(
             task_id="powerups",
             interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
-            required=owner._should_refresh_powerup_tracker,
-            run=owner._refresh_powerups_task,
+            required=service._should_refresh_powerup_tracker,
+            run=service._refresh_powerups_task,
         )
     )
     coordinator.register(
         RefreshTask(
             task_id="expected_chest_inputs",
             interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
-            required=owner._should_refresh_expected_chest_inputs,
-            run=owner._refresh_expected_chest_inputs_task,
+            required=service._should_refresh_expected_chest_inputs,
+            run=service._refresh_expected_chest_inputs_task,
         )
     )
     coordinator.register(
         RefreshTask(
             task_id="event_timer",
             interval_ms=1_000,
-            required=owner._should_refresh_fast_stage_timer,
-            run=owner._refresh_event_timer_task,
+            required=service._should_refresh_fast_stage_timer,
+            run=service._refresh_event_timer_task,
         )
     )
     coordinator.register(
         RefreshTask(
             task_id="chaos_tome",
             interval_ms=max(100, int(getattr(config, "FAST_TRACKER_INTERVAL_MS", 500))),
-            required=owner._should_refresh_chaos_tome,
-            run=owner._refresh_chaos_tome_task,
+            required=service._should_refresh_chaos_tome,
+            run=service._refresh_chaos_tome_task,
         )
     )
     if app_coordinator is not None:
@@ -252,7 +283,51 @@ def player_stats_refresh_required(owner) -> bool:
     )
 
 
-class RefreshTasksMixin:
+class RefreshTasks:
+    """The fast-tick task bodies and their demand predicates, constructible
+    without Qt or ``MegabonkApp``.
+
+    Twelve collaborators, all callables. ``_memory``/``_lifecycle``/``_view``/
+    ``_capture`` return the sibling services; ``_widget_refresh_active`` is the
+    module function above with its ``owner`` already bound; the rest are the
+    owner's tracker, predicates and the one overlay command.
+    """
+
+    def __init__(
+        self,
+        *,
+        memory: Callable[[], Any],
+        lifecycle: Callable[[], Any],
+        view: Callable[[], Any],
+        capture: Callable[[], Any],
+        tracker: Callable[[], Any],
+        vod_recorder: Callable[[], Any],
+        tab_active: Callable[[], bool],
+        twitch_active: Callable[[], bool],
+        pinned: Callable[[], bool],
+        widget_refresh_active: Callable[[str], bool],
+        sync_overlay_state: Callable[[], None],
+        refresh_required: Callable[[], bool],
+    ) -> None:
+        self._memory = memory
+        self._lifecycle = lifecycle
+        self._view = view
+        self._capture = capture
+        self._tracker = tracker
+        self._vod_recorder = vod_recorder
+        self._tab_active = tab_active
+        self._twitch_active = twitch_active
+        self._pinned = pinned
+        self._widget_refresh_active = widget_refresh_active
+        self._sync_overlay_state = sync_overlay_state
+        self._refresh_required = refresh_required
+
+        # Owned state. Both initialised to the value the ``getattr`` default on
+        # the app used to supply, so the read before the first write is
+        # unchanged. Nothing outside this file ever touched either name.
+        self._player_stats_refresh_status_text = "Live player stats"
+        self._last_fast_kps_game_time_seconds: float | None = None
+
     def _refresh_recording_lifecycle_task(self, _context: RefreshTickContext) -> bool:
         """Recording auto-start/auto-stop/pause handling, formerly the body of the
         10 s Qt timer callback.
@@ -262,7 +337,7 @@ class RefreshTasksMixin:
         stay a pure refactor; step 8b then moved it to 1 s on its own merits,
         which is what having a task made possible.
         """
-        recording_state_action = vod_capture(self).sync_run_state()
+        recording_state_action = self._capture().sync_run_state()
         self._player_stats_refresh_status_text = (
             "Live player stats"
             if recording_state_action != "stopped"
@@ -272,7 +347,7 @@ class RefreshTasksMixin:
 
     def _fast_task_client(self, context: RefreshTickContext) -> PlayerStatsClient:
         return context.get_or_create(
-            "player_stats_client", player_stats_memory(self)._get_player_stats_client
+            "player_stats_client", self._memory()._get_player_stats_client
         )
 
     def _fast_task_owner_stats(self, context: RefreshTickContext) -> int:
@@ -282,7 +357,7 @@ class RefreshTasksMixin:
         )
 
     def _mark_fast_feature_available(self, feature: str) -> None:
-        marker = getattr(self.live_run_tracker, "mark_feature_available", None)
+        marker = getattr(self._tracker(), "mark_feature_available", None)
         if callable(marker):
             try:
                 marker(feature)
@@ -290,7 +365,7 @@ class RefreshTasksMixin:
                 pass
 
     def _mark_fast_feature_failed(self, feature: str, error: Exception) -> None:
-        marker = getattr(self.live_run_tracker, "mark_feature_failed", None)
+        marker = getattr(self._tracker(), "mark_feature_failed", None)
         if callable(marker):
             try:
                 marker(feature, error)
@@ -302,22 +377,22 @@ class RefreshTasksMixin:
             snapshot = self._fast_task_client(context).get_powerup_tracking_snapshot(
                 self._fast_task_owner_stats(context)
             )
-            record_player_stats_memory_success(self)
-            accepted = self.live_run_tracker.update_powerups(snapshot)
+            self._memory().record_memory_success()
+            accepted = self._tracker().update_powerups(snapshot)
             # The tracker always updates; only the *repaint* is gated. The
             # Powerups card is painted from the snapshot's stats by
             # `display_player_stats`, and `refresh_powerups_card` repaints it
             # from the live tracker -- so unguarded it is the third writer of
             # a panel a pinned scrub owns, alongside the two stage-summary
             # writes. Found by counting the writers rather than by the report.
-            if not player_stats_snapshot_is_pinned(self):
-                player_stats_view(self).refresh_powerups_card()
+            if not self._pinned():
+                self._view().refresh_powerups_card()
             return accepted is not False
         except Exception as exc:
-            record_player_stats_memory_failure(self, exc)
+            self._memory().record_memory_failure(exc)
             self._mark_fast_feature_failed("powerups", exc)
-            if not player_stats_snapshot_is_pinned(self):
-                player_stats_view(self).refresh_powerups_card()
+            if not self._pinned():
+                self._view().refresh_powerups_card()
             return False
 
     def _refresh_expected_chest_inputs_task(self, context: RefreshTickContext) -> bool:
@@ -325,12 +400,12 @@ class RefreshTasksMixin:
             chests_bought, keys_count = self._fast_task_client(context).get_expected_chest_inputs(
                 self._fast_task_owner_stats(context)
             )
-            record_player_stats_memory_success(self)
-            self.live_run_tracker.track_expected_key_procs(chests_bought, keys_count)
+            self._memory().record_memory_success()
+            self._tracker().track_expected_key_procs(chests_bought, keys_count)
             self._mark_fast_feature_available("expected_chests")
             return True
         except Exception as exc:
-            record_player_stats_memory_failure(self, exc)
+            self._memory().record_memory_failure(exc)
             self._mark_fast_feature_failed("expected_chests", exc)
             return False
 
@@ -338,9 +413,9 @@ class RefreshTasksMixin:
         try:
             client = self._fast_task_client(context)
             run_timer_seconds = client.get_run_timer()
-            record_player_stats_memory_success(self)
+            self._memory().record_memory_success()
             self._mark_fast_feature_available("combat")
-            previous_game_time = getattr(self, "_last_fast_kps_game_time_seconds", None)
+            previous_game_time = self._last_fast_kps_game_time_seconds
             if (
                 run_timer_seconds is not None
                 and previous_game_time is not None
@@ -348,8 +423,8 @@ class RefreshTasksMixin:
             ):
                 return True
             mob_kills = client.get_killed_mobs()
-            record_player_stats_memory_success(self)
-            self.live_run_tracker.track_kills(run_timer_seconds, mob_kills)
+            self._memory().record_memory_success()
+            self._tracker().track_kills(run_timer_seconds, mob_kills)
             self._last_fast_kps_game_time_seconds = run_timer_seconds
             # `not pinned`: the user may have scrubbed the timeline to an
             # earlier snapshot, and these two writes are live values. The slow
@@ -358,33 +433,33 @@ class RefreshTasksMixin:
             # so at this task's fast cadence they repainted live rows over the
             # scrubbed reading about once a second. That was the "stage summary
             # flickers" report of 2026-07-20.
-            if self._is_live_stats_tab_active() and not player_stats_snapshot_is_pinned(self):
-                player_stats_view(self).set_mob_kills_text(
-                    formatting.format_mob_kills(mob_kills, self.live_run_tracker.current_ui_kps()),
+            if self._tab_active() and not self._pinned():
+                self._view().set_mob_kills_text(
+                    formatting.format_mob_kills(mob_kills, self._tracker().current_ui_kps()),
                 )
-                player_stats_view(self).set_stage_summary_rows(
-                    self.live_run_tracker.stage_summary_rows(),
+                self._view().set_stage_summary_rows(
+                    self._tracker().stage_summary_rows(),
                 )
             if (
-                overlay_widget_refresh_active(self, "kps")
-                or overlay_widget_refresh_active(self, "stage_summary")
+                self._widget_refresh_active("kps")
+                or self._widget_refresh_active("stage_summary")
             ):
-                self.update_overlay_state_from_tracker()
+                self._sync_overlay_state()
             return True
         except Exception as exc:
-            record_player_stats_memory_failure(self, exc)
+            self._memory().record_memory_failure(exc)
             self._mark_fast_feature_failed("combat", exc)
             return False
 
     def _refresh_event_timer_task(self, context: RefreshTickContext) -> bool:
-        update_fast_stage_timer = getattr(self.live_run_tracker, "update_fast_stage_timer", None)
+        update_fast_stage_timer = getattr(self._tracker(), "update_fast_stage_timer", None)
         if not callable(update_fast_stage_timer):
             return True
         try:
             stage_timer_seconds, stage_index, stage_duration_seconds = (
                 self._fast_task_client(context).get_stage_timer_context()
             )
-            record_player_stats_memory_success(self)
+            self._memory().record_memory_success()
             update_fast_stage_timer(
                 stage_timer_seconds=stage_timer_seconds,
                 stage_index=stage_index,
@@ -392,15 +467,15 @@ class RefreshTasksMixin:
             )
             self._mark_fast_feature_available("stage_timer")
             # Same guard, same reason: see `_refresh_fast_kps_task` above.
-            if self._is_live_stats_tab_active() and not player_stats_snapshot_is_pinned(self):
-                player_stats_view(self).set_stage_summary_rows(
-                    self.live_run_tracker.stage_summary_rows(),
+            if self._tab_active() and not self._pinned():
+                self._view().set_stage_summary_rows(
+                    self._tracker().stage_summary_rows(),
                 )
-            if overlay_widget_refresh_active(self, "stage_summary"):
-                self.update_overlay_state_from_tracker()
+            if self._widget_refresh_active("stage_summary"):
+                self._sync_overlay_state()
             return True
         except Exception as exc:
-            record_player_stats_memory_failure(self, exc)
+            self._memory().record_memory_failure(exc)
             update_fast_stage_timer(
                 stage_timer_seconds=None,
                 stage_index=None,
@@ -414,51 +489,48 @@ class RefreshTasksMixin:
             chaos_level, permanent_modifiers = self._fast_task_client(
                 context
             ).get_chaos_tracking_state(self._fast_task_owner_stats(context))
-            record_player_stats_memory_success(self)
-            self.live_run_tracker.update_chaos_tome(
+            self._memory().record_memory_success()
+            self._tracker().update_chaos_tome(
                 chaos_level=chaos_level,
                 permanent_modifiers=permanent_modifiers if chaos_level is not None else {},
             )
             return True
         except Exception as exc:
-            record_player_stats_memory_failure(self, exc)
+            self._memory().record_memory_failure(exc)
             self._mark_fast_feature_failed("chaos_tome", exc)
             return False
 
     def _should_refresh_powerup_tracker(self) -> bool:
-        if run_lifecycle(self).completed_run:
+        if self._lifecycle().completed_run:
             return False
-        is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
-        if callable(is_live_stats_tab_active):
-            try:
-                if is_live_stats_tab_active():
-                    return True
-            except Exception:
-                pass
+        # The ``try``/``except`` is the guard now. It was always doing the real
+        # work: an owner without the predicate raises ``AttributeError`` through
+        # the injected callable and lands on exactly the branch the deleted
+        # ``callable()`` fallthrough reached.
+        try:
+            if self._tab_active():
+                return True
+        except Exception:
+            pass
         if (
             in_game_overlay_widget_enabled("powerups")
             or in_game_overlay_widget_enabled("event_timer")
         ):
             return True
-        is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
         commands_cfg = config.TWITCH_BOT.get("commands", {})
-        if callable(is_twitch_bot_active):
-            try:
-                return bool(is_twitch_bot_active() and commands_cfg.get("powerups", True))
-            except Exception:
-                return False
-        return False
+        try:
+            return bool(self._twitch_active() and commands_cfg.get("powerups", True))
+        except Exception:
+            return False
 
     def _should_refresh_fast_kps(self, _now: float | None = None) -> bool:
-        if run_lifecycle(self).completed_run:
+        if self._lifecycle().completed_run:
             return False
-        is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
-        if callable(is_live_stats_tab_active):
-            try:
-                if is_live_stats_tab_active():
-                    return True
-            except Exception:
-                pass
+        try:
+            if self._tab_active():
+                return True
+        except Exception:
+            pass
         if self._is_vod_recording():
             return True
         if (
@@ -467,47 +539,43 @@ class RefreshTasksMixin:
         ):
             return True
         if (
-            overlay_widget_refresh_active(self, "kps")
-            or overlay_widget_refresh_active(self, "stage_summary")
+            self._widget_refresh_active("kps")
+            or self._widget_refresh_active("stage_summary")
         ):
             return True
         if self._twitch_stage_summary_refresh_active():
             return True
-        is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
         commands_cfg = config.TWITCH_BOT.get("commands", {})
-        if callable(is_twitch_bot_active):
-            try:
-                return bool(is_twitch_bot_active() and commands_cfg.get("kps", True))
-            except Exception:
-                return False
-        return False
+        try:
+            return bool(self._twitch_active() and commands_cfg.get("kps", True))
+        except Exception:
+            return False
 
     def _should_refresh_expected_chest_inputs(self) -> bool:
-        lifecycle = run_lifecycle(self)
+        lifecycle = self._lifecycle()
         if lifecycle.is_active_run():
             return True
         if lifecycle.completed_run:
             return False
-        if self._is_live_stats_tab_active() or self._is_vod_recording():
+        # Unguarded, exactly as before: these two sites always called the
+        # predicate directly and let it propagate.
+        if self._tab_active() or self._is_vod_recording():
             return True
         return self._twitch_command_refresh_active("chests")
 
     def _should_refresh_full_player_snapshot(self) -> bool:
-        return run_lifecycle(self).is_active_run() or player_stats_refresh_required(self)
+        return self._lifecycle().is_active_run() or self._refresh_required()
 
     def _should_refresh_chaos_tome(self) -> bool:
-        if run_lifecycle(self).completed_run:
+        if self._lifecycle().completed_run:
             return False
-        if self._is_live_stats_tab_active() or self._is_vod_recording():
+        if self._tab_active() or self._is_vod_recording():
             return True
         return self._twitch_command_refresh_active("chaos")
 
     def _twitch_command_refresh_active(self, command: str) -> bool:
-        is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
-        if not callable(is_twitch_bot_active):
-            return False
         try:
-            if not is_twitch_bot_active():
+            if not self._twitch_active():
                 return False
         except Exception:
             return False
@@ -516,33 +584,31 @@ class RefreshTasksMixin:
         return bool(commands.get(command, default))
 
     def _is_vod_recording(self) -> bool:
-        recorder = getattr(self, "player_stats_vod_recorder", None)
+        # The recorder callable keeps the old ``getattr(..., None)`` tolerance:
+        # it is injected as a ``getattr`` with a ``None`` default, so an owner
+        # without a recorder still reads as "not recording" rather than raising.
+        recorder = self._vod_recorder()
         return bool(recorder is not None and getattr(recorder, "is_recording", False))
 
     def _should_refresh_fast_stage_timer(self) -> bool:
-        if run_lifecycle(self).completed_run:
+        if self._lifecycle().completed_run:
             return False
-        is_live_stats_tab_active = getattr(self, "_is_live_stats_tab_active", None)
-        if callable(is_live_stats_tab_active):
-            try:
-                if is_live_stats_tab_active():
-                    return True
-            except Exception:
-                pass
+        try:
+            if self._tab_active():
+                return True
+        except Exception:
+            pass
         if self._is_vod_recording() or self._twitch_stage_summary_refresh_active():
             return True
         return (
             in_game_overlay_widget_enabled("event_timer")
             or in_game_overlay_widget_enabled("stage_summary")
-            or overlay_widget_refresh_active(self, "stage_summary")
+            or self._widget_refresh_active("stage_summary")
         )
 
     def _twitch_stage_summary_refresh_active(self) -> bool:
-        is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
-        if not callable(is_twitch_bot_active):
-            return False
         try:
-            if not is_twitch_bot_active():
+            if not self._twitch_active():
                 return False
         except Exception:
             return False
@@ -551,3 +617,56 @@ class RefreshTasksMixin:
             commands.get("stages", config.DEFAULT_TWITCH_BOT["commands"].get("stages", False))
         )
         return stages_enabled or bool(config.TWITCH_BOT.get("stage_announcements", True))
+
+
+def refresh_tasks(owner) -> RefreshTasks:
+    """Resolve the owner's ``RefreshTasks``, building it on first use.
+
+    The same shape as ``player_stats_memory``, ``vod_capture`` and
+    ``run_lifecycle``: the service's dependencies are the owner's sibling
+    services, tracker and demand predicates, so ``AppCoordinator`` cannot
+    construct it in its own ``__init__``. The coordinator caches it when there is
+    one; an app double built with ``object.__new__`` has none and keeps it in
+    ``__dict__``.
+
+    ``__dict__``, not ``getattr``: ``MegabonkApp.__getattr__`` forwards unknown
+    names to its ``window``, so a ``getattr`` would consult the widget before
+    deciding there is no coordinator.
+
+    Every argument is a lambda rather than a bound method or an attribute grab.
+    ``self.live_run_tracker`` resolved late, on every call; capturing the tracker
+    here would freeze whichever one existed when the service was first touched,
+    and ``MegabonkApp`` replaces it per run. Step 20 shipped that difference as a
+    bug twice.
+    """
+    coordinator = owner.__dict__.get("coordinator")
+    if coordinator is not None:
+        existing = getattr(coordinator, "refresh_tasks", None)
+        if existing is not None:
+            return existing
+
+    existing = owner.__dict__.get("_refresh_tasks")
+    if existing is not None:
+        return existing
+
+    service = RefreshTasks(
+        memory=lambda: player_stats_memory(owner),
+        lifecycle=lambda: run_lifecycle(owner),
+        view=lambda: player_stats_view(owner),
+        capture=lambda: vod_capture(owner),
+        tracker=lambda: owner.live_run_tracker,
+        # ``getattr`` with a ``None`` default, preserving ``_is_vod_recording``'s
+        # tolerance of an owner that has no recorder attribute at all.
+        vod_recorder=lambda: getattr(owner, "player_stats_vod_recorder", None),
+        tab_active=lambda: owner._is_live_stats_tab_active(),
+        twitch_active=lambda: owner._is_twitch_bot_active(),
+        pinned=lambda: player_stats_snapshot_is_pinned(owner),
+        widget_refresh_active=lambda widget_id: overlay_widget_refresh_active(owner, widget_id),
+        sync_overlay_state=lambda: owner.update_overlay_state_from_tracker(),
+        refresh_required=lambda: player_stats_refresh_required(owner),
+    )
+    if coordinator is not None:
+        coordinator.refresh_tasks = service
+    else:
+        owner.__dict__["_refresh_tasks"] = service
+    return service

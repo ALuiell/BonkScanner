@@ -269,11 +269,14 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
     """
 
     def build_owner(self, *, pinned: bool):
-        from app.refresh_tasks import RefreshTasksMixin
-
         recorded = {"stage_rows": [], "mob_kills": [], "powerups": []}
 
-        class Owner(RefreshTasksMixin):
+        # A plain owner, not a `RefreshTasksMixin` subclass: step 20f converted
+        # the mixin into the `RefreshTasks` service, so the tasks are resolved
+        # with `refresh_tasks(owner)` below. The owner still supplies exactly the
+        # collaborators the service's constructor lambdas reach for, which is
+        # what keeps this driving the real path rather than a stub.
+        class Owner:
             def __init__(self) -> None:
                 self.player_stats_vod_snapshots = [snap("00:10"), snap("00:20")]
                 self.player_stats_selected_snapshot_index = 0
@@ -319,6 +322,7 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
         the success and the failure path of the task called it unguarded.
         """
         from app.refresh_coordinator import RefreshTickContext
+        from app.refresh_tasks import refresh_tasks
 
         for pinned, expected in ((True, 0), (False, 1)):
             owner, recorded = self.build_owner(pinned=pinned)
@@ -326,29 +330,31 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
             owner._player_stats_view.refresh_powerups_card = (
                 lambda: recorded["powerups"].append(1)
             )
-            owner._refresh_powerups_task(RefreshTickContext())
+            refresh_tasks(owner)._refresh_powerups_task(RefreshTickContext())
             self.assertEqual(expected, len(recorded["powerups"]))
 
     def test_event_timer_task_does_not_repaint_stage_summary_while_pinned(self) -> None:
         from app.refresh_coordinator import RefreshTickContext
+        from app.refresh_tasks import refresh_tasks
 
         owner, recorded = self.build_owner(pinned=True)
-        owner._refresh_event_timer_task(RefreshTickContext())
+        refresh_tasks(owner)._refresh_event_timer_task(RefreshTickContext())
         self.assertEqual([], recorded["stage_rows"])
 
         owner, recorded = self.build_owner(pinned=False)
-        owner._refresh_event_timer_task(RefreshTickContext())
+        refresh_tasks(owner)._refresh_event_timer_task(RefreshTickContext())
         self.assertEqual([[{"stage": "live"}]], recorded["stage_rows"])
 
     def test_combat_metrics_task_does_not_repaint_stage_summary_while_pinned(self) -> None:
         from app.refresh_coordinator import RefreshTickContext
+        from app.refresh_tasks import refresh_tasks
 
         owner, recorded = self.build_owner(pinned=True)
-        owner._refresh_combat_metrics_task(RefreshTickContext())
+        refresh_tasks(owner)._refresh_combat_metrics_task(RefreshTickContext())
         self.assertEqual([], recorded["stage_rows"])
         self.assertEqual([], recorded["mob_kills"])
 
         owner, recorded = self.build_owner(pinned=False)
-        owner._refresh_combat_metrics_task(RefreshTickContext())
+        refresh_tasks(owner)._refresh_combat_metrics_task(RefreshTickContext())
         self.assertEqual([[{"stage": "live"}]], recorded["stage_rows"])
         self.assertEqual(1, len(recorded["mob_kills"]))

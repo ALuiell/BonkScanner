@@ -76,11 +76,22 @@ def _rel(path: str) -> str:
 def _accessor_calls() -> list[tuple[str, str, str, int]]:
     """Every `<accessor>(...).<operation>` in `app/`, as (accessor, op, file, line).
 
-    Matches the direct form only. A call bound to a local first
-    (`view = player_stats_view(self)` then `view.foo()`) is resolved by
-    following the assignment within the same function, because that shape is
-    already in the codebase and skipping it would leave a hole exactly where
-    the mixed-port bug lived.
+    A call bound to a local first (`view = player_stats_view(self)` then
+    `view.foo()`) is resolved by following the assignment within the same
+    function, because that shape is already in the codebase and skipping it
+    would leave a hole exactly where the mixed-port bug lived.
+
+    **The third form is the injected one, and it was a real hole.** Step 20
+    converts the app mixins into services that receive their ports as
+    constructor callables -- `VodCapture(player_stats_view=lambda:
+    player_stats_view(owner))` -- and then call `self._player_stats_view().foo()`.
+    Neither of the first two forms sees that, so `VodCapture`'s port calls went
+    unchecked from the moment it was converted, and step 20f's `RefreshTasks`
+    would have done the same. `_injected_ports` below recovers the binding by
+    reading the resolver's keyword lambdas together with `__init__`'s
+    `self._x = x`, so a service cannot escape the routing check by taking its
+    port through the constructor. The vacuity guard is what surfaced this:
+    the scan silently fell from 13 calls to 8.
     """
     calls: list[tuple[str, str, str, int]] = []
 
@@ -88,6 +99,7 @@ def _accessor_calls() -> list[tuple[str, str, str, int]]:
         with open(path, encoding="utf-8") as handle:
             tree = ast.parse(handle.read(), filename=path)
         rel = _rel(path)
+        injected = _injected_ports(tree)
 
         for func in ast.walk(tree):
             if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -119,8 +131,61 @@ def _accessor_calls() -> list[tuple[str, str, str, int]]:
                 # view.operation, where view = player_stats_view(self)
                 elif isinstance(base, ast.Name) and base.id in bound:
                     calls.append((bound[base.id], node.attr, rel, node.lineno))
+                # self._view().operation, where the service was constructed with
+                # `view=lambda: player_stats_view(owner)` and `__init__` did
+                # `self._view = view`.
+                elif (
+                    isinstance(base, ast.Call)
+                    and isinstance(base.func, ast.Attribute)
+                    and isinstance(base.func.value, ast.Name)
+                    and base.func.value.id == "self"
+                    and base.func.attr in injected
+                ):
+                    calls.append((injected[base.func.attr], node.attr, rel, node.lineno))
 
     return calls
+
+
+def _injected_ports(tree: ast.Module) -> dict[str, str]:
+    """`self.<attr>` -> accessor, for ports handed to a service's constructor.
+
+    Two halves, both read from the module rather than declared by hand so this
+    cannot drift from the code: the resolver's `Name(kw=lambda: accessor(owner))`
+    keywords give `kw -> accessor`, and each class's `__init__` doing
+    `self._x = x` gives `_x -> kw`.
+    """
+    keyword_to_accessor: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg is None or not isinstance(keyword.value, ast.Lambda):
+                continue
+            body = keyword.value.body
+            if (
+                isinstance(body, ast.Call)
+                and isinstance(body.func, ast.Name)
+                and body.func.id in ACCESSORS
+            ):
+                keyword_to_accessor[keyword.arg] = body.func.id
+
+    attr_to_accessor: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or node.name != "__init__":
+            continue
+        for statement in ast.walk(node):
+            if not isinstance(statement, ast.Assign) or len(statement.targets) != 1:
+                continue
+            target, value = statement.targets[0], statement.value
+            if (
+                isinstance(target, ast.Attribute)
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "self"
+                and isinstance(value, ast.Name)
+                and value.id in keyword_to_accessor
+            ):
+                attr_to_accessor[target.attr] = keyword_to_accessor[value.id]
+    return attr_to_accessor
 
 
 class ViewPortRoutingTests(unittest.TestCase):

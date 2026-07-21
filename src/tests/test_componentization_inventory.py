@@ -125,7 +125,6 @@ MRO_MODULES = {
     "TemplatesMixin": "gui_templates",
     "OverlayMixin": "gui_overlay",
     "InGameOverlayMixin": "gui_in_game_overlay",
-    "RefreshTasksMixin": "app.refresh_tasks",
     "PlayerStatsRefreshMixin": "app.player_stats_refresh",
     "CompareRunsMixin": "ui.tabs.compare_runs",
     "RecordingsTabMixin": "ui.tabs.player_stats",
@@ -141,7 +140,7 @@ MRO_MODULES = {
 # moving, which is precisely what broke at 14b.
 MAX_PRODUCTION_CLASS_QUALIFIED_SITES = 6
 MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 5
-MAX_OBJECT_NEW_APP_DOUBLES = 71
+MAX_OBJECT_NEW_APP_DOUBLES = 60
 
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"

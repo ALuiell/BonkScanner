@@ -30,7 +30,8 @@ import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
 from app.snapshot_store import live_snapshot_store
 from app.run_lifecycle import run_lifecycle
-from app.refresh_tasks import player_stats_refresh_required
+from app.refresh_tasks import player_stats_refresh_required, refresh_tasks
+from tests.support.refresh_tasks import build_refresh_tasks
 from tests.support.run_lifecycle import build_run_lifecycle, install_run_lifecycle
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
 from ui.tabs.player_stats.live_stats import LiveStatsTab
@@ -548,10 +549,10 @@ class GuiRunControlTests(unittest.TestCase):
         install_run_lifecycle(app, completed_run=True)
 
         self.assertFalse(player_stats_refresh_required(app))
-        self.assertFalse(MegabonkApp._should_refresh_fast_kps(app))
-        self.assertFalse(MegabonkApp._should_refresh_powerup_tracker(app))
-        self.assertFalse(MegabonkApp._should_refresh_expected_chest_inputs(app))
-        self.assertFalse(MegabonkApp._should_refresh_chaos_tome(app))
+        self.assertFalse(refresh_tasks(app)._should_refresh_fast_kps())
+        self.assertFalse(refresh_tasks(app)._should_refresh_powerup_tracker())
+        self.assertFalse(refresh_tasks(app)._should_refresh_expected_chest_inputs())
+        self.assertFalse(refresh_tasks(app)._should_refresh_chaos_tome())
 
     def test_core_run_demand_keeps_snapshot_and_expected_chests_active(self) -> None:
         app = SimpleNamespace(
@@ -579,8 +580,8 @@ class GuiRunControlTests(unittest.TestCase):
         # short-circuits the `or` before the predicate is reached, which is the
         # very thing this test asserts.
 
-        self.assertTrue(MegabonkApp._should_refresh_full_player_snapshot(app))
-        self.assertTrue(MegabonkApp._should_refresh_expected_chest_inputs(app))
+        self.assertTrue(refresh_tasks(app)._should_refresh_full_player_snapshot())
+        self.assertTrue(refresh_tasks(app)._should_refresh_expected_chest_inputs())
 
     def test_core_lifecycle_probe_is_cached_and_marks_game_over_once(self) -> None:
         app = SimpleNamespace(
@@ -3429,7 +3430,7 @@ class GuiRunControlTests(unittest.TestCase):
         }
         with patch.object(config, "AUTO_START_RECORDING", False), \
              patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            self.assertTrue(MegabonkApp._should_refresh_powerup_tracker(app))
+            self.assertTrue(refresh_tasks(app)._should_refresh_powerup_tracker())
 
     def test_combat_demand_is_active_when_in_game_overlay_kps_enabled(self) -> None:
         app = self.build_recording_app()
@@ -3448,7 +3449,7 @@ class GuiRunControlTests(unittest.TestCase):
         }
         with patch.object(config, "AUTO_START_RECORDING", False), \
              patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            self.assertTrue(MegabonkApp._should_refresh_fast_kps(app))
+            self.assertTrue(refresh_tasks(app)._should_refresh_fast_kps())
 
     def test_event_timer_demand_is_active_when_in_game_overlay_event_timer_enabled(self) -> None:
         app = self.build_recording_app()
@@ -3468,7 +3469,7 @@ class GuiRunControlTests(unittest.TestCase):
         }
         with patch.object(config, "AUTO_START_RECORDING", False), \
              patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            self.assertTrue(MegabonkApp._should_refresh_fast_stage_timer(app))
+            self.assertTrue(refresh_tasks(app)._should_refresh_fast_stage_timer())
 
     def test_stage_summary_fast_demands_are_active_for_twitch_stages(self) -> None:
         app = self.build_recording_app()
@@ -3488,8 +3489,8 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(config, "TWITCH_BOT", twitch_cfg), \
              patch.object(config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}), \
              patch.object(config, "OVERLAY", {"widgets": []}):
-            self.assertTrue(MegabonkApp._should_refresh_fast_kps(app))
-            self.assertTrue(MegabonkApp._should_refresh_fast_stage_timer(app))
+            self.assertTrue(refresh_tasks(app)._should_refresh_fast_kps())
+            self.assertTrue(refresh_tasks(app)._should_refresh_fast_stage_timer())
 
     def test_stage_timer_demand_is_active_while_recording(self) -> None:
         app = self.build_recording_app()
@@ -3498,7 +3499,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch.object(config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}), \
              patch.object(config, "OVERLAY", {"widgets": []}):
-            self.assertTrue(MegabonkApp._should_refresh_fast_stage_timer(app))
+            self.assertTrue(refresh_tasks(app)._should_refresh_fast_stage_timer())
 
 
     def test_should_refresh_powerup_tracker_when_event_timer_enabled(self) -> None:
@@ -3514,7 +3515,7 @@ class GuiRunControlTests(unittest.TestCase):
             },
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            self.assertTrue(MegabonkApp._should_refresh_powerup_tracker(app))
+            self.assertTrue(refresh_tasks(app)._should_refresh_powerup_tracker())
 
     def test_refresh_live_player_stats_now_keeps_stats_when_items_fail(self) -> None:
         app = object.__new__(MegabonkApp)
@@ -3597,11 +3598,6 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app.player_stats_status_label.text(), "Live player stats (recording)")
 
     def test_refresh_chaos_tome_tracker_updates_powerups_when_in_game_overlay_window_is_not_visible(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app._is_live_stats_tab_active = lambda: False
-        app.overlay_should_refresh_live_stats = lambda: False
-        app._is_twitch_bot_active = lambda: False
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
         powerup_reads: list[int] = []
         powerup_updates: list[object] = []
         powerup_snapshot = SimpleNamespace(active=["Rage"])
@@ -3611,16 +3607,10 @@ class GuiRunControlTests(unittest.TestCase):
             get_expected_chest_inputs=lambda owner_stats: (7, 3),
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        player_stats_memory(app)._get_player_stats_client = lambda: client
         refreshed: list[str] = []
-        attach_player_stats_view(app).refresh_powerups_card = lambda: refreshed.append("label")
-        app.live_run_tracker = SimpleNamespace(
-            update_powerups=lambda snapshot: powerup_updates.append(snapshot),
-            clear_powerups=lambda: None,
-            track_expected_key_procs=lambda bought, keys: None,
-            update_chaos_tome=lambda **kwargs: None,
-            current_ui_kps=lambda: None,
-        )
+        service, world = build_refresh_tasks(stats_client=client)
+        world.view.refresh_powerups_card = lambda: refreshed.append("label")
+        world.tracker.update_powerups = lambda snapshot: powerup_updates.append(snapshot)
 
         overlay_cfg = {
             "enabled": True,
@@ -3631,37 +3621,23 @@ class GuiRunControlTests(unittest.TestCase):
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), \
              patch.object(time, "monotonic", return_value=100.0):
-            self.assertTrue(MegabonkApp._refresh_powerups_task(app, RefreshTickContext()))
+            self.assertTrue(service._refresh_powerups_task(RefreshTickContext()))
 
         self.assertEqual(powerup_reads, [0x1234])
         self.assertEqual(powerup_updates, [powerup_snapshot])
         self.assertEqual(refreshed, ["label"])
 
     def test_refresh_chaos_tome_tracker_updates_fast_stage_timer_when_event_timer_enabled(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app._is_live_stats_tab_active = lambda: False
-        app.overlay_should_refresh_live_stats = lambda: False
-        app._is_twitch_bot_active = lambda: False
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
-        powerup_snapshot = SimpleNamespace(active=["Rage"])
         fast_stage_updates: list[dict[str, object]] = []
         client = SimpleNamespace(
             resolve_owner_stats=lambda: 0x1234,
-            get_powerup_tracking_snapshot=lambda owner_stats: powerup_snapshot,
+            get_powerup_tracking_snapshot=lambda owner_stats: SimpleNamespace(active=["Rage"]),
             get_expected_chest_inputs=lambda owner_stats: (7, 3),
             get_stage_timer_context=lambda: (25.0, 2, 480.0),
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        player_stats_memory(app)._get_player_stats_client = lambda: client
-        attach_player_stats_view(app).refresh_powerups_card = lambda: None
-        app.live_run_tracker = SimpleNamespace(
-            update_powerups=lambda snapshot: None,
-            clear_powerups=lambda: None,
-            track_expected_key_procs=lambda bought, keys: None,
-            update_chaos_tome=lambda **kwargs: None,
-            current_ui_kps=lambda: None,
-            update_fast_stage_timer=lambda **kwargs: fast_stage_updates.append(kwargs),
-        )
+        service, world = build_refresh_tasks(stats_client=client)
+        world.tracker.update_fast_stage_timer = lambda **kwargs: fast_stage_updates.append(kwargs)
 
         overlay_cfg = {
             "enabled": True,
@@ -3673,7 +3649,7 @@ class GuiRunControlTests(unittest.TestCase):
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), \
              patch.object(time, "monotonic", return_value=100.0):
-            self.assertTrue(MegabonkApp._refresh_event_timer_task(app, RefreshTickContext()))
+            self.assertTrue(service._refresh_event_timer_task(RefreshTickContext()))
 
         self.assertEqual(
             fast_stage_updates,
@@ -3687,11 +3663,6 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
     def test_refresh_chaos_tome_tracker_updates_kps_when_in_game_overlay_window_is_not_visible(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app._is_live_stats_tab_active = lambda: False
-        app.overlay_should_refresh_live_stats = lambda: False
-        app._is_twitch_bot_active = lambda: False
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
         run_timer_reads: list[int] = []
         mob_kill_reads: list[int] = []
         tracked_kills: list[tuple[float, int]] = []
@@ -3702,13 +3673,11 @@ class GuiRunControlTests(unittest.TestCase):
             get_killed_mobs=lambda: mob_kill_reads.append(1) or 37,
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        player_stats_memory(app)._get_player_stats_client = lambda: client
-        app.live_run_tracker = SimpleNamespace(
-            track_expected_key_procs=lambda bought, keys: None,
-            update_chaos_tome=lambda **kwargs: None,
-            track_kills=lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills)),
-            current_ui_kps=lambda: 123,
+        service, world = build_refresh_tasks(stats_client=client)
+        world.tracker.track_kills = (
+            lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills))
         )
+        world.tracker.current_ui_kps = lambda: 123
 
         overlay_cfg = {
             "enabled": True,
@@ -3719,14 +3688,13 @@ class GuiRunControlTests(unittest.TestCase):
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), \
              patch.object(time, "monotonic", return_value=100.0):
-            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
 
         self.assertEqual(run_timer_reads, [1])
         self.assertEqual(mob_kill_reads, [1])
         self.assertEqual(tracked_kills, [(21.5, 37)])
 
     def test_owner_stats_is_shared_by_due_fast_tasks(self) -> None:
-        app = object.__new__(MegabonkApp)
         owner_reads: list[str] = []
         client = SimpleNamespace(
             resolve_owner_stats=lambda: owner_reads.append("owner") or 0x1234,
@@ -3734,23 +3702,16 @@ class GuiRunControlTests(unittest.TestCase):
             get_expected_chest_inputs=lambda _owner: (7, 3),
             get_chaos_tracking_state=lambda _owner: (None, {}),
         )
-        player_stats_memory(app)._get_player_stats_client = lambda: client
-        attach_player_stats_view(app).refresh_powerups_card = lambda: None
-        app.live_run_tracker = SimpleNamespace(
-            update_powerups=lambda _snapshot: None,
-            track_expected_key_procs=lambda _bought, _keys: None,
-            update_chaos_tome=lambda **_kwargs: None,
-        )
+        service, _world = build_refresh_tasks(stats_client=client)
         context = RefreshTickContext()
 
-        self.assertTrue(MegabonkApp._refresh_powerups_task(app, context))
-        self.assertTrue(MegabonkApp._refresh_expected_chest_inputs_task(app, context))
-        self.assertTrue(MegabonkApp._refresh_chaos_tome_task(app, context))
+        self.assertTrue(service._refresh_powerups_task(context))
+        self.assertTrue(service._refresh_expected_chest_inputs_task(context))
+        self.assertTrue(service._refresh_chaos_tome_task(context))
 
         self.assertEqual(owner_reads, ["owner"])
 
     def test_powerup_failure_does_not_block_other_owner_tasks(self) -> None:
-        app = object.__new__(MegabonkApp)
         expected_updates: list[tuple[int, int]] = []
         chaos_updates: list[dict[str, object]] = []
         client = SimpleNamespace(
@@ -3761,63 +3722,59 @@ class GuiRunControlTests(unittest.TestCase):
             get_expected_chest_inputs=lambda _owner: (7, 3),
             get_chaos_tracking_state=lambda _owner: (2, {1: ()}),
         )
-        player_stats_memory(app)._get_player_stats_client = lambda: client
-        attach_player_stats_view(app).refresh_powerups_card = lambda: None
-        app.live_run_tracker = SimpleNamespace(
-            update_powerups=lambda _snapshot: None,
-            track_expected_key_procs=lambda bought, keys: expected_updates.append((bought, keys)),
-            update_chaos_tome=lambda **kwargs: chaos_updates.append(kwargs),
+        service, world = build_refresh_tasks(stats_client=client)
+        world.tracker.track_expected_key_procs = (
+            lambda bought, keys: expected_updates.append((bought, keys))
         )
+        world.tracker.update_chaos_tome = lambda **kwargs: chaos_updates.append(kwargs)
         context = RefreshTickContext()
 
-        self.assertFalse(MegabonkApp._refresh_powerups_task(app, context))
-        self.assertTrue(MegabonkApp._refresh_expected_chest_inputs_task(app, context))
-        self.assertTrue(MegabonkApp._refresh_chaos_tome_task(app, context))
+        self.assertFalse(service._refresh_powerups_task(context))
+        self.assertTrue(service._refresh_expected_chest_inputs_task(context))
+        self.assertTrue(service._refresh_chaos_tome_task(context))
 
         self.assertEqual(expected_updates, [(7, 3)])
         self.assertEqual(chaos_updates, [{"chaos_level": 2, "permanent_modifiers": {1: ()}}])
 
     def test_repeated_memory_errors_close_cached_player_stats_client(self) -> None:
-        app = object.__new__(MegabonkApp)
         closed: list[str] = []
-        app.player_stats_client = SimpleNamespace(close=lambda: closed.append("closed"))
-        live_snapshot_store(app).last_seed = 1
-        live_snapshot_store(app).last_run_timer = 2.0
-        app.live_run_tracker = SimpleNamespace(
-            mark_feature_failed=lambda *_args: (_ for _ in ()).throw(
-                RuntimeError("feature-state update failed")
+        client = SimpleNamespace(
+            close=lambda: closed.append("closed"),
+            resolve_owner_stats=lambda: 0x1234,
+            get_chaos_tracking_state=(
+                lambda _owner: (_ for _ in ()).throw(MemoryReadError("stale handle"))
             ),
         )
-        app.player_stats_client.resolve_owner_stats = lambda: 0x1234
-        app.player_stats_client.get_chaos_tracking_state = (
-            lambda _owner: (_ for _ in ()).throw(MemoryReadError("stale handle"))
+        service, world = build_refresh_tasks(stats_client=client)
+        world.snapshot_store.last_seed = 1
+        world.snapshot_store.last_run_timer = 2.0
+        # The failure path also marks the feature failed, and that marker raising
+        # must not swallow the reconnect -- which is the other half of this test.
+        world.tracker.mark_feature_failed = lambda *_args: (_ for _ in ()).throw(
+            RuntimeError("feature-state update failed")
         )
 
-        self.assertFalse(MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
-        self.assertFalse(MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
-        self.assertIsNotNone(app.player_stats_client)
+        self.assertFalse(service._refresh_chaos_tome_task(RefreshTickContext()))
+        self.assertFalse(service._refresh_chaos_tome_task(RefreshTickContext()))
+        self.assertIsNotNone(world.stats_client)
         self.assertEqual(closed, [])
 
-        self.assertFalse(MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
-        self.assertIsNone(app.player_stats_client)
+        self.assertFalse(service._refresh_chaos_tome_task(RefreshTickContext()))
+        self.assertIsNone(world.stats_client)
         self.assertEqual(closed, ["closed"])
 
     def test_successful_memory_read_resets_error_streak(self) -> None:
-        app = object.__new__(MegabonkApp)
-        player_stats_memory(app)._player_stats_memory_error_streak = 2
-        app.player_stats_client = SimpleNamespace(
+        client = SimpleNamespace(
             resolve_owner_stats=lambda: 0x1234,
             get_chaos_tracking_state=lambda _owner: (2, {}),
         )
-        app.live_run_tracker = SimpleNamespace(
-            update_chaos_tome=lambda **_kwargs: None,
-        )
+        service, world = build_refresh_tasks(stats_client=client)
+        world.memory._player_stats_memory_error_streak = 2
 
-        self.assertTrue(MegabonkApp._refresh_chaos_tome_task(app, RefreshTickContext()))
-        self.assertEqual(player_stats_memory(app)._player_stats_memory_error_streak, 0)
+        self.assertTrue(service._refresh_chaos_tome_task(RefreshTickContext()))
+        self.assertEqual(world.memory._player_stats_memory_error_streak, 0)
 
     def test_chaos_refresh_throttles_expected_chest_reads_to_500ms(self) -> None:
-        app = object.__new__(MegabonkApp)
         expected_reads: list[int] = []
         tracked: list[tuple[int, int]] = []
         client = SimpleNamespace(
@@ -3828,37 +3785,23 @@ class GuiRunControlTests(unittest.TestCase):
             ),
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        player_stats_memory(app)._get_player_stats_client = lambda: client
-        app.live_run_tracker = SimpleNamespace(
-            track_expected_key_procs=lambda bought, keys: tracked.append(
-                (bought, keys)
-            ),
-            update_chaos_tome=lambda **kwargs: None,
-            track_kills=lambda *args, **kwargs: None,
-            current_ui_kps=lambda: None,
+        service, world = build_refresh_tasks(stats_client=client)
+        world.tracker.track_expected_key_procs = (
+            lambda bought, keys: tracked.append((bought, keys))
         )
 
         with patch.object(time, "monotonic", side_effect=(100.0, 100.25, 100.5)):
-            self.assertTrue(MegabonkApp._refresh_expected_chest_inputs_task(app, RefreshTickContext()))
-            self.assertTrue(MegabonkApp._refresh_expected_chest_inputs_task(app, RefreshTickContext()))
-            self.assertTrue(MegabonkApp._refresh_expected_chest_inputs_task(app, RefreshTickContext()))
+            self.assertTrue(service._refresh_expected_chest_inputs_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_expected_chest_inputs_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_expected_chest_inputs_task(RefreshTickContext()))
 
         self.assertEqual(expected_reads, [0x1234, 0x1234, 0x1234])
         self.assertEqual(tracked, [(7, 3), (7, 3), (7, 3)])
 
     def test_chaos_refresh_throttles_fast_kps_reads_to_one_second(self) -> None:
-        app = object.__new__(MegabonkApp)
         run_timer_reads: list[int] = []
         mob_kill_reads: list[int] = []
         tracked_kills: list[tuple[float, int]] = []
-        overlay_updates: list[str] = []
-        app._is_live_stats_tab_active = lambda: False
-        app.overlay_should_refresh_live_stats = lambda: True
-        app._is_twitch_bot_active = lambda: False
-        app.player_stats_mob_kills_label = FakeLabel()
-        app.format_mob_kills = lambda kills, kps=None: f"{kills}/{kps}"
-        app.update_overlay_state_from_tracker = lambda: overlay_updates.append("overlay")
-        app.overlay_server = SimpleNamespace(is_running=True)
 
         client = SimpleNamespace(
             resolve_owner_stats=lambda: 0x1234,
@@ -3868,27 +3811,24 @@ class GuiRunControlTests(unittest.TestCase):
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
         run_timer_values = iter((21.5, 21.5, 22.5))
-        player_stats_memory(app)._get_player_stats_client = lambda: client
-        app.live_run_tracker = SimpleNamespace(
-            track_expected_key_procs=lambda bought, keys: None,
-            update_chaos_tome=lambda **kwargs: None,
-            track_kills=lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills)),
-            current_ui_kps=lambda: 123,
+        # The web-overlay KPS widget is the demand here, so the port is injected
+        # active rather than assembled from `config.OVERLAY` plus a running
+        # server: what this test asserts is the throttle, not the config parse.
+        service, world = build_refresh_tasks(stats_client=client, widget_refresh_active=True)
+        world.tracker.track_kills = (
+            lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills))
         )
+        world.tracker.current_ui_kps = lambda: 123
 
-        with patch.object(
-            config,
-            "OVERLAY",
-            {"widgets": [{"id": "kps", "enabled": True}]},
-        ), patch.object(time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
-            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
-            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
-            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+        with patch.object(time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
 
         self.assertEqual(run_timer_reads, [1, 1, 1])
         self.assertEqual(mob_kill_reads, [1, 1])
         self.assertEqual(tracked_kills, [(21.5, 37), (22.5, 37)])
-        self.assertEqual(overlay_updates, ["overlay", "overlay"])
+        self.assertEqual(len(world.overlay_syncs), 2)
 
     def _fast_kps_app_with_live_stats_tab_showing(self, label):
         """A fast-KPS app double with the Live Stats tab *active*.
@@ -3929,7 +3869,7 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(config, "OVERLAY", {"widgets": []}), patch.object(
             time, "monotonic", side_effect=(100.0, 101.0)
         ):
-            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+            self.assertTrue(refresh_tasks(app)._refresh_combat_metrics_task(RefreshTickContext()))
 
         # The real formatter, through the real MRO: player_stats_view(app)
         # returns app, whose set_mob_kills_text comes from LiveStatsTabMixin.
@@ -3958,24 +3898,16 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(config, "OVERLAY", {"widgets": []}), patch.object(
             time, "monotonic", side_effect=(100.0, 101.0)
         ):
-            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+            self.assertTrue(refresh_tasks(app)._refresh_combat_metrics_task(RefreshTickContext()))
 
         self.assertEqual(received, ["Mob Kills: 37 (123/s)"])
         self.assertEqual(label.text(), "")
         self.assertEqual(len(stage_rows), 1)
 
     def test_chaos_refresh_skips_fast_kps_reads_when_overlay_kps_widget_is_disabled(self) -> None:
-        app = object.__new__(MegabonkApp)
         run_timer_reads: list[int] = []
         mob_kill_reads: list[int] = []
         tracked_kills: list[tuple[float, int]] = []
-        overlay_updates: list[str] = []
-        app._is_live_stats_tab_active = lambda: False
-        app.overlay_should_refresh_live_stats = lambda: True
-        app._is_twitch_bot_active = lambda: False
-        app.player_stats_mob_kills_label = FakeLabel()
-        app.format_mob_kills = lambda kills, kps=None: f"{kills}/{kps}"
-        app.update_overlay_state_from_tracker = lambda: overlay_updates.append("overlay")
 
         client = SimpleNamespace(
             resolve_owner_stats=lambda: 0x1234,
@@ -3984,43 +3916,30 @@ class GuiRunControlTests(unittest.TestCase):
             get_killed_mobs=lambda: mob_kill_reads.append(1) or 37,
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        player_stats_memory(app)._get_player_stats_client = lambda: client
-        app.live_run_tracker = SimpleNamespace(
-            track_expected_key_procs=lambda bought, keys: None,
-            update_chaos_tome=lambda **kwargs: None,
-            track_kills=lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills)),
-            current_ui_kps=lambda: 123,
+        # Every consumer of fast KPS is off: no tab, no recorder, no Twitch, and
+        # the web-overlay port injected inactive. The in-game overlay stays a
+        # real `config` read, because that is the branch this test names.
+        service, world = build_refresh_tasks(stats_client=client)
+        world.tracker.track_kills = (
+            lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills))
         )
 
         with patch.object(
             config,
-            "OVERLAY",
-            {"widgets": [{"id": "kps", "enabled": False}]},
-        ), patch.object(
-            config,
             "IN_GAME_OVERLAY",
             {"enabled": False, "widgets": {}},
         ):
-            self.assertFalse(MegabonkApp._should_refresh_fast_kps(app))
+            self.assertFalse(service._should_refresh_fast_kps())
 
         self.assertEqual(run_timer_reads, [])
         self.assertEqual(mob_kill_reads, [])
         self.assertEqual(tracked_kills, [])
-        self.assertEqual(overlay_updates, [])
+        self.assertEqual(world.overlay_syncs, [])
 
     def test_chaos_refresh_skips_fast_kps_kill_reads_when_game_timer_does_not_advance(self) -> None:
-        app = object.__new__(MegabonkApp)
         run_timer_reads: list[int] = []
         mob_kill_reads: list[int] = []
         tracked_kills: list[tuple[float, int]] = []
-        overlay_updates: list[str] = []
-        app._is_live_stats_tab_active = lambda: False
-        app.overlay_should_refresh_live_stats = lambda: True
-        app._is_twitch_bot_active = lambda: False
-        app.player_stats_mob_kills_label = FakeLabel()
-        app.format_mob_kills = lambda kills, kps=None: f"{kills}/{kps}"
-        app.update_overlay_state_from_tracker = lambda: overlay_updates.append("overlay")
-        app.overlay_server = SimpleNamespace(is_running=True)
 
         run_timer_values = iter((21.5, 21.5, 21.5))
         client = SimpleNamespace(
@@ -4030,27 +3949,21 @@ class GuiRunControlTests(unittest.TestCase):
             get_killed_mobs=lambda: mob_kill_reads.append(1) or 37,
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        player_stats_memory(app)._get_player_stats_client = lambda: client
-        app.live_run_tracker = SimpleNamespace(
-            track_expected_key_procs=lambda bought, keys: None,
-            update_chaos_tome=lambda **kwargs: None,
-            track_kills=lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills)),
-            current_ui_kps=lambda: 123,
+        service, world = build_refresh_tasks(stats_client=client, widget_refresh_active=True)
+        world.tracker.track_kills = (
+            lambda run_timer, mob_kills: tracked_kills.append((run_timer, mob_kills))
         )
+        world.tracker.current_ui_kps = lambda: 123
 
-        with patch.object(
-            config,
-            "OVERLAY",
-            {"widgets": [{"id": "kps", "enabled": True}]},
-        ), patch.object(time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
-            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
-            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
-            self.assertTrue(MegabonkApp._refresh_combat_metrics_task(app, RefreshTickContext()))
+        with patch.object(time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
 
         self.assertEqual(run_timer_reads, [1, 1, 1])
         self.assertEqual(mob_kill_reads, [1])
         self.assertEqual(tracked_kills, [(21.5, 37)])
-        self.assertEqual(overlay_updates, ["overlay"])
+        self.assertEqual(len(world.overlay_syncs), 1)
 
     def test_refresh_live_player_stats_now_captures_while_hidden_recording(self) -> None:
         app = self.build_recording_app()
