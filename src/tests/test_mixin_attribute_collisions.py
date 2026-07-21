@@ -91,11 +91,11 @@ PRE_EXISTING_COLLISIONS: dict[str, str] = {
     # `player_stats_snapshot_pinned` was here until step 19. `LiveStatsTab`
     # leaving the MRO left `vod_capture` as its only mixin writer, so the
     # staleness test below deleted it -- which is the register working.
-    "compare_runs_list_signature": (
-        "recordings-list cache: the Recordings tab's background metadata "
-        "refresh invalidates the Compare Runs list too, because both read one "
-        "on-disk index. Step 21 owns it."
-    ),
+    # `compare_runs_list_signature` was the last entry, and step 21 paid it:
+    # the Recordings tab's refresh callback no longer writes the Compare Runs
+    # tab's signature. `app.vod_library.VodLibrary` owns the index and *tells*
+    # each tab to invalidate its own, so the name has one writer again. Fifth
+    # consecutive step in which the staleness test below emptied a slot.
 }
 
 

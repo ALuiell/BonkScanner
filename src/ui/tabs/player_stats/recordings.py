@@ -50,7 +50,6 @@ from app.vod_library import (
     delete_vod,
     delete_vods_below_snapshot_count,
     load_vod,
-    refresh_vod_metadata_index,
     rename_vod,
 )
 from core.stats.types import PLAYER_STAT_GROUPS
@@ -89,13 +88,13 @@ class RecordingsTabMixin:
         if self.vods_list_frame is None:
             return
 
-        vods = list(getattr(self, "_vod_metadata_index", ()))
+        vods = list(self.vod_library.index)
         selected_path = self.loaded_vod.metadata.path if self.loaded_vod is not None else None
         signature = (
             str(selected_path) if selected_path is not None else "",
             tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
         )
-        self._ensure_vod_metadata_refresh()
+        self.vod_library.ensure_refresh()
         if self.vods_list_signature == signature:
             return
 
@@ -121,43 +120,17 @@ class RecordingsTabMixin:
             self.vods_list_frame.setCurrentRow(selected_row)
         self.vods_list_frame.blockSignals(False)
         self.vods_list_signature = signature
-    def _ensure_vod_metadata_refresh(self) -> None:
-        if getattr(self, "_vod_metadata_refresh_running", False):
-            return
-        self._vod_metadata_refresh_running = True
-        generation = int(getattr(self, "_vod_metadata_refresh_generation", 0)) + 1
-        self._vod_metadata_refresh_generation = generation
+    def invalidate_vods_list(self) -> None:
+        """Drop the painted-list signature. `VodLibrary`'s invalidate hook."""
+        self.vods_list_signature = None
+    def on_vod_metadata_refresh_failed(self, error: BaseException) -> None:
+        """`VodLibrary`'s failure hook -- the status line stays this tab's.
 
-        def refresh() -> None:
-            try:
-                vods = refresh_vod_metadata_index()
-                error = None
-            except Exception as exc:
-                vods = []
-                error = exc
-
-            def apply_result() -> None:
-                if generation != getattr(self, "_vod_metadata_refresh_generation", 0):
-                    return
-                self._vod_metadata_refresh_running = True
-                if error is not None:
-                    self._vod_metadata_refresh_running = False
-                    _set_text(getattr(self, "vods_status_label", None), f"Could not refresh recordings: {error}")
-                    return
-                self._vod_metadata_index = tuple(vods)
-                self.vods_list_signature = None
-                self.compare_runs_list_signature = None
-                self.refresh_vods_list()
-                self.refresh_compare_runs_list()
-                self._vod_metadata_refresh_running = False
-
-            after = getattr(self, "after", None)
-            if callable(after) and getattr(self, "_invoker", None) is not None:
-                after(0, apply_result)
-            else:
-                apply_result()
-
-        threading.Thread(target=refresh, name="vod-metadata-index", daemon=True).start()
+        The Compare Runs tab registers no failure listener, which is not an
+        omission: the callback this replaced only ever wrote *this* status
+        label on a failed refresh.
+        """
+        _set_text(getattr(self, "vods_status_label", None), f"Could not refresh recordings: {error}")
     def toggle_recordings_chooser(self):
         next_expanded = not bool(getattr(self, "recordings_chooser_expanded", False))
         self.set_recordings_chooser_expanded(next_expanded, guided=False)

@@ -19,21 +19,170 @@ tab makes. It was originally scoped to reading because ``ui/tabs/compare_runs/``
 only reads; the Recordings tab renames and deletes as well, and routing those
 back through ``infra`` would have reintroduced exactly the edge this exists to
 prevent.
+
+Step 21 -- ``VodLibrary``, and why the seam grew a class
+=======================================================
+
+The re-exports above stayed thin for six steps. ``VodLibrary`` is the one thing
+that is not a re-export, and it is here because of a **measurement**, not a
+preference.
+
+The metadata index (``_vod_metadata_index``) was a plain ``MegabonkApp``
+attribute read by both the Recordings tab and the Compare Runs tab and written
+by one of them. Its refresh completion callback, on the Recordings mixin,
+cleared **both** tabs' list signatures and repainted **both** lists, while
+``ui/tabs/compare_runs/tab.py`` called back into that same Recordings method to
+start the refresh. Two tabs, one cache, a cycle through a shared ``self``.
+
+The measurement that chose this shape (all 30 pieces of tab state, scanned for
+production readers outside their own tab module):
+
+* **Every** other name -- ``loaded_vod``, the four ``compare_run_*`` slots, both
+  chooser flags, both list signatures, all four generation counters -- has
+  **zero** production readers outside its own tab. Their only non-tab mention is
+  the single initialising line in ``gui_app.__init__``.
+* ``_vod_metadata_index`` and its two refresh guards are the **only** state both
+  tabs touch.
+
+So the shared thing is exactly one cache and one refresh cycle, and nothing
+else. That is what gets an owner. The two list signatures did *not* move here:
+each is read by exactly one tab, and the only reason the other tab wrote it was
+to force a repaint after the index changed. Making that a **notification**
+instead of a write is what removes the cross-tab edge -- moving both signatures
+onto this object would have kept the coupling and merely relocated it, which is
+what the roadmap warns the wrong ordering produces.
+
+Notification is two-phase (all subscribers invalidated, *then* all repainted)
+because that is what the callback it replaces did: it cleared both signatures
+before repainting either. One-phase notification would repaint the Recordings
+list while the Compare Runs signature was still stale, which happens to be
+harmless today and is exactly the kind of ordering a rewrite silently changes.
+
+Thread marshalling is **injected**, not discovered. The old callback reached for
+``self.after`` and ``self._invoker`` off the shared namespace; ``schedule`` is a
+constructor argument, so an owner that cannot marshal (a test double, a torn-down
+window) is a fact about the caller rather than a ``getattr`` that quietly went
+``None``.
 """
 from __future__ import annotations
+
+import threading
+from typing import Callable, Sequence
 
 from infra.vod_storage import (
     delete_vod,
     delete_vods_below_snapshot_count,
+    load_cached_vods,
     load_vod,
     refresh_vod_metadata_index,
     rename_vod,
 )
 
 __all__ = [
+    "VodLibrary",
     "delete_vod",
     "delete_vods_below_snapshot_count",
+    "load_cached_vods",
     "load_vod",
     "refresh_vod_metadata_index",
     "rename_vod",
 ]
+
+
+class VodLibrary:
+    """The recording-metadata index, its refresh cycle, and who to tell.
+
+    Constructed once, by ``gui_app.MegabonkApp.__init__``. Both tabs receive
+    *this object*; neither holds a reference to the other.
+    """
+
+    def __init__(
+        self,
+        *,
+        load_cached: Callable[[], Sequence] = load_cached_vods,
+        refresh_index: Callable[[], Sequence] = refresh_vod_metadata_index,
+        schedule: Callable[[Callable[[], None]], None] | None = None,
+    ) -> None:
+        self._index = tuple(load_cached())
+        self._refresh_index = refresh_index
+        self._schedule = schedule
+        self._refreshing = False
+        self._refresh_generation = 0
+        self._subscribers: list[tuple[Callable[[], None], Callable[[], None]]] = []
+        self._failure_listeners: list[Callable[[BaseException], None]] = []
+
+    @property
+    def index(self) -> tuple:
+        """The cached metadata, newest known state. Never ``None``."""
+        return self._index
+
+    def subscribe(
+        self,
+        *,
+        invalidate: Callable[[], None],
+        repaint: Callable[[], None],
+        failed: Callable[[BaseException], None] | None = None,
+    ) -> None:
+        """Register one tab's reaction to the index changing.
+
+        ``invalidate`` drops whatever the tab caches about the old index (its
+        list signature); ``repaint`` redraws from the new one. They are separate
+        because all subscribers are invalidated before any is repainted -- see
+        the module header.
+        """
+        self._subscribers.append((invalidate, repaint))
+        if failed is not None:
+            self._failure_listeners.append(failed)
+
+    def ensure_refresh(self) -> None:
+        """Start a metadata refresh unless one is already in flight.
+
+        Called from both tabs' list repaints, so it is entered far more often
+        than it does anything. The in-flight guard is what makes that cheap --
+        and, because the repaint that follows a completed refresh calls straight
+        back in here, it is also what stops the cycle from recursing.
+        """
+        if self._refreshing:
+            return
+        self._refreshing = True
+        self._refresh_generation += 1
+        generation = self._refresh_generation
+
+        def work() -> None:
+            try:
+                vods = self._refresh_index()
+                error = None
+            except Exception as exc:  # noqa: BLE001 -- reported to the tab
+                vods = []
+                error = exc
+
+            def apply_result() -> None:
+                if generation != self._refresh_generation:
+                    return
+                self._refreshing = True
+                if error is not None:
+                    self._refreshing = False
+                    self._notify_failed(error)
+                    return
+                self._index = tuple(vods)
+                subscribers = tuple(self._subscribers)
+                for invalidate, _ in subscribers:
+                    invalidate()
+                for _, repaint in subscribers:
+                    repaint()
+                self._refreshing = False
+
+            self._marshal(apply_result)
+
+        threading.Thread(target=work, name="vod-metadata-index", daemon=True).start()
+
+    def _marshal(self, callback: Callable[[], None]) -> None:
+        schedule = self._schedule
+        if callable(schedule):
+            schedule(callback)
+        else:
+            callback()
+
+    def _notify_failed(self, error: BaseException) -> None:
+        for listener in tuple(self._failure_listeners):
+            listener(error)

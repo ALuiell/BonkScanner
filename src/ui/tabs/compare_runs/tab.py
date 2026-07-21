@@ -55,7 +55,7 @@ class CompareRunsMixin:
         if list_a is None or list_b is None:
             return
 
-        vods = list(getattr(self, "_vod_metadata_index", ()))
+        vods = list(self.vod_library.index)
         selected_a = self.compare_run_a_vod.metadata.path if self.compare_run_a_vod is not None else None
         selected_b = self.compare_run_b_vod.metadata.path if self.compare_run_b_vod is not None else None
         signature = (
@@ -75,7 +75,7 @@ class CompareRunsMixin:
             str(selected_b) if selected_b is not None else "",
             tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
         )
-        self._ensure_vod_metadata_refresh()
+        self.vod_library.ensure_refresh()
         if self.compare_runs_list_signature == signature:
             return
 
@@ -83,6 +83,14 @@ class CompareRunsMixin:
         self._populate_compare_run_list(list_b, vods, selected_b)
         self.compare_runs_list_signature = signature
         self._refresh_compare_runs_selected_labels()
+
+    def invalidate_compare_runs_list(self) -> None:
+        """Drop the painted-list signature. `VodLibrary`'s invalidate hook.
+
+        This is the whole of what the Recordings tab used to reach in and do.
+        The Recordings tab no longer names this tab at all.
+        """
+        self.compare_runs_list_signature = None
 
     def _populate_compare_run_list(self, list_frame, vods, selected_path) -> None:
         list_frame.blockSignals(True)

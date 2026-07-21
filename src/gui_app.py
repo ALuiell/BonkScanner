@@ -24,7 +24,7 @@ from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
 from gui_templates import TemplatesMixin
 from gui_twitch import TwitchBotMixin
-from infra.vod_storage import load_cached_vods
+from app.vod_library import VodLibrary
 
 
 class MegabonkApp(
@@ -292,12 +292,33 @@ class MegabonkApp(
             "tracked_rows": (),
         }
         self._twitch_session_snapshot_lock = threading.Lock()
-        self._vod_metadata_index = tuple(load_cached_vods())
-        self._vod_metadata_refresh_running = False
-        self._vod_metadata_refresh_generation = 0
         self._vod_load_generation = 0
         self._compare_run_load_generations = {}
         self.vods_list_signature = None
+        # The recording-metadata index, its refresh cycle and its two guards,
+        # in one named object (step 21). They were four attributes here, read by
+        # both recording tabs and written by one of them, whose completion
+        # callback reached into the other tab's signature and repaint -- while
+        # that tab called back into it to start the refresh. Neither tab names
+        # the other now: both subscribe to this.
+        #
+        # `schedule` re-reads `_invoker` on every result rather than capturing
+        # it, which is the same late-resolution rule step 20's services follow
+        # and the same guard the callback it replaces applied inline.
+        self.vod_library = VodLibrary(
+            schedule=lambda callback: (
+                self.after(0, callback) if self._invoker is not None else callback()
+            ),
+        )
+        self.vod_library.subscribe(
+            invalidate=self.invalidate_vods_list,
+            repaint=self.refresh_vods_list,
+            failed=self.on_vod_metadata_refresh_failed,
+        )
+        self.vod_library.subscribe(
+            invalidate=self.invalidate_compare_runs_list,
+            repaint=self.refresh_compare_runs_list,
+        )
 
         self.setup_ui()
         self.setup_twitch_bot_ui()
