@@ -69,7 +69,7 @@ from PySide6.QtWidgets import (
 from math import isfinite
 
 from core.stats.types import PLAYER_STAT_GROUPS
-from ui.shared import _make_scroll_section, _set_text
+from ui.shared import _apply_summary_label_padding, _make_scroll_section, _set_text
 from ui.styles import ITEM_SORT_LABELS
 from ui.tabs.player_stats.items_section import ItemsSectionView
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
@@ -500,7 +500,6 @@ class LiveStatsTab:
             _apply_powerups_card_baselines,
             _apply_run_summary_baselines,
             _apply_stage_summary_column_baseline,
-            _apply_summary_label_padding,
             _build_chests_stats_card,
             _retain_hidden_widget_size,
         )
