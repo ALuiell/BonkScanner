@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import os
 
-from ui.shared import _apply_button_icon, _make_scroll_section, resource_path
+from ui.shared import (
+    _apply_button_icon,
+    _apply_summary_label_padding,
+    _make_scroll_section,
+    resource_path,
+)
 from ui.styles import (
     ITEM_SORT_LABELS,
     PLAYER_STATS_VALUE_WIDTH,)
@@ -35,7 +40,6 @@ from core.stats.formats import PlayerStatFormat
 from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
 
-SUMMARY_LABEL_PADDING_STYLESHEET = "padding-left: 4px;"
 LIVE_STATS_CARD_COLUMNS = 3
 LIVE_STATS_VALUE_WIDTH = 64
 RECORDINGS_STATS_CARD_COLUMNS = 3
@@ -63,11 +67,6 @@ PLAYER_STAT_VALUE_BASELINES = {
     PlayerStatFormat.PERCENT: "999.9%",
     PlayerStatFormat.MULTIPLIER: "999.9x",
 }
-
-
-def _apply_summary_label_padding(*labels) -> None:
-    for label in labels:
-        label.setStyleSheet(SUMMARY_LABEL_PADDING_STYLESHEET)
 
 
 def _reserve_label_baseline_width(label, baseline: str, padding: int = SUMMARY_LABEL_BASELINE_PADDING) -> None:

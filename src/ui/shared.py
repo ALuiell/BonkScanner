@@ -125,6 +125,23 @@ def _apply_button_icon(button: QPushButton, relative_path: str, size: int = 22) 
     button.setIcon(QIcon(icon_path))
     button.setIconSize(QSize(size, size))
 
+SUMMARY_LABEL_PADDING_STYLESHEET = "padding-left: 4px;"
+
+
+def _apply_summary_label_padding(*labels) -> None:
+    """Indent a summary label by one gutter.
+
+    Lived in `gui_layout.py` until step 21. It moved here because the Compare
+    Runs tab builds its own panels now, and `ui/tabs/compare_runs/tab.py`
+    importing `gui_layout` for a two-line stylesheet setter would have opened a
+    new `ui -> <top-level>` edge -- a `TOPLEVEL_DEBT` entry, on a list that may
+    only shrink. `gui_layout` already imports from `ui.shared`, so re-exporting
+    it there costs no edge in either direction.
+    """
+    for label in labels:
+        label.setStyleSheet(SUMMARY_LABEL_PADDING_STYLESHEET)
+
+
 def _make_scroll_section() -> tuple[QScrollArea, QWidget, QVBoxLayout]:
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
