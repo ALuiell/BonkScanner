@@ -27,7 +27,8 @@ from unittest.mock import patch
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from app import config
-from tests.support.twitch import FakeTab, build_session
+import gui_twitch
+from tests.support.twitch import FakeTab, FakeTimer, build_session
 
 SRC_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -387,6 +388,28 @@ class TwitchSessionTests(unittest.TestCase):
         self.assertEqual(harness.logs, [])
 
     # -- bot lifecycle ----------------------------------------------------
+
+    def test_composition_root_passes_the_explicit_session_stats_owner(self) -> None:
+        provider = SimpleNamespace(format_twitch_session_summary=lambda: "summary")
+        app = SimpleNamespace(window=None)
+
+        with patch.object(gui_twitch, "QTimer", lambda _parent=None: FakeTimer()):
+            session = gui_twitch.build_twitch_session(
+                app,
+                FakeTab(),
+                session_stats_provider=provider,
+            )
+
+        self.assertIs(session._session_stats_provider(), provider)
+        self.assertTrue(
+            callable(
+                getattr(
+                    session._session_stats_provider(),
+                    "format_twitch_session_summary",
+                    None,
+                )
+            )
+        )
 
     def test_starting_the_bot_hands_the_worker_the_tracker_and_the_provider(self) -> None:
         """The `!session` coupling, pinned.
