@@ -30,6 +30,7 @@ import ui.tabs.player_stats.live_stats as ui_player_stats_live
 import ui.tabs.player_stats.recordings as ui_player_stats_recordings
 from app.snapshot_store import live_snapshot_store
 from app.run_lifecycle import run_lifecycle
+from app.refresh_tasks import player_stats_refresh_required
 from tests.support.run_lifecycle import build_run_lifecycle, install_run_lifecycle
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
 from ui.tabs.player_stats.live_stats import LiveStatsTab
@@ -540,14 +541,13 @@ class GuiRunControlTests(unittest.TestCase):
             player_stats_vod_recorder=SimpleNamespace(is_recording=True),
             _is_player_stats_recording_armed=lambda: True,
             overlay_should_refresh_live_stats=lambda: True,
-            _in_game_overlay_requires_player_stats_refresh=lambda: True,
             _in_game_overlay_requires_tracker_refresh=lambda: True,
             _is_twitch_bot_active=lambda: True,
         )
 
         install_run_lifecycle(app, completed_run=True)
 
-        self.assertFalse(MegabonkApp._player_stats_refresh_required(app))
+        self.assertFalse(player_stats_refresh_required(app))
         self.assertFalse(MegabonkApp._should_refresh_fast_kps(app))
         self.assertFalse(MegabonkApp._should_refresh_powerup_tracker(app))
         self.assertFalse(MegabonkApp._should_refresh_expected_chest_inputs(app))
@@ -559,7 +559,6 @@ class GuiRunControlTests(unittest.TestCase):
             player_stats_vod_recorder=SimpleNamespace(is_recording=False),
             _is_player_stats_recording_armed=lambda: False,
             overlay_should_refresh_live_stats=lambda: False,
-            _in_game_overlay_requires_player_stats_refresh=lambda: False,
             _is_twitch_bot_active=lambda: False,
             _twitch_command_refresh_active=lambda _command: False,
         )
@@ -572,7 +571,13 @@ class GuiRunControlTests(unittest.TestCase):
             checked_at=10.0,
             completed_run=True,
         )
-        app._player_stats_refresh_required = lambda: MegabonkApp._player_stats_refresh_required(app)
+        # The `app._player_stats_refresh_required = lambda: MegabonkApp.
+        # _player_stats_refresh_required(app)` stub that used to sit here is
+        # gone with the method: `_should_refresh_full_player_snapshot` calls the
+        # module-level `player_stats_refresh_required(self)` directly now. It was
+        # also already dead -- `is_active_run()` is True under PAUSED_IN_GAME and
+        # short-circuits the `or` before the predicate is reached, which is the
+        # very thing this test asserts.
 
         self.assertTrue(MegabonkApp._should_refresh_full_player_snapshot(app))
         self.assertTrue(MegabonkApp._should_refresh_expected_chest_inputs(app))

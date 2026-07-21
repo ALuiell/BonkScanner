@@ -21,6 +21,22 @@ calls seven UI methods through the shared ``self`` --
 into ``app/refresh_tasks.py``, and inverting it into callbacks (the step-10d
 pattern) is the next commit, deliberately kept separate from this relocation.
 
+**Step 20e moved four demand predicates out of here** and into
+``app/refresh_tasks.py``: ``_player_stats_refresh_required``,
+``_overlay_requires_player_snapshot``,
+``_in_game_overlay_requires_player_stats_refresh`` and the ``@staticmethod``
+``_in_game_overlay_widget_enabled``. The first had **zero** callers in this
+module and one there; the last had three here and six there and never read
+``self`` at all. This module is the top of the app import DAG -- it imports
+``refresh_tasks``, ``vod_capture`` and ``run_lifecycle``, and nothing in
+``app/`` imports it -- so every one of those names was a read pointing against
+the import arrow, and converting either mixin with them still here would have
+had to close that loop through a module-level import. What is left between the
+two modules is one edge in the legal direction (this module calls
+``ensure_refresh_coordinator``) and one command in the other
+(``refresh_live_player_stats_now``), which ``vod_capture`` already takes as an
+injected callable and which ``gui_layout``/``gui_twitch`` call on the app.
+
 ``ModuleNotFoundError`` is ``infra.memory.reader``'s, not the builtin. It
 shadows it, and the ``except`` clauses depend on that.
 """
@@ -45,10 +61,7 @@ from app.run_lifecycle import run_lifecycle
 from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.snapshot_store import live_snapshot_store
 from app.vod_capture import vod_capture
-from app.refresh_tasks import (
-    ensure_refresh_coordinator,
-    overlay_widget_refresh_active,
-)
+from app.refresh_tasks import ensure_refresh_coordinator
 from core.game_state import MapStat, RuntimeGameMode
 from infra.memory.game_data_client import GameDataClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
@@ -64,24 +77,6 @@ from projections import formatting
 
 
 class PlayerStatsRefreshMixin:
-    @staticmethod
-    def _in_game_overlay_widget_enabled(widget_id: str) -> bool:
-        overlay = getattr(config, "IN_GAME_OVERLAY", {}) or {}
-        if not overlay.get("enabled", False):
-            return False
-        widgets = overlay.get("widgets", {}) or {}
-        if not isinstance(widgets, dict):
-            return False
-        widget_cfg = widgets.get(widget_id, {})
-        return isinstance(widget_cfg, dict) and bool(widget_cfg.get("enabled", False))
-
-    def _in_game_overlay_requires_player_stats_refresh(self) -> bool:
-        return (
-            self._in_game_overlay_widget_enabled("luck_rarity")
-            or self._in_game_overlay_widget_enabled("stats")
-            or self._in_game_overlay_widget_enabled("event_timer")
-        )
-
     def update_player_stats_timer(self):
         """The per-tick body of the fast refresh loop.
 
@@ -96,23 +91,6 @@ class PlayerStatsRefreshMixin:
             return
         run_lifecycle(self).refresh()
         ensure_refresh_coordinator(self).tick()
-
-    def _player_stats_refresh_required(self) -> bool:
-        return not run_lifecycle(self).completed_run and (
-            self._is_live_stats_tab_active()
-            or self.player_stats_vod_recorder.is_recording
-            or vod_capture(self).is_recording_armed()
-            or bool(getattr(config, "AUTO_START_RECORDING", False))
-            or self._overlay_requires_player_snapshot()
-            or self._in_game_overlay_requires_player_stats_refresh()
-            or self._is_twitch_bot_active()
-        )
-
-    def _overlay_requires_player_snapshot(self) -> bool:
-        return any(
-            overlay_widget_refresh_active(self, widget_id)
-            for widget_id in ("stage_summary", "tracked_items", "stats", "banishes")
-        )
 
     def refresh_live_player_stats_now(
         self,

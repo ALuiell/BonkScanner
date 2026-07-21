@@ -17,10 +17,17 @@ snapshot along.
 
 ``ensure_refresh_coordinator`` and ``overlay_widget_refresh_active`` are plain
 functions, not mixin methods: each also has callers outside this module (the
-timer driver and ``_overlay_requires_player_snapshot``). A mixin method
-reachable only via the shared ``self`` would show up as a new hidden cross-mixin
-read the moment its caller and its definition live in different files -- passing
-the owner explicitly avoids that without changing behaviour.
+timer driver, and the overlay predicate that is now ``overlay_requires_player_
+snapshot`` below). A mixin method reachable only via the shared ``self`` would
+show up as a new hidden cross-mixin read the moment its caller and its
+definition live in different files -- passing the owner explicitly avoids that
+without changing behaviour.
+
+Step 20e moved **four more demand predicates in from
+``app/player_stats_refresh.py``** for exactly that reason, and the long comment
+above ``in_game_overlay_widget_enabled`` records the measurement: that module is
+the top of the app import DAG, so each of those names was a read pointing
+against the import arrow. They are the same shape as the pair above now.
 
 The two ``record_player_stats_memory_*`` streak recorders and the reconnect
 threshold used to live here for that same reason, but they moved to
@@ -172,6 +179,76 @@ def overlay_widget_refresh_active(owner, widget_id: str) -> bool:
         and str(widget.get("id") or "") == widget_id
         and bool(widget.get("enabled", False))
         for widget in overlay.get("widgets", ()) or ()
+    )
+
+
+# The four predicates below came from ``PlayerStatsRefreshMixin`` in step 20e,
+# and the reason is the same one that moved the two memory streak recorders in
+# ``1a323e4``: they were filed in the module *above* their only consumer.
+#
+# ``player_stats_refresh_required`` had **zero** callers in the module that
+# defined it and exactly one here (``_should_refresh_full_player_snapshot``).
+# ``in_game_overlay_widget_enabled`` was a ``@staticmethod`` with no ``self`` at
+# all -- pure ``config`` -- used three times there and **six** times here. The
+# other two exist only to feed the first, and one of them is built out of
+# ``overlay_widget_refresh_active`` directly above, which has lived here all
+# along; the docstring at the top of this file already named
+# ``_overlay_requires_player_snapshot`` as the outside caller justifying that
+# function's shape.
+#
+# This is not tidying. ``app/player_stats_refresh.py`` is the top of the app
+# import DAG -- it imports this module, ``vod_capture`` and ``run_lifecycle``,
+# and nothing in ``app/`` imports it. So every one of these names was a
+# ``refresh_tasks -> player_stats_refresh`` read against the import arrow, and
+# converting either mixin while they stayed put would have had to close that
+# loop through a module-level import. Moving them *down* deletes both state
+# edges by construction and leaves exactly one edge between the two modules:
+# ``refresh_live_player_stats_now``, a genuine one-operation command that
+# ``vod_capture`` already receives as an injected callable.
+#
+# Module-level ``owner``-taking functions, not methods, for the reason this
+# file's docstring gives for its existing pair: a mixin method reachable only
+# through the shared ``self`` becomes a new hidden cross-mixin read the moment
+# its caller and its definition sit in different files.
+
+
+def in_game_overlay_widget_enabled(widget_id: str) -> bool:
+    # No ``owner`` parameter: this never read ``self``. It was a ``@staticmethod``
+    # on a mixin, which is a free function wearing a class for company.
+    overlay = getattr(config, "IN_GAME_OVERLAY", {}) or {}
+    if not overlay.get("enabled", False):
+        return False
+    widgets = overlay.get("widgets", {}) or {}
+    if not isinstance(widgets, dict):
+        return False
+    widget_cfg = widgets.get(widget_id, {})
+    return isinstance(widget_cfg, dict) and bool(widget_cfg.get("enabled", False))
+
+
+def in_game_overlay_requires_player_stats_refresh() -> bool:
+    return (
+        in_game_overlay_widget_enabled("luck_rarity")
+        or in_game_overlay_widget_enabled("stats")
+        or in_game_overlay_widget_enabled("event_timer")
+    )
+
+
+def overlay_requires_player_snapshot(owner) -> bool:
+    return any(
+        overlay_widget_refresh_active(owner, widget_id)
+        for widget_id in ("stage_summary", "tracked_items", "stats", "banishes")
+    )
+
+
+def player_stats_refresh_required(owner) -> bool:
+    return not run_lifecycle(owner).completed_run and (
+        owner._is_live_stats_tab_active()
+        or owner.player_stats_vod_recorder.is_recording
+        or vod_capture(owner).is_recording_armed()
+        or bool(getattr(config, "AUTO_START_RECORDING", False))
+        or overlay_requires_player_snapshot(owner)
+        or in_game_overlay_requires_player_stats_refresh()
+        or owner._is_twitch_bot_active()
     )
 
 
@@ -359,8 +436,8 @@ class RefreshTasksMixin:
             except Exception:
                 pass
         if (
-            self._in_game_overlay_widget_enabled("powerups")
-            or self._in_game_overlay_widget_enabled("event_timer")
+            in_game_overlay_widget_enabled("powerups")
+            or in_game_overlay_widget_enabled("event_timer")
         ):
             return True
         is_twitch_bot_active = getattr(self, "_is_twitch_bot_active", None)
@@ -385,8 +462,8 @@ class RefreshTasksMixin:
         if self._is_vod_recording():
             return True
         if (
-            self._in_game_overlay_widget_enabled("kps")
-            or self._in_game_overlay_widget_enabled("stage_summary")
+            in_game_overlay_widget_enabled("kps")
+            or in_game_overlay_widget_enabled("stage_summary")
         ):
             return True
         if (
@@ -416,7 +493,7 @@ class RefreshTasksMixin:
         return self._twitch_command_refresh_active("chests")
 
     def _should_refresh_full_player_snapshot(self) -> bool:
-        return run_lifecycle(self).is_active_run() or self._player_stats_refresh_required()
+        return run_lifecycle(self).is_active_run() or player_stats_refresh_required(self)
 
     def _should_refresh_chaos_tome(self) -> bool:
         if run_lifecycle(self).completed_run:
@@ -455,8 +532,8 @@ class RefreshTasksMixin:
         if self._is_vod_recording() or self._twitch_stage_summary_refresh_active():
             return True
         return (
-            self._in_game_overlay_widget_enabled("event_timer")
-            or self._in_game_overlay_widget_enabled("stage_summary")
+            in_game_overlay_widget_enabled("event_timer")
+            or in_game_overlay_widget_enabled("stage_summary")
             or overlay_widget_refresh_active(self, "stage_summary")
         )
 
