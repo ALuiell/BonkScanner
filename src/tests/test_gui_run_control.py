@@ -35,6 +35,7 @@ from app.refresh_tasks import (
     player_stats_refresh_required,
     refresh_tasks,
 )
+from tests.support.compare_runs import build_compare_runs_tab
 from tests.support.refresh_tasks import build_refresh_tasks
 from tests.support.run_lifecycle import build_run_lifecycle, install_run_lifecycle
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
@@ -48,6 +49,7 @@ from tests.support.player_stats import (
     build_recordings_tab,
 )
 from ui.tabs.player_stats.stat_cards import StatCardsView, chaos_stats_in_game_order
+from ui.tabs.compare_runs import tab as compare_runs_tab
 from app import config, player_stats_refresh
 from app.player_stats_memory import player_stats_memory
 from gui_app import MegabonkApp
@@ -4609,65 +4611,72 @@ class GuiRunControlTests(unittest.TestCase):
             SimpleNamespace(game_time_seconds=90.0, elapsed_seconds=300),
         )
 
-        self.assertEqual(MegabonkApp._nearest_snapshot_index(snapshots, 43.0), 1)
+        self.assertEqual(compare_runs_tab._nearest_snapshot_index(snapshots, 43.0), 1)
 
     def test_compare_run_loading_error_clears_previous_side_content(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.compare_run_a_vod = object()
-        app.compare_run_b_vod = None
-        app.compare_run_a_snapshot_index = 4
-        app.compare_run_b_snapshot_index = None
-        app.compare_run_a_status_label = FakeLabel("Old recording")
-        app.compare_run_a_timeline_label = FakeLabel("Old timeline")
-        app.compare_run_a_summary_label = FakeLabel("Old summary")
-        app.compare_run_a_slider = MagicMock()
-        app.compare_run_a_items_view = RecordingItemsSectionView()
+        app = build_compare_runs_tab()
+        app._vod_a = object()
+        app._vod_b = None
+        app._index_a = 4
+        app._index_b = None
+        app._run_a_status_label = FakeLabel("Old recording")
+        app._run_a_timeline_label = FakeLabel("Old timeline")
+        app._run_a_summary_label = FakeLabel("Old summary")
+        app._run_a_slider = MagicMock()
+        app._run_a_items_view = RecordingItemsSectionView()
         app._set_compare_runs_diff_cards = MagicMock()
         app._refresh_compare_runs_item_details_button = MagicMock()
         app._refresh_compare_runs_selected_labels = MagicMock()
 
-        MegabonkApp._set_compare_run_error(app, "a", "Could not load recording")
+        app._set_compare_run_error("a", "Could not load recording")
 
-        self.assertIsNone(app.compare_run_a_vod)
-        self.assertIsNone(app.compare_run_a_snapshot_index)
-        self.assertEqual(app.compare_run_a_timeline_label.text(), "Timeline: --")
-        self.assertEqual(app.compare_run_a_summary_label.text(), "--")
-        self.assertIn("Could not load recording", app.compare_run_a_status_label.text())
-        self.assertEqual(app.compare_run_a_items_view.updates, [((), "--")])
-        app.compare_run_a_slider.setEnabled.assert_called_once_with(False)
+        self.assertIsNone(app._vod_a)
+        self.assertIsNone(app._index_a)
+        self.assertEqual(app._run_a_timeline_label.text(), "Timeline: --")
+        self.assertEqual(app._run_a_summary_label.text(), "--")
+        self.assertIn("Could not load recording", app._run_a_status_label.text())
+        self.assertEqual(app._run_a_items_view.updates, [((), "--")])
+        app._run_a_slider.setEnabled.assert_called_once_with(False)
 
     def test_compare_runs_diff_skips_disabled_optional_sections(self) -> None:
-        app = object.__new__(MegabonkApp)
+        app = build_compare_runs_tab()
         snapshot_a = SimpleNamespace(stats={}, items=())
         snapshot_b = SimpleNamespace(stats={}, items=())
-        app.compare_run_a_vod = SimpleNamespace(snapshots=(snapshot_a,))
-        app.compare_run_b_vod = SimpleNamespace(snapshots=(snapshot_b,))
-        app.compare_run_a_snapshot_index = 0
-        app.compare_run_b_snapshot_index = 0
-        app.compare_runs_items_enabled = False
-        app.compare_runs_stage_summary_enabled = False
-        app.compare_runs_weapons_enabled = False
-        app.compare_runs_tomes_enabled = False
-        app.compare_runs_chaos_enabled = False
-        app.compare_runs_item_details_expanded = False
-        app.format_compare_runs_overview_diff = MagicMock(return_value="overview")
-        app.format_compare_runs_stats_diff = MagicMock(return_value="stats")
-        app.format_compare_runs_items_diff = MagicMock(return_value="items")
-        app.format_compare_runs_stage_summary_diff = MagicMock(return_value="stages")
-        app.format_compare_runs_weapons_diff = MagicMock(return_value="weapons")
-        app.format_compare_runs_tomes_diff = MagicMock(return_value="tomes")
-        app.format_compare_runs_chaos_diff = MagicMock(return_value="chaos")
+        app._vod_a = SimpleNamespace(snapshots=(snapshot_a,))
+        app._vod_b = SimpleNamespace(snapshots=(snapshot_b,))
+        app._index_a = 0
+        app._index_b = 0
+        app._items_enabled = False
+        app._stage_summary_enabled = False
+        app._weapons_enabled = False
+        app._tomes_enabled = False
+        app._chaos_enabled = False
+        app._item_details_expanded = False
         app._compare_run_selected_stat_labels = MagicMock(return_value=("Damage",))
         app._set_compare_runs_diff_cards = MagicMock()
         app._refresh_compare_runs_item_details_button = MagicMock()
 
-        MegabonkApp._refresh_compare_runs_diff(app)
+        # Patched on `projections.formatting`, not stubbed on the tab: step 21d
+        # deleted the nine `format_compare_runs_*` passthroughs, so the tab calls
+        # the projection directly and that is where the seam is now.
+        with patch.multiple(
+            formatting,
+            format_compare_runs_overview_diff=MagicMock(return_value="overview"),
+            format_compare_runs_stats_diff=MagicMock(return_value="stats"),
+            format_compare_runs_items_diff=MagicMock(return_value="items"),
+            format_compare_runs_stage_summary_diff=MagicMock(return_value="stages"),
+            format_compare_runs_weapons_diff=MagicMock(return_value="weapons"),
+            format_compare_runs_tomes_diff=MagicMock(return_value="tomes"),
+            format_compare_runs_chaos_diff=MagicMock(return_value="chaos"),
+        ):
+            app._refresh_compare_runs_diff()
 
-        app.format_compare_runs_items_diff.assert_not_called()
-        app.format_compare_runs_stage_summary_diff.assert_not_called()
-        app.format_compare_runs_weapons_diff.assert_not_called()
-        app.format_compare_runs_tomes_diff.assert_not_called()
-        app.format_compare_runs_chaos_diff.assert_not_called()
+            formatting.format_compare_runs_items_diff.assert_not_called()
+            formatting.format_compare_runs_stage_summary_diff.assert_not_called()
+            formatting.format_compare_runs_weapons_diff.assert_not_called()
+            formatting.format_compare_runs_tomes_diff.assert_not_called()
+            formatting.format_compare_runs_chaos_diff.assert_not_called()
+
         app._set_compare_runs_diff_cards.assert_called_once_with(
             "overview",
             stats_text="stats",
@@ -4703,7 +4712,7 @@ class GuiRunControlTests(unittest.TestCase):
         vod_a = SimpleNamespace(metadata=SimpleNamespace(name="Run A"))
         vod_b = SimpleNamespace(metadata=SimpleNamespace(name="Run B"))
 
-        result = MegabonkApp.format_compare_runs_diff(vod_a, snapshot_a, vod_b, snapshot_b)
+        result = formatting.format_compare_runs_diff(vod_a, snapshot_a, vod_b, snapshot_b)
 
         self.assertIn("Mode:</span> Run B compared to Run A", result)
         self.assertIn("Time offset:</span> +00:06", result)
@@ -4737,7 +4746,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
 
-        result = MegabonkApp.format_compare_runs_diff(
+        result = formatting.format_compare_runs_diff(
             vod,
             snapshot_a,
             vod,
@@ -4767,7 +4776,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
 
-        result = MegabonkApp.format_compare_runs_diff(
+        result = formatting.format_compare_runs_diff(
             vod,
             snapshot_a,
             vod,
@@ -4796,7 +4805,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
 
-        result = MegabonkApp.format_compare_runs_diff(
+        result = formatting.format_compare_runs_diff(
             vod,
             snapshot_a,
             vod,
@@ -4832,7 +4841,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
 
-        result = MegabonkApp.format_compare_runs_diff(
+        result = formatting.format_compare_runs_diff(
             vod,
             snapshot_a,
             vod,
@@ -4892,7 +4901,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         vod = SimpleNamespace(metadata=SimpleNamespace(name="Run"))
 
-        result = MegabonkApp.format_compare_runs_diff(
+        result = formatting.format_compare_runs_diff(
             vod,
             snapshot_a,
             vod,
@@ -4921,7 +4930,7 @@ class GuiRunControlTests(unittest.TestCase):
             config.user_config.clear()
             config.user_config["COMPARE_RUN_STAT_LABELS"] = ["Luck", "Not Real", "Damage"]
 
-            result = MegabonkApp.configured_compare_run_stat_labels()
+            result = compare_runs_tab.configured_compare_run_stat_labels()
 
             self.assertEqual(result, ("Luck", "Damage"))
         finally:
@@ -4940,7 +4949,7 @@ class GuiRunControlTests(unittest.TestCase):
                 "unknown": True,
             }
 
-            result = MegabonkApp.configured_compare_run_sections()
+            result = compare_runs_tab.configured_compare_run_sections()
 
             self.assertEqual(
                 result,
@@ -4992,7 +5001,7 @@ class GuiRunControlTests(unittest.TestCase):
         vod_a = SimpleNamespace(snapshots=(snapshot_a_1, snapshot_a_2))
         vod_b = SimpleNamespace(snapshots=(snapshot_b_1, snapshot_b_2))
 
-        result = MegabonkApp.format_compare_runs_stage_summary_diff(vod_a, 1, vod_b, 1)
+        result = formatting.format_compare_runs_stage_summary_diff(vod_a, 1, vod_b, 1)
 
         self.assertIn("Stage 1", result)
         self.assertIn("01:00", result)
@@ -5004,87 +5013,90 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("&rarr;", result)
 
     def test_save_compare_run_stat_selection_persists_checked_labels(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.compare_runs_stat_checkboxes = {
+        app = build_compare_runs_tab()
+        app._stat_checkboxes = {
             "Damage": SimpleNamespace(isChecked=lambda: True),
             "Luck": SimpleNamespace(isChecked=lambda: False),
             "Difficulty": SimpleNamespace(isChecked=lambda: True),
         }
 
         with patch.object(config, "save_config") as save_config:
-            MegabonkApp._save_compare_run_stat_selection(app)
+            app._save_compare_run_stat_selection()
 
         self.assertEqual(config.user_config["COMPARE_RUN_STAT_LABELS"], ["Damage", "Difficulty"])
         save_config.assert_called_once_with(config.user_config)
 
     def test_auto_close_compare_runs_chooser_if_ready_closes_after_both_runs_selected(self) -> None:
         refreshed = []
-        app = SimpleNamespace(
-            compare_runs_chooser_expanded=True,
-            compare_runs_guided_selection_active=True,
-            compare_run_a_vod=object(),
-            compare_run_b_vod=object(),
-            set_compare_runs_chooser_expanded=lambda expanded, guided=False: refreshed.append((expanded, guided)),
+        app = build_compare_runs_tab()
+        app._chooser_expanded = True
+        app._guided_selection_active = True
+        app._vod_a = object()
+        app._vod_b = object()
+        app.set_compare_runs_chooser_expanded = (
+            lambda expanded, guided=False: refreshed.append((expanded, guided))
         )
 
-        MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
+        app._auto_close_compare_runs_chooser_if_ready()
 
         self.assertEqual(refreshed, [(False, False)])
 
     def test_auto_close_compare_runs_chooser_if_ready_keeps_open_when_selection_incomplete(self) -> None:
         refreshed = []
-        app = SimpleNamespace(
-            compare_runs_chooser_expanded=True,
-            compare_runs_guided_selection_active=True,
-            compare_run_a_vod=object(),
-            compare_run_b_vod=None,
-            _refresh_compare_runs_chooser=lambda: refreshed.append(True),
-        )
+        app = build_compare_runs_tab()
+        app._chooser_expanded = True
+        app._guided_selection_active = True
+        app._vod_a = object()
+        app._vod_b = None
+        app._refresh_compare_runs_chooser = lambda: refreshed.append(True)
 
-        MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
+        app._auto_close_compare_runs_chooser_if_ready()
 
-        self.assertTrue(app.compare_runs_chooser_expanded)
+        self.assertTrue(app._chooser_expanded)
         self.assertEqual(refreshed, [])
 
     def test_auto_close_compare_runs_chooser_if_ready_keeps_manual_chooser_open(self) -> None:
         refreshed = []
-        app = SimpleNamespace(
-            compare_runs_chooser_expanded=True,
-            compare_runs_guided_selection_active=False,
-            compare_run_a_vod=object(),
-            compare_run_b_vod=object(),
-            set_compare_runs_chooser_expanded=lambda expanded, guided=False: refreshed.append((expanded, guided)),
+        app = build_compare_runs_tab()
+        app._chooser_expanded = True
+        app._guided_selection_active = False
+        app._vod_a = object()
+        app._vod_b = object()
+        app.set_compare_runs_chooser_expanded = (
+            lambda expanded, guided=False: refreshed.append((expanded, guided))
         )
 
-        MegabonkApp._auto_close_compare_runs_chooser_if_ready(app)
+        app._auto_close_compare_runs_chooser_if_ready()
 
         self.assertEqual(refreshed, [])
 
     def test_ensure_compare_runs_chooser_for_empty_selection_opens_guided_mode(self) -> None:
         calls = []
-        app = SimpleNamespace(
-            compare_run_a_vod=None,
-            compare_run_b_vod=None,
-            compare_runs_chooser_expanded=False,
-            _is_compare_runs_tab_active=lambda: True,
-            set_compare_runs_chooser_expanded=lambda expanded, guided=False: calls.append((expanded, guided)),
+        # `is_active` is the tab-bar question, injected rather than reached for:
+        # the router that answers it stays `gui_layout`'s until step 26.
+        app = build_compare_runs_tab(is_active=lambda: True)
+        app._vod_a = None
+        app._vod_b = None
+        app._chooser_expanded = False
+        app.set_compare_runs_chooser_expanded = (
+            lambda expanded, guided=False: calls.append((expanded, guided))
         )
 
-        MegabonkApp.ensure_compare_runs_chooser_for_empty_selection(app)
+        app.ensure_compare_runs_chooser_for_empty_selection()
 
         self.assertEqual(calls, [(True, True)])
 
     def test_ensure_compare_runs_chooser_for_empty_selection_skips_when_runs_already_selected(self) -> None:
         calls = []
-        app = SimpleNamespace(
-            compare_run_a_vod=object(),
-            compare_run_b_vod=object(),
-            compare_runs_chooser_expanded=False,
-            _is_compare_runs_tab_active=lambda: True,
-            set_compare_runs_chooser_expanded=lambda expanded, guided=False: calls.append((expanded, guided)),
+        app = build_compare_runs_tab(is_active=lambda: True)
+        app._vod_a = object()
+        app._vod_b = object()
+        app._chooser_expanded = False
+        app.set_compare_runs_chooser_expanded = (
+            lambda expanded, guided=False: calls.append((expanded, guided))
         )
 
-        MegabonkApp.ensure_compare_runs_chooser_for_empty_selection(app)
+        app.ensure_compare_runs_chooser_for_empty_selection()
 
         self.assertEqual(calls, [])
 

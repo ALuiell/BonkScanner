@@ -4,28 +4,19 @@ import os
 
 from ui.shared import (
     _apply_button_icon,
-    _apply_summary_label_padding,
     _make_scroll_section,
     resource_path,
 )
-from ui.styles import (
-    ITEM_SORT_LABELS,
-    PLAYER_STATS_VALUE_WIDTH,)
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontMetrics, QPixmap
 from PySide6.QtWidgets import (
-    QComboBox,
-    QCheckBox,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QPushButton,
-    QSlider,
     QSplitter,
     QTabWidget,
     QTextEdit,
@@ -37,8 +28,6 @@ from app import config
 from app.snapshot_store import live_snapshot_store
 from app.vod_capture import vod_capture
 from core.stats.formats import PlayerStatFormat
-from core.stats.types import PLAYER_STAT_GROUPS
-from projections.item_sort import ITEM_SORT_RARITY_DESC
 
 LIVE_STATS_CARD_COLUMNS = 3
 LIVE_STATS_VALUE_WIDTH = 64
@@ -189,7 +178,7 @@ class GuiLayoutMixin:
         self._build_session_stats_tab()
         self._player_stats_view = _build_live_stats_view(self)
         self._recordings_view = _build_recordings_view(self)
-        self._build_compare_runs_tab()
+        self._compare_runs_view = _build_compare_runs_view(self)
         self._build_overlay_tab()
         self._build_twitch_bot_tab()
         self._build_footer_controls(right_layout)
@@ -300,264 +289,6 @@ class GuiLayoutMixin:
 
 
 
-    def _build_compare_runs_tab(self):
-        self.tab_compare_runs = QWidget()
-        compare_layout = QVBoxLayout(self.tab_compare_runs)
-
-        selected_row = QHBoxLayout()
-        self.compare_runs_select_btn = QPushButton("Select Runs")
-        self.compare_runs_select_btn.setProperty("class", "CompareRunsGhostButton")
-        self.compare_runs_select_btn.clicked.connect(self.toggle_compare_runs_chooser)
-        self.compare_runs_swap_btn = QPushButton("Swap")
-        self.compare_runs_swap_btn.setProperty("class", "CompareRunsGhostButton")
-        self.compare_runs_swap_btn.clicked.connect(self.swap_compare_runs)
-        self.compare_runs_stats_config_btn = QPushButton("Compare Settings")
-        self.compare_runs_stats_config_btn.setProperty("class", "CompareRunsGhostButton")
-        self.compare_runs_stats_config_btn.clicked.connect(self.toggle_compare_runs_stats_config)
-        selected_row.addStretch(1)
-        selected_row.addWidget(self.compare_runs_select_btn)
-        selected_row.addWidget(self.compare_runs_swap_btn)
-        selected_row.addWidget(self.compare_runs_stats_config_btn)
-        compare_layout.addLayout(selected_row)
-
-        self.compare_runs_chooser_group = QGroupBox("Select Recordings")
-        self.compare_runs_chooser_group.setVisible(False)
-        chooser_layout = QVBoxLayout(self.compare_runs_chooser_group)
-        selector_grid = QGridLayout()
-        selector_grid.setContentsMargins(0, 0, 0, 0)
-        selector_grid.setHorizontalSpacing(8)
-        selector_grid.setVerticalSpacing(6)
-        selector_grid.addWidget(QLabel("Run A"), 0, 0)
-        selector_grid.addWidget(QLabel("Run B"), 0, 1)
-        self.compare_run_a_list_frame = QListWidget()
-        self.compare_run_b_list_frame = QListWidget()
-        for list_frame in (self.compare_run_a_list_frame, self.compare_run_b_list_frame):
-            list_frame.setMinimumHeight(230)
-            list_frame.setMaximumHeight(320)
-        self.compare_run_a_list_frame.currentItemChanged.connect(
-            lambda current, _previous: self._on_compare_run_selection_changed("a", current)
-        )
-        self.compare_run_b_list_frame.currentItemChanged.connect(
-            lambda current, _previous: self._on_compare_run_selection_changed("b", current)
-        )
-        selector_grid.addWidget(self.compare_run_a_list_frame, 1, 0)
-        selector_grid.addWidget(self.compare_run_b_list_frame, 1, 1)
-        selector_grid.setColumnStretch(0, 1)
-        selector_grid.setColumnStretch(1, 1)
-        chooser_layout.addLayout(selector_grid)
-        compare_layout.addWidget(self.compare_runs_chooser_group)
-
-        self.compare_runs_stats_config_group = QGroupBox("Compare Settings")
-        self.compare_runs_stats_config_group.setVisible(False)
-        settings_layout = QVBoxLayout(self.compare_runs_stats_config_group)
-        section_layout = QHBoxLayout()
-        configured_sections = self.configured_compare_run_sections()
-        self.compare_runs_items_checkbox = QCheckBox("Items")
-        self.compare_runs_items_checkbox.setChecked(configured_sections["items"])
-        self.compare_runs_items_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
-        self.compare_runs_stage_summary_checkbox = QCheckBox("Stage Summary")
-        self.compare_runs_stage_summary_checkbox.setChecked(configured_sections["stage_summary"])
-        self.compare_runs_stage_summary_checkbox.stateChanged.connect(
-            lambda _state: self.on_compare_run_section_selection_changed()
-        )
-        self.compare_runs_weapons_checkbox = QCheckBox("Weapons")
-        self.compare_runs_weapons_checkbox.setChecked(configured_sections["weapons"])
-        self.compare_runs_weapons_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
-        self.compare_runs_tomes_checkbox = QCheckBox("Tomes")
-        self.compare_runs_tomes_checkbox.setChecked(configured_sections["tomes"])
-        self.compare_runs_tomes_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
-        self.compare_runs_chaos_checkbox = QCheckBox("Chaos")
-        self.compare_runs_chaos_checkbox.setChecked(configured_sections["chaos"])
-        self.compare_runs_chaos_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
-        section_layout.addWidget(QLabel("Show in Difference:"))
-        section_layout.addWidget(self.compare_runs_stage_summary_checkbox)
-        section_layout.addWidget(self.compare_runs_items_checkbox)
-        section_layout.addWidget(self.compare_runs_weapons_checkbox)
-        section_layout.addWidget(self.compare_runs_tomes_checkbox)
-        section_layout.addWidget(self.compare_runs_chaos_checkbox)
-        section_layout.addStretch(1)
-        settings_layout.addLayout(section_layout)
-
-        settings_scroll, _settings_scroll_content, settings_scroll_layout = _make_scroll_section()
-        settings_scroll.setMinimumHeight(150)
-        settings_scroll.setMaximumHeight(240)
-
-        stats_config_layout = QGridLayout()
-        stats_config_layout.setContentsMargins(8, 8, 8, 8)
-        stats_config_layout.setHorizontalSpacing(12)
-        stats_config_layout.setVerticalSpacing(4)
-        self.compare_runs_stat_checkboxes = {}
-        stat_specs = [spec for group in PLAYER_STAT_GROUPS for spec in group]
-        selected_defaults = set(self.configured_compare_run_stat_labels())
-        for index, spec in enumerate(stat_specs):
-            checkbox = QCheckBox(spec.label)
-            checkbox.setChecked(spec.label in selected_defaults)
-            checkbox.stateChanged.connect(lambda _state: self.on_compare_run_stat_selection_changed())
-            self.compare_runs_stat_checkboxes[spec.label] = checkbox
-            stats_config_layout.addWidget(checkbox, index // 4, index % 4)
-        for column in range(4):
-            stats_config_layout.setColumnStretch(column, 1)
-        stats_group = QGroupBox("Stats Selector")
-        stats_group.setLayout(stats_config_layout)
-        settings_scroll_layout.addWidget(stats_group)
-        settings_scroll_layout.addStretch(1)
-        settings_layout.addWidget(settings_scroll)
-        compare_layout.addWidget(self.compare_runs_stats_config_group)
-
-        body_layout = QHBoxLayout()
-        body_layout.setSpacing(8)
-        run_a_group, self.compare_run_a_status_label, self.compare_run_a_slider, self.compare_run_a_timeline_label, self.compare_run_a_summary_label = self._build_compare_run_panel(
-            "Run A",
-            "a",
-        )
-        diff_group = QGroupBox("Difference")
-        diff_layout = QVBoxLayout(diff_group)
-        diff_scroll, _diff_scroll_content, diff_scroll_layout = _make_scroll_section()
-        self.compare_runs_diff_overview_group, self.compare_runs_diff_overview_label = self._build_compare_diff_card(
-            "Overview",
-            "Select two recordings",
-        )
-        self.compare_runs_diff_stats_group, self.compare_runs_diff_stats_label = self._build_compare_diff_card(
-            "Stats",
-            "--",
-        )
-        self.compare_runs_diff_items_group, self.compare_runs_diff_items_label = self._build_compare_diff_card(
-            "Items",
-            "--",
-        )
-        self.compare_runs_item_details_btn = QPushButton("Show Item Details")
-        self.compare_runs_item_details_btn.setProperty("class", "SmallGhostButton")
-        self.compare_runs_item_details_btn.clicked.connect(self.toggle_compare_runs_item_details)
-        self.compare_runs_item_details_btn.setVisible(False)
-        self.compare_runs_diff_items_group.layout().addWidget(self.compare_runs_item_details_btn, 0, Qt.AlignLeft)
-        self.compare_runs_diff_stage_summary_group, self.compare_runs_diff_stage_summary_label = self._build_compare_diff_card(
-            "Stage Summary",
-            "--",
-        )
-        self.compare_runs_diff_weapons_group, self.compare_runs_diff_weapons_label = self._build_compare_diff_card(
-            "Weapons",
-            "--",
-        )
-        self.compare_runs_diff_tomes_group, self.compare_runs_diff_tomes_label = self._build_compare_diff_card(
-            "Tomes",
-            "--",
-        )
-        self.compare_runs_diff_chaos_group, self.compare_runs_diff_chaos_label = self._build_compare_diff_card(
-            "Chaos",
-            "--",
-        )
-        diff_scroll_layout.addWidget(self.compare_runs_diff_overview_group)
-        diff_scroll_layout.addWidget(self.compare_runs_diff_stats_group)
-        diff_scroll_layout.addWidget(self.compare_runs_diff_stage_summary_group)
-        diff_scroll_layout.addWidget(self.compare_runs_diff_items_group)
-        diff_scroll_layout.addWidget(self.compare_runs_diff_weapons_group)
-        diff_scroll_layout.addWidget(self.compare_runs_diff_tomes_group)
-        diff_scroll_layout.addWidget(self.compare_runs_diff_chaos_group)
-        diff_scroll_layout.addStretch(1)
-        diff_layout.addWidget(diff_scroll, 1)
-        run_b_group, self.compare_run_b_status_label, self.compare_run_b_slider, self.compare_run_b_timeline_label, self.compare_run_b_summary_label = self._build_compare_run_panel(
-            "Run B",
-            "b",
-        )
-        body_layout.addWidget(run_a_group, 3)
-        body_layout.addWidget(diff_group, 4)
-        body_layout.addWidget(run_b_group, 3)
-        compare_layout.addLayout(body_layout, 1)
-        self.tabview.addTab(self.tab_compare_runs, "Compare Runs")
-
-    def _build_compare_diff_card(self, title: str, initial_text: str):
-        group = QGroupBox(title)
-        layout = QVBoxLayout(group)
-        label = QLabel(initial_text)
-        label.setTextFormat(Qt.RichText)
-        label.setWordWrap(True)
-        _apply_summary_label_padding(label)
-        layout.addWidget(label)
-        return group, label
-
-    def _build_compare_run_panel(self, title: str, side: str):
-        group = QGroupBox(title)
-        layout = QVBoxLayout(group)
-        status_label = QLabel("Select a recording")
-        status_label.setTextFormat(Qt.RichText)
-        status_label.setWordWrap(True)
-        slider = QSlider(Qt.Horizontal)
-        slider.setEnabled(False)
-        slider.valueChanged.connect(lambda value, run_side=side: self.on_compare_run_slider_changed(run_side, value))
-        timeline_label = QLabel("Timeline: --")
-        summary_label = QLabel("--")
-        summary_label.setTextFormat(Qt.RichText)
-        summary_label.setWordWrap(True)
-        _apply_summary_label_padding(status_label, timeline_label, summary_label)
-        layout.addWidget(status_label)
-        layout.addWidget(slider)
-        layout.addWidget(timeline_label)
-        summary_group = QGroupBox("Snapshot")
-        summary_layout = QVBoxLayout(summary_group)
-        summary_layout.addWidget(summary_label)
-        items_group = QGroupBox("Items")
-        items_layout = QVBoxLayout(items_group)
-        items_label = QLabel("--")
-        items_label.setTextFormat(Qt.RichText)
-        items_label.setWordWrap(True)
-        items_layout.addWidget(items_label)
-        items_actions = QHBoxLayout()
-        items_toggle_btn = QPushButton("Show all")
-        items_toggle_btn.setProperty("class", "SmallGhostButton")
-        items_toggle_btn.clicked.connect(lambda _checked=False, run_side=side: self.toggle_compare_run_items_expanded(run_side))
-        items_toggle_btn.setVisible(False)
-        items_rarity_label = QLabel("")
-        items_rarity_label.setTextFormat(Qt.RichText)
-        items_rarity_label.setStyleSheet("font-size: 14px;")
-        items_rarity_label.setVisible(False)
-        items_sort_combo = QComboBox()
-        for mode, label in ITEM_SORT_LABELS.items():
-            items_sort_combo.addItem(label, mode)
-        rarity_desc_index = items_sort_combo.findData("rarity_desc")
-        if rarity_desc_index >= 0:
-            items_sort_combo.setCurrentIndex(rarity_desc_index)
-        # Imported in the method body, not at module scope. `gui_layout` is
-        # a top-level module that `ui/tabs/player_stats/live_stats.py`
-        # already imports from, and `ui.tabs.player_stats.__init__` pulls
-        # that module in -- so a module-scope import here closes a cycle:
-        # gui_layout -> ui.tabs.player_stats -> live_stats -> gui_layout.
-        # It stayed invisible to the suite and to the import-direction
-        # checker (both AST, not real imports) because `gui_app` happens to
-        # import the package first; `import gui_layout` on its own raised.
-        # The cycle is a symptom of the compare panel being built here at
-        # all, which is what step 21 moves.
-        from ui.tabs.player_stats.items_section import ItemsSectionView
-
-        # One ordinary ItemsSectionView per compare side. This is not
-        # a step-21 conversion and not an adapter: Compare Runs stays a
-        # mixin, it just holds a view object instead of nine
-        # string-keyed attributes per side. Constructed here because
-        # this is where its widgets are built; step 21 moves the
-        # construction, not the class.
-        items_view = ItemsSectionView(
-            group=items_group,
-            label=items_label,
-            rarity_label=items_rarity_label,
-            toggle_btn=items_toggle_btn,
-            sort_combo=items_sort_combo,
-            initial_sort_mode=ITEM_SORT_RARITY_DESC,
-        )
-        setattr(self, f"compare_run_{side}_items_view", items_view)
-        items_sort_combo.currentIndexChanged.connect(
-            lambda _index, view=items_view: view.on_sort_changed()
-        )
-        items_actions.addWidget(items_toggle_btn, 0, Qt.AlignLeft)
-        items_actions.addWidget(items_rarity_label, 0, Qt.AlignLeft)
-        items_actions.addStretch(1)
-        items_actions.addWidget(QLabel("Sort:"))
-        items_actions.addWidget(items_sort_combo)
-        items_layout.addLayout(items_actions)
-        layout.addWidget(summary_group)
-        layout.addWidget(items_group)
-        layout.addStretch(1)
-        return group, status_label, slider, timeline_label, summary_label
-
-
     def _build_footer_controls(self, right_layout):
         controls = QHBoxLayout()
         self.settings_btn = QPushButton("")
@@ -641,6 +372,40 @@ class GuiLayoutMixin:
             self.refresh_vods_list()
         if self._is_compare_runs_tab_active():
             self.refresh_compare_runs_list()
+
+
+def _build_compare_runs_view(app):
+    """Construct the Compare Runs tab and name its three collaborators.
+
+    The composition root for `CompareRunsTab` (step 21d), kept at the exact
+    point in `setup_ui` where `self._build_compare_runs_tab()` used to be
+    called so the tab keeps its position in the tab bar.
+
+    The ~250 lines that built this tab's widgets moved *into* the tab. They were
+    here because step 9 split the tab out as a mixin and left its construction
+    behind; `_build_compare_run_panel` even had to import `ItemsSectionView`
+    inside its body to dodge the resulting import cycle. Both are gone.
+
+    Fewer collaborators than `RecordingsTab` needs, and that is the
+    measurement, not an oversight: this tab opens no dialogs, so it needs no
+    `window`; it writes no log lines; and it reads no recorder.
+    """
+    from ui.tabs.compare_runs import CompareRunsTab
+
+    view = CompareRunsTab(
+        tabview=app.tabview,
+        vod_library=app.vod_library,
+        is_active=app._is_compare_runs_tab_active,
+        schedule=lambda callback: (
+            app.after(0, callback) if app._invoker is not None else callback()
+        ),
+    )
+    view.build()
+    app.vod_library.subscribe(
+        invalidate=view.invalidate_compare_runs_list,
+        repaint=view.refresh_compare_runs_list,
+    )
+    return view
 
 
 def _build_recordings_view(app):

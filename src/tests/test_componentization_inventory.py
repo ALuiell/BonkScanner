@@ -42,6 +42,16 @@ is eight names:
     OverlayMixin._tracked_rule_tag_label           gui_dialogs.py:1586
     OverlayMixin._tracked_item_rules_from_config   gui_overlay.py:1344,1348
 
+**Step 21d removed the last of this file's own tab entries.** The nine
+`format_compare_runs_*` classmethods, the three config readers and
+`_nearest_snapshot_index` on `CompareRunsMixin` were sixteen unbound
+`MegabonkApp.<name>(...)` call sites in the suite. They are module-level
+functions in `ui/tabs/compare_runs/tab.py` (or, for the nine, simply gone --
+`projections.formatting` is the target now). Same treatment as step 19's
+`chaos_stats_in_game_order` and step 20's two memory recorders: a free function
+has no class to be orphaned from, so the failure mode is retired rather than
+relocated.
+
 **Step 20 removed both `PlayerStatsMemoryMixin` entries**, which were twelve of
 the eighteen sites -- ten in `app/player_stats_memory.py` and two in
 `app/player_stats_refresh.py`. Both are now the module-level
@@ -129,11 +139,12 @@ MRO_MODULES = {
     # `PlayerStatsRefresh` service, taking `MegabonkApp` to nine bases and the
     # app-layer slice to zero. It was the last of the five app-side bases the
     # step named.
-    # `RecordingsTabMixin` was here until step 21c converted it into
-    # `RecordingsTab`, an object built by `gui_layout._build_recordings_view`.
-    # It is the first of step 21's two subjects and took `MegabonkApp` to eight
-    # bases; `CompareRunsMixin` follows in 21d.
-    "CompareRunsMixin": "ui.tabs.compare_runs",
+    # Both of step 21's subjects were here. 21c converted `RecordingsTabMixin`
+    # into `RecordingsTab` and 21d converted `CompareRunsMixin` into
+    # `CompareRunsTab`, each an object built by its own composition root in
+    # `gui_layout`. `MegabonkApp` went 9 -> 8 -> **7** bases, and the two
+    # recording tabs are gone from this map for good: neither has a class to be
+    # qualified through any more.
     "ScannerMixin": "gui_scanner",
     "TwitchBotMixin": "gui_twitch",
 }

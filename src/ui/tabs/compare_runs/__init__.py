@@ -1,3 +1,3 @@
-from ui.tabs.compare_runs.tab import CompareRunsMixin
+from ui.tabs.compare_runs.tab import CompareRunsTab
 
-__all__ = ["CompareRunsMixin"]
+__all__ = ["CompareRunsTab"]

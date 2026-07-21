@@ -12,7 +12,6 @@ from app import config
 from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
 from app.player_stats_refresh import player_stats_refresh
-from ui.tabs.compare_runs import CompareRunsMixin
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
@@ -32,7 +31,6 @@ class MegabonkApp(
     TemplatesMixin,
     OverlayMixin,
     InGameOverlayMixin,
-    CompareRunsMixin,
     ScannerMixin,
     TwitchBotMixin,
 ):
@@ -77,7 +75,6 @@ class MegabonkApp(
         self.tab_logs = None
         self.tab_stats = None
         self.tab_vods = None
-        self.tab_compare_runs = None
         self.log_box = None
         self.stats_time_label = None
         self.stats_rerolls_label = None
@@ -107,55 +104,12 @@ class MegabonkApp(
         # tab module -- these `= None` lines were their only other mention,
         # which is the measurement that let them move whole rather than stay as
         # app surface behind a port.
-        self.compare_run_a_list_frame = None
-        self.compare_run_b_list_frame = None
-        self.compare_runs_chooser_group = None
-        self.compare_runs_select_btn = None
-        self.compare_runs_swap_btn = None
-        self.compare_runs_stats_config_group = None
-        self.compare_runs_stats_config_btn = None
-        self.compare_runs_stat_checkboxes = {}
-        self.compare_runs_items_checkbox = None
-        self.compare_runs_stage_summary_checkbox = None
-        self.compare_runs_weapons_checkbox = None
-        self.compare_runs_tomes_checkbox = None
-        self.compare_runs_chaos_checkbox = None
-        self.compare_run_a_selected_label = None
-        self.compare_run_b_selected_label = None
-        self.compare_run_a_status_label = None
-        self.compare_run_b_status_label = None
-        self.compare_run_a_slider = None
-        self.compare_run_b_slider = None
-        self.compare_run_a_timeline_label = None
-        self.compare_run_b_timeline_label = None
-        self.compare_run_a_summary_label = None
-        self.compare_run_b_summary_label = None
-        self.compare_run_a_items_group = None
-        self.compare_run_b_items_group = None
-        self.compare_run_a_items_label = None
-        self.compare_run_b_items_label = None
-        self.compare_run_a_items_rarity_label = None
-        self.compare_run_b_items_rarity_label = None
-        self.compare_run_a_items_toggle_btn = None
-        self.compare_run_b_items_toggle_btn = None
-        self.compare_run_a_items_sort_combo = None
-        self.compare_run_b_items_sort_combo = None
-        # And the two compare sides', built by _build_compare_run_panel.
-        self.compare_runs_diff_overview_group = None
-        self.compare_runs_diff_overview_label = None
-        self.compare_runs_diff_stats_group = None
-        self.compare_runs_diff_stats_label = None
-        self.compare_runs_diff_items_group = None
-        self.compare_runs_diff_items_label = None
-        self.compare_runs_diff_stage_summary_group = None
-        self.compare_runs_diff_stage_summary_label = None
-        self.compare_runs_diff_weapons_group = None
-        self.compare_runs_diff_weapons_label = None
-        self.compare_runs_diff_tomes_group = None
-        self.compare_runs_diff_tomes_label = None
-        self.compare_runs_diff_chaos_group = None
-        self.compare_runs_diff_chaos_label = None
-        self.compare_runs_item_details_btn = None
+        # Every Compare Runs widget is gone too: step 21d made `CompareRunsTab`
+        # an object with its own private widgets, and moved the ~250 lines that
+        # built them out of `gui_layout` and into the tab. Forty-seven slots
+        # left here, plus the sixteen pieces of selection and section state
+        # below. Measured, like the Recordings twenty-six: none had a
+        # production reader outside the tab module.
         self.status_label = None
         self.toggle_btn = None
         self.logo_label = None
@@ -226,22 +180,6 @@ class MegabonkApp(
         # `VodCapture`'s fields now (step 20). The three above stay: their
         # readers are the Live Stats tab and `gui_layout`, and the tab writes
         # two of them back through its selection callback.
-        self.compare_run_a_vod = None
-        self.compare_run_b_vod = None
-        self.compare_run_a_snapshot_index = None
-        self.compare_run_b_snapshot_index = None
-        self.compare_runs_list_signature = None
-        self.compare_runs_chooser_expanded = False
-        self.compare_runs_guided_selection_active = False
-        self.compare_runs_stats_config_expanded = False
-        compare_sections = self.configured_compare_run_sections()
-        self.compare_runs_items_enabled = compare_sections["items"]
-        self.compare_runs_stage_summary_enabled = compare_sections["stage_summary"]
-        self.compare_runs_weapons_enabled = compare_sections["weapons"]
-        self.compare_runs_tomes_enabled = compare_sections["tomes"]
-        self.compare_runs_chaos_enabled = compare_sections["chaos"]
-        self.compare_runs_item_details_expanded = False
-        self.compare_runs_syncing = False
         self.run_control_provider = None
         self._hotkey_manager = None
         self.checkboxes = {}
@@ -266,7 +204,6 @@ class MegabonkApp(
             "tracked_rows": (),
         }
         self._twitch_session_snapshot_lock = threading.Lock()
-        self._compare_run_load_generations = {}
         # The recording-metadata index, its refresh cycle and its two guards,
         # in one named object (step 21). They were four attributes here, read by
         # both recording tabs and written by one of them, whose completion
@@ -281,10 +218,6 @@ class MegabonkApp(
             schedule=lambda callback: (
                 self.after(0, callback) if self._invoker is not None else callback()
             ),
-        )
-        self.vod_library.subscribe(
-            invalidate=self.invalidate_compare_runs_list,
-            repaint=self.refresh_compare_runs_list,
         )
 
         self.setup_ui()
@@ -399,6 +332,16 @@ class MegabonkApp(
 
     def ensure_recordings_chooser_for_empty_selection(self) -> None:
         return self._recordings_view.ensure_recordings_chooser_for_empty_selection()
+
+    # -- Compare Runs tab (step 21d) ---------------------------------------
+    #
+    # The same two, for the same router, for the same reason. Step 26 takes the
+    # router; until then this is the surface it calls.
+    def refresh_compare_runs_list(self) -> None:
+        return self._compare_runs_view.refresh_compare_runs_list()
+
+    def ensure_compare_runs_chooser_for_empty_selection(self) -> None:
+        return self._compare_runs_view.ensure_compare_runs_chooser_for_empty_selection()
 
     @property
     def qt_app(self) -> QApplication:

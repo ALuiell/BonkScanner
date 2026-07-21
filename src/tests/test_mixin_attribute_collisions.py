@@ -216,7 +216,7 @@ class MixinAttributeCollisionTests(unittest.TestCase):
         """
         assignments = _assignments_by_mixin()
 
-        for gone in ("LiveStatsTabMixin", "RecordingsTabMixin"):
+        for gone in ("LiveStatsTabMixin", "RecordingsTabMixin", "CompareRunsMixin"):
             self.assertNotIn(
                 gone,
                 assignments,
@@ -245,11 +245,12 @@ class MixinAttributeCollisionTests(unittest.TestCase):
         # `test_componentization_inventory`'s `MRO_MODULES`, which is where a
         # base reappearing gets caught.
         self.assertGreater(len(assignments), 3, "found almost no mixins")
-        # Shrinks with the MRO for the same reason the base count does: step
-        # 21c took `RecordingsTabMixin`'s ~40 assignments off it (231 -> 195).
+        # Shrinks with the MRO for the same reason the base count does: steps
+        # 21c and 21d took the two recording tabs' assignments off it
+        # (231 -> 195 -> 143).
         self.assertGreater(
             sum(len(names) for names in assignments.values()),
-            150,
+            100,
             "found almost no assignments; the walk is not reaching method bodies",
         )
         # A name assigned inside a nested closure must be seen, or the walk is

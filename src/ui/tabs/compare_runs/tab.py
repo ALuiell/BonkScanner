@@ -23,14 +23,31 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from typing import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QListWidgetItem
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 from app import config
 from app.vod_library import load_vod
 from core.stats.types import PLAYER_STAT_GROUPS
-from ui.shared import _set_text
+from projections.item_sort import ITEM_SORT_RARITY_DESC
+from ui.shared import _apply_summary_label_padding, _make_scroll_section, _set_text
+from ui.styles import ITEM_SORT_LABELS
+from ui.tabs.player_stats.items_section import ItemsSectionView
 from projections import formatting
 from projections.formatting import COMPARE_RUN_STAT_LABELS
 
@@ -48,16 +65,193 @@ COMPARE_RUN_SECTION_DEFAULTS = {
 }
 
 
-class CompareRunsMixin:
+# --------------------------------------------------------------------------
+# Module-level, not methods on the tab.
+#
+# These were `@classmethod` / `@staticmethod` passthroughs on `CompareRunsMixin`
+# and, together with the nine `format_compare_runs_*` delegators to
+# `projections.formatting`, they were the whole of this file's class-qualified
+# surface: sixteen `MegabonkApp.<name>(...)` call sites in the suite, resolving
+# through the MRO. Step 21d **retires** the failure mode rather than relocating
+# it, the way step 19 did with `chaos_stats_in_game_order` and step 20 with the
+# two memory recorders: a free function has no class to be orphaned from, so a
+# later move cannot strand a call site the way 14b stranded the Chaos Tome
+# panel. The nine formatting delegators are simply gone -- `projections.
+# formatting` is the caller's target now, which is where they always went.
+# --------------------------------------------------------------------------
+
+
+def default_compare_run_stat_labels() -> tuple[str, ...]:
+    return COMPARE_RUN_STAT_LABELS
+
+
+def all_compare_run_stat_labels() -> tuple[str, ...]:
+    return tuple(spec.label for group in PLAYER_STAT_GROUPS for spec in group)
+
+
+def configured_compare_run_stat_labels() -> tuple[str, ...]:
+    saved_labels = config.user_config.get(COMPARE_RUN_STAT_CONFIG_KEY)
+    if isinstance(saved_labels, list):
+        allowed_labels = set(all_compare_run_stat_labels())
+        selected = tuple(str(label) for label in saved_labels if str(label) in allowed_labels)
+        if selected:
+            return selected
+    return default_compare_run_stat_labels()
+
+
+def configured_compare_run_sections() -> dict[str, bool]:
+    saved_sections = config.user_config.get(COMPARE_RUN_SECTIONS_CONFIG_KEY)
+    sections = dict(COMPARE_RUN_SECTION_DEFAULTS)
+    if isinstance(saved_sections, dict):
+        for key in sections:
+            if key in saved_sections:
+                sections[key] = bool(saved_sections[key])
+    return sections
+
+
+def _set_visible(widget, visible: bool) -> None:
+    if widget is not None and hasattr(widget, "setVisible"):
+        widget.setVisible(visible)
+
+
+def _checkbox_checked(checkbox) -> bool:
+    return bool(checkbox is not None and checkbox.isChecked())
+
+
+def _nearest_snapshot_index(snapshots, target_time: float) -> int:
+    best_index = 0
+    best_distance = float("inf")
+    for index, snapshot in enumerate(snapshots):
+        snapshot_time = formatting._snapshot_compare_time(snapshot)
+        if snapshot_time is None:
+            continue
+        distance = abs(float(snapshot_time) - float(target_time))
+        if distance < best_distance:
+            best_index = index
+            best_distance = distance
+    return best_index
+
+
+
+class CompareRunsTab:
+    """The Compare Runs tab: an object with explicit dependencies.
+
+    Constructed once by `gui_layout._build_compare_runs_view`, which is its
+    composition root. Step 9 split this out of `PlayerStatsMixin` as a mixin
+    and said turning it into a standalone object was a behaviour change
+    belonging to a later step; this is that step.
+
+    It holds **no reference to the Recordings tab**. It used to call back into
+    `RecordingsTabMixin._ensure_vod_metadata_refresh` to start the shared
+    metadata refresh, while that method's completion callback reached forward
+    into this tab's list signature and repaint. Both directions are gone:
+    `vod_library` (step 21b) owns the index, this tab asks *it* to refresh, and
+    it is told through the `invalidate`/`repaint` pair the composition root
+    registers.
+
+    `is_active` is a supplier and not a method here for the reason
+    `RecordingsTab` records: the tab-switch router is **step 26's**. The tab
+    asks the tab-bar question; it does not own the router that answers it.
+    """
+
+    def __init__(
+        self,
+        *,
+        tabview,
+        vod_library,
+        is_active: Callable[[], bool],
+        schedule: Callable[[Callable[[], None]], None] | None = None,
+    ) -> None:
+        self._tabview = tabview
+        self._library = vod_library
+        self._is_active = is_active
+        self._schedule = schedule
+
+        # Selection and view state. Sixteen names on `MegabonkApp` until step
+        # 21d, every one measured to have zero production readers outside this
+        # module -- their only other mention was the init line in
+        # `gui_app.__init__`.
+        self._vod_a = None
+        self._vod_b = None
+        self._index_a = None
+        self._index_b = None
+        self._list_signature = None
+        self._chooser_expanded = False
+        self._guided_selection_active = False
+        self._stats_config_expanded = False
+        self._item_details_expanded = False
+        self._syncing = False
+        self._load_generations = {}
+
+        self._sections = configured_compare_run_sections()
+        sections = self._sections
+        self._items_enabled = sections["items"]
+        self._stage_summary_enabled = sections["stage_summary"]
+        self._weapons_enabled = sections["weapons"]
+        self._tomes_enabled = sections["tomes"]
+        self._chaos_enabled = sections["chaos"]
+
+        # Every widget `build()` creates. `MegabonkApp.__init__` declared these
+        # as 34 `= None` lines; they are declared here for the same reason
+        # `RecordingsTab` declares its own -- so the readers below can be plain
+        # attribute access and an unbuilt tab raises rather than rendering into
+        # `None`.
+        self._tab = None
+        self._select_btn = None
+        self._swap_btn = None
+        self._stats_config_btn = None
+        self._chooser_group = None
+        self._stats_config_group = None
+        self._stat_checkboxes = {}
+        self._items_checkbox = None
+        self._stage_summary_checkbox = None
+        self._weapons_checkbox = None
+        self._tomes_checkbox = None
+        self._chaos_checkbox = None
+        self._item_details_btn = None
+        self._diff_overview_group = None
+        self._diff_overview_label = None
+        self._diff_stats_group = None
+        self._diff_stats_label = None
+        self._diff_items_group = None
+        self._diff_items_label = None
+        self._diff_stage_summary_group = None
+        self._diff_stage_summary_label = None
+        self._diff_weapons_group = None
+        self._diff_weapons_label = None
+        self._diff_tomes_group = None
+        self._diff_tomes_label = None
+        self._diff_chaos_group = None
+        self._diff_chaos_label = None
+        # Never built, in either tree. `_refresh_compare_runs_selected_labels`
+        # writes these through `_set_text`, which no-ops on `None`; `gui_layout`
+        # built no such label and `gui_app` only ever set it to `None`. Kept, not
+        # deleted: removing them is a behaviour change dressed as cleanup, and it
+        # belongs with whoever decides the panel wants a selected-run caption.
+        self._run_a_selected_label = None
+        self._run_b_selected_label = None
+        self._run_a_list_frame = None
+        self._run_a_status_label = None
+        self._run_a_slider = None
+        self._run_a_timeline_label = None
+        self._run_a_summary_label = None
+        self._run_a_items_view = None
+        self._run_b_list_frame = None
+        self._run_b_status_label = None
+        self._run_b_slider = None
+        self._run_b_timeline_label = None
+        self._run_b_summary_label = None
+        self._run_b_items_view = None
+
     def refresh_compare_runs_list(self):
-        list_a = getattr(self, "compare_run_a_list_frame", None)
-        list_b = getattr(self, "compare_run_b_list_frame", None)
+        list_a = self._run_a_list_frame
+        list_b = self._run_b_list_frame
         if list_a is None or list_b is None:
             return
 
-        vods = list(self.vod_library.index)
-        selected_a = self.compare_run_a_vod.metadata.path if self.compare_run_a_vod is not None else None
-        selected_b = self.compare_run_b_vod.metadata.path if self.compare_run_b_vod is not None else None
+        vods = list(self._library.index)
+        selected_a = self._vod_a.metadata.path if self._vod_a is not None else None
+        selected_b = self._vod_b.metadata.path if self._vod_b is not None else None
         signature = (
             str(selected_a) if selected_a is not None else "",
             str(selected_b) if selected_b is not None else "",
@@ -75,13 +269,13 @@ class CompareRunsMixin:
             str(selected_b) if selected_b is not None else "",
             tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
         )
-        self.vod_library.ensure_refresh()
-        if self.compare_runs_list_signature == signature:
+        self._library.ensure_refresh()
+        if self._list_signature == signature:
             return
 
         self._populate_compare_run_list(list_a, vods, selected_a)
         self._populate_compare_run_list(list_b, vods, selected_b)
-        self.compare_runs_list_signature = signature
+        self._list_signature = signature
         self._refresh_compare_runs_selected_labels()
 
     def invalidate_compare_runs_list(self) -> None:
@@ -90,7 +284,18 @@ class CompareRunsMixin:
         This is the whole of what the Recordings tab used to reach in and do.
         The Recordings tab no longer names this tab at all.
         """
-        self.compare_runs_list_signature = None
+        self._list_signature = None
+
+    def _configured_sections(self) -> dict[str, bool]:
+        """What `__init__` read, so `build()` cannot read something else.
+
+        `gui_layout` used to call `configured_compare_run_sections()` a second
+        time when building the checkboxes, while `gui_app.__init__` had already
+        called it for the five enabled flags. Two reads of one config file, one
+        object apart -- harmless in practice and exactly the kind of thing a
+        constructor removes for free.
+        """
+        return dict(self._sections)
 
     def _populate_compare_run_list(self, list_frame, vods, selected_path) -> None:
         list_frame.blockSignals(True)
@@ -123,14 +328,14 @@ class CompareRunsMixin:
 
     def load_compare_run(self, side: str, path) -> None:
         path = Path(path)
-        generations = getattr(self, "_compare_run_load_generations", {})
+        generations = self._load_generations
         generation = int(generations.get(side, 0)) + 1
         generations[side] = generation
-        self._compare_run_load_generations = generations
+        self._load_generations = generations
         self._set_compare_run_error(side, "Loading recording…")
 
         def finish(loaded_vod, error) -> None:
-            if generation != getattr(self, "_compare_run_load_generations", {}).get(side):
+            if generation != self._load_generations.get(side):
                 return
             if error is not None:
                 self._set_compare_run_error(side, f"Could not load recording: {error}")
@@ -148,72 +353,79 @@ class CompareRunsMixin:
             except Exception as exc:
                 loaded = None
                 error = exc
-            after = getattr(self, "after", None)
-            if callable(after) and getattr(self, "_invoker", None) is not None:
-                after(0, lambda: finish(loaded, error))
-            else:
-                finish(loaded, error)
+            self._marshal(lambda: finish(loaded, error))
 
-        if callable(getattr(self, "after", None)) and getattr(self, "_invoker", None) is not None:
+        # Background only when there is somewhere to marshal the result back
+        # to -- the same two branches the mixin chose between by reading
+        # `self.after` and `self._invoker` off the shared namespace, now one
+        # injected callable.
+        if callable(self._schedule):
             threading.Thread(target=load, name=f"compare-{side}-loader", daemon=True).start()
         else:
             load()
 
+    def _marshal(self, callback) -> None:
+        schedule = self._schedule
+        if callable(schedule):
+            schedule(callback)
+        else:
+            callback()
+
     def toggle_compare_runs_chooser(self):
-        next_expanded = not bool(getattr(self, "compare_runs_chooser_expanded", False))
+        next_expanded = not bool(self._chooser_expanded)
         self.set_compare_runs_chooser_expanded(next_expanded, guided=False)
         if next_expanded:
             self.refresh_compare_runs_list()
 
     def toggle_compare_runs_stats_config(self):
-        self.compare_runs_stats_config_expanded = not bool(
-            getattr(self, "compare_runs_stats_config_expanded", False)
+        self._stats_config_expanded = not bool(
+            self._stats_config_expanded
         )
-        if self.compare_runs_stats_config_expanded:
+        if self._stats_config_expanded:
             self.set_compare_runs_chooser_expanded(False, guided=False)
         self._refresh_compare_runs_stats_config()
 
     def _auto_close_compare_runs_chooser_if_ready(self) -> None:
-        if not bool(getattr(self, "compare_runs_chooser_expanded", False)):
+        if not bool(self._chooser_expanded):
             return
-        if not bool(getattr(self, "compare_runs_guided_selection_active", False)):
+        if not bool(self._guided_selection_active):
             return
-        if self.compare_run_a_vod is None or self.compare_run_b_vod is None:
+        if self._vod_a is None or self._vod_b is None:
             return
         self.set_compare_runs_chooser_expanded(False, guided=False)
 
     def ensure_compare_runs_chooser_for_empty_selection(self) -> None:
-        if not self._is_compare_runs_tab_active():
+        if not self._is_active():
             return
-        if self.compare_run_a_vod is not None or self.compare_run_b_vod is not None:
+        if self._vod_a is not None or self._vod_b is not None:
             return
-        if bool(getattr(self, "compare_runs_chooser_expanded", False)):
+        if bool(self._chooser_expanded):
             return
         self.set_compare_runs_chooser_expanded(True, guided=True)
 
     def set_compare_runs_chooser_expanded(self, expanded: bool, *, guided: bool) -> None:
-        self.compare_runs_chooser_expanded = bool(expanded)
-        self.compare_runs_guided_selection_active = bool(expanded and guided)
-        if self.compare_runs_chooser_expanded:
-            self.compare_runs_stats_config_expanded = False
+        self._chooser_expanded = bool(expanded)
+        self._guided_selection_active = bool(expanded and guided)
+        if self._chooser_expanded:
+            self._stats_config_expanded = False
             self._refresh_compare_runs_stats_config()
         self._refresh_compare_runs_chooser()
 
     def on_compare_run_section_selection_changed(self):
         sections = self._compare_run_checked_sections()
-        self.compare_runs_items_enabled = sections["items"]
-        self.compare_runs_stage_summary_enabled = sections["stage_summary"]
-        self.compare_runs_weapons_enabled = sections["weapons"]
-        self.compare_runs_tomes_enabled = sections["tomes"]
-        self.compare_runs_chaos_enabled = sections["chaos"]
-        if not self.compare_runs_items_enabled:
-            self.compare_runs_item_details_expanded = False
+        self._items_enabled = sections["items"]
+        self._stage_summary_enabled = sections["stage_summary"]
+        self._weapons_enabled = sections["weapons"]
+        self._tomes_enabled = sections["tomes"]
+        self._chaos_enabled = sections["chaos"]
+        if not self._items_enabled:
+            self._item_details_expanded = False
         self._save_compare_run_sections()
         self.refresh_compare_runs_ui()
 
     def toggle_compare_runs_item_details(self):
-        self.compare_runs_item_details_expanded = not bool(
-            getattr(self, "compare_runs_item_details_expanded", False)
+        self._item_details_expanded = not bool(
+            self._item_details_expanded
         )
         self.refresh_compare_runs_ui()
 
@@ -232,15 +444,15 @@ class CompareRunsMixin:
         construction into this tab; until then the lookup stays here
         rather than each call site reaching for the attribute.
         """
-        return getattr(self, f"compare_run_{side}_items_view")
+        return getattr(self, f"_run_{side}_items_view")
 
     def swap_compare_runs(self):
-        self.compare_run_a_vod, self.compare_run_b_vod = self.compare_run_b_vod, self.compare_run_a_vod
-        self.compare_run_a_snapshot_index, self.compare_run_b_snapshot_index = (
-            self.compare_run_b_snapshot_index,
-            self.compare_run_a_snapshot_index,
+        self._vod_a, self._vod_b = self._vod_b, self._vod_a
+        self._index_a, self._index_b = (
+            self._index_b,
+            self._index_a,
         )
-        self.compare_runs_list_signature = None
+        self._list_signature = None
         self.refresh_compare_runs_list()
         self.refresh_compare_runs_ui(changed_side="a")
 
@@ -253,22 +465,22 @@ class CompareRunsMixin:
             return
 
         self._set_compare_run_index(side, index)
-        if not self.compare_runs_syncing:
-            self.compare_runs_syncing = True
+        if not self._syncing:
+            self._syncing = True
             try:
                 other_side = "b" if side == "a" else "a"
                 self._sync_compare_run_to_side(other_side, side)
             finally:
-                self.compare_runs_syncing = False
+                self._syncing = False
         self.refresh_compare_runs_ui(changed_side=side)
 
     def refresh_compare_runs_ui(self, *, changed_side: str | None = None):
-        if changed_side in {"a", "b"} and not self.compare_runs_syncing:
-            self.compare_runs_syncing = True
+        if changed_side in {"a", "b"} and not self._syncing:
+            self._syncing = True
             try:
                 self._sync_compare_run_to_side("b" if changed_side == "a" else "a", changed_side)
             finally:
-                self.compare_runs_syncing = False
+                self._syncing = False
 
         self._refresh_compare_run_side("a")
         self._refresh_compare_run_side("b")
@@ -286,10 +498,10 @@ class CompareRunsMixin:
         if source_index is None:
             return
         source_snapshot = source_vod.snapshots[min(max(int(source_index), 0), len(source_vod.snapshots) - 1)]
-        target_time = self._snapshot_compare_time(source_snapshot)
+        target_time = formatting._snapshot_compare_time(source_snapshot)
         if target_time is None:
             return
-        target_index = self._nearest_snapshot_index(target_vod.snapshots, target_time)
+        target_index = _nearest_snapshot_index(target_vod.snapshots, target_time)
         self._set_compare_run_index(target_side, target_index)
         slider = self._compare_run_slider(target_side)
         if slider is not None and slider.value() != target_index:
@@ -343,12 +555,12 @@ class CompareRunsMixin:
         last = vod.snapshots[-1].time_label
         _set_text(status_label, f"{vod.metadata.name} | {index + 1}/{snapshot_count}")
         _set_text(timeline_label, f"Timeline: {first} - {last} | Selected: {snapshot.time_label}")
-        _set_text(summary_label, self.format_compare_run_snapshot_summary(vod, snapshot, index))
+        _set_text(summary_label, formatting.format_compare_run_snapshot_summary(vod, snapshot, index))
         self._compare_run_items_view(side).update(getattr(snapshot, "items", ()))
 
     def _refresh_compare_runs_diff(self) -> None:
-        vod_a = self.compare_run_a_vod
-        vod_b = self.compare_run_b_vod
+        vod_a = self._vod_a
+        vod_b = self._vod_b
         snapshot_a = self._compare_run_snapshot("a")
         snapshot_b = self._compare_run_snapshot("b")
         if vod_a is None or vod_b is None:
@@ -359,29 +571,29 @@ class CompareRunsMixin:
             self._set_compare_runs_diff_cards("Both recordings need snapshots")
             self._refresh_compare_runs_item_details_button(False)
             return
-        show_items = bool(getattr(self, "compare_runs_items_enabled", False))
-        show_stage_summary = bool(getattr(self, "compare_runs_stage_summary_enabled", False))
-        show_weapons = bool(getattr(self, "compare_runs_weapons_enabled", False))
-        show_tomes = bool(getattr(self, "compare_runs_tomes_enabled", False))
-        show_chaos = bool(getattr(self, "compare_runs_chaos_enabled", False))
+        show_items = bool(self._items_enabled)
+        show_stage_summary = bool(self._stage_summary_enabled)
+        show_weapons = bool(self._weapons_enabled)
+        show_tomes = bool(self._tomes_enabled)
+        show_chaos = bool(self._chaos_enabled)
         self._set_compare_runs_diff_cards(
-            self.format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b),
-            stats_text=self.format_compare_runs_stats_diff(
+            formatting.format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b),
+            stats_text=formatting.format_compare_runs_stats_diff(
                 snapshot_a,
                 snapshot_b,
                 stat_labels=self._compare_run_selected_stat_labels(),
             ),
             items_text=(
-                self.format_compare_runs_items_diff(
+                formatting.format_compare_runs_items_diff(
                     snapshot_a,
                     snapshot_b,
-                    details_expanded=bool(getattr(self, "compare_runs_item_details_expanded", False)),
+                    details_expanded=bool(self._item_details_expanded),
                 )
                 if show_items
                 else "--"
             ),
             stage_summary_text=(
-                self.format_compare_runs_stage_summary_diff(
+                formatting.format_compare_runs_stage_summary_diff(
                     vod_a,
                     self._compare_run_index("a"),
                     vod_b,
@@ -391,13 +603,13 @@ class CompareRunsMixin:
                 else "--"
             ),
             weapons_text=(
-                self.format_compare_runs_weapons_diff(snapshot_a, snapshot_b) if show_weapons else "--"
+                formatting.format_compare_runs_weapons_diff(snapshot_a, snapshot_b) if show_weapons else "--"
             ),
             tomes_text=(
-                self.format_compare_runs_tomes_diff(snapshot_a, snapshot_b) if show_tomes else "--"
+                formatting.format_compare_runs_tomes_diff(snapshot_a, snapshot_b) if show_tomes else "--"
             ),
             chaos_text=(
-                self.format_compare_runs_chaos_diff(snapshot_a, snapshot_b) if show_chaos else "--"
+                formatting.format_compare_runs_chaos_diff(snapshot_a, snapshot_b) if show_chaos else "--"
             ),
             show_items=show_items,
             show_stage_summary=show_stage_summary,
@@ -417,13 +629,13 @@ class CompareRunsMixin:
         self._refresh_compare_runs_selected_labels()
 
     def _refresh_compare_runs_item_details_button(self, visible: bool) -> None:
-        item_details_btn = getattr(self, "compare_runs_item_details_btn", None)
+        item_details_btn = self._item_details_btn
         if item_details_btn is None:
             return
         item_details_btn.setVisible(visible)
         item_details_btn.setText(
             "Hide Item Details"
-            if bool(getattr(self, "compare_runs_item_details_expanded", False))
+            if bool(self._item_details_expanded)
             else "Show Item Details"
         )
 
@@ -443,37 +655,37 @@ class CompareRunsMixin:
         show_tomes: bool = False,
         show_chaos: bool = False,
     ) -> None:
-        _set_text(getattr(self, "compare_runs_diff_overview_label", None), overview_text)
-        _set_text(getattr(self, "compare_runs_diff_stats_label", None), stats_text)
-        _set_text(getattr(self, "compare_runs_diff_items_label", None), items_text)
-        _set_text(getattr(self, "compare_runs_diff_stage_summary_label", None), stage_summary_text)
-        _set_text(getattr(self, "compare_runs_diff_weapons_label", None), weapons_text)
-        _set_text(getattr(self, "compare_runs_diff_tomes_label", None), tomes_text)
-        _set_text(getattr(self, "compare_runs_diff_chaos_label", None), chaos_text)
-        self._set_visible(getattr(self, "compare_runs_diff_overview_group", None), True)
-        self._set_visible(getattr(self, "compare_runs_diff_stats_group", None), bool(stats_text and stats_text != "--"))
-        self._set_visible(getattr(self, "compare_runs_diff_items_group", None), show_items)
-        self._set_visible(getattr(self, "compare_runs_diff_stage_summary_group", None), show_stage_summary)
-        self._set_visible(getattr(self, "compare_runs_diff_weapons_group", None), show_weapons)
-        self._set_visible(getattr(self, "compare_runs_diff_tomes_group", None), show_tomes)
-        self._set_visible(getattr(self, "compare_runs_diff_chaos_group", None), show_chaos)
+        _set_text(self._diff_overview_label, overview_text)
+        _set_text(self._diff_stats_label, stats_text)
+        _set_text(self._diff_items_label, items_text)
+        _set_text(self._diff_stage_summary_label, stage_summary_text)
+        _set_text(self._diff_weapons_label, weapons_text)
+        _set_text(self._diff_tomes_label, tomes_text)
+        _set_text(self._diff_chaos_label, chaos_text)
+        _set_visible(self._diff_overview_group, True)
+        _set_visible(self._diff_stats_group, bool(stats_text and stats_text != "--"))
+        _set_visible(self._diff_items_group, show_items)
+        _set_visible(self._diff_stage_summary_group, show_stage_summary)
+        _set_visible(self._diff_weapons_group, show_weapons)
+        _set_visible(self._diff_tomes_group, show_tomes)
+        _set_visible(self._diff_chaos_group, show_chaos)
 
     def _refresh_compare_runs_chooser(self) -> None:
-        expanded = bool(getattr(self, "compare_runs_chooser_expanded", False))
-        chooser = getattr(self, "compare_runs_chooser_group", None)
-        button = getattr(self, "compare_runs_select_btn", None)
-        swap_btn = getattr(self, "compare_runs_swap_btn", None)
+        expanded = bool(self._chooser_expanded)
+        chooser = self._chooser_group
+        button = self._select_btn
+        swap_btn = self._swap_btn
         if chooser is not None:
             chooser.setVisible(expanded)
         if button is not None:
             button.setText("Hide Runs" if expanded else "Select Runs")
         if swap_btn is not None:
-            swap_btn.setEnabled(self.compare_run_a_vod is not None or self.compare_run_b_vod is not None)
+            swap_btn.setEnabled(self._vod_a is not None or self._vod_b is not None)
 
     def _refresh_compare_runs_stats_config(self) -> None:
-        expanded = bool(getattr(self, "compare_runs_stats_config_expanded", False))
-        group = getattr(self, "compare_runs_stats_config_group", None)
-        button = getattr(self, "compare_runs_stats_config_btn", None)
+        expanded = bool(self._stats_config_expanded)
+        group = self._stats_config_group
+        button = self._stats_config_btn
         if group is not None:
             group.setVisible(expanded)
         if button is not None:
@@ -481,11 +693,11 @@ class CompareRunsMixin:
 
     def _refresh_compare_runs_selected_labels(self) -> None:
         _set_text(
-            getattr(self, "compare_run_a_selected_label", None),
+            self._run_a_selected_label,
             f"Run A: {self._compare_run_selected_text('a')}",
         )
         _set_text(
-            getattr(self, "compare_run_b_selected_label", None),
+            self._run_b_selected_label,
             f"Run B: {self._compare_run_selected_text('b')}",
         )
 
@@ -497,34 +709,6 @@ class CompareRunsMixin:
         duration = formatting.format_duration(vod.metadata.duration_seconds)
         return f"{vod.metadata.name} ({snapshot_count} snapshots | {duration})"
 
-    @staticmethod
-    def default_compare_run_stat_labels() -> tuple[str, ...]:
-        return COMPARE_RUN_STAT_LABELS
-
-    @classmethod
-    def all_compare_run_stat_labels(cls) -> tuple[str, ...]:
-        return tuple(spec.label for group in PLAYER_STAT_GROUPS for spec in group)
-
-    @classmethod
-    def configured_compare_run_stat_labels(cls) -> tuple[str, ...]:
-        saved_labels = config.user_config.get(COMPARE_RUN_STAT_CONFIG_KEY)
-        if isinstance(saved_labels, list):
-            allowed_labels = set(cls.all_compare_run_stat_labels())
-            selected = tuple(str(label) for label in saved_labels if str(label) in allowed_labels)
-            if selected:
-                return selected
-        return cls.default_compare_run_stat_labels()
-
-    @classmethod
-    def configured_compare_run_sections(cls) -> dict[str, bool]:
-        saved_sections = config.user_config.get(COMPARE_RUN_SECTIONS_CONFIG_KEY)
-        sections = dict(COMPARE_RUN_SECTION_DEFAULTS)
-        if isinstance(saved_sections, dict):
-            for key in sections:
-                if key in saved_sections:
-                    sections[key] = bool(saved_sections[key])
-        return sections
-
     def _save_compare_run_stat_selection(self) -> None:
         config.user_config[COMPARE_RUN_STAT_CONFIG_KEY] = list(self._compare_run_checked_stat_labels())
         config.save_config(config.user_config)
@@ -535,43 +719,43 @@ class CompareRunsMixin:
 
     def _compare_run_checked_sections(self) -> dict[str, bool]:
         return {
-            "items": bool(self._checkbox_checked(getattr(self, "compare_runs_items_checkbox", None))),
+            "items": bool(_checkbox_checked(self._items_checkbox)),
             "stage_summary": bool(
-                self._checkbox_checked(getattr(self, "compare_runs_stage_summary_checkbox", None))
+                _checkbox_checked(self._stage_summary_checkbox)
             ),
-            "weapons": bool(self._checkbox_checked(getattr(self, "compare_runs_weapons_checkbox", None))),
-            "tomes": bool(self._checkbox_checked(getattr(self, "compare_runs_tomes_checkbox", None))),
-            "chaos": bool(self._checkbox_checked(getattr(self, "compare_runs_chaos_checkbox", None))),
+            "weapons": bool(_checkbox_checked(self._weapons_checkbox)),
+            "tomes": bool(_checkbox_checked(self._tomes_checkbox)),
+            "chaos": bool(_checkbox_checked(self._chaos_checkbox)),
         }
 
     def _compare_run_checked_stat_labels(self) -> tuple[str, ...]:
-        checkboxes = getattr(self, "compare_runs_stat_checkboxes", None) or {}
+        checkboxes = self._stat_checkboxes or {}
         return tuple(label for label, checkbox in checkboxes.items() if checkbox.isChecked())
 
     def _compare_run_selected_stat_labels(self) -> tuple[str, ...]:
-        checkboxes = getattr(self, "compare_runs_stat_checkboxes", None) or {}
+        checkboxes = self._stat_checkboxes or {}
         if not checkboxes:
-            return self.configured_compare_run_stat_labels()
+            return configured_compare_run_stat_labels()
         selected = self._compare_run_checked_stat_labels()
-        return selected or self.default_compare_run_stat_labels()
+        return selected or default_compare_run_stat_labels()
 
     def _compare_run_vod(self, side: str):
-        return self.compare_run_a_vod if side == "a" else self.compare_run_b_vod
+        return self._vod_a if side == "a" else self._vod_b
 
     def _set_compare_run_vod(self, side: str, vod) -> None:
         if side == "a":
-            self.compare_run_a_vod = vod
+            self._vod_a = vod
         else:
-            self.compare_run_b_vod = vod
+            self._vod_b = vod
 
     def _compare_run_index(self, side: str) -> int | None:
-        return self.compare_run_a_snapshot_index if side == "a" else self.compare_run_b_snapshot_index
+        return self._index_a if side == "a" else self._index_b
 
     def _set_compare_run_index(self, side: str, index: int | None) -> None:
         if side == "a":
-            self.compare_run_a_snapshot_index = index
+            self._index_a = index
         else:
-            self.compare_run_b_snapshot_index = index
+            self._index_b = index
 
     def _compare_run_snapshot(self, side: str):
         vod = self._compare_run_vod(side)
@@ -582,81 +766,266 @@ class CompareRunsMixin:
         return vod.snapshots[index]
 
     def _compare_run_widget(self, side: str, widget_name: str):
-        prefix = f"compare_run_{side}_"
+        prefix = f"_run_{side}_"
         return getattr(self, f"{prefix}{widget_name}", None)
 
     def _compare_run_slider(self, side: str):
         return self._compare_run_widget(side, "slider")
 
-    @classmethod
-    def format_compare_run_snapshot_summary(cls, vod, snapshot, index: int) -> str:
-        return formatting.format_compare_run_snapshot_summary(vod, snapshot, index)
+    def build(self):
+        """Create the tab's widgets and add it to the tab bar.
 
-    @classmethod
-    def format_compare_runs_diff(
-        cls,
-        vod_a,
-        snapshot_a,
-        vod_b,
-        snapshot_b,
-        *,
-        stat_labels: tuple[str, ...] | None = None,
-        include_items: bool = False,
-        item_details_expanded: bool = False,
-        include_weapons: bool = False,
-        include_tomes: bool = False,
-        include_chaos: bool = False,
-    ) -> str:
-        return formatting.format_compare_runs_diff(vod_a, snapshot_a, vod_b, snapshot_b, stat_labels=stat_labels, include_items=include_items, item_details_expanded=item_details_expanded, include_weapons=include_weapons, include_tomes=include_tomes, include_chaos=include_chaos)
+        Moved here from `gui_layout` by step 21d. `gui_layout` was building
+        this tab's ~40 widgets onto the shared `self` while the tab's own
+        module read them back off it -- the coupling step 9 left visible across
+        a file boundary. Moving the construction is what closes it, and it also
+        retires the `ItemsSectionView` import that had to sit inside a method
+        body down there to avoid the
+        `gui_layout -> ui.tabs.player_stats -> live_stats -> gui_layout` cycle,
+        which the old comment names as a symptom of the panel being built there
+        at all.
 
-    @classmethod
-    def format_compare_runs_overview_diff(cls, vod_a, snapshot_a, vod_b, snapshot_b) -> str:
-        return formatting.format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b)
+        Separate from `__init__`, matching `LiveStatsTab` and `RecordingsTab`.
+        """
+        self._tab = QWidget()
+        compare_layout = QVBoxLayout(self._tab)
 
-    @classmethod
-    def format_compare_runs_stats_diff(cls, snapshot_a, snapshot_b, *, stat_labels: tuple[str, ...] | None = None) -> str:
-        return formatting.format_compare_runs_stats_diff(snapshot_a, snapshot_b, stat_labels=stat_labels)
+        selected_row = QHBoxLayout()
+        self._select_btn = QPushButton("Select Runs")
+        self._select_btn.setProperty("class", "CompareRunsGhostButton")
+        self._select_btn.clicked.connect(self.toggle_compare_runs_chooser)
+        self._swap_btn = QPushButton("Swap")
+        self._swap_btn.setProperty("class", "CompareRunsGhostButton")
+        self._swap_btn.clicked.connect(self.swap_compare_runs)
+        self._stats_config_btn = QPushButton("Compare Settings")
+        self._stats_config_btn.setProperty("class", "CompareRunsGhostButton")
+        self._stats_config_btn.clicked.connect(self.toggle_compare_runs_stats_config)
+        selected_row.addStretch(1)
+        selected_row.addWidget(self._select_btn)
+        selected_row.addWidget(self._swap_btn)
+        selected_row.addWidget(self._stats_config_btn)
+        compare_layout.addLayout(selected_row)
 
-    @classmethod
-    def format_compare_runs_items_diff(cls, snapshot_a, snapshot_b, *, details_expanded: bool = False) -> str:
-        return formatting.format_compare_runs_items_diff(snapshot_a, snapshot_b, details_expanded=details_expanded)
+        self._chooser_group = QGroupBox("Select Recordings")
+        self._chooser_group.setVisible(False)
+        chooser_layout = QVBoxLayout(self._chooser_group)
+        selector_grid = QGridLayout()
+        selector_grid.setContentsMargins(0, 0, 0, 0)
+        selector_grid.setHorizontalSpacing(8)
+        selector_grid.setVerticalSpacing(6)
+        selector_grid.addWidget(QLabel("Run A"), 0, 0)
+        selector_grid.addWidget(QLabel("Run B"), 0, 1)
+        self._run_a_list_frame = QListWidget()
+        self._run_b_list_frame = QListWidget()
+        for list_frame in (self._run_a_list_frame, self._run_b_list_frame):
+            list_frame.setMinimumHeight(230)
+            list_frame.setMaximumHeight(320)
+        self._run_a_list_frame.currentItemChanged.connect(
+            lambda current, _previous: self._on_compare_run_selection_changed("a", current)
+        )
+        self._run_b_list_frame.currentItemChanged.connect(
+            lambda current, _previous: self._on_compare_run_selection_changed("b", current)
+        )
+        selector_grid.addWidget(self._run_a_list_frame, 1, 0)
+        selector_grid.addWidget(self._run_b_list_frame, 1, 1)
+        selector_grid.setColumnStretch(0, 1)
+        selector_grid.setColumnStretch(1, 1)
+        chooser_layout.addLayout(selector_grid)
+        compare_layout.addWidget(self._chooser_group)
 
-    @classmethod
-    def format_compare_runs_stage_summary_diff(cls, vod_a, index_a, vod_b, index_b) -> str:
-        return formatting.format_compare_runs_stage_summary_diff(vod_a, index_a, vod_b, index_b)
+        self._stats_config_group = QGroupBox("Compare Settings")
+        self._stats_config_group.setVisible(False)
+        settings_layout = QVBoxLayout(self._stats_config_group)
+        section_layout = QHBoxLayout()
+        # Read once in `__init__` and kept, so the checkboxes and the
+        # enabled flags cannot disagree about what was configured.
+        configured_sections = self._configured_sections()
+        self._items_checkbox = QCheckBox("Items")
+        self._items_checkbox.setChecked(configured_sections["items"])
+        self._items_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
+        self._stage_summary_checkbox = QCheckBox("Stage Summary")
+        self._stage_summary_checkbox.setChecked(configured_sections["stage_summary"])
+        self._stage_summary_checkbox.stateChanged.connect(
+            lambda _state: self.on_compare_run_section_selection_changed()
+        )
+        self._weapons_checkbox = QCheckBox("Weapons")
+        self._weapons_checkbox.setChecked(configured_sections["weapons"])
+        self._weapons_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
+        self._tomes_checkbox = QCheckBox("Tomes")
+        self._tomes_checkbox.setChecked(configured_sections["tomes"])
+        self._tomes_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
+        self._chaos_checkbox = QCheckBox("Chaos")
+        self._chaos_checkbox.setChecked(configured_sections["chaos"])
+        self._chaos_checkbox.stateChanged.connect(lambda _state: self.on_compare_run_section_selection_changed())
+        section_layout.addWidget(QLabel("Show in Difference:"))
+        section_layout.addWidget(self._stage_summary_checkbox)
+        section_layout.addWidget(self._items_checkbox)
+        section_layout.addWidget(self._weapons_checkbox)
+        section_layout.addWidget(self._tomes_checkbox)
+        section_layout.addWidget(self._chaos_checkbox)
+        section_layout.addStretch(1)
+        settings_layout.addLayout(section_layout)
 
-    @classmethod
-    def format_compare_runs_weapons_diff(cls, snapshot_a, snapshot_b) -> str:
-        return formatting.format_compare_runs_weapons_diff(snapshot_a, snapshot_b)
+        settings_scroll, _settings_scroll_content, settings_scroll_layout = _make_scroll_section()
+        settings_scroll.setMinimumHeight(150)
+        settings_scroll.setMaximumHeight(240)
 
-    @classmethod
-    def format_compare_runs_tomes_diff(cls, snapshot_a, snapshot_b) -> str:
-        return formatting.format_compare_runs_tomes_diff(snapshot_a, snapshot_b)
+        stats_config_layout = QGridLayout()
+        stats_config_layout.setContentsMargins(8, 8, 8, 8)
+        stats_config_layout.setHorizontalSpacing(12)
+        stats_config_layout.setVerticalSpacing(4)
+        self._stat_checkboxes = {}
+        stat_specs = [spec for group in PLAYER_STAT_GROUPS for spec in group]
+        selected_defaults = set(configured_compare_run_stat_labels())
+        for index, spec in enumerate(stat_specs):
+            checkbox = QCheckBox(spec.label)
+            checkbox.setChecked(spec.label in selected_defaults)
+            checkbox.stateChanged.connect(lambda _state: self.on_compare_run_stat_selection_changed())
+            self._stat_checkboxes[spec.label] = checkbox
+            stats_config_layout.addWidget(checkbox, index // 4, index % 4)
+        for column in range(4):
+            stats_config_layout.setColumnStretch(column, 1)
+        stats_group = QGroupBox("Stats Selector")
+        stats_group.setLayout(stats_config_layout)
+        settings_scroll_layout.addWidget(stats_group)
+        settings_scroll_layout.addStretch(1)
+        settings_layout.addWidget(settings_scroll)
+        compare_layout.addWidget(self._stats_config_group)
 
-    @classmethod
-    def format_compare_runs_chaos_diff(cls, snapshot_a, snapshot_b) -> str:
-        return formatting.format_compare_runs_chaos_diff(snapshot_a, snapshot_b)
+        body_layout = QHBoxLayout()
+        body_layout.setSpacing(8)
+        run_a_group, self._run_a_status_label, self._run_a_slider, self._run_a_timeline_label, self._run_a_summary_label = self._build_side_panel(
+            "Run A",
+            "a",
+        )
+        diff_group = QGroupBox("Difference")
+        diff_layout = QVBoxLayout(diff_group)
+        diff_scroll, _diff_scroll_content, diff_scroll_layout = _make_scroll_section()
+        self._diff_overview_group, self._diff_overview_label = self._build_diff_card(
+            "Overview",
+            "Select two recordings",
+        )
+        self._diff_stats_group, self._diff_stats_label = self._build_diff_card(
+            "Stats",
+            "--",
+        )
+        self._diff_items_group, self._diff_items_label = self._build_diff_card(
+            "Items",
+            "--",
+        )
+        self._item_details_btn = QPushButton("Show Item Details")
+        self._item_details_btn.setProperty("class", "SmallGhostButton")
+        self._item_details_btn.clicked.connect(self.toggle_compare_runs_item_details)
+        self._item_details_btn.setVisible(False)
+        self._diff_items_group.layout().addWidget(self._item_details_btn, 0, Qt.AlignLeft)
+        self._diff_stage_summary_group, self._diff_stage_summary_label = self._build_diff_card(
+            "Stage Summary",
+            "--",
+        )
+        self._diff_weapons_group, self._diff_weapons_label = self._build_diff_card(
+            "Weapons",
+            "--",
+        )
+        self._diff_tomes_group, self._diff_tomes_label = self._build_diff_card(
+            "Tomes",
+            "--",
+        )
+        self._diff_chaos_group, self._diff_chaos_label = self._build_diff_card(
+            "Chaos",
+            "--",
+        )
+        diff_scroll_layout.addWidget(self._diff_overview_group)
+        diff_scroll_layout.addWidget(self._diff_stats_group)
+        diff_scroll_layout.addWidget(self._diff_stage_summary_group)
+        diff_scroll_layout.addWidget(self._diff_items_group)
+        diff_scroll_layout.addWidget(self._diff_weapons_group)
+        diff_scroll_layout.addWidget(self._diff_tomes_group)
+        diff_scroll_layout.addWidget(self._diff_chaos_group)
+        diff_scroll_layout.addStretch(1)
+        diff_layout.addWidget(diff_scroll, 1)
+        run_b_group, self._run_b_status_label, self._run_b_slider, self._run_b_timeline_label, self._run_b_summary_label = self._build_side_panel(
+            "Run B",
+            "b",
+        )
+        body_layout.addWidget(run_a_group, 3)
+        body_layout.addWidget(diff_group, 4)
+        body_layout.addWidget(run_b_group, 3)
+        compare_layout.addLayout(body_layout, 1)
+        self._tabview.addTab(self._tab, "Compare Runs")
 
-    @staticmethod
-    def _set_visible(widget, visible: bool) -> None:
-        if widget is not None and hasattr(widget, "setVisible"):
-            widget.setVisible(visible)
-    @staticmethod
-    def _checkbox_checked(checkbox) -> bool:
-        return bool(checkbox is not None and checkbox.isChecked())
-    @classmethod
-    def _nearest_snapshot_index(cls, snapshots, target_time: float) -> int:
-        best_index = 0
-        best_distance = float("inf")
-        for index, snapshot in enumerate(snapshots):
-            snapshot_time = cls._snapshot_compare_time(snapshot)
-            if snapshot_time is None:
-                continue
-            distance = abs(float(snapshot_time) - float(target_time))
-            if distance < best_distance:
-                best_index = index
-                best_distance = distance
-        return best_index
-    @staticmethod
-    def _snapshot_compare_time(snapshot) -> float | None:
-        return formatting._snapshot_compare_time(snapshot)
+    def _build_diff_card(self, title: str, initial_text: str):
+        group = QGroupBox(title)
+        layout = QVBoxLayout(group)
+        label = QLabel(initial_text)
+        label.setTextFormat(Qt.RichText)
+        label.setWordWrap(True)
+        _apply_summary_label_padding(label)
+        layout.addWidget(label)
+        return group, label
+
+    def _build_side_panel(self, title: str, side: str):
+        group = QGroupBox(title)
+        layout = QVBoxLayout(group)
+        status_label = QLabel("Select a recording")
+        status_label.setTextFormat(Qt.RichText)
+        status_label.setWordWrap(True)
+        slider = QSlider(Qt.Horizontal)
+        slider.setEnabled(False)
+        slider.valueChanged.connect(lambda value, run_side=side: self.on_compare_run_slider_changed(run_side, value))
+        timeline_label = QLabel("Timeline: --")
+        summary_label = QLabel("--")
+        summary_label.setTextFormat(Qt.RichText)
+        summary_label.setWordWrap(True)
+        _apply_summary_label_padding(status_label, timeline_label, summary_label)
+        layout.addWidget(status_label)
+        layout.addWidget(slider)
+        layout.addWidget(timeline_label)
+        summary_group = QGroupBox("Snapshot")
+        summary_layout = QVBoxLayout(summary_group)
+        summary_layout.addWidget(summary_label)
+        items_group = QGroupBox("Items")
+        items_layout = QVBoxLayout(items_group)
+        items_label = QLabel("--")
+        items_label.setTextFormat(Qt.RichText)
+        items_label.setWordWrap(True)
+        items_layout.addWidget(items_label)
+        items_actions = QHBoxLayout()
+        items_toggle_btn = QPushButton("Show all")
+        items_toggle_btn.setProperty("class", "SmallGhostButton")
+        items_toggle_btn.clicked.connect(lambda _checked=False, run_side=side: self.toggle_compare_run_items_expanded(run_side))
+        items_toggle_btn.setVisible(False)
+        items_rarity_label = QLabel("")
+        items_rarity_label.setTextFormat(Qt.RichText)
+        items_rarity_label.setStyleSheet("font-size: 14px;")
+        items_rarity_label.setVisible(False)
+        items_sort_combo = QComboBox()
+        for mode, label in ITEM_SORT_LABELS.items():
+            items_sort_combo.addItem(label, mode)
+        rarity_desc_index = items_sort_combo.findData("rarity_desc")
+        if rarity_desc_index >= 0:
+            items_sort_combo.setCurrentIndex(rarity_desc_index)
+        # One ordinary ItemsSectionView per compare side. The module-scope
+        # import is fine from here; it was a method-body import in `gui_layout`
+        # only because building this panel there closed an import cycle.
+        items_view = ItemsSectionView(
+            group=items_group,
+            label=items_label,
+            rarity_label=items_rarity_label,
+            toggle_btn=items_toggle_btn,
+            sort_combo=items_sort_combo,
+            initial_sort_mode=ITEM_SORT_RARITY_DESC,
+        )
+        setattr(self, f"_run_{side}_items_view", items_view)
+        items_sort_combo.currentIndexChanged.connect(
+            lambda _index, view=items_view: view.on_sort_changed()
+        )
+        items_actions.addWidget(items_toggle_btn, 0, Qt.AlignLeft)
+        items_actions.addWidget(items_rarity_label, 0, Qt.AlignLeft)
+        items_actions.addStretch(1)
+        items_actions.addWidget(QLabel("Sort:"))
+        items_actions.addWidget(items_sort_combo)
+        items_layout.addLayout(items_actions)
+        layout.addWidget(summary_group)
+        layout.addWidget(items_group)
+        layout.addStretch(1)
+        return group, status_label, slider, timeline_label, summary_label
