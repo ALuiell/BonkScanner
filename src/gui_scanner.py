@@ -9,6 +9,7 @@ from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app import config
+from app.map_scoring import calculate_map_score, evaluate_candidate, format_stats
 from app.player_stats_memory import player_stats_memory
 from app.player_stats_view import player_stats_view
 from ui.update_prompt import start_update_check
@@ -235,12 +236,12 @@ class ScannerMixin:
             self.refresh_session_tracked_item_stats_ui()
 
         if self.best_map_stats:
-            _set_text(self.stats_best_label, f"Best Map Found: {self.format_stats(self.best_map_stats)}")
+            _set_text(self.stats_best_label, f"Best Map Found: {format_stats(self.best_map_stats, self.active_templates)}")
         else:
             _set_text(self.stats_best_label, "Best Map Found: None")
 
         if self.worst_map_stats:
-            _set_text(self.stats_worst_label, f"Worst Map Found: {self.format_stats(self.worst_map_stats)}")
+            _set_text(self.stats_worst_label, f"Worst Map Found: {format_stats(self.worst_map_stats, self.active_templates)}")
         else:
             _set_text(self.stats_worst_label, "Worst Map Found: None")
 
@@ -302,14 +303,14 @@ class ScannerMixin:
         self.after(0, self.refresh_stats_ui)
 
     def check_best_map(self, stats: dict):
-        score = self.calculate_map_score(stats)
+        score = calculate_map_score(stats)
         if score > self.best_map_score:
             self.best_map_score = score
             self.best_map_stats = stats
             self.after(0, self.refresh_stats_ui)
 
     def check_worst_map(self, stats: dict):
-        score = self.calculate_map_score(stats)
+        score = calculate_map_score(stats)
         if score < self.worst_map_score:
             self.worst_map_score = score
             self.worst_map_stats = stats
@@ -456,7 +457,7 @@ class ScannerMixin:
 
                 self.check_best_map(stats)
                 self.check_worst_map(stats)
-                candidate = self.evaluate_candidate(stats, context=eval_context)
+                candidate = evaluate_candidate(stats, self.active_templates, context=eval_context)
 
                 if candidate is not None:
                     if not self.wait_for_game_window_focus(process_name):
@@ -470,7 +471,7 @@ class ScannerMixin:
                         else ""
                     )
                     self.log(["\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
-                    self.log(f"Map Stats: {self.format_stats(stats)}", tag="success")
+                    self.log(f"Map Stats: {format_stats(stats, self.active_templates)}", tag="success")
                     self.log_target_found(t_name)
 
                     if not self.handle_confirmed_target_window(process_name):
@@ -481,7 +482,7 @@ class ScannerMixin:
                     self.after(0, self.update_status_ui)
                     continue
                 else:
-                    self.log(f"Stats: {self.format_stats(stats)}")
+                    self.log(f"Stats: {format_stats(stats, self.active_templates)}")
 
                 if not self.wait_for_game_window_focus(process_name):
                     continue

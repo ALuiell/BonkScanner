@@ -3,7 +3,6 @@ from __future__ import annotations
 from PySide6.QtWidgets import QCheckBox, QDialog, QMessageBox
 
 from app import config
-from core import logic
 from gui_dialogs import DeleteDialog, HelpDialog, ScoresSettingsDialog, SettingsDialog, TemplateDialog, TemplateManagerDialog
 from ui.shared import _clear_layout, _read_bool, _set_text, format_template_conditions
 from core.item_metadata import COLOR_MAP
@@ -177,32 +176,6 @@ class TemplatesMixin:
         dialog = HelpDialog(self.window)
         dialog.exec()
 
-    def _active_templates_require_bald_heads(self) -> bool:
-        if config.EVALUATION_MODE != "templates":
-            return False
-        active_names = set(getattr(self, "active_templates", []) or [])
-        if not active_names:
-            return False
-        return any(
-            template.get("name") in active_names and int(template.get("bald_heads", 0) or 0) > 0
-            for template in config.TEMPLATES
-        )
-
-    def format_stats(self, stats: dict) -> str:
-        shady = stats.get("Shady Guy", 0)
-        moai = stats.get("Moais", 0)
-        microwaves = logic.template_microwaves(stats)
-        boss = stats.get("Boss Curses", 0)
-        magnet = stats.get("Magnet Shrines", 0)
-        parts = [
-            f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, "
-            f"Boss: {boss}, Magnet: {magnet}"
-        ]
-        if self._active_templates_require_bald_heads():
-            parts.append(f", Bald Heads: {stats.get('Bald Heads', 0)}")
-        parts.append(f", Score: {logic.calculate_score(stats, config.SCORES_SYSTEM):.1f}")
-        return "".join(parts)
-
     @staticmethod
     def _format_template_checkbox_text(template: dict) -> str:
         conditions = format_template_conditions(template)
@@ -213,17 +186,3 @@ class TemplatesMixin:
             .replace("Boss:", "Boss")
         )
         return f"{template['name']} ({compact_conditions})"
-
-    @staticmethod
-    def calculate_map_score(stats: dict) -> float:
-        return logic.calculate_score(stats, config.SCORES_SYSTEM)
-
-    def evaluate_candidate(self, stats: dict, *, context: dict | None = None) -> dict | None:
-        if config.EVALUATION_MODE == "templates":
-            return logic.find_matching_template(
-                stats,
-                self.active_templates,
-                config.TEMPLATES,
-                context=context,
-            )
-        return logic.evaluate_map_by_scores(stats, config.SCORES_SYSTEM)

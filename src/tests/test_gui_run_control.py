@@ -1248,11 +1248,15 @@ class GuiRunControlTests(unittest.TestCase):
         app._foreground_game_process_id = lambda _process_name: 5678
         app.check_best_map = lambda _stats: None
         app.check_worst_map = lambda _stats: None
-        app.evaluate_candidate = lambda _stats, context=None: {"name": "Perfect", "color": "GREEN"}
         app.log_target_found = lambda _name: None
         app.handle_confirmed_target_window = lambda _process_name: app.stop_event.set() or True
         app.log = lambda _message, tag=None: None
         app._flush_total_rerolls = lambda force=False: None
+        # Step 22a: the loop logs `format_stats(stats, self.active_templates)`
+        # rather than `self.format_stats(stats)`, so the double must carry the
+        # list. Without it the loop's broad handler retried the AttributeError
+        # forever -- which is how this conversion was caught.
+        app.active_templates = []
 
         def create_client(*, process_name: str) -> FakeClient:
             created_clients.append(process_name)
@@ -1260,6 +1264,10 @@ class GuiRunControlTests(unittest.TestCase):
 
         with patch.object(gui_scanner, "GameDataClient", create_client), patch.object(
             gui_scanner, "adapt_map_stats", lambda raw_stats: raw_stats
+        ), patch.object(
+            gui_scanner,
+            "evaluate_candidate",
+            lambda _stats, _active, context=None: {"name": "Perfect", "color": "GREEN"},
         ):
             MegabonkApp.background_loop(app)
 
@@ -1838,25 +1846,10 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(logs, [("[*] Active templates updated live: Alpha, Gamma", None)])
         save_config.assert_called_once_with(config.user_config)
 
-    def test_format_stats_includes_bald_heads_when_active_template_requires_it(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.active_templates = ["BALD"]
-        stats = {
-            "Shady Guy": 1,
-            "Moais": 2,
-            "Microwaves": 7,
-            "Chests": 69,
-            "Boss Curses": 3,
-            "Magnet Shrines": 1,
-            "Bald Heads": 4,
-        }
-
-        with patch.object(config, "EVALUATION_MODE", "templates"):
-            with patch.object(config, "TEMPLATES", [{"name": "BALD", "bald_heads": 2}]):
-                text = MegabonkApp.format_stats(app, stats)
-
-        self.assertIn("Bald Heads: 4", text)
-        self.assertIn("Microwaves: 7", text)
+    # `test_format_stats_includes_bald_heads_when_active_template_requires_it`
+    # stood here until step 22a. `format_stats` is `app.map_scoring`'s now, and
+    # a free function needs no app double at all -- the test moved whole to
+    # `test_map_scoring.py` and took one `object.__new__(MegabonkApp)` with it.
 
     def test_refresh_scores_ui_updates_runtime_tiers_without_restart(self) -> None:
         app = object.__new__(MegabonkApp)
@@ -1944,13 +1937,19 @@ class GuiRunControlTests(unittest.TestCase):
         app.wait_for_game_window_focus = lambda _process_name: True
         app.check_best_map = lambda _stats: None
         app.check_worst_map = lambda _stats: None
-        app.evaluate_candidate = lambda stats, context=None: {"name": "Perfect", "color": "GREEN"} if stats["Moais"] == 4 else None
         app.log_target_found = lambda _name: None
         app.handle_confirmed_target_window = lambda _process_name: app.stop_event.set() or True
         app.close_client = lambda: None
         app.log = lambda _message, tag=None: None
+        app.active_templates = []  # step 22a; see the reconnect test above
 
-        with patch_everywhere("adapt_map_stats", lambda raw_stats: raw_stats):
+        with patch_everywhere("adapt_map_stats", lambda raw_stats: raw_stats), patch.object(
+            gui_scanner,
+            "evaluate_candidate",
+            lambda stats, _active, context=None: (
+                {"name": "Perfect", "color": "GREEN"} if stats["Moais"] == 4 else None
+            ),
+        ):
             MegabonkApp.background_loop(app)
 
         self.assertEqual(app.client.get_map_stats_calls, 0)
