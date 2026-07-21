@@ -45,6 +45,15 @@ from app.player_stats_view import (
 SRC_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_ROOT = os.path.join(SRC_ROOT, "app")
 
+# Coverage floor for the accessor scan, measured at step 20g: 8 in
+# `app/player_stats_refresh.py`, 5 in `app/refresh_tasks.py`, 11 in
+# `app/vod_capture.py`. Unlike the ratchets in `test_componentization_inventory`
+# this one may only **grow**: every remaining step converts more app code onto
+# injected view ports, so a fall means the scanner stopped recognising a call
+# shape while every routing assertion kept passing on a smaller set. That is
+# exactly what happened at 20g -- 24 fell to 19 and nothing failed.
+MIN_ACCESSOR_CALLS = 24
+
 ACCESSORS = {
     "player_stats_view": PlayerStatsView,
     "overlay_view": OverlayView,
@@ -92,6 +101,16 @@ def _accessor_calls() -> list[tuple[str, str, str, int]]:
     `self._x = x`, so a service cannot escape the routing check by taking its
     port through the constructor. The vacuity guard is what surfaced this:
     the scan silently fell from 13 calls to 8.
+
+    **The fourth form is the first two composed, and it was the same hole
+    again.** `view = self._live_stats_view()` then `view.foo()` -- an injected
+    port bound to a local -- was seen by neither the local-binding branch (which
+    followed only `Name(...)` accessor calls) nor the injected branch (which
+    matched only `self._x().foo` directly). Step 20g's `PlayerStatsRefresh` does
+    exactly that for its view and overlay ports, and the scan fell from 24 calls
+    to 19 with every test still green. It was found by diffing the count against
+    the previous commit, **not** by the `> 10` vacuity guard, which was far too
+    loose to notice five missing calls -- so `MIN_ACCESSOR_CALLS` replaced it.
     """
     calls: list[tuple[str, str, str, int]] = []
 
@@ -114,8 +133,19 @@ def _accessor_calls() -> list[tuple[str, str, str, int]]:
                 value = node.value
                 if not isinstance(target, ast.Name) or not isinstance(value, ast.Call):
                     continue
+                # view = player_stats_view(self)
                 if isinstance(value.func, ast.Name) and value.func.id in ACCESSORS:
                     bound[target.id] = value.func.id
+                # view = self._live_stats_view()  -- an injected port bound to a
+                # local. The two forms compose, and the scanner used to see
+                # neither half of the composition; see the docstring above.
+                elif (
+                    isinstance(value.func, ast.Attribute)
+                    and isinstance(value.func.value, ast.Name)
+                    and value.func.value.id == "self"
+                    and value.func.attr in injected
+                ):
+                    bound[target.id] = injected[value.func.attr]
 
             for node in ast.walk(func):
                 if not isinstance(node, ast.Attribute):
@@ -212,9 +242,26 @@ class ViewPortRoutingTests(unittest.TestCase):
         )
 
     def test_the_harness_actually_finds_calls(self) -> None:
-        """Step 13's guard: a scan that finds nothing passes trivially."""
+        """Step 13's guard: a scan that finds nothing passes trivially.
+
+        `> 10` was the original form and it was too loose to be worth much: at
+        20g the scan lost five of twenty-four calls to a new call shape and this
+        test stayed green. `MIN_ACCESSOR_CALLS` is a **coverage ratchet running
+        the opposite way to the others** -- it may only grow. Every remaining
+        step converts more app code onto injected ports, so a fall means the
+        scanner stopped understanding a shape, never that the code got better.
+        Raise it when a conversion adds calls; never lower it to make a run pass.
+        """
         calls = _accessor_calls()
-        self.assertGreater(len(calls), 10, "accessor scan found almost nothing")
+        self.assertGreaterEqual(
+            len(calls),
+            MIN_ACCESSOR_CALLS,
+            f"the accessor scan found {len(calls)} calls, down from "
+            f"{MIN_ACCESSOR_CALLS}. A drop means a new call shape is invisible "
+            "to the scanner, not that the app layer got cleaner -- teach "
+            "`_accessor_calls` the shape, do not lower this number:\n  "
+            + "\n  ".join(f"{r}:{ln} {a}().{op}" for a, op, r, ln in calls),
+        )
         self.assertEqual(
             sorted({accessor for accessor, _, _, _ in calls}),
             sorted(ACCESSORS),

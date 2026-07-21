@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 from app import config
 from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
-from app.player_stats_refresh import PlayerStatsRefreshMixin
+from app.player_stats_refresh import player_stats_refresh
 from ui.tabs.compare_runs import CompareRunsMixin
 from ui.tabs.player_stats import RecordingsTabMixin
 from gui_layout import GuiLayoutMixin
@@ -33,7 +33,6 @@ class MegabonkApp(
     TemplatesMixin,
     OverlayMixin,
     InGameOverlayMixin,
-    PlayerStatsRefreshMixin,
     CompareRunsMixin,
     RecordingsTabMixin,
     ScannerMixin,
@@ -366,6 +365,28 @@ class MegabonkApp(
             coordinator.player_stats_game_data_client = value
         else:
             self.__dict__["_player_stats_game_data_client"] = value
+
+    # -- player-stats refresh (step 20g) ----------------------------------
+    #
+    # `PlayerStatsRefreshMixin` was the seventh and last app-side MRO base;
+    # step 20g converted it into the `PlayerStatsRefresh` service. These two
+    # stay here as one-line delegators because, unlike `RefreshTasksMixin`'s
+    # six method pairs, both are genuine `MegabonkApp` surface with callers
+    # outside their own module: `refresh_live_player_stats_now` is called on
+    # the app by `gui_layout`, `gui_twitch`, `app/refresh_tasks` and
+    # `app/vod_capture`, and `update_player_stats_timer` is the `tick=` handed
+    # to `start_refresh_loop` below. Same finding, same shape and the same
+    # place as the two coordinator-delegating client properties above.
+    #
+    # The two `app/` callers deliberately keep calling *the app*: nothing in
+    # `app/` may import `app.player_stats_refresh`, which sits at the top of
+    # that package's import DAG. They already receive this as an
+    # owner-resolved lambda.
+    def update_player_stats_timer(self) -> None:
+        return player_stats_refresh(self).tick()
+
+    def refresh_live_player_stats_now(self, **kwargs) -> bool:
+        return player_stats_refresh(self).refresh_now(**kwargs)
 
     @property
     def qt_app(self) -> QApplication:

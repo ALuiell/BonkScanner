@@ -125,7 +125,10 @@ MRO_MODULES = {
     "TemplatesMixin": "gui_templates",
     "OverlayMixin": "gui_overlay",
     "InGameOverlayMixin": "gui_in_game_overlay",
-    "PlayerStatsRefreshMixin": "app.player_stats_refresh",
+    # `PlayerStatsRefreshMixin` was here until step 20g converted it into the
+    # `PlayerStatsRefresh` service, taking `MegabonkApp` to nine bases and the
+    # app-layer slice to zero. It was the last of the five app-side bases the
+    # step named.
     "CompareRunsMixin": "ui.tabs.compare_runs",
     "RecordingsTabMixin": "ui.tabs.player_stats",
     "ScannerMixin": "gui_scanner",

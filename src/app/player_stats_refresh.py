@@ -1,5 +1,4 @@
-"""The player-stats refresh orchestration -- the fast-tick body, the demand
-predicates that decide whether a refresh is owed, and
+"""The player-stats refresh orchestration -- the fast-tick body and
 ``refresh_live_player_stats_now``, the seam that turns one memory read into a
 tracker update and a UI render.
 
@@ -12,15 +11,6 @@ step). **Step 20 retired all twelve**: both recorders are module-level
 functions now, so the two modules are no longer welded together by a call
 spelling.
 
-**Known debt, carried not deepened:** ``refresh_live_player_stats_now`` still
-calls seven UI methods through the shared ``self`` --
-``display_player_stats``, ``display_player_stats_snapshot``,
-``refresh_player_stats_timeline_ui``, ``_refresh_vods_list_if_visible``,
-``mark_overlay_read_failed``, ``refresh_session_tracked_item_stats_ui`` and
-``update_overlay_state_from_tracker``. That is the same Qt leak step 6 carried
-into ``app/refresh_tasks.py``, and inverting it into callbacks (the step-10d
-pattern) is the next commit, deliberately kept separate from this relocation.
-
 **Step 20e moved four demand predicates out of here** and into
 ``app/refresh_tasks.py``: ``_player_stats_refresh_required``,
 ``_overlay_requires_player_snapshot``,
@@ -31,11 +21,46 @@ module and one there; the last had three here and six there and never read
 ``refresh_tasks``, ``vod_capture`` and ``run_lifecycle``, and nothing in
 ``app/`` imports it -- so every one of those names was a read pointing against
 the import arrow, and converting either mixin with them still here would have
-had to close that loop through a module-level import. What is left between the
-two modules is one edge in the legal direction (this module calls
-``ensure_refresh_coordinator``) and one command in the other
-(``refresh_live_player_stats_now``), which ``vod_capture`` already takes as an
-injected callable and which ``gui_layout``/``gui_twitch`` call on the app.
+had to close that loop through a module-level import.
+
+**Step 20g converted ``PlayerStatsRefreshMixin`` into the ``PlayerStatsRefresh``
+service below -- the seventh and last of the app-side MRO bases, taking
+``MegabonkApp`` to nine and the app-layer hidden-dependency slice to zero.**
+Every dependency is an injected zero-argument callable for the reason
+``player_stats_memory.py``'s header spells out: a mixin method resolves ``self``
+late, on every call, and a constructor argument resolves it once. Step 20
+shipped that difference as a bug twice, so nothing here is captured -- only
+re-resolved. ``self.live_run_tracker`` in particular was read eleven times in
+one method body and ``MegabonkApp`` replaces the tracker per run.
+
+**The two methods stay on ``MegabonkApp`` as thin delegators, and that is the
+measurement, not a concession.** ``RefreshTasksMixin``'s six method pairs had
+*zero* callers outside their own module, so the service absorbed them outright.
+Both of this mixin's methods are the opposite: ``refresh_live_player_stats_now``
+is called on the owner from ``gui_layout.py``, ``gui_twitch.py``,
+``app/refresh_tasks.py`` and ``app/vod_capture.py``, and
+``update_player_stats_timer`` is ``gui_app.py``'s ``tick=``. That is genuine
+``MegabonkApp`` surface -- the same finding the ``player_stats_client``
+properties got in ``da7fdc6`` -- so ``gui_app.py`` keeps two one-line methods
+that resolve this service and forward. The two ``app/`` call sites already
+receive the command as an ``owner``-resolved lambda and did not change: an
+``import app.player_stats_refresh`` from inside ``app/`` would close the loop
+20e and 20f spent two commits opening.
+
+**Known debt, carried not deepened:** ``refresh_now`` still drives seven UI
+operations. They are injected view ports now rather than reads off a shared
+``self``, but the ordering between them is still this method's, which is the
+same Qt leak step 6 carried into ``app/refresh_tasks.py``.
+
+The four module-level ``record_player_stats_*`` adapters in
+``app/player_stats_memory.py`` lost their last production caller here: the
+service holds the memory service directly and calls
+``record_memory_success``/``record_memory_failure`` on it, as ``RefreshTasks``
+already did. They are **deliberately not deleted** -- ``tools/step20_memory_
+trace.py`` drives the streak through that spelling against both trees and
+``step20_player_stats_memory_smoke.py`` asserts on it, so removing them costs
+the primary verification apparatus for no production gain. That deletion
+belongs with the memory trace's retirement.
 
 ``ModuleNotFoundError`` is ``infra.memory.reader``'s, not the builtin. It
 shadows it, and the ``except`` clauses depend on that.
@@ -43,15 +68,10 @@ shadows it, and the ``except`` clauses depend on that.
 from __future__ import annotations
 
 import time
+from typing import Any, Callable
 
 from app import config
-from app.player_stats_memory import (
-    player_stats_memory,
-    record_player_stats_game_data_memory_failure,
-    record_player_stats_game_data_memory_success,
-    record_player_stats_memory_failure,
-    record_player_stats_memory_success,
-)
+from app.player_stats_memory import player_stats_memory
 from app.player_stats_view import (
     overlay_view,
     player_stats_view,
@@ -76,8 +96,72 @@ from projections import formatting
 # `app/refresh_tasks.py` names it in a comment only.
 
 
-class PlayerStatsRefreshMixin:
-    def update_player_stats_timer(self):
+class PlayerStatsRefresh:
+    """The refresh tick and the live-stats repaint, constructible without Qt or
+    ``MegabonkApp``.
+
+    Seventeen collaborators, all callables. ``_memory_service``/
+    ``_lifecycle_service``/``_capture_service``/``_store`` return the sibling
+    services; ``_live_stats_view``/``_overlay``/``_recordings_list`` are the
+    three view ports step 19 split apart; the rest are the owner's tracker,
+    recorder, snapshot buffer, predicates and the two coordinator commands.
+
+    **The private names are checked against the other three services'.**
+    ``PlayerStatsMemory``, ``VodCapture`` and ``RefreshTasks`` each spell a
+    live-stats-tab predicate and a view handle, and when the memory conversion
+    reused ``VodCapture``'s ``_is_live_stats_tab_active`` the cluster scanner
+    reported two services' private callables as one piece of unowned state.
+    ``_tab_is_active``/``_live_tracker``/``_live_stats_view`` and friends are
+    distinct from every name already taken.
+
+    This service owns **no** state. Every field the old mixin touched has a
+    named owner elsewhere: the snapshot buffer and the selected index are
+    app-owned (``gui_layout`` and the two Player Stats tabs read them), the two
+    clients are the ``AppCoordinator``'s, and the reconnect streaks are
+    ``PlayerStatsMemory``'s. There was nothing left to pull in, which is why
+    this is the one conversion that adds no fields.
+    """
+
+    def __init__(
+        self,
+        *,
+        shutdown_requested: Callable[[], bool],
+        lifecycle_service: Callable[[], Any],
+        coordinator_tick: Callable[[], None],
+        memory_service: Callable[[], Any],
+        store: Callable[[], Any],
+        live_stats_view: Callable[[], Any],
+        overlay: Callable[[], Any],
+        recordings_list: Callable[[], Any],
+        capture_service: Callable[[], Any],
+        live_tracker: Callable[[], Any],
+        recorder_handle: Callable[[], Any],
+        tab_is_active: Callable[[], bool],
+        snapshot_is_pinned: Callable[[], bool],
+        snapshot_buffer: Callable[[], Any],
+        select_snapshot: Callable[[Any], None],
+        game_data_client: Callable[[], Any],
+        set_game_data_client: Callable[[Any], None],
+    ) -> None:
+        self._shutdown_requested = shutdown_requested
+        self._lifecycle_service = lifecycle_service
+        self._coordinator_tick = coordinator_tick
+        self._memory_service = memory_service
+        self._store = store
+        self._live_stats_view = live_stats_view
+        self._overlay = overlay
+        self._recordings_list = recordings_list
+        self._capture_service = capture_service
+        self._live_tracker = live_tracker
+        self._recorder_handle = recorder_handle
+        self._tab_is_active = tab_is_active
+        self._snapshot_is_pinned = snapshot_is_pinned
+        self._snapshot_buffer = snapshot_buffer
+        self._select_snapshot = select_snapshot
+        self._game_data_client = game_data_client
+        self._set_game_data_client = set_game_data_client
+
+    def tick(self) -> None:
         """The per-tick body of the fast refresh loop.
 
         The loop itself -- the interval, the is-active gate, and the ``after``
@@ -86,13 +170,16 @@ class PlayerStatsRefreshMixin:
         work done on each tick. Every cadence still lives in a registered task's
         ``interval_ms``, not here: this only ticks. Recording lifecycle work that
         used to sit in a second 10 s timer is the ``recording_lifecycle`` task.
-        """
-        if self._is_shutting_down:
-            return
-        run_lifecycle(self).refresh()
-        ensure_refresh_coordinator(self).tick()
 
-    def refresh_live_player_stats_now(
+        ``MegabonkApp.update_player_stats_timer`` is the one-line delegator
+        ``gui_app.py`` passes to ``start_refresh_loop`` as ``tick=``.
+        """
+        if self._shutdown_requested():
+            return
+        self._lifecycle_service().refresh()
+        self._coordinator_tick()
+
+    def refresh_now(
         self,
         *,
         status_text: str = "Live player stats",
@@ -122,27 +209,27 @@ class PlayerStatsRefreshMixin:
                 stage_index,
                 disabled_items,
                 disabled_items_available,
-            ) = player_stats_memory(self)._read_live_player_stats_data()
+            ) = self._memory_service()._read_live_player_stats_data()
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            record_player_stats_memory_failure(self, exc)
+            self._memory_service().record_memory_failure(exc)
             try:
-                overlay_view(self).mark_overlay_read_failed(no_game=False)
+                self._overlay().mark_overlay_read_failed(no_game=False)
             except Exception:
                 pass
             return False
         except Exception as exc:
-            record_player_stats_memory_failure(self, exc)
+            self._memory_service().record_memory_failure(exc)
             try:
-                overlay_view(self).mark_overlay_read_failed(no_game=False)
+                self._overlay().mark_overlay_read_failed(no_game=False)
             except Exception:
                 pass
             return False
 
-        record_player_stats_memory_success(self)
+        self._memory_service().record_memory_success()
 
         chests_per_minute = formatting.calculate_player_chests_per_minute(stats)
         items_text = None if items_available else "Items unavailable"
-        snapshot_store = live_snapshot_store(self)
+        snapshot_store = self._store()
 
         merged_items = snapshot_store.merge_items(items, items_available)
         effective_items = merged_items.effective
@@ -171,18 +258,18 @@ class PlayerStatsRefreshMixin:
         banishes = merged_banishes.banishes
         banishes_available = merged_banishes.available
 
-        is_live_tab_active = self._is_live_stats_tab_active()
+        is_live_tab_active = self._tab_is_active()
         map_stats = {}
         map_chests_total = None
         map_pots_total = None
         map_activity_max = {}
         try:
-            if self.player_stats_game_data_client is None:
-                self.player_stats_game_data_client = GameDataClient(config.PROCESS_NAME)
+            if self._game_data_client() is None:
+                self._set_game_data_client(GameDataClient(config.PROCESS_NAME))
             map_activity_values = (
-                self.player_stats_game_data_client.get_map_activity_values() or {}
+                self._game_data_client().get_map_activity_values() or {}
             )
-            record_player_stats_game_data_memory_success(self)
+            self._memory_service().record_game_data_success()
             map_activity_max = {
                 label: int(value.max)
                 for label, value in map_activity_values.items()
@@ -199,14 +286,14 @@ class PlayerStatsRefreshMixin:
             if pots_stat is not None:
                 map_pots_total = pots_stat.max
         except Exception as exc:
-            record_player_stats_game_data_memory_failure(self, exc)
+            self._memory_service().record_game_data_failure(exc)
             map_stats = {}
             map_activity_max = {}
         if map_activity_max and hasattr(
-            self.live_run_tracker,
+            self._live_tracker(),
             "update_powerup_map_context",
         ):
-            self.live_run_tracker.update_powerup_map_context(
+            self._live_tracker().update_powerup_map_context(
                 PowerupMapContext.from_activity_max(
                     map_activity_max,
                     captured_at=time.monotonic(),
@@ -239,11 +326,11 @@ class PlayerStatsRefreshMixin:
             chests_total=map_chests_total,
             pots_total=map_pots_total,
         )
-        self.live_run_tracker.update(live_snapshot)
+        self._live_tracker().update(live_snapshot)
 
         # Update chests and keys without replacing valid data after a transient read failure.
         previous_chests = (0, 46, 0, 0, {}, {})
-        get_chests_and_keys = getattr(self.live_run_tracker, "get_chests_and_keys", None)
+        get_chests_and_keys = getattr(self._live_tracker(), "get_chests_and_keys", None)
         if callable(get_chests_and_keys):
             previous_chests = get_chests_and_keys()
         chests_opened, chests_total, keys_count = previous_chests[:3]
@@ -269,29 +356,29 @@ class PlayerStatsRefreshMixin:
             chests_total = chest_stat.max
             should_update_chests_and_keys = True
         if should_update_chests_and_keys:
-            self.live_run_tracker.update_chests_and_keys(chests_opened, chests_total, keys_count)
+            self._live_tracker().update_chests_and_keys(chests_opened, chests_total, keys_count)
 
         try:
-            client = player_stats_memory(self)._get_player_stats_client()
+            client = self._memory_service()._get_player_stats_client()
             chests_bought, chests_purchased = client.get_chest_counters()
-            self.live_run_tracker.update_chest_counters(
+            self._live_tracker().update_chest_counters(
                 chests_bought,
                 chests_purchased,
             )
         except Exception:
             pass
 
-        view = player_stats_view(self)
-        overlay = overlay_view(self)
+        view = self._live_stats_view()
+        overlay = self._overlay()
         if hasattr(overlay, "refresh_session_tracked_item_stats_ui"):
             overlay.refresh_session_tracked_item_stats_ui()
-        chaos_snapshot_reader = getattr(self.live_run_tracker, "chaos_tome_snapshot", None)
+        chaos_snapshot_reader = getattr(self._live_tracker(), "chaos_tome_snapshot", None)
         chaos_tome_snapshot = chaos_snapshot_reader() if callable(chaos_snapshot_reader) else None
         overlay.update_overlay_state_from_tracker()
-        live_stage_summary_rows = self.live_run_tracker.stage_summary_rows()
-        runtime_state = run_lifecycle(self).state_for_refresh()
+        live_stage_summary_rows = self._live_tracker().stage_summary_rows()
+        runtime_state = self._lifecycle_service().state_for_refresh()
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
-            vod_capture(self).maybe_auto_start(
+            self._capture_service().maybe_auto_start(
                 stats=stats,
                 run_timer_seconds=run_timer_seconds,
                 player_level=player_level,
@@ -300,48 +387,48 @@ class PlayerStatsRefreshMixin:
                 stage_index=runtime_state.current_stage_index,
             )
         else:
-            vod_capture(self).note_run_not_in_game()
+            self._capture_service().note_run_not_in_game()
 
         can_capture_recording = (
-            self.player_stats_vod_recorder.is_recording
+            self._recorder_handle().is_recording
             and runtime_state.mode is RuntimeGameMode.IN_GAME
         )
-        if can_capture_recording and self.player_stats_vod_recorder.should_capture():
+        if can_capture_recording and self._recorder_handle().should_capture():
             capture_kwargs = build_vod_capture_kwargs(
-                self.live_run_tracker.runtime_snapshot(),
+                self._live_tracker().runtime_snapshot(),
                 chaos_tome=chaos_tome_snapshot,
             )
-            snapshot = self.player_stats_vod_recorder.capture(**capture_kwargs)
-            pinned = player_stats_snapshot_is_pinned(self)
-            self.player_stats_vod_snapshots.append(snapshot)
+            snapshot = self._recorder_handle().capture(**capture_kwargs)
+            pinned = self._snapshot_is_pinned()
+            self._snapshot_buffer().append(snapshot)
             if not pinned:
-                self.player_stats_selected_snapshot_index = len(self.player_stats_vod_snapshots) - 1
+                self._select_snapshot(len(self._snapshot_buffer()) - 1)
             view.refresh_player_stats_timeline_ui()
-            recordings_list_view(self)._refresh_vods_list_if_visible()
+            self._recordings_list()._refresh_vods_list_if_visible()
             if is_live_tab_active and not pinned:
                 view.display_player_stats_snapshot(snapshot, items_text=items_text)
             return True
 
         if is_live_tab_active:
-            current_ui_kps_reader = getattr(self.live_run_tracker, "current_ui_kps", None)
-            current_minute_kps_reader = getattr(self.live_run_tracker, "current_minute_avg_kps", None)
-            current_five_minute_kps_reader = getattr(self.live_run_tracker, "current_five_minute_avg_kps", None)
-            if self.player_stats_vod_recorder.is_recording:
+            current_ui_kps_reader = getattr(self._live_tracker(), "current_ui_kps", None)
+            current_minute_kps_reader = getattr(self._live_tracker(), "current_minute_avg_kps", None)
+            current_five_minute_kps_reader = getattr(self._live_tracker(), "current_five_minute_avg_kps", None)
+            if self._recorder_handle().is_recording:
                 if runtime_state is not None and runtime_state.mode is RuntimeGameMode.PAUSED_IN_GAME:
                     status_text_val = "Live player stats (recording paused)"
                 else:
                     status_text_val = "Live player stats (recording)"
-            elif vod_capture(self).is_recording_armed():
+            elif self._capture_service().is_recording_armed():
                 status_text_val = "Live player stats (recording armed)"
             else:
                 status_text_val = status_text
-            if player_stats_snapshot_is_pinned(self):
+            if self._snapshot_is_pinned():
                 # The user scrubbed the timeline to a specific snapshot. Leave
                 # their reading on screen instead of repainting live values over
                 # it one tick later. Unpinning is `_select_snapshot` returning to
                 # the newest snapshot, or the recording stopping.
                 return True
-            self.player_stats_selected_snapshot_index = None
+            self._select_snapshot(None)
             view.display_player_stats(
                 stats,
                 effective_items,
@@ -370,3 +457,70 @@ class PlayerStatsRefreshMixin:
             )
         return True
 
+
+def player_stats_refresh(owner) -> PlayerStatsRefresh:
+    """Resolve the owner's ``PlayerStatsRefresh``, building it on first use.
+
+    The same shape as ``player_stats_memory``, ``vod_capture``,
+    ``run_lifecycle`` and ``refresh_tasks``: the service's dependencies are the
+    owner's sibling services, tracker, recorder and view ports, so
+    ``AppCoordinator`` cannot construct it in its own ``__init__``. The
+    coordinator caches it when there is one; an app double built with
+    ``object.__new__`` has none and keeps it in ``__dict__``.
+
+    ``__dict__``, not ``getattr``: ``MegabonkApp.__getattr__`` forwards unknown
+    names to its ``window``, so a ``getattr`` would consult the widget before
+    deciding there is no coordinator.
+
+    Every argument is a lambda rather than a bound method or an attribute grab.
+    ``self.live_run_tracker`` was resolved eleven times in one method body and
+    ``MegabonkApp`` replaces it per run; capturing it here would freeze
+    whichever one existed when the service was first touched. Step 20 shipped
+    that difference as a bug twice.
+
+    Note the two **bare** attribute reads: ``owner._is_shutting_down`` and
+    ``owner.player_stats_game_data_client`` are not wrapped in ``getattr`` with
+    a default. That is deliberate -- the old code read them off ``self`` and let
+    a missing attribute raise, and the game-data read sits inside a
+    ``try``/``except Exception`` whose failure branch several test doubles rely
+    on reaching. A tolerant ``getattr`` here would silently move them onto the
+    success path.
+    """
+    coordinator = owner.__dict__.get("coordinator")
+    if coordinator is not None:
+        existing = getattr(coordinator, "player_stats_refresh", None)
+        if existing is not None:
+            return existing
+
+    existing = owner.__dict__.get("_player_stats_refresh")
+    if existing is not None:
+        return existing
+
+    service = PlayerStatsRefresh(
+        shutdown_requested=lambda: owner._is_shutting_down,
+        lifecycle_service=lambda: run_lifecycle(owner),
+        coordinator_tick=lambda: ensure_refresh_coordinator(owner).tick(),
+        memory_service=lambda: player_stats_memory(owner),
+        store=lambda: live_snapshot_store(owner),
+        live_stats_view=lambda: player_stats_view(owner),
+        overlay=lambda: overlay_view(owner),
+        recordings_list=lambda: recordings_list_view(owner),
+        capture_service=lambda: vod_capture(owner),
+        live_tracker=lambda: owner.live_run_tracker,
+        recorder_handle=lambda: owner.player_stats_vod_recorder,
+        tab_is_active=lambda: owner._is_live_stats_tab_active(),
+        snapshot_is_pinned=lambda: player_stats_snapshot_is_pinned(owner),
+        snapshot_buffer=lambda: owner.player_stats_vod_snapshots,
+        select_snapshot=lambda index: setattr(
+            owner, "player_stats_selected_snapshot_index", index
+        ),
+        game_data_client=lambda: owner.player_stats_game_data_client,
+        set_game_data_client=lambda value: setattr(
+            owner, "player_stats_game_data_client", value
+        ),
+    )
+    if coordinator is not None:
+        coordinator.player_stats_refresh = service
+    else:
+        owner.__dict__["_player_stats_refresh"] = service
+    return service
