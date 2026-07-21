@@ -74,43 +74,12 @@ class TemplatesMixin:
 
         self._sync_runtime_filters(announce=True)
 
-    def _is_main_loop_active(self) -> bool:
-        scanner_thread = getattr(self, "scanner_thread", None)
-        return scanner_thread is not None and scanner_thread.is_alive()
-
-    def _get_selected_template_names(self) -> list[str]:
-        checkboxes = getattr(self, "checkboxes", {})
-        return [name for name, cb in checkboxes.items() if _read_bool(cb)]
-
-    def _get_active_profile_names(self) -> list[str]:
-        if config.EVALUATION_MODE == "templates":
-            return self._get_selected_template_names()
-        return list(config.SCORES_SYSTEM.get("active_tiers", []))
-
-    def _sync_runtime_filters(self, *, announce: bool = False) -> None:
-        active_names = self._get_active_profile_names()
-        previous_names = list(getattr(self, "template_stats", {}).keys())
-
-        if config.EVALUATION_MODE == "templates":
-            self.active_templates = list(active_names)
-
-        existing_stats = getattr(self, "template_stats", {})
-        for name in active_names:
-            existing_stats.setdefault(name, {"rerolls_since_last": 0, "history": []})
-        self.template_stats = existing_stats
-
-        if hasattr(self, "stats_avg_labels") and hasattr(self, "stats_avg_layout"):
-            self.refresh_stats_ui()
-
-        if not announce or not self._is_main_loop_active():
-            return
-
-        if active_names == previous_names:
-            return
-
-        mode_label = "tiers" if config.EVALUATION_MODE == "scores" else "templates"
-        names_text = ", ".join(active_names) if active_names else "none"
-        self.log(f"[*] Active {mode_label} updated live: {names_text}")
+    # `_is_main_loop_active`, `_get_selected_template_names`,
+    # `_get_active_profile_names` and `_sync_runtime_filters` moved to
+    # `app.template_filters.TemplateRuntimeFilters` at step 22b, together with
+    # the `active_templates` and `template_stats` they wrote. See that module's
+    # header for why the collision register could not simply be allowed to
+    # forget them.
 
     def refresh_templates(self):
         _clear_layout(self.template_layout)

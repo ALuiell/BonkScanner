@@ -17,7 +17,8 @@ from gui_overlay import OverlayMixin
 from gui_in_game_overlay import InGameOverlayMixin
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
-from ui.shared import UiInvoker, _AppWindow, resource_path
+from app.template_filters import TemplateRuntimeFilters
+from ui.shared import UiInvoker, _AppWindow, _read_bool, resource_path
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
 from gui_templates import TemplatesMixin
@@ -150,7 +151,33 @@ class MegabonkApp(
         self.is_running = False
         self.is_ready_to_start = False
         self.obs_recording_reminder_shown = False
-        self.active_templates = []
+        # `active_templates` and `template_stats` were plain slots here, and
+        # `PRE_EXISTING_COLLISIONS` recorded that Scanner and Templates both
+        # wrote them. Step 22b gave them an owner rather than letting
+        # `TemplatesMixin` leaving the MRO make the register entry vanish while
+        # both writers were still writing. Built first, before anything can read
+        # the delegating properties above; every port is a late-bound lambda, so
+        # the collaborators it names need not exist yet.
+        self._template_filters = TemplateRuntimeFilters(
+            # Reads the checkboxes directly for now. Step 22c hands this port to
+            # the templates panel, which is what will own them.
+            selected_template_names=lambda: [
+                name for name, cb in getattr(self, "checkboxes", {}).items() if _read_bool(cb)
+            ],
+            # The guard is here, not in the service: "have the session-stats
+            # widgets been built yet" is a question about this class's
+            # construction order, which is exactly what `_sync_runtime_filters`
+            # was asking with its two `hasattr` calls.
+            refresh_stats=lambda: (
+                self.refresh_stats_ui()
+                if hasattr(self, "stats_avg_labels") and hasattr(self, "stats_avg_layout")
+                else None
+            ),
+            log=self.log,
+            is_scanning=lambda: (
+                self.scanner_thread is not None and self.scanner_thread.is_alive()
+            ),
+        )
         self.scanner_thread = None
         # client / player_stats_client / player_stats_game_data_client are owned by
         # AppCoordinator (step 12b); it initialises them to None in its __init__,
@@ -197,7 +224,7 @@ class MegabonkApp(
         self.best_map_score = -1
         self.worst_map_stats = None
         self.worst_map_score = float("inf")
-        self.template_stats = {}
+        # `template_stats` is `TemplateRuntimeFilters`' field (step 22b).
         self._twitch_session_snapshot = {
             "rerolls": 0,
             "seeds_found": 0,
@@ -292,6 +319,65 @@ class MegabonkApp(
     @player_stats_game_data_client.setter
     def player_stats_game_data_client(self, value) -> None:
         self._client_owner().player_stats_game_data_client = value
+
+    # -- template runtime filters (step 22b) ------------------------------
+    #
+    # `active_templates` and `template_stats` were two slots on this shared
+    # namespace, written by `gui_app.__init__`, `gui_scanner` and
+    # `gui_templates`, and named in `PRE_EXISTING_COLLISIONS` as co-owned. They
+    # are `app.template_filters.TemplateRuntimeFilters`' fields now. These four
+    # delegators are why `gui_scanner` needed no edit: its assignments still
+    # read as assignments and now land in the owner.
+    #
+    # `__dict__` and a default rather than `_client_owner`'s raise, for a reason
+    # this class documents twelve lines above: `MegabonkApp.__getattr__`
+    # forwards unknown names to `self.window`. An AttributeError out of this
+    # getter would be *caught* by that forwarding and answered by a widget,
+    # which is a silent wrong answer rather than a failure. The fallback is the
+    # `ScannerMixin.client` affordance for `object.__new__` doubles; production
+    # always has the owner, and `test_template_filters.py` pins that.
+    def _template_filters_owner(self):
+        return self.__dict__.get("_template_filters")
+
+    @property
+    def active_templates(self):
+        owner = self._template_filters_owner()
+        if owner is not None:
+            return owner.active_templates
+        return self.__dict__.setdefault("_active_templates", [])
+
+    @active_templates.setter
+    def active_templates(self, value) -> None:
+        owner = self._template_filters_owner()
+        if owner is not None:
+            owner.active_templates = value
+        else:
+            self.__dict__["_active_templates"] = value
+
+    @property
+    def template_stats(self):
+        owner = self._template_filters_owner()
+        if owner is not None:
+            return owner.template_stats
+        return self.__dict__.setdefault("_template_stats", {})
+
+    @template_stats.setter
+    def template_stats(self, value) -> None:
+        owner = self._template_filters_owner()
+        if owner is not None:
+            owner.template_stats = value
+        else:
+            self.__dict__["_template_stats"] = value
+
+    # Thin delegators, kept on the app for the same reason step 20g's two and
+    # step 21's four are: `gui_layout.on_left_tab_changed` and `gui_scanner`
+    # call these *on the app*, and the router that does so is step 26's subject.
+    # They forward to the app-layer owner; neither reaches the templates UI.
+    def _sync_runtime_filters(self, *, announce: bool = False) -> None:
+        self._template_filters.sync(announce=announce)
+
+    def _get_selected_template_names(self) -> list[str]:
+        return self._template_filters.selected_template_names()
 
     # -- player-stats refresh (step 20g) ----------------------------------
     #

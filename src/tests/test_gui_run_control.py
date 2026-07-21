@@ -36,6 +36,7 @@ from app.refresh_tasks import (
     refresh_tasks,
 )
 from tests.support.compare_runs import build_compare_runs_tab
+from tests.support.template_filters import attach as attach_template_filters
 from tests.support.refresh_tasks import build_refresh_tasks
 from tests.support.run_lifecycle import build_run_lifecycle, install_run_lifecycle
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
@@ -1387,6 +1388,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.scan_event.set()
         app.is_running = True
         app.is_ready_to_start = True
+        attach_template_filters(app)
 
         with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}):
             with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
@@ -1412,6 +1414,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.scan_event = threading.Event()
         app.is_running = False
         app.is_ready_to_start = False
+
+        attach_template_filters(app)
 
         original_scores = deepcopy(config.SCORES_SYSTEM)
         updated_scores = deepcopy(config.SCORES_SYSTEM)
@@ -1460,6 +1464,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.is_running = False
         app.is_ready_to_start = False
         app.obs_recording_reminder_shown = False
+        attach_template_filters(app)
 
         class FakeObsRecordingReminderDialog:
             def __init__(self, parent):
@@ -1833,6 +1838,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.refresh_stats_ui = lambda: None
         logs: list[tuple[str, str | None]] = []
         app.log = lambda message, tag=None: logs.append((message, tag))
+        attach_template_filters(app)
 
         with patch.object(config, "EVALUATION_MODE", "templates"):
             with patch.object(config, "save_config") as save_config:
@@ -1867,6 +1873,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.refresh_stats_ui = lambda: None
         logs: list[tuple[str, str | None]] = []
         app.log = lambda message, tag=None: logs.append((message, tag))
+
+        attach_template_filters(app)
 
         original_scores = deepcopy(config.SCORES_SYSTEM)
         updated_scores = deepcopy(config.SCORES_SYSTEM)

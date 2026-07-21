@@ -57,8 +57,23 @@ SRC_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PRE_EXISTING_COLLISIONS: dict[str, str] = {
     "_hotkey_manager": "scan lifecycle, co-owned by RunControl and Scanner",
     "is_running": "scan lifecycle, co-owned by RunControl and Scanner",
-    "active_templates": "template state, co-owned by Scanner and Templates",
-    "template_stats": "template state, co-owned by Scanner and Templates",
+    # `active_templates` and `template_stats` were here until step 22b, and how
+    # they left is worth more than the fact that they did.
+    #
+    # Step 22 takes `TemplatesMixin` off `MegabonkApp`'s bases. This scan only
+    # reads those bases, so the mixin's writes stop being visible to it, and the
+    # staleness test below would have deleted both entries **on its own** --
+    # while `gui_scanner` and `gui_app.__init__` were still writing the same two
+    # attributes on the same shared object. That is a debt recorded as paid on
+    # the strength of a class disappearing from a list, and it is exactly the
+    # failure this register exists to catch rather than commit.
+    #
+    # So they were paid instead. `app.template_filters.TemplateRuntimeFilters`
+    # holds both names as its own fields; `MegabonkApp` exposes them as
+    # delegating properties, which is why `gui_scanner` needed no edit and why
+    # `test_template_filters.py` asserts the scanner's assignment lands in the
+    # owner rather than in a slot on the app. One home, reachable from two
+    # writers, instead of one name owned by nobody.
     # `_player_stats_completed_run` was here until step 20. It is
     # `RunLifecycle`'s now -- the service extracted precisely because it was
     # written by `player_stats_refresh` and `vod_capture` and read by
