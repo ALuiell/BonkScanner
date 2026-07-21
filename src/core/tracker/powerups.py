@@ -126,12 +126,24 @@ def resolve_ui_context(
     pickup_time: float,
     stage_timer: float,
     stage_time: float,
+    final_swarm_timer: Any,
 ) -> _PowerupUiContext:
     map_context = fresh_map_context(state, now)
     if map_context is None:
         return _PowerupUiContext(stage_timer, None)
+
+    try:
+        final_swarm_value = float(final_swarm_timer)
+    except (TypeError, ValueError):
+        final_swarm_value = float("nan")
+    final_swarm_is_usable = isfinite(final_swarm_value) and final_swarm_value > 0.0
+
     if not map_context.is_graveyard:
-        return _PowerupUiContext(stage_timer, stage_time)
+        # On ordinary maps the game keeps FinalSwarm in lockstep with the UI
+        # stage clock, including manual timer changes. Prefer that live clock;
+        # a missing/zero value remains a safe stage-timer fallback.
+        timer_value = final_swarm_value if final_swarm_is_usable else stage_timer
+        return _PowerupUiContext(timer_value, stage_time)
 
     activities = map_context.activity_max or {}
     if _GRAVEYARD_CRYPT_MARKERS & activities.keys():
@@ -147,6 +159,12 @@ def resolve_ui_context(
         # outdoor post-boss phase, Pumpkin/Gravestones return and the normal
         # 16-minute stage timeline below resumes.
         return _PowerupUiContext(stage_timer, None)
+
+    if final_swarm_is_usable and pickup_time >= my_time - final_swarm_value:
+        # In the outdoor final-swarm phase this is the game/UI clock. Keeping
+        # its zero origin makes manual time adjustments move both endpoints,
+        # as they did before the Graveyard room fallback was introduced.
+        return _PowerupUiContext(final_swarm_value, 0.0)
 
     graveyard_stage_limit = 960.0
     return _PowerupUiContext(stage_timer, graveyard_stage_limit)
@@ -224,6 +242,7 @@ def apply_snapshot(
     my_time = getattr(snapshot, "my_time_seconds", None)
     stage_timer = getattr(snapshot, "stage_timer_seconds", None)
     stage_time = getattr(snapshot, "stage_time_seconds", None)
+    final_swarm_timer = getattr(snapshot, "final_swarm_timer_seconds", None)
     stage_index = getattr(snapshot, "stage_index", None)
     active: list[PowerupEffectState] = []
 
@@ -255,6 +274,7 @@ def apply_snapshot(
                     pickup_time=pickup_time,
                     stage_timer=float(stage_timer),
                     stage_time=float(stage_time),
+                    final_swarm_timer=final_swarm_timer,
                 )
                 if (
                     isfinite(added_time)
@@ -274,6 +294,7 @@ def apply_snapshot(
                         pickup_time=added_time,
                         stage_timer=float(stage_timer),
                         stage_time=float(stage_time),
+                        final_swarm_timer=final_swarm_timer,
                     )
                     if added_time_ui_context == ui_context:
                         pickup_time = added_time

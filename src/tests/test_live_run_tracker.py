@@ -2196,7 +2196,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield 03:09 -> 02:24 (45s left) | Durations: standard 45s, clock 36s (PM 3x)",
+            "Powerups: Shield +02:50 -> +03:35 (45s left) | Durations: standard 45s, clock 36s (PM 3x)",
         )
 
     def test_powerups_summary_skips_malformed_effects(self) -> None:
@@ -2230,7 +2230,7 @@ class LiveRunTrackerTests(unittest.TestCase):
             "Powerups: Clock 01:40 -> 01:22 (18s left) | Durations: standard 22s, clock 18s (PM 1.5x)",
         )
 
-    def test_powerups_summary_restores_stage_times_in_graveyard_post_boss_outdoors(self) -> None:
+    def test_powerups_summary_uses_final_swarm_clock_in_graveyard_post_boss_outdoors(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(
             snapshot(
@@ -2264,7 +2264,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield 03:19 -> 02:54 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
+            "Powerups: Shield +02:40 -> +03:05 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
     def test_powerups_summary_uses_graveyard_stage_limit_before_final_swarm(self) -> None:
@@ -2464,6 +2464,36 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(
             tracker.format_powerups_summary(),
             "Powerups: Shield 06:19 -> 05:54 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
+        )
+
+    def test_powerups_summary_follows_final_swarm_clock_on_normal_map(self) -> None:
+        # FinalSwarm mirrors the UI stage clock on ordinary maps and includes
+        # manual time changes, so it must win when it differs from stage_timer.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=600.0,
+                stage_index=0,
+                stage_time_seconds=960.0,
+                final_swarm_timer_seconds=1200.0,
+                powerup_multiplier=1.0,
+                powerup_multiplier_display="1x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=990.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.non_graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield +03:50 -> +04:15 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
     def test_powerups_summary_keeps_stage_times_while_stage_timer_trails_the_run(self) -> None:
