@@ -58,7 +58,12 @@ from PySide6.QtWidgets import (
 )
 from core.item_metadata import preferred_item_display_name
 from core.stats.types import PLAYER_STAT_GROUPS
-from gui_overlay import OverlayMixin
+from projections.tracked_items import (
+    available_tracked_item_names,
+    tracked_item_color,
+    tracked_rule_color,
+    tracked_rule_tag_label,
+)
 from core.stat_labels import abbreviate_stat_label
 
 from app import config
@@ -1265,7 +1270,7 @@ class TwitchCommandSettingsDialog(QDialog):
         search_top_layout.addStretch(1)
         top_layout.addLayout(search_top_layout)
 
-        self.twitch_item_names = OverlayMixin._overlay_available_item_names()
+        self.twitch_item_names = available_tracked_item_names()
         self.twitch_item_search_entry = QLineEdit()
         self.twitch_item_search_entry.setPlaceholderText("Search items...")
         self.twitch_item_search_entry.textChanged.connect(self.refresh_twitch_item_selector)
@@ -1559,7 +1564,7 @@ class TwitchCommandSettingsDialog(QDialog):
                 item = QListWidgetItem(display_name)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 item.setData(Qt.UserRole, item_name)
-                item.setForeground(QBrush(QColor(OverlayMixin._tracked_item_color(item_name))))
+                item.setForeground(QBrush(QColor(tracked_item_color(item_name))))
                 selector.addItem(item)
 
         for i in range(selector.count()):
@@ -1592,10 +1597,10 @@ class TwitchCommandSettingsDialog(QDialog):
             rule_id = str(rule.get("id") or "")
 
             if layout is not None:
-                accent = OverlayMixin._tracked_rule_color(item_names)
+                accent = tracked_rule_color(item_names)
                 tag = TrackedRuleTagWidget(
                     rule_id,
-                    OverlayMixin._tracked_rule_tag_label(label, mode),
+                    tracked_rule_tag_label(label, mode),
                     text_color=accent,
                     border_color=accent,
                     background_color="#18212C",

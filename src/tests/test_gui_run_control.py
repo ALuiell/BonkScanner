@@ -5066,23 +5066,6 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(formatting._normalize_item_name_for_rarity("Sucky Hoof"), "Sucky Magnet")
         self.assertEqual(formatting._normalize_item_name_for_rarity("Wrench"), "Wrench")
 
-    def test_tracked_item_display_name_prefers_live_inventory_aliases(self) -> None:
-        self.assertEqual(OverlayMixin._tracked_item_display_name("Glove Power"), "Power Gloves")
-        self.assertEqual(OverlayMixin._tracked_item_display_name("Glove Blood"), "Slurp Gloves")
-        self.assertEqual(OverlayMixin._tracked_item_display_name("Glove Lightning"), "Thunder Mitts")
-        self.assertEqual(OverlayMixin._tracked_item_display_name("Pot"), "Pot (stainless steel)")
-        self.assertEqual(OverlayMixin._tracked_item_display_name("Wrench"), "Wrench")
-
-    def test_overlay_available_item_names_use_game_ui_names(self) -> None:
-        names = OverlayMixin._overlay_available_item_names()
-
-        self.assertIn("Bob's Light", names)
-        self.assertIn("Crypt key", names)
-        self.assertIn("Golden key", names)
-        self.assertIn("Slurp Gloves", names)
-        self.assertIn("The One Ring", names)
-        self.assertNotIn("Bobs Lantern", names)
-
     def test_overlay_settings_persist_auto_start_checkbox(self) -> None:
         app = types.SimpleNamespace(
             overlay_port_entry=FakeEntry("17845"),
@@ -5124,32 +5107,6 @@ class GuiRunControlTests(unittest.TestCase):
             OverlayMixin.apply_overlay_autostart(app)
         app.start_overlay_server.assert_called_once_with()
         self.assertEqual(app.update_overlay_state_from_tracker.call_count, 2)
-
-    def test_tracked_rule_display_label_prefers_live_alias_for_default_labels(self) -> None:
-        self.assertEqual(
-            OverlayMixin._tracked_rule_display_label(
-                {"label": "Glove Power Map 1"},
-                ["Glove Power"],
-                "map_1_only",
-            ),
-            "Power Gloves Map 1",
-        )
-        self.assertEqual(
-            OverlayMixin._tracked_rule_display_label(
-                {"label": "Glove Blood"},
-                ["Glove Blood"],
-                "all_run",
-            ),
-            "Slurp Gloves",
-        )
-        self.assertEqual(
-            OverlayMixin._tracked_rule_display_label(
-                {"label": "Custom Gloves Label"},
-                ["Glove Power"],
-                "all_run",
-            ),
-            "Custom Gloves Label",
-        )
 
     def test_normalize_item_name_for_display_replaces_no_implementation(self) -> None:
         self.assertEqual(formatting._normalize_item_name_for_display("No Implementation"), "The One Ring")

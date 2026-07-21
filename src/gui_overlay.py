@@ -37,19 +37,69 @@ from ui.shared import (
 )
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import _button_state_stylesheet
-from projections.item_sort import ITEM_RARITY_SORT_ORDER
-from core.item_metadata import (
-    ITEM_RARITY_BY_NAME,
-    ITEM_RARITY_COLOR_MAP,
-    available_item_display_names,
-    item_display_color,
-    normalize_item_name_for_rarity,
-    preferred_item_display_name,
+from projections.tracked_items import (
+    available_tracked_item_names,
+    dedupe_item_names,
+    overlay_rule_id,
+    session_rule_id,
+    tracked_item_color,
+    tracked_item_combo_display_name,
+    tracked_item_command_label,
+    tracked_item_display_name,
+    tracked_rule_color,
+    tracked_rule_display_label,
+    tracked_rule_tag_label,
+    uses_session_tracked_items,
 )
 from live_run_tracker import TrackedItemRule
 from app.coordinator import AppCoordinator
 from projections.obs import build_overlay_state
 from core.stats.types import PLAYER_STAT_GROUPS
+
+
+def tracked_item_rules_from_config(rule_config: dict[str, Any]) -> tuple[TrackedItemRule, ...]:
+    """Rules out of any of the three tracked-item config blocks.
+
+    Overlay, Session Stats and Twitch all store the same rule shape, which is
+    why the three former `OverlayMixin` readers were one implementation behind
+    two aliases that called it class-qualified. Kept here rather than in
+    `projections/tracked_items.py` because `TrackedItemRule` still lives in the
+    top-level `live_run_tracker` module, and `projections/` may import `core/`
+    only.
+    """
+    rules: list[TrackedItemRule] = []
+    for raw_rule in rule_config.get("tracked_items") or ():
+        if not isinstance(raw_rule, dict):
+            continue
+        item_names = tuple(str(name) for name in raw_rule.get("item_names") or () if str(name).strip())
+        if not item_names:
+            continue
+        rules.append(
+            TrackedItemRule(
+                id=str(raw_rule.get("id") or "_".join(item_names).lower()),
+                label=str(raw_rule.get("label") or ", ".join(item_names)),
+                item_names=item_names,
+                mode=str(raw_rule.get("mode") or "all_run"),
+                before_stage=_coerce_optional_int(raw_rule.get("before_stage")),
+                before_seconds=_coerce_optional_float(raw_rule.get("before_seconds")),
+                max_copies=_coerce_optional_int(raw_rule.get("max_copies")),
+            )
+        )
+    return tuple(rules)
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _coerce_optional_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 OVERLAY_WIDGET_LABELS = {
@@ -400,7 +450,7 @@ class OverlayMixin:
         items_layout.addWidget(QLabel("Configure tracked item counters for the overlay."))
 
         self.overlay_use_session_tracked_items_cb = QCheckBox("Use Session Stats tracked items")
-        self.overlay_use_session_tracked_items_cb.setChecked(self._uses_session_tracked_items(config.OVERLAY, default="custom"))
+        self.overlay_use_session_tracked_items_cb.setChecked(uses_session_tracked_items(config.OVERLAY, default="custom"))
         self.overlay_use_session_tracked_items_cb.stateChanged.connect(self.on_overlay_tracked_items_source_toggled)
         items_layout.addWidget(self.overlay_use_session_tracked_items_cb)
 
@@ -421,7 +471,7 @@ class OverlayMixin:
         search_top_layout.addStretch(1)
         top_layout.addLayout(search_top_layout)
 
-        self.overlay_item_names = self._overlay_available_item_names()
+        self.overlay_item_names = available_tracked_item_names()
         self.overlay_item_search_entry = QLineEdit()
         self.overlay_item_search_entry.setPlaceholderText("Search items...")
         self.overlay_item_search_entry.textChanged.connect(self.refresh_overlay_item_selector)
@@ -681,17 +731,17 @@ class OverlayMixin:
             query = self.overlay_item_search_entry.text().strip().lower()
         if selector.count() == 0:
             for item_name in getattr(self, "overlay_item_names", ()):
-                display_name = self._tracked_item_display_name(item_name)
+                display_name = tracked_item_display_name(item_name)
                 item = QListWidgetItem(display_name)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 item.setData(Qt.UserRole, item_name)
-                item.setForeground(QBrush(QColor(self._tracked_item_color(item_name))))
+                item.setForeground(QBrush(QColor(tracked_item_color(item_name))))
                 selector.addItem(item)
 
         for i in range(selector.count()):
             item = selector.item(i)
             item_name = str(item.data(Qt.UserRole) or item.text())
-            display_name = self._tracked_item_display_name(item_name)
+            display_name = tracked_item_display_name(item_name)
             haystacks = {item_name.lower(), display_name.lower()}
             if query and not any(query in haystack for haystack in haystacks):
                 item.setHidden(True)
@@ -715,14 +765,14 @@ class OverlayMixin:
             if not item_names:
                 continue
             mode = str(rule.get("mode") or "all_run")
-            label = self._tracked_rule_display_label(dict(rule), item_names, mode)
+            label = tracked_rule_display_label(dict(rule), item_names, mode)
             rule_id = str(rule.get("id") or "")
 
             if layout is not None:
-                accent = self._tracked_rule_color(item_names)
+                accent = tracked_rule_color(item_names)
                 tag = TrackedRuleTagWidget(
                     rule_id,
-                    self._tracked_rule_tag_label(label, mode),
+                    tracked_rule_tag_label(label, mode),
                     text_color=accent,
                     border_color=accent,
                     background_color="#18212C",
@@ -732,8 +782,8 @@ class OverlayMixin:
             tracked_count += 1
 
         if self.overlay_tracked_items_label is not None:
-            if self._uses_session_tracked_items(config.OVERLAY, default="custom"):
-                tracked_count = len(self._session_tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS))
+            if uses_session_tracked_items(config.OVERLAY, default="custom"):
+                tracked_count = len(tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS))
                 detail = "Using Session Stats tracked items. Map 1 only counts gains observed during stage 1."
             else:
                 detail = "Map 1 only counts gains observed during stage 1."
@@ -741,15 +791,15 @@ class OverlayMixin:
         self._refresh_overlay_tracked_items_source_ui()
 
     def _refresh_overlay_tracked_items_source_ui(self) -> None:
-        use_session = self._uses_session_tracked_items(config.OVERLAY, default="custom")
-        custom_count = len(self._tracked_item_rules_from_config(config.OVERLAY))
-        session_rules = self._session_tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
+        use_session = uses_session_tracked_items(config.OVERLAY, default="custom")
+        custom_count = len(tracked_item_rules_from_config(config.OVERLAY))
+        session_rules = tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
         session_count = len(session_rules)
         source_label = getattr(self, "overlay_tracked_items_source_label", None)
         if source_label is not None:
             if use_session:
                 preview = ", ".join(
-                    self._session_tracked_item_command_label({"label": rule.label, "mode": rule.mode})
+                    tracked_item_command_label({"label": rule.label, "mode": rule.mode})
                     for rule in session_rules[:4]
                 )
                 if session_count > 4:
@@ -784,10 +834,10 @@ class OverlayMixin:
             return
         map_one_only = bool(self.overlay_map_one_only_checkbox.isChecked())
         mode = "map_1_only" if map_one_only else "all_run"
-        display_name = self._tracked_item_combo_display_name(item_names)
+        display_name = tracked_item_combo_display_name(item_names)
         label = f"{display_name} Map 1" if map_one_only else display_name
         rule = {
-            "id": self._overlay_rule_id(item_names, mode),
+            "id": overlay_rule_id(item_names, mode),
             "label": label,
             "item_names": item_names,
             "mode": mode,
@@ -850,7 +900,7 @@ class OverlayMixin:
         search_top_layout.addStretch(1)
         top_layout.addLayout(search_top_layout)
 
-        self.session_item_names = self._overlay_available_item_names()
+        self.session_item_names = available_tracked_item_names()
         self.session_item_search_entry = QLineEdit()
         self.session_item_search_entry.setPlaceholderText("Search items...")
         self.session_item_search_entry.textChanged.connect(self.refresh_session_item_selector)
@@ -936,17 +986,17 @@ class OverlayMixin:
             query = self.session_item_search_entry.text().strip().lower()
         if selector.count() == 0:
             for item_name in getattr(self, "session_item_names", ()):
-                display_name = self._tracked_item_display_name(item_name)
+                display_name = tracked_item_display_name(item_name)
                 item = QListWidgetItem(display_name)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 item.setData(Qt.UserRole, item_name)
-                item.setForeground(QBrush(QColor(self._tracked_item_color(item_name))))
+                item.setForeground(QBrush(QColor(tracked_item_color(item_name))))
                 selector.addItem(item)
 
         for i in range(selector.count()):
             item = selector.item(i)
             item_name = str(item.data(Qt.UserRole) or item.text())
-            display_name = self._tracked_item_display_name(item_name)
+            display_name = tracked_item_display_name(item_name)
             haystacks = {item_name.lower(), display_name.lower()}
             if query and not any(query in haystack for haystack in haystacks):
                 item.setHidden(True)
@@ -972,13 +1022,13 @@ class OverlayMixin:
             if not item_names:
                 continue
             mode = str(rule.get("mode") or "all_run")
-            label = self._tracked_rule_display_label(dict(rule), item_names, mode)
+            label = tracked_rule_display_label(dict(rule), item_names, mode)
             rule_id = str(rule.get("id", ""))
 
-            accent = self._tracked_rule_color(item_names)
+            accent = tracked_rule_color(item_names)
             tag = TrackedRuleTagWidget(
                 rule_id=rule_id,
-                label_text=self._tracked_rule_tag_label(label, mode),
+                label_text=tracked_rule_tag_label(label, mode),
                 text_color=accent,
                 border_color=accent,
                 background_color="#18212C",
@@ -1008,7 +1058,7 @@ class OverlayMixin:
 
     def session_tracked_item_stat_rows(self) -> list[dict[str, Any]]:
         return self._tracked_item_stat_rows_for_rules(
-            self._session_tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
+            tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
         )
 
     def twitch_tracked_item_stat_rows(self) -> list[dict[str, Any]]:
@@ -1025,7 +1075,7 @@ class OverlayMixin:
             percent = (count / seed_count * 100.0) if seed_count > 0 else None
             formatted_rows.append(
                 {
-                    "label": self._session_tracked_item_command_label(row),
+                    "label": tracked_item_command_label(row),
                     "count": count,
                     "percent": percent,
                 }
@@ -1093,21 +1143,6 @@ class OverlayMixin:
             snapshot["tracked_rows"] = tuple(dict(row) for row in snapshot.get("tracked_rows", ()))
             return snapshot
 
-    @staticmethod
-    def _session_tracked_item_command_label(row: dict[str, Any]) -> str:
-        label = str(row.get("label") or "").strip() or "Item"
-        mode = str(row.get("mode") or "")
-        if mode != "map_1_only":
-            return label
-
-        lowered = label.casefold()
-        for suffix in (" map 1", " map1", " t1"):
-            if lowered.endswith(suffix):
-                label = label[: -len(suffix)].rstrip()
-                break
-        if label.casefold().endswith(" t1"):
-            return label
-        return f"{label} T1"
 
     def add_session_tracked_item(self) -> None:
         item_names = self._selected_session_item_names()
@@ -1115,10 +1150,10 @@ class OverlayMixin:
             return
         map_one_only = bool(self.session_map_one_only_checkbox.isChecked())
         mode = "map_1_only" if map_one_only else "all_run"
-        display_name = self._tracked_item_combo_display_name(item_names)
+        display_name = tracked_item_combo_display_name(item_names)
         label = f"{display_name} Map 1" if map_one_only else display_name
         rule = {
-            "id": self._session_rule_id(item_names, mode),
+            "id": session_rule_id(item_names, mode),
             "label": label,
             "item_names": item_names,
             "mode": mode,
@@ -1173,11 +1208,11 @@ class OverlayMixin:
                 if str(item.data(Qt.UserRole) or item.text()).strip()
             ]
             if item_names:
-                return self._dedupe_item_names(item_names)
+                return dedupe_item_names(item_names)
         if getattr(self, "session_item_search_entry", None) is not None:
             query = self.session_item_search_entry.text().strip()
             for item_name in getattr(self, "session_item_names", ()):
-                display_name = self._tracked_item_display_name(item_name)
+                display_name = tracked_item_display_name(item_name)
                 if item_name.lower() == query.lower() or display_name.lower() == query.lower():
                     return [item_name]
         return []
@@ -1209,11 +1244,11 @@ class OverlayMixin:
                 if str(item.data(Qt.UserRole) or item.text()).strip()
             ]
             if item_names:
-                return self._dedupe_item_names(item_names)
+                return dedupe_item_names(item_names)
         if getattr(self, "overlay_item_search_entry", None) is not None:
             query = self.overlay_item_search_entry.text().strip()
             for item_name in getattr(self, "overlay_item_names", ()):
-                display_name = self._tracked_item_display_name(item_name)
+                display_name = tracked_item_display_name(item_name)
                 if item_name.lower() == query.lower() or display_name.lower() == query.lower():
                     return [item_name]
         return []
@@ -1317,173 +1352,30 @@ class OverlayMixin:
         )
         return selected or cls._overlay_default_kps_metric_ids()
 
-    @staticmethod
-    def _tracked_item_rules_from_config(overlay_config: dict[str, Any]) -> tuple[TrackedItemRule, ...]:
-        rules: list[TrackedItemRule] = []
-        for raw_rule in overlay_config.get("tracked_items") or ():
-            if not isinstance(raw_rule, dict):
-                continue
-            item_names = tuple(str(name) for name in raw_rule.get("item_names") or () if str(name).strip())
-            if not item_names:
-                continue
-            rules.append(
-                TrackedItemRule(
-                    id=str(raw_rule.get("id") or "_".join(item_names).lower()),
-                    label=str(raw_rule.get("label") or ", ".join(item_names)),
-                    item_names=item_names,
-                    mode=str(raw_rule.get("mode") or "all_run"),
-                    before_stage=_coerce_optional_int(raw_rule.get("before_stage")),
-                    before_seconds=_coerce_optional_float(raw_rule.get("before_seconds")),
-                    max_copies=_coerce_optional_int(raw_rule.get("max_copies")),
-                )
-            )
-        return tuple(rules)
-
-    @staticmethod
-    def _session_tracked_item_rules_from_config(session_config: dict[str, Any]) -> tuple[TrackedItemRule, ...]:
-        return OverlayMixin._tracked_item_rules_from_config(session_config)
-
-    @staticmethod
-    def _twitch_tracked_item_rules_from_config(twitch_config: dict[str, Any]) -> tuple[TrackedItemRule, ...]:
-        return OverlayMixin._tracked_item_rules_from_config(twitch_config)
-
-    @staticmethod
-    def _uses_session_tracked_items(source_config: dict[str, Any], *, default: str = "custom") -> bool:
-        return str(source_config.get("tracked_items_source") or default).strip().lower() == "session"
 
     def _effective_overlay_tracked_item_rules(self) -> tuple[TrackedItemRule, ...]:
-        if self._uses_session_tracked_items(config.OVERLAY, default="custom"):
-            return self._session_tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
-        return self._tracked_item_rules_from_config(config.OVERLAY)
+        if uses_session_tracked_items(config.OVERLAY, default="custom"):
+            return tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
+        return tracked_item_rules_from_config(config.OVERLAY)
 
     def _effective_twitch_tracked_item_rules(self) -> tuple[TrackedItemRule, ...]:
-        if self._uses_session_tracked_items(config.TWITCH_BOT, default="custom"):
-            return self._session_tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
-        return self._twitch_tracked_item_rules_from_config(config.TWITCH_BOT)
+        if uses_session_tracked_items(config.TWITCH_BOT, default="custom"):
+            return tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
+        return tracked_item_rules_from_config(config.TWITCH_BOT)
 
     def _effective_overlay_config(self) -> dict[str, Any]:
         overlay = dict(config.OVERLAY)
-        if self._uses_session_tracked_items(overlay, default="custom"):
+        if uses_session_tracked_items(overlay, default="custom"):
             overlay["tracked_items"] = list(config.SESSION_TRACKED_ITEMS.get("tracked_items") or [])
         return overlay
 
     def _combined_tracked_item_rules(self) -> tuple[TrackedItemRule, ...]:
         combined: dict[str, TrackedItemRule] = {}
-        for rule in self._tracked_item_rules_from_config(config.OVERLAY):
+        for rule in tracked_item_rules_from_config(config.OVERLAY):
             combined[rule.id] = rule
-        for rule in self._session_tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS):
+        for rule in tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS):
             combined[rule.id] = rule
-        for rule in self._twitch_tracked_item_rules_from_config(config.TWITCH_BOT):
+        for rule in tracked_item_rules_from_config(config.TWITCH_BOT):
             combined[rule.id] = rule
         return tuple(combined.values())
 
-    @classmethod
-    def _overlay_available_item_names(cls) -> tuple[str, ...]:
-        return tuple(sorted(available_item_display_names(), key=cls._tracked_item_sort_key))
-
-    @staticmethod
-    def _tracked_item_display_name(item_name: str) -> str:
-        return preferred_item_display_name(str(item_name))
-
-    @classmethod
-    def _tracked_item_sort_key(cls, item_name: str) -> tuple[int, str]:
-        return (-cls._tracked_item_rarity_rank(item_name), cls._tracked_item_display_name(item_name).lower())
-
-    @staticmethod
-    def _tracked_item_rarity_rank(item_name: str) -> int:
-        canonical_name = normalize_item_name_for_rarity(str(item_name))
-        rarity = ITEM_RARITY_BY_NAME.get(canonical_name)
-        return ITEM_RARITY_SORT_ORDER.get(rarity, -1)
-
-    @staticmethod
-    def _tracked_item_color(item_name: str) -> str:
-        direct_color = item_display_color(item_name)
-        if direct_color:
-            return direct_color
-        canonical_name = normalize_item_name_for_rarity(str(item_name))
-        rarity = ITEM_RARITY_BY_NAME.get(canonical_name)
-        return ITEM_RARITY_COLOR_MAP.get(rarity, "#E5E7EB")
-
-    @classmethod
-    def _tracked_item_combo_display_name(cls, item_names: list[str] | tuple[str, ...]) -> str:
-        return " + ".join(cls._tracked_item_display_name(item_name) for item_name in item_names)
-
-    @classmethod
-    def _tracked_rule_color(cls, item_names: list[str] | tuple[str, ...]) -> str:
-        if not item_names:
-            return "#E5E7EB"
-        ranked_items = sorted(
-            item_names,
-            key=lambda item_name: ITEM_RARITY_SORT_ORDER.get(
-                ITEM_RARITY_BY_NAME.get(normalize_item_name_for_rarity(str(item_name))), -1
-            ),
-            reverse=True,
-        )
-        return cls._tracked_item_color(ranked_items[0])
-
-    @staticmethod
-    def _tracked_rule_tag_label(label: str, mode: str) -> str:
-        label = str(label).strip() or "Item"
-        if mode == "map_1_only":
-            lowered = label.casefold()
-            if lowered.endswith((" map 1", " map1", " t1")):
-                return label
-            return f"{label} [Map 1]"
-        if mode == "all_run":
-            return label
-        return f"{label} [{mode}]"
-
-    @classmethod
-    def _tracked_rule_display_label(
-        cls,
-        rule: dict[str, Any],
-        item_names: list[str],
-        mode: str,
-    ) -> str:
-        raw_label = str(rule.get("label") or " + ".join(item_names))
-        if len(item_names) != 1:
-            return raw_label
-        canonical_name = str(item_names[0])
-        preferred_name = cls._tracked_item_display_name(canonical_name)
-        default_label = f"{canonical_name} Map 1" if mode == "map_1_only" else canonical_name
-        preferred_label = f"{preferred_name} Map 1" if mode == "map_1_only" else preferred_name
-        return preferred_label if raw_label == default_label else raw_label
-
-    @staticmethod
-    def _overlay_rule_id(item_names: list[str] | tuple[str, ...], mode: str) -> str:
-        folded = "_".join(
-            "".join(char.lower() for char in item_name if char.isalnum())
-            for item_name in item_names
-        )
-        return f"{folded or 'item'}_{mode}"
-
-    @staticmethod
-    def _session_rule_id(item_names: list[str] | tuple[str, ...], mode: str) -> str:
-        folded = "_".join(
-            "".join(char.lower() for char in item_name if char.isalnum())
-            for item_name in item_names
-        )
-        return f"session_{folded or 'item'}_{mode}"
-
-    @staticmethod
-    def _dedupe_item_names(item_names: list[str] | tuple[str, ...]) -> list[str]:
-        deduped: list[str] = []
-        for item_name in item_names:
-            value = str(item_name).strip()
-            if value and value not in deduped:
-                deduped.append(value)
-        return deduped
-
-
-def _coerce_optional_int(value: Any) -> int | None:
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _coerce_optional_float(value: Any) -> float | None:
-    try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None

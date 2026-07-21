@@ -164,8 +164,27 @@ MRO_MODULES = {
 # `ui/tabs/player_stats/stat_cards.py`, which is what retires the failure mode
 # rather than relocating it -- a free function cannot be orphaned by its class
 # moving, which is precisely what broke at 14b.
-MAX_PRODUCTION_CLASS_QUALIFIED_SITES = 6
-MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 5
+#
+# Tightened at step 24a (6 -> 0 sites, 5 -> 0 names), and this is the ratchet's
+# terminus rather than another notch: all five remaining names were
+# `OverlayMixin`'s pure tracked-item helpers, and step 24 has to retire the
+# class. Four of the six sites were in `gui_dialogs.py`, so the work was never
+# confined to `gui_overlay.py` -- the Twitch tracked-items dialog reached into
+# the overlay's class for the item palette, the tag colour and the tag label.
+#
+# They are module-level functions in `projections/tracked_items.py` now, which
+# retires the failure mode instead of relocating it: a free function has no
+# class to be orphaned from, so no later step can strand these sites the way
+# 14b stranded the Chaos Tome panel. `_tracked_item_rules_from_config` stayed
+# behind as `gui_overlay.tracked_item_rules_from_config`, still a free
+# function, because `TrackedItemRule` lives in the top-level
+# `live_run_tracker` module and `projections/` may import `core/` only.
+#
+# 0 is the measurement. The allowlist below is empty for the same reason, and
+# the staleness test above is what forced both -- it failed on the commit that
+# emptied the surface, exactly as intended.
+MAX_PRODUCTION_CLASS_QUALIFIED_SITES = 0
+MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 0
 # Tightened at step 21c (60 -> 55) and 21d (55 -> 52). The eight doubles whose
 # subject was one of the two recording tabs now call the component builders those
 # conversions added: `tests/support/player_stats.build_recordings_tab` (5) and
@@ -196,13 +215,13 @@ MAX_OBJECT_NEW_APP_DOUBLES = 47
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"
 
-PRODUCTION_CLASS_QUALIFIED_NAMES = {
-    "OverlayMixin._overlay_available_item_names",
-    "OverlayMixin._tracked_item_color",
-    "OverlayMixin._tracked_item_rules_from_config",
-    "OverlayMixin._tracked_rule_color",
-    "OverlayMixin._tracked_rule_tag_label",
-}
+# Emptied at step 24a. See MAX_PRODUCTION_CLASS_QUALIFIED_SITES above: the five
+# entries that stood here were the whole production surface, and all five are
+# free functions now. The subset and staleness assertions below both still run
+# against an empty set -- the first now forbids *any* production
+# class-qualified reference, which is stricter than a ratchet and is the state
+# steps 25-27 must not regress.
+PRODUCTION_CLASS_QUALIFIED_NAMES: set[str] = set()
 
 
 def _declared_mro_class_names() -> list[str]:
