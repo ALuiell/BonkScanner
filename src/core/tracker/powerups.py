@@ -30,11 +30,8 @@ POWERUP_MAP_CONTEXT_TTL_SECONDS = 15.0
 FAST_STAGE_TIMER_TTL_SECONDS = 2.0
 POWERUPS_SNAPSHOT_TTL_SECONDS = 1.5
 
-# A stage starts at or after the run does, so its timer can never legitimately
-# read higher than the run timer. Both are read from the same MyTime object in
-# one call, so the only slack needed covers a stage that starts together with
-# the run (map 1) and float noise.
-STAGE_CLOCK_OVERRUN_TOLERANCE_SECONDS = 1.0
+_GRAVEYARD_CRYPT_MARKERS = frozenset(("Crypt Chests", "Crypt Pots"))
+_GRAVEYARD_OUTDOOR_MARKERS = frozenset(("Pumpkin", "Gravestones"))
 
 
 @dataclass
@@ -95,6 +92,17 @@ def set_map_context(
             captured_at=clock(),
             activity_max=context.activity_max,
         )
+    # Graveyard's boss room replaces the outdoor activity dictionary, so it
+    # no longer contains a strong Graveyard marker.  The map itself has not
+    # changed: preserve a fresh, already-confirmed Graveyard identity until
+    # the tracker resets for the next run.
+    previous = state.powerup_map_context
+    if previous.is_graveyard and not context.is_graveyard:
+        context = PowerupMapContext(
+            is_graveyard=True,
+            captured_at=context.captured_at,
+            activity_max=context.activity_max,
+        )
     state.powerup_map_context = context
 
 
@@ -110,27 +118,6 @@ def graveyard_main_map_events_active(state: _PowerupState, now: float) -> bool:
     )
 
 
-def stage_clock_is_artificial(stage_timer: float, run_timer: Any) -> bool:
-    """True when the stage timer has been fast-forwarded past the run timer.
-
-    A stage begins at or after the run, so ``stage_timer > run_timer`` is not
-    something a real clock can do -- it means the game jumped the stage timer
-    to force a phase change, and every time derived from it is fiction.
-
-    Measured on two independent Graveyard runs: the boss appearing advances the
-    stage timer by ~585 s in a single 0.5 s sample (4.82 -> 590.27 at run
-    189.99), while the run timer keeps its pace. Before the jump the gap is at
-    worst -293 s; after it, +291 s, with no sample closer than 1 s to the
-    boundary in 1,137 samples.
-    """
-    if run_timer is None:
-        return False
-    try:
-        return float(stage_timer) > float(run_timer) + STAGE_CLOCK_OVERRUN_TOLERANCE_SECONDS
-    except (TypeError, ValueError):
-        return False
-
-
 def resolve_ui_context(
     state: _PowerupState,
     now: float,
@@ -139,56 +126,26 @@ def resolve_ui_context(
     pickup_time: float,
     stage_timer: float,
     stage_time: float,
-    final_swarm_timer: Any,
-    crypt_timer: Any,
-    run_timer: Any = None,
 ) -> _PowerupUiContext:
     map_context = fresh_map_context(state, now)
     if map_context is None:
         return _PowerupUiContext(stage_timer, None)
     if not map_context.is_graveyard:
-        if stage_clock_is_artificial(stage_timer, run_timer):
-            return _PowerupUiContext(stage_timer, None)
         return _PowerupUiContext(stage_timer, stage_time)
 
-    try:
-        final_swarm_value = float(final_swarm_timer)
-    except (TypeError, ValueError):
-        final_swarm_value = float("nan")
-    if (
-        isfinite(final_swarm_value)
-        and final_swarm_value > 0.0
-        and pickup_time >= my_time - final_swarm_value
-    ):
-        return _PowerupUiContext(final_swarm_value, 0.0)
+    activities = map_context.activity_max or {}
+    if _GRAVEYARD_CRYPT_MARKERS & activities.keys():
+        # Both crypts use their own upward timer and have no meaningful stage
+        # timeline. Effects carried in from outdoors need the same fallback as
+        # effects picked up inside.
+        return _PowerupUiContext(stage_timer, None)
 
-    try:
-        crypt_value = float(crypt_timer)
-    except (TypeError, ValueError):
-        crypt_value = float("nan")
-    # `crypt_timer` stays non-zero after leaving a crypt, so it cannot identify
-    # the current room on its own; the frozen stage timer is what says we are
-    # inside one.  Being inside is enough -- *when* the effect was picked up
-    # does not matter.  This used to also require the pickup to fall inside the
-    # crypt window, which sent effects picked up before entering down to the
-    # stage-limit branch below, where they were rendered against a stage timer
-    # that is frozen near zero in a crypt: "Shield 17:00 -> 15:05" for an effect
-    # with 54 s left.  Seconds-remaining is the only honest reading in a room
-    # with no meaningful stage clock, so all active effects get it.
-    if (
-        isfinite(crypt_value)
-        and crypt_value > 0.0
-        and stage_timer <= 1.0
-    ):
-        return _PowerupUiContext(crypt_value, None)
-
-    # Checked after the two phase-specific branches above, which carry their own
-    # clocks and stay meaningful: an effect picked up during the ghost phase is
-    # still rendered against final_swarm_timer. This catches what is left --
-    # the boss room and anything carried into the post-boss overtime, where the
-    # stage timer has jumped and the 960 s limit below would produce confident
-    # nonsense ("Shield 17:00 -> 15:05" for 54 s remaining).
-    if stage_clock_is_artificial(stage_timer, run_timer):
+    if not (_GRAVEYARD_OUTDOOR_MARKERS & activities.keys()):
+        # The confirmed Graveyard map has neither crypt nor outdoor markers in
+        # its boss room. Its stage clock is temporarily rewritten there, so
+        # only seconds remaining are honest. When the player exits back to the
+        # outdoor post-boss phase, Pumpkin/Gravestones return and the normal
+        # 16-minute stage timeline below resumes.
         return _PowerupUiContext(stage_timer, None)
 
     graveyard_stage_limit = 960.0
@@ -266,10 +223,7 @@ def apply_snapshot(
 
     my_time = getattr(snapshot, "my_time_seconds", None)
     stage_timer = getattr(snapshot, "stage_timer_seconds", None)
-    run_timer = getattr(snapshot, "run_timer_seconds", None)
     stage_time = getattr(snapshot, "stage_time_seconds", None)
-    final_swarm_timer = getattr(snapshot, "final_swarm_timer_seconds", None)
-    crypt_timer = getattr(snapshot, "crypt_timer_seconds", None)
     stage_index = getattr(snapshot, "stage_index", None)
     active: list[PowerupEffectState] = []
 
@@ -301,14 +255,17 @@ def apply_snapshot(
                     pickup_time=pickup_time,
                     stage_timer=float(stage_timer),
                     stage_time=float(stage_time),
-                    final_swarm_timer=final_swarm_timer,
-                    crypt_timer=crypt_timer,
-                    run_timer=run_timer,
                 )
                 if (
                     isfinite(added_time)
                     and added_time <= expiration_time
                     and added_time <= float(my_time)
+                    # A stale effect record can survive a timer epoch. Its
+                    # added_time then implies a duration wildly beyond the
+                    # current powerup duration, and must not be projected
+                    # onto the current stage timeline.
+                    and expiration_time - added_time
+                    <= max(duration * 2.0, duration + 10.0)
                 ):
                     added_time_ui_context = resolve_ui_context(
                         state,
@@ -317,9 +274,6 @@ def apply_snapshot(
                         pickup_time=added_time,
                         stage_timer=float(stage_timer),
                         stage_time=float(stage_time),
-                        final_swarm_timer=final_swarm_timer,
-                        crypt_timer=crypt_timer,
-                        run_timer=run_timer,
                     )
                     if added_time_ui_context == ui_context:
                         pickup_time = added_time

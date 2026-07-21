@@ -56,6 +56,20 @@ class LiveRunTrackerTests(unittest.TestCase):
             captured_at=1000.0,
         )
 
+    def graveyard_crypt_context(self) -> PowerupMapContext:
+        return PowerupMapContext.from_activity_max(
+            {"Crypt Chests": 6, "Crypt Pots": 25},
+            captured_at=1000.0,
+        )
+
+    def graveyard_boss_room_context(self) -> PowerupMapContext:
+        # Boss-room activity has no strong Graveyard marker by itself. The
+        # tracker keeps the identity established by the preceding outdoor read.
+        return PowerupMapContext.from_activity_max(
+            {"Boss Curses": 8, "Chests": 4},
+            captured_at=1000.0,
+        )
+
     def test_vod_projection_keeps_last_known_optional_values_after_failed_read(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         weapon = SimpleNamespace(name="Bone")
@@ -2182,7 +2196,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield +02:50 -> +03:35 (45s left) | Durations: standard 45s, clock 36s (PM 3x)",
+            "Powerups: Shield 03:09 -> 02:24 (45s left) | Durations: standard 45s, clock 36s (PM 3x)",
         )
 
     def test_powerups_summary_skips_malformed_effects(self) -> None:
@@ -2216,7 +2230,7 @@ class LiveRunTrackerTests(unittest.TestCase):
             "Powerups: Clock 01:40 -> 01:22 (18s left) | Durations: standard 22s, clock 18s (PM 1.5x)",
         )
 
-    def test_powerups_summary_uses_final_swarm_timer_for_graveyard_ghost_phase(self) -> None:
+    def test_powerups_summary_restores_stage_times_in_graveyard_post_boss_outdoors(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(
             snapshot(
@@ -2250,7 +2264,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield +02:40 -> +03:05 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
+            "Powerups: Shield 03:19 -> 02:54 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
     def test_powerups_summary_uses_graveyard_stage_limit_before_final_swarm(self) -> None:
@@ -2311,7 +2325,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                     ),
                 ),
             ),
-            map_context=self.graveyard_context(),
+            map_context=self.graveyard_crypt_context(),
         )
 
         self.assertEqual(
@@ -2347,7 +2361,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                     ),
                 ),
             ),
-            map_context=self.graveyard_context(),
+            map_context=self.graveyard_crypt_context(),
         )
 
         self.assertEqual(
@@ -2389,12 +2403,11 @@ class LiveRunTrackerTests(unittest.TestCase):
         )
 
     def test_powerups_summary_uses_seconds_when_stage_timer_outran_the_run_timer(self) -> None:
-        # The boss appearing fast-forwards the stage timer past the run timer
-        # (measured: 4.82 -> 590.27 in one 0.5 s sample, at run 189.99). A stage
-        # cannot have run longer than the run itself, so every time derived
-        # from that clock is fiction. final_swarm_timer is still 0 here - it
-        # only starts ~10 s later - so it cannot be the marker.
+        # The boss room replaces outdoor activity with unmarked entries and
+        # temporarily fast-forwards the stage clock. The stored Graveyard
+        # identity tells us this is a boss room, not a normal map.
         tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerup_map_context(self.graveyard_context())
         tracker.update_powerups(
             SimpleNamespace(
                 my_time_seconds=1000.0,
@@ -2415,12 +2428,42 @@ class LiveRunTrackerTests(unittest.TestCase):
                     ),
                 ),
             ),
-            map_context=self.graveyard_context(),
+            map_context=self.graveyard_boss_room_context(),
         )
 
         self.assertEqual(
             tracker.format_powerups_summary(),
             "Powerups: Shield (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
+        )
+
+    def test_powerups_summary_keeps_stage_times_on_normal_map_after_fast_stage_clock(self) -> None:
+        # A fast stage clock alone is not a reason to discard exact times:
+        # only the identified Graveyard boss room has that exceptional clock.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=590.27,
+                run_timer_seconds=189.99,
+                stage_index=0,
+                stage_time_seconds=960.0,
+                powerup_multiplier=1.0,
+                powerup_multiplier_display="1x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        added_time=990.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.non_graveyard_context(),
+        )
+
+        self.assertEqual(
+            tracker.format_powerups_summary(),
+            "Powerups: Shield 06:19 -> 05:54 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
     def test_powerups_summary_keeps_stage_times_while_stage_timer_trails_the_run(self) -> None:

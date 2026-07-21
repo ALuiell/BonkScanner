@@ -826,6 +826,7 @@ class LiveRunTracker:
         self._reset_current_run_item_baseline()
         self._reset_chaos_tracking()
         self._powerups_snapshot = PowerupsSnapshot()
+        self._powerup_map_context = PowerupMapContext()
         self._cached_stage_summary = None
         self._graveyard_final_swarm_timer_is_zero = False
 
