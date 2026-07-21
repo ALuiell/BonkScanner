@@ -1,23 +1,36 @@
 """The Compare Runs tab: choosing two recorded runs and rendering their diff.
 
-Moved out of ``PlayerStatsMixin`` without behaviour change. This is the first
-module under ``ui/`` and the first tab to get its own package.
+Moved out of ``PlayerStatsMixin`` by step 9 -- the first module under ``ui/``
+and the first tab to get its own package. It stayed a *mixin* through eleven
+steps for one reason: eleven of its methods were called class-qualified from
+the suite (``gui.MegabonkApp._refresh_compare_runs_diff(app)`` and friends),
+which only resolves through ``MegabonkApp``'s MRO.
 
-Still a mixin, deliberately. The Definition of Done wants tabs to be classes
-with explicit dependencies rather than mixins sharing ``self``, but eleven of
-these methods are called class-qualified from the suite
-(``gui.MegabonkApp._refresh_compare_runs_diff(app)`` and friends), which only
-resolves through ``MegabonkApp``'s MRO. Turning this into a standalone tab
-object is a behaviour change and belongs with step 14, not with a pure move.
+**Step 21d closed that out.** This is an object with explicit dependencies, it
+builds its own widgets, and it has no class-qualified callers left anywhere:
+the nine ``format_compare_runs_*`` passthroughs are gone (``projections.
+formatting`` is the target), and the config readers, ``_nearest_snapshot_index``,
+``_set_visible`` and ``_checkbox_checked`` are module-level functions at the
+bottom of this file. A free function has no class to be orphaned from, which
+retires the failure mode instead of moving it.
 
-The tab reads its widgets (``compare_runs_*``) from the shared ``self``; they
-are built in ``gui_layout.py``. That coupling is unchanged by this move -- it is
-simply now visible across a file boundary instead of hidden inside a 3,800-line
-module.
+Two things this file no longer does, both worth stating because both were
+load-bearing coupling:
+
+* It does not read its widgets off a shared ``self``. ``gui_layout`` built
+  ~40 ``compare_run*`` widgets onto ``MegabonkApp`` and this module read them
+  back; ``build()`` below is those ~250 lines, moved here. That also retired the
+  method-body ``ItemsSectionView`` import ``gui_layout`` needed to avoid the
+  ``gui_layout -> ui.tabs.player_stats -> live_stats -> gui_layout`` cycle.
+* It does not name the Recordings tab. It used to call
+  ``_ensure_vod_metadata_refresh`` on it to start the shared metadata refresh,
+  while that method's completion callback reached forward into this tab's list
+  signature and repaint. ``app.vod_library.VodLibrary`` owns the index now and
+  tells each tab separately; see that module's header for the measurement.
 
 ``_set_visible``, ``_checkbox_checked``, ``_nearest_snapshot_index`` and
-``_snapshot_compare_time`` came along despite their generic names: once the tab
-left, the player-stats mixin had no callers of any of them.
+``_snapshot_compare_time`` came here from ``PlayerStatsMixin`` despite their
+generic names: once the tab left, that mixin had no callers of any of them.
 """
 from __future__ import annotations
 

@@ -16,6 +16,14 @@ reindexes -- so step 14a widened that seam rather than letting this module impor
 Capture is not here either: starting and stopping a recording is lifecycle, and
 it lives in ``app/vod_capture.py``.
 
+An object with explicit dependencies since step 21c, not a base class of
+``MegabonkApp``. Step 19 was meant to convert it and deferred to step 21,
+because the blocker was step 21's own subject: this tab's metadata refresh
+wrote the *Compare Runs* tab's list signature and called its repaint, while
+that tab called back into this one to start the refresh, over an index that
+belonged to neither. ``app.vod_library.VodLibrary`` owns the index now; this
+tab subscribes to it and no longer names the other tab at all.
+
 Note for whoever moves this again: ``ui.tabs.player_stats.recordings`` is in
 ``gui.py``'s ``_PATCH_COMPAT_MODULES`` because four tests do
 ``patch.object(gui, "load_vod")`` and expect it to reach this module. Same reason
