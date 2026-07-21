@@ -928,6 +928,31 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(accepted, [True])
         save_config.assert_called_once_with(config.user_config)
 
+    def test_twitch_command_settings_save_refreshes_session_snapshot_immediately(self) -> None:
+        refreshed: list[bool] = []
+        master = types.SimpleNamespace(
+            live_run_tracker=types.SimpleNamespace(set_tracked_item_rules=lambda _rules: None),
+            _combined_tracked_item_rules=lambda: (),
+            _refresh_session_stats_snapshot=lambda: refreshed.append(True),
+        )
+        dialog = types.SimpleNamespace(
+            stat_checkboxes={"Damage": FakeCheckbox(True)},
+            stats_tpl_entry=FakeEntry("Live Stats: {Damage}"),
+            templates_entries={"stats": FakeEntry("Live Stats: {Damage}")},
+            disabled_item_checkboxes={},
+            commands_announcement_interval_spin=FakeSpinBox(30),
+            twitch_use_session_tracked_items_cb=FakeCheckbox(False),
+            twitch_tags_layout=object(),
+            master=master,
+            accept=lambda: None,
+        )
+
+        with patch.object(config, "save_config"):
+            TwitchCommandSettingsDialog.save(dialog)
+
+        self.assertEqual(config.TWITCH_BOT["tracked_items_source"], "custom")
+        self.assertEqual(refreshed, [True])
+
     def test_twitch_command_settings_filter_shows_ingame_disabled_items_without_show_all(self) -> None:
         class FakeGridItem:
             def __init__(self, widget: object) -> None:

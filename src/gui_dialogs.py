@@ -1836,6 +1836,11 @@ class TwitchCommandSettingsDialog(QDialog):
             live_run_tracker.set_tracked_item_rules(master._combined_tracked_item_rules())
         if master is not None and hasattr(master, "refresh_session_tracked_item_stats_ui"):
             master.refresh_session_tracked_item_stats_ui()
+        if master is not None and hasattr(master, "_refresh_session_stats_snapshot"):
+            # `!session` reads an immutable snapshot from its worker thread.
+            # A settings save changes its tracked-item source immediately, so
+            # waiting for the next reroll would leave Twitch showing stale rows.
+            master._refresh_session_stats_snapshot()
 
         config.user_config["TWITCH_BOT"] = config.TWITCH_BOT
         config.save_config(config.user_config)
