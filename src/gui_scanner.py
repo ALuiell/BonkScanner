@@ -229,8 +229,8 @@ class ScannerMixin:
             self.after(500, self.update_status_ui)
 
     def refresh_stats_ui(self):
-        if hasattr(self, "_refresh_twitch_session_snapshot"):
-            self._refresh_twitch_session_snapshot()
+        if hasattr(self, "_refresh_session_stats_snapshot"):
+            self._refresh_session_stats_snapshot()
         _set_text(self.stats_rerolls_label, f"Session Rerolls: {self.session_rerolls}")
         if hasattr(self, "refresh_session_tracked_item_stats_ui"):
             self.refresh_session_tracked_item_stats_ui()
@@ -285,11 +285,10 @@ class ScannerMixin:
         for name in list(self.template_stats):
             self.template_stats[name]["rerolls_since_last"] += 1
 
-        # The Twitch worker reads this thread-safe snapshot instead of UI
-        # state, so it must be updated independently of the throttled UI
-        # repaint below.
-        if hasattr(self, "_refresh_twitch_session_snapshot"):
-            self._refresh_twitch_session_snapshot()
+        # Integrations read this thread-safe session snapshot instead of UI
+        # state, so it must be updated independently of the throttled repaint.
+        if hasattr(self, "_refresh_session_stats_snapshot"):
+            self._refresh_session_stats_snapshot()
 
         if self.session_rerolls % 5 == 0:
             self.after(0, self.refresh_stats_ui)

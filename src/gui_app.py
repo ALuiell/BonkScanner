@@ -18,12 +18,13 @@ from gui_overlay import build_overlay, combined_tracked_item_rules
 from gui_in_game_overlay import build_in_game_overlay
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
-from gui_twitch import build_twitch_session
+from gui_twitch import build_twitch_session, session_command_tracked_item_config
 from app.template_filters import TemplateRuntimeFilters
 from ui.shared import UiInvoker, _AppWindow, resource_path
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
 from app.vod_library import VodLibrary
+from session_stats import SessionStats
 
 
 class MegabonkApp(
@@ -183,7 +184,13 @@ class MegabonkApp(
         self.overlay_state_store = self.coordinator.overlay_state_store
         self.live_run_tracker = self.coordinator.live_run_tracker
         self.overlay_server = self.coordinator.overlay_server
-        self._overlay = build_overlay(self, self.coordinator)
+        self._session_stats = SessionStats(
+            self.live_run_tracker,
+            template_stats=lambda: self.template_stats,
+            rerolls=lambda: self.session_rerolls,
+            snapshot_tracked_item_config=session_command_tracked_item_config,
+        )
+        self._overlay = build_overlay(self, self.coordinator, self._session_stats)
         self._in_game_overlay = build_in_game_overlay(self)
         self._in_game_overlay.start_runtime()
         self.player_stats_last_run_id = None
@@ -232,7 +239,7 @@ class MegabonkApp(
         self._twitch_session = build_twitch_session(
             self,
             self._twitch_tab,
-            session_stats_provider=self._overlay,
+            session_snapshot=self._session_stats.snapshot,
         )
         self._twitch_session.start()
         self.apply_overlay_autostart()
@@ -446,10 +453,10 @@ class MegabonkApp(
         if overlay is not None:
             overlay.refresh_session_tracked_item_stats_ui()
 
-    def _refresh_twitch_session_snapshot(self) -> None:
-        overlay = self.__dict__.get("_overlay")
-        if overlay is not None:
-            overlay._refresh_twitch_session_snapshot()
+    def _refresh_session_stats_snapshot(self) -> None:
+        session_stats = self.__dict__.get("_session_stats")
+        if session_stats is not None:
+            session_stats.refresh_snapshot()
 
     def open_session_tracked_item_settings_dialog(self) -> None:
         overlay = self.__dict__.get("_overlay")

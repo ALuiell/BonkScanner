@@ -57,10 +57,10 @@ class TwitchBotWorker(QThread):
     status_updated = Signal(str)
     log_message = Signal(str)
 
-    def __init__(self, run_tracker, parent=None, session_stats_provider=None):
+    def __init__(self, run_tracker, parent=None, session_snapshot=None):
         super().__init__(parent)
         self.run_tracker = run_tracker
-        self.session_stats_provider = session_stats_provider
+        self.session_snapshot = session_snapshot
         self.running = False
         self._stop_event = threading.Event()
         self.sock = None
@@ -374,14 +374,28 @@ class TwitchBotWorker(QThread):
         self._send_chat(channel, text)
 
     def _handle_session(self, channel: str):
-        formatter = getattr(self.session_stats_provider, "format_twitch_session_summary", None)
-        if not callable(formatter):
+        if not callable(self.session_snapshot):
             self._send_chat(channel, "Session stats are not available yet.")
             return
-        text = str(formatter() or "").strip()
-        if not text:
-            self._send_chat(channel, "Session stats are not available yet.")
-            return
+        snapshot = self.session_snapshot() or {}
+        rerolls = max(0, int(snapshot.get("rerolls", 0) or 0))
+        seeds_found = max(0, int(snapshot.get("seeds_found", 0) or 0))
+        seed_rate = f"{(seeds_found / rerolls * 100.0) if rerolls > 0 else 0.0:.2f}"
+        tracked_parts = []
+        for row in snapshot.get("tracked_rows", ()):
+            percent = row.get("percent")
+            if percent is None:
+                tracked_parts.append(f"{row['label']} {row['count']}")
+            else:
+                tracked_parts.append(f"{row['label']} {row['count']} ({percent:.2f}%)")
+        text = self._format_template(
+            "session",
+            "{resets} resets, {seeds} seeds found ({seed_rate}%) | Tracked Items: {items}",
+            resets=rerolls,
+            seeds=seeds_found,
+            seed_rate=seed_rate,
+            items=", ".join(tracked_parts) if tracked_parts else "None",
+        ).strip()
         if len(text) > 450:
             text = text[:447] + "..."
         self._send_chat(channel, text)

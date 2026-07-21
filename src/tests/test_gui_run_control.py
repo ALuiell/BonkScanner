@@ -22,6 +22,7 @@ import gui_layout
 import gui_overlay
 import gui_run_control
 import gui_scanner
+from session_stats import SessionStats
 from ui import shared as gui_shared
 from ui import styles as gui_styles
 import infra.process as infra_process
@@ -307,12 +308,17 @@ def build_overlay_test_component(*, template_stats=None, session_rerolls: int = 
         overlay_state_store=state_store,
         rebuild_overlay_server=lambda **kwargs: FakeOverlayServer(port=kwargs["port"]),
     )
+    session_stats = SessionStats(
+        tracker,
+        template_stats=lambda: template_stats or {},
+        rerolls=lambda: session_rerolls,
+        snapshot_tracked_item_config=lambda: config.TWITCH_BOT,
+    )
     overlay = gui_overlay.Overlay(
         coordinator,
+        session_stats=session_stats,
         stats_tab=lambda: None,
         stats_tracked_items_label=lambda: None,
-        template_stats=lambda: template_stats or {},
-        session_rerolls=lambda: session_rerolls,
         overlay_tab_active=lambda: True,
         server_rebuilt=lambda _server: None,
     )
@@ -1643,8 +1649,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.template_stats = {"Perfect": {"rerolls_since_last": 2, "history": []}}
         app.after = lambda _delay, callback: callback()
         app.log = lambda _message, tag=None: None
-        refreshed_twitch_snapshots = []
-        app._refresh_twitch_session_snapshot = lambda: refreshed_twitch_snapshots.append(
+        refreshed_session_snapshots = []
+        app._refresh_session_stats_snapshot = lambda: refreshed_session_snapshots.append(
             app.session_rerolls
         )
         app.best_map_stats = None
@@ -1660,7 +1666,7 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertEqual(config.user_config["TOTAL_REROLLS"], 11)
                 save_config.assert_not_called()
                 self.assertTrue(app._total_rerolls_dirty)
-                self.assertEqual(refreshed_twitch_snapshots, [4])
+                self.assertEqual(refreshed_session_snapshots, [4])
 
                 MegabonkApp._flush_total_rerolls(app, force=True)
                 save_config.assert_called_once_with(config.user_config)
@@ -5323,7 +5329,7 @@ class GuiRunControlTests(unittest.TestCase):
             "template_a": {"history": [1, 2]},
             "template_b": {"history": [3, 4]},
         })
-        component.live_run_tracker = SimpleNamespace(
+        tracker = SimpleNamespace(
             tracked_item_rows_for_rules=lambda _rules: [
                 {
                     "id": "kevin_plug",
@@ -5333,8 +5339,12 @@ class GuiRunControlTests(unittest.TestCase):
                 }
             ]
         )
+        component.live_run_tracker = tracker
+        component.session_stats._tracker = tracker
 
-        text = component.format_session_tracked_items_for_stats_tab()
+        text = gui_overlay.format_tracked_item_rows_for_stats_tab(
+            component.session_stats.session_tracked_item_stat_rows()
+        )
 
         self.assertEqual(text, "Kevin + Electric Plug T1: 2 (50.00%)")
 

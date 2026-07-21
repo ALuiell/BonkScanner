@@ -197,9 +197,9 @@ class FakeRevokeWorker:
 
 
 class FakeBotWorker:
-    def __init__(self, tracker=None, provider=None) -> None:
+    def __init__(self, tracker=None, session_snapshot=None) -> None:
         self.tracker = tracker
-        self.provider = provider
+        self.session_snapshot = session_snapshot
         self.status_updated = FakeSignal()
         self.log_message = FakeSignal()
         self.finished = FakeSignal()
@@ -247,7 +247,7 @@ def build_session(
     *,
     tab=None,
     tracker=None,
-    provider=None,
+    session_snapshot=None,
     validation_result=None,
     validation_running=False,
     revoke_outcome=None,
@@ -266,8 +266,8 @@ def build_session(
         calls["auth_threads"].append(thread)
         return thread
 
-    def bot_worker_factory(t, p):
-        worker = FakeBotWorker(t, p)
+    def bot_worker_factory(tracker_arg, snapshot_arg):
+        worker = FakeBotWorker(tracker_arg, snapshot_arg)
         calls["bot_workers"].append(worker)
         return worker
 
@@ -293,7 +293,7 @@ def build_session(
         view=tab,
         log=lambda message, tag=None: logs.append((message, tag)),
         tracker=lambda: tracker,
-        session_stats_provider=lambda: provider,
+        session_snapshot=session_snapshot,
         timer_factory=lambda: timer,
         auth_thread_factory=auth_thread_factory,
         bot_worker_factory=bot_worker_factory,

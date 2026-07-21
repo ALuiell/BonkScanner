@@ -389,48 +389,29 @@ class TwitchSessionTests(unittest.TestCase):
 
     # -- bot lifecycle ----------------------------------------------------
 
-    def test_composition_root_passes_the_explicit_session_stats_owner(self) -> None:
-        provider = SimpleNamespace(format_twitch_session_summary=lambda: "summary")
+    def test_composition_root_passes_the_session_snapshot_callback(self) -> None:
+        snapshot = lambda: {"rerolls": 1, "seeds_found": 1, "tracked_rows": ()}
         app = SimpleNamespace(window=None)
 
         with patch.object(gui_twitch, "QTimer", lambda _parent=None: FakeTimer()):
             session = gui_twitch.build_twitch_session(
                 app,
                 FakeTab(),
-                session_stats_provider=provider,
+                session_snapshot=snapshot,
             )
 
-        self.assertIs(session._session_stats_provider(), provider)
-        self.assertTrue(
-            callable(
-                getattr(
-                    session._session_stats_provider(),
-                    "format_twitch_session_summary",
-                    None,
-                )
-            )
-        )
+        self.assertIs(session._session_snapshot, snapshot)
 
-    def test_starting_the_bot_hands_the_worker_the_tracker_and_the_provider(self) -> None:
-        """The `!session` coupling, pinned.
-
-        `TwitchBotWorker` finds `format_twitch_session_summary` on whatever it
-        is given. If the provider ever became the session or the tab, the
-        command would answer empty with no exception -- so what arrives here is
-        asserted rather than assumed.
-        """
+    def test_starting_the_bot_hands_worker_tracker_and_snapshot_callback(self) -> None:
         tracker = object()
-        provider = SimpleNamespace(format_twitch_session_summary=lambda: "summary")
-        harness = build_session(tracker=tracker, provider=provider)
+        snapshot = lambda: {"rerolls": 1, "seeds_found": 1, "tracked_rows": ()}
+        harness = build_session(tracker=tracker, session_snapshot=snapshot)
 
         harness.session._start_bot_worker()
 
         worker = harness.calls["bot_workers"][0]
         self.assertIs(worker.tracker, tracker)
-        self.assertIs(worker.provider, provider)
-        self.assertTrue(
-            callable(getattr(worker.provider, "format_twitch_session_summary", None))
-        )
+        self.assertIs(worker.session_snapshot, snapshot)
         self.assertIn(("show_bot_running",), harness.tab.calls)
 
     def test_starting_the_bot_twice_does_not_replace_a_running_worker(self) -> None:

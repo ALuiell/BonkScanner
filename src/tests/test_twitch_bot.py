@@ -208,16 +208,23 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         TWITCH_BOT["templates"] = old_templates
 
-    def test_handle_session_uses_session_stats_provider(self):
-        provider = SimpleNamespace(format_twitch_session_summary=lambda: "328 resets, 17 seeds found (5.18%)")
-        bot = TwitchBotWorker(self.run_tracker, session_stats_provider=provider)
+    def test_handle_session_formats_the_session_snapshot(self):
+        snapshot = lambda: {
+            "rerolls": 328,
+            "seeds_found": 17,
+            "tracked_rows": (),
+        }
+        bot = TwitchBotWorker(self.run_tracker, session_snapshot=snapshot)
         bot._send_chat = MagicMock()
 
         bot._handle_session("channel")
 
-        bot._send_chat.assert_called_once_with("channel", "328 resets, 17 seeds found (5.18%)")
+        bot._send_chat.assert_called_once_with(
+            "channel",
+            "328 resets, 17 seeds found (5.18%) | Tracked Items: None",
+        )
 
-    def test_handle_session_without_provider(self):
+    def test_handle_session_without_snapshot_callback(self):
         self.bot._send_chat = MagicMock()
 
         self.bot._handle_session("channel")

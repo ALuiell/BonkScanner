@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 from typing import Any, Callable
 
 from PySide6.QtCore import Qt
@@ -54,52 +53,10 @@ from projections.tracked_items import (
 from live_run_tracker import TrackedItemRule
 from app.coordinator import AppCoordinator
 from projections.obs import build_overlay_state
+from projections.session_stats import format_tracked_item_rows_for_stats_tab
 from core.stats.types import PLAYER_STAT_GROUPS
-
-
-def tracked_item_rules_from_config(rule_config: dict[str, Any]) -> tuple[TrackedItemRule, ...]:
-    """Rules out of any of the three tracked-item config blocks.
-
-    Overlay, Session Stats and Twitch all store the same rule shape, which is
-    why the three former `OverlayMixin` readers were one implementation behind
-    two aliases that called it class-qualified. Kept here rather than in
-    `projections/tracked_items.py` because `TrackedItemRule` still lives in the
-    top-level `live_run_tracker` module, and `projections/` may import `core/`
-    only.
-    """
-    rules: list[TrackedItemRule] = []
-    for raw_rule in rule_config.get("tracked_items") or ():
-        if not isinstance(raw_rule, dict):
-            continue
-        item_names = tuple(str(name) for name in raw_rule.get("item_names") or () if str(name).strip())
-        if not item_names:
-            continue
-        rules.append(
-            TrackedItemRule(
-                id=str(raw_rule.get("id") or "_".join(item_names).lower()),
-                label=str(raw_rule.get("label") or ", ".join(item_names)),
-                item_names=item_names,
-                mode=str(raw_rule.get("mode") or "all_run"),
-                before_stage=_coerce_optional_int(raw_rule.get("before_stage")),
-                before_seconds=_coerce_optional_float(raw_rule.get("before_seconds")),
-                max_copies=_coerce_optional_int(raw_rule.get("max_copies")),
-            )
-        )
-    return tuple(rules)
-
-
-def _coerce_optional_int(value: Any) -> int | None:
-    try:
-        return int(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _coerce_optional_float(value: Any) -> float | None:
-    try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
+from session_stats import SessionStats
+from tracked_item_rules import tracked_item_rules_from_config
 
 
 OVERLAY_WIDGET_LABELS = {
@@ -124,18 +81,16 @@ class Overlay:
         self,
         coordinator: AppCoordinator,
         *,
+        session_stats: SessionStats,
         stats_tab: Callable[[], QWidget | None],
         stats_tracked_items_label: Callable[[], Any],
-        template_stats: Callable[[], dict[str, Any]],
-        session_rerolls: Callable[[], int],
         overlay_tab_active: Callable[[], bool],
         server_rebuilt: Callable[[Any], None],
     ) -> None:
         self.coordinator = coordinator
+        self.session_stats = session_stats
         self._stats_tab = stats_tab
         self._stats_tracked_items_label = stats_tracked_items_label
-        self._template_stats = template_stats
-        self._session_rerolls = session_rerolls
         self._overlay_tab_active = overlay_tab_active
         self._server_rebuilt = server_rebuilt
 
@@ -173,12 +128,6 @@ class Overlay:
         self.session_tracked_rules_list = None
         self.session_remove_tracked_item_btn = None
 
-        self._twitch_session_snapshot = {
-            "rerolls": 0,
-            "seeds_found": 0,
-            "tracked_rows": (),
-        }
-        self._twitch_session_snapshot_lock = threading.Lock()
         self.overlay_state_store.set_state(
             build_overlay_state(self.live_run_tracker, self._effective_overlay_config())
         )
@@ -190,14 +139,6 @@ class Overlay:
     @property
     def stats_tracked_items_label(self):
         return self._stats_tracked_items_label()
-
-    @property
-    def template_stats(self):
-        return self._template_stats()
-
-    @property
-    def session_rerolls(self):
-        return self._session_rerolls()
 
     def _is_overlay_tab_active(self) -> bool:
         return self._overlay_tab_active()
@@ -1102,109 +1043,13 @@ class Overlay:
         label = getattr(self, "stats_tracked_items_label", None)
         if label is None or self.live_run_tracker is None:
             return
-        text = self.format_session_tracked_items_for_stats_tab()
+        text = format_tracked_item_rows_for_stats_tab(
+            self.session_stats.session_tracked_item_stat_rows()
+        )
         if not text:
             _set_text(label, "No tracked items configured")
             return
         _set_text(label, text)
-
-    def session_found_seed_count(self) -> int:
-        count = 0
-        for data in getattr(self, "template_stats", {}).values():
-            if not isinstance(data, dict):
-                continue
-            history = data.get("history")
-            if isinstance(history, (list, tuple)):
-                count += len(history)
-        return count
-
-    def session_tracked_item_stat_rows(self) -> list[dict[str, Any]]:
-        return self._tracked_item_stat_rows_for_rules(
-            tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
-        )
-
-    def twitch_tracked_item_stat_rows(self) -> list[dict[str, Any]]:
-        return self._tracked_item_stat_rows_for_rules(self._effective_twitch_tracked_item_rules())
-
-    def _tracked_item_stat_rows_for_rules(self, rules: tuple[TrackedItemRule, ...]) -> list[dict[str, Any]]:
-        if self.live_run_tracker is None:
-            return []
-        rows = self.live_run_tracker.tracked_item_rows_for_rules(rules)
-        seed_count = self.session_found_seed_count()
-        formatted_rows: list[dict[str, Any]] = []
-        for row in rows:
-            count = int(row.get("count") or 0)
-            percent = (count / seed_count * 100.0) if seed_count > 0 else None
-            formatted_rows.append(
-                {
-                    "label": tracked_item_command_label(row),
-                    "count": count,
-                    "percent": percent,
-                }
-            )
-        return formatted_rows
-
-    def format_session_tracked_items_for_stats_tab(self) -> str:
-        rows = self.session_tracked_item_stat_rows()
-        if not rows:
-            return ""
-        parts = []
-        for row in rows:
-            percent = row.get("percent")
-            if percent is None:
-                parts.append(f"{row['label']}: {row['count']}")
-            else:
-                parts.append(f"{row['label']}: {row['count']} ({percent:.2f}%)")
-        return " | ".join(parts)
-
-    def format_twitch_session_summary(self) -> str:
-        snapshot = self.get_twitch_session_snapshot()
-        rerolls = max(0, int(snapshot.get("rerolls", 0) or 0))
-        seeds_found = max(0, int(snapshot.get("seeds_found", 0) or 0))
-        seed_rate = f"{(seeds_found / rerolls * 100.0) if rerolls > 0 else 0.0:.2f}"
-
-        tracked_parts = []
-        for row in snapshot.get("tracked_rows", ()):
-            percent = row.get("percent")
-            if percent is None:
-                tracked_parts.append(f"{row['label']} {row['count']}")
-            else:
-                tracked_parts.append(f"{row['label']} {row['count']} ({percent:.2f}%)")
-
-        items_str = ", ".join(tracked_parts) if tracked_parts else "None"
-
-        from app import config
-        tpl = config.TWITCH_BOT.get("templates", {}).get(
-            "session", "{resets} resets, {seeds} seeds found ({seed_rate}%) | Tracked Items: {items}"
-        )
-        try:
-            return tpl.format(resets=rerolls, seeds=seeds_found, seed_rate=seed_rate, items=items_str)
-        except Exception:
-            return f"{rerolls} resets, {seeds_found} seeds found ({seed_rate}%) | Tracked Items: {items_str}"
-
-    def _refresh_twitch_session_snapshot(self) -> None:
-        rows = tuple(dict(row) for row in self.twitch_tracked_item_stat_rows())
-        snapshot = {
-            "rerolls": max(0, int(getattr(self, "session_rerolls", 0) or 0)),
-            "seeds_found": max(0, int(self.session_found_seed_count())),
-            "tracked_rows": rows,
-        }
-        lock = getattr(self, "_twitch_session_snapshot_lock", None)
-        if lock is None:
-            self._twitch_session_snapshot = snapshot
-            return
-        with lock:
-            self._twitch_session_snapshot = snapshot
-
-    def get_twitch_session_snapshot(self) -> dict[str, Any]:
-        lock = getattr(self, "_twitch_session_snapshot_lock", None)
-        if lock is None:
-            return dict(getattr(self, "_twitch_session_snapshot", {}))
-        with lock:
-            snapshot = dict(self._twitch_session_snapshot)
-            snapshot["tracked_rows"] = tuple(dict(row) for row in snapshot.get("tracked_rows", ()))
-            return snapshot
-
 
     def add_session_tracked_item(self) -> None:
         item_names = self._selected_session_item_names()
@@ -1420,11 +1265,6 @@ class Overlay:
             return tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
         return tracked_item_rules_from_config(config.OVERLAY)
 
-    def _effective_twitch_tracked_item_rules(self) -> tuple[TrackedItemRule, ...]:
-        if uses_session_tracked_items(config.TWITCH_BOT, default="custom"):
-            return tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
-        return tracked_item_rules_from_config(config.TWITCH_BOT)
-
     def _effective_overlay_config(self) -> dict[str, Any]:
         overlay = dict(config.OVERLAY)
         if uses_session_tracked_items(overlay, default="custom"):
@@ -1443,14 +1283,13 @@ def combined_tracked_item_rules() -> tuple[TrackedItemRule, ...]:
     return tuple(combined.values())
 
 
-def build_overlay(app: Any, coordinator: AppCoordinator) -> Overlay:
+def build_overlay(app: Any, coordinator: AppCoordinator, session_stats: SessionStats) -> Overlay:
     """Wire the overlay to its measured owners without giving it the app."""
     return Overlay(
         coordinator,
+        session_stats=session_stats,
         stats_tab=lambda: app.tab_stats,
         stats_tracked_items_label=lambda: app.stats_tracked_items_label,
-        template_stats=lambda: app.template_stats,
-        session_rerolls=lambda: app.session_rerolls,
         overlay_tab_active=lambda: app._is_overlay_tab_active(),
         server_rebuilt=lambda server: setattr(app, "overlay_server", server),
     )

@@ -21,21 +21,12 @@ concern, so the factories close over it and the word `window` does not occur in
 this file. That is step 23's third exit criterion, and it is checked
 structurally by `test_twitch_component.py` rather than by reading.
 
-`session_stats_provider` is the explicit session-summary owner
----------------------------------------------------------------
-`TwitchBotWorker` answers `!session` by doing
-`getattr(self.session_stats_provider, "format_twitch_session_summary", None)`
-in its worker thread (`twitch_bot.py:377`). That formatter is owned by the
-explicit `gui_overlay.Overlay` session-stats provider
-(`gui_overlay.py:1048`), not Twitch's, and it reads a snapshot that
-`gui_overlay` writes and `gui_scanner` triggers -- not one line of which was
-ever in `gui_twitch.py`. Measured, not assumed by name.
-
-The provider cannot become this object: the `getattr` would return `None`,
-`!session` would answer with nothing, and it would do so with no exception and
-a green suite. Step 24 therefore gives the snapshot and formatter one owner,
-`gui_overlay.Overlay`, and the composition root supplies that object directly;
-the application is no longer exposed through this port.
+`session_snapshot` is the command's narrow read port
+----------------------------------------------------
+Session-wide counters belong to the independent `session_stats.SessionStats`
+read model. The bot receives only its snapshot callback; `TwitchBotWorker`
+owns the Twitch-specific template and chat formatting. Neither the OBS overlay
+nor the in-game overlay participates in this path.
 """
 
 from __future__ import annotations
@@ -59,7 +50,7 @@ class TwitchSession:
         view,
         log: Callable[..., None],
         tracker: Callable[[], Any],
-        session_stats_provider: Callable[[], Any],
+        session_snapshot: Callable[[], dict[str, Any]],
         timer_factory: Callable[[], Any],
         auth_thread_factory: Callable[[], Any],
         bot_worker_factory: Callable[[Any, Any], Any],
@@ -74,7 +65,7 @@ class TwitchSession:
         self._view = view
         self._log = log
         self._tracker = tracker
-        self._session_stats_provider = session_stats_provider
+        self._session_snapshot = session_snapshot
         self._auth_thread_factory = auth_thread_factory
         self._bot_worker_factory = bot_worker_factory
         self._validation_worker_factory = validation_worker_factory
@@ -233,7 +224,7 @@ class TwitchSession:
 
         self._bot_worker = self._bot_worker_factory(
             self._tracker(),
-            self._session_stats_provider(),
+            self._session_snapshot,
         )
         self._bot_worker.status_updated.connect(self.on_bot_status)
         self._bot_worker.log_message.connect(self.on_bot_log)
