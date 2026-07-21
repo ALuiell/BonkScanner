@@ -268,12 +268,41 @@ class FakeOverlayTimer:
     def __init__(self) -> None:
         self.start_calls = 0
         self.stop_calls = 0
+        self.interval = None
+        self.callback = None
+        self.timeout = SimpleNamespace(connect=self._connect)
+
+    def _connect(self, callback) -> None:
+        self.callback = callback
+
+    def setInterval(self, interval: int) -> None:
+        self.interval = interval
 
     def start(self) -> None:
         self.start_calls += 1
 
     def stop(self) -> None:
         self.stop_calls += 1
+
+
+def build_in_game_overlay_test_component(
+    *,
+    tracker=None,
+    is_scanning=lambda: False,
+    is_recording=lambda: False,
+    is_game_window_active=lambda _process_name: False,
+    find_game_window=None,
+):
+    return gui_in_game_overlay.InGameOverlay(
+        tracker=lambda: tracker,
+        is_scanning=is_scanning,
+        is_recording=is_recording,
+        is_game_window_active=is_game_window_active,
+        find_game_window=find_game_window,
+        schedule=lambda callback: callback(),
+        schedule_idle=lambda _callback: None,
+        timer_factory=FakeOverlayTimer,
+    )
 
 
 class FakeInGameOverlayWindow:
@@ -767,6 +796,7 @@ class GuiRunControlTests(unittest.TestCase):
         player_stats_memory(app).read_player_stats_runtime_game_state = lambda: _runtime_state
         player_stats_memory(app).read_player_stats_runtime_activity_state = lambda: _runtime_state
         app._is_live_stats_tab_active = lambda: True
+        app._is_twitch_bot_active = lambda: False
         app.log_messages = []
         app.log = lambda message, tag=None: app.log_messages.append((message, tag))
         # A real tracker keeps the update -> runtime_snapshot round trip honest:
@@ -5282,48 +5312,41 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(text, "Kevin + Electric Plug T1: 2 (50.00%)")
 
     def test_apply_in_game_overlay_settings_stops_without_restarting_overlay(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
-        app.overlay_fast_timer = FakeOverlayTimer()
-        app.overlay_slow_timer = FakeOverlayTimer()
+        overlay = build_in_game_overlay_test_component()
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
         status_updates: list[str] = []
-        app._update_igo_status_ui = lambda: status_updates.append("status")
-        app._overlay_fast_tick = lambda: status_updates.append("fast")
-        app._overlay_slow_tick = lambda: status_updates.append("slow")
+        overlay._update_igo_status_ui = lambda: status_updates.append("status")
+        overlay._overlay_fast_tick = lambda: status_updates.append("fast")
+        overlay._overlay_slow_tick = lambda: status_updates.append("slow")
 
         overlay_cfg = {"enabled": False, "widgets": {}}
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            MegabonkApp.apply_in_game_overlay_settings(app)
+            overlay.apply_in_game_overlay_settings()
 
-        self.assertEqual(app.in_game_overlay_window.hide_calls, 1)
-        self.assertEqual(app.overlay_fast_timer.stop_calls, 1)
-        self.assertEqual(app.overlay_slow_timer.stop_calls, 1)
+        self.assertEqual(overlay.in_game_overlay_window.hide_calls, 1)
+        self.assertEqual(overlay.overlay_fast_timer.stop_calls, 1)
+        self.assertEqual(overlay.overlay_slow_timer.stop_calls, 1)
         self.assertEqual(status_updates, ["status"])
 
     def test_apply_in_game_overlay_settings_restarts_runtime_when_edit_mode_left_window_visible(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True, edit_mode=True)
-        app.in_game_overlay_window.widgets = {}
-        app.overlay_fast_timer = FakeOverlayTimer()
-        app.overlay_slow_timer = FakeOverlayTimer()
+        overlay = build_in_game_overlay_test_component()
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True, edit_mode=True)
+        overlay.in_game_overlay_window.widgets = {}
         status_updates: list[str] = []
-        app._update_igo_status_ui = lambda: status_updates.append("status")
-        app._overlay_fast_tick = lambda: status_updates.append("fast")
-        app._overlay_slow_tick = lambda: status_updates.append("slow")
+        overlay._update_igo_status_ui = lambda: status_updates.append("status")
+        overlay._overlay_fast_tick = lambda: status_updates.append("fast")
+        overlay._overlay_slow_tick = lambda: status_updates.append("slow")
 
         overlay_cfg = {"enabled": True, "widgets": {}}
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            MegabonkApp.apply_in_game_overlay_settings(app)
+            overlay.apply_in_game_overlay_settings()
 
-        self.assertEqual(app.overlay_fast_timer.start_calls, 1)
-        self.assertEqual(app.overlay_slow_timer.start_calls, 1)
+        self.assertEqual(overlay.overlay_fast_timer.start_calls, 1)
+        self.assertEqual(overlay.overlay_slow_timer.start_calls, 1)
         self.assertEqual(status_updates, ["fast", "slow", "status"])
 
     def test_overlay_fast_tick_hides_disabled_overlay_even_if_game_is_active(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
-        app.is_game_window_active = lambda _process_name: True
-        app.live_run_tracker = SimpleNamespace(
+        tracker = SimpleNamespace(
             runtime_snapshot=lambda: SimpleNamespace(
                 latest_snapshot=None,
                 kps={},
@@ -5333,6 +5356,11 @@ class GuiRunControlTests(unittest.TestCase):
                 graveyard_main_map_events_active=False,
             )
         )
+        overlay = build_in_game_overlay_test_component(
+            tracker=tracker,
+            is_game_window_active=lambda _process_name: True,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
 
         overlay_cfg = {
             "enabled": False,
@@ -5342,16 +5370,13 @@ class GuiRunControlTests(unittest.TestCase):
             },
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            MegabonkApp._overlay_fast_tick(app)
+            overlay._overlay_fast_tick()
 
-        self.assertEqual(app.in_game_overlay_window.hide_calls, 1)
-        self.assertFalse(app.in_game_overlay_window.isVisible())
+        self.assertEqual(overlay.in_game_overlay_window.hide_calls, 1)
+        self.assertFalse(overlay.in_game_overlay_window.isVisible())
 
     def test_overlay_fast_tick_syncs_geometry_before_showing_game_overlay(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
-        app.is_game_window_active = lambda _process_name: True
-        app.live_run_tracker = SimpleNamespace(
+        tracker = SimpleNamespace(
             runtime_snapshot=lambda: SimpleNamespace(
                 latest_snapshot=None,
                 kps={},
@@ -5361,6 +5386,11 @@ class GuiRunControlTests(unittest.TestCase):
                 graveyard_main_map_events_active=False,
             )
         )
+        overlay = build_in_game_overlay_test_component(
+            tracker=tracker,
+            is_game_window_active=lambda _process_name: True,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
 
         overlay_cfg = {
             "enabled": True,
@@ -5370,24 +5400,14 @@ class GuiRunControlTests(unittest.TestCase):
             },
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            MegabonkApp._overlay_fast_tick(app)
+            overlay._overlay_fast_tick()
 
-        self.assertEqual(app.in_game_overlay_window.sync_calls, 1)
-        self.assertEqual(app.in_game_overlay_window.show_calls, 1)
+        self.assertEqual(overlay.in_game_overlay_window.sync_calls, 1)
+        self.assertEqual(overlay.in_game_overlay_window.show_calls, 1)
 
     def test_overlay_fast_tick_refreshes_slow_widgets_when_overlay_becomes_visible(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
         scanner_widget = SimpleNamespace(set_text=MagicMock())
-        app.in_game_overlay_window.widgets = {
-            "scanner": scanner_widget,
-            "recording": SimpleNamespace(set_text=MagicMock()),
-            "luck_rarity": SimpleNamespace(set_text=MagicMock()),
-            "kps": SimpleNamespace(set_text=MagicMock()),
-            "powerups": SimpleNamespace(set_text=MagicMock(), setVisible=MagicMock()),
-        }
-        app.is_game_window_active = lambda _process_name: True
-        app.live_run_tracker = SimpleNamespace(
+        tracker = SimpleNamespace(
             runtime_snapshot=lambda: SimpleNamespace(
                 latest_snapshot=None,
                 kps={},
@@ -5397,9 +5417,19 @@ class GuiRunControlTests(unittest.TestCase):
                 graveyard_main_map_events_active=False,
             )
         )
-        app.scanner_thread = FakeAliveThread()
-        app.player_stats_vod_recorder = None
-
+        overlay = build_in_game_overlay_test_component(
+            tracker=tracker,
+            is_scanning=lambda: True,
+            is_game_window_active=lambda _process_name: True,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
+        overlay.in_game_overlay_window.widgets = {
+            "scanner": scanner_widget,
+            "recording": SimpleNamespace(set_text=MagicMock()),
+            "luck_rarity": SimpleNamespace(set_text=MagicMock()),
+            "kps": SimpleNamespace(set_text=MagicMock()),
+            "powerups": SimpleNamespace(set_text=MagicMock(), setVisible=MagicMock()),
+        }
         overlay_cfg = {
             "enabled": True,
             "widgets": {
@@ -5411,27 +5441,29 @@ class GuiRunControlTests(unittest.TestCase):
             },
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            became_visible = MegabonkApp._overlay_fast_tick(app)
+            became_visible = overlay._overlay_fast_tick()
 
         self.assertTrue(became_visible)
         scanner_widget.set_text.assert_called_once()
 
     def test_in_game_overlay_target_geometry_uses_game_window_rect(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.find_game_window = lambda _process_name: 321
-        app.in_game_overlay_window = FakeInGameOverlayWindow()
+        overlay = build_in_game_overlay_test_component(
+            find_game_window=lambda _process_name: 321,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow()
 
         fake_win32gui = SimpleNamespace(GetWindowRect=lambda _window: (100, 200, 740, 680))
         with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui):
-            rect = MegabonkApp._in_game_overlay_target_geometry(app)
+            rect = overlay._in_game_overlay_target_geometry()
 
         self.assertIsInstance(rect, QRect)
         self.assertEqual(rect, QRect(100, 200, 640, 480))
 
     def test_in_game_overlay_target_geometry_prefers_game_client_area(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.find_game_window = lambda _process_name: 321
-        app.in_game_overlay_window = FakeInGameOverlayWindow()
+        overlay = build_in_game_overlay_test_component(
+            find_game_window=lambda _process_name: 321,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow()
 
         fake_win32gui = SimpleNamespace(
             GetWindowRect=lambda _window: (90, 170, 750, 690),
@@ -5439,17 +5471,18 @@ class GuiRunControlTests(unittest.TestCase):
             ClientToScreen=lambda _window, point: (100 + point[0], 200 + point[1]),
         )
         with patch.object(gui_in_game_overlay, "win32gui", fake_win32gui):
-            rect = MegabonkApp._in_game_overlay_target_geometry(app)
+            rect = overlay._in_game_overlay_target_geometry()
 
         self.assertEqual(rect, QRect(100, 200, 640, 480))
 
     def test_in_game_overlay_target_geometry_returns_none_without_game_window_outside_edit_mode(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.find_game_window = lambda _process_name: None
-        app.in_game_overlay_window = FakeInGameOverlayWindow(edit_mode=False)
+        overlay = build_in_game_overlay_test_component(
+            find_game_window=lambda _process_name: None,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(edit_mode=False)
 
         with patch.object(gui_in_game_overlay, "win32gui", SimpleNamespace()):
-            rect = MegabonkApp._in_game_overlay_target_geometry(app)
+            rect = overlay._in_game_overlay_target_geometry()
 
         self.assertIsNone(rect)
 
@@ -5468,7 +5501,7 @@ class GuiRunControlTests(unittest.TestCase):
             powerup_multiplier_display="1x",
         )
 
-        html = gui_in_game_overlay.InGameOverlayMixin._build_powerups_overlay_html(
+        html = gui_in_game_overlay.build_powerups_overlay_html(
             snapshot,
             current_run_time_seconds=80.0,
         )
@@ -5484,7 +5517,7 @@ class GuiRunControlTests(unittest.TestCase):
             },
         )
 
-        html = gui_in_game_overlay.InGameOverlayMixin._build_luck_rarity_overlay_html(snapshot)
+        html = gui_in_game_overlay.build_luck_rarity_overlay_html(snapshot)
 
         self.assertIn("#FACC15", html)
         self.assertIn("#E879F9", html)
@@ -5497,14 +5530,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_overlay_slow_tick_updates_luck_rarity_widget_from_latest_snapshot(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())
-        app = object.__new__(MegabonkApp)
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
-        app.in_game_overlay_window.widgets = {
-            "scanner": SimpleNamespace(set_text=MagicMock()),
-            "recording": SimpleNamespace(set_text=MagicMock()),
-            "luck_rarity": widget,
-        }
-        app.live_run_tracker = SimpleNamespace(
+        tracker = SimpleNamespace(
             runtime_snapshot=lambda: SimpleNamespace(
                 latest_snapshot=SimpleNamespace(
                     stats={"Luck": SimpleNamespace(value=1.0, display_value="100%")}
@@ -5516,8 +5542,13 @@ class GuiRunControlTests(unittest.TestCase):
                 graveyard_main_map_events_active=False,
             )
         )
-        app.scanner_thread = None
-        app.player_stats_vod_recorder = None
+        overlay = build_in_game_overlay_test_component(tracker=tracker)
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.widgets = {
+            "scanner": SimpleNamespace(set_text=MagicMock()),
+            "recording": SimpleNamespace(set_text=MagicMock()),
+            "luck_rarity": widget,
+        }
 
         overlay_cfg = {
             "widgets": {
@@ -5527,7 +5558,7 @@ class GuiRunControlTests(unittest.TestCase):
             },
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            MegabonkApp._overlay_slow_tick(app)
+            overlay._overlay_slow_tick()
 
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]
@@ -5538,12 +5569,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_overlay_fast_tick_uses_fast_stage_timer_context_for_event_timer(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())
-        app = object.__new__(MegabonkApp)
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
-        app.in_game_overlay_window.widgets = {
-            "event_timer": widget,
-        }
-        app.live_run_tracker = SimpleNamespace(
+        tracker = SimpleNamespace(
             runtime_snapshot=lambda: SimpleNamespace(
                 latest_snapshot=SimpleNamespace(
                 stage_index=0,
@@ -5561,8 +5587,13 @@ class GuiRunControlTests(unittest.TestCase):
             graveyard_main_map_events_active=False,
             )
         )
-        app.is_game_window_active = lambda _process_name: True
-        app._refresh_in_game_overlay_slow_widgets = lambda: None
+        overlay = build_in_game_overlay_test_component(
+            tracker=tracker,
+            is_game_window_active=lambda _process_name: True,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.widgets = {"event_timer": widget}
+        overlay._refresh_in_game_overlay_slow_widgets = lambda *_args: None
 
         overlay_cfg = {
             "enabled": True,
@@ -5574,7 +5605,7 @@ class GuiRunControlTests(unittest.TestCase):
             },
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            MegabonkApp._overlay_fast_tick(app)
+            overlay._overlay_fast_tick()
 
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]
@@ -5582,10 +5613,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_overlay_fast_tick_preserves_graveyard_stage_duration_for_event_timer(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())
-        app = object.__new__(MegabonkApp)
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
-        app.in_game_overlay_window.widgets = {"event_timer": widget}
-        app.live_run_tracker = SimpleNamespace(
+        tracker = SimpleNamespace(
             runtime_snapshot=lambda: SimpleNamespace(
                 latest_snapshot=SimpleNamespace(
                     stage_index=2,
@@ -5603,8 +5631,13 @@ class GuiRunControlTests(unittest.TestCase):
                 graveyard_main_map_events_active=True,
             )
         )
-        app.is_game_window_active = lambda _process_name: True
-        app._refresh_in_game_overlay_slow_widgets = lambda: None
+        overlay = build_in_game_overlay_test_component(
+            tracker=tracker,
+            is_game_window_active=lambda _process_name: True,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.widgets = {"event_timer": widget}
+        overlay._refresh_in_game_overlay_slow_widgets = lambda *_args: None
 
         overlay_cfg = {
             "enabled": True,
@@ -5616,19 +5649,14 @@ class GuiRunControlTests(unittest.TestCase):
             },
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            MegabonkApp._overlay_fast_tick(app)
+            overlay._overlay_fast_tick()
 
         rendered_html = widget.set_text.call_args.args[0]
         self.assertIn("Boss at 13:00", rendered_html)
 
     def test_overlay_fast_tick_shows_event_timer_preview_in_edit_mode(self) -> None:
         widget = SimpleNamespace(set_text=MagicMock())
-        app = object.__new__(MegabonkApp)
-        app.in_game_overlay_window = FakeInGameOverlayWindow(visible=True, edit_mode=True)
-        app.in_game_overlay_window.widgets = {
-            "event_timer": widget,
-        }
-        app.live_run_tracker = SimpleNamespace(
+        tracker = SimpleNamespace(
             runtime_snapshot=lambda: SimpleNamespace(
                 latest_snapshot=None,
                 kps={},
@@ -5638,7 +5666,10 @@ class GuiRunControlTests(unittest.TestCase):
                 graveyard_main_map_events_active=False,
             )
         )
-        app._refresh_in_game_overlay_slow_widgets = lambda: None
+        overlay = build_in_game_overlay_test_component(tracker=tracker)
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True, edit_mode=True)
+        overlay.in_game_overlay_window.widgets = {"event_timer": widget}
+        overlay._refresh_in_game_overlay_slow_widgets = lambda *_args: None
 
         overlay_cfg = {
             "enabled": True,
@@ -5650,7 +5681,7 @@ class GuiRunControlTests(unittest.TestCase):
             },
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            MegabonkApp._overlay_fast_tick(app)
+            overlay._overlay_fast_tick()
 
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]

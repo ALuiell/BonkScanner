@@ -197,8 +197,7 @@ class GuiLayoutMixin:
         # nothing about it moves here: only the call site, hoisted to the
         # builder list it belongs in, in the position that keeps the tab bar's
         # order identical.
-        self._build_in_game_overlay_tab()
-        self.tabview.addTab(self.tab_in_game_overlay, "In-Game Overlay")
+        self.tabview.addTab(self._build_in_game_overlay_tab(), "In-Game Overlay")
         self._build_footer_controls(right_layout)
 
     def _build_header(self, root_layout):

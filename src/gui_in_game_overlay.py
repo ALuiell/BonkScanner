@@ -1,7 +1,35 @@
+"""The in-game overlay component and its composition root.
+
+`InGameOverlayMixin` was seventeen hidden reads -- the second-worst ratio in
+the tree, three assignments against thirty-one reads. Ten of the seventeen were
+its own widgets, written onto it from `gui_in_game_overlay_settings.py`; the
+other seven were four different owners' state discovered through the shared
+`self`: the scanner thread, the VOD recorder, the live-run tracker, the two
+window-focus helpers on `RunControlMixin`, and the Qt scheduler.
+
+`InGameOverlay` takes those seven as constructor ports and owns the ten
+widgets outright, so the class holds no ambient `self` at all. The window, the
+timers and the widget geometry stay where step 24's roadmap entry puts them:
+the window owns its widgets and its layout, this owns the cadence.
+
+**Every port is a supplier, not a value**, the rule steps 20 and 23 both
+follow. `live_run_tracker` is `None` until `initialize_overlay_runtime` runs
+and the scanner thread is replaced on every start, so a value captured at
+construction would freeze what the app had at build time -- which is what the
+mixin's late `self` reads were doing correctly by accident.
+
+The class is not a `MegabonkApp` base. `gui_app.py` keeps thin delegators for
+the three external entries measured before the split: `stop_in_game_overlay`
+(`gui_scanner.py`'s shutdown path, step 25),
+`hotkey_toggle_in_game_overlay_edit` (`gui_run_control.py`'s hotkey binding,
+step 25) and the tab, which `gui_layout.py` adds to the tab bar (step 26).
+"""
 from __future__ import annotations
 
+from typing import Any, Callable
+
 from PySide6.QtCore import QRect, QTimer
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from app import config
 from projections.in_game import project_in_game_overlay
@@ -27,19 +55,64 @@ except Exception:
     win32gui = None
 
 
-class InGameOverlayMixin:
-    def initialize_in_game_overlay_runtime(self) -> None:
-        self.in_game_overlay_window = None
+class InGameOverlay:
+    """The transparent in-game overlay: cadence, edit mode and its settings tab."""
 
-        self.overlay_fast_timer = QTimer()
+    def __init__(
+        self,
+        *,
+        tracker: Callable[[], Any],
+        is_scanning: Callable[[], bool],
+        is_recording: Callable[[], bool],
+        is_game_window_active: Callable[[str], bool],
+        find_game_window: Callable[[str], Any] | None,
+        schedule: Callable[[Callable[[], None]], None],
+        schedule_idle: Callable[[Callable[[], None]], None],
+        widget_settings_dialog: Callable[["InGameOverlay", QWidget | None], Any] = InGameWidgetSettingsDialog,
+        timer_factory: Callable[[], Any] = QTimer,
+    ) -> None:
+        self._tracker = tracker
+        self._is_scanning = is_scanning
+        self._is_recording = is_recording
+        self._is_game_window_active = is_game_window_active
+        self._find_game_window = find_game_window
+        self._schedule = schedule
+        self._schedule_idle = schedule_idle
+        self._widget_settings_dialog = widget_settings_dialog
+
+        # The tab and its nine checkboxes. `build_in_game_overlay_tab` writes
+        # them onto this object; before the split it wrote them onto the app,
+        # which is where ten of the seventeen hidden reads came from. Declared
+        # here so the surface is readable without chasing the builder.
+        self.tab_in_game_overlay: QWidget | None = None
+        self.igo_status_label = None
+        self.igo_toggle_btn = None
+        self.igo_edit_btn = None
+        self.igo_widget_settings_btn = None
+        self.igo_auto_start_cb = None
+        self.igo_scanner_cb = None
+        self.igo_recording_cb = None
+        self.igo_kps_cb = None
+        self.igo_powerups_cb = None
+        self.igo_luck_rarity_cb = None
+        self.igo_stats_cb = None
+        self.igo_event_timer_cb = None
+
+        self.in_game_overlay_window: InGameOverlayWindow | None = None
+
+        self.overlay_fast_timer = timer_factory()
         self.overlay_fast_timer.timeout.connect(self._overlay_fast_tick)
         self.overlay_fast_timer.setInterval(500)
 
-        self.overlay_slow_timer = QTimer()
+        self.overlay_slow_timer = timer_factory()
         self.overlay_slow_timer.timeout.connect(self._overlay_slow_tick)
         self.overlay_slow_timer.setInterval(10000)
 
-        self.after_idle(self._init_in_game_overlay)
+    # -- lifecycle ---------------------------------------------------------
+
+    def start_runtime(self) -> None:
+        """Defer window construction to the idle callback, as the mixin did."""
+        self._schedule_idle(self._init_in_game_overlay)
 
     def _init_in_game_overlay(self) -> None:
         self.in_game_overlay_window = InGameOverlayWindow(self)
@@ -102,10 +175,12 @@ class InGameOverlayMixin:
         self._overlay_slow_tick()
         self._update_igo_status_ui()
 
+    # -- geometry ----------------------------------------------------------
+
     def _in_game_overlay_target_geometry(self) -> QRect | None:
-        if win32gui is not None and hasattr(self, "find_game_window"):
+        if win32gui is not None and self._find_game_window is not None:
             try:
-                game_window = self.find_game_window(config.PROCESS_NAME)
+                game_window = self._find_game_window(config.PROCESS_NAME)
             except Exception:
                 game_window = None
             if game_window:
@@ -132,7 +207,7 @@ class InGameOverlayMixin:
                     if width > 0 and height > 0:
                         return QRect(int(left), int(top), width, height)
 
-        overlay_window = getattr(self, "in_game_overlay_window", None)
+        overlay_window = self.in_game_overlay_window
         if overlay_window is None or not getattr(overlay_window, "edit_mode", False):
             return None
 
@@ -142,7 +217,9 @@ class InGameOverlayMixin:
         return screen.geometry() if screen is not None else None
 
     def hotkey_toggle_in_game_overlay_edit(self) -> None:
-        self.after(0, self._toggle_igo_edit_mode)
+        self._schedule(self._toggle_igo_edit_mode)
+
+    # -- cadence -----------------------------------------------------------
 
     def _overlay_fast_tick(self) -> bool:
         if not self.in_game_overlay_window:
@@ -160,7 +237,7 @@ class InGameOverlayMixin:
             if not self.in_game_overlay_window.isVisible():
                 self.in_game_overlay_window.show()
         else:
-            is_game_active = self.is_game_window_active(config.PROCESS_NAME)
+            is_game_active = self._is_game_window_active(config.PROCESS_NAME)
             if is_game_active:
                 self.in_game_overlay_window.sync_geometry_to_target()
                 if not self.in_game_overlay_window.isVisible():
@@ -172,7 +249,7 @@ class InGameOverlayMixin:
             return False
 
         widgets = self.in_game_overlay_window.widgets
-        runtime_snapshot_reader = getattr(self.live_run_tracker, "runtime_snapshot", None)
+        runtime_snapshot_reader = getattr(self._tracker(), "runtime_snapshot", None)
         runtime_snapshot = (
             runtime_snapshot_reader() if callable(runtime_snapshot_reader) else None
         )
@@ -253,7 +330,7 @@ class InGameOverlayMixin:
 
         if cfg["widgets"]["powerups"]["enabled"]:
             snapshot = projection.powerups
-            html = self._build_powerups_overlay_html(
+            html = build_powerups_overlay_html(
                 snapshot,
                 edit_mode=self.in_game_overlay_window.edit_mode,
             )
@@ -268,28 +345,11 @@ class InGameOverlayMixin:
             self._refresh_in_game_overlay_slow_widgets(projection)
         return became_visible
 
-    @staticmethod
-    def _build_powerups_overlay_html(
-        snapshot,
-        *,
-        edit_mode: bool = False,
-        current_run_time_seconds: float | None = None,
-    ) -> str:
-        return build_powerups_overlay_html(
-            snapshot,
-            edit_mode=edit_mode,
-            current_run_time_seconds=current_run_time_seconds,
-        )
-
-    @staticmethod
-    def _build_luck_rarity_overlay_html(snapshot) -> str:
-        return build_luck_rarity_overlay_html(snapshot)
-
     def _overlay_slow_tick(self) -> None:
         if not self.in_game_overlay_window or not self.in_game_overlay_window.isVisible():
             return
 
-        tracker = self.live_run_tracker
+        tracker = self._tracker()
         runtime_snapshot = tracker.runtime_snapshot() if tracker is not None else None
         projection = project_in_game_overlay(runtime_snapshot) if runtime_snapshot is not None else None
         self._refresh_in_game_overlay_slow_widgets(projection)
@@ -303,15 +363,14 @@ class InGameOverlayMixin:
         widget_cfg = cfg.get("widgets", {})
 
         if widget_cfg.get("scanner", {}).get("enabled", False):
-            is_active = bool(getattr(self, "scanner_thread", None) and self.scanner_thread.is_alive())
-            widgets["scanner"].set_text(build_status_indicator_html("Scanner", is_active))
+            widgets["scanner"].set_text(
+                build_status_indicator_html("Scanner", bool(self._is_scanning()))
+            )
 
         if widget_cfg.get("recording", {}).get("enabled", False):
-            is_recording = bool(
-                getattr(self, "player_stats_vod_recorder", None)
-                and self.player_stats_vod_recorder.is_recording
+            widgets["recording"].set_text(
+                build_status_indicator_html("REC", bool(self._is_recording()))
             )
-            widgets["recording"].set_text(build_status_indicator_html("REC", is_recording))
 
         if widget_cfg.get("luck_rarity", {}).get("enabled", False):
             latest_snapshot = getattr(projection, "latest_snapshot", None) if projection is not None else None
@@ -327,10 +386,14 @@ class InGameOverlayMixin:
                     show_bar=widget_cfg.get("luck_rarity", {}).get("show_bar", True),
                 )
             else:
-                widget.set_text(self._build_luck_rarity_overlay_html(latest_snapshot))
+                widget.set_text(build_luck_rarity_overlay_html(latest_snapshot))
 
-    def _build_in_game_overlay_tab(self) -> None:
+    # -- the settings tab --------------------------------------------------
+
+    def build(self) -> QWidget:
+        """Build the In-Game Overlay tab and return it for the tab bar."""
         build_in_game_overlay_tab(self)
+        return self.tab_in_game_overlay
 
     def _toggle_in_game_overlay(self) -> None:
         cfg = config.IN_GAME_OVERLAY
@@ -375,5 +438,40 @@ class InGameOverlayMixin:
         self._update_igo_status_ui()
 
     def _open_igo_widget_settings_dialog(self) -> None:
-        dialog = InGameWidgetSettingsDialog(self, self.tab_in_game_overlay)
+        dialog = self._widget_settings_dialog(self, self.tab_in_game_overlay)
         dialog.exec()
+
+
+def build_in_game_overlay(app: Any) -> InGameOverlay:
+    """Wire the component to the app, one named port per measured owner.
+
+    Every argument here was a hidden read before the split, and each names the
+    owner the arch metric attributed it to:
+
+    * `tracker`      -- `live_run_tracker`, built by `gui_overlay` (step 24c).
+    * `is_scanning`  -- `scanner_thread`, `ScannerMixin`'s (step 25).
+    * `is_recording` -- `player_stats_vod_recorder`, `AppCoordinator`'s.
+    * the two window helpers -- `RunControlMixin`'s (step 25). Injected as
+      ports rather than moved, which is the boundary step 24 was told not to
+      cross.
+    * `schedule` / `schedule_idle` -- the Qt scheduler on `MegabonkApp`.
+
+    All seven are re-read on every call for the reason `build_twitch_session`
+    records: the tracker is `None` until the overlay runtime initialises and
+    the scanner thread is replaced on every start.
+    """
+    return InGameOverlay(
+        tracker=lambda: getattr(app, "live_run_tracker", None),
+        is_scanning=lambda: (
+            getattr(app, "scanner_thread", None) is not None
+            and app.scanner_thread.is_alive()
+        ),
+        is_recording=lambda: (
+            getattr(app, "player_stats_vod_recorder", None) is not None
+            and app.player_stats_vod_recorder.is_recording
+        ),
+        is_game_window_active=lambda process_name: app.is_game_window_active(process_name),
+        find_game_window=lambda process_name: app.find_game_window(process_name),
+        schedule=lambda callback: app.after(0, callback),
+        schedule_idle=lambda callback: app.after_idle(callback),
+    )

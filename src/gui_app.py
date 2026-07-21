@@ -15,7 +15,7 @@ from app.player_stats_refresh import player_stats_refresh
 from gui_dialogs import HelpDialog, SettingsDialog
 from gui_layout import GuiLayoutMixin
 from gui_overlay import OverlayMixin
-from gui_in_game_overlay import InGameOverlayMixin
+from gui_in_game_overlay import build_in_game_overlay
 from gui_run_control import RunControlMixin
 from gui_scanner import ScannerMixin
 from gui_twitch import build_twitch_session
@@ -30,7 +30,6 @@ class MegabonkApp(
     GuiLayoutMixin,
     RunControlMixin,
     OverlayMixin,
-    InGameOverlayMixin,
     ScannerMixin,
 ):
     _qt_app: QApplication | None = None
@@ -212,7 +211,8 @@ class MegabonkApp(
         # them through the shared `self`. Step 12 removes the aliases.
         self.player_stats_vod_recorder = self.coordinator.vod_recorder
         self.initialize_overlay_runtime()
-        self.initialize_in_game_overlay_runtime()
+        self._in_game_overlay = build_in_game_overlay(self)
+        self._in_game_overlay.start_runtime()
         self.player_stats_last_run_id = None
         self.player_stats_disabled_items_cache = None
         self.player_stats_disabled_items_refresh_pending = False
@@ -425,6 +425,25 @@ class MegabonkApp(
     def twitch_auth_thread(self):
         session = self.__dict__.get("_twitch_session")
         return None if session is None else session.auth_thread
+
+    # -- in-game overlay surface (step 24b) -------------------------------
+    #
+    # The layout, hotkey registration and shutdown path are steps 26, 25 and
+    # 25 respectively. They still call these names on the application, so the
+    # app keeps only the narrow forwarding surface while the component owns
+    # the window, timers, widgets and behaviour.
+    def _build_in_game_overlay_tab(self):
+        return self._in_game_overlay.build()
+
+    def hotkey_toggle_in_game_overlay_edit(self) -> None:
+        overlay = self.__dict__.get("_in_game_overlay")
+        if overlay is not None:
+            overlay.hotkey_toggle_in_game_overlay_edit()
+
+    def stop_in_game_overlay(self) -> None:
+        overlay = self.__dict__.get("_in_game_overlay")
+        if overlay is not None:
+            overlay.stop_in_game_overlay()
 
     # -- footer dialogs (step 22c) ----------------------------------------
     #

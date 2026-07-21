@@ -133,7 +133,6 @@ MRO_MODULES = {
     "GuiLayoutMixin": "gui_layout",
     "RunControlMixin": "gui_run_control",
     "OverlayMixin": "gui_overlay",
-    "InGameOverlayMixin": "gui_in_game_overlay",
     # `PlayerStatsRefreshMixin` was here until step 20g converted it into the
     # `PlayerStatsRefresh` service, taking `MegabonkApp` to nine bases and the
     # app-layer slice to zero. It was the last of the five app-side bases the
@@ -155,6 +154,10 @@ MRO_MODULES = {
     # in `gui_twitch.py` -- which survives holding only the two token `QThread`
     # classes, because neither `ui/` nor `app/` may import `twitch_auth`.
     # `MegabonkApp` is at **five** bases.
+    # `InGameOverlayMixin` was here until step 24b. Its window/timers/cadence
+    # and settings tab now belong to `gui_in_game_overlay.InGameOverlay`, wired
+    # by `build_in_game_overlay`; the app retains only the layout, hotkey and
+    # shutdown delegators required by steps 26/25. The app is at **four** bases.
     "ScannerMixin": "gui_scanner",
 }
 
@@ -210,7 +213,11 @@ MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 0
 # 48 is measured, not rounded down to a safe number. The step-22 inventory found
 # 21d had reported 52 while leaving the constant at 55, and the `<=` comparison
 # hid it; repeating that here would be repeating the thing that fix was for.
-MAX_OBJECT_NEW_APP_DOUBLES = 47
+# Tightened at step 24b (47 -> 35): the twelve tests whose subject was the
+# in-game overlay now construct `InGameOverlay` through an explicit-port test
+# builder. The other five tests whose fixtures happen to mention overlay state
+# still exercise refresh or shutdown owners and therefore remain app doubles.
+MAX_OBJECT_NEW_APP_DOUBLES = 35
 
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"
