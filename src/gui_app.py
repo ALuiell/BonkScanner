@@ -429,24 +429,15 @@ class MegabonkApp:
         else:
             self.__dict__["_template_stats"] = value
 
-    # Thin delegators, kept on the app for the same reason step 20g's two and
-    # step 21's four are: `gui_layout.on_left_tab_changed` and `gui_scanner`
-    # call these *on the app*, and the router that does so is step 26's subject.
-    # They forward to the app-layer owner; neither reaches the templates UI.
-    def _sync_runtime_filters(self, *, announce: bool = False) -> None:
-        self._template_filters.sync(announce=announce)
-
+    # `_sync_runtime_filters` and `refresh_scores_ui` stood here, kept "for the
+    # router, which is step 26's subject". The router is an object now and calls
+    # `TemplateRuntimeFilters.sync` and `TemplatesPanel.refresh_scores_ui`
+    # directly, so both delegators had zero callers and are deleted. The `is
+    # None` guard inside `refresh_scores_ui` went with the caller rather than
+    # staying behind: it was about the *router's* firing order during
+    # `build_layout`, not about the application.
     def _get_selected_template_names(self) -> list[str]:
         return self._template_filters.selected_template_names()
-
-    # `gui_layout.on_left_tab_changed` calls this *on the app* when the user
-    # switches between the Templates and Scores tabs. Same shape and same reason
-    # as the delegators above: the router is step 26's subject, so the panel
-    # gets the work and the app keeps the one-line entry point.
-    def refresh_scores_ui(self) -> None:
-        if self._templates_panel is None:
-            return
-        self._templates_panel.refresh_scores_ui()
 
     # -- Twitch shutdown surface (step 23c) --------------------------------
     #
@@ -473,16 +464,15 @@ class MegabonkApp:
 
     # -- OBS overlay surface (step 24c) -----------------------------------
     #
-    # Layout routing (step 26), scanner shutdown/session updates (step 25)
-    # and the app-layer refresh services still invoke these names on the app.
-    # The behaviour and every widget live on `gui_overlay.Overlay`; this is the
-    # measured compatibility surface that lets those later boundaries stay put.
-    def _build_overlay_tab(self):
-        return self._overlay.build()
-
-    def refresh_overlay_ui(self) -> None:
-        self._overlay.refresh_overlay_ui()
-
+    # Scanner shutdown/session updates and the app-layer refresh services
+    # invoke these names on the app. The behaviour and every widget live on
+    # `gui_overlay.Overlay`; this is the measured compatibility surface that
+    # lets those boundaries stay put.
+    #
+    # `_build_overlay_tab` and `refresh_overlay_ui` stood here for "layout
+    # routing (step 26)" and are deleted: `build_layout` calls
+    # `app._overlay.build()` and the router calls
+    # `Overlay.refresh_overlay_ui()`, and neither name had a second caller.
     def apply_overlay_autostart(self) -> None:
         self._overlay.apply_overlay_autostart()
 
@@ -532,13 +522,12 @@ class MegabonkApp:
 
     # -- in-game overlay surface (step 24b) -------------------------------
     #
-    # The layout, hotkey registration and shutdown path are steps 26, 25 and
-    # 25 respectively. They still call these names on the application, so the
-    # app keeps only the narrow forwarding surface while the component owns
-    # the window, timers, widgets and behaviour.
-    def _build_in_game_overlay_tab(self):
-        return self._in_game_overlay.build()
-
+    # Hotkey registration and the shutdown path call these names on the
+    # application, so the app keeps the narrow forwarding surface while the
+    # component owns the window, timers, widgets and behaviour.
+    #
+    # `_build_in_game_overlay_tab` stood here for the layout and is deleted:
+    # `build_layout` calls `app._in_game_overlay.build()`.
     def hotkey_toggle_in_game_overlay_edit(self) -> None:
         overlay = self.__dict__.get("_in_game_overlay")
         if overlay is not None:
@@ -619,50 +608,44 @@ class MegabonkApp:
     def refresh_live_player_stats_now(self, **kwargs) -> bool:
         return player_stats_refresh(self).refresh_now(**kwargs)
 
-    # -- Recordings tab (step 21c) ----------------------------------------
+    # -- the four recording-tab delegators (steps 21c/21d), deleted at 26 ---
     #
-    # Two one-line delegators, for the same reason `refresh_live_player_stats_now`
-    # above keeps one: both are called *on the app* by the tab-switch router in
-    # `gui_layout` (`on_right_tab_changed`, `_refresh_right_tab_after_switch`,
-    # `_refresh_vods_list_if_visible`), and that router is **step 26's**. Step 21
-    # may not assign it to a tab, so the app keeps the surface the router calls
-    # and forwards it to the view it built.
+    # `refresh_vods_list`, `ensure_recordings_chooser_for_empty_selection`,
+    # `refresh_compare_runs_list` and
+    # `ensure_compare_runs_chooser_for_empty_selection` stood here. All four
+    # existed for one caller -- the tab-switch router, which called them *on
+    # the app* because it was a method of the app. Step 21 could not assign
+    # them to their tabs while the router was ambient; step 26 made the router
+    # an object holding both views, and all four went to zero callers.
     #
-    # `hasattr(self, "ensure_recordings_chooser_for_empty_selection")` in
-    # `gui_layout` guards both call sites. That guard going quietly false is the
-    # silent-failure shape step 19's header records, so the name stays.
-    def refresh_vods_list(self) -> None:
-        return self._recordings_view.refresh_vods_list()
-
-    def ensure_recordings_chooser_for_empty_selection(self) -> None:
-        return self._recordings_view.ensure_recordings_chooser_for_empty_selection()
-
-    # -- Compare Runs tab (step 21d) ---------------------------------------
+    # This is the step's shape in four lines: the delegators are not relocated
+    # surface, they are surface that existed to bridge an ownership gap, and
+    # closing the gap retires them. Each was checked individually rather than
+    # in bulk -- `refresh_live_player_stats_now` and `update_status_ui` look
+    # identical and **stay**, because `app/refresh_tasks`, `app/vod_capture`,
+    # `gui_twitch` and `gui_dialogs.SettingsDialog` call those on the app and
+    # cannot reach a component directly.
     #
-    # The same two, for the same router, for the same reason. Step 26 takes the
-    # router; until then this is the surface it calls.
-    def refresh_compare_runs_list(self) -> None:
-        return self._compare_runs_view.refresh_compare_runs_list()
-
-    def ensure_compare_runs_chooser_for_empty_selection(self) -> None:
-        return self._compare_runs_view.ensure_compare_runs_chooser_for_empty_selection()
+    # Deleting one with a live caller would not have crashed:
+    # `MegabonkApp.__getattr__` forwards unknown names to `self.window` and a
+    # `QMainWindow` answers with something. That is why the count came before
+    # the delete, and why the mutation check for this step deletes a *keeper*
+    # and requires the suite to go red.
 
     # -- scanner surface (step 25c) ----------------------------------------
     #
-    # Six delegators, and the list is the measurement rather than a convenience
-    # set. Each is called *on the application* by something step 25 may not
-    # touch: `gui_layout` connects the Start/Stop button to `toggle_main_loop`,
-    # calls `update_status_ui` after building the footer and `_build_session_
-    # stats_tab` while assembling the right-hand tabs -- and that router is
-    # **step 26's**. `log` has fourteen production callers across eleven
-    # modules. `SettingsDialog` reaches `master.update_status_ui` and
-    # `master.log` after a save, with `master=self` meaning the application for
-    # the reason documented above `open_settings_dialog`.
+    # Six at step 25; **three** now, and the list is the measurement rather
+    # than a convenience set. `toggle_main_loop` and `_build_session_stats_tab`
+    # were kept for `gui_layout`, which connected the Start/Stop button and
+    # assembled the tabs with the app as `self`; `build_layout` names
+    # `app._scanner` for both, so both are deleted.
     #
-    # `update_timer` is the session clock this class starts in `__init__`.
-    def toggle_main_loop(self) -> None:
-        self._scanner.toggle_main_loop()
-
+    # The three that stay each have a caller that is not the layout. `log` has
+    # fourteen production callers across eleven modules. `SettingsDialog`
+    # reaches `master.update_status_ui` and `master.log` after a save, with
+    # `master=self` meaning the application for the reason documented above
+    # `open_settings_dialog`. `update_timer` is the session clock this class
+    # starts in `__init__`.
     def update_status_ui(self) -> None:
         self._scanner.update_status_ui()
 
@@ -678,9 +661,6 @@ class MegabonkApp:
 
     def update_timer(self) -> None:
         self._scanner.update_timer()
-
-    def _build_session_stats_tab(self) -> None:
-        self._scanner.build_session_stats_tab()
 
     # -- run-control surface (step 25c) ------------------------------------
     #

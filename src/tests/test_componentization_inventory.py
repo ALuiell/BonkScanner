@@ -264,7 +264,23 @@ MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 0
 # without leaving: `test_on_closing_*` keep an app double because
 # `MegabonkApp.on_closing` really is the application's, but they now install
 # real components on it rather than stubbing the five calls they assert.
-MAX_OBJECT_NEW_APP_DOUBLES = 11
+# Tightened at step 26 (11 -> 9), and the headroom of one that step 25 left is
+# closed with it. Two doubles went, for two different reasons, and the ratchet
+# is set to the actual count with no margin -- slack here is room for a double
+# to reappear unnoticed, which is the thing this number exists to prevent.
+#
+#   -1  `test_refresh_right_tab_after_switch_immediately_refreshes_live_stats`
+#       **moved** to `test_tab_router.py`. Its subject was the tab-switch
+#       router, which is `gui_layout.TabRouter` now, so it constructs one
+#       instead of hanging two lambdas off an app double.
+#   -1  the step-25 headroom, which had no double behind it.
+#
+# The nine that stay, counted by domain: four Recordings/VOD-capture, three
+# player-stats refresh, two `on_closing`. Each keeps an app double because its
+# subject really is `MegabonkApp` -- the shutdown *order* over eight owners, or
+# an app-layer service resolved off the owner -- and not because a component
+# was inconvenient to build.
+MAX_OBJECT_NEW_APP_DOUBLES = 9
 
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"
