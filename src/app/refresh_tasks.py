@@ -79,6 +79,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from app import config
 from app.player_stats_memory import player_stats_memory
+from app.read_sources import MOB_KILLS, RUN_TIMER, read_memory_source, source_health_recorded
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from app.run_lifecycle import run_lifecycle
 from app.player_stats_view import player_stats_view
@@ -412,8 +413,13 @@ class RefreshTasks:
     def _refresh_combat_metrics_task(self, context: RefreshTickContext) -> bool:
         try:
             client = self._fast_task_client(context)
-            run_timer_seconds = client.get_run_timer()
-            self._memory().record_memory_success()
+            run_timer_seconds = read_memory_source(
+                context,
+                RUN_TIMER,
+                client.get_run_timer,
+                on_success=self._memory().record_memory_success,
+                on_failure=self._memory().record_memory_failure,
+            )
             self._mark_fast_feature_available("combat")
             previous_game_time = self._last_fast_kps_game_time_seconds
             if (
@@ -422,8 +428,13 @@ class RefreshTasks:
                 and abs(float(run_timer_seconds) - float(previous_game_time)) < 0.001
             ):
                 return True
-            mob_kills = client.get_killed_mobs()
-            self._memory().record_memory_success()
+            mob_kills = read_memory_source(
+                context,
+                MOB_KILLS,
+                client.get_killed_mobs,
+                on_success=self._memory().record_memory_success,
+                on_failure=self._memory().record_memory_failure,
+            )
             self._tracker().track_kills(run_timer_seconds, mob_kills)
             self._last_fast_kps_game_time_seconds = run_timer_seconds
             # `not pinned`: the user may have scrubbed the timeline to an
@@ -447,7 +458,15 @@ class RefreshTasks:
                 self._sync_overlay_state()
             return True
         except Exception as exc:
-            self._memory().record_memory_failure(exc)
+            # `read_memory_source` already recorded health for a run_timer/
+            # mob_kills failure -- recording it again here would advance the
+            # reconnect streak twice for one physical read. See
+            # `source_health_recorded` and step_28_plan.md section 12.5. Any
+            # *other* exception in this task body (client acquisition, tracker,
+            # view) never passed through `read_memory_source`, so it still gets
+            # recorded here exactly as before.
+            if not source_health_recorded(exc):
+                self._memory().record_memory_failure(exc)
             self._mark_fast_feature_failed("combat", exc)
             return False
 
