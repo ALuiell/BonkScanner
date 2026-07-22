@@ -233,18 +233,29 @@ class ScoresTests(unittest.TestCase):
             panel.refresh_scores_ui()
         save_config.assert_not_called()
 
-    def test_an_empty_tier_selection_writes_no_config(self) -> None:
-        """Empty state: every tier unchecked. The `if active_tiers` guard."""
+    def test_an_empty_tier_selection_is_saved(self) -> None:
+        """Empty state must reach the start-time validation instead of keeping a stale tier."""
         rendered: list[str] = []
         panel, _filters = _panel_with_filters()
         panel._scores_desc_label = SimpleNamespace(setHtml=rendered.append)
         panel._scores_checkboxes = {tier: FakeCheckbox(False) for tier in
                                     ("Light", "Good", "Perfect", "Perfect+")}
 
-        with patch.object(config, "EVALUATION_MODE", "scores"):
-            with patch.object(config, "save_config") as save_config:
-                panel.refresh_scores_ui()
-        save_config.assert_not_called()
+        original_scores = deepcopy(config.SCORES_SYSTEM)
+        updated_scores = deepcopy(config.SCORES_SYSTEM)
+        updated_scores["active_tiers"] = ["Good"]
+        config.SCORES_SYSTEM = updated_scores
+        config.user_config["SCORES_SYSTEM"] = updated_scores
+        try:
+            with patch.object(config, "EVALUATION_MODE", "scores"):
+                with patch.object(config, "save_config") as save_config:
+                    panel.refresh_scores_ui()
+            self.assertEqual(config.SCORES_SYSTEM["active_tiers"], [])
+            save_config.assert_called_once_with(config.user_config)
+        finally:
+            config.SCORES_SYSTEM = original_scores
+            config.user_config["SCORES_SYSTEM"] = original_scores
+
         self.assertEqual(len(rendered), 1)
 
 

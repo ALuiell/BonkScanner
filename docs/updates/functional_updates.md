@@ -13,51 +13,6 @@ Status legend:
 
 ## Open Updates
 
-#### 6. Extend Scores For The 69-Chest Map Family
-
-Status: `[Open]`
-
-Goal:
-
-- Keep current legacy score behavior stable while planning a dedicated score extension for the 69-chest map family.
-- Extend score mode later with raw `Microwaves` and `Bald Heads` for the map family that actually exposes those values in memory.
-
-Planned future work:
-
-- Add a dedicated score path for the 69-chest map family instead of reusing the legacy OCR-era microwave normalization everywhere.
-- Decide whether the 69-chest map family should use distinct score weights, thresholds, or both.
-- Add `Bald Heads` as a score input only for the map family where it exists.
-- Keep legacy score tiers backward-compatible for older maps unless there is an explicit rebalance pass.
-
-#### 10. Rework Stage Summary Around Fast Runtime Samples
-
-Status: `[Open]`
-
-Goal:
-
-- Rework the Stage Summary card so stage boundaries are calculated from runtime
-  values that the application already reads frequently, instead of relying only
-  on the full player snapshot collected every `10s`.
-- Prevent kills earned near a map transition from being assigned to the next
-  stage merely because the first snapshot after the transition arrived late.
-
-Planned future work:
-
-- Make the existing fast kill counter the shared source of truth for Stage
-  Summary totals and stage-transition boundaries.
-- Evaluate using the already available fast run timer and stage timer/index reads
-  to record a precise boundary sample when the player enters the next stage.
-- Keep slower snapshot data for values that are not already available through a
-  fast read, such as the detailed item summary.
-- Avoid adding duplicate memory reads: reuse the fast values already collected
-  for KPS and event timing, and inject their latest valid values into recordings
-  and other consumers where needed.
-- Ensure the Stage Summary card, Twitch stage announcements, OBS/In-Game
-  overlays, and saved recordings all use the same stage-boundary result.
-- Add transition tests where the last `10s` snapshot is taken shortly before the
-  player changes maps and the next full snapshot is already several seconds into
-  the following stage.
-
 ### Twitch Commands
 
 #### 1. Twitch Commons
@@ -286,3 +241,90 @@ The core demand should enable the following existing tasks without requiring an 
 Consumer demand remains an additional reason to run the existing optional tasks. The lifecycle probe must be performed once per scheduler cycle, not once per task. If the current runtime-state reader traverses deep memory structures, cache stable type-info, static-field, dictionary, and object pointers while continuing to read dynamic flags (`is_playing`, `is_paused`, and `is_game_over`) fresh. Cache entries must be invalidated when the process, relevant object, or run structure changes.
 
 This is a planned change. The current intervals and lazy-demand behavior remain unchanged until the probe and cache behavior are implemented and measured in-game.
+
+## Live Run Refactor Fixes
+
+#### 1. Active Template Colors In Log Output (Refactor Fixes)
+
+Status: `[Open]`
+
+Goal:
+
+- Format template names in the `[*] Active templates updated live: ...` log line with rich-text/HTML colors corresponding to their template badge colors instead of plain white text.
+
+#### 2. Default Height For Score Settings Dialog (Refactor Fixes)
+
+Status: `[Open]`
+
+Goal:
+
+- Increase the default height/dimensions of the `Score Settings` dialog so the bottom `Save` / `Cancel` button panel is immediately visible without scrolling.
+
+#### 3. Enforce Scanner Start Guarding When Active Rules Are Empty (Refactor Fixes)
+
+Status: `[Open]`
+
+Goal:
+
+- Prevent the scanner from starting or rerolling when all tiers in `Scores Mode` or all templates in `Templates Mode` are unchecked.
+- Display an explicit error log line (`[-] Error: ...`) when attempting to start with no active evaluation rules.
+
+#### 4. Synchronize OBS Overlay Edit Mode On Active Widget Toggles (Refactor Fixes)
+
+Status: `[Open]`
+
+Goal:
+
+- Automatically update active widget states in the OBS Overlay web editor when toggling checkboxes in BonkScanner UI without requiring users to manually re-enter edit mode.
+
+#### 5. Force Cache Invalidation / Forced Sync For OBS Overlay (Refactor Fixes)
+
+Status: `[Open]`
+
+Goal:
+
+- Add an automated forced sync or cache-invalidation signal so configuration changes made in BonkScanner UI update the OBS browser source without requiring a manual browser cache reset.
+
+#### 6. Compare Runs and Recordings Timeline Performance Optimization (Refactor Fixes)
+
+Status: `[Open]`
+
+Goal:
+
+- Eliminate UI lag during timeline slider movement and detail inspection (`Show Details` / `Show All`) in `Compare Runs` and `Recordings` tabs when working with large recording logs or enabling multiple comparison cards.
+
+Problem Analysis:
+
+- **High-frequency `valueChanged` Events:** Dragging `QSlider` triggers `on_compare_run_slider_changed` / `on_player_stats_slider_changed` per pixel of mouse movement (hundreds of events per second).
+- **Synchronous Heavy Diff Calculations:** Every slider tick synchronously executes binary search time-sync (`_nearest_snapshot_index`), overview summaries, and up to 7 formatting functions (`format_compare_runs_overview_diff`, `stats_diff`, `items_diff`, `stage_summary_diff`, `weapons_diff`, `tomes_diff`, `chaos_diff`).
+- **GUI Layout Thrashing:** Synchronous string/HTML updates to dozens of `QLabel` and `QTextEdit` widgets trigger continuous Qt layout passes and redraws in the main UI thread.
+
+Planned Optimization Strategies:
+
+1. **Slider Event Throttling & Debouncing (Rate-Limiting Updates):**
+   - Update lightweight time labels (`Timeline: 01:23 / 02:45`) immediately on every slider tick for maximum responsiveness.
+   - Throttle heavy Diff calculations and UI card updates to 30–60 FPS (16–33 ms interval via `QTimer.singleShot` / `QElapsedTimer`).
+   - Apply debouncing during rapid continuous drag, deferring full detailed diff rendering until a brief pause in slider movement.
+2. **Diff Result Caching & Memoization:**
+   - Implement an LRU cache for `diff(snapshot_a_index, snapshot_b_index, active_sections_mask)`.
+   - When scrubbing back and forth over previously calculated frames, return cached diff structures in $O(1)$ time without re-formatting HTML strings.
+3. **Lazy Evaluation & Selective Section Updates:**
+   - Skip formatting and diff calculation for sections that are collapsed, disabled, or hidden by user settings.
+   - Perform dirty-checking against previous snapshot values to skip updating UI sections whose underlying domain data has not changed between consecutive seconds.
+4. **Snapshot Pre-Indexing:**
+   - Pre-build lookup dictionaries (e.g. item ID maps) during VOD load so snapshot diffs compare pre-indexed keys rather than traversing item lists on every slider tick.
+5. **Batching Qt Layout Redraws:**
+   - Wrap multi-widget updates in `setUpdatesEnabled(False)` / `setUpdatesEnabled(True)` around card updates to ensure Qt performs a single render pass per frame instead of multiple micro-updates per widget.
+
+#### 7. Restore Magnets Requirement Support in Templates Mode (Refactor Fixes)
+
+Status: `[Open]`
+
+Goal:
+
+- Restore the ability to configure target `Magnets` count conditions in template evaluation rules (`Templates Mode`).
+- Reuse the existing memory read and evaluation paths already active for `Magnets` in `Scores Mode`.
+- Update the template editor dialog, config schema, evaluation condition matcher, and condensed UI/Twitch preset formatters to include magnet conditions.
+
+
+

@@ -4,6 +4,22 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Recently Handled Items (Archived 2026-07-22)
+
+### Stage Summary
+
+#### 10. Rework Stage Summary Around Fast Runtime Samples
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- Stage summary boundaries and kill totals are calculated from fast runtime values already read frequently by the application instead of relying solely on the full player snapshot collected every 10s.
+- Prevented kills earned near a map transition from being assigned to the next stage due to late snapshot arrival.
+- Standardized stage boundary calculation across UI, Twitch announcements, OBS/In-game overlays, and saved recordings.
+
+---
+
 ## Recently Handled Items (Archived 2026-07-15)
 
 ### Recordings

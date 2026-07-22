@@ -263,7 +263,7 @@ class TemplatesPanel:
         if self._scores_desc_label is None:
             return
         active_tiers = [tier for tier, cb in self._scores_checkboxes.items() if cb.isChecked()]
-        if active_tiers and active_tiers != config.SCORES_SYSTEM.get("active_tiers", []):
+        if active_tiers != config.SCORES_SYSTEM.get("active_tiers", []):
             config.SCORES_SYSTEM["active_tiers"] = active_tiers
             config.user_config["SCORES_SYSTEM"] = config.SCORES_SYSTEM
             config.save_config(config.user_config)
