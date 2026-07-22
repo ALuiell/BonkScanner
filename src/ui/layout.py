@@ -1,3 +1,17 @@
+"""The main window's layout, and the router that runs its tab bars.
+
+``gui_layout.py`` until step 27b, which moved it here and closed the last two
+``TOPLEVEL_DEBT`` entries. It could not move as one file: see
+``ui/tabs/player_stats/metrics.py`` for what came out of it first and why the
+split was the point rather than the move.
+
+What is left reads ``app``, ``core`` and ``ui`` -- all of which §2 lets ``ui``
+import -- plus ``ui.dialogs``, which was ``gui_dialogs`` until 27a. The two
+builders that import ``ui.tabs.player_stats`` inside their bodies keep doing
+so; with the metrics gone that is no longer covering a cycle, but it is also
+not this step's to change, so the comments there now say which of the two
+reasons still applies.
+"""
 from __future__ import annotations
 
 import os
@@ -8,10 +22,8 @@ from ui.shared import (
 )
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QFontMetrics, QPixmap
+from PySide6.QtGui import QFont, QPixmap
 from PySide6.QtWidgets import (
-    QFormLayout,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -33,134 +45,6 @@ from ui.dialogs import (
 from app import config
 from app.snapshot_store import live_snapshot_store
 from app.vod_capture import vod_capture
-from core.stats.formats import PlayerStatFormat
-
-LIVE_STATS_CARD_COLUMNS = 3
-LIVE_STATS_VALUE_WIDTH = 64
-RECORDINGS_STATS_CARD_COLUMNS = 3
-RECORDINGS_LIST_MIN_WIDTH = 190
-RECORDINGS_LIST_MAX_WIDTH = 280
-STAGE_SUMMARY_COLUMN_BASELINES = {
-    "stage": "Stage",
-    "time": "59:59",
-    "kills": "999,999",
-    "items": "\u25cf 99 \u25cf 99 \u25cf 99 \u25cf 99",
-}
-STAGE_SUMMARY_COLUMN_PADDING = 8
-SUMMARY_LABEL_BASELINE_PADDING = 8
-RUN_SUMMARY_LABEL_BASELINES = {
-    "chests_per_minute": "Average chests/min: 999.99",
-    "powerups_duration": "Powerups: 999.9s | Clock: 999.9s",
-    "in_game_time": "In-Game Time: 99:59:59",
-    "mob_kills": "Mob Kills: 999,999",
-    "kps_averages": "KPS: 60s 999/s | 5m 999/s",
-    "level": "Level: 999",
-}
-POWERUPS_CARD_LINE_BASELINE = "Stonks: 99:59 -> +99:59 (999.99s)"
-PLAYER_STAT_VALUE_BASELINES = {
-    PlayerStatFormat.FLAT: "999,999",
-    PlayerStatFormat.PERCENT: "999.9%",
-    PlayerStatFormat.MULTIPLIER: "999.9x",
-}
-
-
-def _reserve_label_baseline_width(label, baseline: str, padding: int = SUMMARY_LABEL_BASELINE_PADDING) -> None:
-    metrics = QFontMetrics(label.font())
-    width = max(metrics.horizontalAdvance(baseline), metrics.horizontalAdvance(label.text()))
-    label.setMinimumWidth(max(label.minimumWidth(), width + padding))
-
-
-def _retain_hidden_widget_size(widget) -> None:
-    policy = widget.sizePolicy()
-    policy.setRetainSizeWhenHidden(True)
-    widget.setSizePolicy(policy)
-
-
-def _build_chests_stats_card():
-    card = QFrame()
-    card.setObjectName("StatCard")
-    layout = QFormLayout(card)
-    layout.setContentsMargins(8, 8, 8, 8)
-    layout.setHorizontalSpacing(6)
-    layout.setVerticalSpacing(4)
-    values = {}
-    for key, title in (
-        ("maps", "Maps"),
-        ("total", "Total"),
-        ("paid_free", "Paid / Free"),
-        ("key_procs", "Key Procs"),
-        ("expected", "Expected"),
-        ("keys", "Keys"),
-    ):
-        value_label = QLabel("--")
-        value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
-        value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        if key == "maps":
-            value_label.setWordWrap(True)
-        layout.addRow(title, value_label)
-        values[key] = value_label
-    return card, values
-
-
-def _apply_run_summary_baselines(chests_per_minute_label, *labels) -> None:
-    if len(labels) == 3:
-        powerups_duration_label = None
-        in_game_time_label, mob_kills_label, level_label = labels
-        kps_averages_label = None
-    elif len(labels) == 4:
-        powerups_duration_label = None
-        in_game_time_label, mob_kills_label, kps_averages_label, level_label = labels
-    elif len(labels) == 5:
-        powerups_duration_label, in_game_time_label, mob_kills_label, kps_averages_label, level_label = labels
-    else:
-        raise TypeError("_apply_run_summary_baselines() expects 4, 5, or 6 labels")
-    _reserve_label_baseline_width(
-        chests_per_minute_label,
-        RUN_SUMMARY_LABEL_BASELINES["chests_per_minute"],
-    )
-    if powerups_duration_label is not None:
-        _reserve_label_baseline_width(
-            powerups_duration_label,
-            RUN_SUMMARY_LABEL_BASELINES["powerups_duration"],
-        )
-    _reserve_label_baseline_width(
-        in_game_time_label,
-        RUN_SUMMARY_LABEL_BASELINES["in_game_time"],
-    )
-    _reserve_label_baseline_width(
-        mob_kills_label,
-        RUN_SUMMARY_LABEL_BASELINES["mob_kills"],
-    )
-    if kps_averages_label is not None:
-        _reserve_label_baseline_width(
-            kps_averages_label,
-            RUN_SUMMARY_LABEL_BASELINES["kps_averages"],
-        )
-    _reserve_label_baseline_width(
-        level_label,
-        RUN_SUMMARY_LABEL_BASELINES["level"],
-    )
-
-
-def _apply_player_stat_value_baseline(label, value_format) -> None:
-    baseline = PLAYER_STAT_VALUE_BASELINES.get(value_format, PLAYER_STAT_VALUE_BASELINES[PlayerStatFormat.FLAT])
-    _reserve_label_baseline_width(label, baseline)
-
-
-def _apply_stage_summary_column_baseline(layout, rows) -> None:
-    for column, key in enumerate(("stage", "time", "kills", "items")):
-        baseline = STAGE_SUMMARY_COLUMN_BASELINES[key]
-        width = 0
-        for row in rows:
-            label = row[key]
-            metrics = QFontMetrics(label.font())
-            width = max(width, metrics.horizontalAdvance(baseline), metrics.horizontalAdvance(label.text()))
-        layout.setColumnMinimumWidth(column, width + STAGE_SUMMARY_COLUMN_PADDING)
-
-
-def _apply_powerups_card_baselines(labels_by_name) -> None:
-    for label in labels_by_name.values():
-        _reserve_label_baseline_width(label, POWERUPS_CARD_LINE_BASELINE)
 
 
 def _is_tab_active(tabview, label: str) -> bool:
@@ -656,9 +540,14 @@ def _build_recordings_view(app):
     delegator the application only carried because the router lived on it.
 
     Imported inside the function body for the reason `_build_live_stats_view`
-    records: `recordings` imports this module for its layout helpers, so a
-    module-scope import here is a cycle -- invisible to the suite and to
-    `test_import_direction`, because both analyse ASTs rather than importing.
+    records -- but read that reason as history now. `recordings` imported this
+    module for its layout helpers, which made a module-scope import here a
+    cycle; step 27b moved those helpers into
+    `ui/tabs/player_stats/metrics.py`, a leaf of the tab package, so the cycle
+    no longer exists and `recordings` imports the metrics directly. What is
+    left is a deferral with nothing behind it. Promoting it is a decision with
+    its own startup-order risk and no debt entry demanding it, so 27b records
+    the change rather than making it.
     """
     from ui.tabs.player_stats import RecordingsTab
 
@@ -696,10 +585,15 @@ def _build_live_stats_view(app):
     index. A component holding the value would go stale exactly where the
     mixin reading `self` did not.
 
-    Imported inside the function body: `live_stats` imports this module for its
-    layout helpers, so a module-scope import here is the cycle step 19 already
-    shipped once -- invisible to the suite and to `test_import_direction`,
-    because both analyse ASTs rather than importing.
+    Imported inside the function body: `live_stats` imported this module for
+    its layout helpers, which made a module-scope import here the cycle step 19
+    already shipped once -- invisible to the suite *and* to
+    `test_import_direction`, because both analyse ASTs rather than importing.
+    Step 27b split those helpers into `ui/tabs/player_stats/metrics.py` and
+    `live_stats` now takes them at module level, so the cycle is gone. The
+    deferral stays for the reason `_build_recordings_view` records: nothing
+    requires removing it, and `test_deferred_imports` pins it as its live
+    sample.
     """
     from ui.tabs.player_stats import LiveStatsTab
 

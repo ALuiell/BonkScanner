@@ -39,7 +39,7 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
 
 - `src/main.py` starts the desktop app.
 - `src/gui_app.py` defines the application container;
-  `src/gui_layout.py`, `src/gui_scanner.py`, `src/gui_run_control.py`,
+  `src/ui/layout.py`, `src/gui_scanner.py`, `src/gui_run_control.py`,
   `src/ui/tabs/player_stats/`, `src/ui/tabs/templates/`, `src/ui/dialogs/`,
   `src/ui/shared.py`, `src/gui_twitch.py`, `src/gui_overlay.py`, and `src/ui/styles.py` split the PySide6 responsibilities.
 - `src/app/config.py` loads and saves app settings, templates, score rules, hotkeys,
@@ -126,7 +126,7 @@ Implementation shape:
 
 - Defaults and persisted values live in `src/app/config.py`.
 - Evaluation lives in `src/core/logic.py`.
-- UI controls live across `src/gui_layout.py`, `src/ui/tabs/templates/`, and
+- UI controls live across `src/ui/layout.py`, `src/ui/tabs/templates/`, and
   `src/ui/dialogs/`; runtime refresh for this area is coordinated through
   `MegabonkApp`.
 

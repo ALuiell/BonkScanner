@@ -72,6 +72,16 @@ from core.stats.types import PLAYER_STAT_GROUPS
 from ui.shared import _apply_summary_label_padding, _make_scroll_section, _set_text
 from ui.styles import ITEM_SORT_LABELS
 from ui.tabs.player_stats.items_section import ItemsSectionView
+from ui.tabs.player_stats.metrics import (
+    LIVE_STATS_CARD_COLUMNS,
+    LIVE_STATS_VALUE_WIDTH,
+    _apply_player_stat_value_baseline,
+    _apply_powerups_card_baselines,
+    _apply_run_summary_baselines,
+    _apply_stage_summary_column_baseline,
+    _build_chests_stats_card,
+    _retain_hidden_widget_size,
+)
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 from ui.tabs.player_stats.stat_cards import StatCardsView
 from ui.tabs.player_stats.summary_cards import (
@@ -485,25 +495,6 @@ class LiveStatsTab:
         tab bar -- the widgets it assigns are this object's now rather than
         `MegabonkApp`'s.
         """
-        # `_build_chests_stats_card` and the four baseline helpers still live
-        # in `gui_layout`, which imports this package. Deferred to the method
-        # body so the cycle `gui_layout -> ui.tabs.player_stats -> live_stats
-        # -> gui_layout` does not exist at import time. Step 19 already shipped
-        # that cycle once: it was invisible to the suite *and* to
-        # `test_import_direction`, because both analyse ASTs rather than
-        # importing. The cycle exists because the compare panel is built in
-        # `gui_layout` at all, which step 21 moves.
-        from gui_layout import (
-            LIVE_STATS_CARD_COLUMNS,
-            LIVE_STATS_VALUE_WIDTH,
-            _apply_player_stat_value_baseline,
-            _apply_powerups_card_baselines,
-            _apply_run_summary_baselines,
-            _apply_stage_summary_column_baseline,
-            _build_chests_stats_card,
-            _retain_hidden_widget_size,
-        )
-
         self._root = QWidget()
         player_layout = QVBoxLayout(self._root)
         player_scroll, _player_content, player_content_layout = _make_scroll_section()

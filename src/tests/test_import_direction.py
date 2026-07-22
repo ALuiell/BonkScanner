@@ -102,12 +102,6 @@ TOPLEVEL_DEBT: Dict[Tuple[str, str], str] = {
     ("app/player_stats_refresh.py", "live_run_tracker"): (
         "Same as app/coordinator.py -> live_run_tracker."
     ),
-    ("ui/tabs/player_stats/live_stats.py", "gui_layout"): (
-        "Removed when gui_layout.py moves to ui/layout.py."
-    ),
-    ("ui/tabs/player_stats/recordings.py", "gui_layout"): (
-        "Removed when gui_layout.py moves to ui/layout.py."
-    ),
 }
 
 # Edges under `if TYPE_CHECKING:`. Not runtime dependencies -- the import never
@@ -477,10 +471,14 @@ class ImportResolutionTests(unittest.TestCase):
 
     def test_top_level_modules_are_local(self) -> None:
         roots = local_module_roots()
-        # gui_shared and gui_styles dropped from this list in step 17a: they are
-        # now ui/shared.py and ui/styles.py, so "ui" covers them and asserting
-        # the old names would pin files that no longer exist.
-        for name in ("gui_layout", "live_run_tracker", "twitch_bot"):
+        # gui_shared and gui_styles dropped from this list in step 17a, and
+        # gui_layout at step 27b, for the same reason each time: they are
+        # ui/shared.py, ui/styles.py and ui/layout.py now, so "ui" covers them
+        # and asserting the old names would pin files that no longer exist.
+        # gui_app is added in gui_layout's place rather than letting the list
+        # shrink towards a single name -- three unlayered top-level modules
+        # still exist and the property is that the checker recognises them.
+        for name in ("gui_app", "live_run_tracker", "twitch_bot"):
             self.assertIn(name, roots)
 
     def test_imports_below_the_module_header_are_collected(self) -> None:

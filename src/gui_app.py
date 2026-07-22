@@ -12,7 +12,7 @@ from app.version import CURRENT_VERSION
 from app.player_stats_memory import player_stats_memory
 from app.player_stats_refresh import player_stats_refresh
 from ui.dialogs import HelpDialog, SettingsDialog
-from gui_layout import build_layout, _is_tab_active
+from ui.layout import build_layout, _is_tab_active
 from gui_overlay import build_overlay, combined_tracked_item_rules
 from gui_in_game_overlay import build_in_game_overlay
 from gui_run_control import build_run_control

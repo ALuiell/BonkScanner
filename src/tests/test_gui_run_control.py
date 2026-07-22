@@ -16,7 +16,7 @@ import time
 import gui_app
 from ui import dialogs as gui_dialogs
 import gui_in_game_overlay
-import gui_layout
+from ui import layout as gui_layout
 import gui_overlay
 import gui_run_control
 import gui_scanner

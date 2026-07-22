@@ -67,7 +67,6 @@ LOCAL_ROOTS = {
     "gui_in_game_overlay",
     "gui_in_game_overlay_settings",
     "gui_in_game_overlay_window",
-    "gui_layout",
     "gui_overlay",
     "gui_run_control",
     "gui_scanner",
@@ -136,14 +135,25 @@ class DeferredImportTests(unittest.TestCase):
         """Step 13's guard: a scan that finds nothing passes trivially."""
         found = _deferred_imports()
         self.assertGreater(len(found), 8, "the deferred-import scan found almost nothing")
-        # The one that broke, pinned by module: `live_stats.build()` defers its
-        # `gui_layout` layout helpers to avoid a real import cycle, so this
-        # entry is expected to survive until step 26 moves the layout helpers.
+        # Re-pointed at step 27b, not deleted. The pin used to name
+        # `gui_layout`: `live_stats.build()` deferred its layout helpers to
+        # dodge a real `gui_layout -> ui.tabs.player_stats -> live_stats ->
+        # gui_layout` cycle, and step 21 broke that deferral by deleting a name
+        # from the other end. 27b split the helpers into
+        # `ui/tabs/player_stats/metrics.py`, so the cycle is gone and that
+        # import is an ordinary module-level one -- the debt was paid, which is
+        # the case this comment always said to re-point for rather than delete.
+        #
+        # `ui.tabs.player_stats`, deferred inside `ui/layout.py`'s two Player
+        # Stats composition roots, is the successor: the same two tabs, the
+        # same direction, still a live deferral. Same rule if it is ever paid
+        # off -- name another real one; a scan that finds nothing passes.
         self.assertIn(
-            "gui_layout",
+            "ui.tabs.player_stats",
             {module for _rel, _line, module, _names in found},
-            "the gui_layout deferral is gone from the scan; if it was paid off, "
-            "update this guard to another real deferral rather than deleting it",
+            "the ui.tabs.player_stats deferral is gone from the scan; if it "
+            "was paid off, update this guard to another real deferral rather "
+            "than deleting it",
         )
 
 

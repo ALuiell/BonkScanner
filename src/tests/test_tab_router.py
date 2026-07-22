@@ -46,7 +46,7 @@ from unittest.mock import patch
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from app import config
-from gui_layout import TabRouter, _is_tab_active
+from ui.layout import TabRouter, _is_tab_active
 
 
 class FakeTabWidget:

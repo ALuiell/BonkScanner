@@ -80,7 +80,7 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/ui/dialogs/update_prompt.py](../../src/ui/dialogs/update_prompt.py) | Adapter wiring the update flow to the GUI thread and the dialog. |
 | **User Interface (PySide6)** | |
 | [src/gui_app.py](../../src/gui_app.py) | Definitive application container class (`MegabonkApp`) linking core business logic to UI events. |
-| [src/gui_layout.py](../../src/gui_layout.py) | Defines the main desktop application layout, split views, and primary window panels. |
+| [src/ui/layout.py](../../src/ui/layout.py) | Defines the main desktop application layout, split views, and primary window panels. |
 | [src/gui_scanner.py](../../src/gui_scanner.py) | Manages scanner settings UI, scan state machines, and active session control buttons. |
 | [src/gui_run_control.py](../../src/gui_run_control.py) | Layout and button event mappings for resetting runs and configuring game restart options. |
 | [src/ui/tabs/player_stats/](../../src/ui/tabs/player_stats/) | Controls the live statistics panels, item inventory styling, weapon upgrade tabs, and item sorting. |
