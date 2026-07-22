@@ -51,7 +51,23 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from app import config
-from app.read_sources import RUN_TIMER, read_memory_source, source_health_recorded
+from app.read_sources import (
+    DISABLED_ITEMS,
+    LIVE_BANISHES,
+    LIVE_DAMAGE_SOURCES,
+    LIVE_TOMES,
+    LIVE_WEAPONS,
+    MOB_KILLS,
+    OWNER_STATS,
+    PASSIVE_ITEMS,
+    PLAYER_LEVEL,
+    PLAYER_STATS,
+    RUN_TIMER,
+    STAGE_TIMER_CONTEXT,
+    read_memory_source,
+    read_source,
+    source_health_recorded,
+)
 from app.snapshot_store import live_snapshot_store
 from core.stats.types import DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot
 from infra.memory.game_data_client import GameDataClient
@@ -154,14 +170,23 @@ class PlayerStatsMemory:
             self._write_stats_client(PlayerStatsClient(config.PROCESS_NAME))
         return self._read_stats_client()
 
-    def read_player_stats_only(self):
+    def read_player_stats_only(self, context=None):
         client = self._get_player_stats_client()
-        owner_stats = client.resolve_owner_stats()
-        return client.get_player_stats(owner_stats), owner_stats
+        owner_stats = read_source(
+            context, OWNER_STATS, client.resolve_owner_stats
+        )
+        return (
+            read_source(
+                context, PLAYER_STATS, lambda: client.get_player_stats(owner_stats)
+            ),
+            owner_stats,
+        )
 
-    def read_passive_items_only(self, owner_stats: int | None = None):
+    def read_passive_items_only(self, owner_stats: int | None = None, context=None):
         client = self._get_player_stats_client()
-        return client.get_passive_items(owner_stats)
+        return read_source(
+            context, PASSIVE_ITEMS, lambda: client.get_passive_items(owner_stats)
+        )
 
     def read_player_stats_recording_state(self):
         if self._read_game_data_client() is None:
@@ -193,7 +218,7 @@ class PlayerStatsMemory:
         rather than inventing a second pass for an off-tick caller, which
         stop condition 4 forbids.
         """
-        stats, owner_stats = self.read_player_stats_only()
+        stats, owner_stats = self.read_player_stats_only(context)
         items = ()
         items_available = True
         weapons: tuple[WeaponSnapshot, ...] = ()
@@ -221,8 +246,8 @@ class PlayerStatsMemory:
 
         try:
             client = self._get_player_stats_client()
-            stage_timer_seconds, stage_index, stage_duration_seconds = (
-                client.get_stage_timer_context()
+            stage_timer_seconds, stage_index, stage_duration_seconds = read_source(
+                context, STAGE_TIMER_CONTEXT, client.get_stage_timer_context
             )
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             stage_timer_seconds = None
@@ -260,7 +285,7 @@ class PlayerStatsMemory:
 
         # 4. Read passive items
         try:
-            items = self.read_passive_items_only(owner_stats)
+            items = self.read_passive_items_only(owner_stats, context)
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             items_available = False
         except Exception:
@@ -275,7 +300,7 @@ class PlayerStatsMemory:
         ):
             try:
                 client = self._get_player_stats_client()
-                weapons = client.get_live_weapons(owner_stats)
+                weapons = read_source(context, LIVE_WEAPONS, lambda: client.get_live_weapons(owner_stats))
                 weapons_available = True
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
                 weapons = ()
@@ -286,7 +311,7 @@ class PlayerStatsMemory:
 
             try:
                 client = self._get_player_stats_client()
-                tomes = client.get_live_tomes(owner_stats)
+                tomes = read_source(context, LIVE_TOMES, lambda: client.get_live_tomes(owner_stats))
                 tomes_available = True
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
                 tomes = ()
@@ -297,7 +322,7 @@ class PlayerStatsMemory:
 
             try:
                 client = self._get_player_stats_client()
-                banishes = client.get_live_banishes()
+                banishes = read_source(context, LIVE_BANISHES, client.get_live_banishes)
                 banishes_available = True
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
                 banishes = ()
@@ -314,7 +339,7 @@ class PlayerStatsMemory:
                 )
                 if should_read_disabled:
                     client = self._get_player_stats_client()
-                    result = client.get_disabled_items()
+                    result = read_source(context, DISABLED_ITEMS, client.get_disabled_items)
                     if result.available:
                         self._write_disabled_items_cache(result.items)
                         self._write_disabled_items_refresh_pending(False)
@@ -334,7 +359,7 @@ class PlayerStatsMemory:
 
             try:
                 client = self._get_player_stats_client()
-                damage_sources = client.get_live_damage_sources()
+                damage_sources = read_source(context, LIVE_DAMAGE_SOURCES, client.get_live_damage_sources)
                 damage_sources_available = True
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
                 damage_sources = ()
@@ -346,7 +371,7 @@ class PlayerStatsMemory:
         # 6. Read mob kills and player level
         try:
             client = self._get_player_stats_client()
-            mob_kills = client.get_killed_mobs()
+            mob_kills = read_source(context, MOB_KILLS, client.get_killed_mobs)
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             mob_kills = None
         except Exception:
@@ -354,7 +379,9 @@ class PlayerStatsMemory:
 
         try:
             client = self._get_player_stats_client()
-            player_level = client.get_player_level(owner_stats)
+            player_level = read_source(
+                context, PLAYER_LEVEL, lambda: client.get_player_level(owner_stats)
+            )
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             player_level = None
         except Exception:

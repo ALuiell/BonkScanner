@@ -71,6 +71,7 @@ import time
 from typing import Any, Callable
 
 from app import config
+from app.read_sources import CHEST_COUNTERS, read_source
 from app.player_stats_memory import player_stats_memory
 from app.player_stats_view import (
     overlay_view,
@@ -372,7 +373,9 @@ class PlayerStatsRefresh:
 
         try:
             client = self._memory_service()._get_player_stats_client()
-            chests_bought, chests_purchased = client.get_chest_counters()
+            chests_bought, chests_purchased = read_source(
+                context, CHEST_COUNTERS, client.get_chest_counters
+            )
             self._live_tracker().update_chest_counters(
                 chests_bought,
                 chests_purchased,

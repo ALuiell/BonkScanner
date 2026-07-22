@@ -80,8 +80,12 @@ from typing import TYPE_CHECKING, Any, Callable
 from app import config
 from app.player_stats_memory import player_stats_memory
 from app.read_sources import (
+    CHAOS_TRACKING_STATE,
+    EXPECTED_CHEST_INPUTS,
     KPS_GROUP_SPAN_LIMIT_SECONDS,
     MOB_KILLS,
+    POWERUP_TRACKING_SNAPSHOT,
+    STAGE_TIMER_CONTEXT,
     OWNER_STATS,
     PLAYER_STATS_CLIENT,
     RUN_TIMER,
@@ -384,8 +388,12 @@ class RefreshTasks:
 
     def _refresh_powerups_task(self, context: RefreshTickContext) -> bool:
         try:
-            snapshot = self._fast_task_client(context).get_powerup_tracking_snapshot(
-                self._fast_task_owner_stats(context)
+            client = self._fast_task_client(context)
+            owner_stats = self._fast_task_owner_stats(context)
+            snapshot = read_memory_source(
+                context,
+                POWERUP_TRACKING_SNAPSHOT,
+                lambda: client.get_powerup_tracking_snapshot(owner_stats),
             )
             self._memory().record_memory_success()
             accepted = self._tracker().update_powerups(snapshot)
@@ -407,8 +415,12 @@ class RefreshTasks:
 
     def _refresh_expected_chest_inputs_task(self, context: RefreshTickContext) -> bool:
         try:
-            chests_bought, keys_count = self._fast_task_client(context).get_expected_chest_inputs(
-                self._fast_task_owner_stats(context)
+            client = self._fast_task_client(context)
+            owner_stats = self._fast_task_owner_stats(context)
+            chests_bought, keys_count = read_memory_source(
+                context,
+                EXPECTED_CHEST_INPUTS,
+                lambda: client.get_expected_chest_inputs(owner_stats),
             )
             self._memory().record_memory_success()
             self._tracker().track_expected_key_procs(chests_bought, keys_count)
@@ -522,8 +534,10 @@ class RefreshTasks:
         if not callable(update_fast_stage_timer):
             return True
         try:
-            stage_timer_seconds, stage_index, stage_duration_seconds = (
-                self._fast_task_client(context).get_stage_timer_context()
+            stage_timer_seconds, stage_index, stage_duration_seconds = read_memory_source(
+                context,
+                STAGE_TIMER_CONTEXT,
+                self._fast_task_client(context).get_stage_timer_context,
             )
             self._memory().record_memory_success()
             update_fast_stage_timer(
@@ -552,9 +566,13 @@ class RefreshTasks:
 
     def _refresh_chaos_tome_task(self, context: RefreshTickContext) -> bool:
         try:
-            chaos_level, permanent_modifiers = self._fast_task_client(
-                context
-            ).get_chaos_tracking_state(self._fast_task_owner_stats(context))
+            client = self._fast_task_client(context)
+            owner_stats = self._fast_task_owner_stats(context)
+            chaos_level, permanent_modifiers = read_memory_source(
+                context,
+                CHAOS_TRACKING_STATE,
+                lambda: client.get_chaos_tracking_state(owner_stats),
+            )
             self._memory().record_memory_success()
             self._tracker().update_chaos_tome(
                 chaos_level=chaos_level,

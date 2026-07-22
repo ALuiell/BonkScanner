@@ -28,6 +28,28 @@ OWNER_STATS = "memory.player_stats.owner_stats"
 RUN_TIMER = "memory.player_stats.run_timer"
 MOB_KILLS = "memory.player_stats.mob_kills"
 
+# 28d: the remaining on-tick facts. One key per logical fact, not per client
+# method -- an indivisible aggregate gets one aggregate key (section 12.7).
+# A fact read by two call sites resolves once per pass; that is the whole
+# point of naming it.
+PLAYER_STATS = "memory.player_stats.player_stats"
+PASSIVE_ITEMS = "memory.player_stats.passive_items"
+STAGE_TIMER_CONTEXT = "memory.player_stats.stage_timer_context"
+PLAYER_LEVEL = "memory.player_stats.player_level"
+LIVE_WEAPONS = "memory.player_stats.live_weapons"
+LIVE_TOMES = "memory.player_stats.live_tomes"
+LIVE_BANISHES = "memory.player_stats.live_banishes"
+LIVE_DAMAGE_SOURCES = "memory.player_stats.live_damage_sources"
+DISABLED_ITEMS = "memory.player_stats.disabled_items"
+POWERUP_TRACKING_SNAPSHOT = "memory.player_stats.powerup_tracking_snapshot"
+EXPECTED_CHEST_INPUTS = "memory.player_stats.expected_chest_inputs"
+CHAOS_TRACKING_STATE = "memory.player_stats.chaos_tracking_state"
+CHEST_COUNTERS = "memory.player_stats.chest_counters"
+
+MAP_GENERATION_STATE = "memory.game_data.map_generation_state"
+RUNTIME_GAME_STATE = "memory.game_data.runtime_game_state"
+MAP_ACTIVITY_VALUES = "memory.game_data.map_activity_values"
+
 # The accepted coherence window for the RUN_TIMER/MOB_KILLS group, measured as
 # max(finished_at) - min(started_at) over its members.
 #
@@ -70,13 +92,42 @@ KPS_GROUP_SPAN_LIMIT_SECONDS = 0.100
 _HEALTH_RECORDED_ATTR = "_step28_read_source_health_recorded"
 
 
+def read_source(
+    context: RefreshTickContext | None,
+    key: str,
+    factory: Callable[[], Any],
+    *,
+    on_success: Callable[[], None] | None = None,
+    on_failure: Callable[[Exception], None] | None = None,
+) -> Any:
+    """Enrolment in one line, with the two things 28d must not change.
+
+    ``context is None`` -- a manual or off-tick caller -- calls ``factory``
+    directly, exactly as the site did before enrolment. No second pass is
+    invented for it (stop condition 4).
+
+    ``on_success``/``on_failure`` default to *nothing*. Most of the 28d sites
+    record no memory health at all: they swallow a read failure into an
+    ``available=False`` flag and leave the reconnect streak alone. Enrolling
+    them with real health callbacks would change error policy, which section
+    12.8's 28d forbids -- so the default is to preserve whatever the site
+    already did, and only the sites that already recorded health pass
+    callbacks.
+    """
+    if context is None:
+        return factory()
+    return read_memory_source(
+        context, key, factory, on_success=on_success, on_failure=on_failure
+    )
+
+
 def read_memory_source(
     context: RefreshTickContext,
     key: str,
     factory: Callable[[], Any],
     *,
-    on_success: Callable[[], None],
-    on_failure: Callable[[Exception], None],
+    on_success: Callable[[], None] | None = None,
+    on_failure: Callable[[Exception], None] | None = None,
 ) -> Any:
     """Read ``key`` through ``context``, recording memory health exactly once
     per physical attempt (step_28_plan.md section 12.5).
@@ -97,14 +148,15 @@ def read_memory_source(
         try:
             value = factory()
         except Exception as exc:
-            if not getattr(exc, _HEALTH_RECORDED_ATTR, False):
+            if on_failure is not None and not getattr(exc, _HEALTH_RECORDED_ATTR, False):
                 on_failure(exc)
                 try:
                     setattr(exc, _HEALTH_RECORDED_ATTR, True)
                 except Exception:
                     pass
             raise
-        on_success()
+        if on_success is not None:
+            on_success()
         return value
 
     return context.get_or_create_with_metadata(key, wrapped)

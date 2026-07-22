@@ -829,8 +829,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._live_items_section = RecordingItemsSectionView()
         attach_player_stats_view(app)
         player_stats_memory(app).close_player_stats_client = lambda: None
-        player_stats_memory(app).read_player_stats_only = lambda: ({}, 0x1234)
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: ({}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
         # Both lifecycle readers, and deliberately the same value: production
         # computes `mode` identically in get_runtime_game_state and the cheaper
         # cached get_runtime_activity_state (verified exhaustively over every
@@ -2446,7 +2446,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
 
-        def failing_read_player_stats_only() -> tuple[dict[str, object], int]:
+        def failing_read_player_stats_only(_context=None) -> tuple[dict[str, object], int]:
             raise ProcessNotFoundError("game closed")
 
         player_stats_memory(app).read_player_stats_only = failing_read_player_stats_only
@@ -2617,7 +2617,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
         read_calls: list[str] = []
-        player_stats_memory(app).read_player_stats_only = lambda: read_calls.append("stats") or ({}, 0x1234)
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: read_calls.append("stats") or ({}, 0x1234)
 
         with patch.object(config, "AUTO_START_RECORDING", False), \
              patch.object(config, "IN_GAME_OVERLAY", {"enabled": False, "widgets": {}}):
@@ -2850,7 +2850,7 @@ class GuiRunControlTests(unittest.TestCase):
         attach_player_stats_view(app).refresh_player_stats_timeline_ui = lambda *args, **kwargs: None
         app._refresh_vods_list_if_visible = lambda: None
         app._is_live_stats_tab_active = lambda: True
-        player_stats_memory(app).read_player_stats_only = lambda: (
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: (
             {
                 "Damage": SimpleNamespace(display_value="123", value=1.23),
                 "Powerup Multiplier": SimpleNamespace(display_value="1.5x", value=1.5),
@@ -2858,7 +2858,7 @@ class GuiRunControlTests(unittest.TestCase):
             0x1234,
         )
 
-        def fail_items(owner_stats=None):
+        def fail_items(owner_stats=None, _context=None):
             raise MemoryReadError("items missing")
 
         player_stats_memory(app).read_passive_items_only = fail_items
@@ -3306,8 +3306,8 @@ class GuiRunControlTests(unittest.TestCase):
         snapshot_calls: list[str] = []
         attach_player_stats_view(app).refresh_player_stats_timeline_ui = lambda *args, **kwargs: timeline_calls.append("timeline")
         attach_player_stats_view(app).display_player_stats_snapshot = lambda *args, **kwargs: snapshot_calls.append("snapshot")
-        player_stats_memory(app).read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ("Wrench x2",)
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -3345,11 +3345,11 @@ class GuiRunControlTests(unittest.TestCase):
             get_killed_mobs=lambda: 37,
             get_player_level=lambda owner_stats=None: 2,
         )
-        player_stats_memory(app).read_player_stats_only = lambda: (
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
             0x1234,
         )
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ("Wrench x2",)
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -3375,11 +3375,11 @@ class GuiRunControlTests(unittest.TestCase):
             get_killed_mobs=lambda: 37,
             get_player_level=lambda owner_stats=None: 2,
         )
-        player_stats_memory(app).read_player_stats_only = lambda: (
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
             0x1234,
         )
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ("Wrench x2",)
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -3414,8 +3414,8 @@ class GuiRunControlTests(unittest.TestCase):
         attach_player_stats_view(app).display_player_stats = lambda stats, items=(), **kwargs: display_calls.append(
             {"stats": stats, "items": tuple(items), "kwargs": kwargs}
         )
-        player_stats_memory(app).read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ("Wrench x2",)
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ("Wrench x2",)
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -3432,8 +3432,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
-        player_stats_memory(app).read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
         player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
         player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
@@ -3460,8 +3460,8 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
-        player_stats_memory(app).read_player_stats_only = lambda: ({}, 0x1234)
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: ({}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
         player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=None, current_stage_ptr=0)
         player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 0.0,
@@ -3486,11 +3486,11 @@ class GuiRunControlTests(unittest.TestCase):
         player_stats_memory(app).read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
             MemoryReadError("runtime state unavailable")
         )
-        player_stats_memory(app).read_player_stats_only = lambda: (
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
             0x1234,
         )
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
         player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
         player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
@@ -3513,9 +3513,9 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         player_stats_memory(app)._read_player_stats_recording_seed_safe = lambda: 321
-        player_stats_memory(app).read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
 
-        def fail_items(owner_stats=None):
+        def fail_items(owner_stats=None, _context=None):
             raise MemoryReadError("items missing")
 
         player_stats_memory(app).read_passive_items_only = fail_items
@@ -3540,12 +3540,12 @@ class GuiRunControlTests(unittest.TestCase):
         live_snapshot_store(app).last_known_damage_sources = (damage,)
         live_snapshot_store(app).last_known_banishes = ("Clover",)
         app._is_live_stats_tab_active = lambda: False
-        player_stats_memory(app).read_player_stats_only = lambda: (
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: (
             {"Damage": SimpleNamespace(display_value="123", value=1.23)},
             0x1234,
         )
 
-        def fail_items(owner_stats=None):
+        def fail_items(owner_stats=None, _context=None):
             raise MemoryReadError("items missing")
 
         player_stats_memory(app).read_passive_items_only = fail_items
@@ -3581,7 +3581,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         live_snapshot_store(app).last_known_items = ("Wrench x2", "Clover x1")
         player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
 
@@ -3597,7 +3597,7 @@ class GuiRunControlTests(unittest.TestCase):
         live_snapshot_store(app).last_known_items = ("Wrench x2",)
         live_snapshot_store(app).last_seed = 123
         live_snapshot_store(app).last_run_timer = 45.0
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ()
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
         player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
         player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 2.0,
@@ -3646,9 +3646,9 @@ class GuiRunControlTests(unittest.TestCase):
         app._refresh_vods_list_if_visible = lambda: None
         app._is_live_stats_tab_active = lambda: True
         app.log = lambda *args, **kwargs: None
-        player_stats_memory(app).read_player_stats_only = lambda: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
 
-        def fail_items(owner_stats=None):
+        def fail_items(owner_stats=None, _context=None):
             raise MemoryReadError("items missing")
 
         player_stats_memory(app).read_passive_items_only = fail_items
@@ -4765,8 +4765,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
-        player_stats_memory(app).read_player_stats_only = lambda: ({}, 0x1234)
-        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None: ("Key",)
+        player_stats_memory(app).read_player_stats_only = lambda _context=None: ({}, 0x1234)
+        player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ("Key",)
         player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(
             map_seed=None,
             current_stage_ptr=0,

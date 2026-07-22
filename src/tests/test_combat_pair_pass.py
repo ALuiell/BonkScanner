@@ -14,7 +14,13 @@ import src  # noqa: F401  -- puts `src/` on sys.path regardless of collection or
 
 import unittest
 
-from app.read_sources import MOB_KILLS, OWNER_STATS, PLAYER_STATS_CLIENT, RUN_TIMER
+from app.read_sources import (
+    EXPECTED_CHEST_INPUTS,
+    MOB_KILLS,
+    OWNER_STATS,
+    PLAYER_STATS_CLIENT,
+    RUN_TIMER,
+)
 from app.refresh_coordinator import RefreshTickContext
 from infra.memory.reader import MemoryReadError
 from tests.support.refresh_tasks import build_refresh_tasks
@@ -135,7 +141,17 @@ class PassKeySpellingTests(unittest.TestCase):
 
         self.assertEqual(
             context.resolved_keys(),
-            frozenset({PLAYER_STATS_CLIENT, OWNER_STATS, RUN_TIMER, MOB_KILLS}),
+            frozenset(
+                {
+                    PLAYER_STATS_CLIENT,
+                    OWNER_STATS,
+                    RUN_TIMER,
+                    MOB_KILLS,
+                    # 28d enrolled this one; the assertion is exact, so a new
+                    # source has to be declared here to land.
+                    EXPECTED_CHEST_INPUTS,
+                }
+            ),
         )
 
     def test_no_fact_is_resolved_under_two_spellings(self) -> None:
