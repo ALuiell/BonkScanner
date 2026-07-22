@@ -96,8 +96,18 @@ class MegabonkApp:
         self._compare_runs_view = None
         self.tabview = None
         self.tab_logs = None
-        self.tab_stats = None
-        self.tab_vods = None
+        # `self.tab_stats = None` and `self.tab_vods = None` stood here and are
+        # deleted, found by `step25_ownership.py --widgets` rather than by
+        # reading: it grades step 26's fourth criterion by asking who *writes*
+        # each of the eleven remaining shared widget names, and these two were
+        # the only entries with a writer outside `gui_app`/`gui_layout`.
+        #
+        # `tab_stats` is `Scanner`'s widget (step 25c) and `gui_overlay` reaches
+        # it through the named port `stats_tab=lambda: app._scanner.tab_stats`.
+        # `tab_vods` is `RecordingsTab`'s (step 21c) and has no reader at all.
+        # Neither slot had a single production reader left; both were the
+        # shared namespace outliving the sharing, and a `None` that nobody sets
+        # is exactly the ambient contract the metric cannot see.
         self.log_box = None
         # Every Session Stats widget is gone from the shared namespace: step 25
         # made `Scanner` an object that builds its own tab. Eleven slots left
