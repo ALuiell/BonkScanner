@@ -106,7 +106,7 @@ def build_refresh_app(*, snapshots, selected, pinned, should_capture=False):
     # now, so the whole-tuple stub lands on the resolved service rather than the
     # app double. The resolver takes the `__dict__` branch (no coordinator) and
     # caches the same instance the refresh path re-resolves.
-    player_stats_memory(app)._read_live_player_stats_data = lambda: (
+    player_stats_memory(app)._read_live_player_stats_data = lambda _context=None: (
         {}, (), True, (), True, (), True, (), True, (), True,
         21.5, None, None, 37, 2, 111, 0, None, (), True,
     )

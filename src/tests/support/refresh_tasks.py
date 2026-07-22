@@ -95,7 +95,7 @@ def build_refresh_tasks(
     world.lifecycle = lifecycle
 
     if capture is None:
-        capture = SimpleNamespace(sync_run_state=lambda: "running")
+        capture = SimpleNamespace(sync_run_state=lambda _context=None: "running")
     world.capture = capture
 
     world.vod_recorder = vod_recorder

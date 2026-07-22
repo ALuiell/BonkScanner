@@ -2528,7 +2528,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         app.after = lambda delay, callback: None
         sync_calls: list[int] = []
-        vod_capture(app).sync_run_state = lambda: sync_calls.append(1) and None
+        vod_capture(app).sync_run_state = lambda _context=None: sync_calls.append(1) and None
 
         now = [1000.0]
         with patch.object(time, "monotonic", side_effect=lambda: now[0]), \
@@ -2584,7 +2584,7 @@ class GuiRunControlTests(unittest.TestCase):
         app = self.build_recording_app()
         app._is_shutting_down = False
         app.after = lambda delay, callback: None
-        vod_capture(app).sync_run_state = lambda: (_ for _ in ()).throw(
+        vod_capture(app).sync_run_state = lambda _context=None: (_ for _ in ()).throw(
             RuntimeError("lifecycle failed")
         )
 
@@ -2631,7 +2631,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        vod_capture(app).sync_run_state = lambda: None
+        vod_capture(app).sync_run_state = lambda _context=None: None
         refresh_calls: list[str] = []
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 
@@ -2648,7 +2648,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_twitch_bot_active = lambda: False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        vod_capture(app).sync_run_state = lambda: None
+        vod_capture(app).sync_run_state = lambda _context=None: None
         refresh_calls: list[str] = []
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 
@@ -2672,7 +2672,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_twitch_bot_active = lambda: False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        vod_capture(app).sync_run_state = lambda: None
+        vod_capture(app).sync_run_state = lambda _context=None: None
         refresh_calls: list[str] = []
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 
@@ -2696,7 +2696,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_twitch_bot_active = lambda: False
         app.after_calls = []
         app.after = lambda delay, callback: app.after_calls.append((delay, callback))
-        vod_capture(app).sync_run_state = lambda: None
+        vod_capture(app).sync_run_state = lambda _context=None: None
         refresh_calls: list[str] = []
         app.refresh_live_player_stats_now = lambda *args, **kwargs: refresh_calls.append("refresh")
 

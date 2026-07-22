@@ -185,7 +185,19 @@ class PlayerStatsRefresh:
         status_text: str = "Live player stats",
         waiting_status_text: str = "Waiting for game/player stats...",
         unavailable_status_prefix: str = "Player stats unavailable",
+        context=None,
     ) -> bool:
+        """``context`` is the current ``RefreshTickContext`` when this runs from
+        the ``full_player_snapshot`` task, and ``None`` for every manual and
+        off-tick caller (``gui_layout``/``gui_twitch`` reach this through
+        ``MegabonkApp.refresh_live_player_stats_now``).
+
+        Threaded through so the run timer this path reads resolves through the
+        pass rather than taking a third physical read of the same four bytes
+        (step_28_plan.md section 12.8, 28c commit 2). ``None`` preserves the
+        off-tick behaviour exactly; no second pass is invented for it, which
+        stop condition 4 forbids.
+        """
         try:
             (
                 stats,
@@ -209,7 +221,7 @@ class PlayerStatsRefresh:
                 stage_index,
                 disabled_items,
                 disabled_items_available,
-            ) = self._memory_service()._read_live_player_stats_data()
+            ) = self._memory_service()._read_live_player_stats_data(context)
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
             self._memory_service().record_memory_failure(exc)
             try:

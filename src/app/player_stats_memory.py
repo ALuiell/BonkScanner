@@ -51,6 +51,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from app import config
+from app.read_sources import RUN_TIMER, read_memory_source, source_health_recorded
 from app.snapshot_store import live_snapshot_store
 from core.stats.types import DamageSourceSnapshot, TomeSnapshot, WeaponSnapshot
 from infra.memory.game_data_client import GameDataClient
@@ -183,7 +184,15 @@ class PlayerStatsMemory:
     def read_player_stats_recording_seed(self) -> int | None:
         return self.read_player_stats_recording_state().map_seed
 
-    def _read_live_player_stats_data(self):
+    def _read_live_player_stats_data(self, context=None):
+        """``context`` is the current ``RefreshTickContext`` when this runs from
+        the ``full_player_snapshot`` task, and ``None`` for the manual/off-tick
+        entry points (step_28_plan.md section 12.8, 28c commit 2).
+
+        ``None`` keeps the pre-28c behaviour exactly -- a direct client call --
+        rather than inventing a second pass for an off-tick caller, which
+        stop condition 4 forbids.
+        """
         stats, owner_stats = self.read_player_stats_only()
         items = ()
         items_available = True
@@ -204,8 +213,7 @@ class PlayerStatsMemory:
         stage_index = None
         stage_duration_seconds = None
         try:
-            client = self._get_player_stats_client()
-            run_timer_seconds = client.get_run_timer()
+            run_timer_seconds = self._resolve_run_timer(context)
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError):
             run_timer_seconds = None
         except Exception:
@@ -427,13 +435,37 @@ class PlayerStatsMemory:
             self.close_player_stats_game_data_client()
             return None
 
-    def _read_player_stats_recording_run_timer_safe(self) -> float | None:
+    def _resolve_run_timer(self, context=None) -> float | None:
+        """The single physical run-timer read for a pass.
+
+        With a ``context`` this resolves RUN_TIMER through the pass, so the
+        combat task, the full snapshot and the recording lifecycle share one
+        physical read of ``0x2f62398+0x20`` per tick instead of taking three.
+        Without one it calls the client directly, unchanged.
+
+        Health accounting stays with the physical read either way: through the
+        pass it is ``read_memory_source``'s job, and a cached hit records
+        nothing (section 12.5).
+        """
+        if context is None:
+            return self._get_player_stats_client().get_run_timer()
+        return read_memory_source(
+            context,
+            RUN_TIMER,
+            self._get_player_stats_client().get_run_timer,
+            on_success=self.record_memory_success,
+            on_failure=self.record_memory_failure,
+        )
+
+    def _read_player_stats_recording_run_timer_safe(self, context=None) -> float | None:
         try:
-            result = self._get_player_stats_client().get_run_timer()
-            self.record_memory_success()
+            result = self._resolve_run_timer(context)
+            if context is None:
+                self.record_memory_success()
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            self.record_memory_failure(exc)
+            if not source_health_recorded(exc):
+                self.record_memory_failure(exc)
             return None
         except Exception:
             self.close_player_stats_client()

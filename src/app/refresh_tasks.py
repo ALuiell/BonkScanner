@@ -157,8 +157,9 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
             # it), the same finding the ``player_stats_client`` properties got.
             # The status text it passes is the service's field now, initialised
             # to the string this ``getattr`` used to default to.
-            run=lambda _context: owner.refresh_live_player_stats_now(
-                status_text=service._player_stats_refresh_status_text
+            run=lambda context: owner.refresh_live_player_stats_now(
+                status_text=service._player_stats_refresh_status_text,
+                context=context,
             ),
         )
     )
@@ -337,7 +338,7 @@ class RefreshTasks:
         self._player_stats_refresh_status_text = "Live player stats"
         self._last_fast_kps_game_time_seconds: float | None = None
 
-    def _refresh_recording_lifecycle_task(self, _context: RefreshTickContext) -> bool:
+    def _refresh_recording_lifecycle_task(self, context: RefreshTickContext) -> bool:
         """Recording auto-start/auto-stop/pause handling, formerly the body of the
         10 s Qt timer callback.
 
@@ -346,7 +347,7 @@ class RefreshTasks:
         stay a pure refactor; step 8b then moved it to 1 s on its own merits,
         which is what having a task made possible.
         """
-        recording_state_action = self._capture().sync_run_state()
+        recording_state_action = self._capture().sync_run_state(context)
         self._player_stats_refresh_status_text = (
             "Live player stats"
             if recording_state_action != "stopped"

@@ -326,7 +326,16 @@ class VodCapture:
             self._refresh_now()
         self._recordings_list_view()._refresh_vods_list_if_visible()
 
-    def sync_run_state(self) -> str | None:
+    def sync_run_state(self, context=None) -> str | None:
+        """``context`` is the current ``RefreshTickContext`` when this runs from
+        the ``recording_lifecycle`` task, and ``None`` off-tick.
+
+        It reaches the injected `_read_run_timer` reader, which is called from
+        three places: `toggle_recording` (:262, a user action and therefore
+        genuinely off-tick, so it keeps passing nothing), and the two
+        auto-start paths below, both of which are only ever reached from this
+        method and so carry the pass down (section 12.8, 28c commit 2).
+        """
         # Reuses the lifecycle state the 500 ms driver already refreshes once a
         # second, rather than issuing its own uncached get_runtime_game_state().
         # At this task's old 10 s cadence that extra heavy read was affordable;
@@ -360,7 +369,7 @@ class VodCapture:
                 current_stage_index = (
                     getattr(current_state, "stage_index", None) if current_state is not None else None
                 )
-                current_run_time_seconds = self._read_run_timer()
+                current_run_time_seconds = self._read_run_timer(context)
                 vod_path = self.start_recording(
                     seed=current_seed,
                     stage_ptr=current_stage_ptr,
@@ -412,7 +421,7 @@ class VodCapture:
         current_stage_index = (
             getattr(current_state, "stage_index", None) if current_state is not None else None
         )
-        current_run_time_seconds = self._read_run_timer()
+        current_run_time_seconds = self._read_run_timer(context)
         if current_seed is None:
             if self.player_stats_recording_seed_missing_since is None:
                 self.player_stats_recording_seed_missing_since = now
@@ -586,7 +595,7 @@ def vod_capture(owner) -> VodCapture:
     service = VodCapture(
         recorder=lambda: owner.player_stats_vod_recorder,
         read_recording_state=lambda: player_stats_memory(owner)._read_player_stats_recording_state_safe(),
-        read_run_timer=lambda: player_stats_memory(owner)._read_player_stats_recording_run_timer_safe(),
+        read_run_timer=lambda context=None: player_stats_memory(owner)._read_player_stats_recording_run_timer_safe(context),
         close_game_data_client=lambda: player_stats_memory(owner).close_player_stats_game_data_client(),
         run_lifecycle=lambda: resolve_run_lifecycle(owner),
         refresh_now=lambda **kwargs: owner.refresh_live_player_stats_now(**kwargs),
