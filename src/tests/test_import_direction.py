@@ -98,13 +98,7 @@ TOPLEVEL_DEBT: Dict[Tuple[str, str], str] = {
 # Edges under `if TYPE_CHECKING:`. Not runtime dependencies -- the import never
 # executes -- but they still record a direction the table forbids, so they are
 # named rather than silently skipped.
-TYPE_CHECKING_DEBT: Dict[Tuple[str, str], str] = {
-    ("core/run_control.py", "infra"): (
-        "Deliberate, from step 10c: the port needs the client type for "
-        "annotations only. Removed when the annotation is expressed against a "
-        "core-owned protocol instead of the concrete infra client."
-    ),
-}
+TYPE_CHECKING_DEBT: Dict[Tuple[str, str], str] = {}
 
 
 # --------------------------------------------------------------------------
@@ -375,10 +369,13 @@ class ImportDirectionTests(unittest.TestCase):
 
         core/ is what makes the domain testable without a game, a window or a
         socket, so a regression here should name itself rather than arrive as
-        one line in a general layering report. Runtime edges into another
-        *layer* only -- core's remaining top-level debt (gui_styles) is
-        TOPLEVEL_DEBT's business, and its annotation-only edge into infra is
-        TYPE_CHECKING_DEBT's.
+        one line in a general layering report.
+
+        Runtime edges into another *layer* only, which is how this was scoped
+        when core still had a top-level import (gui_styles) and an
+        annotation-only edge into infra. Both are gone -- the last at step 27d
+        -- and test_scan_reaches_the_whole_tree now holds core at zero edges of
+        any kind, so this test is the named, load-bearing subset of that.
         """
 
         offenders = [
@@ -407,12 +404,33 @@ class ImportDirectionTests(unittest.TestCase):
             {layer for layer, _ in layered_source_files()},
             "a layered package produced no source files",
         )
+        # core/ is exempt as of step 27d, and its exemption is the measurement.
+        # It imports nothing outside itself -- not at runtime, and since the
+        # GameDataClient annotation became core.run_control.MapStateReader, not
+        # under TYPE_CHECKING either -- so it contributes zero edges and cannot
+        # prove the walk reached it. That was the whole point of the layer, and
+        # the assertion below turns it into a ratchet instead of losing it.
         scanned = {edge.source_layer for edge in self.edges}
         self.assertEqual(
-            set(LAYER_RULES),
+            set(LAYER_RULES) - {"core"},
             scanned,
             "no cross-module imports found for some layer -- the walk is "
             "probably not reaching it",
+        )
+        self.assertEqual(
+            [],
+            [edge.describe() for edge in self.edges if edge.source_layer == "core"],
+            "core/ imports another local module. It reached zero edges at step "
+            "27d and may not gain one -- this is test_core_imports_no_other_"
+            "layer's rule extended to annotation-only and top-level edges too.",
+        )
+        # The walk still has to enter core/, which no longer shows up in the
+        # edge list. Parsing its files is what collect_edges does before it
+        # finds nothing there, so assert the files exist and are reached.
+        self.assertGreater(
+            len([path for layer, path in layered_source_files() if layer == "core"]),
+            10,
+            "core/ produced almost no source files -- the walk is not reaching it",
         )
         self.assertGreater(len(self.edges), 50, "implausibly few edges found")
 

@@ -6,19 +6,20 @@ from core.run_control import (
     AbortCondition,
     DynamicFloat,
     DynamicString,
+    MapStateReader,
     RunControlError,
     RunControlProvider,
     SleepFunction,
     WarningHandler,
 )
 from core.game_state import MapGenerationState, MapStat, StatValue
-from infra.memory.game_data_client import GameDataClient
 
 __all__ = [
     "AbortCondition",
     "DynamicFloat",
     "DynamicString",
     "KeyboardRunControlProvider",
+    "MapStateReader",
     "RunControlError",
     "RunControlProvider",
     "SleepFunction",
@@ -56,7 +57,7 @@ class KeyboardRunControlProvider:
     def wait_for_next_run(
         self,
         *,
-        client: GameDataClient | None = None,
+        client: MapStateReader | None = None,
         previous_state: MapGenerationState | None = None,
         previous_stats: dict[MapStat, StatValue] | None = None,
         warn: WarningHandler | None = None,
