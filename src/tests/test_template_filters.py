@@ -208,7 +208,47 @@ class SyncTests(unittest.TestCase):
         with patch.object(config, "EVALUATION_MODE", "scores"):
             with patch.object(config, "SCORES_SYSTEM", scores):
                 filters.sync(announce=True)
-        self.assertEqual(logs, [("[*] Active tiers updated live: Light", {})])
+        self.assertEqual(
+            logs,
+            [
+                (
+                    ["[*] Active tiers updated live: ", "Light"],
+                    {"tag": [None, "WHITE"]},
+                )
+            ],
+        )
+
+    def test_announce_marks_a_mode_switch_even_when_the_name_is_unchanged(self) -> None:
+        logs: list[tuple[object, dict]] = []
+
+        def record_log(message, **kwargs) -> None:
+            logs.append((message, kwargs))
+
+        filters = build_template_filters(
+            selected_template_names=lambda: ["Light"],
+            log=record_log,
+            is_scanning=lambda: True,
+        )
+        templates = [{"name": "Light", "color": "BLUE"}]
+        scores = {**config.SCORES_SYSTEM, "active_tiers": ["Light"]}
+        with patch.object(config, "TEMPLATES", templates), patch.object(
+            config, "EVALUATION_MODE", "templates"
+        ):
+            filters.sync()
+        with patch.object(config, "EVALUATION_MODE", "scores"), patch.object(
+            config, "SCORES_SYSTEM", scores
+        ):
+            filters.sync(announce=True)
+
+        self.assertEqual(
+            logs,
+            [
+                (
+                    ["[*] Active tiers updated live: ", "Light"],
+                    {"tag": [None, "WHITE"]},
+                )
+            ],
+        )
 
     def test_an_empty_selection_announces_none(self) -> None:
         logs: list[str] = []

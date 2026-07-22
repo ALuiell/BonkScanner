@@ -174,8 +174,12 @@ class ScoresTests(unittest.TestCase):
     def test_refresh_scores_ui_updates_runtime_tiers_without_restart(self) -> None:
         """Moved from `test_gui_run_control.py` by step 22c."""
         rendered: list[str] = []
-        logs: list[str] = []
-        panel, filters = _panel_with_filters(log=logs.append, is_scanning=lambda: True)
+        logs: list[tuple[object, dict]] = []
+
+        def record_log(message, **kwargs) -> None:
+            logs.append((message, kwargs))
+
+        panel, filters = _panel_with_filters(log=record_log, is_scanning=lambda: True)
         panel._scores_desc_label = SimpleNamespace(setHtml=rendered.append)
         panel._scores_checkboxes = {
             "Light": FakeCheckbox(True),
@@ -204,7 +208,15 @@ class ScoresTests(unittest.TestCase):
                     "Perfect": {"rerolls_since_last": 0, "history": []},
                 },
             )
-            self.assertEqual(logs, ["[*] Active tiers updated live: Light, Perfect"])
+            self.assertEqual(
+                logs,
+                [
+                    (
+                        ["[*] Active tiers updated live: ", "Light", ", ", "Perfect"],
+                        {"tag": [None, "WHITE", None, "YELLOW"]},
+                    )
+                ],
+            )
             save_config.assert_called_once_with(config.user_config)
         finally:
             config.SCORES_SYSTEM = original_scores

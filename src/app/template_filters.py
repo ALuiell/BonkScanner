@@ -75,6 +75,7 @@ class TemplateRuntimeFilters:
         self._is_scanning = is_scanning
         self.active_templates: list[str] = []
         self.template_stats: dict[str, dict] = {}
+        self._active_mode: str | None = None
 
     def selected_template_names(self) -> list[str]:
         """The checked templates, whichever mode is active."""
@@ -96,6 +97,8 @@ class TemplateRuntimeFilters:
         change" comparison below mean anything -- reordering those two is the
         kind of silent rewrite step 21's notes warn about.
         """
+        active_mode = str(config.EVALUATION_MODE)
+        previous_mode = self._active_mode
         active_names = self.active_profile_names()
         previous_names = list(self.template_stats.keys())
 
@@ -106,29 +109,41 @@ class TemplateRuntimeFilters:
         for name in active_names:
             existing_stats.setdefault(name, {"rerolls_since_last": 0, "history": []})
         self.template_stats = existing_stats
+        self._active_mode = active_mode
 
         self._refresh_stats()
 
         if not announce or not self._is_scanning():
             return
 
-        if active_names == previous_names:
+        if active_names == previous_names and (
+            previous_mode is None or active_mode == previous_mode
+        ):
             return
 
-        mode_label = "tiers" if config.EVALUATION_MODE == "scores" else "templates"
-        if config.EVALUATION_MODE == "scores" or not active_names:
+        mode_label = "tiers" if active_mode == "scores" else "templates"
+        if not active_names:
             names_text = ", ".join(active_names) if active_names else "none"
             self._log(f"[*] Active {mode_label} updated live: {names_text}")
             return
 
-        color_by_name = {
-            str(template.get("name") or ""): str(
-                template.get("color") or "BLUE"
-            ).upper()
-            for template in config.TEMPLATES
-            if isinstance(template, dict)
-        }
-        parts: list[str] = ["[*] Active templates updated live: "]
+        if active_mode == "scores":
+            color_by_name = {
+                "Light": "WHITE",
+                "Good": "GREEN",
+                "Perfect": "YELLOW",
+                "Perfect+": "LIGHTRED_EX",
+            }
+        else:
+            color_by_name = {
+                str(template.get("name") or ""): str(
+                    template.get("color") or "BLUE"
+                ).upper()
+                for template in config.TEMPLATES
+                if isinstance(template, dict)
+            }
+
+        parts: list[str] = [f"[*] Active {mode_label} updated live: "]
         tags: list[str | None] = [None]
         for index, name in enumerate(active_names):
             parts.append(name)
