@@ -2493,7 +2493,7 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         self.assertEqual(
             tracker.format_powerups_summary(),
-            "Powerups: Shield +03:50 -> +04:15 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
+            "Powerups: Shield +19:50 -> +20:15 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
     def test_powerups_summary_keeps_stage_times_while_stage_timer_trails_the_run(self) -> None:

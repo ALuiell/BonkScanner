@@ -140,10 +140,13 @@ def resolve_ui_context(
 
     if not map_context.is_graveyard:
         # On ordinary maps the game keeps FinalSwarm in lockstep with the UI
-        # stage clock, including manual timer changes. Prefer that live clock;
-        # a missing/zero value remains a safe stage-timer fallback.
-        timer_value = final_swarm_value if final_swarm_is_usable else stage_timer
-        return _PowerupUiContext(timer_value, stage_time)
+        # final-swarm clock, including manual timer changes. It begins after
+        # the ordinary stage, so it has its own zero origin: do not subtract
+        # the 10-minute stage duration from it. A missing/zero value remains a
+        # safe stage-timer fallback.
+        if final_swarm_is_usable:
+            return _PowerupUiContext(final_swarm_value, 0.0)
+        return _PowerupUiContext(stage_timer, stage_time)
 
     activities = map_context.activity_max or {}
     if _GRAVEYARD_CRYPT_MARKERS & activities.keys():
