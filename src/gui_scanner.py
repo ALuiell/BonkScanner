@@ -29,24 +29,11 @@ except ImportError:
 class ScannerMixin:
     _TOTAL_REROLLS_FLUSH_INTERVAL = 15.0
 
-    # The scanner's GameDataClient is owned by AppCoordinator (step 12b). This
-    # property delegates to it -- including the assignment the background thread
-    # makes when it connects -- with a __dict__ fallback so app doubles built with
-    # object.__new__ (no coordinator) keep setting app.client = <fake> unchanged.
-    @property
-    def client(self):
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            return coordinator.client
-        return self.__dict__.get("_client")
-
-    @client.setter
-    def client(self, value) -> None:
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            coordinator.client = value
-        else:
-            self.__dict__["_client"] = value
+    # `client` was defined here until step 25a. It is `MegabonkApp`'s now, next
+    # to the two sibling coordinator-delegating client properties step 20h left
+    # there -- the same owner, reached the same way. It never was scanner state:
+    # `AppCoordinator` has owned it since step 12b, and seventeen production
+    # modules read it off the app.
 
     def _flush_total_rerolls(self, *, force: bool = False) -> None:
         lock = getattr(self, "_total_rerolls_lock", None)

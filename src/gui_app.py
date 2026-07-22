@@ -297,6 +297,32 @@ class MegabonkApp(
             )
         return coordinator
 
+    # The scan client, moved here from `ScannerMixin` by step 25a. Its two
+    # siblings below have been the app's since step 20h and this one is the same
+    # shape for the same owner; it only stayed on the mixin because that was
+    # where step 12b found it.
+    #
+    # The `__dict__` fallback the other two lost at 20h is still here, and
+    # deliberately so: the 34 `object.__new__` doubles in
+    # `tests/test_gui_run_control.py` assign `app.client = <fake>` and step 25's
+    # own conversion is what retires them. Removing it in the same commit that
+    # moves the property would mix two failures into one bisect. It goes when
+    # the doubles do, measured, not guessed.
+    @property
+    def client(self):
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            return coordinator.client
+        return self.__dict__.get("_client")
+
+    @client.setter
+    def client(self, value) -> None:
+        coordinator = self.__dict__.get("coordinator")
+        if coordinator is not None:
+            coordinator.client = value
+        else:
+            self.__dict__["_client"] = value
+
     @property
     def player_stats_client(self):
         return self._client_owner().player_stats_client
