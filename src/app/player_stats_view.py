@@ -40,9 +40,14 @@ layout's, mislabelled by a port named after its caller. Each now sits behind
 the accessor its own step will convert, and each accessor's fallback dies with
 that step -- 24 for ``overlay_view``, 26 for ``recordings_list_view``.
 
-Only ``PlayerStatsView`` is expected to lose its ambient fallback at step 19.
-The other two keep it *by design*, and the docstrings say which step removes
-them, so a later reader can tell a scheduled fallback from a forgotten one.
+Only ``PlayerStatsView`` was expected to lose its ambient fallback at step 19.
+The other two kept it *by design*, and the docstrings said which step removed
+them, so a later reader could tell a scheduled fallback from a forgotten one.
+**All three are closed as of step 26**: ``_overlay_view`` is injected by
+``gui_app.__init__`` and ``_recordings_list_view`` by
+``gui_layout._build_tab_router``. The ``owner`` branch in each resolver below
+survives only for app doubles built with ``object.__new__``, which inject
+neither.
 
 What this deliberately does **not** do
 ======================================
@@ -115,8 +120,12 @@ class PlayerStatsView(Protocol):
 class OverlayView(Protocol):
     """The OBS overlay and session panel, as the refresh path sees them.
 
-    Implemented by ``gui_overlay.py``. **Step 24** converts this one; until
-    then ``overlay_view()`` falls back to the app object on purpose.
+    Implemented by ``gui_overlay.Overlay``, injected as ``_overlay_view`` by
+    ``gui_app.__init__`` the line after it builds the component. The fallback
+    to the app object is closed: step 24c converted the mixin but left the
+    app's three forwarding methods answering this port, so the resolver kept
+    returning the application and the protocol kept matching by accident until
+    step 26 named the real implementer.
     """
 
     def update_overlay_state_from_tracker(self) -> None:
@@ -133,8 +142,13 @@ class OverlayView(Protocol):
 class RecordingsListView(Protocol):
     """The recordings list, as the capture lifecycle sees it.
 
-    Implemented by ``gui_layout.py``. **Step 26** converts this one; until then
-    ``recordings_list_view()`` falls back to the app object on purpose.
+    Implemented by ``gui_layout.TabRouter``, injected as
+    ``_recordings_list_view`` by ``_build_tab_router``. The fallback to the app
+    object is closed: step 26 made the router an object, and "re-render the
+    recordings list if that tab is showing" is the router's question rather
+    than the application's. It is injected from the composition root rather
+    than from ``gui_app.__init__`` because the router does not exist until the
+    layout is built.
     """
 
     def _refresh_vods_list_if_visible(self) -> None:
@@ -160,8 +174,9 @@ def player_stats_view(owner) -> PlayerStatsView:
 def overlay_view(owner) -> OverlayView:
     """The overlay view the app layer should publish through.
 
-    Falls back to ``owner`` **by design until step 24**, which converts
-    ``OverlayMixin``. This is a scheduled fallback, not an overlooked one.
+    Production injects ``_overlay_view`` (step 26). The ``owner`` branch is the
+    app-double affordance the other two resolvers keep, not a scheduled
+    fallback any more.
     """
     injected = _injected(owner, "_overlay_view")
     return owner if injected is None else injected
@@ -170,8 +185,8 @@ def overlay_view(owner) -> OverlayView:
 def recordings_list_view(owner) -> RecordingsListView:
     """The recordings-list view the capture lifecycle should refresh through.
 
-    Falls back to ``owner`` **by design until step 26**, which retires
-    ``GuiLayoutMixin``. This is a scheduled fallback, not an overlooked one.
+    Production injects ``_recordings_list_view`` (step 26). The ``owner``
+    branch is the app-double affordance, not a scheduled fallback any more.
     """
     injected = _injected(owner, "_recordings_list_view")
     return owner if injected is None else injected

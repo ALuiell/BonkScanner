@@ -163,9 +163,173 @@ def _apply_powerups_card_baselines(labels_by_name) -> None:
         _reserve_label_baseline_width(label, POWERUPS_CARD_LINE_BASELINE)
 
 
+def _is_tab_active(tabview, label: str) -> bool:
+    """Is `label` the tab currently showing in `tabview`?
+
+    Module-level and handed its tab bar, rather than four one-line methods
+    reading `self.tabview`, because it has two callers that are not the same
+    object: `TabRouter`, which asks it about the bar it routes, and
+    `MegabonkApp`, whose two surviving predicates are called *on the
+    application* by `app/` modules that may not import a UI component
+    (`player_stats_memory`, `player_stats_refresh`, `refresh_tasks`,
+    `vod_capture`) and by `gui_overlay.build_overlay`. One implementation, two
+    callers, no ambient `self` -- the shape steps 19 and 24a took for the same
+    reason: a free function has no class to be orphaned from.
+
+    The `None` guard is new and deliberate. The four predicates this replaces
+    read `self.tabview.tabText(...)` unguarded, which raises before the tab bar
+    exists -- and Qt **swallows exceptions raised inside a slot**, so a router
+    firing early would degrade into a traceback on stderr with no other
+    symptom. That is the failure shape steps 21 and 22c each shipped once.
+    "No tab is active because there is no tab bar" is the same answer with no
+    way to hide.
+    """
+    if tabview is None:
+        return False
+    return tabview.tabText(tabview.currentIndex()) == label
+
+
+class TabRouter:
+    """What happens when the user switches a tab.
+
+    `GuiLayoutMixin`'s last responsibility, and the reason `MegabonkApp` still
+    had a base class. Eight methods that read `self.tabview`,
+    `self.left_tabview` and `self._templates_panel` out of the shared
+    namespace, and called *thirteen* delegators on the application to reach
+    components the app was already holding -- eleven of which had no other
+    production caller, and are gone with this object.
+
+    **Every port is a supplier, and that is the measurement rather than
+    style.** `_build_left_tabs` and `_build_right_panel` connect
+    `currentChanged` **before** `addTab` populates either panel, so these slots
+    fire during `build_layout`, while `_templates_panel`, `_recordings_view`
+    and `_compare_runs_view` are still `None`. A router holding values captured
+    at construction would hold `None` for the life of the application. Keeping
+    the connect at the same two points is what keeps the initial firing order
+    identical, which `tools/step23_startup_smoke.py` is the only check that
+    can see.
+
+    That firing order is also why each view is guarded. The four
+    `hasattr(self, "ensure_..._chooser_for_empty_selection")` checks this
+    replaces were permanently **true** -- `MegabonkApp` has defined both names
+    since step 21c -- so they guarded nothing while reading as if they guarded
+    construction order. The `is None` checks below guard the question those
+    `hasattr` calls were misspelling. Removing the `hasattr` and adding the
+    real guard is one edit on purpose: step 25b recorded what happens when a
+    `hasattr` covering a method of the same class outlives the method, and it
+    is "the feature silently stopped working" with a green suite.
+    """
+
+    def __init__(
+        self,
+        *,
+        left_tabview,
+        tabview,
+        templates_panel,
+        recordings_view,
+        compare_runs_view,
+        overlay,
+        template_filters,
+        update_status,
+        refresh_live_player_stats,
+        schedule_idle,
+    ) -> None:
+        self._left_tabview = left_tabview
+        self._tabview = tabview
+        self._templates_panel = templates_panel
+        self._recordings_view = recordings_view
+        self._compare_runs_view = compare_runs_view
+        self._overlay = overlay
+        self._template_filters = template_filters
+        self._update_status = update_status
+        self._refresh_live_player_stats = refresh_live_player_stats
+        self._schedule_idle = schedule_idle
+
+    # -- the left bar: Templates <-> Scores --------------------------------
+    #
+    # This writes `config.json` on **every** left tab switch, and it fires
+    # during `build_layout` when `_build_left_tabs` calls `setCurrentIndex`.
+    # Any harness that constructs a real app must stub `config.save_config`
+    # before doing so or it overwrites the user's file.
+    def on_left_tab_changed(self) -> None:
+        left_tabview = self._left_tabview()
+        if left_tabview is None:
+            return
+        tab_name = left_tabview.tabText(left_tabview.currentIndex())
+        config.EVALUATION_MODE = "scores" if tab_name == "Scores" else "templates"
+        config.user_config["EVALUATION_MODE"] = config.EVALUATION_MODE
+        config.save_config(config.user_config)
+        templates_panel = self._templates_panel()
+        if templates_panel is not None:
+            templates_panel.refresh_scores_ui()
+        self._template_filters.sync(announce=True)
+        self._update_status()
+
+    # -- the right bar ------------------------------------------------------
+    def on_right_tab_changed(self) -> None:
+        self._refresh_recording_tabs()
+        self._schedule_idle(self._refresh_right_tab_after_switch)
+
+    def _refresh_right_tab_after_switch(self) -> None:
+        self._refresh_recording_tabs()
+        if self.is_live_stats_tab_active():
+            self._refresh_live_player_stats()
+        if self.is_overlay_tab_active():
+            self._overlay.refresh_overlay_ui()
+
+    def _refresh_recording_tabs(self) -> None:
+        """The eight lines both right-bar handlers ran, run from one place.
+
+        **This still runs twice per switch, and that is preserved rather than
+        fixed.** `on_right_tab_changed` refreshes synchronously and then
+        schedules `_refresh_right_tab_after_switch`, which refreshes again --
+        so switching to Recordings re-reads the list once before the repaint
+        and once after. Step 26 measured the duplication and did not remove it:
+        the two passes straddle Qt's redraw, `VodLibrary` is what absorbs the
+        second read, and a step whose subject is the router's *ownership* is
+        not the place to change how often it fires. De-duplicating the text is
+        not de-duplicating the calls -- the call count is identical to what the
+        two copies produced.
+        """
+        recordings_view = self._recordings_view()
+        if recordings_view is not None and self.is_recordings_tab_active():
+            recordings_view.refresh_vods_list()
+            recordings_view.ensure_recordings_chooser_for_empty_selection()
+        compare_runs_view = self._compare_runs_view()
+        if compare_runs_view is not None and self.is_compare_runs_tab_active():
+            compare_runs_view.refresh_compare_runs_list()
+            compare_runs_view.ensure_compare_runs_chooser_for_empty_selection()
+
+    def is_live_stats_tab_active(self) -> bool:
+        return _is_tab_active(self._tabview(), "Live Stats")
+
+    def is_overlay_tab_active(self) -> bool:
+        return _is_tab_active(self._tabview(), "OBS Overlay")
+
+    def is_recordings_tab_active(self) -> bool:
+        return _is_tab_active(self._tabview(), "Recordings")
+
+    def is_compare_runs_tab_active(self) -> bool:
+        return _is_tab_active(self._tabview(), "Compare Runs")
+
+    # `RecordingsListView`'s single operation (`app/player_stats_view.py`).
+    # The underscore is the protocol's, not a privacy claim: `vod_capture` and
+    # `player_stats_refresh` call this name through `recordings_list_view()`,
+    # whose fallback to the app object was scheduled to die with this step and
+    # does -- `_build_tab_router` injects this object as `_recordings_list_view`.
+    def _refresh_vods_list_if_visible(self) -> None:
+        recordings_view = self._recordings_view()
+        if recordings_view is not None and self.is_recordings_tab_active():
+            recordings_view.refresh_vods_list()
+        compare_runs_view = self._compare_runs_view()
+        if compare_runs_view is not None and self.is_compare_runs_tab_active():
+            compare_runs_view.refresh_compare_runs_list()
+
+
 class GuiLayoutMixin:
 
     def setup_ui(self):
+        self._tab_router = _build_tab_router(self)
         central = QWidget()
         self.setCentralWidget(central)
         root_layout = QVBoxLayout(central)
@@ -237,7 +401,7 @@ class GuiLayoutMixin:
         splitter.addWidget(left_panel)
 
         self.left_tabview = QTabWidget()
-        self.left_tabview.currentChanged.connect(self.on_left_tab_changed)
+        self.left_tabview.currentChanged.connect(self._tab_router.on_left_tab_changed)
         left_layout.addWidget(self.left_tabview)
 
         # The ~34 lines that built both left tabs are `TemplatesPanel.build()`'s
@@ -255,7 +419,7 @@ class GuiLayoutMixin:
         splitter.setSizes([290, 970])
 
         self.tabview = QTabWidget()
-        self.tabview.currentChanged.connect(self.on_right_tab_changed)
+        self.tabview.currentChanged.connect(self._tab_router.on_right_tab_changed)
         right_layout.addWidget(self.tabview, 1)
 
         return right_layout
@@ -299,65 +463,45 @@ class GuiLayoutMixin:
         controls.addWidget(self.toggle_btn)
         right_layout.addLayout(controls)
 
-    def on_left_tab_changed(self):
-        if self.left_tabview is None:
-            return
-        tab_name = self.left_tabview.tabText(self.left_tabview.currentIndex())
-        config.EVALUATION_MODE = "scores" if tab_name == "Scores" else "templates"
-        config.user_config["EVALUATION_MODE"] = config.EVALUATION_MODE
-        config.save_config(config.user_config)
-        self.refresh_scores_ui()
-        self._sync_runtime_filters(announce=True)
-        self.update_status_ui()
 
-    def on_right_tab_changed(self):
-        self._show_right_tab_transition_cover()
-        if self._is_recordings_tab_active():
-            self.refresh_vods_list()
-            if hasattr(self, "ensure_recordings_chooser_for_empty_selection"):
-                self.ensure_recordings_chooser_for_empty_selection()
-        if self._is_compare_runs_tab_active():
-            self.refresh_compare_runs_list()
-            if hasattr(self, "ensure_compare_runs_chooser_for_empty_selection"):
-                self.ensure_compare_runs_chooser_for_empty_selection()
-        self.after_idle(self._refresh_right_tab_after_switch)
+def _build_tab_router(app):
+    """Construct the tab-switch router and name its ten collaborators.
 
-    def _refresh_right_tab_after_switch(self):
-        if self._is_recordings_tab_active():
-            self.refresh_vods_list()
-            if hasattr(self, "ensure_recordings_chooser_for_empty_selection"):
-                self.ensure_recordings_chooser_for_empty_selection()
-        if self._is_compare_runs_tab_active():
-            self.refresh_compare_runs_list()
-            if hasattr(self, "ensure_compare_runs_chooser_for_empty_selection"):
-                self.ensure_compare_runs_chooser_for_empty_selection()
-        if self._is_live_stats_tab_active():
-            self.refresh_live_player_stats_now()
-        if self._is_overlay_tab_active():
-            self.refresh_overlay_ui()
+    The composition root for `TabRouter` (step 26), called from the first line
+    of `setup_ui` -- before `_build_left_tabs` and `_build_right_panel`, which
+    is the whole constraint. Both connect `currentChanged` before populating
+    their bar, so the router has to exist before either runs and cannot be
+    handed a single widget that does.
 
-    def _show_right_tab_transition_cover(self):
-        return None
+    Six of the ten are late-bound suppliers, for the reason `TabRouter`'s
+    header records: they name objects that do not exist yet at this line. The
+    remaining four are real references to collaborators `gui_app.__init__`
+    built before it called `setup_ui` -- the overlay component, the runtime
+    filters, and two pieces of application surface that survive this step
+    because `app/` and `gui_dialogs` call them on the application.
 
-    def _cancel_right_tab_transition(self):
-        return None
-
-    def _is_live_stats_tab_active(self) -> bool:
-        return self.tabview.tabText(self.tabview.currentIndex()) == "Live Stats"
-
-    def _is_overlay_tab_active(self) -> bool:
-        return self.tabview.tabText(self.tabview.currentIndex()) == "OBS Overlay"
-
-    def _is_recordings_tab_active(self) -> bool:
-        return self.tabview.tabText(self.tabview.currentIndex()) == "Recordings"
-
-    def _is_compare_runs_tab_active(self) -> bool:
-        return self.tabview.tabText(self.tabview.currentIndex()) == "Compare Runs"
-    def _refresh_vods_list_if_visible(self):
-        if self._is_recordings_tab_active():
-            self.refresh_vods_list()
-        if self._is_compare_runs_tab_active():
-            self.refresh_compare_runs_list()
+    `_recordings_list_view` is assigned here rather than in `gui_app.__init__`
+    for the same reason `_build_recordings_view` registers its tab with
+    `VodLibrary` here: the implementer does not exist until the layout is
+    built. This assignment is what closes `recordings_list_view()`'s fallback
+    to the app object -- scheduled for this step by
+    `app/player_stats_view.py`'s docstring since step 19, and the last of the
+    three port fallbacks that split created.
+    """
+    router = TabRouter(
+        left_tabview=lambda: app.left_tabview,
+        tabview=lambda: app.tabview,
+        templates_panel=lambda: app._templates_panel,
+        recordings_view=lambda: app._recordings_view,
+        compare_runs_view=lambda: app._compare_runs_view,
+        overlay=app._overlay,
+        template_filters=app._template_filters,
+        update_status=app.update_status_ui,
+        refresh_live_player_stats=app.refresh_live_player_stats_now,
+        schedule_idle=app.after_idle,
+    )
+    app._recordings_list_view = router
+    return router
 
 
 def _build_twitch_tab(app):
@@ -447,7 +591,7 @@ def _build_compare_runs_view(app):
     view = CompareRunsTab(
         tabview=app.tabview,
         vod_library=app.vod_library,
-        is_active=app._is_compare_runs_tab_active,
+        is_active=app._tab_router.is_compare_runs_tab_active,
         schedule=lambda callback: (
             app.after(0, callback) if app._invoker is not None else callback()
         ),
@@ -473,8 +617,10 @@ def _build_recordings_view(app):
     its subscribers is the ambient-namespace habit in a new spelling.
 
     `is_active` hands the tab the tab-bar question without handing it the
-    router: `on_right_tab_changed` and `_refresh_vods_list_if_visible` stay
-    `gui_layout`'s until step 26.
+    router. It named `app._is_recordings_tab_active` until step 26 made the
+    router an object; it names the router's own predicate now, which is the
+    same answer from the object that owns the question rather than from a
+    delegator the application only carried because the router lived on it.
 
     Imported inside the function body for the reason `_build_live_stats_view`
     records: `recordings` imports this module for its layout helpers, so a
@@ -488,7 +634,7 @@ def _build_recordings_view(app):
         vod_library=app.vod_library,
         window=lambda: app.window,
         vod_recorder=lambda: app.player_stats_vod_recorder,
-        is_active=app._is_recordings_tab_active,
+        is_active=app._tab_router.is_recordings_tab_active,
         log=app.log,
         schedule=lambda callback: (
             app.after(0, callback) if app._invoker is not None else callback()

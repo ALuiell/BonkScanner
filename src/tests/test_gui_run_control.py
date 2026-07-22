@@ -2599,16 +2599,10 @@ class GuiRunControlTests(unittest.TestCase):
         }
         self.assertIn("lifecycle failed", diagnostics["recording_lifecycle"].last_error or "")
 
-    def test_refresh_right_tab_after_switch_immediately_refreshes_live_stats(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.tabview = FakeTabWidget("Live Stats")
-        calls: list[str] = []
-        app.refresh_vods_list = lambda: calls.append("vods")
-        app.refresh_live_player_stats_now = lambda *args, **kwargs: calls.append("live")
-
-        MegabonkApp._refresh_right_tab_after_switch(app)
-
-        self.assertEqual(calls, ["live"])
+    # `test_refresh_right_tab_after_switch_immediately_refreshes_live_stats`
+    # **moved** to `test_tab_router.py` at step 26, which made the router an
+    # object. It built an app double and called the unbound mixin method with
+    # it as `self`; its subject has a constructor now.
 
     def test_update_player_stats_timer_skips_hidden_live_stats_when_not_recording(self) -> None:
         app = self.build_recording_app()
@@ -4671,7 +4665,12 @@ class GuiRunControlTests(unittest.TestCase):
         scanner.close_client = lambda: closed.append("client")
         app.destroy = lambda: destroyed.append(True)
         app._is_shutting_down = False
-        app._cancel_right_tab_transition = lambda: closed.append("transition")
+        # `app._cancel_right_tab_transition = lambda: closed.append("transition")`
+        # stood here and `"transition"` was asserted first in the order below.
+        # Step 26 deleted the method: its body was `return None` and had never
+        # been anything else, so this recorder was pinning the position of a
+        # no-op. The other six steps keep their order, which is what the test
+        # is for.
         player_stats_memory(app).close_player_stats_client = lambda: closed.append("player_stats")
         player_stats_memory(app).close_player_stats_game_data_client = lambda: closed.append("player_stats_game_data")
         app.close_overlay_server = lambda: closed.append("overlay")
@@ -4687,7 +4686,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(destroyed, [True])
         self.assertEqual(
             closed,
-            ["transition", "client", "player_stats", "player_stats_game_data", "overlay", "in_game_overlay", "twitch"],
+            ["client", "player_stats", "player_stats_game_data", "overlay", "in_game_overlay", "twitch"],
         )
 
     def test_app_coordinator_shutdown_closes_the_memory_clients(self) -> None:
@@ -4722,7 +4721,6 @@ class GuiRunControlTests(unittest.TestCase):
         app.coordinator = SimpleNamespace(shutdown=lambda: closed.append("coordinator"))
         app.destroy = lambda: destroyed.append(True)
         app._is_shutting_down = False
-        app._cancel_right_tab_transition = lambda: None
         scanner.close_client = lambda: closed.append("component_client")
         player_stats_memory(app).close_player_stats_client = lambda: closed.append("mixin_player_stats")
         player_stats_memory(app).close_player_stats_game_data_client = lambda: closed.append("mixin_game_data")

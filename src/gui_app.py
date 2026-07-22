@@ -12,7 +12,7 @@ from app.version import CURRENT_VERSION
 from app.player_stats_memory import player_stats_memory
 from app.player_stats_refresh import player_stats_refresh
 from gui_dialogs import HelpDialog, SettingsDialog
-from gui_layout import GuiLayoutMixin
+from gui_layout import GuiLayoutMixin, _is_tab_active
 from gui_overlay import build_overlay, combined_tracked_item_rules
 from gui_in_game_overlay import build_in_game_overlay
 from gui_run_control import build_run_control
@@ -71,6 +71,17 @@ class MegabonkApp(
         # symptom. Found by constructing the real app, not by the suite -- the
         # same way, and for the same reason, step 21's startup crash was found.
         self._templates_panel = None
+        # Step 26's router, and the two views it guards on. All three are
+        # `None` until the layout is built, and all three are declared here for
+        # the reason the comment above gives about `_templates_panel`: the
+        # router's slots fire *during* the build, so "does this view exist yet"
+        # is a real question with a real answer for the whole of `setup_ui`.
+        # Without these lines the router's suppliers would reach `__getattr__`,
+        # which forwards to the window and answers a missing view with an
+        # `AttributeError` raised from inside a Qt slot -- swallowed.
+        self._tab_router = None
+        self._recordings_view = None
+        self._compare_runs_view = None
         self.tabview = None
         self.tab_logs = None
         self.tab_stats = None
@@ -212,6 +223,16 @@ class MegabonkApp(
             snapshot_tracked_item_config=session_command_tracked_item_config,
         )
         self._overlay = build_overlay(self, self.coordinator, self._session_stats)
+        # `OverlayView`'s implementer, injected rather than left to
+        # `overlay_view()`'s fallback to `self`. That fallback was scheduled to
+        # die with step 24 and outlived it by two steps: 24c converted the
+        # mixin but left the app's three forwarding methods answering the port,
+        # so the resolver still returned the application and the protocol still
+        # matched by accident. `Overlay` implements all three operations
+        # directly -- the app's delegators forward to exactly these names --
+        # so this closes the second of the three fallbacks that step 19's port
+        # split created, alongside `_recordings_list_view` in `_build_tab_router`.
+        self._overlay_view = self._overlay
         self._in_game_overlay = build_in_game_overlay(self)
         self._in_game_overlay.start_runtime()
         self.player_stats_last_run_id = None
@@ -541,6 +562,29 @@ class MegabonkApp(
         dialog = HelpDialog(self.window)
         dialog.exec()
 
+    # -- tab-bar predicates (step 26) --------------------------------------
+    #
+    # Two of the four `_is_*_tab_active` methods `GuiLayoutMixin` defined. The
+    # other two -- Recordings and Compare Runs -- had no caller outside the
+    # router and left with it; these two stay because they are called *on the
+    # application* by five `app/` modules (`player_stats_memory`,
+    # `player_stats_refresh`, `refresh_tasks` twice, `vod_capture`) and by
+    # `gui_overlay.build_overlay`, none of which may reach a UI component
+    # directly. That is the same measured app-layer surface
+    # `refresh_live_player_stats_now` above sits on, not feature forwarding:
+    # the roadmap's rollback condition is about the *shell* needing forwarding
+    # to stay compatible, and these have named callers in the layer below.
+    #
+    # The body is `gui_layout._is_tab_active`, the free function the router
+    # uses too, so the app and the router cannot answer the same question
+    # differently -- and `self.tabview` is declared by `__init__`, so neither
+    # is a hidden read.
+    def _is_live_stats_tab_active(self) -> bool:
+        return _is_tab_active(self.tabview, "Live Stats")
+
+    def _is_overlay_tab_active(self) -> bool:
+        return _is_tab_active(self.tabview, "OBS Overlay")
+
     # -- player-stats refresh (step 20g) ----------------------------------
     #
     # `PlayerStatsRefreshMixin` was the seventh and last app-side MRO base;
@@ -666,7 +710,18 @@ class MegabonkApp(
         if getattr(self, "_is_shutting_down", False):
             return
         self._is_shutting_down = True
-        self._cancel_right_tab_transition()
+        # `self._cancel_right_tab_transition()` stood here and is deleted
+        # rather than moved. It was one of two methods on `GuiLayoutMixin`
+        # whose entire body was `return None`, and it had been that since it
+        # was written: there has never been a tab transition to cancel. Its
+        # sibling `_show_right_tab_transition_cover` was the first line of
+        # `on_right_tab_changed` and is gone for the same reason.
+        #
+        # `test_on_closing_stops_supported_runtime_resources` replaced this
+        # with a recorder and asserted `"transition"` came **first** in the
+        # teardown order. The assertion is updated rather than dropped: the
+        # remaining six steps are still asserted in order, and what the test
+        # was pinning here was the position of a no-op.
         self._scanner.shutdown()
         # The coordinator owns the three memory clients (step 12b), so it closes
         # them (step 12c). App doubles built without a coordinator fall back to the
