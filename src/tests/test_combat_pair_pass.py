@@ -14,7 +14,7 @@ import src  # noqa: F401  -- puts `src/` on sys.path regardless of collection or
 
 import unittest
 
-from app.read_sources import MOB_KILLS, RUN_TIMER
+from app.read_sources import MOB_KILLS, OWNER_STATS, PLAYER_STATS_CLIENT, RUN_TIMER
 from app.refresh_coordinator import RefreshTickContext
 from infra.memory.reader import MemoryReadError
 from tests.support.refresh_tasks import build_refresh_tasks
@@ -112,6 +112,81 @@ class CombatPairThroughThePassTests(unittest.TestCase):
         self.assertEqual(run_timer_reads, [1, 1])
         self.assertEqual(mob_kill_reads, [1])
         self.assertEqual(tracked_kills, [(21.5, 37)])
+
+
+class PassKeySpellingTests(unittest.TestCase):
+    """One fact, one key. 28a declared ``PLAYER_STATS_CLIENT``/``OWNER_STATS``
+    while ``refresh_tasks`` still resolved them under the bare literals
+    ``"player_stats_client"``/``"owner_stats"`` -- two spellings for one fact,
+    with zero consumers of the constants to make the divergence visible. Left
+    standing, 28d enrolling ``OWNER_STATS`` would have opened a *second* cache
+    entry and performed a second physical ``resolve_owner_stats()`` per pass:
+    the duplicate read this step exists to remove."""
+
+    def test_one_pass_resolves_exactly_the_declared_keys(self) -> None:
+        client = _client(get_run_timer=lambda: 21.5, get_killed_mobs=lambda: 37)
+        service, world = build_refresh_tasks(stats_client=client)
+        context = RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+
+        # Two tasks on one pass: combat brings the pair, expected-chest-inputs
+        # is what makes `OWNER_STATS` resolve at all.
+        self.assertTrue(service._refresh_combat_metrics_task(context))
+        self.assertTrue(service._refresh_expected_chest_inputs_task(context))
+
+        self.assertEqual(
+            context.resolved_keys(),
+            frozenset({PLAYER_STATS_CLIENT, OWNER_STATS, RUN_TIMER, MOB_KILLS}),
+        )
+
+    def test_no_fact_is_resolved_under_two_spellings(self) -> None:
+        """A namespaced key and a bare one for the same fact differ as strings
+        but share their final segment, so the set-equality test above would
+        pass a *superset* regression without this."""
+        client = _client(get_run_timer=lambda: 21.5, get_killed_mobs=lambda: 37)
+        service, world = build_refresh_tasks(stats_client=client)
+        context = RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+
+        service._refresh_combat_metrics_task(context)
+        service._refresh_expected_chest_inputs_task(context)
+
+        facts = [key.rsplit(".", 1)[-1] for key in context.resolved_keys()]
+        self.assertCountEqual(facts, set(facts))
+
+
+class SingleResolutionPathTests(unittest.TestCase):
+    """``get_or_create`` records metadata too, so the 28a hole -- a key first
+    resolved through the plain method leaving ``metadata_for`` at ``None`` for
+    the rest of the pass -- cannot be reached. 28c computes a group span from
+    exactly that metadata over 23 mixed call sites."""
+
+    def test_plain_get_or_create_records_metadata(self) -> None:
+        context = RefreshTickContext(pass_id=4, started_at=0.0, clock=lambda: 1.0)
+
+        context.get_or_create("k", lambda: 7)
+
+        metadata = context.metadata_for("k")
+        self.assertIsNotNone(metadata)
+        self.assertEqual(metadata.pass_id, 4)
+        self.assertTrue(metadata.succeeded)
+
+    def test_mixing_the_two_method_names_is_impossible(self) -> None:
+        self.assertIs(
+            RefreshTickContext.get_or_create_with_metadata,
+            RefreshTickContext.get_or_create,
+        )
+
+    def test_a_key_first_resolved_plainly_still_has_metadata_for_a_later_consumer(
+        self,
+    ) -> None:
+        calls: list[int] = []
+        context = RefreshTickContext(pass_id=2, started_at=0.0, clock=lambda: 0.0)
+
+        context.get_or_create("k", lambda: calls.append(1) or 7)
+        value = context.get_or_create_with_metadata("k", lambda: calls.append(1) or 7)
+
+        self.assertEqual(value, 7)
+        self.assertEqual(calls, [1])
+        self.assertEqual(context.metadata_for("k").pass_id, 2)
 
 
 if __name__ == "__main__":

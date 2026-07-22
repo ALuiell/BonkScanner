@@ -63,35 +63,31 @@ class RefreshTickContext:
         return self._started_at
 
     def get_or_create(self, key: str, factory: Callable[[], Any]) -> Any:
+        """Resolve ``key`` at most once per pass, recording ``SourceReadMetadata``
+        for the physical attempt that resolved it.
+
+        There is exactly **one** resolution path. An earlier revision had a
+        separate ``get_or_create_with_metadata``, which meant a key first
+        resolved through the plain method carried no metadata for the rest of
+        the pass -- and ``metadata_for(key)`` then returned ``None`` silently,
+        so a group-span computation over that key would either crash or skip a
+        member without saying so. Metadata is not an opt-in decoration of a
+        read; it is a property of the read. Recording it here makes the two
+        methods impossible to mix, because there is only one.
+
+        A second call for a key already resolved in this pass (value or cached
+        error) is a pure cache hit: ``factory`` is not called again and the
+        existing metadata is left untouched.
+        """
         if key in self._values:
             return self._values[key]
         if key in self._errors:
             raise self._errors[key]
+        started_at = self._clock()
         try:
             value = factory()
         except Exception as exc:
             self._errors[key] = exc
-            raise
-        self._values[key] = value
-        return value
-
-    def get_or_create_with_metadata(self, key: str, factory: Callable[[], Any]) -> Any:
-        """Like ``get_or_create``, but also records ``SourceReadMetadata`` for
-        the physical attempt that resolves ``key``.
-
-        A second use of this method for a key already resolved in this pass
-        (value or cached error) is a pure cache hit: ``factory`` is not called
-        again and the existing metadata is left untouched. This is what makes
-        ``get_or_create``'s existing per-source failure isolation double as
-        "one factory call per pass" for metadata purposes too -- no separate
-        bookkeeping was needed to get that property, only to observe it.
-        """
-        if key in self._values or key in self._errors:
-            return self.get_or_create(key, factory)
-        started_at = self._clock()
-        try:
-            value = self.get_or_create(key, factory)
-        except Exception:
             self._metadata[key] = SourceReadMetadata(
                 pass_id=self._pass_id,
                 started_at=started_at,
@@ -99,6 +95,7 @@ class RefreshTickContext:
                 succeeded=False,
             )
             raise
+        self._values[key] = value
         self._metadata[key] = SourceReadMetadata(
             pass_id=self._pass_id,
             started_at=started_at,
@@ -107,8 +104,21 @@ class RefreshTickContext:
         )
         return value
 
+    # Retained as a name only: 28a introduced it as the metadata-recording
+    # variant, and 28b's call sites spell it. It is now the same method, so no
+    # site can pick the wrong one.
+    get_or_create_with_metadata = get_or_create
+
     def metadata_for(self, key: str) -> SourceReadMetadata | None:
         return self._metadata.get(key)
+
+    def resolved_keys(self) -> frozenset[str]:
+        """Every key resolved in this pass, successfully or not.
+
+        Equal to the metadata key set by construction, because there is one
+        resolution path and it always records metadata.
+        """
+        return frozenset(self._metadata)
 
 
 @dataclass(frozen=True)

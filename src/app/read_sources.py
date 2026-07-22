@@ -16,9 +16,13 @@ from typing import Any, Callable
 
 from app.refresh_coordinator import RefreshTickContext
 
-# Namespaced so these can never collide with the collaborator-cache keys
-# `refresh_tasks.py` already uses under `context.get_or_create` ("player_stats_
-# client", "owner_stats") -- see step_28_plan.md section 12.7.
+# Namespaced per step_28_plan.md section 12.7. These are not "new keys beside"
+# the collaborator-cache keys `refresh_tasks.py` uses -- they *are* those keys:
+# `_fast_task_client` and `_fast_task_owner_stats` spell them from here, so
+# each fact has exactly one spelling and resolves once per pass. The bare
+# "player_stats_client"/"owner_stats" literals they used before 28c would have
+# given `OWNER_STATS` a second, separate cache entry and a second physical
+# `resolve_owner_stats()` per pass once 28d enrolled it.
 PLAYER_STATS_CLIENT = "collaborator.player_stats_client"
 OWNER_STATS = "memory.player_stats.owner_stats"
 RUN_TIMER = "memory.player_stats.run_timer"

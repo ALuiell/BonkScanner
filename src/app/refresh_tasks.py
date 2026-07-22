@@ -79,7 +79,14 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from app import config
 from app.player_stats_memory import player_stats_memory
-from app.read_sources import MOB_KILLS, RUN_TIMER, read_memory_source, source_health_recorded
+from app.read_sources import (
+    MOB_KILLS,
+    OWNER_STATS,
+    PLAYER_STATS_CLIENT,
+    RUN_TIMER,
+    read_memory_source,
+    source_health_recorded,
+)
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from app.run_lifecycle import run_lifecycle
 from app.player_stats_view import player_stats_view
@@ -348,12 +355,12 @@ class RefreshTasks:
 
     def _fast_task_client(self, context: RefreshTickContext) -> PlayerStatsClient:
         return context.get_or_create(
-            "player_stats_client", self._memory()._get_player_stats_client
+            PLAYER_STATS_CLIENT, self._memory()._get_player_stats_client
         )
 
     def _fast_task_owner_stats(self, context: RefreshTickContext) -> int:
         return context.get_or_create(
-            "owner_stats",
+            OWNER_STATS,
             lambda: self._fast_task_client(context).resolve_owner_stats(),
         )
 
