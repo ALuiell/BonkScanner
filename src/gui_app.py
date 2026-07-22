@@ -12,7 +12,7 @@ from app.version import CURRENT_VERSION
 from app.player_stats_memory import player_stats_memory
 from app.player_stats_refresh import player_stats_refresh
 from gui_dialogs import HelpDialog, SettingsDialog
-from gui_layout import GuiLayoutMixin, _is_tab_active
+from gui_layout import build_layout, _is_tab_active
 from gui_overlay import build_overlay, combined_tracked_item_rules
 from gui_in_game_overlay import build_in_game_overlay
 from gui_run_control import build_run_control
@@ -27,9 +27,21 @@ from app.vod_library import VodLibrary
 from session_stats import SessionStats
 
 
-class MegabonkApp(
-    GuiLayoutMixin,
-):
+# **No base classes.** Eight mixins made up this class when the refactor
+# started on 2026-07-16, sharing one `self` with 205 hidden dependencies
+# between them. `GuiLayoutMixin` was the last, and step 26 retired it into
+# `gui_layout.build_layout(app)` and `gui_layout.TabRouter` -- a function and
+# an object, neither of which needs to *be* the application to reach it.
+#
+# What is left here is a composition root and a window owner, which is what the
+# roadmap asked for in those words. The methods below are not a feature
+# namespace: each one is either a property over a collaborator's field, or a
+# delegator with a measured caller in a layer that may not import the component
+# it forwards to. The step's rollback condition -- "if the shell needs feature
+# forwarding methods to stay compatible" -- was tested against that list by
+# counting call sites per name, and eleven delegators that failed the count are
+# gone rather than kept.
+class MegabonkApp:
     _qt_app: QApplication | None = None
 
     @classmethod
@@ -264,7 +276,7 @@ class MegabonkApp(
             ),
         )
 
-        self.setup_ui()
+        build_layout(self)
         self._twitch_session = build_twitch_session(
             self,
             self._twitch_tab,

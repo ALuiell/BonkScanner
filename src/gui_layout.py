@@ -326,142 +326,175 @@ class TabRouter:
             compare_runs_view.refresh_compare_runs_list()
 
 
-class GuiLayoutMixin:
+def build_layout(app):
+    """Build the main window's layout. **`MegabonkApp`'s last base class.**
 
-    def setup_ui(self):
-        self._tab_router = _build_tab_router(self)
-        central = QWidget()
-        self.setCentralWidget(central)
-        root_layout = QVBoxLayout(central)
-        root_layout.setContentsMargins(10, 10, 10, 10)
-        root_layout.setSpacing(10)
+    This was `GuiLayoutMixin.setup_ui`, and the mixin existed for one reason:
+    a method needs a `self`, and `self` was the application. Every widget it
+    creates is assigned onto the app, every builder it calls was a sibling
+    method found through the MRO, and the seventeen names it read but never
+    assigned were the app's own API surface reached ambiently -- which is what
+    made `MegabonkApp` a method namespace rather than a composition root.
 
-        self._build_header(root_layout)
+    It is a function taking `app` now, which is the form the five view roots
+    below have had since steps 19-23 and the form this file's own header has
+    argued for since. Nothing about the sequence changed: same builders, same
+    order, same tab positions. What changed is that `app` is a parameter with
+    a name instead of an ambient `self`, so every one of those reads is
+    visible at the call site and none of them is hidden.
 
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-        root_layout.addWidget(splitter, 1)
+    `app.window.setCentralWidget`, not `app.setCentralWidget`, is the only
+    behavioural detail here worth a line. It was the one hidden read in this
+    file whose owner was not the application: `MegabonkApp.__getattr__`
+    forwards unknown names to `self.window`, so it resolved onto the
+    `_AppWindow` by accident of the shell. Naming the window is the same call
+    with the receiver written down.
+    """
+    app._tab_router = _build_tab_router(app)
+    central = QWidget()
+    app.window.setCentralWidget(central)
+    root_layout = QVBoxLayout(central)
+    root_layout.setContentsMargins(10, 10, 10, 10)
+    root_layout.setSpacing(10)
 
-        self._build_left_tabs(splitter)
-        right_layout = self._build_right_panel(splitter)
-        self._build_logs_tab()
-        self._build_session_stats_tab()
-        self._player_stats_view = _build_live_stats_view(self)
-        self._recordings_view = _build_recordings_view(self)
-        self._compare_runs_view = _build_compare_runs_view(self)
-        self.tabview.addTab(self._build_overlay_tab(), "OBS Overlay")
-        # The ~240 lines that built the Twitch tab's widgets are
-        # `TwitchTab.build()`'s now (step 23b).
-        self._twitch_tab = _build_twitch_tab(self)
-        # These two lines were the last two of `_build_twitch_bot_tab` (step
-        # 23a). The Twitch tab builder built the In-Game Overlay tab as well and
-        # added it to the tab bar, which is where two of `gui_twitch.py`'s nine
-        # hidden reads came from -- `_build_in_game_overlay_tab` and
-        # `tab_in_game_overlay`. The in-game overlay is step 24's subject, so
-        # nothing about it moves here: only the call site, hoisted to the
-        # builder list it belongs in, in the position that keeps the tab bar's
-        # order identical.
-        self.tabview.addTab(self._build_in_game_overlay_tab(), "In-Game Overlay")
-        self._build_footer_controls(right_layout)
+    _build_header(app, root_layout)
 
-    def _build_header(self, root_layout):
-        header_wrap = QWidget()
-        header = QVBoxLayout(header_wrap)
-        header.setContentsMargins(0, 4, 0, 8)
-        header.setSpacing(6)
-        header.setAlignment(Qt.AlignHCenter)
+    splitter = QSplitter(Qt.Horizontal)
+    splitter.setChildrenCollapsible(False)
+    root_layout.addWidget(splitter, 1)
 
-        title = QLabel("BonkScanner")
-        title.setObjectName("SectionHeader")
-        title.setAlignment(Qt.AlignHCenter)
-        header.addWidget(title, 0, Qt.AlignHCenter)
+    _build_left_tabs(app, splitter)
+    right_layout = _build_right_panel(app, splitter)
+    _build_logs_tab(app)
+    app._scanner.build_session_stats_tab()
+    app._player_stats_view = _build_live_stats_view(app)
+    app._recordings_view = _build_recordings_view(app)
+    app._compare_runs_view = _build_compare_runs_view(app)
+    app.tabview.addTab(app._overlay.build(), "OBS Overlay")
+    # The ~240 lines that built the Twitch tab's widgets are
+    # `TwitchTab.build()`'s now (step 23b).
+    app._twitch_tab = _build_twitch_tab(app)
+    # These two lines were the last two of `_build_twitch_bot_tab` (step
+    # 23a). The Twitch tab builder built the In-Game Overlay tab as well and
+    # added it to the tab bar, which is where two of `gui_twitch.py`'s nine
+    # hidden reads came from -- `_build_in_game_overlay_tab` and
+    # `tab_in_game_overlay`. The in-game overlay is step 24's subject, so
+    # nothing about it moves here: only the call site, hoisted to the
+    # builder list it belongs in, in the position that keeps the tab bar's
+    # order identical.
+    app.tabview.addTab(app._in_game_overlay.build(), "In-Game Overlay")
+    _build_footer_controls(app, right_layout)
 
-        logo_label = QLabel()
-        self.logo_label = logo_label
-        logo_label.setAlignment(Qt.AlignHCenter)
-        logo_path = resource_path("media/bonkscanner_icon2.png")
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path)
-            if not pixmap.isNull():
-                logo_label.setPixmap(
-                    pixmap.scaled(72, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
-            else:
-                logo_label.setText("BONK")
+
+def _build_header(app, root_layout):
+    header_wrap = QWidget()
+    header = QVBoxLayout(header_wrap)
+    header.setContentsMargins(0, 4, 0, 8)
+    header.setSpacing(6)
+    header.setAlignment(Qt.AlignHCenter)
+
+    title = QLabel("BonkScanner")
+    title.setObjectName("SectionHeader")
+    title.setAlignment(Qt.AlignHCenter)
+    header.addWidget(title, 0, Qt.AlignHCenter)
+
+    logo_label = QLabel()
+    app.logo_label = logo_label
+    logo_label.setAlignment(Qt.AlignHCenter)
+    logo_path = resource_path("media/bonkscanner_icon2.png")
+    if os.path.exists(logo_path):
+        pixmap = QPixmap(logo_path)
+        if not pixmap.isNull():
+            logo_label.setPixmap(
+                pixmap.scaled(72, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
         else:
             logo_label.setText("BONK")
-        header.addWidget(logo_label, 0, Qt.AlignHCenter)
-        root_layout.addWidget(header_wrap)
+    else:
+        logo_label.setText("BONK")
+    header.addWidget(logo_label, 0, Qt.AlignHCenter)
+    root_layout.addWidget(header_wrap)
 
 
-    def _build_left_tabs(self, splitter):
-        left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        splitter.addWidget(left_panel)
+def _build_left_tabs(app, splitter):
+    left_panel = QWidget()
+    left_layout = QVBoxLayout(left_panel)
+    left_layout.setContentsMargins(0, 0, 0, 0)
+    splitter.addWidget(left_panel)
 
-        self.left_tabview = QTabWidget()
-        self.left_tabview.currentChanged.connect(self._tab_router.on_left_tab_changed)
-        left_layout.addWidget(self.left_tabview)
+    app.left_tabview = QTabWidget()
+    app.left_tabview.currentChanged.connect(app._tab_router.on_left_tab_changed)
+    left_layout.addWidget(app.left_tabview)
 
-        # The ~34 lines that built both left tabs are `TemplatesPanel.build()`'s
-        # now (step 22c). Which tab opens stays here: that is a router question,
-        # and the router is step 26's.
-        self._templates_panel = _build_templates_panel(self)
-        self.left_tabview.setCurrentIndex(1 if config.EVALUATION_MODE == "scores" else 0)
-
-
-    def _build_right_panel(self, splitter):
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        splitter.addWidget(right_panel)
-        splitter.setSizes([290, 970])
-
-        self.tabview = QTabWidget()
-        self.tabview.currentChanged.connect(self._tab_router.on_right_tab_changed)
-        right_layout.addWidget(self.tabview, 1)
-
-        return right_layout
-
-    def _build_logs_tab(self):
-        self.tab_logs = QWidget()
-        logs_layout = QVBoxLayout(self.tab_logs)
-        self.log_box = QTextEdit()
-        self.log_box.setReadOnly(True)
-        self.log_box.setFont(QFont("Consolas", 11))
-        logs_layout.addWidget(self.log_box)
-        self.tabview.addTab(self.tab_logs, "Logs")
+    # The ~34 lines that built both left tabs are `TemplatesPanel.build()`'s
+    # now (step 22c). Which tab opens stays here: that is a router question,
+    # and the router is an object as of step 26 -- but *which index the bar
+    # opens on* is the layout's, and `setCurrentIndex` is what fires the
+    # router's first left-bar slot, one line after the connect above.
+    app._templates_panel = _build_templates_panel(app)
+    app.left_tabview.setCurrentIndex(1 if config.EVALUATION_MODE == "scores" else 0)
 
 
+def _build_right_panel(app, splitter):
+    right_panel = QWidget()
+    right_layout = QVBoxLayout(right_panel)
+    right_layout.setContentsMargins(0, 0, 0, 0)
+    splitter.addWidget(right_panel)
+    splitter.setSizes([290, 970])
+
+    app.tabview = QTabWidget()
+    # Connected before a single `addTab` runs, and deliberately left that way:
+    # see `TabRouter`'s header. Every `addTab` in `build_layout` fires this.
+    app.tabview.currentChanged.connect(app._tab_router.on_right_tab_changed)
+    right_layout.addWidget(app.tabview, 1)
+
+    return right_layout
+
+
+def _build_logs_tab(app):
+    app.tab_logs = QWidget()
+    logs_layout = QVBoxLayout(app.tab_logs)
+    app.log_box = QTextEdit()
+    app.log_box.setReadOnly(True)
+    app.log_box.setFont(QFont("Consolas", 11))
+    logs_layout.addWidget(app.log_box)
+    app.tabview.addTab(app.tab_logs, "Logs")
 
 
 
 
 
-    def _build_footer_controls(self, right_layout):
-        controls = QHBoxLayout()
-        self.settings_btn = QPushButton("")
-        self.settings_btn.setObjectName("SettingsButton")
-        _apply_button_icon(self.settings_btn, "media/settings_icon.png", 20)
-        self.settings_btn.setToolTip("Settings")
-        self.settings_btn.clicked.connect(self.open_settings_dialog)
-        self.help_btn = QPushButton("")
-        self.help_btn.setObjectName("HelpButton")
-        _apply_button_icon(self.help_btn, "media/help_icon.svg", 20)
-        self.help_btn.setToolTip("Help")
-        self.help_btn.clicked.connect(self.open_help_dialog)
-        self.status_label = QLabel("Status: <span style='color:#9CA3AF;'>IDLE</span>")
-        self.status_label.setTextFormat(Qt.RichText)
-        self.status_label.setObjectName("StatusLabel")
-        self.toggle_btn = QPushButton("Start")
-        self.toggle_btn.setObjectName("ToggleButton")
-        self.toggle_btn.clicked.connect(self.toggle_main_loop)
-        controls.addWidget(self.settings_btn)
-        controls.addWidget(self.help_btn)
-        controls.addWidget(self.status_label, 1)
-        controls.addWidget(self.toggle_btn)
-        right_layout.addLayout(controls)
+
+
+def _build_footer_controls(app, right_layout):
+    controls = QHBoxLayout()
+    app.settings_btn = QPushButton("")
+    app.settings_btn.setObjectName("SettingsButton")
+    _apply_button_icon(app.settings_btn, "media/settings_icon.png", 20)
+    app.settings_btn.setToolTip("Settings")
+    app.settings_btn.clicked.connect(app.open_settings_dialog)
+    app.help_btn = QPushButton("")
+    app.help_btn.setObjectName("HelpButton")
+    _apply_button_icon(app.help_btn, "media/help_icon.svg", 20)
+    app.help_btn.setToolTip("Help")
+    app.help_btn.clicked.connect(app.open_help_dialog)
+    app.status_label = QLabel("Status: <span style='color:#9CA3AF;'>IDLE</span>")
+    app.status_label.setTextFormat(Qt.RichText)
+    app.status_label.setObjectName("StatusLabel")
+    app.toggle_btn = QPushButton("Start")
+    app.toggle_btn.setObjectName("ToggleButton")
+    # The scan component, not `app.toggle_main_loop`. The application carried
+    # that delegator only because this line ran with the app as `self`; 26c
+    # deletes it. `open_settings_dialog` and `open_help_dialog` above stay on
+    # the app for the opposite reason -- `SettingsDialog(window, master=self)`
+    # has to mean the application, and `gui_app` records what breaks if the
+    # `master` reads go quietly false.
+    app.toggle_btn.clicked.connect(app._scanner.toggle_main_loop)
+    controls.addWidget(app.settings_btn)
+    controls.addWidget(app.help_btn)
+    controls.addWidget(app.status_label, 1)
+    controls.addWidget(app.toggle_btn)
+    right_layout.addLayout(controls)
 
 
 def _build_tab_router(app):

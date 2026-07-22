@@ -130,7 +130,6 @@ SRC_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # than imported, so this list cannot drift from `gui_app.py`.
 MRO_MODULES = {
     "MegabonkApp": "gui_app",
-    "GuiLayoutMixin": "gui_layout",
     # `PlayerStatsRefreshMixin` was here until step 20g converted it into the
     # `PlayerStatsRefresh` service, taking `MegabonkApp` to nine bases and the
     # app-layer slice to zero. It was the last of the five app-side bases the
@@ -169,6 +168,25 @@ MRO_MODULES = {
     # control provider and the hotkey manager and asks the scanner one question
     # through one port. `MegabonkApp` is at **one** base: `GuiLayoutMixin`,
     # step 26's subject and the last one.
+    # `GuiLayoutMixin` was here until step 26, and this map is down to the one
+    # entry it started as a map *of*: `MegabonkApp` has **no bases**. The mixin
+    # became `gui_layout.build_layout(app)`, a function, and
+    # `gui_layout.TabRouter`, an object -- neither of which is a class the app
+    # inherits from, so neither can be qualified through the MRO and neither
+    # belongs here.
+    #
+    # This does **not** make the two tests below vacuous, which is the specific
+    # risk of a map shrinking to one entry:
+    #   - `test_mro_module_map_covers_the_declared_bases` still parses the
+    #     `class MegabonkApp` statement and still fails if a base is added.
+    #     Its assertion is now "the declared bases are exactly none", which is
+    #     step 26's whole exit criterion rather than a weakened check.
+    #   - `test_every_class_qualified_reference_still_resolves` scans for
+    #     `<Class>.<attr>` over every file and asserts the scan is non-empty
+    #     first. The suite calls `MegabonkApp.on_closing(app)` and
+    #     `MegabonkApp.update_player_stats_timer(app)` among others, so it
+    #     resolves real references, not an empty set. Production sites remain
+    #     ratcheted at 0 below.
 }
 
 # Ratchets, measured 2026-07-19 at 84291cb. These may only shrink.
@@ -272,6 +290,63 @@ def _declared_mro_class_names() -> list[str]:
     raise AssertionError("MegabonkApp class statement not found in gui_app.py")
 
 
+# The next three helpers came with
+# `test_the_two_recording_tabs_own_their_component_handles` when step 26 deleted
+# `test_mixin_attribute_collisions.py`. `_python_files` below cannot stand in
+# for `_class_defs`: it returns paths and includes `tests/`, and the moved test
+# needs production class bodies by name.
+def _class_defs() -> dict[str, ast.ClassDef]:
+    """Every class defined under `src/`, excluding the suite, by name."""
+    found: dict[str, ast.ClassDef] = {}
+    for root, dirs, files in os.walk(SRC_ROOT):
+        dirs[:] = [d for d in dirs if d not in {"__pycache__", "tests"}]
+        for name in files:
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(root, name)
+            with open(path, encoding="utf-8") as handle:
+                try:
+                    tree = ast.parse(handle.read(), filename=path)
+                except SyntaxError:
+                    continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    found.setdefault(node.name, node)
+    return found
+
+
+def _self_assignments(class_def: ast.ClassDef) -> set[str]:
+    """Every `self.NAME = ...` a class performs, at any nesting depth.
+
+    Includes assignments inside nested closures, because the VOD load and
+    metadata-refresh completion callbacks are closures that write selection
+    state from a worker thread.
+    """
+    names: set[str] = set()
+    for node in ast.walk(class_def):
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = [node.target]
+        for target in targets:
+            names |= _self_assigned_names(target)
+    return names
+
+
+def _self_assigned_names(node: ast.expr) -> set[str]:
+    found: set[str] = set()
+    if isinstance(node, ast.Attribute):
+        if isinstance(node.value, ast.Name) and node.value.id == "self":
+            found.add(node.attr)
+    elif isinstance(node, (ast.Tuple, ast.List)):
+        for element in node.elts:
+            found |= _self_assigned_names(element)
+    elif isinstance(node, ast.Starred):
+        found |= _self_assigned_names(node.value)
+    return found
+
+
 def _python_files() -> list[str]:
     found = []
     for root, dirs, files in os.walk(SRC_ROOT):
@@ -372,6 +447,60 @@ class ClassQualifiedReferenceTests(unittest.TestCase):
     def test_mro_module_map_covers_the_declared_bases(self) -> None:
         """If a base is added to MegabonkApp, this map must learn about it."""
         self.assertEqual(sorted(_declared_mro_class_names()), sorted(MRO_MODULES))
+
+    def test_megabonk_app_has_no_base_classes(self) -> None:
+        """Step 26's exit criterion, asserted rather than implied.
+
+        The test above compares the declared bases against `MRO_MODULES` and
+        would keep passing if both grew together. This one says the number,
+        which is the thing eight steps of conversion were for: eight mixins on
+        2026-07-16, one after step 25, none now.
+        """
+        self.assertEqual(_declared_mro_class_names(), ["MegabonkApp"])
+
+    def test_the_two_recording_tabs_own_their_component_handles(self) -> None:
+        """Step 19's actual bug, **moved** here when its old home was deleted.
+
+        `test_mixin_attribute_collisions.py` held this. That file parsed
+        `MegabonkApp`'s bases, collected what each assigned to `self`, and
+        failed on any name two of them claimed -- and step 26 leaves it nothing
+        to parse. Its own step-25 comment said what to do on that day: fail and
+        be deleted alongside the file, rather than pass over an empty walk. It
+        did fail, and it is deleted.
+
+        Deleted rather than retargeted at the component classes, and the
+        distinction is the point the deleted file itself made: `Scanner`,
+        `RunControl`, `TwitchTab`, `RecordingsTab`, `CompareRunsTab`,
+        `LiveStatsTab` and `TemplatesPanel` are **separate objects**. Two
+        private attributes on two different objects are not one namespace, so
+        a scan for "the same name on two of them" would be scanning for
+        something that cannot be a fault. A test that can only pass is not
+        coverage.
+
+        What was real in that file, and survives here, is the regression it was
+        written for. `LiveStatsTabMixin._build_live_stats_tab` and
+        `RecordingsTabMixin._build_recordings_tab` both set `self._stat_cards`
+        and `self._items_section` on one shared app; Recordings built second and
+        won, and the Live Stats panels sat on "Waiting for weapon data..."
+        forever with a green suite. Both are classes with their own `self` now.
+        Asserting that each still assigns its own handles is what would catch
+        one of them being hoisted back onto a shared object.
+
+        `_list_signature` is the depth guard the old file used: it is assigned
+        inside a nested completion callback, so a walk that stopped at method
+        bodies would miss it and quietly assert less than it looks like.
+        """
+        classes = _class_defs()
+        for tab_name in ("RecordingsTab", "LiveStatsTab"):
+            assignments = _self_assignments(classes[tab_name])
+            self.assertIn("_stat_cards", assignments, tab_name)
+            self.assertIn("_items_section", assignments, tab_name)
+
+        self.assertIn(
+            "_list_signature",
+            _self_assignments(classes["RecordingsTab"]),
+            "assignments inside nested functions are being missed",
+        )
 
     def test_production_class_qualified_surface_does_not_grow(self) -> None:
         qualified, _ = _scan()
