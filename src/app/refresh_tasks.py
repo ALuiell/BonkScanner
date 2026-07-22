@@ -80,6 +80,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from app import config
 from app.player_stats_memory import player_stats_memory
 from app.read_sources import (
+    KPS_GROUP_SPAN_LIMIT_SECONDS,
     MOB_KILLS,
     OWNER_STATS,
     PLAYER_STATS_CLIENT,
@@ -417,6 +418,22 @@ class RefreshTasks:
             self._mark_fast_feature_failed("expected_chests", exc)
             return False
 
+    def _combat_group_span_seconds(self, context: RefreshTickContext) -> float | None:
+        """The measured coherence window across the combat group's members.
+
+        ``max(finished_at) - min(started_at)`` over RUN_TIMER and MOB_KILLS
+        (step_28_plan.md section 12.4). ``None`` when either member has no
+        metadata, which after the single-resolution-path fix can only mean the
+        member was never resolved in this pass.
+        """
+        run_timer_meta = context.metadata_for(RUN_TIMER)
+        mob_kills_meta = context.metadata_for(MOB_KILLS)
+        if run_timer_meta is None or mob_kills_meta is None:
+            return None
+        return max(run_timer_meta.finished_at, mob_kills_meta.finished_at) - min(
+            run_timer_meta.started_at, mob_kills_meta.started_at
+        )
+
     def _refresh_combat_metrics_task(self, context: RefreshTickContext) -> bool:
         try:
             client = self._fast_task_client(context)
@@ -428,6 +445,11 @@ class RefreshTasks:
                 on_failure=self._memory().record_memory_failure,
             )
             self._mark_fast_feature_available("combat")
+            # Every successful timer read publishes the run clock, before
+            # anything kills-related can fail. This is the publication path
+            # section 12.2 requires: the Stage Summary clock advances from the
+            # first pass of a run instead of waiting for the first kill.
+            self._tracker().update_fast_run_timer(run_timer_seconds)
             previous_game_time = self._last_fast_kps_game_time_seconds
             if (
                 run_timer_seconds is not None
@@ -435,6 +457,15 @@ class RefreshTasks:
                 and abs(float(run_timer_seconds) - float(previous_game_time)) < 0.001
             ):
                 return True
+            # Per-source failure isolation -- the rule this step exists for
+            # (plan section 5, "Failure") -- is achieved by *publication
+            # order*, not by a second `except` around this read. The timer was
+            # already published above, so a raise here unwinds to the task's
+            # outer handler with the timer's consumers already served: only the
+            # combat/KPS projection is withheld. An inner `try` here would be
+            # unreachable-by-observation code, and tamper-testing showed
+            # exactly that -- deleting it changed no behaviour and failed no
+            # test.
             mob_kills = read_memory_source(
                 context,
                 MOB_KILLS,
@@ -442,6 +473,14 @@ class RefreshTasks:
                 on_success=self._memory().record_memory_success,
                 on_failure=self._memory().record_memory_failure,
             )
+            span_seconds = self._combat_group_span_seconds(context)
+            if span_seconds is not None and span_seconds > KPS_GROUP_SPAN_LIMIT_SECONDS:
+                # Both facts stay published and reusable; only the pair-derived
+                # projection is withheld, because dividing a kill delta by a
+                # stretched interval produces a wrong number rather than a
+                # stale one (plan section 12.4, last paragraph). The timer has
+                # already moved the fast clock above.
+                return True
             self._tracker().track_kills(run_timer_seconds, mob_kills)
             self._last_fast_kps_game_time_seconds = run_timer_seconds
             # `not pinned`: the user may have scrubbed the timeline to an

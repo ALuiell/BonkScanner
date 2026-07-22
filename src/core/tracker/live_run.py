@@ -54,9 +54,22 @@ from core.tracker.snapshots import (
     ChestStatsSnapshot,
     PowerupsSnapshot,
     PowerupMapContext,
+    FastRunTimer,
 )
 
 FAST_STAGE_TRANSITION_CONFIRMATION_SAMPLES = 2
+
+# The run clock's freshness bound. Set equal to
+# `powerups.FAST_STAGE_TIMER_TTL_SECONDS` (2.0) rather than to
+# `POWERUPS_SNAPSHOT_TTL_SECONDS` (1.5) because the stage timer is this fact's
+# true sibling: both are clocks read by a fast refresh task on the same driver
+# cadence, and both must survive a missed tick without blanking the card. The
+# driver is configurable down to 100 ms and up to 500 ms (config.py:784-793),
+# so 2.0 s is four missed ticks of margin at the slowest configured interval --
+# long enough that normal jitter never blanks the clock, short enough that a
+# genuinely dead read stops the display rather than showing a frozen time as
+# if it were live.
+FAST_RUN_TIMER_TTL_SECONDS = 2.0
 
 
 def with_lock(method):
@@ -95,6 +108,9 @@ class _RunState:
     # Holds the stage_time captured at detection while the reset is awaited;
     # ``None`` once observed.
     slow_stage_timer_reset_pending_from: float | None = None
+    # Published by every successful RUN_TIMER read, independently of whether
+    # the MOB_KILLS read beside it succeeded (step_28_plan.md section 12.2).
+    fast_run_timer: FastRunTimer = field(default_factory=FastRunTimer)
 
 
 @dataclass
@@ -125,7 +141,7 @@ class LiveRunTracker:
             "_cached_stage_summary", "_disabled_items_cache", "_fast_stage_boundaries",
             "_pending_fast_stage_index", "_pending_fast_stage_samples",
             "_pending_fast_stage_boundary", "_pending_fast_stage_awaiting_timer_reset",
-            "_slow_stage_timer_reset_pending_from",
+            "_slow_stage_timer_reset_pending_from", "_fast_run_timer",
         )},
         **{name: "_combat_state" for name in (
             "_recent_kills_history", "_ui_kps_baseline", "_ui_kps_value",
@@ -448,20 +464,27 @@ class LiveRunTracker:
             return None
         changes: dict[str, Any] = {"items_available": False}
 
-        if self._recent_kills_history:
+        # The run clock comes from the dedicated fast run timer, the kill count
+        # from combat state. Before step 28c both came from
+        # `_recent_kills_history[-1]`, which meant a failed kills read froze the
+        # Stage Summary clock even though the timer beside it had been read
+        # successfully -- the defect this slice closes (plan section 12.2).
+        fast_game_time = self._fresh_fast_run_timer_unlocked()
+        fast_kills = self._recent_kills_history[-1][1] if self._recent_kills_history else None
+        if fast_game_time is not None:
             latest_game_time = latest_snapshot.game_time_seconds
-            fast_game_time, fast_kills = self._recent_kills_history[-1]
             if latest_game_time is not None and fast_game_time >= float(latest_game_time):
-                if (
-                    fast_game_time != float(latest_game_time)
-                    or latest_snapshot.mob_kills is None
-                    or fast_kills != int(latest_snapshot.mob_kills)
-                ):
+                kills_are_newer = fast_kills is not None and (
+                    latest_snapshot.mob_kills is None
+                    or int(fast_kills) != int(latest_snapshot.mob_kills)
+                )
+                if fast_game_time != float(latest_game_time) or kills_are_newer:
                     changes.update(
                         captured_at=float(self.clock()),
                         game_time_seconds=float(fast_game_time),
-                        mob_kills=int(fast_kills),
                     )
+                    if fast_kills is not None:
+                        changes.update(mob_kills=int(fast_kills))
 
         stage_context = self._fresh_fast_stage_timer_context_unlocked()
         if include_unconfirmed_stage_context and stage_context is not None:
@@ -501,6 +524,38 @@ class LiveRunTracker:
         # unconditionally is the same behaviour without the feature module
         # needing to reach into run state.
         self._cached_stage_summary = None
+
+    @with_lock
+    def update_fast_run_timer(self, run_timer_seconds: float | None) -> None:
+        """Publish the run clock from one successful ``RUN_TIMER`` source read.
+
+        Called on every pass where the timer read succeeded, regardless of what
+        the kills read beside it did (step_28_plan.md section 12.2). ``None``
+        clears the clock, matching ``update_fast_stage_timer``'s handling of an
+        unreadable stage timer: a dead read stops the fast display rather than
+        leaving a frozen time looking live.
+
+        No ``(timer, unknown_kills)`` sample is invented for
+        ``_recent_kills_history`` -- that deque holds observed kill counts and
+        nothing else.
+        """
+        if run_timer_seconds is None:
+            self._fast_run_timer = FastRunTimer()
+            self._cached_stage_summary = None
+            return
+        self._fast_run_timer = FastRunTimer(
+            captured_at=self.clock(),
+            run_timer_seconds=float(run_timer_seconds),
+        )
+        self._cached_stage_summary = None
+
+    def _fresh_fast_run_timer_unlocked(self) -> float | None:
+        timer = self._fast_run_timer
+        if timer.captured_at <= 0 or timer.run_timer_seconds is None:
+            return None
+        if self.clock() - timer.captured_at > FAST_RUN_TIMER_TTL_SECONDS:
+            return None
+        return timer.run_timer_seconds
 
     @with_lock
     def current_kps(self) -> int | None:
@@ -836,6 +891,7 @@ class LiveRunTracker:
         self.snapshots.clear()
         self._fast_stage_boundaries.clear()
         self._fast_stage_timer_context = FastStageTimerContext()
+        self._fast_run_timer = FastRunTimer()
         self._pending_fast_stage_index = None
         self._pending_fast_stage_samples = 0
         self._pending_fast_stage_boundary = None

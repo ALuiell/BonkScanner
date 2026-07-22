@@ -72,6 +72,7 @@ def build_refresh_tasks(
             update_powerups=lambda _snapshot: True,
             track_expected_key_procs=lambda _bought, _keys: None,
             track_kills=lambda _timer, _kills: None,
+            update_fast_run_timer=lambda _timer: None,
             update_chaos_tome=lambda **_kwargs: None,
             update_fast_stage_timer=lambda **_kwargs: None,
             current_ui_kps=lambda: None,

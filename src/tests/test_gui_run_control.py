@@ -3159,6 +3159,7 @@ class GuiRunControlTests(unittest.TestCase):
             track_expected_key_procs=lambda bought, keys: None,
             update_chaos_tome=lambda **kwargs: None,
             track_kills=lambda run_timer, mob_kills: None,
+            update_fast_run_timer=lambda run_timer: None,
             current_ui_kps=lambda: 123,
             stage_summary_rows=lambda: [],
         )

@@ -138,6 +138,22 @@ class FastStageTimerContext:
     stage_duration_seconds: float | None = None
 
 
+@dataclass
+class FastRunTimer:
+    """The run clock, published by every successful ``RUN_TIMER`` source read.
+
+    Deliberately separate from ``_recent_kills_history``. Before step 28c the
+    fast Stage Summary took its ``game_time_seconds`` from
+    ``_recent_kills_history[-1]``, so the run clock was published only by the
+    kill sample -- and a kills read that failed froze the clock along with it,
+    even though the timer beside it had been read successfully. These are two
+    different facts and they now have two different homes.
+    """
+
+    captured_at: float = 0.0
+    run_timer_seconds: float | None = None
+
+
 @dataclass(frozen=True)
 class ChestStatsSnapshot:
     current_opened: int

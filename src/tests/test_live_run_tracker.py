@@ -314,7 +314,9 @@ class LiveRunTrackerTests(unittest.TestCase):
 
     def test_current_kps_clears_when_game_disappears(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_fast_run_timer(10.0)
         tracker.track_kills(10.0, 100)
+        tracker.update_fast_run_timer(13.0)
         tracker.track_kills(13.0, 160)
 
         self.assertEqual(tracker.current_kps(), 20)
@@ -325,9 +327,13 @@ class LiveRunTrackerTests(unittest.TestCase):
 
     def test_current_ui_kps_uses_valid_one_second_tick(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_fast_run_timer(100.0)
         tracker.track_kills(100.0, 1_000)
+        tracker.update_fast_run_timer(100.5)
         tracker.track_kills(100.5, 1_100)
         self.assertIsNone(tracker.current_ui_kps())
+
+        tracker.update_fast_run_timer(101.0)
 
         tracker.track_kills(101.0, 1_300)
 
@@ -335,8 +341,11 @@ class LiveRunTrackerTests(unittest.TestCase):
 
     def test_current_ui_kps_ignores_tiny_timer_jump_after_pause(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_fast_run_timer(586.522217)
         tracker.track_kills(586.522217, 48_349)
+        tracker.update_fast_run_timer(586.522217)
         tracker.track_kills(586.522217, 48_349)
+        tracker.update_fast_run_timer(586.770508)
         tracker.track_kills(586.770508, 48_462)
 
         self.assertIsNone(tracker.current_ui_kps())
@@ -344,9 +353,13 @@ class LiveRunTrackerTests(unittest.TestCase):
 
     def test_track_kills_does_not_bloat_history_while_game_is_paused(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_fast_run_timer(586.522217)
         tracker.track_kills(586.522217, 48_349)
+        tracker.update_fast_run_timer(586.522217)
         tracker.track_kills(586.522217, 48_349)
+        tracker.update_fast_run_timer(586.522217)
         tracker.track_kills(586.522217, 48_360)
+        tracker.update_fast_run_timer(586.522217)
         tracker.track_kills(586.522217, 48_360)
 
         self.assertEqual(len(tracker._recent_kills_history), 1)
@@ -356,6 +369,8 @@ class LiveRunTrackerTests(unittest.TestCase):
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=10.0, mob_kills=100, items=("Anvil x1",)))
         items_before_fast_sample = tracker.stage_summary_rows()[0]["items"]
+
+        tracker.update_fast_run_timer(19.8)
 
         tracker.track_kills(19.8, 275)
 
@@ -368,6 +383,7 @@ class LiveRunTrackerTests(unittest.TestCase):
     def test_stage_summary_does_not_apply_fast_sample_from_before_full_snapshot(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update(snapshot(time_seconds=10.0, mob_kills=100))
+        tracker.update_fast_run_timer(12.0)
         tracker.track_kills(12.0, 125)
         tracker.update(snapshot(time_seconds=20.0, mob_kills=200))
 
@@ -386,6 +402,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 stage_time_seconds=100.0,
             )
         )
+        tracker.update_fast_run_timer(105.0)
         tracker.track_kills(105.0, 1_075)
 
         tracker.update_fast_stage_timer(
@@ -417,6 +434,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 stage_time_seconds=100.0,
             )
         )
+        tracker.update_fast_run_timer(110.0)
         tracker.track_kills(110.0, 11_730)
 
         tracker.update_fast_stage_timer(
@@ -424,12 +442,14 @@ class LiveRunTrackerTests(unittest.TestCase):
             stage_index=1,
             stage_duration_seconds=600.0,
         )
+        tracker.update_fast_run_timer(111.0)
         tracker.track_kills(111.0, 11_780)
         tracker.update_fast_stage_timer(
             stage_timer_seconds=2.0,
             stage_index=1,
             stage_duration_seconds=600.0,
         )
+        tracker.update_fast_run_timer(113.0)
         tracker.track_kills(113.0, 11_830)
 
         rows = tracker.stage_summary_rows()
@@ -479,6 +499,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 stage_time_seconds=500.0,
             )
         )
+        tracker.update_fast_run_timer(501.0)
         tracker.track_kills(501.0, 5_050)
 
         tracker.update_fast_stage_timer(
@@ -505,6 +526,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 stage_time_seconds=100.0,
             )
         )
+        tracker.update_fast_run_timer(105.0)
         tracker.track_kills(105.0, 1_075)
         for stage_time in (1.0, 2.0):
             tracker.update_fast_stage_timer(
@@ -536,6 +558,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 stage_time_seconds=100.0,
             )
         )
+        tracker.update_fast_run_timer(105.0)
         tracker.track_kills(105.0, 1_075)
         for stage_time in (1.0, 2.0):
             tracker.update_fast_stage_timer(
@@ -572,6 +595,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 stage_time_seconds=100.0,
             )
         )
+        tracker.update_fast_run_timer(101.0)
         tracker.track_kills(101.0, 1_010)
 
         tracker.update_fast_stage_timer(
@@ -589,15 +613,20 @@ class LiveRunTrackerTests(unittest.TestCase):
 
     def test_current_minute_avg_kps_uses_last_sixty_seconds(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_fast_run_timer(0.0)
         tracker.track_kills(0.0, 0)
+        tracker.update_fast_run_timer(10.0)
         tracker.track_kills(10.0, 100)
+        tracker.update_fast_run_timer(70.0)
         tracker.track_kills(70.0, 1_300)
 
         self.assertEqual(tracker.current_minute_avg_kps(), 20)
 
     def test_current_run_avg_kps_uses_whole_run(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_fast_run_timer(10.0)
         tracker.track_kills(10.0, 100)
+        tracker.update_fast_run_timer(70.0)
         tracker.track_kills(70.0, 1_300)
 
         # 1300 kills / 70 seconds = 18.57 → rounds to 19
@@ -1327,6 +1356,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 mob_kills=2_000,
             )
         )
+        tracker.update_fast_run_timer(243.0)
         tracker.track_kills(243.0, 2_100)
 
         rows = tracker.stage_summary_rows()
@@ -1345,6 +1375,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 mob_kills=20_000,
             )
         )
+        tracker.update_fast_run_timer(1_003.0)
         tracker.track_kills(1_003.0, 20_100)
 
         rows = tracker.stage_summary_rows()
@@ -1564,6 +1595,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 pots_total=1,
             )
         )
+        tracker.update_fast_run_timer(501.0)
         tracker.track_kills(501.0, 5_050)
 
         # Confirm the fast 2 -> 3 boundary.
@@ -1613,6 +1645,7 @@ class LiveRunTrackerTests(unittest.TestCase):
                 mob_kills=5_000,
             )
         )
+        tracker.update_fast_run_timer(501.0)
         tracker.track_kills(501.0, 5_050)
 
         # Desync window: index already reads 2, timer still continues map 2's.
@@ -1621,6 +1654,7 @@ class LiveRunTrackerTests(unittest.TestCase):
             stage_index=2,
             stage_duration_seconds=600.0,
         )
+        tracker.update_fast_run_timer(502.0)
         tracker.track_kills(502.0, 5_060)
         tracker.update_fast_stage_timer(
             stage_timer_seconds=502.0,
@@ -1628,12 +1662,14 @@ class LiveRunTrackerTests(unittest.TestCase):
             stage_duration_seconds=600.0,
         )
         # The timer finally resets to the new map and advances normally.
+        tracker.update_fast_run_timer(503.0)
         tracker.track_kills(503.0, 5_070)
         tracker.update_fast_stage_timer(
             stage_timer_seconds=0.9,
             stage_index=2,
             stage_duration_seconds=600.0,
         )
+        tracker.update_fast_run_timer(504.0)
         tracker.track_kills(504.0, 5_080)
         tracker.update_fast_stage_timer(
             stage_timer_seconds=1.9,

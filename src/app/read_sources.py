@@ -28,6 +28,42 @@ OWNER_STATS = "memory.player_stats.owner_stats"
 RUN_TIMER = "memory.player_stats.run_timer"
 MOB_KILLS = "memory.player_stats.mob_kills"
 
+# The accepted coherence window for the RUN_TIMER/MOB_KILLS group, measured as
+# max(finished_at) - min(started_at) over its members.
+#
+# Not invented from the task cadence (step_28_plan.md section 12.4 forbids
+# that) and not tuned until a test passed. `tools/step28_span_measure.py`
+# measures the quantity that dominates the span -- the number of
+# ReadProcessMemory calls on each path -- against a scripted 40-entry RunStats
+# dictionary:
+#
+#     warm (address cache hit):            12 reads per pass
+#     cold (`_find_run_stat_value_address`
+#           walks the dictionary with a
+#           read_mono_string per entry):   134 reads
+#     ratio:                               11.2x
+#
+# So a stable separation exists and stop condition 1 does not fire. What that
+# harness cannot supply without a live game process is the cost of one
+# ReadProcessMemory, and this file does not invent one -- so the limit is set
+# from the other end of section 12.4's rule, "below a window that would make
+# the pair misleading", which is derivable here:
+#
+# the refresh driver's fastest configured interval is 100 ms (config.py:784-793).
+# A group whose two members are more than a whole fastest-pass apart was not
+# read together in any meaningful sense, and a kill delta divided by that
+# interval is a wrong number rather than a stale one. Below that, the pair is
+# coherent: even at a pessimistic 20 us per read, the cold path's 134 reads
+# come to ~2.7 ms and the warm path's 12 to ~0.24 ms, both far inside the
+# bound -- which is the intended outcome, because a cold dictionary walk still
+# produces a *coherent* pair, just a slower one. Section 12.4 asks this bound
+# to catch a torn pair, not a slow one; `_find_run_stat_value_address`'s cost
+# is explicitly out of scope (section 11) unless stop condition 5 fires.
+#
+# Re-run `tools/step28_span_measure.py --read-cost-us <measured>` from a live
+# session to confirm the cold path stays inside this bound on real hardware.
+KPS_GROUP_SPAN_LIMIT_SECONDS = 0.100
+
 # Marks an exception that already went through `read_memory_source`'s
 # `on_failure`, so a task's own outer catch-all does not record the same
 # physical failure a second time. See `source_health_recorded` below.

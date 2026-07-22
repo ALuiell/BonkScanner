@@ -1517,7 +1517,18 @@ class PlayerStatsClient:
             )
 
         if not self._cached_kills_address:
-            raise MemoryReadError("RunStats.stats does not contain a 'kills' entry.")
+            # Zero kills, not unavailable memory. Every structural failure --
+            # uninitialised type info, static fields, dictionary or entries
+            # array, invalid count -- has already raised above, so reaching
+            # here means a *valid* dictionary was walked and did not contain
+            # "kills". The game creates that entry lazily, on its first
+            # increment, so its absence is exactly the state "nothing has died
+            # yet". `_get_cached_chests_bought` above is this method's
+            # structural twin and already returns 0 at the identical decision
+            # point. Raising here instead made every read fail for the opening
+            # stretch of a run and took the successfully-read run timer down
+            # with it -- see step_28_plan.md section 12.1.
+            return 0
         return max(0, int(self.memory.read_float(self._cached_kills_address)))
 
     def _find_run_stat_value_address(self, stats_dict: int, target_key: str) -> int:

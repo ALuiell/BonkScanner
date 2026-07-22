@@ -296,6 +296,7 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
                 )
                 self.live_run_tracker = SimpleNamespace(
                     track_kills=lambda *a: None,
+                    update_fast_run_timer=lambda *a: None,
                     current_ui_kps=lambda: 12,
                     stage_summary_rows=lambda: [{"stage": "live"}],
                     update_fast_stage_timer=lambda **k: None,
