@@ -53,6 +53,52 @@ class ProcessMemoryTests(unittest.TestCase):
 
         self.assertEqual(reader.module_offset("GameAssembly.dll", 0x1234), 0x10001234)
 
+    def test_module_base_is_resolved_once_per_module(self) -> None:
+        # `module_from_name` enumerates the whole module list -- ~3.4 ms live,
+        # against ~0.004 ms for a read -- so the fast combat pair must not pay
+        # it per call. Distinct names must still each resolve.
+        calls: list[str] = []
+
+        def lookup(_handle, name):
+            calls.append(name)
+            return types.SimpleNamespace(lpBaseOfDll=0x10000000 + len(calls))
+
+        reader = ProcessMemory("fake.exe", _pm=FakePymem({}), _module_from_name=lookup)
+
+        first = reader.module_base_address("GameAssembly.dll")
+        self.assertEqual(reader.module_base_address("GameAssembly.dll"), first)
+        self.assertEqual(reader.module_offset("GameAssembly.dll", 0x10), first + 0x10)
+        self.assertEqual(calls, ["GameAssembly.dll"])
+
+        self.assertNotEqual(reader.module_base_address("UnityPlayer.dll"), first)
+        self.assertEqual(calls, ["GameAssembly.dll", "UnityPlayer.dll"])
+
+    def test_module_base_cache_is_dropped_when_the_handle_changes(self) -> None:
+        # ASLR re-bases per launch, so a cached base must never outlive the
+        # handle it was resolved against.
+        bases = iter([0x10000000, 0x20000000])
+        reader = ProcessMemory(
+            "fake.exe",
+            _pm=FakePymem({}),
+            _module_from_name=lambda _handle, _name: types.SimpleNamespace(
+                lpBaseOfDll=next(bases)
+            ),
+        )
+
+        self.assertEqual(reader.module_base_address("GameAssembly.dll"), 0x10000000)
+
+        reader._pm.process_handle = object()  # a reattach to a restarted process
+
+        self.assertEqual(reader.module_base_address("GameAssembly.dll"), 0x20000000)
+
+    def test_close_drops_the_module_base_cache(self) -> None:
+        reader = self.create_reader({})
+        reader.module_base_address("GameAssembly.dll")
+
+        reader.close()
+
+        self.assertEqual(reader._base_cache, {})
+
     def test_read_float_decodes_little_endian_float(self) -> None:
         reader = self.create_reader({0x4000: struct.pack("<f", 1.25)})
 

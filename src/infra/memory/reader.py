@@ -33,6 +33,23 @@ class ProcessMemory:
         self.process_name = process_name
         self._pm: Any | None = None
         self._module_from_name = _module_from_name
+        # -- the module base cache -------------------------------------
+        #
+        # `module_from_name` enumerates every loaded module in the target
+        # process; measured live it costs ~3.4 ms, against ~0.004 ms for one
+        # `ReadProcessMemory`. The fast combat pair resolved the base twice per
+        # tick and spent essentially its whole budget there.
+        #
+        # A module's base is fixed for the life of a process image: ASLR
+        # re-bases it per launch, not per read, and GameAssembly.dll is the
+        # IL2CPP core, never unloaded mid-run. So the base can only change
+        # across a process restart -- and a restart invalidates the handle we
+        # cached it against, which is exactly what `_base_cache_handle` below
+        # keys on. A stale entry can therefore never be served: either the
+        # handle still names the same live process (base unchanged), or it does
+        # not (cache dropped).
+        self._base_cache: dict[str, int] = {}
+        self._base_cache_handle: Any = None
 
         if _pm is not None:
             self._pm = _pm
@@ -56,6 +73,12 @@ class ProcessMemory:
         self._module_from_name = pymem.process.module_from_name
 
     def close(self) -> None:
+        # Closing releases the handle the cache was keyed against, and Windows
+        # recycles handle values -- so drop the entries rather than trust the
+        # identity check to notice.
+        self._base_cache = {}
+        self._base_cache_handle = None
+
         if self._pm is None:
             return
 
@@ -76,8 +99,17 @@ class ProcessMemory:
         if self._pm is None:
             raise MemoryReadError("Process memory is not initialized.")
 
+        handle = self._pm.process_handle
+        if handle != self._base_cache_handle:
+            self._base_cache = {}
+            self._base_cache_handle = handle
+
+        cached = self._base_cache.get(module_name)
+        if cached is not None:
+            return cached
+
         try:
-            module = self._module_from_name(self._pm.process_handle, module_name)
+            module = self._module_from_name(handle, module_name)
         except Exception as exc:
             raise ModuleNotFoundError(
                 f"Could not resolve module '{module_name}'."
@@ -87,7 +119,9 @@ class ProcessMemory:
         if not base_address:
             raise ModuleNotFoundError(f"Module '{module_name}' is not loaded.")
 
-        return int(base_address)
+        base_address = int(base_address)
+        self._base_cache[module_name] = base_address
+        return base_address
 
     def module_offset(self, module_name: str, offset: int) -> int:
         return self.module_base_address(module_name) + offset
