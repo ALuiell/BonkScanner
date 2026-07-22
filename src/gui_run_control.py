@@ -78,6 +78,27 @@ class RunControlMixin:
             except Exception as exc:
                 self.log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
 
+    # The other half of `setup_hotkeys`. It stood inline at the end of
+    # `ScannerMixin.on_closing`, which made `_hotkey_manager` a name written by
+    # two mixins -- one of the two `PRE_EXISTING_COLLISIONS` entries, and one
+    # the scanner had no reason to own beyond running the shutdown sequence.
+    #
+    # Paying it here rather than letting step 25b's move retire the register
+    # entry is the whole point of the register: moving `on_closing` onto
+    # `MegabonkApp` takes the second writer out of the *scan*, so the staleness
+    # test would have deleted the entry while two writers were still writing the
+    # same attribute on the same object. That is a debt recorded as paid because
+    # a class left a list, which is what caught step 22b.
+    def stop_hotkeys(self):
+        manager = getattr(self, "_hotkey_manager", None)
+        if manager is None:
+            return
+        try:
+            manager.stop()
+        except Exception:
+            pass
+        self._hotkey_manager = None
+
     def hotkey_toggle_scanning(self):
         self.after(0, self.toggle_scan_event)
 

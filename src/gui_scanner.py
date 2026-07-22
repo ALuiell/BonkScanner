@@ -10,9 +10,7 @@ from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBox
 
 from app import config
 from app.map_scoring import calculate_map_score, evaluate_candidate, format_stats
-from app.player_stats_memory import player_stats_memory
 from app.player_stats_view import player_stats_view
-from ui.update_prompt import start_update_check
 from infra.memory.game_data_client import GameDataClient
 from ui.shared import _apply_button_icon, _clear_layout, _make_scroll_section, _set_text
 from core.item_metadata import COLOR_MAP
@@ -75,9 +73,6 @@ class ScannerMixin:
                 colored_parts.append(", ")
                 colored_tags.append(None)
         self.log(colored_parts, tag=colored_tags)
-
-    def deferred_update_check(self):
-        start_update_check(self, force_check=False)
 
     def update_timer(self):
         if self._is_shutting_down:
@@ -515,47 +510,18 @@ class ScannerMixin:
         self.scan_event.clear()
         self.after(0, self.update_status_ui)
 
-    def on_closing(self):
-        if getattr(self, "_is_shutting_down", False):
-            return
-        self._is_shutting_down = True
-        self._cancel_right_tab_transition()
-        self.stop_event.set()
-        self.scan_event.set()
-        self._flush_total_rerolls(force=True)
-        # The coordinator owns the three memory clients (step 12b), so it closes
-        # them (step 12c). App doubles built without a coordinator fall back to the
-        # mixin close methods, preserving the shutdown order those tests assert.
-        coordinator = getattr(self, "coordinator", None)
-        if coordinator is not None:
-            coordinator.shutdown()
-        else:
-            self.close_client()
-            player_stats_memory(self).close_player_stats_client()
-            player_stats_memory(self).close_player_stats_game_data_client()
-        if hasattr(self, "close_overlay_server"):
-            self.close_overlay_server()
-        if hasattr(self, "stop_in_game_overlay"):
-            self.stop_in_game_overlay()
-        if hasattr(self, "stop_twitch_bot"):
-            self.stop_twitch_bot()
-        if getattr(self, "twitch_auth_thread", None) is not None:
-            self.twitch_auth_thread._shutdown_server()
-            self.twitch_auth_thread.wait(2000)
-        player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
-        if player_stats_vod_recorder is not None:
-            if player_stats_vod_recorder.is_recording:
-                player_stats_vod_recorder.stop()
-            else:
-                player_stats_vod_recorder.close()
-        hotkey_manager = getattr(self, "_hotkey_manager", None)
-        if hotkey_manager is not None:
-            try:
-                hotkey_manager.stop()
-            except Exception:
-                pass
-            self._hotkey_manager = None
-        self.destroy()
+    # `on_closing` and `deferred_update_check` were defined here until step 25b.
+    # Both are `MegabonkApp`'s now.
+    #
+    # `on_closing` is a shutdown *order* over eight owners -- the layout's tab
+    # transition, the coordinator's three memory clients, the OBS server, the
+    # in-game overlay, the Twitch bot and its auth thread, the VOD recorder, the
+    # hotkey manager and the window. Exactly two of those steps were the
+    # scanner's, and the rest reached the other seven through ambient `self`,
+    # which is nine of this module's 29 hidden reads and every one of the five
+    # step-24 delegators. It reads as feature behaviour only because it was
+    # written where the events happened to live; it is composition-root
+    # lifecycle, which is what step 26 says `MegabonkApp` is for.
 
     def _build_session_stats_tab(self):
         self.tab_stats = QWidget()

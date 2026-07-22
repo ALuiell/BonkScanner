@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 from app import config
 from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
+from app.player_stats_memory import player_stats_memory
 from app.player_stats_refresh import player_stats_refresh
 from gui_dialogs import HelpDialog, SettingsDialog
 from gui_layout import GuiLayoutMixin
@@ -21,6 +22,7 @@ from gui_scanner import ScannerMixin
 from gui_twitch import build_twitch_session, session_command_tracked_item_config
 from app.template_filters import TemplateRuntimeFilters
 from ui.shared import UiInvoker, _AppWindow, resource_path
+from ui.update_prompt import start_update_check
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
 from app.vod_library import VodLibrary
@@ -582,6 +584,65 @@ class MegabonkApp(
 
     def ensure_compare_runs_chooser_for_empty_selection(self) -> None:
         return self._compare_runs_view.ensure_compare_runs_chooser_for_empty_selection()
+
+    # -- application shutdown (step 25b) -----------------------------------
+    #
+    # This was `ScannerMixin.on_closing`. Only two of its steps are the
+    # scanner's; the other seven owners it drives -- the layout's pending tab
+    # transition, the coordinator's memory clients, the OBS server, the in-game
+    # overlay, the Twitch bot and its auth thread, the VOD recorder, the hotkey
+    # manager and the window -- were reached through ambient `self` on the
+    # shared namespace, and were nine of `gui_scanner`'s 29 hidden reads.
+    #
+    # The three `hasattr` guards that stood on `close_overlay_server`,
+    # `stop_in_game_overlay` and `stop_twitch_bot` are gone, and that is a
+    # deliberate deletion rather than a tidy-up. They were written when the
+    # scanner could not know whether an app double carried those features; here
+    # all three are methods of the class this method belongs to, so the guard is
+    # always true and would only ever hide a *rename*. `hasattr` covering a name
+    # the same class defines is the silent-shutdown-skip shape step 19 recorded
+    # -- it converts "this method moved" into "this feature stopped shutting
+    # down", with a green suite. Each of the three already guards its own
+    # missing component internally, which is where that decision belongs.
+    def on_closing(self):
+        if getattr(self, "_is_shutting_down", False):
+            return
+        self._is_shutting_down = True
+        self._cancel_right_tab_transition()
+        self.stop_event.set()
+        self.scan_event.set()
+        self._flush_total_rerolls(force=True)
+        # The coordinator owns the three memory clients (step 12b), so it closes
+        # them (step 12c). App doubles built without a coordinator fall back to the
+        # mixin close methods, preserving the shutdown order those tests assert.
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is not None:
+            coordinator.shutdown()
+        else:
+            self.close_client()
+            player_stats_memory(self).close_player_stats_client()
+            player_stats_memory(self).close_player_stats_game_data_client()
+        self.close_overlay_server()
+        self.stop_in_game_overlay()
+        self.stop_twitch_bot()
+        if getattr(self, "twitch_auth_thread", None) is not None:
+            self.twitch_auth_thread._shutdown_server()
+            self.twitch_auth_thread.wait(2000)
+        player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
+        if player_stats_vod_recorder is not None:
+            if player_stats_vod_recorder.is_recording:
+                player_stats_vod_recorder.stop()
+            else:
+                player_stats_vod_recorder.close()
+        self.stop_hotkeys()
+        self.destroy()
+
+    # Scheduled 1.5s into `__init__`. It hands *the application* to the update
+    # flow, which reaches back for `log`, the window and the settings it
+    # prompts about; it had nothing to do with the scan loop beyond sharing a
+    # namespace with it.
+    def deferred_update_check(self):
+        start_update_check(self, force_check=False)
 
     @property
     def qt_app(self) -> QApplication:

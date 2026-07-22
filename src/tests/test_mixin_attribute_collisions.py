@@ -55,8 +55,20 @@ SRC_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # and four of them were not collisions at all -- the staleness test is what
 # said so.
 PRE_EXISTING_COLLISIONS: dict[str, str] = {
-    "_hotkey_manager": "scan lifecycle, co-owned by RunControl and Scanner",
     "is_running": "scan lifecycle, co-owned by RunControl and Scanner",
+    # `_hotkey_manager` was here until step 25b, and it is the register's own
+    # trap that decided how it left. Step 25b moves `on_closing` off
+    # `ScannerMixin` onto `MegabonkApp`, and this scan only reads `MegabonkApp`'s
+    # declared *bases* -- so the scanner's write would have stopped being
+    # visible and the staleness test below would have deleted this entry on its
+    # own, while `RunControlMixin.setup_hotkeys` and `MegabonkApp.on_closing`
+    # were still writing the same attribute on the same shared object. Same
+    # shape as `active_templates` at 22b, one step later.
+    #
+    # It was paid instead. The teardown that stood inline at the end of
+    # `on_closing` is `RunControlMixin.stop_hotkeys()`, next to the
+    # `setup_hotkeys` that creates the manager, and the shutdown sequence calls
+    # that one line. One writer, in the module that owns the name.
     # `active_templates` and `template_stats` were here until step 22b, and how
     # they left is worth more than the fact that they did.
     #
