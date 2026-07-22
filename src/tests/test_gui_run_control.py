@@ -2923,7 +2923,7 @@ class GuiRunControlTests(unittest.TestCase):
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), \
              patch.object(time, "monotonic", return_value=100.0):
-            self.assertTrue(service._refresh_powerups_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_powerups_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
         self.assertEqual(powerup_reads, [0x1234])
         self.assertEqual(powerup_updates, [powerup_snapshot])
@@ -2951,7 +2951,7 @@ class GuiRunControlTests(unittest.TestCase):
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), \
              patch.object(time, "monotonic", return_value=100.0):
-            self.assertTrue(service._refresh_event_timer_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_event_timer_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
         self.assertEqual(
             fast_stage_updates,
@@ -2990,7 +2990,7 @@ class GuiRunControlTests(unittest.TestCase):
         }
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), \
              patch.object(time, "monotonic", return_value=100.0):
-            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
         self.assertEqual(run_timer_reads, [1])
         self.assertEqual(mob_kill_reads, [1])
@@ -3005,7 +3005,7 @@ class GuiRunControlTests(unittest.TestCase):
             get_chaos_tracking_state=lambda _owner: (None, {}),
         )
         service, _world = build_refresh_tasks(stats_client=client)
-        context = RefreshTickContext()
+        context = RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
 
         self.assertTrue(service._refresh_powerups_task(context))
         self.assertTrue(service._refresh_expected_chest_inputs_task(context))
@@ -3029,7 +3029,7 @@ class GuiRunControlTests(unittest.TestCase):
             lambda bought, keys: expected_updates.append((bought, keys))
         )
         world.tracker.update_chaos_tome = lambda **kwargs: chaos_updates.append(kwargs)
-        context = RefreshTickContext()
+        context = RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
 
         self.assertFalse(service._refresh_powerups_task(context))
         self.assertTrue(service._refresh_expected_chest_inputs_task(context))
@@ -3056,12 +3056,12 @@ class GuiRunControlTests(unittest.TestCase):
             RuntimeError("feature-state update failed")
         )
 
-        self.assertFalse(service._refresh_chaos_tome_task(RefreshTickContext()))
-        self.assertFalse(service._refresh_chaos_tome_task(RefreshTickContext()))
+        self.assertFalse(service._refresh_chaos_tome_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
+        self.assertFalse(service._refresh_chaos_tome_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
         self.assertIsNotNone(world.stats_client)
         self.assertEqual(closed, [])
 
-        self.assertFalse(service._refresh_chaos_tome_task(RefreshTickContext()))
+        self.assertFalse(service._refresh_chaos_tome_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
         self.assertIsNone(world.stats_client)
         self.assertEqual(closed, ["closed"])
 
@@ -3073,7 +3073,7 @@ class GuiRunControlTests(unittest.TestCase):
         service, world = build_refresh_tasks(stats_client=client)
         world.memory._player_stats_memory_error_streak = 2
 
-        self.assertTrue(service._refresh_chaos_tome_task(RefreshTickContext()))
+        self.assertTrue(service._refresh_chaos_tome_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
         self.assertEqual(world.memory._player_stats_memory_error_streak, 0)
 
     def test_chaos_refresh_throttles_expected_chest_reads_to_500ms(self) -> None:
@@ -3093,9 +3093,9 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         with patch.object(time, "monotonic", side_effect=(100.0, 100.25, 100.5)):
-            self.assertTrue(service._refresh_expected_chest_inputs_task(RefreshTickContext()))
-            self.assertTrue(service._refresh_expected_chest_inputs_task(RefreshTickContext()))
-            self.assertTrue(service._refresh_expected_chest_inputs_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_expected_chest_inputs_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
+            self.assertTrue(service._refresh_expected_chest_inputs_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
+            self.assertTrue(service._refresh_expected_chest_inputs_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
         self.assertEqual(expected_reads, [0x1234, 0x1234, 0x1234])
         self.assertEqual(tracked, [(7, 3), (7, 3), (7, 3)])
@@ -3123,9 +3123,9 @@ class GuiRunControlTests(unittest.TestCase):
         world.tracker.current_ui_kps = lambda: 123
 
         with patch.object(time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
-            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
-            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
-            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
         self.assertEqual(run_timer_reads, [1, 1, 1])
         self.assertEqual(mob_kill_reads, [1, 1])
@@ -3171,7 +3171,7 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(config, "OVERLAY", {"widgets": []}), patch.object(
             time, "monotonic", side_effect=(100.0, 101.0)
         ):
-            self.assertTrue(refresh_tasks(app)._refresh_combat_metrics_task(RefreshTickContext()))
+            self.assertTrue(refresh_tasks(app)._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
         # The real formatter, through the real MRO: player_stats_view(app)
         # returns app, whose set_mob_kills_text comes from LiveStatsTabMixin.
@@ -3200,7 +3200,7 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(config, "OVERLAY", {"widgets": []}), patch.object(
             time, "monotonic", side_effect=(100.0, 101.0)
         ):
-            self.assertTrue(refresh_tasks(app)._refresh_combat_metrics_task(RefreshTickContext()))
+            self.assertTrue(refresh_tasks(app)._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
         self.assertEqual(received, ["Mob Kills: 37 (123/s)"])
         self.assertEqual(label.text(), "")
@@ -3258,9 +3258,9 @@ class GuiRunControlTests(unittest.TestCase):
         world.tracker.current_ui_kps = lambda: 123
 
         with patch.object(time, "monotonic", side_effect=(100.0, 100.25, 101.0)):
-            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
-            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
-            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext()))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
+            self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
         self.assertEqual(run_timer_reads, [1, 1, 1])
         self.assertEqual(mob_kill_reads, [1])

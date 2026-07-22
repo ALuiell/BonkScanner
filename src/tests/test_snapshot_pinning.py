@@ -330,7 +330,7 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
             owner._player_stats_view.refresh_powerups_card = (
                 lambda: recorded["powerups"].append(1)
             )
-            refresh_tasks(owner)._refresh_powerups_task(RefreshTickContext())
+            refresh_tasks(owner)._refresh_powerups_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0))
             self.assertEqual(expected, len(recorded["powerups"]))
 
     def test_event_timer_task_does_not_repaint_stage_summary_while_pinned(self) -> None:
@@ -338,11 +338,11 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
         from app.refresh_tasks import refresh_tasks
 
         owner, recorded = self.build_owner(pinned=True)
-        refresh_tasks(owner)._refresh_event_timer_task(RefreshTickContext())
+        refresh_tasks(owner)._refresh_event_timer_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0))
         self.assertEqual([], recorded["stage_rows"])
 
         owner, recorded = self.build_owner(pinned=False)
-        refresh_tasks(owner)._refresh_event_timer_task(RefreshTickContext())
+        refresh_tasks(owner)._refresh_event_timer_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0))
         self.assertEqual([[{"stage": "live"}]], recorded["stage_rows"])
 
     def test_combat_metrics_task_does_not_repaint_stage_summary_while_pinned(self) -> None:
@@ -350,11 +350,11 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
         from app.refresh_tasks import refresh_tasks
 
         owner, recorded = self.build_owner(pinned=True)
-        refresh_tasks(owner)._refresh_combat_metrics_task(RefreshTickContext())
+        refresh_tasks(owner)._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0))
         self.assertEqual([], recorded["stage_rows"])
         self.assertEqual([], recorded["mob_kills"])
 
         owner, recorded = self.build_owner(pinned=False)
-        refresh_tasks(owner)._refresh_combat_metrics_task(RefreshTickContext())
+        refresh_tasks(owner)._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0))
         self.assertEqual([[{"stage": "live"}]], recorded["stage_rows"])
         self.assertEqual(1, len(recorded["mob_kills"]))
