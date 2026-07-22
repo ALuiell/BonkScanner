@@ -72,7 +72,7 @@ from projections.item_sort import (
 from infra.memory.reader import MemoryReadError, ProcessNotFoundError
 from app.player_stats_view import player_stats_view
 from core.game_state import RuntimeGameMode, RuntimeGameState
-from live_run_tracker import LiveRunTracker
+from core.tracker.live_run import LiveRunTracker
 from app.coordinator import AppCoordinator, RefreshLoop
 from app.refresh_coordinator import RefreshTickContext
 from PySide6.QtCore import QRect

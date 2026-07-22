@@ -387,7 +387,7 @@ class TestTwitchBotWorker(unittest.TestCase):
 
     def test_handle_chests(self):
         from app.config import TWITCH_BOT
-        from live_run_tracker import ChestStatsSnapshot
+        from core.tracker.live_run import ChestStatsSnapshot
 
         TWITCH_BOT.setdefault("templates", {})["chests"] = (
             "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | "

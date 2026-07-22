@@ -18,7 +18,7 @@ from core.overlay_config import (
 )
 
 if TYPE_CHECKING:
-    from live_run_tracker import LiveRunTracker
+    from core.tracker.live_run import LiveRunTracker
 
 
 @dataclass(frozen=True)

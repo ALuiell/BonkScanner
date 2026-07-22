@@ -26,7 +26,7 @@ from app.snapshot_store import LiveSnapshotStore
 from infra import vod_storage
 from infra.overlay_server import LocalOverlayServer, OverlayStateStore
 from infra.vod_storage import VodRecorder
-from live_run_tracker import LiveRunTracker
+from core.tracker.live_run import LiveRunTracker
 
 
 class RefreshLoop:

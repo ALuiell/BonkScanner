@@ -5,7 +5,7 @@ import src
 import unittest
 
 from app import config
-from live_run_tracker import LiveRunSnapshot, LiveRunTracker
+from core.tracker.live_run import LiveRunSnapshot, LiveRunTracker
 from projections.obs import build_overlay_state
 
 

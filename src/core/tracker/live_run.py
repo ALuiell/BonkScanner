@@ -1,3 +1,24 @@
+"""The live run tracker: the shell that owns the state its package computes.
+
+``live_run_tracker.py``, top-level, until step 27c. Step 13 split the
+internals out into this package -- ``chaos``, ``chests``, ``combat``,
+``items``, ``powerups``, ``snapshots`` -- and left the shell behind because
+the roadmap believed the move would touch ~117 sites. It touches **nine**
+module-level import statements: that number counted ``self.live_run_tracker``
+attribute accesses, which a file move does not touch at all.
+
+Inside ``core/tracker/`` rather than beside it as ``core/live_run_tracker.py``:
+it already imports six modules from this package and nothing in the package
+imports it back, so ``__init__`` (empty) -> ``live_run`` -> siblings is a
+chain with no cycle. Merging it into ``core/tracker/__init__.py`` would have
+made ``from core.tracker import chaos`` on line 19 a self-import -- legal, and
+exactly the kind of thing that works until it does not.
+
+Two of the nine sites had no debt entry and no plan built from the registry
+would have found them: ``gui_overlay.py`` and ``tracked_item_rules.py`` are
+themselves top-level, so the import-direction checker assigns their edges no
+direction and never reported them.
+"""
 from __future__ import annotations
 
 from collections import deque

@@ -49,7 +49,7 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
   state from the game process.
 - `src/infra/memory/player_stats_client.py` reads live player stats, passive items, weapons, run timer,
   stage timer, kill count, and level.
-- `src/live_run_tracker.py` maintains live stage boundaries, item deltas, and chaos stats.
+- `src/core/tracker/live_run.py` maintains live stage boundaries, item deltas, and chaos stats.
 - `src/twitch_bot.py` handles the Twitch IRC connection and commands.
 - `src/infra/overlay_server.py` runs a local HTTP/WebSocket server for OBS widgets.
 - `src/infra/vod_storage.py` writes and reads `.jsonl` recordings.

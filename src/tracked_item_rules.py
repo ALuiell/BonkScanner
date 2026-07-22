@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from live_run_tracker import TrackedItemRule
+from core.tracker.live_run import TrackedItemRule
 
 
 def tracked_item_rules_from_config(

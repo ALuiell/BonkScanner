@@ -85,7 +85,7 @@ from app.refresh_tasks import ensure_refresh_coordinator
 from core.game_state import MapStat, RuntimeGameMode
 from infra.memory.game_data_client import GameDataClient
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
-from live_run_tracker import LiveRunSnapshot, PowerupMapContext
+from core.tracker.live_run import LiveRunSnapshot, PowerupMapContext
 from projections.vod import build_vod_capture_kwargs
 from projections import formatting
 

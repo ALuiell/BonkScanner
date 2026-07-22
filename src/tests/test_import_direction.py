@@ -93,15 +93,6 @@ KNOWN_VIOLATIONS: Dict[Tuple[str, str], str] = {}
 # Layered package -> unlayered top-level module. Debt, not violation: the target
 # has no layer yet, so no direction can be assigned to the edge.
 TOPLEVEL_DEBT: Dict[Tuple[str, str], str] = {
-    ("app/coordinator.py", "live_run_tracker"): (
-        "The tracker's own module file is still top-level: step 13 split its "
-        "internals into core/tracker/ but moving live_run_tracker.py would "
-        "touch ~117 import sites. Removed when the module file lands in "
-        "core/, making this app -> core."
-    ),
-    ("app/player_stats_refresh.py", "live_run_tracker"): (
-        "Same as app/coordinator.py -> live_run_tracker."
-    ),
 }
 
 # Edges under `if TYPE_CHECKING:`. Not runtime dependencies -- the import never
@@ -112,10 +103,6 @@ TYPE_CHECKING_DEBT: Dict[Tuple[str, str], str] = {
         "Deliberate, from step 10c: the port needs the client type for "
         "annotations only. Removed when the annotation is expressed against a "
         "core-owned protocol instead of the concrete infra client."
-    ),
-    ("projections/obs.py", "live_run_tracker"): (
-        "Snapshot type annotation. Removed when live_run_tracker.py moves to "
-        "core/, making this projections -> core -- which is allowed."
     ),
 }
 
@@ -475,10 +462,12 @@ class ImportResolutionTests(unittest.TestCase):
         # gui_layout at step 27b, for the same reason each time: they are
         # ui/shared.py, ui/styles.py and ui/layout.py now, so "ui" covers them
         # and asserting the old names would pin files that no longer exist.
-        # gui_app is added in gui_layout's place rather than letting the list
-        # shrink towards a single name -- three unlayered top-level modules
-        # still exist and the property is that the checker recognises them.
-        for name in ("gui_app", "live_run_tracker", "twitch_bot"):
+        # live_run_tracker dropped at step 27c, which moved it to
+        # core/tracker/live_run.py; twitch_auth took its slot. The list is
+        # kept at three deliberately rather than allowed to shrink toward a
+        # single name -- the property under test is that the checker
+        # recognises the unlayered modules that still exist, and eleven do.
+        for name in ("gui_app", "twitch_auth", "twitch_bot"):
             self.assertIn(name, roots)
 
     def test_imports_below_the_module_header_are_collected(self) -> None:

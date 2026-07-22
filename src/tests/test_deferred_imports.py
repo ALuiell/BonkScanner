@@ -71,7 +71,6 @@ LOCAL_ROOTS = {
     "gui_run_control",
     "gui_scanner",
     "gui_twitch",
-    "live_run_tracker",
     "twitch_auth",
     "twitch_bot",
 }

@@ -50,7 +50,7 @@ from projections.tracked_items import (
     tracked_rule_tag_label,
     uses_session_tracked_items,
 )
-from live_run_tracker import TrackedItemRule
+from core.tracker.live_run import TrackedItemRule
 from app.coordinator import AppCoordinator
 from projections.obs import build_overlay_state
 from projections.session_stats import format_tracked_item_rows_for_stats_tab

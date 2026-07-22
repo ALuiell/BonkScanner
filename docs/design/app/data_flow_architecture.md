@@ -127,7 +127,7 @@ For each feature, the data begins its journey here.
   - **Data extracted:** Refresh intervals (`PLAYER_STATS_REFRESH_MS`, `FAST_TRACKER_INTERVAL_MS`), overlay tracked item rules, Twitch bot commands.
 - **Runtime-derived Values**
   - **What it is:** Values calculated dynamically based on raw memory data over time.
-  - **Code location:** `src/live_run_tracker.py`, `src/core/run_summary.py`.
+  - **Code location:** `src/core/tracker/live_run.py`, `src/core/run_summary.py`.
   - **Data extracted:** Kills per Second (KPS), stage summaries, RPM (rerolls per minute).
 - **VOD Snapshots**
   - **What it is:** Saved JSON records of completed runs.
@@ -194,7 +194,7 @@ guarded by its own `required` predicate, evaluated every tick.
 
 This describes where the most authoritative version of the data lives.
 
-- **LiveRunTracker (`src/live_run_tracker.py`)**
+- **LiveRunTracker (`src/core/tracker/live_run.py`)**
   - **What it stores:** Tracks dynamic runtime metrics: kills history, fast-moving KPS, Chaos Tome state, Powerup mapping, chest open/purchased logic, and custom tracked items.
   - **Source of truth for:** Fast-refresh features, historical kills/KPS timeline, stage-specific context.
 - **LiveSnapshotStore (`src/app/snapshot_store.py`)**

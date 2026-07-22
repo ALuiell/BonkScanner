@@ -97,7 +97,7 @@ Here is how the responsibilities are distributed across the project's codebase:
 | **Logic & Evaluators** | |
 | [src/core/logic.py](../../src/core/logic.py) | Functional core that evaluates map stats against rules (Templates) and computes map scores (Scores). |
 | [src/core/runtime_stats.py](../../src/core/runtime_stats.py) | Standardizes raw map details into structures suitable for matching logic. |
-| [src/live_run_tracker.py](../../src/live_run_tracker.py) | Tracks live stage transitions, item acquisition differentials, and chaos stats during runs. |
+| [src/core/tracker/live_run.py](../../src/core/tracker/live_run.py) | Tracks live stage transitions, item acquisition differentials, and chaos stats during runs. |
 | **Memory Readers & Low-level** | |
 | [src/infra/memory/reader.py](../../src/infra/memory/reader.py) | Core memory access module wrapping Windows APIs (OpenProcess, ReadProcessMemory) to read raw bytes. |
 | [src/infra/memory/game_data_client.py](../../src/infra/memory/game_data_client.py) | Uses pointers to read current map properties, seed, status indicators, and generation cycles. |
