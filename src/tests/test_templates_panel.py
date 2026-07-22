@@ -87,9 +87,13 @@ def _panel_with_filters(**filter_ports):
 class CheckboxSyncTests(unittest.TestCase):
     def test_save_checkbox_state_updates_runtime_templates_without_restart(self) -> None:
         """Moved from `test_gui_run_control.py` by step 22c."""
-        logs: list[str] = []
+        logs: list[tuple[object, dict]] = []
+
+        def record_log(message, **kwargs) -> None:
+            logs.append((message, kwargs))
+
         panel, filters = _panel_with_filters(
-            log=logs.append,
+            log=record_log,
             is_scanning=lambda: True,
         )
         panel._checkboxes = {
@@ -118,7 +122,15 @@ class CheckboxSyncTests(unittest.TestCase):
             self.assertEqual(
                 filters.template_stats["Beta"], {"rerolls_since_last": 1, "history": [4]}
             )
-            self.assertEqual(logs, ["[*] Active templates updated live: Alpha, Gamma"])
+            self.assertEqual(
+                logs,
+                [
+                    (
+                        ["[*] Active templates updated live: ", "Alpha", ", ", "Gamma"],
+                        {"tag": [None, "BLUE", None, "BLUE"]},
+                    )
+                ],
+            )
             save_config.assert_called_once_with(config.user_config)
         finally:
             config.ACTIVE_TEMPLATES = original_active

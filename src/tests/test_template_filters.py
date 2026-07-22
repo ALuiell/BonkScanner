@@ -175,22 +175,40 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(logs, [])
 
     def test_announce_names_the_mode_and_the_new_selection(self) -> None:
-        logs: list[str] = []
+        logs: list[tuple[object, dict]] = []
+
+        def record_log(message, **kwargs) -> None:
+            logs.append((message, kwargs))
+
         filters = build_template_filters(
             selected_template_names=lambda: ["Alpha", "Gamma"],
-            log=logs.append,
+            log=record_log,
             is_scanning=lambda: True,
         )
-        with patch.object(config, "EVALUATION_MODE", "templates"):
+        templates = [
+            {"name": "Alpha", "color": "GREEN"},
+            {"name": "Gamma", "color": "LIGHTRED_EX"},
+        ]
+        with patch.object(config, "EVALUATION_MODE", "templates"), patch.object(
+            config, "TEMPLATES", templates
+        ):
             filters.sync(announce=True)
-        self.assertEqual(logs, ["[*] Active templates updated live: Alpha, Gamma"])
+        self.assertEqual(
+            logs,
+            [
+                (
+                    ["[*] Active templates updated live: ", "Alpha", ", ", "Gamma"],
+                    {"tag": [None, "GREEN", None, "LIGHTRED_EX"]},
+                )
+            ],
+        )
 
         logs.clear()
         scores = {**config.SCORES_SYSTEM, "active_tiers": ["Light"]}
         with patch.object(config, "EVALUATION_MODE", "scores"):
             with patch.object(config, "SCORES_SYSTEM", scores):
                 filters.sync(announce=True)
-        self.assertEqual(logs, ["[*] Active tiers updated live: Light"])
+        self.assertEqual(logs, [("[*] Active tiers updated live: Light", {})])
 
     def test_an_empty_selection_announces_none(self) -> None:
         logs: list[str] = []
@@ -233,11 +251,15 @@ class PortTests(unittest.TestCase):
         self.assertEqual(source, ["Alpha"])
 
     def test_is_scanning_is_asked_not_assumed(self) -> None:
-        logs: list[str] = []
+        logs: list[tuple[object, dict]] = []
+
+        def record_log(message, **kwargs) -> None:
+            logs.append((message, kwargs))
+
         thread = FakeThread(alive=False)
         filters = build_template_filters(
             selected_template_names=lambda: ["Alpha"],
-            log=logs.append,
+            log=record_log,
             is_scanning=lambda: thread.is_alive(),
         )
         with patch.object(config, "EVALUATION_MODE", "templates"):
@@ -246,7 +268,15 @@ class PortTests(unittest.TestCase):
             thread._alive = True
             filters.template_stats = {}
             filters.sync(announce=True)
-        self.assertEqual(logs, ["[*] Active templates updated live: Alpha"])
+        self.assertEqual(
+            logs,
+            [
+                (
+                    ["[*] Active templates updated live: ", "Alpha"],
+                    {"tag": [None, "BLUE"]},
+                )
+            ],
+        )
 
 
 if __name__ == "__main__":

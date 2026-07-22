@@ -66,7 +66,7 @@ class TemplateRuntimeFilters:
         *,
         selected_template_names: Callable[[], list[str]],
         refresh_stats: Callable[[], None],
-        log: Callable[[str], None],
+        log: Callable[..., None],
         is_scanning: Callable[[], bool],
     ) -> None:
         self._selected_template_names = selected_template_names
@@ -116,5 +116,24 @@ class TemplateRuntimeFilters:
             return
 
         mode_label = "tiers" if config.EVALUATION_MODE == "scores" else "templates"
-        names_text = ", ".join(active_names) if active_names else "none"
-        self._log(f"[*] Active {mode_label} updated live: {names_text}")
+        if config.EVALUATION_MODE == "scores" or not active_names:
+            names_text = ", ".join(active_names) if active_names else "none"
+            self._log(f"[*] Active {mode_label} updated live: {names_text}")
+            return
+
+        color_by_name = {
+            str(template.get("name") or ""): str(
+                template.get("color") or "BLUE"
+            ).upper()
+            for template in config.TEMPLATES
+            if isinstance(template, dict)
+        }
+        parts: list[str] = ["[*] Active templates updated live: "]
+        tags: list[str | None] = [None]
+        for index, name in enumerate(active_names):
+            parts.append(name)
+            tags.append(color_by_name.get(name, "BLUE"))
+            if index < len(active_names) - 1:
+                parts.append(", ")
+                tags.append(None)
+        self._log(parts, tag=tags)
