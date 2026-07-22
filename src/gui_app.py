@@ -310,26 +310,26 @@ class MegabonkApp(
     # shape for the same owner; it only stayed on the mixin because that was
     # where step 12b found it.
     #
-    # The `__dict__` fallback the other two lost at 20h is still here, and
-    # deliberately so: the 34 `object.__new__` doubles in
-    # `tests/test_gui_run_control.py` assign `app.client = <fake>` and step 25's
-    # own conversion is what retires them. Removing it in the same commit that
-    # moves the property would mix two failures into one bisect. It goes when
-    # the doubles do, measured, not guessed.
+    # 25a kept the `__dict__` fallback its two siblings lost at 20h, because
+    # `object.__new__` doubles were still assigning `app.client = <fake>` and
+    # dropping it in the commit that moved the property would have put two
+    # independent failures in one bisect. 25c retired those doubles, and 25d is
+    # the measurement rather than the assumption: `app.client = ` now appears
+    # **zero** times in the suite. The seven remaining client assignments are
+    # `scanner.client = `, and `Scanner.client` writes the same coordinator
+    # field this does.
+    #
+    # So the shadow storage had no writer left. Removing it puts this property
+    # in the shape step 20h's third exit criterion asks for: an app double must
+    # be *given* its clients, and an owner with no coordinator fails like a
+    # missing attribute instead of quietly inventing somewhere to put one.
     @property
     def client(self):
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            return coordinator.client
-        return self.__dict__.get("_client")
+        return self._client_owner().client
 
     @client.setter
     def client(self, value) -> None:
-        coordinator = self.__dict__.get("coordinator")
-        if coordinator is not None:
-            coordinator.client = value
-        else:
-            self.__dict__["_client"] = value
+        self._client_owner().client = value
 
     @property
     def player_stats_client(self):

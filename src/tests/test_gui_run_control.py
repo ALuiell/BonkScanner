@@ -114,8 +114,19 @@ def make_client_coordinator() -> SimpleNamespace:
     `LocalOverlayServer` and a `VodRecorder`, and would rewire
     `vod_storage`'s settings as a side effect -- none of which these doubles
     want, and the recorder in particular is the fake they install themselves.
+
+    `client` joined the list at step 25d, when `MegabonkApp.client` lost its own
+    `__dict__` fallback. It is here even though no surviving double assigns it,
+    because of how the property fails without it: `_client_owner()` would return
+    this namespace and the missing attribute would raise `AttributeError` *out of
+    a property* -- which is precisely the condition that makes Python fall back
+    to `__getattr__`, and `MegabonkApp.__getattr__` forwards to `self.window`. A
+    double that read `app.client` would be answered by a widget instead of
+    failing. That is the silent wrong answer the header above `_client_owner`
+    describes, not a hypothetical.
     """
     return SimpleNamespace(
+        client=None,
         player_stats_client=None,
         player_stats_game_data_client=None,
         snapshot_store=LiveSnapshotStore(),
