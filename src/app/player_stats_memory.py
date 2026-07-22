@@ -57,12 +57,14 @@ from app.read_sources import (
     LIVE_DAMAGE_SOURCES,
     LIVE_TOMES,
     LIVE_WEAPONS,
+    MAP_GENERATION_STATE,
     MOB_KILLS,
     OWNER_STATS,
     PASSIVE_ITEMS,
     PLAYER_LEVEL,
     PLAYER_STATS,
     RUN_TIMER,
+    RUNTIME_GAME_STATE,
     STAGE_TIMER_CONTEXT,
     read_memory_source,
     read_source,
@@ -188,23 +190,37 @@ class PlayerStatsMemory:
             context, PASSIVE_ITEMS, lambda: client.get_passive_items(owner_stats)
         )
 
-    def read_player_stats_recording_state(self):
+    def read_player_stats_recording_state(self, context=None):
         if self._read_game_data_client() is None:
             self._write_game_data_client(GameDataClient(config.PROCESS_NAME))
-        return self._read_game_data_client().get_map_generation_state()
+        client = self._read_game_data_client()
+        return read_source(
+            context, MAP_GENERATION_STATE, client.get_map_generation_state
+        )
 
-    def read_player_stats_runtime_game_state(self):
+    def read_player_stats_runtime_game_state(self, context=None):
         if self._read_game_data_client() is None:
             self._write_game_data_client(GameDataClient(config.PROCESS_NAME))
-        return self._read_game_data_client().get_runtime_game_state()
+        client = self._read_game_data_client()
+        return read_source(
+            context, RUNTIME_GAME_STATE, client.get_runtime_game_state
+        )
 
-    def read_player_stats_runtime_activity_state(self):
+    def read_player_stats_runtime_activity_state(self, context=None):
         if self._read_game_data_client() is None:
             self._write_game_data_client(GameDataClient(config.PROCESS_NAME))
         reader = getattr(self._read_game_data_client(), "get_runtime_activity_state", None)
         if callable(reader):
+            # The *activity* reader is a different fact from RUNTIME_GAME_STATE
+            # -- five static-field blocks against six -- so it deliberately does
+            # not share that key. It stays unenrolled: it is the cheap probe
+            # reader, it has exactly one caller, and giving it a key would
+            # invite the two to be collapsed, which is deferred candidate L.
             return reader()
-        return self._read_game_data_client().get_runtime_game_state()
+        # The fallback, however, IS the same fact, so it resolves the same key.
+        return read_source(
+            context, RUNTIME_GAME_STATE, self._read_game_data_client().get_runtime_game_state
+        )
 
     def read_player_stats_recording_seed(self) -> int | None:
         return self.read_player_stats_recording_state().map_seed
@@ -262,7 +278,7 @@ class PlayerStatsMemory:
         map_seed = None
         stage_ptr = 0
         try:
-            recording_state = self.read_player_stats_recording_state()
+            recording_state = self.read_player_stats_recording_state(context)
             self.record_game_data_success()
             map_seed = recording_state.map_seed
             stage_ptr = recording_state.current_stage_ptr
@@ -426,9 +442,9 @@ class PlayerStatsMemory:
             self.close_player_stats_game_data_client()
             return None
 
-    def _read_player_stats_recording_state_safe(self):
+    def _read_player_stats_recording_state_safe(self, context=None):
         try:
-            result = self.read_player_stats_recording_state()
+            result = self.read_player_stats_recording_state(context)
             self.record_game_data_success()
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
@@ -438,9 +454,9 @@ class PlayerStatsMemory:
             self.close_player_stats_game_data_client()
             return None
 
-    def _read_player_stats_runtime_game_state_safe(self):
+    def _read_player_stats_runtime_game_state_safe(self, context=None):
         try:
-            result = self.read_player_stats_runtime_game_state()
+            result = self.read_player_stats_runtime_game_state(context)
             self.record_game_data_success()
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
@@ -450,9 +466,9 @@ class PlayerStatsMemory:
             self.close_player_stats_game_data_client()
             return None
 
-    def _read_player_stats_runtime_activity_state_safe(self):
+    def _read_player_stats_runtime_activity_state_safe(self, context=None):
         try:
-            result = self.read_player_stats_runtime_activity_state()
+            result = self.read_player_stats_runtime_activity_state(context)
             self.record_game_data_success()
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:

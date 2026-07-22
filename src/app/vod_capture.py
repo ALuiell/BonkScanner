@@ -344,7 +344,7 @@ class VodCapture:
         # `and not is_game_over` in get_runtime_game_state is unreachable).
         # Only `.mode` is used here, which is all the cached state carries.
         lifecycle = self._run_lifecycle()
-        runtime_state = lifecycle.state_for_refresh()
+        runtime_state = lifecycle.state_for_refresh(context)
         recorder = self._recorder()
         if runtime_state.mode is RuntimeGameMode.GAME_OVER:
             lifecycle.set_completed(True)
@@ -361,7 +361,7 @@ class VodCapture:
                 if self._is_live_stats_tab_active():
                     self._player_stats_view().set_recording_status_text("Live player stats (recording)")
             if self.is_recording_armed() and not recorder.is_recording:
-                current_state = self._read_recording_state()
+                current_state = self._read_recording_state(context)
                 current_seed = current_state.map_seed if current_state is not None else None
                 current_stage_ptr = (
                     current_state.current_stage_ptr if current_state is not None else 0
@@ -413,7 +413,7 @@ class VodCapture:
             return None
 
         now = self._clock()
-        current_state = self._read_recording_state()
+        current_state = self._read_recording_state(context)
         current_seed = current_state.map_seed if current_state is not None else None
         current_stage_ptr = (
             current_state.current_stage_ptr if current_state is not None else 0
@@ -594,7 +594,7 @@ def vod_capture(owner) -> VodCapture:
 
     service = VodCapture(
         recorder=lambda: owner.player_stats_vod_recorder,
-        read_recording_state=lambda: player_stats_memory(owner)._read_player_stats_recording_state_safe(),
+        read_recording_state=lambda context=None: player_stats_memory(owner)._read_player_stats_recording_state_safe(context),
         read_run_timer=lambda context=None: player_stats_memory(owner)._read_player_stats_recording_run_timer_safe(context),
         close_game_data_client=lambda: player_stats_memory(owner).close_player_stats_game_data_client(),
         run_lifecycle=lambda: resolve_run_lifecycle(owner),

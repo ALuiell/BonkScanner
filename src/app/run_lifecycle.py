@@ -159,7 +159,7 @@ class RunLifecycle:
         state = self._cached_state
         return bool(state is not None and state.is_active_run)
 
-    def refresh(self) -> RuntimeGameState:
+    def refresh(self, context=None) -> RuntimeGameState:
         """Was ``PlayerStatsRefreshMixin._refresh_core_run_lifecycle_state``.
 
         The once-a-second probe that drives everything else. Note ``<``: a
@@ -175,7 +175,7 @@ class RunLifecycle:
         ):
             return cached_state
 
-        state = self._read_activity_state()
+        state = self._read_activity_state(context)
         if state is None:
             state = RuntimeGameState(mode=RuntimeGameMode.UNKNOWN)
         self._cached_state = state
@@ -188,18 +188,18 @@ class RunLifecycle:
             self.mark_completed_on_tracker()
         return state
 
-    def state_or_unknown(self) -> RuntimeGameState:
+    def state_or_unknown(self, context=None) -> RuntimeGameState:
         """Was ``PlayerStatsRefreshMixin._runtime_game_state_or_unknown``.
 
         An *uncached* read. A failed read becomes UNKNOWN rather than None,
         because every caller branches on ``.mode`` and would raise on None.
         """
-        state = self._read_game_state()
+        state = self._read_game_state(context)
         if state is None:
             return RuntimeGameState(mode=RuntimeGameMode.UNKNOWN)
         return state
 
-    def state_for_refresh(self) -> RuntimeGameState:
+    def state_for_refresh(self, context=None) -> RuntimeGameState:
         """Was ``PlayerStatsRefreshMixin._runtime_state_for_refresh``.
 
         Reuses the probe cache when it is fresh, falling back to an uncached
@@ -216,7 +216,7 @@ class RunLifecycle:
         if cached_state is not None and checked_at is not None:
             if self._now() - checked_at <= CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS:
                 return cached_state
-        return self.state_or_unknown()
+        return self.state_or_unknown(context)
 
 
 def run_lifecycle(owner) -> RunLifecycle:
@@ -254,8 +254,8 @@ def run_lifecycle(owner) -> RunLifecycle:
     # only ever calls one. The suite has such owners, and one of them found
     # this within a minute of it being written.
     lifecycle = RunLifecycle(
-        read_activity_state=lambda: player_stats_memory(owner)._read_player_stats_runtime_activity_state_safe(),
-        read_game_state=lambda: player_stats_memory(owner)._read_player_stats_runtime_game_state_safe(),
+        read_activity_state=lambda context=None: player_stats_memory(owner)._read_player_stats_runtime_activity_state_safe(context),
+        read_game_state=lambda context=None: player_stats_memory(owner)._read_player_stats_runtime_game_state_safe(context),
         live_run_tracker=lambda: owner.live_run_tracker,
     )
     if coordinator is not None:

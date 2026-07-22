@@ -705,7 +705,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         reads: list[str] = []
 
-        def read_activity_state():
+        def read_activity_state(_context=None):
             reads.append("read")
             return next(states)
 
@@ -841,8 +841,8 @@ class GuiRunControlTests(unittest.TestCase):
             mode=RuntimeGameMode.IN_GAME,
             is_playing=True,
         )
-        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: _runtime_state
-        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda: _runtime_state
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda _context=None: _runtime_state
+        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda _context=None: _runtime_state
         app._is_live_stats_tab_active = lambda: True
         app._is_twitch_bot_active = lambda: False
         app.log_messages = []
@@ -1449,7 +1449,7 @@ class GuiRunControlTests(unittest.TestCase):
 
     def test_recording_run_state_keeps_file_open_while_paused(self) -> None:
         app = self.build_recording_app()
-        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda _context=None: RuntimeGameState(
             mode=RuntimeGameMode.PAUSED_IN_GAME,
             is_playing=True,
             is_paused=True,
@@ -1473,7 +1473,7 @@ class GuiRunControlTests(unittest.TestCase):
         """
         app = self.build_recording_app()
         app._is_live_stats_tab_active = lambda: True
-        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda _context=None: RuntimeGameState(
             mode=RuntimeGameMode.PAUSED_IN_GAME,
             is_playing=True,
             is_paused=True,
@@ -1490,7 +1490,7 @@ class GuiRunControlTests(unittest.TestCase):
     def test_recording_run_state_waits_after_game_over_without_disarming(self) -> None:
         app = self.build_recording_app()
         vod_capture(app).player_stats_recording_armed = True
-        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda _context=None: RuntimeGameState(
             mode=RuntimeGameMode.GAME_OVER,
             is_playing=True,
             is_game_over=True,
@@ -1507,7 +1507,7 @@ class GuiRunControlTests(unittest.TestCase):
     def test_recording_run_state_waits_after_manual_menu_without_disarming(self) -> None:
         app = self.build_recording_app()
         vod_capture(app).player_stats_recording_armed = True
-        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda _context=None: RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
 
@@ -1524,11 +1524,11 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder.is_recording = False
         vod_capture(app).player_stats_recording_armed = True
         vod_capture(app).player_stats_recording_waiting_mode = RuntimeGameMode.MAIN_MENU.value
-        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda _context=None: RuntimeGameState(
             mode=RuntimeGameMode.IN_GAME,
             is_playing=True,
         )
-        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(
+        player_stats_memory(app).read_player_stats_recording_state = lambda _context=None: SimpleNamespace(
             map_seed=333,
             current_stage_ptr=0x3000,
         )
@@ -2523,7 +2523,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
-        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda _context=None: RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
         app.after = lambda delay, callback: None
@@ -2556,11 +2556,11 @@ class GuiRunControlTests(unittest.TestCase):
         app.after = lambda delay, callback: None
 
         heavy_reads: list[int] = []
-        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: heavy_reads.append(1) or RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda _context=None: heavy_reads.append(1) or RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
         cheap_reads: list[int] = []
-        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda: cheap_reads.append(1) or RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda _context=None: cheap_reads.append(1) or RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
 
@@ -2611,7 +2611,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: False
         app.overlay_should_refresh_live_stats = lambda: False
         app._is_twitch_bot_active = lambda: False
-        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda _context=None: RuntimeGameState(
             mode=RuntimeGameMode.MAIN_MENU,
         )
         app.after_calls = []
@@ -3331,7 +3331,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
-        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: RuntimeGameState(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda _context=None: RuntimeGameState(
             mode=RuntimeGameMode.PAUSED_IN_GAME,
             is_playing=True,
             is_paused=True,
@@ -3363,7 +3363,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
-        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda _context=None: (_ for _ in ()).throw(
             MemoryReadError("runtime state unavailable")
         )
         player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
@@ -3434,7 +3434,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: False
         player_stats_memory(app).read_player_stats_only = lambda _context=None: ({"Damage": SimpleNamespace(display_value="123", value=1.23)}, 0x1234)
         player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
-        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        player_stats_memory(app).read_player_stats_recording_state = lambda _context=None: SimpleNamespace(map_seed=777, current_stage_ptr=2)
         player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_stage_timer=lambda: 9.0,
@@ -3462,7 +3462,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_live_stats_tab_active = lambda: False
         player_stats_memory(app).read_player_stats_only = lambda _context=None: ({}, 0x1234)
         player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
-        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=None, current_stage_ptr=0)
+        player_stats_memory(app).read_player_stats_recording_state = lambda _context=None: SimpleNamespace(map_seed=None, current_stage_ptr=0)
         player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 0.0,
             get_stage_timer=lambda: None,
@@ -3483,7 +3483,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_snapshots = []
         app.player_stats_selected_snapshot_index = None
         app._is_live_stats_tab_active = lambda: False
-        player_stats_memory(app).read_player_stats_runtime_game_state = lambda: (_ for _ in ()).throw(
+        player_stats_memory(app).read_player_stats_runtime_game_state = lambda _context=None: (_ for _ in ()).throw(
             MemoryReadError("runtime state unavailable")
         )
         player_stats_memory(app).read_player_stats_only = lambda _context=None: (
@@ -3491,7 +3491,7 @@ class GuiRunControlTests(unittest.TestCase):
             0x1234,
         )
         player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
-        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        player_stats_memory(app).read_player_stats_recording_state = lambda _context=None: SimpleNamespace(map_seed=777, current_stage_ptr=2)
         player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
             get_stage_timer=lambda: 9.0,
@@ -3549,7 +3549,7 @@ class GuiRunControlTests(unittest.TestCase):
             raise MemoryReadError("items missing")
 
         player_stats_memory(app).read_passive_items_only = fail_items
-        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        player_stats_memory(app).read_player_stats_recording_state = lambda _context=None: SimpleNamespace(map_seed=777, current_stage_ptr=2)
 
         player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 21.5,
@@ -3580,7 +3580,7 @@ class GuiRunControlTests(unittest.TestCase):
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)
         app.player_stats_vod_snapshots = []
         live_snapshot_store(app).last_known_items = ("Wrench x2", "Clover x1")
-        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        player_stats_memory(app).read_player_stats_recording_state = lambda _context=None: SimpleNamespace(map_seed=777, current_stage_ptr=2)
         player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
 
         result = MegabonkApp.refresh_live_player_stats_now(app)
@@ -3598,7 +3598,7 @@ class GuiRunControlTests(unittest.TestCase):
         live_snapshot_store(app).last_seed = 123
         live_snapshot_store(app).last_run_timer = 45.0
         player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ()
-        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(map_seed=777, current_stage_ptr=2)
+        player_stats_memory(app).read_player_stats_recording_state = lambda _context=None: SimpleNamespace(map_seed=777, current_stage_ptr=2)
         player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
             get_run_timer=lambda: 2.0,
             get_stage_timer_context=lambda: (2.0, 0, 600.0),
@@ -4767,11 +4767,11 @@ class GuiRunControlTests(unittest.TestCase):
         app._is_twitch_bot_active = lambda: False
         player_stats_memory(app).read_player_stats_only = lambda _context=None: ({}, 0x1234)
         player_stats_memory(app).read_passive_items_only = lambda owner_stats=None, _context=None: ("Key",)
-        player_stats_memory(app).read_player_stats_recording_state = lambda: SimpleNamespace(
+        player_stats_memory(app).read_player_stats_recording_state = lambda _context=None: SimpleNamespace(
             map_seed=None,
             current_stage_ptr=0,
         )
-        player_stats_memory(app)._read_player_stats_runtime_game_state_safe = lambda: None
+        player_stats_memory(app)._read_player_stats_runtime_game_state_safe = lambda _context=None: None
         vod_capture(app).maybe_auto_start = lambda **kwargs: None
         app.mark_overlay_read_failed = lambda *args, **kwargs: None
         app.update_overlay_state_from_tracker = lambda: None

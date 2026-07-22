@@ -71,7 +71,7 @@ import time
 from typing import Any, Callable
 
 from app import config
-from app.read_sources import CHEST_COUNTERS, read_source
+from app.read_sources import CHEST_COUNTERS, MAP_ACTIVITY_VALUES, read_source
 from app.player_stats_memory import player_stats_memory
 from app.player_stats_view import (
     overlay_view,
@@ -280,7 +280,12 @@ class PlayerStatsRefresh:
             if self._game_data_client() is None:
                 self._set_game_data_client(GameDataClient(config.PROCESS_NAME))
             map_activity_values = (
-                self._game_data_client().get_map_activity_values() or {}
+                read_source(
+                    context,
+                    MAP_ACTIVITY_VALUES,
+                    self._game_data_client().get_map_activity_values,
+                )
+                or {}
             )
             self._memory_service().record_game_data_success()
             map_activity_max = {
@@ -391,7 +396,7 @@ class PlayerStatsRefresh:
         chaos_tome_snapshot = chaos_snapshot_reader() if callable(chaos_snapshot_reader) else None
         overlay.update_overlay_state_from_tracker()
         live_stage_summary_rows = self._live_tracker().stage_summary_rows()
-        runtime_state = self._lifecycle_service().state_for_refresh()
+        runtime_state = self._lifecycle_service().state_for_refresh(context)
         if runtime_state.mode is RuntimeGameMode.IN_GAME:
             self._capture_service().maybe_auto_start(
                 stats=stats,

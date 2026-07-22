@@ -81,8 +81,8 @@ def build_vod_capture(
         )
     if run_lifecycle is None:
         run_lifecycle = SimpleNamespace(
-            state_or_unknown=lambda: None,
-            state_for_refresh=lambda: None,
+            state_or_unknown=lambda _context=None: None,
+            state_for_refresh=lambda _context=None: None,
             set_completed=lambda value: None,
             mark_completed_on_tracker=lambda: None,
         )

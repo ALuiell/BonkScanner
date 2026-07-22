@@ -56,14 +56,20 @@ def build_run_lifecycle(
     return lifecycle
 
 
-def _reader(source) -> Callable[[], Any]:
+def _reader(source) -> Callable[..., Any]:
+    """Step 28d: the real readers take an optional ``context``, so these do too.
+
+    A caller-supplied callable is wrapped rather than required to declare the
+    parameter, so every existing `game_states=lambda: ...` fixture keeps
+    working unchanged.
+    """
     if source is None:
-        return lambda: None
+        return lambda _context=None: None
     if callable(source):
-        return source
+        return lambda _context=None: source()
     remaining = iter(source)
 
-    def read():
+    def read(_context=None):
         try:
             return next(remaining)
         except StopIteration:
