@@ -47,7 +47,7 @@ from app.template_filters import TemplateRuntimeFilters
 # here, so there is no cycle to dodge, and a function-body import is invisible
 # to pyflakes and to every test that does not take that branch -- which is how
 # step 21 shipped a startup crash.
-from gui_dialogs import ObsRecordingReminderDialog, RerollWarningDialog
+from ui.dialogs import ObsRecordingReminderDialog, RerollWarningDialog
 from gui_run_control import RunControl
 from infra.memory.game_data_client import GameDataClient
 from ui.shared import _apply_button_icon, _make_scroll_section, _set_text

@@ -14,7 +14,7 @@ import threading
 import time
 
 import gui_app
-import gui_dialogs
+from ui import dialogs as gui_dialogs
 import gui_in_game_overlay
 import gui_layout
 import gui_overlay
@@ -53,7 +53,7 @@ from ui.tabs.compare_runs import tab as compare_runs_tab
 from app import config, player_stats_refresh
 from app.player_stats_memory import player_stats_memory
 from gui_app import MegabonkApp
-from gui_dialogs import (
+from ui.dialogs import (
     SettingsDialog,
     TemplateManagerDialog,
     TwitchCommandSettingsDialog,

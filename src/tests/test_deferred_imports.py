@@ -64,7 +64,6 @@ LOCAL_ROOTS = {
     "projections",
     "ui",
     "gui_app",
-    "gui_dialogs",
     "gui_in_game_overlay",
     "gui_in_game_overlay_settings",
     "gui_in_game_overlay_window",

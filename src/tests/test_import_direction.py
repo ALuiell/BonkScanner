@@ -102,10 +102,6 @@ TOPLEVEL_DEBT: Dict[Tuple[str, str], str] = {
     ("app/player_stats_refresh.py", "live_run_tracker"): (
         "Same as app/coordinator.py -> live_run_tracker."
     ),
-    ("ui/tabs/player_stats/recordings.py", "gui_dialogs"): (
-        "Removed when gui_dialogs.py moves to ui/dialogs/ (§2 placement "
-        "table), making this a within-ui import."
-    ),
     ("ui/tabs/player_stats/live_stats.py", "gui_layout"): (
         "Removed when gui_layout.py moves to ui/layout.py."
     ),

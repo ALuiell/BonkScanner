@@ -119,7 +119,7 @@ def build_twitch_session(app, view, *, session_snapshot):
     """
     from app.player_stats_memory import player_stats_memory
     from app.twitch_session import TwitchSession
-    from gui_dialogs import TwitchCommandSettingsDialog, TwitchCommandsHelpDialog
+    from ui.dialogs import TwitchCommandSettingsDialog, TwitchCommandsHelpDialog
 
     def prime_disabled_items():
         """Warm the app's disabled-items cache before the dialog renders it.

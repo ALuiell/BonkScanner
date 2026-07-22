@@ -11,7 +11,7 @@ from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
 from app.player_stats_memory import player_stats_memory
 from app.player_stats_refresh import player_stats_refresh
-from gui_dialogs import HelpDialog, SettingsDialog
+from ui.dialogs import HelpDialog, SettingsDialog
 from gui_layout import build_layout, _is_tab_active
 from gui_overlay import build_overlay, combined_tracked_item_rules
 from gui_in_game_overlay import build_in_game_overlay
@@ -20,7 +20,7 @@ from gui_scanner import build_scanner
 from gui_twitch import build_twitch_session, session_command_tracked_item_config
 from app.template_filters import TemplateRuntimeFilters
 from ui.shared import UiInvoker, _AppWindow, resource_path
-from ui.update_prompt import start_update_check
+from ui.dialogs.update_prompt import start_update_check
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
 from app.vod_library import VodLibrary

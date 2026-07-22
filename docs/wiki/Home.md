@@ -77,15 +77,15 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/app/update_flow.py](../../src/app/update_flow.py) | Decides whether a packaged build should update, asking through a caller-supplied confirm callback. |
 | [src/infra/updater.py](../../src/infra/updater.py) | Fetches the latest GitHub release and downloads/applies the new `.exe`. |
 | [src/ui/dialogs/update_dialog.py](../../src/ui/dialogs/update_dialog.py) | The "Update Available" dialog. |
-| [src/ui/update_prompt.py](../../src/ui/update_prompt.py) | Adapter wiring the update flow to the GUI thread and the dialog. |
+| [src/ui/dialogs/update_prompt.py](../../src/ui/dialogs/update_prompt.py) | Adapter wiring the update flow to the GUI thread and the dialog. |
 | **User Interface (PySide6)** | |
 | [src/gui_app.py](../../src/gui_app.py) | Definitive application container class (`MegabonkApp`) linking core business logic to UI events. |
 | [src/gui_layout.py](../../src/gui_layout.py) | Defines the main desktop application layout, split views, and primary window panels. |
 | [src/gui_scanner.py](../../src/gui_scanner.py) | Manages scanner settings UI, scan state machines, and active session control buttons. |
 | [src/gui_run_control.py](../../src/gui_run_control.py) | Layout and button event mappings for resetting runs and configuring game restart options. |
 | [src/ui/tabs/player_stats/](../../src/ui/tabs/player_stats/) | Controls the live statistics panels, item inventory styling, weapon upgrade tabs, and item sorting. |
-| [src/gui_templates.py](../../src/gui_templates.py) | Dialogs and controls for creating, deleting, and tweaking template profiles. |
-| [src/gui_dialogs.py](../../src/gui_dialogs.py) | Custom prompt dialogs, scoring rules adjustments, and details widgets. |
+| [src/ui/tabs/templates/](../../src/ui/tabs/templates/) | Dialogs and controls for creating, deleting, and tweaking template profiles. |
+| [src/ui/dialogs/](../../src/ui/dialogs/) | Custom prompt dialogs, scoring rules adjustments, and details widgets. |
 | [src/ui/shared.py](../../src/ui/shared.py) | Base classes, utility widgets, and common state-sharing interfaces for the GUI components. |
 | [src/ui/styles.py](../../src/ui/styles.py) | Qt stylesheets, tier badges, and theme parameters. Colour constants moved to [src/core/item_metadata.py](../../src/core/item_metadata.py). |
 | [src/gui_overlay.py](../../src/gui_overlay.py) | Settings panel layout and button callbacks for the OBS HTTP server overlay. |

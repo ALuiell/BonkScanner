@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gui_dialogs import (
+from ui.dialogs import (
     DeleteDialog,
     ScoresSettingsDialog,
     TemplateDialog,

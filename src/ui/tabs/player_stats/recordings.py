@@ -62,7 +62,7 @@ from app.vod_library import (
     rename_vod,
 )
 from core.stats.types import PLAYER_STAT_GROUPS
-from gui_dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
+from ui.dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from gui_layout import (
     LIVE_STATS_VALUE_WIDTH,
     RECORDINGS_LIST_MAX_WIDTH,

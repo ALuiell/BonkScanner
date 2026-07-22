@@ -525,7 +525,7 @@ class TwitchBoundaryTests(unittest.TestCase):
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.add(node.module.split(".")[0])
         self.assertEqual(
-            imported & {"PySide6", "twitch_auth", "twitch_bot", "gui_dialogs"},
+            imported & {"PySide6", "twitch_auth", "twitch_bot", "ui"},
             set(),
         )
 
