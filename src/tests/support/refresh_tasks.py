@@ -91,7 +91,11 @@ def build_refresh_tasks(
     world.view = view
 
     if lifecycle is None:
-        lifecycle = SimpleNamespace(completed_run=False, is_active_run=lambda: False)
+        lifecycle = SimpleNamespace(
+            completed_run=False,
+            is_active_run=lambda: False,
+            refresh=lambda _context=None: None,
+        )
     world.lifecycle = lifecycle
 
     if capture is None:

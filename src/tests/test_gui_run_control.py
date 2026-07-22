@@ -2560,8 +2560,15 @@ class GuiRunControlTests(unittest.TestCase):
             mode=RuntimeGameMode.MAIN_MENU,
         )
         cheap_reads: list[int] = []
-        player_stats_memory(app).read_player_stats_runtime_activity_state = lambda _context=None: cheap_reads.append(1) or RuntimeGameState(
-            mode=RuntimeGameMode.MAIN_MENU,
+        cheap_read_contexts: list = []
+
+        def read_runtime_activity_state(context=None):
+            cheap_reads.append(1)
+            cheap_read_contexts.append(context)
+            return RuntimeGameState(mode=RuntimeGameMode.MAIN_MENU)
+
+        player_stats_memory(app).read_player_stats_runtime_activity_state = (
+            read_runtime_activity_state
         )
 
         now = [1000.0]
@@ -2574,6 +2581,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(heavy_reads, [], "the sync must not issue its own uncached read")
         self.assertEqual(len(cheap_reads), 10)  # 10 s / the 1 s lifecycle probe
+        self.assertTrue(all(context is not None for context in cheap_read_contexts))
 
     def test_recording_lifecycle_failure_is_contained_to_its_task(self) -> None:
         # The recording sync used to be the timer callback's own body, so a
@@ -3100,7 +3108,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(expected_reads, [0x1234, 0x1234, 0x1234])
         self.assertEqual(tracked, [(7, 3), (7, 3), (7, 3)])
 
-    def test_chaos_refresh_throttles_fast_kps_reads_to_one_second(self) -> None:
+    def test_combat_refresh_reads_the_complete_pair_on_every_demanded_tick(self) -> None:
         run_timer_reads: list[int] = []
         mob_kill_reads: list[int] = []
         tracked_kills: list[tuple[float, int]] = []
@@ -3128,9 +3136,9 @@ class GuiRunControlTests(unittest.TestCase):
             self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
         self.assertEqual(run_timer_reads, [1, 1, 1])
-        self.assertEqual(mob_kill_reads, [1, 1])
-        self.assertEqual(tracked_kills, [(21.5, 37), (22.5, 37)])
-        self.assertEqual(len(world.overlay_syncs), 2)
+        self.assertEqual(mob_kill_reads, [1, 1, 1])
+        self.assertEqual(tracked_kills, [(21.5, 37), (21.5, 37), (22.5, 37)])
+        self.assertEqual(len(world.overlay_syncs), 3)
 
     def _fast_kps_app_with_live_stats_tab_showing(self, label):
         """A fast-KPS app double with the Live Stats tab *active*.
@@ -3239,7 +3247,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(tracked_kills, [])
         self.assertEqual(world.overlay_syncs, [])
 
-    def test_chaos_refresh_skips_fast_kps_kill_reads_when_game_timer_does_not_advance(self) -> None:
+    def test_combat_refresh_keeps_kills_current_while_game_timer_is_frozen(self) -> None:
         run_timer_reads: list[int] = []
         mob_kill_reads: list[int] = []
         tracked_kills: list[tuple[float, int]] = []
@@ -3264,9 +3272,9 @@ class GuiRunControlTests(unittest.TestCase):
             self.assertTrue(service._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
         self.assertEqual(run_timer_reads, [1, 1, 1])
-        self.assertEqual(mob_kill_reads, [1])
-        self.assertEqual(tracked_kills, [(21.5, 37)])
-        self.assertEqual(len(world.overlay_syncs), 1)
+        self.assertEqual(mob_kill_reads, [1, 1, 1])
+        self.assertEqual(tracked_kills, [(21.5, 37), (21.5, 37), (21.5, 37)])
+        self.assertEqual(len(world.overlay_syncs), 3)
 
     def test_refresh_live_player_stats_now_captures_while_hidden_recording(self) -> None:
         app = self.build_recording_app()

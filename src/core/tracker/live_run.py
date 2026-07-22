@@ -283,6 +283,8 @@ class LiveRunTracker:
             self._last_no_game_at = now
             combat.reset(self._combat_state)
             self._fast_stage_timer_context = FastStageTimerContext()
+            self._fast_run_timer = FastRunTimer()
+            self._cached_stage_summary = None
 
     @with_lock
     def mark_run_completed(self) -> None:

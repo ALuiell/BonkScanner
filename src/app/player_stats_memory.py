@@ -64,6 +64,7 @@ from app.read_sources import (
     PLAYER_LEVEL,
     PLAYER_STATS,
     RUN_TIMER,
+    RUNTIME_ACTIVITY_STATE,
     RUNTIME_GAME_STATE,
     STAGE_TIMER_CONTEXT,
     read_memory_source,
@@ -213,10 +214,10 @@ class PlayerStatsMemory:
         if callable(reader):
             # The *activity* reader is a different fact from RUNTIME_GAME_STATE
             # -- five static-field blocks against six -- so it deliberately does
-            # not share that key. It stays unenrolled: it is the cheap probe
-            # reader, it has exactly one caller, and giving it a key would
-            # invite the two to be collapsed, which is deferred candidate L.
-            return reader()
+            # not share that key. Naming it does not collapse the two facts; it
+            # only ensures the on-tick lifecycle probe uses the same read-pass
+            # contract as every other on-tick memory fact.
+            return read_source(context, RUNTIME_ACTIVITY_STATE, reader)
         # The fallback, however, IS the same fact, so it resolves the same key.
         return read_source(
             context, RUNTIME_GAME_STATE, self._read_game_data_client().get_runtime_game_state
@@ -490,9 +491,7 @@ class PlayerStatsMemory:
         pass it is ``read_memory_source``'s job, and a cached hit records
         nothing (section 12.5).
         """
-        if context is None:
-            return self._get_player_stats_client().get_run_timer()
-        return read_memory_source(
+        return read_source(
             context,
             RUN_TIMER,
             self._get_player_stats_client().get_run_timer,
@@ -507,7 +506,7 @@ class PlayerStatsMemory:
                 self.record_memory_success()
             return result
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
-            if not source_health_recorded(exc):
+            if context is None or not source_health_recorded(context, exc):
                 self.record_memory_failure(exc)
             return None
         except Exception:

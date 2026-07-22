@@ -177,7 +177,6 @@ class PlayerStatsRefresh:
         """
         if self._shutdown_requested():
             return
-        self._lifecycle_service().refresh()
         self._coordinator_tick()
 
     def refresh_now(

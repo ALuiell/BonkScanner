@@ -48,6 +48,7 @@ CHEST_COUNTERS = "memory.player_stats.chest_counters"
 
 MAP_GENERATION_STATE = "memory.game_data.map_generation_state"
 RUNTIME_GAME_STATE = "memory.game_data.runtime_game_state"
+RUNTIME_ACTIVITY_STATE = "memory.game_data.runtime_activity_state"
 MAP_ACTIVITY_VALUES = "memory.game_data.map_activity_values"
 
 # The accepted coherence window for the RUN_TIMER/MOB_KILLS group, measured as
@@ -86,10 +87,10 @@ MAP_ACTIVITY_VALUES = "memory.game_data.map_activity_values"
 # session to confirm the cold path stays inside this bound on real hardware.
 KPS_GROUP_SPAN_LIMIT_SECONDS = 0.100
 
-# Marks an exception that already went through `read_memory_source`'s
-# `on_failure`, so a task's own outer catch-all does not record the same
-# physical failure a second time. See `source_health_recorded` below.
-_HEALTH_RECORDED_ATTR = "_step28_read_source_health_recorded"
+# Health markers are scoped to one pass. Keeping them on the exception object
+# itself is incorrect because a factory is allowed to raise the same exception
+# instance on a later pass; that later physical attempt must be counted again.
+_HEALTH_RECORDED_IDS_ATTR = "_step28_health_recorded_error_ids"
 
 
 def read_source(
@@ -148,12 +149,13 @@ def read_memory_source(
         try:
             value = factory()
         except Exception as exc:
-            if on_failure is not None and not getattr(exc, _HEALTH_RECORDED_ATTR, False):
+            recorded_ids = getattr(context, _HEALTH_RECORDED_IDS_ATTR, None)
+            if recorded_ids is None:
+                recorded_ids = set()
+                setattr(context, _HEALTH_RECORDED_IDS_ATTR, recorded_ids)
+            if on_failure is not None and id(exc) not in recorded_ids:
                 on_failure(exc)
-                try:
-                    setattr(exc, _HEALTH_RECORDED_ATTR, True)
-                except Exception:
-                    pass
+                recorded_ids.add(id(exc))
             raise
         if on_success is not None:
             on_success()
@@ -162,7 +164,7 @@ def read_memory_source(
     return context.get_or_create_with_metadata(key, wrapped)
 
 
-def source_health_recorded(exc: Exception) -> bool:
+def source_health_recorded(context: RefreshTickContext, exc: Exception) -> bool:
     """True if ``read_memory_source`` already recorded health for ``exc``.
 
     A task's own outer ``except`` must check this before calling its own
@@ -171,4 +173,5 @@ def source_health_recorded(exc: Exception) -> bool:
     from the task's pre-existing catch-all. See step_28_plan.md section 12.5
     and the 28b task description.
     """
-    return bool(getattr(exc, _HEALTH_RECORDED_ATTR, False))
+    recorded_ids = getattr(context, _HEALTH_RECORDED_IDS_ATTR, ())
+    return id(exc) in recorded_ids

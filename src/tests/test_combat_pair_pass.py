@@ -86,9 +86,9 @@ class CombatPairThroughThePassTests(unittest.TestCase):
         self.assertFalse(result)
         self.assertEqual(world.memory._player_stats_memory_error_streak, 1)
 
-    def test_frozen_timer_short_circuit_still_skips_the_mob_kills_read(self) -> None:
-        """Byte-identical behaviour with the pre-28b code: unchanged in this
-        slice (28c moves the short-circuit into the projection, not here)."""
+    def test_frozen_timer_still_reads_the_complete_combat_pair(self) -> None:
+        """28c moves the timer equality decision below source acquisition, so
+        a paused/frozen clock cannot leave kills outside the pass."""
         run_timer_reads: list[int] = []
         mob_kill_reads: list[int] = []
         tracked_kills: list[tuple] = []
@@ -101,9 +101,9 @@ class CombatPairThroughThePassTests(unittest.TestCase):
             (run_timer, mob_kills)
         )
 
-        # First tick: no prior game time, so the short-circuit does not fire
-        # and both sources are read. Second tick: the same timer value, so the
-        # short-circuit fires and `mob_kills` must not be read again.
+        # Both ticks resolve the complete pair. The tracker owns the same-time
+        # replacement rule and prevents deque growth while preserving any kill
+        # count that arrived at the pause boundary.
         self.assertTrue(
             service._refresh_combat_metrics_task(
                 RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
@@ -116,8 +116,8 @@ class CombatPairThroughThePassTests(unittest.TestCase):
         )
 
         self.assertEqual(run_timer_reads, [1, 1])
-        self.assertEqual(mob_kill_reads, [1])
-        self.assertEqual(tracked_kills, [(21.5, 37)])
+        self.assertEqual(mob_kill_reads, [1, 1])
+        self.assertEqual(tracked_kills, [(21.5, 37), (21.5, 37)])
 
 
 class PassKeySpellingTests(unittest.TestCase):

@@ -300,12 +300,27 @@ class CombatTaskIndependentPublicationTests(unittest.TestCase):
         ticks = iter([0.0, 0.0, KPS_GROUP_SPAN_LIMIT_SECONDS * 3] + [10.0] * 20)
         context = RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: next(ticks))
 
-        self.assertTrue(service._refresh_combat_metrics_task(context))
+        feature_failures = []
+        world.tracker.mark_feature_failed = (
+            lambda feature, error: feature_failures.append((feature, error))
+        )
+
+        self.assertFalse(service._refresh_combat_metrics_task(context))
 
         span = service._combat_group_span_seconds(context)
         self.assertGreater(span, KPS_GROUP_SPAN_LIMIT_SECONDS)
         self.assertEqual(world.published_timers, [21.5])
         self.assertEqual(world.tracked_kills, [])
+        self.assertEqual(feature_failures[0][0], "combat")
+
+    def test_no_game_failure_clears_the_fast_run_timer(self) -> None:
+        now = [100.0]
+        tracker = LiveRunTracker(clock=lambda: now[0])
+        tracker.update_fast_run_timer(42.0)
+
+        tracker.mark_read_failed(no_game=True)
+
+        self.assertIsNone(tracker._fresh_fast_run_timer_unlocked())
 
     def test_a_normal_span_accepts_the_pair(self) -> None:
         service, world = self._service(

@@ -129,10 +129,23 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
     # the service itself re-resolves every collaborator per call, so nothing is
     # frozen by binding it here.
     service = refresh_tasks(owner)
-    # Registered first, and deliberately so: ``tick`` runs tasks in registration
-    # order, and ``full_player_snapshot`` below reads the status text this task
-    # writes. Before the timers were collapsed this ordering was implicit -- the
-    # 10 s callback ran the recording sync and then called ``tick``.
+    # The lifecycle probe must run before every demand predicate and must share
+    # the same pass as the tasks that consume its state. Its own one-second
+    # cache controls the physical read cadence; interval 1 means only "call the
+    # cache on every driver tick", matching the pre-step-28 driver behaviour.
+    coordinator.register(
+        RefreshTask(
+            task_id="run_lifecycle_probe",
+            interval_ms=1,
+            required=lambda: True,
+            run=service._refresh_run_lifecycle_probe_task,
+        )
+    )
+    # Registered immediately after the lifecycle probe, and deliberately before
+    # the full snapshot: ``tick`` runs tasks in registration order, and
+    # ``full_player_snapshot`` below reads the status text this task writes.
+    # Before the timers were collapsed this ordering was implicit -- the 10 s
+    # callback ran the recording sync and then called ``tick``.
     coordinator.register(
         RefreshTask(
             task_id="recording_lifecycle",
@@ -342,6 +355,17 @@ class RefreshTasks:
         self._player_stats_refresh_status_text = "Live player stats"
         self._last_fast_kps_game_time_seconds: float | None = None
 
+    def _refresh_run_lifecycle_probe_task(self, context: RefreshTickContext) -> bool:
+        """Refresh lifecycle state first, inside the shared read pass.
+
+        Demand predicates and every later task consume the state this probe
+        publishes. ``RunLifecycle.refresh`` retains the authoritative one-second
+        memory-read cache, so running this task on every driver tick changes no
+        read cadence.
+        """
+        self._lifecycle().refresh(context)
+        return True
+
     def _refresh_recording_lifecycle_task(self, context: RefreshTickContext) -> bool:
         """Recording auto-start/auto-stop/pause handling, formerly the body of the
         10 s Qt timer callback.
@@ -378,7 +402,7 @@ class RefreshTasks:
             except Exception:
                 pass
 
-    def _mark_fast_feature_failed(self, feature: str, error: Exception) -> None:
+    def _mark_fast_feature_failed(self, feature: str, error: Exception | str) -> None:
         marker = getattr(self._tracker(), "mark_feature_failed", None)
         if callable(marker):
             try:
@@ -457,19 +481,11 @@ class RefreshTasks:
                 on_success=self._memory().record_memory_success,
                 on_failure=self._memory().record_memory_failure,
             )
-            self._mark_fast_feature_available("combat")
             # Every successful timer read publishes the run clock, before
             # anything kills-related can fail. This is the publication path
             # section 12.2 requires: the Stage Summary clock advances from the
             # first pass of a run instead of waiting for the first kill.
             self._tracker().update_fast_run_timer(run_timer_seconds)
-            previous_game_time = self._last_fast_kps_game_time_seconds
-            if (
-                run_timer_seconds is not None
-                and previous_game_time is not None
-                and abs(float(run_timer_seconds) - float(previous_game_time)) < 0.001
-            ):
-                return True
             # Per-source failure isolation -- the rule this step exists for
             # (plan section 5, "Failure") -- is achieved by *publication
             # order*, not by a second `except` around this read. The timer was
@@ -493,9 +509,14 @@ class RefreshTasks:
                 # stretched interval produces a wrong number rather than a
                 # stale one (plan section 12.4, last paragraph). The timer has
                 # already moved the fast clock above.
-                return True
+                self._mark_fast_feature_failed(
+                    "combat",
+                    f"combat source span exceeded {KPS_GROUP_SPAN_LIMIT_SECONDS:.3f}s",
+                )
+                return False
             self._tracker().track_kills(run_timer_seconds, mob_kills)
             self._last_fast_kps_game_time_seconds = run_timer_seconds
+            self._mark_fast_feature_available("combat")
             # `not pinned`: the user may have scrubbed the timeline to an
             # earlier snapshot, and these two writes are live values. The slow
             # refresh tick has honoured the pin since `d7d1350`; these were
@@ -524,7 +545,7 @@ class RefreshTasks:
             # *other* exception in this task body (client acquisition, tracker,
             # view) never passed through `read_memory_source`, so it still gets
             # recorded here exactly as before.
-            if not source_health_recorded(exc):
+            if not source_health_recorded(context, exc):
                 self._memory().record_memory_failure(exc)
             self._mark_fast_feature_failed("combat", exc)
             return False

@@ -97,6 +97,31 @@ class ReadMemorySourceHealthTests(unittest.TestCase):
 
         self.assertEqual(memory._player_stats_memory_error_streak, 1)
 
+    def test_reused_exception_is_counted_again_on_a_new_pass(self) -> None:
+        """Health accounting belongs to a physical attempt in one context,
+        not to the lifetime of an exception object a factory may reuse."""
+        failure = MemoryReadError("reused")
+        failures = []
+
+        def factory():
+            raise failure
+
+        for pass_id in (1, 2):
+            context = RefreshTickContext(
+                pass_id=pass_id,
+                started_at=float(pass_id),
+                clock=lambda: 0.0,
+            )
+            with self.assertRaises(MemoryReadError):
+                read_memory_source(
+                    context,
+                    "k",
+                    factory,
+                    on_failure=lambda exc: failures.append(exc),
+                )
+
+        self.assertEqual(failures, [failure, failure])
+
 
 if __name__ == "__main__":
     unittest.main()
