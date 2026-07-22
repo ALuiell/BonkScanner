@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 import threading
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from core.settings import NullOverlaySettings, OverlaySettings
 from core.overlay_config import widget_config_by_id
@@ -36,17 +36,72 @@ def _default_overlay_asset_dir() -> Path:
 
 
 class OverlayStateStore:
+    _EDIT_LAYOUT_FIELDS = {"x", "y", "width", "height", "scale"}
+
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._condition = threading.Condition()
         self._state: dict[str, Any] = {"status": "waiting"}
+        self._edit_widget_signature = "[]"
+        self._widget_revision = 0
+
+    @classmethod
+    def _editor_widget_settings(cls, state: dict[str, Any]) -> str:
+        widgets = state.get("widgets") or {}
+        if isinstance(widgets, dict):
+            entries = widgets.items()
+        elif isinstance(widgets, list):
+            entries = (
+                (str(widget.get("id") or ""), widget)
+                for widget in widgets
+                if isinstance(widget, dict)
+            )
+        else:
+            return "[]"
+
+        normalized = []
+        for widget_id, widget in entries:
+            if not widget_id or not isinstance(widget, dict):
+                continue
+            editor_settings = {
+                str(key): value
+                for key, value in widget.items()
+                if key not in cls._EDIT_LAYOUT_FIELDS
+            }
+            editor_settings["id"] = str(widget_id)
+            normalized.append(editor_settings)
+        normalized.sort(key=lambda widget: widget["id"])
+        return json.dumps(
+            normalized,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
 
     def set_state(self, state: dict[str, Any]) -> None:
-        with self._lock:
+        edit_widget_signature = self._editor_widget_settings(state)
+        with self._condition:
             self._state = dict(state)
+            if edit_widget_signature != self._edit_widget_signature:
+                self._edit_widget_signature = edit_widget_signature
+                self._widget_revision += 1
+                self._condition.notify_all()
 
     def get_state(self) -> dict[str, Any]:
-        with self._lock:
+        with self._condition:
             return dict(self._state)
+
+    def get_widget_revision(self) -> int:
+        with self._condition:
+            return self._widget_revision
+
+    def wait_for_widget_revision(self, after_revision: int, timeout: float = 25.0) -> int:
+        with self._condition:
+            self._condition.wait_for(
+                lambda: self._widget_revision != after_revision,
+                timeout=timeout,
+            )
+            return self._widget_revision
 
 
 class _OverlayHTTPServer(ThreadingHTTPServer):
@@ -91,6 +146,8 @@ class LocalOverlayServer:
         handler = partial(
             OverlayRequestHandler,
             state_provider=self.state_store.get_state,
+            widget_revision_provider=self.state_store.get_widget_revision,
+            widget_revision_waiter=self.state_store.wait_for_widget_revision,
             asset_dir=self.asset_dir,
             settings=self.settings,
         )
@@ -126,11 +183,15 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
         self,
         *args,
         state_provider: Callable[[], dict[str, Any]],
+        widget_revision_provider: Callable[[], int],
+        widget_revision_waiter: Callable[[int, float], int],
         asset_dir: Path,
         settings: OverlaySettings | None = None,
         **kwargs,
     ) -> None:
         self._state_provider = state_provider
+        self._widget_revision_provider = widget_revision_provider
+        self._widget_revision_waiter = widget_revision_waiter
         self._asset_dir = asset_dir
         self._settings = settings or NullOverlaySettings()
         super().__init__(*args, **kwargs)
@@ -147,6 +208,9 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
                 return
         if parsed.path == "/api/overlay-state":
             self._serve_state()
+            return
+        if parsed.path == "/api/overlay-widget-revision":
+            self._serve_widget_revision(parsed.query)
             return
         if parsed.path.startswith("/assets/"):
             parts = [
@@ -261,6 +325,7 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
                 state["widgets"] = widget_config_by_id(overlay_config)
                 state["canvas_width"] = int(overlay_config.get("canvas_width", 1920))
                 state["canvas_height"] = int(overlay_config.get("canvas_height", 1080))
+                state["widget_revision"] = self._widget_revision_provider()
         except Exception as exc:
             state = {"status": "error", "error": str(exc)}
         body = json.dumps(state, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -277,6 +342,28 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
             if getattr(exc, "winerror", None) == 10053:
                 pass
             else:
+                raise
+
+    def _serve_widget_revision(self, query: str) -> None:
+        try:
+            raw_after = parse_qs(query).get("after", ["0"])[0]
+            after_revision = max(0, int(raw_after))
+        except (TypeError, ValueError):
+            self._send_text(400, "Invalid widget revision")
+            return
+        revision = self._widget_revision_waiter(after_revision, 25.0)
+        body = json.dumps({"revision": revision}, separators=(",", ":")).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (ConnectionAbortedError, BrokenPipeError):
+            pass
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != 10053:
                 raise
 
     def _serve_file(self, path: Path, content_type: str | None = None) -> None:

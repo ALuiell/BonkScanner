@@ -194,6 +194,10 @@ function renderBanishes(state, widget) {
 }
 
 const isEditMode = new URLSearchParams(window.location.search).has("edit");
+let lastEditWidgetRevision = null;
+let editWidgetWatcherStarted = false;
+let hasRenderedEditWidgets = false;
+let lastEditWidgetSettings = new Map();
 if (isEditMode) {
   document.body.classList.add("edit-mode-active");
 }
@@ -325,7 +329,12 @@ function showEditBanner() {
 }
 
 function setupDragAndDrop() {
-  const draggables = document.querySelectorAll(".widget-wrapper.draggable");
+  const draggables = Array.from(document.querySelectorAll(
+    ".widget-wrapper.draggable:not([data-edit-initialized])"
+  ));
+  draggables.forEach((el) => {
+    el.setAttribute("data-edit-initialized", "true");
+  });
   draggables.forEach((el) => {
     let isDragging = false;
     let startX = 0;
@@ -410,8 +419,11 @@ function setupDragAndDrop() {
     el.addEventListener("pointercancel", stopDragging);
   });
 
-  const decButtons = document.querySelectorAll(".widget-scale-btn.dec-scale");
-  const incButtons = document.querySelectorAll(".widget-scale-btn.inc-scale");
+  const controlsInNewWidgets = (selector) => draggables.flatMap(
+    (el) => Array.from(el.querySelectorAll(selector))
+  );
+  const decButtons = controlsInNewWidgets(".widget-scale-btn.dec-scale");
+  const incButtons = controlsInNewWidgets(".widget-scale-btn.inc-scale");
 
   decButtons.forEach((btn) => {
     btn.addEventListener("click", async (e) => {
@@ -478,7 +490,7 @@ function setupDragAndDrop() {
   });
 
   // Set up scale text inputs
-  const scaleInputs = document.querySelectorAll(".widget-scale-input");
+  const scaleInputs = controlsInNewWidgets(".widget-scale-input");
   scaleInputs.forEach((input) => {
     input.addEventListener("focus", () => {
       let val = input.value.replace("%", "");
@@ -568,6 +580,81 @@ function setupDragAndDrop() {
   }
 }
 
+const EDIT_LAYOUT_FIELDS = new Set(["x", "y", "width", "height", "scale"]);
+
+function editWidgetSettingsSignature(widget) {
+  return JSON.stringify(
+    Object.keys(widget || {})
+      .filter((key) => !EDIT_LAYOUT_FIELDS.has(key))
+      .sort()
+      .map((key) => [key, widget[key]])
+  );
+}
+
+function preserveEditWidgetLayout(currentElement, desiredElement) {
+  const rect = currentElement.getBoundingClientRect();
+  const width = Math.max(1, Math.round(rect.width));
+  const height = Math.max(1, Math.round(rect.height));
+
+  desiredElement.style.left = currentElement.style.left;
+  desiredElement.style.top = currentElement.style.top;
+  desiredElement.style.width = `${width}px`;
+  desiredElement.style.height = `${height}px`;
+  desiredElement.setAttribute("data-width", String(width));
+  desiredElement.setAttribute("data-height", String(height));
+  desiredElement.classList.add("custom-size-active");
+
+  const scale = currentElement.getAttribute("data-scale");
+  if (scale) {
+    desiredElement.setAttribute("data-scale", scale);
+    desiredElement.style.setProperty("--scale", scale);
+  }
+}
+
+function syncEditModeWidgets(html, widgets) {
+  const nextSettings = new Map(
+    widgets.map((widget) => [widget.id, editWidgetSettingsSignature(widget)])
+  );
+
+  if (!hasRenderedEditWidgets) {
+    root.innerHTML = html;
+    hasRenderedEditWidgets = true;
+    lastEditWidgetSettings = nextSettings;
+    return;
+  }
+
+  const staging = document.createElement("div");
+  staging.innerHTML = html;
+  const desiredWidgets = new Map(
+    Array.from(staging.querySelectorAll(".widget-wrapper[data-id]"))
+      .map((element) => [element.getAttribute("data-id"), element])
+  );
+  const currentWidgets = new Map(
+    Array.from(root.querySelectorAll(".widget-wrapper[data-id]"))
+      .map((element) => [element.getAttribute("data-id"), element])
+  );
+
+  currentWidgets.forEach((element, widgetId) => {
+    if (!desiredWidgets.has(widgetId)) {
+      element.remove();
+    }
+  });
+
+  desiredWidgets.forEach((desiredElement, widgetId) => {
+    const currentElement = currentWidgets.get(widgetId);
+    if (!currentElement) {
+      root.appendChild(desiredElement);
+      return;
+    }
+    if (lastEditWidgetSettings.get(widgetId) !== nextSettings.get(widgetId)) {
+      preserveEditWidgetLayout(currentElement, desiredElement);
+      currentElement.replaceWith(desiredElement);
+    }
+  });
+
+  lastEditWidgetSettings = nextSettings;
+}
+
 function render(state) {
   pollMs = Number(state.poll_ms || pollMs);
   canvasWidth = Number(state.canvas_width || 1920);
@@ -635,7 +722,11 @@ function render(state) {
     }).join("");
   }
 
-  root.innerHTML = html;
+  if (isEditMode) {
+    syncEditModeWidgets(html, widgets);
+  } else {
+    root.innerHTML = html;
+  }
 
   if (useAbsolute && isEditMode) {
     setupDragAndDrop();
@@ -649,12 +740,40 @@ async function refresh() {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    render(await response.json());
+    const state = await response.json();
+    if (isEditMode) {
+      lastEditWidgetRevision = Number(state.widget_revision || 0);
+    }
+    render(state);
   } catch (error) {
-    root.innerHTML = panel("Status", `<div class="small-value">overlay unavailable</div>`, "wide status-panel");
+    if (!isEditMode || !hasRenderedEditWidgets) {
+      root.innerHTML = panel("Status", `<div class="small-value">overlay unavailable</div>`, "wide status-panel");
+    }
   } finally {
     if (!isEditMode) {
       window.setTimeout(refresh, pollMs);
+    } else if (!editWidgetWatcherStarted) {
+      editWidgetWatcherStarted = true;
+      watchEditWidgetChanges();
+    }
+  }
+}
+
+async function watchEditWidgetChanges() {
+  while (isEditMode) {
+    try {
+      const after = Number(lastEditWidgetRevision || 0);
+      const response = await fetch(`/api/overlay-widget-revision?after=${after}`, { cache: "no-store" });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      const revision = Number(payload.revision || 0);
+      if (revision !== lastEditWidgetRevision) {
+        await refresh();
+      }
+    } catch (error) {
+      await new Promise((resolve) => window.setTimeout(resolve, pollMs));
     }
   }
 }

@@ -20,6 +20,49 @@ def free_port() -> int:
 
 
 class OverlayServerTests(unittest.TestCase):
+    def test_widget_revision_ignores_layout_but_tracks_editor_settings(self) -> None:
+        store = OverlayStateStore()
+        self.assertEqual(store.get_widget_revision(), 0)
+
+        store.set_state({"widgets": {"kps": {
+            "id": "kps", "enabled": True, "width": 100, "background_opacity": 0.0,
+        }}})
+        self.assertEqual(store.get_widget_revision(), 1)
+
+        store.set_state({"widgets": {"kps": {
+            "id": "kps", "enabled": True, "width": 250, "background_opacity": 0.0,
+        }}})
+        self.assertEqual(store.get_widget_revision(), 1)
+
+        store.set_state({"widgets": {"kps": {
+            "id": "kps", "enabled": True, "width": 250, "background_opacity": 0.4,
+        }}})
+        self.assertEqual(store.get_widget_revision(), 2)
+
+        store.set_state({"widgets": {"kps": {
+            "id": "kps", "enabled": False, "width": 250, "background_opacity": 0.4,
+        }}})
+        self.assertEqual(store.get_widget_revision(), 3)
+
+    def test_widget_revision_endpoint_returns_current_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asset_dir = Path(temp_dir)
+            (asset_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            store = OverlayStateStore()
+            store.set_state({"widgets": {"stats": {"id": "stats", "enabled": True}}})
+            server = LocalOverlayServer(port=free_port(), state_store=store, asset_dir=asset_dir)
+            server.start()
+            try:
+                with urlopen(
+                    f"http://127.0.0.1:{server.port}/api/overlay-widget-revision?after=0",
+                    timeout=2,
+                ) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
+                    self.assertEqual(payload, {"revision": 1})
+                    self.assertEqual(response.headers["Cache-Control"], "no-store")
+            finally:
+                server.stop()
+
     def test_api_overlay_state_returns_json_with_no_store(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             asset_dir = Path(temp_dir)
@@ -159,6 +202,17 @@ class OverlayAssetDirTests(unittest.TestCase):
             (asset_dir / "index.html").is_file(),
             f"overlay index.html missing under {asset_dir}",
         )
+
+    def test_overlay_editor_watches_widget_revisions_without_state_polling(self) -> None:
+        """Edit mode watches settings while normal overlay polling remains intact."""
+        script = (_default_overlay_asset_dir() / "overlay.js").read_text(encoding="utf-8")
+        self.assertIn("watchEditWidgetChanges();", script)
+        self.assertIn("/api/overlay-widget-revision?after=", script)
+        self.assertIn("if (!isEditMode) {\n      window.setTimeout(refresh, pollMs);", script)
+        self.assertIn("syncEditModeWidgets(html, widgets);", script)
+        self.assertIn("preserveEditWidgetLayout(currentElement, desiredElement);", script)
+        self.assertIn("currentElement.replaceWith(desiredElement);", script)
+        self.assertIn(".widget-wrapper.draggable:not([data-edit-initialized])", script)
 
     def test_default_server_serves_the_real_overlay_page(self) -> None:
         server = LocalOverlayServer(port=free_port())
