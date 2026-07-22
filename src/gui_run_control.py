@@ -1,9 +1,28 @@
+"""Game window, process and hotkey ownership -- the run-control component.
+
+Step 25 took `RunControlMixin` off `MegabonkApp`. What is left here is one
+object that owns two things and borrows the rest through named ports: the
+`RunControlProvider` that restarts a run, and the hotkey manager that binds the
+three global hotkeys.
+
+The one port worth reading twice is `abort_requested`. Cancellation is the
+scanner's: `stop_event` and `scan_event` are its fields, and
+`wait_for_game_window_focus` was the only place run control touched either. It
+spelled the scanner's `_scan_abort_requested()` out by hand
+(`stop_event.is_set() or not scan_event.is_set()`) in two of its own lines,
+which is what made the two mixins look like one lifecycle split across two
+files. They are not: `stop_event` had exactly one writer and `scan_event`'s
+second writer was the pause hotkey, which is a scan-lifecycle operation and
+went to the scanner with the rest. The focus wait asks a question; it does not
+own the answer.
+"""
 from __future__ import annotations
 
 import ctypes
 import os
 import time
 from ctypes import wintypes
+from typing import Any, Callable
 
 from app import config
 from app.vod_capture import vod_capture
@@ -27,7 +46,46 @@ except ImportError:
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 
-class RunControlMixin:
+class RunControl:
+    """Owns `run_control_provider` and `_hotkey_manager`; borrows the rest."""
+
+    def __init__(
+        self,
+        *,
+        log: Callable[..., None],
+        schedule: Callable[[int, Callable[[], None]], None],
+        client: Callable[[], Any],
+        abort_requested: Callable[[], bool],
+        toggle_scan: Callable[[], None],
+        toggle_recording: Callable[[], None],
+        toggle_overlay_edit: Callable[[], None] | None,
+    ) -> None:
+        # Seven ports, and the three that are *not* here are the measurement.
+        # Run control reached for `update_status_ui`, `is_ready_to_start` and
+        # `scanner_thread` in exactly one method -- `toggle_scan_event` -- which
+        # is scan lifecycle and went to the scanner. Once it did, run control
+        # needed nothing else of the scanner's: it asks whether the scan was
+        # cancelled and it asks for the client's PID. That is the whole of the
+        # "mutual" coupling the two files appeared to have.
+        self._log = log
+        self._schedule = schedule
+        self._client = client
+        self._abort_requested = abort_requested
+        self._toggle_scan = toggle_scan
+        self._toggle_recording = toggle_recording
+        # Explicitly optional, and the reason is a live failure mode rather
+        # than taste. The binding used to be added under
+        # `hasattr(self, "hotkey_toggle_in_game_overlay_edit")`, which step 24
+        # made permanently true by leaving a delegator on `MegabonkApp`. A
+        # component with no such attribute would have made that `hasattr` go
+        # quietly false: the app still starts, the suite still passes, and F9
+        # simply stops working. It is the only one of the three bindings that
+        # is conditional at all, so it is `None` or a callable here and the
+        # trace counts the bindings.
+        self._toggle_overlay_edit = toggle_overlay_edit
+
+        self.run_control_provider = None
+        self._hotkey_manager = None
 
     def initialize_run_control(self):
         self.enable_keyboard_run_control()
@@ -48,8 +106,8 @@ class RunControlMixin:
         if os.name != "nt":
             return
         if not process.is_running_as_admin():
-            self.log("\u26a0\ufe0f WARNING: Script is not running as Administrator!", tag="warning")
-            self.log("\u26a0\ufe0f Hotkeys may not work while the game window is active.", tag="warning")
+            self._log("\u26a0\ufe0f WARNING: Script is not running as Administrator!", tag="warning")
+            self._log("\u26a0\ufe0f Hotkeys may not work while the game window is active.", tag="warning")
 
 
     def setup_hotkeys(self):
@@ -68,7 +126,7 @@ class RunControlMixin:
                     HotkeyBinding(config.HOTKEY, self.hotkey_toggle_scanning),
                     HotkeyBinding(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording),
                 ]
-                if hasattr(self, "hotkey_toggle_in_game_overlay_edit"):
+                if self._toggle_overlay_edit is not None:
                     bindings.append(HotkeyBinding(
                         getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9"),
                         self.hotkey_toggle_in_game_overlay_edit
@@ -76,7 +134,7 @@ class RunControlMixin:
                 manager.start(tuple(bindings))
                 self._hotkey_manager = manager
             except Exception as exc:
-                self.log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
+                self._log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
 
     # The other half of `setup_hotkeys`. It stood inline at the end of
     # `ScannerMixin.on_closing`, which made `_hotkey_manager` a name written by
@@ -100,40 +158,31 @@ class RunControlMixin:
         self._hotkey_manager = None
 
     def hotkey_toggle_scanning(self):
-        self.after(0, self.toggle_scan_event)
-
-    def toggle_scan_event(self):
-        if self.scanner_thread is None or not self.scanner_thread.is_alive():
-            self.log(f"[WAIT] Press Start first, then press {config.HOTKEY.upper()} in game to begin scanning.", tag="warning")
-            self.update_status_ui()
-            return
-
-        if not self.is_ready_to_start:
-            self.log("[WAIT] Scanner is still connecting to the game. Try the hotkey again once it is ARMED.", tag="warning")
-            self.update_status_ui()
-            return
-
-        if self.is_running:
-            self.is_running = False
-            self.scan_event.clear()
-            self.log("[*] Scan paused. Press the scan hotkey again to resume.")
-        else:
-            self.is_running = True
-            self.scan_event.set()
-            self.log("[*] Scan started. Looking for selected target...")
-        self.update_status_ui()
+        self._schedule(0, self._toggle_scan)
 
     def hotkey_toggle_player_stats_recording(self):
-        self.after(0, vod_capture(self).toggle_recording)
+        self._schedule(0, self._toggle_recording)
+
+    def hotkey_toggle_in_game_overlay_edit(self):
+        if self._toggle_overlay_edit is not None:
+            self._toggle_overlay_edit()
+
+    # `toggle_scan_event` was here. It is `Scanner.toggle_scan_event` now: it
+    # writes `is_running` and `scan_event` and reads `scanner_thread` and
+    # `is_ready_to_start`, i.e. four pieces of scan lifecycle and nothing that
+    # belongs to run control. It is also the second of `scan_event`'s two
+    # writers, so moving it is what leaves the scanner as the only one.
+    # `is_running` was the last `PRE_EXISTING_COLLISIONS` entry and this is how
+    # it was paid.
 
     def get_game_process_id(self) -> int | None:
-        process_id = self._attached_game_process_id()
+        process_id = self.attached_game_process_id()
         if process_id is not None:
             return process_id
         return self.find_game_process_id(config.PROCESS_NAME)
 
-    def _attached_game_process_id(self) -> int | None:
-        client = getattr(self, "client", None)
+    def attached_game_process_id(self) -> int | None:
+        client = self._client()
         if client is None:
             return None
         memory = getattr(client, "memory", None)
@@ -147,7 +196,7 @@ class RunControlMixin:
     def is_keyboard_run_control_active(self) -> bool:
         return isinstance(self.run_control_provider, KeyboardRunControlProvider)
 
-    def _foreground_game_process_id(self, process_name: str) -> int | None:
+    def foreground_game_process_id(self, process_name: str) -> int | None:
         if win32gui is None or win32process is None:
             return None
         foreground_window = win32gui.GetForegroundWindow()
@@ -164,7 +213,7 @@ class RunControlMixin:
         if foreground_process_id <= 0:
             return None
 
-        attached_process_id = self._attached_game_process_id()
+        attached_process_id = self.attached_game_process_id()
         if attached_process_id is not None:
             if (
                 foreground_process_id == attached_process_id
@@ -181,26 +230,26 @@ class RunControlMixin:
     def is_game_window_active(self, process_name: str) -> bool:
         if win32gui is None or win32process is None:
             return True
-        return self._foreground_game_process_id(process_name) is not None
+        return self.foreground_game_process_id(process_name) is not None
 
     def wait_for_game_window_focus(self, process_name: str) -> bool:
         if self.is_game_window_active(process_name):
             return True
-        self.log("[WAIT] Game window is not active. Auto-reroll paused...", tag="warning")
-        while not self.stop_event.is_set() and self.scan_event.is_set() and not self.is_game_window_active(process_name):
+        self._log("[WAIT] Game window is not active. Auto-reroll paused...", tag="warning")
+        while not self._abort_requested() and not self.is_game_window_active(process_name):
             time.sleep(0.3)
-        if self.stop_event.is_set() or not self.scan_event.is_set():
+        if self._abort_requested():
             return False
-        self.log("[+] Game window active again. Auto-reroll resumed.", tag="success")
+        self._log("[+] Game window active again. Auto-reroll resumed.", tag="success")
         return True
 
     def bring_game_window_to_front(self, process_name: str) -> bool:
         if win32gui is None or win32process is None:
-            self.log("[WAIT] Cannot bring game window to front: pywin32 is unavailable.", tag="warning")
+            self._log("[WAIT] Cannot bring game window to front: pywin32 is unavailable.", tag="warning")
             return False
         window = self.find_game_window(process_name)
         if not window:
-            self.log("[WAIT] Cannot bring game window to front: game window was not found.", tag="warning")
+            self._log("[WAIT] Cannot bring game window to front: game window was not found.", tag="warning")
             return False
         try:
             self.show_game_window(window)
@@ -211,7 +260,7 @@ class RunControlMixin:
                 self.try_attach_foreground_window(window)
                 return True
             except Exception as fallback_exc:
-                self.log(
+                self._log(
                     f"[WAIT] Cannot bring game window to front: {direct_exc}; ALT attach fallback failed: {fallback_exc}",
                     tag="warning",
                 )
@@ -325,7 +374,7 @@ class RunControlMixin:
         return process.window_process_id(window)
 
     def find_game_window(self, process_name: str) -> int | None:
-        attached_process_id = self._attached_game_process_id()
+        attached_process_id = self.attached_game_process_id()
         if attached_process_id is not None:
             found_window = self.find_game_window_by_pid(attached_process_id, process_name=process_name)
             if found_window is not None:
@@ -358,7 +407,7 @@ class RunControlMixin:
         try:
             win32gui.EnumWindows(enum_callback, None)
         except Exception as exc:
-            self.log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
+            self._log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
         candidates = strict_candidates or relaxed_candidates
         if not candidates:
             return None
@@ -386,7 +435,7 @@ class RunControlMixin:
         try:
             win32gui.EnumWindows(enum_callback, None)
         except Exception as exc:
-            self.log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
+            self._log(f"[WAIT] Could not check the game window yet. Details: {exc}", tag="warning")
         candidates = strict_candidates or relaxed_candidates
         if not candidates:
             return None
@@ -399,3 +448,29 @@ class RunControlMixin:
             keyboard.press_and_release("esc")
 
         return True
+
+
+def build_run_control(app: Any) -> RunControl:
+    """Wire run control to its measured owners without giving it the app.
+
+    Every port is a late-bound lambda, so this can be called before the scanner
+    exists -- which it is, because the scanner takes the object this returns.
+    The two components are mutually referential by nature (one asks whether the
+    scan was cancelled, the other asks where the game window is); a lambda is
+    what keeps that from becoming a construction order puzzle, and it is the
+    same rule steps 20-24's composition roots follow.
+    """
+    return RunControl(
+        log=lambda message, tag=None: app.log(message, tag=tag),
+        schedule=lambda delay_ms, callback: app.after(delay_ms, callback),
+        client=lambda: app.client,
+        abort_requested=lambda: app._scanner._scan_abort_requested(),
+        toggle_scan=lambda: app._scanner.toggle_scan_event(),
+        toggle_recording=lambda: vod_capture(app).toggle_recording(),
+        # Present, so F9 is registered. `hotkey_toggle_in_game_overlay_edit` is
+        # `MegabonkApp`'s step-24 delegator into the in-game overlay component;
+        # naming it here is what makes the binding's condition a wiring
+        # decision at the composition root instead of a `hasattr` that nothing
+        # would report on if it went false.
+        toggle_overlay_edit=lambda: app.hotkey_toggle_in_game_overlay_edit(),
+    )

@@ -131,7 +131,6 @@ SRC_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MRO_MODULES = {
     "MegabonkApp": "gui_app",
     "GuiLayoutMixin": "gui_layout",
-    "RunControlMixin": "gui_run_control",
     # `PlayerStatsRefreshMixin` was here until step 20g converted it into the
     # `PlayerStatsRefresh` service, taking `MegabonkApp` to nine bases and the
     # app-layer slice to zero. It was the last of the five app-side bases the
@@ -161,7 +160,15 @@ MRO_MODULES = {
     # view/runtime and the Twitch session snapshot; app methods left behind are
     # only the measured step-25/26 and app-service forwarding surface. The app
     # is at **three** bases.
-    "ScannerMixin": "gui_scanner",
+    # Both of step 25's subjects were here, and they left together because the
+    # roadmap forbids shipping a commit where `scanner_thread`, `scan_event`,
+    # `stop_event` and `run_control_provider` have different owners. 25c made
+    # `ScannerMixin` into `gui_scanner.Scanner` -- the worker, both events, both
+    # run flags, the session counters and the Session Stats tab -- and
+    # `RunControlMixin` into `gui_run_control.RunControl`, which owns the run
+    # control provider and the hotkey manager and asks the scanner one question
+    # through one port. `MegabonkApp` is at **one** base: `GuiLayoutMixin`,
+    # step 26's subject and the last one.
 }
 
 # Ratchets, measured 2026-07-19 at 84291cb. These may only shrink.
@@ -223,7 +230,23 @@ MAX_PRODUCTION_CLASS_QUALIFIED_NAMES = 0
 # Tightened again at step 24c (35 -> 34): the session tracked-items formatter
 # test now constructs `Overlay`; the refresh/shutdown tests remain app doubles
 # because overlay state is only incidental setup for their actual subject.
-MAX_OBJECT_NEW_APP_DOUBLES = 34
+#
+# Tightened at step 25c (34 -> 11), the largest single drop this ratchet has
+# taken, and the count was reached by subject rather than by keyword. Searching
+# the module for "scanner"/"run control"/"hotkey" suggests far more than 23
+# doubles; twenty-three is how many actually had one of the two converted
+# mixins as their *subject*. The remaining eleven mention scan state only as
+# incidental setup -- they exercise recording, player stats, or the app's own
+# shutdown order -- which is the same distinction steps 24b and 24c drew when
+# they left five and one behind.
+#
+# The twenty-three now build `gui_scanner.Scanner` and
+# `gui_run_control.RunControl` through `tests/support/scanner.py`, in
+# `test_scanner_run_control.py`. Two of the eleven survivors changed shape
+# without leaving: `test_on_closing_*` keep an app double because
+# `MegabonkApp.on_closing` really is the application's, but they now install
+# real components on it rather than stubbing the five calls they assert.
+MAX_OBJECT_NEW_APP_DOUBLES = 11
 
 # The one module allowed to build app doubles without `__init__`.
 OBJECT_NEW_HOME = "tests/test_gui_run_control.py"

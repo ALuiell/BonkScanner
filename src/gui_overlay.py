@@ -1288,8 +1288,13 @@ def build_overlay(app: Any, coordinator: AppCoordinator, session_stats: SessionS
     return Overlay(
         coordinator,
         session_stats=session_stats,
-        stats_tab=lambda: app.tab_stats,
-        stats_tracked_items_label=lambda: app.stats_tracked_items_label,
+        # Step 25c moved the Session Stats tab into `Scanner`, which builds it.
+        # These two ports are why that move was possible without touching this
+        # module's behaviour: they were already the only production readers of
+        # the two widgets outside `gui_scanner`, so only the object they name
+        # changed.
+        stats_tab=lambda: app._scanner.tab_stats,
+        stats_tracked_items_label=lambda: app._scanner.stats_tracked_items_label,
         overlay_tab_active=lambda: app._is_overlay_tab_active(),
         server_rebuilt=lambda server: setattr(app, "overlay_server", server),
     )

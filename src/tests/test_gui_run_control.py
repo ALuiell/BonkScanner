@@ -10,8 +10,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import ctypes
-import os
 import threading
 import time
 
@@ -37,7 +35,7 @@ from app.refresh_tasks import (
     refresh_tasks,
 )
 from tests.support.compare_runs import build_compare_runs_tab
-from tests.support.template_filters import attach as attach_template_filters
+from tests.support.scanner import build_pair
 from tests.support.refresh_tasks import build_refresh_tasks
 from tests.support.run_lifecycle import build_run_lifecycle, install_run_lifecycle
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
@@ -77,7 +75,6 @@ from core.game_state import RuntimeGameMode, RuntimeGameState
 from live_run_tracker import LiveRunTracker
 from app.coordinator import AppCoordinator, RefreshLoop
 from app.refresh_coordinator import RefreshTickContext
-from infra.keyboard_run_control import KeyboardRunControlProvider
 from PySide6.QtCore import QRect
 from projections import formatting
 
@@ -1028,496 +1025,37 @@ class GuiRunControlTests(unittest.TestCase):
             config.DEFAULT_TWITCH_BOT["commands_announcement_interval_minutes"],
         )
 
-    def test_apply_run_control_mode_enables_keyboard_provider(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.run_control_provider = object()
-
-        MegabonkApp.apply_run_control_mode(app)
-
-        self.assertIsInstance(app.run_control_provider, KeyboardRunControlProvider)
-
-    def test_check_admin_rights_logs_keyboard_warnings_without_admin(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(MegabonkApp)
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_running_as_admin = lambda: False
-
-        with patch.object(os, "name", "nt"):
-            MegabonkApp.check_admin_rights(app)
-
-        self.assertTrue(any("WARNING: Script is not running as Administrator" in message for message, _tag in logs))
-        self.assertTrue(any("Hotkeys may not work while the game window is active" in message for message, _tag in logs))
-    def test_game_window_focus_requires_foreground_pid_match(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.get_game_process_id = lambda: 1234
-        fake_gui = SimpleNamespace(
-            GetForegroundWindow=lambda: 111,
-        )
-        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
-
-        with patch_everywhere("win32gui", fake_gui):
-            with patch_everywhere("win32process", fake_process):
-                self.assertFalse(MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
-
-    def test_game_window_focus_returns_false_without_game_pid(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.get_game_process_id = lambda: None
-        fake_gui = SimpleNamespace(
-            GetForegroundWindow=lambda: 111,
-        )
-        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 1234))
-
-        with patch_everywhere("win32gui", fake_gui):
-            with patch_everywhere("win32process", fake_process):
-                self.assertFalse(MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
-
-    def test_game_window_focus_can_match_foreground_window_without_scanner_pid(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app._process_id_matches_name = lambda process_id, process_name: (
-            process_id == 1234 and process_name == "Megabonk.exe"
-        )
-        app.find_game_window_by_pid = lambda process_id, process_name=None: (
-            111 if process_id == 1234 and process_name == "Megabonk.exe" else None
-        )
-        fake_gui = SimpleNamespace(
-            GetForegroundWindow=lambda: 111,
-        )
-        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 1234))
-
-        with patch_everywhere("win32gui", fake_gui):
-            with patch_everywhere("win32process", fake_process):
-                self.assertTrue(MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
-
-    def test_game_window_focus_recovers_after_game_restarts_with_a_new_pid(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.client = SimpleNamespace(
-            memory=SimpleNamespace(_pm=SimpleNamespace(process_id=1234)),
-        )
-        app._process_id_matches_name = lambda process_id, process_name: (
-            process_id == 5678 and process_name == "Megabonk.exe"
-        )
-        app.find_game_window_by_pid = lambda process_id, process_name=None: (
-            222 if process_id == 5678 and process_name == "Megabonk.exe" else None
-        )
-        fake_gui = SimpleNamespace(GetForegroundWindow=lambda: 222)
-        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
-
-        with patch_everywhere("win32gui", fake_gui):
-            with patch_everywhere("win32process", fake_process):
-                self.assertTrue(MegabonkApp.is_game_window_active(app, "Megabonk.exe"))
-
-    def test_background_loop_reconnects_new_game_pid_and_keeps_scanning(self) -> None:
-        class FakeClient:
-            def __init__(self, process_id: int) -> None:
-                self.memory = SimpleNamespace(_pm=SimpleNamespace(process_id=process_id))
-                self.closed = False
-                self.wait_calls = 0
-
-            def close(self) -> None:
-                self.closed = True
-
-            def wait_for_map_ready(self, **_kwargs: object) -> dict[str, int]:
-                self.wait_calls += 1
-                return {"Moais": 4, "Microwaves": 1}
-
-            def get_map_generation_state(self) -> object:
-                return object()
-
-        old_client = FakeClient(1234)
-        new_client = FakeClient(5678)
-        created_clients: list[str] = []
-
-        app = object.__new__(MegabonkApp)
-        app.client = old_client
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-        app.scan_event.set()
-        app.is_running = True
-        app.is_ready_to_start = True
-        app.after = lambda _delay, callback: callback()
-        app.update_status_ui = lambda: None
-        app.is_game_window_active = lambda _process_name: True
-        app.wait_for_game_window_focus = lambda _process_name: True
-        app._foreground_game_process_id = lambda _process_name: 5678
-        app.check_best_map = lambda _stats: None
-        app.check_worst_map = lambda _stats: None
-        app.log_target_found = lambda _name: None
-        app.handle_confirmed_target_window = lambda _process_name: app.stop_event.set() or True
-        app.log = lambda _message, tag=None: None
-        app._flush_total_rerolls = lambda force=False: None
-        # Step 22a: the loop logs `format_stats(stats, self.active_templates)`
-        # rather than `self.format_stats(stats)`, so the double must carry the
-        # list. Without it the loop's broad handler retried the AttributeError
-        # forever -- which is how this conversion was caught.
-        app.active_templates = []
-
-        def create_client(*, process_name: str) -> FakeClient:
-            created_clients.append(process_name)
-            return new_client
-
-        with patch.object(gui_scanner, "GameDataClient", create_client), patch.object(
-            gui_scanner, "adapt_map_stats", lambda raw_stats: raw_stats
-        ), patch.object(
-            gui_scanner,
-            "evaluate_candidate",
-            lambda _stats, _active, context=None: {"name": "Perfect", "color": "GREEN"},
-        ):
-            MegabonkApp.background_loop(app)
-
-        self.assertTrue(old_client.closed)
-        self.assertEqual(created_clients, ["Megabonk.exe"])
-        self.assertEqual(new_client.wait_calls, 1)
-        self.assertTrue(new_client.closed)
-
-    def test_keyboard_mode_still_waits_when_game_window_is_not_active(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        sleeps: list[float] = []
-        active_results = [False, False, True]
-        app = object.__new__(MegabonkApp)
-        app.run_control_provider = KeyboardRunControlProvider(
-            None,
-            reset_hotkey="r",
-            reset_hold_duration=0.1,
-            map_load_delay=0.2,
-        )
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-        app.scan_event.set()
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.is_game_window_active = lambda _process_name: active_results.pop(0)
-
-        with patch.object(time, "sleep", sleeps.append):
-            self.assertTrue(MegabonkApp.wait_for_game_window_focus(app, "Megabonk.exe"))
-
-        self.assertEqual(sleeps, [0.3])
-        self.assertIn(("[WAIT] Game window is not active. Auto-reroll paused...", "warning"), logs)
-        self.assertIn(("[+] Game window active again. Auto-reroll resumed.", "success"), logs)
-
-    def test_confirmed_target_in_keyboard_mode_keeps_focus_check_and_esc(self) -> None:
-        fake_keyboard = FakeKeyboardModule()
-        focus_checks: list[str] = []
-        app = object.__new__(MegabonkApp)
-        app.run_control_provider = KeyboardRunControlProvider(
-            fake_keyboard,
-            reset_hotkey="r",
-            reset_hold_duration=0.1,
-            map_load_delay=0.2,
-        )
-        app.wait_for_game_window_focus = lambda process_name: focus_checks.append(process_name) or True
-        app.bring_game_window_to_front = lambda _process_name: self.fail("keyboard mode should not bring window forward")
-
-        with patch_everywhere("keyboard", fake_keyboard):
-            self.assertTrue(MegabonkApp.handle_confirmed_target_window(app, "Megabonk.exe"))
-
-        self.assertEqual(focus_checks, ["Megabonk.exe"])
-        self.assertEqual(fake_keyboard.press_and_release_calls, ["esc"])
-
-    def test_bring_game_window_to_front_uses_alt_attach_fallback_after_direct_failure(self) -> None:
-        fake_gui = FakeForegroundGui()
-        fake_process = FakeForegroundProcess()
-        fake_user32 = FakeUser32()
-        fake_windll = FakeWindll(fake_user32, FakeKernel32())
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(MegabonkApp)
-        app.find_game_window = lambda _process_name: 111
-        app.log = lambda message, tag=None: logs.append((message, tag))
-
-        with patch_everywhere("win32gui", fake_gui):
-            with patch_everywhere("win32process", fake_process):
-                with patch.object(ctypes, "windll", fake_windll):
-                    self.assertTrue(MegabonkApp.bring_game_window_to_front(app, "Megabonk.exe"))
-
-        self.assertEqual(fake_gui.show_window_calls, [(111, 5)])
-        self.assertEqual(fake_gui.set_foreground_calls, [111, 111])
-        self.assertEqual(fake_gui.bring_window_to_top_calls, [111])
-        self.assertEqual(
-            fake_user32.attach_calls,
-            [
-                (10, 20, True),
-                (10, 30, True),
-                (10, 20, False),
-                (10, 30, False),
-            ],
-        )
-        self.assertEqual(fake_user32.keybd_event_calls, [(0x12, 0, 0, 0), (0x12, 0, 0x0002, 0)])
-        self.assertEqual(logs, [])
-
-    def test_alt_attach_fallback_detaches_threads_when_foreground_fails(self) -> None:
-        fake_gui = FakeForegroundGui(fail_always=True)
-        fake_process = FakeForegroundProcess()
-        fake_user32 = FakeUser32()
-        fake_windll = FakeWindll(fake_user32, FakeKernel32())
-        app = object.__new__(MegabonkApp)
-
-        with patch_everywhere("win32gui", fake_gui):
-            with patch_everywhere("win32process", fake_process):
-                with patch.object(ctypes, "windll", fake_windll):
-                    with self.assertRaisesRegex(RuntimeError, "foreground denied"):
-                        MegabonkApp.try_attach_foreground_window(app, 111)
-
-        self.assertEqual(
-            fake_user32.attach_calls,
-            [
-                (10, 20, True),
-                (10, 30, True),
-                (10, 20, False),
-                (10, 30, False),
-            ],
-        )
-
-    def test_toggle_main_loop_clears_stale_scan_event_before_starting_worker(self) -> None:
-        logs: list[tuple[object, object | None]] = []
-        app = object.__new__(MegabonkApp)
-        app.scanner_thread = None
-        app.checkboxes = {"Any": FakeVar(True)}
-        app.refresh_stats_ui = lambda: None
-        app.background_loop = lambda: None
-        app.update_status_ui = lambda: None
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-        app.stop_event.set()
-        app.scan_event.set()
-        app.is_running = True
-        app.is_ready_to_start = True
-        attach_template_filters(app)
-
-        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}):
-            with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
-                with patch.object(config, "EVALUATION_MODE", "templates"):
-                    with patch.object(threading, "Thread", FakeThread):
-                        MegabonkApp.toggle_main_loop(app)
-
-        self.assertFalse(app.scan_event.is_set())
-        self.assertFalse(app.stop_event.is_set())
-        self.assertFalse(app.is_running)
-        self.assertFalse(app.is_ready_to_start)
-        self.assertTrue(app.scanner_thread.started)
-
-    def test_toggle_main_loop_logs_scores_tiers_with_colors(self) -> None:
-        logs: list[tuple[object, object | None]] = []
-        app = object.__new__(MegabonkApp)
-        app.scanner_thread = None
-        app.refresh_stats_ui = lambda: None
-        app.background_loop = lambda: None
-        app.update_status_ui = lambda: None
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-        app.is_running = False
-        app.is_ready_to_start = False
-
-        attach_template_filters(app)
-
-        original_scores = deepcopy(config.SCORES_SYSTEM)
-        updated_scores = deepcopy(config.SCORES_SYSTEM)
-        updated_scores["active_tiers"] = ["Light", "Perfect", "Perfect+"]
-        config.SCORES_SYSTEM = updated_scores
-
-        try:
-            with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}):
-                with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
-                    with patch.object(config, "EVALUATION_MODE", "scores"):
-                        with patch.object(threading, "Thread", FakeThread):
-                            MegabonkApp.toggle_main_loop(app)
-        finally:
-            config.SCORES_SYSTEM = original_scores
-
-        self.assertIn(
-            (
-                ["[*] Active Tiers: ", "Light", ", ", "Perfect", ", ", "Perfect+"],
-                [None, "WHITE", None, "YELLOW", None, "LIGHTRED_EX"],
-            ),
-            logs,
-        )
-        self.assertEqual(
-            app.template_stats,
-            {
-                "Light": {"rerolls_since_last": 0, "history": []},
-                "Perfect": {"rerolls_since_last": 0, "history": []},
-                "Perfect+": {"rerolls_since_last": 0, "history": []},
-            },
-        )
-        self.assertTrue(app.scanner_thread.started)
-
-    def test_toggle_main_loop_shows_obs_reminder_when_enabled(self) -> None:
-        logs: list[tuple[object, object | None]] = []
-        shown = []
-        app = object.__new__(MegabonkApp)
-        app.window = object()
-        app.scanner_thread = None
-        app.checkboxes = {"Any": FakeVar(True)}
-        app.refresh_stats_ui = lambda: None
-        app.background_loop = lambda: None
-        app.update_status_ui = lambda: None
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-        app.is_running = False
-        app.is_ready_to_start = False
-        app.obs_recording_reminder_shown = False
-        attach_template_filters(app)
-
-        class FakeObsRecordingReminderDialog:
-            def __init__(self, parent):
-                shown.append(parent)
-
-            def exec(self):
-                shown.append("exec")
-                return 1
-
-        with patch.dict(
-            config.user_config,
-            {"SKIP_REROLL_WARNING": True, "SHOW_OBS_REMINDER_ON_START_SCANNER": True},
-        ):
-            with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", True):
-                with patch.object(config, "EVALUATION_MODE", "templates"):
-                    with patch.object(threading, "Thread", FakeThread):
-                        with patch("gui_dialogs.ObsRecordingReminderDialog", FakeObsRecordingReminderDialog):
-                            MegabonkApp.toggle_main_loop(app)
-
-        self.assertEqual(shown, [app.window, "exec"])
-        self.assertTrue(app.obs_recording_reminder_shown)
-        self.assertTrue(app.scanner_thread.started)
-
-        app.scanner_thread = None
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-
-        with patch.dict(
-            config.user_config,
-            {"SKIP_REROLL_WARNING": True, "SHOW_OBS_REMINDER_ON_START_SCANNER": True},
-        ):
-            with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", True):
-                with patch.object(config, "EVALUATION_MODE", "templates"):
-                    with patch.object(threading, "Thread", FakeThread):
-                        with patch("gui_dialogs.ObsRecordingReminderDialog", FakeObsRecordingReminderDialog):
-                            MegabonkApp.toggle_main_loop(app)
-
-        self.assertEqual(shown, [app.window, "exec"])
-        self.assertTrue(app.scanner_thread.started)
-
-    def test_hotkey_starts_scanning_inside_running_monitor(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(MegabonkApp)
-        app.scanner_thread = FakeAliveThread()
-        app.scan_event = threading.Event()
-        app.is_ready_to_start = True
-        app.is_running = False
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.update_status_ui = lambda: None
-
-        MegabonkApp.toggle_scan_event(app)
-
-        self.assertTrue(app.is_running)
-        self.assertTrue(app.scan_event.is_set())
-        self.assertIn(("[*] Scan started. Looking for selected target...", None), logs)
-
-    def test_hotkey_pauses_scanning_without_stopping_monitor(self) -> None:
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(MegabonkApp)
-        app.scanner_thread = FakeAliveThread()
-        app.scan_event = threading.Event()
-        app.scan_event.set()
-        app.is_ready_to_start = True
-        app.is_running = True
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.update_status_ui = lambda: None
-
-        MegabonkApp.toggle_scan_event(app)
-
-        self.assertFalse(app.is_running)
-        self.assertFalse(app.scan_event.is_set())
-        self.assertIn(("[*] Scan paused. Press the scan hotkey again to resume.", None), logs)
-
-    def test_setup_hotkeys_registers_supported_hotkeys(self) -> None:
-        fake_keyboard = FakeKeyboardModule()
-        logs: list[tuple[str, str | None]] = []
-        app = object.__new__(MegabonkApp)
-        app.log = lambda message, tag=None: logs.append((message, tag))
-        app.hotkey_toggle_scanning = lambda: None
-        app.hotkey_toggle_player_stats_recording = lambda: None
-
-        with patch_everywhere("keyboard", fake_keyboard):
-            with patch.object(config, "HOTKEY", "f6"):
-                with patch.object(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"):
-                    MegabonkApp.setup_hotkeys(app)
-
-        self.assertEqual(fake_keyboard.unhook_all_calls, 0)
-        self.assertEqual(len(fake_keyboard.hook_calls), 1)
-        self.assertEqual(fake_keyboard.add_hotkey_calls, [])
-        self.assertIsNotNone(app._hotkey_manager)
-        self.assertEqual(logs, [])
-
-    def test_hotkey_with_held_game_key_requires_matching_foreground_pid(self) -> None:
-        fake_keyboard = FakeKeyboardModule()
-        scan_toggles: list[str] = []
-        app = object.__new__(MegabonkApp)
-        app.log = lambda _message, tag=None: None
-        app.get_game_process_id = lambda: 1234
-        app.hotkey_toggle_scanning = lambda: scan_toggles.append("scan")
-        app.hotkey_toggle_player_stats_recording = lambda: None
-        fake_gui = SimpleNamespace(
-            GetForegroundWindow=lambda: 111,
-        )
-        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda _window: (10, 5678))
-
-        with patch_everywhere("keyboard", fake_keyboard):
-            with patch_everywhere("win32gui", fake_gui):
-                with patch_everywhere("win32process", fake_process):
-                    with patch.object(config, "HOTKEY_GAME_KEY_WHITELIST", ("w",)):
-                        with patch.object(config, "HOTKEY", "f6"):
-                            MegabonkApp.setup_hotkeys(app)
-
-                            hook = fake_keyboard.hook_calls[0]
-                            hook(SimpleNamespace(scan_code=fake_keyboard.key_to_scan_codes("w")[0], event_type="down"))
-                            hook(SimpleNamespace(scan_code=fake_keyboard.key_to_scan_codes("f6")[0], event_type="down"))
-
-        self.assertEqual(scan_toggles, [])
-
-    def test_find_game_window_falls_back_to_name_lookup_without_scanner_pid(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.find_game_window_by_name = lambda process_name: 222 if process_name == "Megabonk.exe" else None
-
-        self.assertEqual(MegabonkApp.find_game_window(app, "Megabonk.exe"), 222)
-
-    def test_find_game_window_by_name_prefers_largest_matching_main_window(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.log = lambda _message, tag=None: None
-        app._process_id_matches_name = lambda process_id, process_name: (
-            process_name == "megabonk.exe" and process_id in {2001, 2002}
-        )
-
-        windows = [11, 22, 33]
-        rects = {
-            11: (0, 0, 200, 120),
-            22: (0, 0, 1280, 720),
-            33: (0, 0, 900, 600),
-        }
-        titles = {
-            11: "Megabonk Helper",
-            22: "Megabonk",
-            33: "Settings",
-        }
-        process_by_window = {
-            11: (10, 2001),
-            22: (10, 2001),
-            33: (10, 2002),
-        }
-        fake_gui = SimpleNamespace(
-            EnumWindows=lambda callback, extra: [callback(window, extra) for window in windows],
-            IsWindowVisible=lambda _window: True,
-            GetWindowRect=lambda window: rects[window],
-            GetWindowText=lambda window: titles[window],
-            GetParent=lambda _window: 0,
-            GetWindow=lambda _window, _flag: 0,
-            GetWindowLong=lambda _window, _index: 0,
-        )
-        fake_process = SimpleNamespace(GetWindowThreadProcessId=lambda window: process_by_window[window])
-
-        with patch_everywhere("win32gui", fake_gui):
-            with patch_everywhere("win32process", fake_process):
-                self.assertEqual(MegabonkApp.find_game_window_by_name(app, "Megabonk.exe"), 22)
+    # Twenty-four tests stood in this module until step 25c. Their subject was
+    # `ScannerMixin` or `RunControlMixin`, and step 25 converted both into
+    # `gui_scanner.Scanner` and `gui_run_control.RunControl`. They are in
+    # `test_scanner_run_control.py` now, built through
+    # `tests/support/scanner.py`'s real constructors -- moved, not copied,
+    # which is the migration rule `test_componentization_inventory`'s header
+    # states and what steps 21c/21d/22c/24b each did with theirs.
+    #
+    # The two `on_closing` tests below stayed. Their subject is
+    # `MegabonkApp.on_closing`: a shutdown order over nine owners, which is the
+    # application's and not a component's, so an app double is still the honest
+    # fixture.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def test_load_selected_vod_converts_qt_string_path_to_path(self) -> None:
         loaded_vod = types.SimpleNamespace(
@@ -1668,33 +1206,6 @@ class GuiRunControlTests(unittest.TestCase):
 
         dialog.close()
 
-    def test_log_reroll_stats_tracks_session_and_persistent_totals(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.session_rerolls = 3
-        app.template_stats = {"Perfect": {"rerolls_since_last": 2, "history": []}}
-        app.after = lambda _delay, callback: callback()
-        app.log = lambda _message, tag=None: None
-        refreshed_session_snapshots = []
-        app._refresh_session_stats_snapshot = lambda: refreshed_session_snapshots.append(
-            app.session_rerolls
-        )
-        app.best_map_stats = None
-        app.worst_map_stats = None
-
-        with patch.object(config, "TOTAL_REROLLS", 10):
-            with patch.object(config, "save_config") as save_config:
-                MegabonkApp.log_reroll_stats(app)
-
-                self.assertEqual(app.session_rerolls, 4)
-                self.assertEqual(app.template_stats["Perfect"]["rerolls_since_last"], 3)
-                self.assertEqual(config.TOTAL_REROLLS, 11)
-                self.assertEqual(config.user_config["TOTAL_REROLLS"], 11)
-                save_config.assert_not_called()
-                self.assertTrue(app._total_rerolls_dirty)
-                self.assertEqual(refreshed_session_snapshots, [4])
-
-                MegabonkApp._flush_total_rerolls(app, force=True)
-                save_config.assert_called_once_with(config.user_config)
 
     # `test_format_stats_includes_bald_heads_when_active_template_requires_it`
     # stood here until step 22a. `format_stats` is `app.map_scoring`'s now, and
@@ -1709,80 +1220,8 @@ class GuiRunControlTests(unittest.TestCase):
     # constructor in `test_templates_panel.py` -- the migration order this
     # file's header states.
 
-    def test_background_loop_cleanup_clears_scan_event_after_stop_wake(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.client = None
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-        app.stop_event.set()
-        app.scan_event.set()
-        app.is_running = True
-        app.is_ready_to_start = True
-        app.after = lambda _delay, callback: callback()
-        app.update_status_ui = lambda: None
 
-        MegabonkApp.background_loop(app)
 
-        self.assertFalse(app.scan_event.is_set())
-        self.assertFalse(app.is_running)
-        self.assertFalse(app.is_ready_to_start)
-
-    def test_background_loop_reuses_stable_snapshot_for_candidate(self) -> None:
-        class FakeClient:
-            def __init__(self) -> None:
-                self.get_map_stats_calls = 0
-
-            def wait_for_map_ready(self, **_kwargs: object) -> dict[str, int]:
-                return {"Moais": 4, "Microwaves": 1}
-
-            def get_map_generation_state(self) -> object:
-                return object()
-
-            def get_map_stats(self) -> dict[str, int]:
-                self.get_map_stats_calls += 1
-                return {"Moais": 999}
-
-        app = object.__new__(MegabonkApp)
-        app.client = FakeClient()
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-        app.scan_event.set()
-        app.is_running = True
-        app.is_ready_to_start = True
-        app.after = lambda _delay, callback: callback()
-        app.update_status_ui = lambda: None
-        app.wait_for_game_window_focus = lambda _process_name: True
-        app.check_best_map = lambda _stats: None
-        app.check_worst_map = lambda _stats: None
-        app.log_target_found = lambda _name: None
-        app.handle_confirmed_target_window = lambda _process_name: app.stop_event.set() or True
-        app.close_client = lambda: None
-        app.log = lambda _message, tag=None: None
-        app.active_templates = []  # step 22a; see the reconnect test above
-
-        with patch_everywhere("adapt_map_stats", lambda raw_stats: raw_stats), patch.object(
-            gui_scanner,
-            "evaluate_candidate",
-            lambda stats, _active, context=None: (
-                {"name": "Perfect", "color": "GREEN"} if stats["Moais"] == 4 else None
-            ),
-        ):
-            MegabonkApp.background_loop(app)
-
-        self.assertEqual(app.client.get_map_stats_calls, 0)
-
-    def test_reroll_map_returns_false_when_scan_is_paused(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.run_control_provider = SimpleNamespace(
-            restart_run=lambda: self.fail("restart_run should not be called while paused"),
-            wait_for_next_run=lambda **_kwargs: self.fail("wait_for_next_run should not be called while paused"),
-        )
-        app.client = None
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-        app.log = lambda _message, tag=None: None
-
-        self.assertFalse(MegabonkApp.reroll_map(app))
 
     def test_recording_run_state_split_starts_new_file_when_seed_changes(self) -> None:
         # stage_index fell (2 -> 0): a new run started, even though the timer
@@ -5210,27 +4649,30 @@ class GuiRunControlTests(unittest.TestCase):
         destroyed: list[bool] = []
         closed: list[str] = []
         app = object.__new__(MegabonkApp)
-        app.client = None
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-        app.log = lambda _message, tag=None: None
+        # The scanner and run control are real objects on the app now (step
+        # 25c), so the two the shutdown sequence drives are built rather than
+        # stubbed: `shutdown()` is what sets both events, and `stop_hotkeys()`
+        # is what clears the manager. Stubbing them would leave this test
+        # asserting the order of five calls it made itself.
+        scanner, run_control = build_pair()
+        app.__dict__["_scanner"] = scanner
+        app.__dict__["_run_control"] = run_control
+        scanner.close_client = lambda: closed.append("client")
         app.destroy = lambda: destroyed.append(True)
         app._is_shutting_down = False
         app._cancel_right_tab_transition = lambda: closed.append("transition")
-        app.close_client = lambda: closed.append("client")
         player_stats_memory(app).close_player_stats_client = lambda: closed.append("player_stats")
         player_stats_memory(app).close_player_stats_game_data_client = lambda: closed.append("player_stats_game_data")
         app.close_overlay_server = lambda: closed.append("overlay")
         app.stop_in_game_overlay = lambda: closed.append("in_game_overlay")
         app.stop_twitch_bot = lambda: closed.append("twitch")
         app.player_stats_vod_recorder = None
-        app._hotkey_manager = None
 
         with patch_everywhere("keyboard", None):
             MegabonkApp.on_closing(app)
 
-        self.assertTrue(app.stop_event.is_set())
-        self.assertTrue(app.scan_event.is_set())
+        self.assertTrue(scanner.stop_event.is_set())
+        self.assertTrue(scanner.scan_event.is_set())
         self.assertEqual(destroyed, [True])
         self.assertEqual(
             closed,
@@ -5263,22 +4705,20 @@ class GuiRunControlTests(unittest.TestCase):
         destroyed: list[bool] = []
         closed: list[str] = []
         app = object.__new__(MegabonkApp)
+        scanner, run_control = build_pair()
+        app.__dict__["_scanner"] = scanner
+        app.__dict__["_run_control"] = run_control
         app.coordinator = SimpleNamespace(shutdown=lambda: closed.append("coordinator"))
-        app.stop_event = threading.Event()
-        app.scan_event = threading.Event()
-        app.log = lambda _message, tag=None: None
         app.destroy = lambda: destroyed.append(True)
         app._is_shutting_down = False
         app._cancel_right_tab_transition = lambda: None
-        app._flush_total_rerolls = lambda *args, **kwargs: None
-        app.close_client = lambda: closed.append("mixin_client")
+        scanner.close_client = lambda: closed.append("component_client")
         player_stats_memory(app).close_player_stats_client = lambda: closed.append("mixin_player_stats")
         player_stats_memory(app).close_player_stats_game_data_client = lambda: closed.append("mixin_game_data")
         app.close_overlay_server = lambda: None
         app.stop_in_game_overlay = lambda: None
         app.stop_twitch_bot = lambda: None
         app.player_stats_vod_recorder = None
-        app._hotkey_manager = None
 
         with patch_everywhere("keyboard", None):
             MegabonkApp.on_closing(app)

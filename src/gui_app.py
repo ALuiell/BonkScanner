@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import os
 import sys
-import threading
-import time
 
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QApplication
@@ -17,8 +15,8 @@ from gui_dialogs import HelpDialog, SettingsDialog
 from gui_layout import GuiLayoutMixin
 from gui_overlay import build_overlay, combined_tracked_item_rules
 from gui_in_game_overlay import build_in_game_overlay
-from gui_run_control import RunControlMixin
-from gui_scanner import ScannerMixin
+from gui_run_control import build_run_control
+from gui_scanner import build_scanner
 from gui_twitch import build_twitch_session, session_command_tracked_item_config
 from app.template_filters import TemplateRuntimeFilters
 from ui.shared import UiInvoker, _AppWindow, resource_path
@@ -31,8 +29,6 @@ from session_stats import SessionStats
 
 class MegabonkApp(
     GuiLayoutMixin,
-    RunControlMixin,
-    ScannerMixin,
 ):
     _qt_app: QApplication | None = None
 
@@ -80,16 +76,14 @@ class MegabonkApp(
         self.tab_stats = None
         self.tab_vods = None
         self.log_box = None
-        self.stats_time_label = None
-        self.stats_rerolls_label = None
-        self.stats_rpm_label = None
-        self.stats_best_label = None
-        self.stats_worst_label = None
-        self.stats_tracked_items_label = None
-        self.stats_tracked_items_settings_btn = None
-        self.stats_avg_frame = None
-        self.stats_avg_layout = None
-        self.stats_avg_labels = {}
+        # Every Session Stats widget is gone from the shared namespace: step 25
+        # made `Scanner` an object that builds its own tab. Eleven slots left
+        # here, and the measurement that allowed it is the same one steps
+        # 21c/21d/23b ran: of the eleven, exactly two had a production reader
+        # outside `gui_scanner` -- `tab_stats` and `stats_tracked_items_label`,
+        # both already reached by `gui_overlay` through named ports rather than
+        # by attribute, so both ports simply changed which object they name.
+        # The other nine were mentioned only by these `= None` lines.
         # Every Live Stats widget is gone from the shared namespace: step 19
         # made `LiveStatsTab` an object with its own private widgets, built by
         # `gui_layout._build_live_stats_view` and reached through the
@@ -134,9 +128,16 @@ class MegabonkApp(
         self.overlay_server = None
         self.live_run_tracker = None
 
-        self.is_running = False
-        self.is_ready_to_start = False
-        self.obs_recording_reminder_shown = False
+        # `is_running`, `is_ready_to_start`, `obs_recording_reminder_shown`,
+        # `scanner_thread`, `stop_event`, `scan_event`, `session_start_time`,
+        # `session_rerolls`, the four best/worst map slots, the three
+        # `_total_rerolls_*` names, the ten Session Stats widget slots,
+        # `run_control_provider` and `_hotkey_manager` all stood here until step
+        # 25. Twenty-eight slots, and not one of them is declared by this class
+        # any more: they are `Scanner`'s and `RunControl`'s own fields. That is
+        # the step's third exit criterion made structural rather than argued --
+        # `step25_ownership.py` reports one writing scope per name because there
+        # is only one place left that could write them.
         # `active_templates` and `template_stats` were plain slots here, and
         # `PRE_EXISTING_COLLISIONS` recorded that Scanner and Templates both
         # wrote them. Step 22b gave them an owner rather than letting
@@ -156,17 +157,26 @@ class MegabonkApp(
             # widgets been built yet" is a question about this class's
             # construction order, which is exactly what `_sync_runtime_filters`
             # was asking with its two `hasattr` calls.
+            # The guard is here, not in the service: "have the session-stats
+            # widgets been built yet" is a question about construction order,
+            # which is exactly what `_sync_runtime_filters` was asking with its
+            # two `hasattr` calls. It asks the scanner now, because the scanner
+            # owns those widgets -- and it asks whether the *scanner* exists
+            # too, because these filters are built before it.
             refresh_stats=lambda: (
-                self.refresh_stats_ui()
-                if hasattr(self, "stats_avg_labels") and hasattr(self, "stats_avg_layout")
+                self._scanner.refresh_stats_ui()
+                if self.__dict__.get("_scanner") is not None
+                and self._scanner.stats_avg_layout is not None
                 else None
             ),
-            log=self.log,
+            # Late-bound for the same reason: `log` is the scanner's and the
+            # scanner does not exist yet. Passing `self.log` bound here would
+            # have captured the delegator before it could resolve.
+            log=lambda message, tag=None: self.log(message, tag=tag),
             is_scanning=lambda: (
-                self.scanner_thread is not None and self.scanner_thread.is_alive()
+                self.__dict__.get("_scanner") is not None and self._scanner.is_scanning()
             ),
         )
-        self.scanner_thread = None
         # client / player_stats_client / player_stats_game_data_client are owned by
         # AppCoordinator (step 12b); it initialises them to None in its __init__,
         # reached here through the client properties below and the scanner mixin.
@@ -186,10 +196,19 @@ class MegabonkApp(
         self.overlay_state_store = self.coordinator.overlay_state_store
         self.live_run_tracker = self.coordinator.live_run_tracker
         self.overlay_server = self.coordinator.overlay_server
+        # The two step-25 components, built before every collaborator that
+        # names them. They are mutually referential -- the scanner asks run
+        # control where the game window is, run control asks the scanner
+        # whether the scan was cancelled -- so run control is built first with
+        # late-bound lambdas and handed to the scanner as a real reference.
+        self._run_control = build_run_control(self)
+        self._scanner = build_scanner(
+            self, self.coordinator, self._run_control, self._template_filters
+        )
         self._session_stats = SessionStats(
             self.live_run_tracker,
             template_stats=lambda: self.template_stats,
-            rerolls=lambda: self.session_rerolls,
+            rerolls=lambda: self._scanner.session_rerolls,
             snapshot_tracked_item_config=session_command_tracked_item_config,
         )
         self._overlay = build_overlay(self, self.coordinator, self._session_stats)
@@ -205,21 +224,8 @@ class MegabonkApp(
         # `VodCapture`'s fields now (step 20). The three above stay: their
         # readers are the Live Stats tab and `gui_layout`, and the tab writes
         # two of them back through its selection callback.
-        self.run_control_provider = None
-        self._hotkey_manager = None
         self.animation_active = False
         self.animation_frame = 0
-        self.stop_event = threading.Event()
-        self.scan_event = threading.Event()
-        self.session_start_time = None
-        self.session_rerolls = 0
-        self._total_rerolls_dirty = False
-        self._total_rerolls_last_flush = time.monotonic()
-        self._total_rerolls_lock = threading.Lock()
-        self.best_map_stats = None
-        self.best_map_score = -1
-        self.worst_map_stats = None
-        self.worst_map_score = float("inf")
         # `template_stats` is `TemplateRuntimeFilters`' field (step 22b).
         # The recording-metadata index, its refresh cycle and its two guards,
         # in one named object (step 21). They were four attributes here, read by
@@ -585,6 +591,58 @@ class MegabonkApp(
     def ensure_compare_runs_chooser_for_empty_selection(self) -> None:
         return self._compare_runs_view.ensure_compare_runs_chooser_for_empty_selection()
 
+    # -- scanner surface (step 25c) ----------------------------------------
+    #
+    # Six delegators, and the list is the measurement rather than a convenience
+    # set. Each is called *on the application* by something step 25 may not
+    # touch: `gui_layout` connects the Start/Stop button to `toggle_main_loop`,
+    # calls `update_status_ui` after building the footer and `_build_session_
+    # stats_tab` while assembling the right-hand tabs -- and that router is
+    # **step 26's**. `log` has fourteen production callers across eleven
+    # modules. `SettingsDialog` reaches `master.update_status_ui` and
+    # `master.log` after a save, with `master=self` meaning the application for
+    # the reason documented above `open_settings_dialog`.
+    #
+    # `update_timer` is the session clock this class starts in `__init__`.
+    def toggle_main_loop(self) -> None:
+        self._scanner.toggle_main_loop()
+
+    def update_status_ui(self) -> None:
+        self._scanner.update_status_ui()
+
+    # Guarded, because `TemplateRuntimeFilters` is built before the scanner and
+    # takes `log` as a port: a construction fault between the two would
+    # otherwise turn a log line into an `AttributeError` through
+    # `__getattr__`'s window forwarding. Silent is also what `Scanner.log`
+    # itself does without an invoker, so this does not add a new failure shape.
+    def log(self, message, tag=None) -> None:
+        scanner = self.__dict__.get("_scanner")
+        if scanner is not None:
+            scanner.log(message, tag=tag)
+
+    def update_timer(self) -> None:
+        self._scanner.update_timer()
+
+    def _build_session_stats_tab(self) -> None:
+        self._scanner.build_session_stats_tab()
+
+    # -- run-control surface (step 25c) ------------------------------------
+    #
+    # Three, for `SettingsDialog` (which re-registers hotkeys and re-applies
+    # the run-control mode on save, both under `hasattr(self.master, ...)`) and
+    # for this class's own construction. Nothing else in production calls run
+    # control on the app: `gui_in_game_overlay`'s three window/scan ports were
+    # repointed at the components they were always about, which is what its own
+    # step-24 note said step 25 would do.
+    def setup_hotkeys(self) -> None:
+        self._run_control.setup_hotkeys()
+
+    def apply_run_control_mode(self, *, detach_hooks: bool = True) -> None:
+        self._run_control.apply_run_control_mode(detach_hooks=detach_hooks)
+
+    def check_admin_rights(self) -> None:
+        self._run_control.check_admin_rights()
+
     # -- application shutdown (step 25b) -----------------------------------
     #
     # This was `ScannerMixin.on_closing`. Only two of its steps are the
@@ -609,9 +667,7 @@ class MegabonkApp(
             return
         self._is_shutting_down = True
         self._cancel_right_tab_transition()
-        self.stop_event.set()
-        self.scan_event.set()
-        self._flush_total_rerolls(force=True)
+        self._scanner.shutdown()
         # The coordinator owns the three memory clients (step 12b), so it closes
         # them (step 12c). App doubles built without a coordinator fall back to the
         # mixin close methods, preserving the shutdown order those tests assert.
@@ -619,7 +675,7 @@ class MegabonkApp(
         if coordinator is not None:
             coordinator.shutdown()
         else:
-            self.close_client()
+            self._scanner.close_client()
             player_stats_memory(self).close_player_stats_client()
             player_stats_memory(self).close_player_stats_game_data_client()
         self.close_overlay_server()
@@ -634,7 +690,7 @@ class MegabonkApp(
                 player_stats_vod_recorder.stop()
             else:
                 player_stats_vod_recorder.close()
-        self.stop_hotkeys()
+        self._run_control.stop_hotkeys()
         self.destroy()
 
     # Scheduled 1.5s into `__init__`. It hands *the application* to the update

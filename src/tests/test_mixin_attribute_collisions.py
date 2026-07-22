@@ -55,7 +55,24 @@ SRC_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # and four of them were not collisions at all -- the staleness test is what
 # said so.
 PRE_EXISTING_COLLISIONS: dict[str, str] = {
-    "is_running": "scan lifecycle, co-owned by RunControl and Scanner",
+    # **Empty as of step 25c, and emptied by payment rather than by attrition.**
+    #
+    # `is_running` was the last entry. It had eight writers on the shared
+    # object: five in `ScannerMixin`, two in `RunControlMixin.toggle_scan_event`
+    # and one `= False` in `gui_app.__init__`. Step 25 takes both mixins off the
+    # MRO, so this scan would have stopped seeing every one of them and the
+    # staleness test below would have deleted the entry on a commit where the
+    # attribute was written from three places -- the register's own failure
+    # mode, twice avoided already (`active_templates` at 22b, `_hotkey_manager`
+    # at 25b).
+    #
+    # It was paid the same way both of those were: by finding the one owner.
+    # `toggle_scan_event` moved to `Scanner` because it is scan lifecycle
+    # (it writes `is_running`, reads `is_ready_to_start` and `scanner_thread`),
+    # and `gui_app.__init__` stopped declaring the slot. `is_running` is a
+    # field of one object with one writing class, and `tools/step25_ownership.py`
+    # is the measurement that says so for all seven of step 25's lifecycle
+    # names rather than for this one alone.
     # `_hotkey_manager` was here until step 25b, and it is the register's own
     # trap that decided how it left. Step 25b moves `on_closing` off
     # `ScannerMixin` onto `MegabonkApp`, and this scan only reads `MegabonkApp`'s
@@ -273,16 +290,29 @@ class MixinAttributeCollisionTests(unittest.TestCase):
         # rather than pinning it -- the MRO itself is ratcheted by
         # `test_componentization_inventory`'s `MRO_MODULES`, which is where a
         # base reappearing gets caught.
-        self.assertGreater(len(assignments), 2, "found almost no mixins")
+        #
+        # Step 25 took the last two feature mixins off the MRO, so the floor is
+        # now one: `GuiLayoutMixin`, step 26's subject. `>= 1` rather than `> 0`
+        # is the same statement, written so that the day step 26 lands and this
+        # scan can legitimately find *nothing*, it fails and has to be deleted
+        # along with the file -- rather than passing vacuously over an empty
+        # walk, which is the exact thing this test was written to prevent.
+        self.assertGreaterEqual(len(assignments), 1, "found no mixins at all")
         # Shrinks with the MRO for the same reason the base count does: steps
         # 21c and 21d took the two recording tabs' assignments off it
         # (231 -> 195 -> 143), and step 23 took `TwitchBotMixin`'s 43 with it
         # (143 -> 95, measured), and step 24 took both overlay components out
         # (95 -> 45, measured). This is a vacuity guard, not a ratchet: it only
         # has to be far enough above zero to catch a walk that reads nothing.
+        # 231 -> 195 -> 143 -> 95 -> 45 -> **14**, measured at each step. Step
+        # 25 took `ScannerMixin`'s 28 and `RunControlMixin`'s 3, leaving only
+        # `GuiLayoutMixin`'s 14. Lowered to the measurement with no margin, for
+        # the reason step 22's inventory recorded about `<=` comparisons: slack
+        # in a vacuity guard is room for the walk to silently stop reaching
+        # method bodies and still pass.
         self.assertGreater(
             sum(len(names) for names in assignments.values()),
-            40,
+            12,
             "found almost no assignments; the walk is not reaching method bodies",
         )
         # A name assigned inside a nested closure must be seen, or the walk is

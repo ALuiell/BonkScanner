@@ -1,9 +1,40 @@
+"""The scan worker, its cancellation, and the Session Stats tab.
+
+Step 25 took `ScannerMixin` off `MegabonkApp`. This object owns the whole scan
+lifecycle -- the worker thread, both events, the two run flags, the session
+counters and the tab that displays them -- and that concentration is the point
+of the step rather than a side effect of it.
+
+Cancellation is two `threading.Event`s and one predicate:
+
+* `stop_event` ends the run. One writer, always.
+* `scan_event` gates it. Two writers: this class, and the pause/resume hotkey
+  -- which is `toggle_scan_event` below, moved here from `RunControlMixin`
+  because it writes `is_running` and reads `is_ready_to_start` and
+  `scanner_thread`, i.e. four pieces of scan lifecycle and nothing else.
+* `_scan_abort_requested()` is `stop_event.is_set() or not scan_event.is_set()`.
+  Before step 25 that expression was also written out by hand in three other
+  places -- twice inside `wait_for_game_window_focus` and once in the loop's
+  `abort_condition` lambda. `RunControl` now asks this predicate through a
+  port, so there is one definition of "the scan was cancelled".
+
+The worker is still `daemon=True` and still not joined, and that is a decision
+rather than an omission. It blocks in `scan_event.wait()` and in the client's
+own waits; the stop path sets both events, which is what unblocks it, and every
+blocking call it makes takes an abort condition. An explicit `join` would add a
+shutdown deadline for a thread whose only remaining work after `stop_event` is
+to fall out of a `while` -- and `on_closing` runs on the Qt thread, so a join
+that did not return would hang the close instead of the process. The trace
+asserts the thread is actually dead after both the stop and the shutdown path,
+which is the property a join would have been buying.
+"""
 from __future__ import annotations
 
 import datetime
 import html
 import threading
 import time
+from typing import Any, Callable
 
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
@@ -11,42 +42,144 @@ from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBox
 from app import config
 from app.map_scoring import calculate_map_score, evaluate_candidate, format_stats
 from app.player_stats_view import player_stats_view
+from app.template_filters import TemplateRuntimeFilters
+# Top-level, not deferred into the builder. `gui_dialogs` imports nothing from
+# here, so there is no cycle to dodge, and a function-body import is invisible
+# to pyflakes and to every test that does not take that branch -- which is how
+# step 21 shipped a startup crash.
+from gui_dialogs import ObsRecordingReminderDialog, RerollWarningDialog
+from gui_run_control import RunControl
 from infra.memory.game_data_client import GameDataClient
-from ui.shared import _apply_button_icon, _clear_layout, _make_scroll_section, _set_text
+from ui.shared import _apply_button_icon, _make_scroll_section, _set_text
 from core.item_metadata import COLOR_MAP
 from ui.styles import _button_state_stylesheet, _session_stats_label_stylesheet
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.run_control import RunControlError
 from core.runtime_stats import adapt_map_stats
 
-try:
-    import keyboard
-except ImportError:
-    keyboard = None
 
-class ScannerMixin:
+class Scanner:
     _TOTAL_REROLLS_FLUSH_INTERVAL = 15.0
 
-    # `client` was defined here until step 25a. It is `MegabonkApp`'s now, next
-    # to the two sibling coordinator-delegating client properties step 20h left
-    # there -- the same owner, reached the same way. It never was scanner state:
-    # `AppCoordinator` has owned it since step 12b, and seventeen production
-    # modules read it off the app.
+    def __init__(
+        self,
+        coordinator: Any,
+        *,
+        run_control: RunControl,
+        filters: TemplateRuntimeFilters,
+        schedule: Callable[[int, Callable[[], None]], None],
+        can_log: Callable[[], bool],
+        log_box: Callable[[], Any],
+        status_label: Callable[[], Any],
+        toggle_btn: Callable[[], Any],
+        add_tab: Callable[[Any, str], None],
+        refresh_session_stats_snapshot: Callable[[], None],
+        refresh_session_tracked_item_stats_ui: Callable[[], None],
+        open_tracked_item_settings_dialog: Callable[[], None],
+        is_recording: Callable[[], bool],
+        refresh_timeline: Callable[[], None],
+        is_shutting_down: Callable[[], bool],
+        reroll_warning_dialog: Callable[[], Any],
+        obs_reminder_dialog: Callable[[], Any],
+    ) -> None:
+        self._coordinator = coordinator
+        self._run_control = run_control
+        self._filters = filters
+        self._schedule = schedule
+        self._can_log = can_log
+        self._log_box = log_box
+        self._status_label = status_label
+        self._toggle_btn = toggle_btn
+        self._add_tab = add_tab
+        self._refresh_session_stats_snapshot = refresh_session_stats_snapshot
+        self._refresh_session_tracked_item_stats_ui = refresh_session_tracked_item_stats_ui
+        self._open_tracked_item_settings_dialog = open_tracked_item_settings_dialog
+        self._is_recording = is_recording
+        self._refresh_timeline = refresh_timeline
+        self._is_shutting_down = is_shutting_down
+        self._reroll_warning_dialog = reroll_warning_dialog
+        self._obs_reminder_dialog = obs_reminder_dialog
+
+        # Scan lifecycle. All seven were slots on the shared `MegabonkApp`
+        # namespace; `gui_app.__init__` no longer declares any of them.
+        self.stop_event = threading.Event()
+        self.scan_event = threading.Event()
+        self.scanner_thread: threading.Thread | None = None
+        self.is_running = False
+        self.is_ready_to_start = False
+        self.obs_recording_reminder_shown = False
+
+        # Session counters, read by the tab below and by `SessionStats`.
+        self.session_start_time = None
+        self.session_rerolls = 0
+        self.best_map_stats = None
+        self.best_map_score = -1
+        self.worst_map_stats = None
+        self.worst_map_score = float("inf")
+
+        self._total_rerolls_dirty = False
+        self._total_rerolls_last_flush = time.monotonic()
+        self._total_rerolls_lock = threading.Lock()
+
+        # Session Stats tab. `None` until `build_session_stats_tab` runs, the
+        # same contract `gui_app` held for these ten slots -- `gui_layout`
+        # builds the tab well after the component is constructed, and the
+        # overlay reads two of them through ports that must tolerate that.
+        self.tab_stats = None
+        self.stats_time_label = None
+        self.stats_rerolls_label = None
+        self.stats_rpm_label = None
+        self.stats_best_label = None
+        self.stats_worst_label = None
+        self.stats_tracked_items_label = None
+        self.stats_tracked_items_settings_btn = None
+        self.stats_avg_frame = None
+        self.stats_avg_layout = None
+        self.stats_avg_labels: dict[str, Any] = {}
+
+    # The scan client is `AppCoordinator`'s (step 12b) and `MegabonkApp`
+    # exposes the same one (step 25a). This reads and writes the same field on
+    # the same coordinator, so "the app's client" and "the scanner's client"
+    # are one value, not two that have to be kept in step.
+    @property
+    def client(self):
+        return self._coordinator.client
+
+    @client.setter
+    def client(self, value) -> None:
+        self._coordinator.client = value
+
+    # Both are `TemplateRuntimeFilters`' fields (step 22b), which is why the
+    # scanner needed no edit when they left the shared namespace. They are
+    # delegating properties here for the same reason they are on `MegabonkApp`:
+    # the reads and writes below are the ones 22b measured, and pointing them
+    # at the owner rather than restating `self._filters.x` at each site keeps
+    # this file honest about who holds the value.
+    @property
+    def active_templates(self):
+        return self._filters.active_templates
+
+    @active_templates.setter
+    def active_templates(self, value) -> None:
+        self._filters.active_templates = value
+
+    @property
+    def template_stats(self):
+        return self._filters.template_stats
+
+    @template_stats.setter
+    def template_stats(self, value) -> None:
+        self._filters.template_stats = value
+
+    def is_scanning(self) -> bool:
+        return self.scanner_thread is not None and self.scanner_thread.is_alive()
 
     def _flush_total_rerolls(self, *, force: bool = False) -> None:
-        lock = getattr(self, "_total_rerolls_lock", None)
-        if lock is None:
-            lock = threading.Lock()
-            self._total_rerolls_lock = lock
-        with lock:
-            if not getattr(self, "_total_rerolls_dirty", False):
+        with self._total_rerolls_lock:
+            if not self._total_rerolls_dirty:
                 return
             now = time.monotonic()
-            if not hasattr(self, "_total_rerolls_last_flush"):
-                self._total_rerolls_last_flush = now
-                if not force:
-                    return
-            if not force and now - getattr(self, "_total_rerolls_last_flush", 0.0) < self._TOTAL_REROLLS_FLUSH_INTERVAL:
+            if not force and now - self._total_rerolls_last_flush < self._TOTAL_REROLLS_FLUSH_INTERVAL:
                 return
             try:
                 config.save_config(config.user_config)
@@ -58,6 +191,18 @@ class ScannerMixin:
 
     def _scan_abort_requested(self) -> bool:
         return self.stop_event.is_set() or not self.scan_event.is_set()
+
+    def shutdown(self) -> None:
+        """The scanner's two steps of `MegabonkApp.on_closing`.
+
+        Setting both events is what releases the worker: `stop_event` ends the
+        `while`, `scan_event` unblocks the `wait()` it may be parked in. The
+        flush is forced because the 15s throttle would otherwise drop a reroll
+        count on the way out.
+        """
+        self.stop_event.set()
+        self.scan_event.set()
+        self._flush_total_rerolls(force=True)
 
     def _score_tier_color_tag(self, tier: str) -> str:
         colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
@@ -75,10 +220,10 @@ class ScannerMixin:
         self.log(colored_parts, tag=colored_tags)
 
     def update_timer(self):
-        if self._is_shutting_down:
+        if self._is_shutting_down():
             return
 
-        if self.scanner_thread and self.scanner_thread.is_alive() and self.session_start_time:
+        if self.is_scanning() and self.session_start_time:
             elapsed = int(time.time() - self.session_start_time)
             td = datetime.timedelta(seconds=elapsed)
             self.stats_time_label.setText(f"Session Time: {td}")
@@ -86,37 +231,37 @@ class ScannerMixin:
                 rpm = (self.session_rerolls / elapsed) * 60
                 self.stats_rpm_label.setText(f"Rerolls per Minute (RPM): {rpm:.1f}")
 
-        if self.player_stats_vod_recorder.is_recording:
-            player_stats_view(self).refresh_player_stats_timeline_ui(update_slider=False)
+        if self._is_recording():
+            self._refresh_timeline()
 
         self._flush_total_rerolls()
 
-        self.after(1000, self.update_timer)
+        self._schedule(1000, self.update_timer)
 
     def update_status_ui(self):
-        if self.status_label is None or self.toggle_btn is None:
+        status_label = self._status_label()
+        toggle_btn = self._toggle_btn()
+        if status_label is None or toggle_btn is None:
             return
 
-        if self.scanner_thread and self.scanner_thread.is_alive():
+        if self.is_scanning():
             if self.is_running:
                 status_html = 'Status: <span style="color:#4fd67a;">RUNNING</span>'
             elif self.is_ready_to_start:
                 status_html = 'Status: <span style="color:#4fd67a;">ARMED</span>'
             else:
                 status_html = 'Status: <span style="color:#ffd23f;">WAITING FOR GAME</span>'
-            self.status_label.setText(status_html)
-            self.toggle_btn.setText("Stop")
-            self.toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
+            status_label.setText(status_html)
+            toggle_btn.setText("Stop")
+            toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
         else:
-            self.status_label.setText('Status: <span style="color:#9CA3AF;">IDLE</span>')
-            self.toggle_btn.setText("Start")
-            self.toggle_btn.setStyleSheet("")
-
-    def animate_scanner_indicator(self):
-        return None
+            status_label.setText('Status: <span style="color:#9CA3AF;">IDLE</span>')
+            toggle_btn.setText("Start")
+            toggle_btn.setStyleSheet("")
 
     def _append_log(self, message, tag=None):
-        if self.log_box is None:
+        log_box = self._log_box()
+        if log_box is None:
             return
 
         def colored_html(part: str, color_tag: str | None) -> str:
@@ -132,20 +277,47 @@ class ScannerMixin:
         else:
             line = html.escape(str(message))
 
-        self.log_box.moveCursor(QTextCursor.End)
-        self.log_box.insertHtml(line + "<br>")
-        self.log_box.moveCursor(QTextCursor.End)
+        log_box.moveCursor(QTextCursor.End)
+        log_box.insertHtml(line + "<br>")
+        log_box.moveCursor(QTextCursor.End)
 
+    # Fire-and-forget by design, and silent when it cannot post. The guard used
+    # to read `hasattr(self, "_invoker")` on the shared namespace; it is a port
+    # now, but the shape is deliberately unchanged -- a logger that loses its
+    # invoker does not raise, it stops writing, and the only symptom is an empty
+    # Logs panel. That is step 19's failure mode, so the trace drives `log`
+    # through the real widget and one of the mutations takes the invoker away.
     def log(self, message, tag=None):
-        if not hasattr(self, "_invoker"):
+        if not self._can_log():
             return
-        self.after(0, lambda m=message, t=tag: self._append_log(m, t))
+        self._schedule(0, lambda m=message, t=tag: self._append_log(m, t))
+
+    def toggle_scan_event(self):
+        """Pause/resume, from the scan hotkey. Was `RunControlMixin`'s."""
+        if not self.is_scanning():
+            self.log(f"[WAIT] Press Start first, then press {config.HOTKEY.upper()} in game to begin scanning.", tag="warning")
+            self.update_status_ui()
+            return
+
+        if not self.is_ready_to_start:
+            self.log("[WAIT] Scanner is still connecting to the game. Try the hotkey again once it is ARMED.", tag="warning")
+            self.update_status_ui()
+            return
+
+        if self.is_running:
+            self.is_running = False
+            self.scan_event.clear()
+            self.log("[*] Scan paused. Press the scan hotkey again to resume.")
+        else:
+            self.is_running = True
+            self.scan_event.set()
+            self.log("[*] Scan started. Looking for selected target...")
+        self.update_status_ui()
 
     def toggle_main_loop(self):
-        if self.scanner_thread is None or not self.scanner_thread.is_alive():
+        if not self.is_scanning():
             if not config.user_config.get("SKIP_REROLL_WARNING", False):
-                from gui_dialogs import RerollWarningDialog
-                dialog = RerollWarningDialog(self.window)
+                dialog = self._reroll_warning_dialog()
                 dialog.exec()
                 if not dialog.result:
                     return
@@ -155,17 +327,16 @@ class ScannerMixin:
 
             if (
                 getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False)
-                and not getattr(self, "obs_recording_reminder_shown", False)
+                and not self.obs_recording_reminder_shown
             ):
-                from gui_dialogs import ObsRecordingReminderDialog
                 self.obs_recording_reminder_shown = True
-                dialog = ObsRecordingReminderDialog(self.window)
+                dialog = self._obs_reminder_dialog()
                 dialog.exec()
 
             self.log(f"\n[*] Starting auto-reroll monitor in {config.EVALUATION_MODE.upper()} mode...")
 
             if config.EVALUATION_MODE == "templates":
-                self.active_templates = self._get_selected_template_names()
+                self.active_templates = self._filters.selected_template_names()
                 if not self.active_templates:
                     self.log("[-] Error: You must select at least one template!", tag="error")
                     return
@@ -199,23 +370,25 @@ class ScannerMixin:
             self.stop_event.clear()
             self.scanner_thread = threading.Thread(target=self.background_loop, daemon=True)
             self.scanner_thread.start()
-            self._sync_runtime_filters()
+            self._filters.sync()
             self.update_status_ui()
         else:
-            self.stop_event.set()
-            self.scan_event.set()
-            self._flush_total_rerolls(force=True)
+            # The stop path is `shutdown()`'s two events plus the forced flush,
+            # so it is the same call: one definition of "release the worker".
+            self.shutdown()
             self.is_running = False
             self.is_ready_to_start = False
             self.log("\n[*] Stopping auto-reroll monitor...")
-            self.after(500, self.update_status_ui)
+            self._schedule(500, self.update_status_ui)
 
     def refresh_stats_ui(self):
-        if hasattr(self, "_refresh_session_stats_snapshot"):
-            self._refresh_session_stats_snapshot()
+        # Both were `hasattr`-guarded on the shared namespace, for app doubles
+        # that carried neither. They are ports now and always present; each one
+        # already answers "no owner" internally on the app side, which is where
+        # that decision belongs.
+        self._refresh_session_stats_snapshot()
         _set_text(self.stats_rerolls_label, f"Session Rerolls: {self.session_rerolls}")
-        if hasattr(self, "refresh_session_tracked_item_stats_ui"):
-            self.refresh_session_tracked_item_stats_ui()
+        self._refresh_session_tracked_item_stats_ui()
 
         if self.best_map_stats:
             _set_text(self.stats_best_label, f"Best Map Found: {format_stats(self.best_map_stats, self.active_templates)}")
@@ -269,11 +442,10 @@ class ScannerMixin:
 
         # Integrations read this thread-safe session snapshot instead of UI
         # state, so it must be updated independently of the throttled repaint.
-        if hasattr(self, "_refresh_session_stats_snapshot"):
-            self._refresh_session_stats_snapshot()
+        self._refresh_session_stats_snapshot()
 
         if self.session_rerolls % 5 == 0:
-            self.after(0, self.refresh_stats_ui)
+            self._schedule(0, self.refresh_stats_ui)
 
     def log_target_found(self, template_name: str):
         if template_name in self.template_stats:
@@ -281,24 +453,24 @@ class ScannerMixin:
             attempts = data["rerolls_since_last"] if data["rerolls_since_last"] > 0 else 1
             data["history"].append(attempts)
             data["rerolls_since_last"] = 0
-        self.after(0, self.refresh_stats_ui)
+        self._schedule(0, self.refresh_stats_ui)
 
     def check_best_map(self, stats: dict):
         score = calculate_map_score(stats)
         if score > self.best_map_score:
             self.best_map_score = score
             self.best_map_stats = stats
-            self.after(0, self.refresh_stats_ui)
+            self._schedule(0, self.refresh_stats_ui)
 
     def check_worst_map(self, stats: dict):
         score = calculate_map_score(stats)
         if score < self.worst_map_score:
             self.worst_map_score = score
             self.worst_map_stats = stats
-            self.after(0, self.refresh_stats_ui)
+            self._schedule(0, self.refresh_stats_ui)
 
     def reroll_map(self) -> bool:
-        if self.run_control_provider is None:
+        if self._run_control.run_control_provider is None:
             self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
             return False
         if self._scan_abort_requested():
@@ -316,13 +488,13 @@ class ScannerMixin:
             return False
 
         try:
-            self.run_control_provider.restart_run()
+            self._run_control.run_control_provider.restart_run()
         except RunControlError as exc:
             self.log(f"[-] {exc}", tag="error")
             return False
 
         try:
-            self.run_control_provider.wait_for_next_run(
+            self._run_control.run_control_provider.wait_for_next_run(
                 client=self.client,
                 previous_state=previous_state,
                 previous_stats=previous_stats,
@@ -344,8 +516,8 @@ class ScannerMixin:
             self.client = None
 
     def _disconnect_stale_scanner_client(self, process_name: str) -> bool:
-        attached_process_id = self._attached_game_process_id()
-        foreground_process_id = self._foreground_game_process_id(process_name)
+        attached_process_id = self._run_control.attached_game_process_id()
+        foreground_process_id = self._run_control.foreground_game_process_id(process_name)
         if (
             attached_process_id is None
             or foreground_process_id is None
@@ -359,7 +531,7 @@ class ScannerMixin:
         )
         self.close_client()
         self.is_ready_to_start = False
-        self.after(0, self.update_status_ui)
+        self._schedule(0, self.update_status_ui)
         return True
 
     def background_loop(self):
@@ -376,19 +548,19 @@ class ScannerMixin:
                     self.client = GameDataClient(process_name=process_name)
                     self.log(f"[+] Game connected! Press '{config.HOTKEY}' to start auto-reroll.", tag="success")
                     self.is_ready_to_start = True
-                    self.after(0, self.update_status_ui)
+                    self._schedule(0, self.update_status_ui)
                 except ProcessNotFoundError:
                     if wait_state != "process":
                         self.log(f"[WAIT] Waiting for process '{process_name}'...", tag="warning")
                         wait_state = "process"
-                        self.after(0, self.update_status_ui)
+                        self._schedule(0, self.update_status_ui)
                     time.sleep(1)
                     continue
                 except ModuleNotFoundError:
                     if wait_state != "module":
                         self.log("[WAIT] Game found. Waiting for it to finish loading...", tag="warning")
                         wait_state = "module"
-                        self.after(0, self.update_status_ui)
+                        self._schedule(0, self.update_status_ui)
                     time.sleep(1)
                     continue
 
@@ -403,8 +575,8 @@ class ScannerMixin:
                 break
 
             try:
-                focus_was_active = self.is_game_window_active(process_name)
-                if not self.wait_for_game_window_focus(process_name):
+                focus_was_active = self._run_control.is_game_window_active(process_name)
+                if not self._run_control.wait_for_game_window_focus(process_name):
                     continue
                 if self._disconnect_stale_scanner_client(process_name):
                     is_first_scan = True
@@ -422,7 +594,7 @@ class ScannerMixin:
                         previous_state=last_state,
                         previous_stats=last_stats,
                         require_change=not is_first_scan,
-                        abort_condition=lambda: self.stop_event.is_set() or not self.scan_event.is_set() or not self.is_game_window_active(process_name),
+                        abort_condition=lambda: self._scan_abort_requested() or not self._run_control.is_game_window_active(process_name),
                         timeout=10.0,
                     )
                 except InterruptedError:
@@ -441,7 +613,7 @@ class ScannerMixin:
                 candidate = evaluate_candidate(stats, self.active_templates, context=eval_context)
 
                 if candidate is not None:
-                    if not self.wait_for_game_window_focus(process_name):
+                    if not self._run_control.wait_for_game_window_focus(process_name):
                         continue
 
                     t_name = candidate.get("name")
@@ -455,17 +627,17 @@ class ScannerMixin:
                     self.log(f"Map Stats: {format_stats(stats, self.active_templates)}", tag="success")
                     self.log_target_found(t_name)
 
-                    if not self.handle_confirmed_target_window(process_name):
+                    if not self._run_control.handle_confirmed_target_window(process_name):
                         continue
 
                     self.is_running = False
                     self.scan_event.clear()
-                    self.after(0, self.update_status_ui)
+                    self._schedule(0, self.update_status_ui)
                     continue
                 else:
                     self.log(f"Stats: {format_stats(stats, self.active_templates)}")
 
-                if not self.wait_for_game_window_focus(process_name):
+                if not self._run_control.wait_for_game_window_focus(process_name):
                     continue
 
                 elapsed = time.monotonic() - last_reroll_time
@@ -484,7 +656,7 @@ class ScannerMixin:
             except TimeoutError:
                 self.log("[-] Map took too long to load.", tag="warning")
                 self.log("[*] Restarting run to recover...", tag="warning")
-                if self.wait_for_game_window_focus(process_name) and self.reroll_map():
+                if self._run_control.wait_for_game_window_focus(process_name) and self.reroll_map():
                     last_reroll_time = time.monotonic()
                 last_state = None
                 last_stats = None
@@ -497,7 +669,7 @@ class ScannerMixin:
                 wait_state = None
                 last_state = None
                 last_stats = None
-                self.after(0, self.update_status_ui)
+                self._schedule(0, self.update_status_ui)
                 time.sleep(1)
             except Exception as exc:
                 self.log(f"[-] Error during execution: {exc}", tag="error")
@@ -508,7 +680,7 @@ class ScannerMixin:
         self.is_running = False
         self.is_ready_to_start = False
         self.scan_event.clear()
-        self.after(0, self.update_status_ui)
+        self._schedule(0, self.update_status_ui)
 
     # `on_closing` and `deferred_update_check` were defined here until step 25b.
     # Both are `MegabonkApp`'s now.
@@ -523,7 +695,7 @@ class ScannerMixin:
     # written where the events happened to live; it is composition-root
     # lifecycle, which is what step 26 says `MegabonkApp` is for.
 
-    def _build_session_stats_tab(self):
+    def build_session_stats_tab(self):
         self.tab_stats = QWidget()
         stats_layout = QVBoxLayout(self.tab_stats)
         stats_scroll, _stats_content, stats_content_layout = _make_scroll_section()
@@ -576,7 +748,7 @@ class ScannerMixin:
         self.stats_tracked_items_settings_btn.setToolTip("Tracked item settings")
         self.stats_tracked_items_settings_btn.setFixedSize(34, 30)
         _apply_button_icon(self.stats_tracked_items_settings_btn, "media/settings_icon.png", 18)
-        self.stats_tracked_items_settings_btn.clicked.connect(self.open_session_tracked_item_settings_dialog)
+        self.stats_tracked_items_settings_btn.clicked.connect(self._open_tracked_item_settings_dialog)
         tracked_items_row.addWidget(self.stats_tracked_items_label, 1)
         tracked_items_row.addWidget(self.stats_tracked_items_settings_btn)
         tracked_items_layout.addLayout(tracked_items_row)
@@ -593,4 +765,46 @@ class ScannerMixin:
         average_layout.addWidget(self.stats_avg_frame)
         stats_content_layout.addWidget(average_group)
         stats_content_layout.addStretch(1)
-        self.tabview.addTab(self.tab_stats, "Session Stats")
+        self._add_tab(self.tab_stats, "Session Stats")
+
+
+def build_scanner(
+    app: Any,
+    coordinator: Any,
+    run_control: RunControl,
+    filters: TemplateRuntimeFilters,
+) -> Scanner:
+    """Wire the scanner to its measured owners without giving it the app.
+
+    The four widget ports (`log_box`, `status_label`, `toggle_btn`, `add_tab`)
+    are `gui_layout`'s and stay `gui_layout`'s: step 26 owns those, and reading
+    them through a lambda here means neither this module nor `gui_layout` gains
+    a hidden read for them. The two dialog factories follow steps 22c/23c/24 --
+    `gui_dialogs` is top-level debt, so the composition root supplies the
+    factory rather than the component importing it.
+    """
+    return Scanner(
+        coordinator,
+        run_control=run_control,
+        filters=filters,
+        schedule=lambda delay_ms, callback: app.after(delay_ms, callback),
+        # `__dict__`, not `hasattr`: `MegabonkApp.__getattr__` forwards unknown
+        # names to its window, so `hasattr(app, "_invoker")` would consult a
+        # widget before deciding the invoker is missing. Same reasoning as the
+        # client and template-filter owners above it in `gui_app.py`.
+        can_log=lambda: app.__dict__.get("_invoker") is not None,
+        log_box=lambda: app.log_box,
+        status_label=lambda: app.status_label,
+        toggle_btn=lambda: app.toggle_btn,
+        add_tab=lambda widget, title: app.tabview.addTab(widget, title),
+        refresh_session_stats_snapshot=lambda: app._refresh_session_stats_snapshot(),
+        refresh_session_tracked_item_stats_ui=lambda: app.refresh_session_tracked_item_stats_ui(),
+        open_tracked_item_settings_dialog=lambda: app.open_session_tracked_item_settings_dialog(),
+        is_recording=lambda: bool(app.player_stats_vod_recorder.is_recording),
+        refresh_timeline=lambda: player_stats_view(app).refresh_player_stats_timeline_ui(
+            update_slider=False
+        ),
+        is_shutting_down=lambda: bool(app._is_shutting_down),
+        reroll_warning_dialog=lambda: RerollWarningDialog(app.window),
+        obs_reminder_dialog=lambda: ObsRecordingReminderDialog(app.window),
+    )

@@ -449,29 +449,31 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
     owner the arch metric attributed it to:
 
     * `tracker`      -- `live_run_tracker`, built by `gui_overlay` (step 24c).
-    * `is_scanning`  -- `scanner_thread`, `ScannerMixin`'s (step 25).
+    * `is_scanning`  -- `Scanner`'s thread (step 25c).
     * `is_recording` -- `player_stats_vod_recorder`, `AppCoordinator`'s.
-    * the two window helpers -- `RunControlMixin`'s (step 25). Injected as
-      ports rather than moved, which is the boundary step 24 was told not to
-      cross.
+    * the two window helpers -- `RunControl`'s (step 25c).
     * `schedule` / `schedule_idle` -- the Qt scheduler on `MegabonkApp`.
 
     All seven are re-read on every call for the reason `build_twitch_session`
     records: the tracker is `None` until the overlay runtime initialises and
     the scanner thread is replaced on every start.
+
+    Step 25c pointed three of them at the components instead of at the app.
+    They were the only production readers of `scanner_thread`,
+    `is_game_window_active` and `find_game_window` outside the two subjects, so
+    repointing them is what let step 25 avoid keeping three app delegators
+    whose sole caller was this function -- which is what the note above them
+    said step 25 would do.
     """
     return InGameOverlay(
         tracker=lambda: getattr(app, "live_run_tracker", None),
-        is_scanning=lambda: (
-            getattr(app, "scanner_thread", None) is not None
-            and app.scanner_thread.is_alive()
-        ),
+        is_scanning=lambda: app._scanner.is_scanning(),
         is_recording=lambda: (
             getattr(app, "player_stats_vod_recorder", None) is not None
             and app.player_stats_vod_recorder.is_recording
         ),
-        is_game_window_active=lambda process_name: app.is_game_window_active(process_name),
-        find_game_window=lambda process_name: app.find_game_window(process_name),
+        is_game_window_active=lambda process_name: app._run_control.is_game_window_active(process_name),
+        find_game_window=lambda process_name: app._run_control.find_game_window(process_name),
         schedule=lambda callback: app.after(0, callback),
         schedule_idle=lambda callback: app.after_idle(callback),
     )
