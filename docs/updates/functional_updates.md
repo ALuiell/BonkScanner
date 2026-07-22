@@ -254,7 +254,7 @@ Goal:
 
 #### 2. Default Height For Score Settings Dialog (Refactor Fixes)
 
-Status: `[Open]`
+Status: `[Implemented]`
 
 Goal:
 
@@ -325,6 +325,5 @@ Goal:
 - Restore the ability to configure target `Magnets` count conditions in template evaluation rules (`Templates Mode`).
 - Reuse the existing memory read and evaluation paths already active for `Magnets` in `Scores Mode`.
 - Update the template editor dialog, config schema, evaluation condition matcher, and condensed UI/Twitch preset formatters to include magnet conditions.
-
 
 

@@ -344,7 +344,7 @@ class ScoresSettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Scores Settings")
-        self.resize(460, 560)
+        self.resize(460, 640)
         self.setModal(True)
         self.active_tier_checks: dict[str, QCheckBox] = {}
         self.threshold_entries: dict[str, QLineEdit] = {}
