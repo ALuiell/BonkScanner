@@ -90,6 +90,12 @@ from core.tracker.live_run import LiveRunSnapshot, PowerupMapContext
 from projections.vod import build_vod_capture_kwargs
 from projections import formatting
 
+# The per-source failure ledger's key for the map-activity read. Its own name
+# rather than reusing `MAP_ACTIVITY_VALUES`: that key identifies a fact inside
+# one read pass, this one identifies a health streak across passes, and giving
+# them the same string would tie two unrelated lifetimes together.
+_MAP_ACTIVITY_SOURCE = "map_activity"
+
 # `CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS` moved to `app/run_lifecycle.py`,
 # with the probe that applies it. It is deliberately **not** re-exported
 # here: nothing imported it from this module, and a re-export with no
@@ -286,7 +292,19 @@ class PlayerStatsRefresh:
                 )
                 or {}
             )
+            if not map_activity_values and self._lifecycle_service().is_active_run():
+                # An empty dictionary is not an exception: `get_map_activity_values`
+                # returns `{}` whenever any pointer in its chain reads zero, so
+                # a client that has gone stale answers "no activities" forever
+                # without ever advancing the reconnect streak. During a run
+                # there are always activities on the map, so empty here means
+                # the chain did not resolve. Outside a run -- menu, loading --
+                # empty is legitimate, which is what the lifecycle gate is for.
+                raise MemoryReadError(
+                    "Map activity dictionary resolved empty during an active run."
+                )
             self._memory_service().record_game_data_success()
+            self._memory_service().record_game_data_source_success(_MAP_ACTIVITY_SOURCE)
             map_activity_max = {
                 label: int(value.max)
                 for label, value in map_activity_values.items()
@@ -304,18 +322,15 @@ class PlayerStatsRefresh:
                 map_pots_total = pots_stat.max
         except Exception as exc:
             self._memory_service().record_game_data_failure(exc)
+            # The shared streak above is reset by every *other* game-data read
+            # that succeeds in this tick, so on its own it can never recycle a
+            # client for one persistently failing source. This one counts only
+            # this read.
+            self._memory_service().record_game_data_source_failure(
+                _MAP_ACTIVITY_SOURCE, exc
+            )
             map_stats = {}
             map_activity_max = {}
-        if map_activity_max and hasattr(
-            self._live_tracker(),
-            "update_powerup_map_context",
-        ):
-            self._live_tracker().update_powerup_map_context(
-                PowerupMapContext.from_activity_max(
-                    map_activity_max,
-                    captured_at=time.monotonic(),
-                )
-            )
         live_snapshot = LiveRunSnapshot(
             captured_at=time.monotonic(),
             stats=stats,
@@ -344,6 +359,27 @@ class PlayerStatsRefresh:
             pots_total=map_pots_total,
         )
         self._live_tracker().update(live_snapshot)
+
+        # Published *after* `update`, not before it.
+        #
+        # `update` calls `_reset_for_new_run` on the first snapshot of a run,
+        # and that blanks `_powerup_map_context`. Publishing above meant the
+        # context was written and then destroyed on the same tick, leaving the
+        # first ten seconds of every run with no map context at all -- which is
+        # exactly the state in which powerups can only show seconds remaining,
+        # because `resolve_ui_context` has no timer limit without it. Nothing
+        # between the read and here consumes the context, so moving the publish
+        # below the reset costs nothing.
+        if map_activity_max and hasattr(
+            self._live_tracker(),
+            "update_powerup_map_context",
+        ):
+            self._live_tracker().update_powerup_map_context(
+                PowerupMapContext.from_activity_max(
+                    map_activity_max,
+                    captured_at=time.monotonic(),
+                )
+            )
 
         # Update chests and keys without replacing valid data after a transient read failure.
         previous_chests = (0, 46, 0, 0, {}, {})

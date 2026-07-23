@@ -3349,6 +3349,93 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(snapshot_calls, [])
         self.assertEqual(timeline_calls, ["timeline"])
 
+    def _map_activity_app(self, activity_values, *, active_run: bool):
+        """A recording app whose map-activity read returns `activity_values`."""
+        app = self.build_recording_app()
+        app._is_live_stats_tab_active = lambda: False
+        state = RuntimeGameState(
+            mode=RuntimeGameMode.IN_GAME if active_run else RuntimeGameMode.MAIN_MENU,
+            is_playing=active_run,
+        )
+        player_stats_memory(app).read_player_stats_runtime_game_state = (
+            lambda _context=None: state
+        )
+        player_stats_memory(app).read_player_stats_runtime_activity_state = (
+            lambda _context=None: state
+        )
+        run_lifecycle(app).refresh()
+        player_stats_memory(app)._get_player_stats_client = lambda: SimpleNamespace(
+            get_live_weapons=lambda owner_stats=None: (),
+            get_live_tomes=lambda owner_stats=None: (),
+            get_live_banishes=lambda: (),
+            get_run_timer=lambda: 21.5,
+            get_stage_timer_context=lambda: (9.0, 0, None),
+            get_stage_timer=lambda: 9.0,
+            get_killed_mobs=lambda: 37,
+            get_player_level=lambda owner_stats=None: 2,
+        )
+        closes: list[int] = []
+        app.player_stats_game_data_client = SimpleNamespace(
+            get_map_generation_state=lambda: SimpleNamespace(
+                map_seed=None,
+                current_stage_ptr=0,
+            ),
+            get_map_activity_values=lambda: activity_values,
+            close=lambda: closes.append(1),
+        )
+        return app, closes
+
+    def test_an_empty_map_activity_read_recycles_the_game_data_client(self) -> None:
+        """`get_map_activity_values` returns `{}` -- it does not raise -- whenever
+        any pointer in its chain reads zero. A stale client therefore answered
+        "no activities" forever without ever advancing the reconnect streak, and
+        `refresh_now` skips the powerup map-context publish on an empty read.
+        Observed live on 2026-07-23: the chests card froze and every powerup lost
+        its start/end while the rest of the app looked healthy.
+        """
+        app, closes = self._map_activity_app({}, active_run=True)
+
+        for _ in range(3):
+            MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertEqual(len(closes), 1)
+        self.assertEqual(
+            player_stats_memory(app)._player_stats_game_data_memory_error_streak, 0
+        )
+
+    def test_an_empty_map_activity_read_outside_a_run_is_not_a_failure(self) -> None:
+        """Menu and loading screens legitimately have no activities. Counting
+        those would recycle the client every ten seconds while the game sits on
+        the main menu."""
+        app, closes = self._map_activity_app({}, active_run=False)
+
+        for _ in range(3):
+            MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertEqual(closes, [])
+        self.assertEqual(
+            player_stats_memory(app)._player_stats_game_data_memory_error_streak, 0
+        )
+
+    def test_a_populated_map_activity_read_publishes_the_powerup_map_context(self) -> None:
+        """The other side of the same branch: a good read must still reach the
+        publish, which is what powerups need to show start and end times."""
+        app, closes = self._map_activity_app(
+            {
+                "Chests": SimpleNamespace(current=4, max=46),
+                "Pots": SimpleNamespace(current=0, max=55),
+            },
+            active_run=True,
+        )
+
+        MegabonkApp.refresh_live_player_stats_now(app)
+
+        self.assertEqual(closes, [])
+        context = app.live_run_tracker.powerup_map_context()
+        self.assertIsNotNone(context)
+        self.assertFalse(context.is_graveyard)
+        self.assertEqual((context.activity_max or {}).get("Chests"), 46)
+
     def test_refresh_live_player_stats_now_does_not_capture_while_paused(self) -> None:
         app = self.build_recording_app()
         app.player_stats_vod_recorder = FakeRecordingRecorder(is_recording=True, should_capture=True)

@@ -128,6 +128,15 @@ class PlayerStatsMemory:
 
         self._player_stats_memory_error_streak = 0
         self._player_stats_game_data_memory_error_streak = 0
+        # Per-source consecutive-failure counters for the game-data client.
+        #
+        # The shared streak above cannot do this job: several game-data reads
+        # run per tick and every one of them zeroes it on success, so a single
+        # persistently failing read never climbs to the reconnect threshold
+        # while its siblings keep succeeding. That is why the stale client
+        # observed live on 2026-07-23 was never recycled and only restarting
+        # the app fixed it.
+        self._game_data_source_error_streaks: dict[str, int] = {}
 
     # -- the read-failure reconnect policy --------------------------------
     #
@@ -156,8 +165,22 @@ class PlayerStatsMemory:
         self._player_stats_game_data_memory_error_streak = 0
 
     def record_game_data_failure(self, error: Exception) -> None:
-        if not isinstance(error, (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError)):
-            return
+        # Every exception counts, not only the three recognised memory types.
+        #
+        # The filter its sibling above still keeps was making this path's
+        # failures *unrecoverable*: an unrecognised exception returned early,
+        # the streak never reached the threshold, the client was never
+        # recycled, and `get_map_activity_values` kept answering for a dead
+        # client until the app was restarted. Observed live on 2026-07-23 --
+        # the chests card froze and every powerup lost its start/end, because
+        # `refresh_now` skips the powerup map-context publish when the map
+        # activity read comes back empty, and the context then expired.
+        #
+        # `record_memory_failure` deliberately keeps its filter. That path
+        # carries `InvalidItemStackCountError`, a `ValueError` raised by a torn
+        # read that is *expected* to happen occasionally and is not a reason to
+        # drop the client. This one has no such transient.
+        _ = error
         self._player_stats_game_data_memory_error_streak = int(self._player_stats_game_data_memory_error_streak) + 1
         if self._player_stats_game_data_memory_error_streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
             return
@@ -165,6 +188,27 @@ class PlayerStatsMemory:
             self.close_player_stats_game_data_client()
         finally:
             self._player_stats_game_data_memory_error_streak = 0
+
+    def record_game_data_source_success(self, source: str) -> None:
+        self._game_data_source_error_streaks[str(source)] = 0
+
+    def record_game_data_source_failure(self, source: str, error: Exception) -> None:
+        """Consecutive failures of one named game-data read, not of the client.
+
+        Recycles the client at the same threshold as the shared streak, but
+        counts only this source, so a sibling read succeeding in the same tick
+        cannot cancel it.
+        """
+        _ = error
+        source = str(source)
+        streak = int(self._game_data_source_error_streaks.get(source, 0)) + 1
+        self._game_data_source_error_streaks[source] = streak
+        if streak < PLAYER_STATS_MEMORY_ERROR_RECONNECT_THRESHOLD:
+            return
+        try:
+            self.close_player_stats_game_data_client()
+        finally:
+            self._game_data_source_error_streaks[source] = 0
 
     # -- client lifecycle -------------------------------------------------
 
@@ -535,6 +579,7 @@ class PlayerStatsMemory:
                 pass
             self._write_game_data_client(None)
         self._player_stats_game_data_memory_error_streak = 0
+        self._game_data_source_error_streaks.clear()
 
 
 def player_stats_memory(owner) -> PlayerStatsMemory:

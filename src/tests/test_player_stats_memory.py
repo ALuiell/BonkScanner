@@ -63,14 +63,87 @@ class PlayerStatsMemoryTests(unittest.TestCase):
         service.record_memory_failure(MemoryReadError("3"))
         self.assertEqual(service._player_stats_memory_error_streak, 1)
 
-    def test_non_memory_error_is_ignored(self) -> None:
+    def test_a_non_memory_error_still_recycles_the_game_data_client(self) -> None:
+        """It used to be ignored, and that made this path's failures permanent.
+
+        An unrecognised exception returned early, the streak never reached the
+        threshold, and the client was never recycled -- so a stale game-data
+        client kept answering until the app was restarted. Observed live on
+        2026-07-23: `get_map_activity_values` came back empty, `refresh_now`
+        skipped the powerup map-context publish, the context expired, and every
+        powerup lost its start/end while the rest of the app looked healthy.
+        """
         client = _CountingClient()
         service, world = build_player_stats_memory(game_data_client=client)
-        for _ in range(5):
+
+        for _ in range(3):
             service.record_game_data_failure(ValueError("nonsense"))
-        self.assertEqual(client.closed, 0)
-        self.assertIsNotNone(world.game_data_client)
+
+        self.assertEqual(client.closed, 1)
+        self.assertIsNone(world.game_data_client)
         self.assertEqual(service._player_stats_game_data_memory_error_streak, 0)
+
+    def test_a_per_source_streak_survives_a_sibling_read_succeeding(self) -> None:
+        """This is why the shared streak could never recycle anything.
+
+        Several game-data reads run per tick and every one of them zeroes the
+        shared streak on success, so one persistently failing read climbs to 1
+        and is knocked straight back to 0 by its neighbours. That is the reason
+        the stale client observed live on 2026-07-23 survived until the app was
+        restarted -- widening the exception filter alone would not have helped.
+        """
+        client = _CountingClient()
+        service, world = build_player_stats_memory(game_data_client=client)
+
+        for _ in range(3):
+            # The tick's other game-data reads succeed, as they did live.
+            service.record_game_data_success()
+            service.record_game_data_source_failure("map_activity", MemoryReadError("empty"))
+
+        self.assertEqual(client.closed, 1)
+        self.assertIsNone(world.game_data_client)
+
+    def test_a_per_source_streak_is_reset_by_its_own_success(self) -> None:
+        client = _CountingClient()
+        service, _ = build_player_stats_memory(game_data_client=client)
+
+        service.record_game_data_source_failure("map_activity", MemoryReadError("1"))
+        service.record_game_data_source_failure("map_activity", MemoryReadError("2"))
+        service.record_game_data_source_success("map_activity")
+        service.record_game_data_source_failure("map_activity", MemoryReadError("3"))
+
+        self.assertEqual(client.closed, 0)
+        self.assertEqual(service._game_data_source_error_streaks["map_activity"], 1)
+
+    def test_two_sources_do_not_share_a_streak(self) -> None:
+        client = _CountingClient()
+        service, _ = build_player_stats_memory(game_data_client=client)
+
+        for _ in range(2):
+            service.record_game_data_source_failure("map_activity", MemoryReadError("a"))
+            service.record_game_data_source_failure("runtime_state", MemoryReadError("b"))
+
+        self.assertEqual(client.closed, 0)
+        self.assertEqual(service._game_data_source_error_streaks["map_activity"], 2)
+        self.assertEqual(service._game_data_source_error_streaks["runtime_state"], 2)
+
+    def test_the_stats_client_still_ignores_a_non_memory_error(self) -> None:
+        """The sibling filter is deliberately kept.
+
+        That path carries `InvalidItemStackCountError` -- a `ValueError` raised
+        by a torn item read, which is expected to happen occasionally and is
+        not a reason to drop the client. The game-data path has no equivalent
+        transient, which is why only it was widened.
+        """
+        client = _CountingClient()
+        service, world = build_player_stats_memory(stats_client=client)
+
+        for _ in range(5):
+            service.record_memory_failure(ValueError("nonsense"))
+
+        self.assertEqual(client.closed, 0)
+        self.assertIsNotNone(world.stats_client)
+        self.assertEqual(service._player_stats_memory_error_streak, 0)
 
     def test_close_stats_client_resets_match_metadata_but_keeps_last_items(self) -> None:
         store = LiveSnapshotStore()
