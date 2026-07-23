@@ -4942,7 +4942,13 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(overlay.in_game_overlay_window.show_calls, 1)
 
     def test_overlay_fast_tick_refreshes_slow_widgets_when_overlay_becomes_visible(self) -> None:
-        scanner_widget = SimpleNamespace(set_text=MagicMock())
+        # Asserted on `luck_rarity`, not on `scanner`. The scanner plaque moved
+        # to the fast tick -- it reads app state, not the snapshot -- so it is
+        # painted on every tick and would satisfy this test whether the
+        # become-visible refresh happened or not. `luck_rarity` is the only
+        # widget left on the slow path, which makes it the only one that can
+        # prove this branch runs.
+        luck_widget = SimpleNamespace(set_text=MagicMock(), set_probabilities=MagicMock())
         tracker = SimpleNamespace(
             runtime_snapshot=lambda: SimpleNamespace(
                 latest_snapshot=None,
@@ -4960,9 +4966,9 @@ class GuiRunControlTests(unittest.TestCase):
         )
         overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=False)
         overlay.in_game_overlay_window.widgets = {
-            "scanner": scanner_widget,
+            "scanner": SimpleNamespace(set_text=MagicMock()),
             "recording": SimpleNamespace(set_text=MagicMock()),
-            "luck_rarity": SimpleNamespace(set_text=MagicMock()),
+            "luck_rarity": luck_widget,
             "kps": SimpleNamespace(set_text=MagicMock()),
             "powerups": SimpleNamespace(set_text=MagicMock(), setVisible=MagicMock()),
         }
@@ -4971,7 +4977,7 @@ class GuiRunControlTests(unittest.TestCase):
             "widgets": {
                 "scanner": {"enabled": True},
                 "recording": {"enabled": False},
-                "luck_rarity": {"enabled": False},
+                "luck_rarity": {"enabled": True},
                 "kps": {"enabled": False},
                 "powerups": {"enabled": False},
             },
@@ -4980,7 +4986,139 @@ class GuiRunControlTests(unittest.TestCase):
             became_visible = overlay._overlay_fast_tick()
 
         self.assertTrue(became_visible)
+        luck_widget.set_probabilities.assert_called_once()
+
+    def test_overlay_fast_tick_paints_the_status_plaques_every_tick(self) -> None:
+        """They read app state, not game memory: the scan flag flips the moment
+        the user starts a scan, and `REC` flips on the record button or on
+        `sync_run_state`, which runs every second. On the 10 s tick a streamer
+        watched the plaque appear up to ten seconds after starting."""
+        scanner_widget = SimpleNamespace(set_text=MagicMock())
+        recording_widget = SimpleNamespace(set_text=MagicMock())
+        tracker = SimpleNamespace(
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=None,
+                kps={},
+                powerups=SimpleNamespace(),
+                powerup_map_context=None,
+                fast_stage_timer=None,
+                graveyard_main_map_events_active=False,
+            )
+        )
+        overlay = build_in_game_overlay_test_component(
+            tracker=tracker,
+            is_scanning=lambda: True,
+            is_recording=lambda: True,
+            is_game_window_active=lambda _process_name: True,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.widgets = {
+            "scanner": scanner_widget,
+            "recording": recording_widget,
+        }
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "scanner": {"enabled": True},
+                "recording": {"enabled": True},
+                "luck_rarity": {"enabled": False},
+                "kps": {"enabled": False},
+                "stats": {"enabled": False},
+                "powerups": {"enabled": False},
+            },
+        }
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            overlay._overlay_fast_tick()
+            overlay._overlay_fast_tick()
+
+        self.assertEqual(scanner_widget.set_text.call_count, 2)
+        self.assertEqual(recording_widget.set_text.call_count, 2)
+
+    def test_overlay_status_plaques_survive_a_missing_runtime_snapshot(self) -> None:
+        """No game attached is exactly when a scan gets started or stopped, and
+        the `runtime_snapshot is None` early return is what used to keep the
+        plaques frozen through it."""
+        scanner_widget = SimpleNamespace(set_text=MagicMock())
+        overlay = build_in_game_overlay_test_component(
+            tracker=SimpleNamespace(runtime_snapshot=lambda: None),
+            is_scanning=lambda: True,
+            is_game_window_active=lambda _process_name: True,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.widgets = {"scanner": scanner_widget}
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "scanner": {"enabled": True},
+                "recording": {"enabled": False},
+                "luck_rarity": {"enabled": False},
+                "kps": {"enabled": False},
+                "stats": {"enabled": False},
+                "powerups": {"enabled": False},
+            },
+        }
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            overlay._overlay_fast_tick()
+
         scanner_widget.set_text.assert_called_once()
+
+    def test_overlay_stats_caps_follow_the_fast_stage_context(self) -> None:
+        """The stats themselves come from the 10 s snapshot and cannot be
+        fresher. The stage index and stage timer are not decoration though --
+        they pick the Difficulty and XP Gain caps -- and they were read off
+        `latest_snapshot` while the Event Timer beside them already used the
+        fast context."""
+        tracker = SimpleNamespace(
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=SimpleNamespace(
+                    stage_index=0,
+                    stage_duration_seconds=480.0,
+                    stage_timer_seconds=12.0,
+                    stats={},
+                ),
+                kps={},
+                powerups=SimpleNamespace(),
+                powerup_map_context=SimpleNamespace(is_graveyard=False),
+                fast_stage_timer=SimpleNamespace(
+                    stage_index=2,
+                    stage_duration_seconds=480.0,
+                    stage_timer_seconds=85.0,
+                ),
+                graveyard_main_map_events_active=False,
+            )
+        )
+        overlay = build_in_game_overlay_test_component(
+            tracker=tracker,
+            is_game_window_active=lambda _process_name: True,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.widgets = {
+            "stats": SimpleNamespace(set_text=MagicMock())
+        }
+        overlay._refresh_in_game_overlay_slow_widgets = lambda *_args: None
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "scanner": {"enabled": False},
+                "recording": {"enabled": False},
+                "kps": {"enabled": False},
+                "stats": {"enabled": True, "selected_stats": ["Difficulty"]},
+                "event_timer": {"enabled": False},
+                "powerups": {"enabled": False},
+            },
+        }
+        builder = MagicMock(return_value="<div></div>")
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), patch.object(
+            gui_in_game_overlay, "build_stats_overlay_html", builder
+        ):
+            overlay._overlay_fast_tick()
+
+        builder.assert_called_once()
+        _snapshot, _selected, stage_index, stage_timer, _duration, _graveyard = (
+            builder.call_args.args
+        )
+        self.assertEqual(stage_index, 2)
+        self.assertEqual(stage_timer, 85.0)
 
     def test_in_game_overlay_target_geometry_uses_game_window_rect(self) -> None:
         overlay = build_in_game_overlay_test_component(

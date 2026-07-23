@@ -249,6 +249,18 @@ class InGameOverlay:
             return False
 
         widgets = self.in_game_overlay_window.widgets
+        # The two status plaques, before the runtime snapshot is even read.
+        #
+        # They were on the 10 s tick, but neither reads game memory: `Scanner`
+        # flips the instant the user starts or stops a scan, and `REC` flips
+        # either on the record button or on `sync_run_state`, which the
+        # `recording_lifecycle` task runs every second. A streamer starting a
+        # recording watched the plaque appear up to ten seconds later.
+        #
+        # Placed above the `runtime_snapshot is None` return deliberately: no
+        # game attached is exactly when a scan gets started or stopped, and that
+        # early return is what kept the plaques frozen through it.
+        self._refresh_in_game_overlay_status_widgets()
         runtime_snapshot_reader = getattr(self._tracker(), "runtime_snapshot", None)
         runtime_snapshot = (
             runtime_snapshot_reader() if callable(runtime_snapshot_reader) else None
@@ -284,30 +296,42 @@ class InGameOverlay:
                 or 0.0
             )
 
-        event_stage_index = stage_index
-        event_stage_time_seconds = stage_time_seconds
-        event_stage_timer_seconds = stage_timer_seconds
+        # The stage context both the Event Timer and the Stats caps are read
+        # against. `latest_snapshot` supplies it at the 10 s snapshot cadence;
+        # the fast stage timer overrides it within ~1 s where it is available.
+        # Named `active_` rather than `event_` because the Event Timer is no
+        # longer its only consumer.
+        active_stage_index = stage_index
+        active_stage_time_seconds = stage_time_seconds
+        active_stage_timer_seconds = stage_timer_seconds
         fast_stage_context = projection.fast_stage_timer
         if fast_stage_context is not None:
             if getattr(fast_stage_context, "stage_index", None) is not None:
-                event_stage_index = int(fast_stage_context.stage_index)
-            event_stage_timer_seconds = float(
+                active_stage_index = int(fast_stage_context.stage_index)
+            active_stage_timer_seconds = float(
                 getattr(
                     fast_stage_context,
                     "stage_timer_seconds",
-                    event_stage_timer_seconds,
+                    active_stage_timer_seconds,
                 )
                 or 0.0
             )
 
         if cfg["widgets"].get("stats", {}).get("enabled", False):
             selected_stats = cfg["widgets"]["stats"].get("selected_stats", ["Damage", "Difficulty", "XP Gain", "Luck"])
+            # The *stats* here are the 10 s snapshot's and cannot be fresher,
+            # but the stage index and stage timer are not decoration: they pick
+            # the Difficulty and XP Gain caps inside `_build_in_game_stats_rows`.
+            # Read against `latest_snapshot` they switched up to a snapshot late,
+            # while the Event Timer beside them had already moved on the fast
+            # context computed directly above. Caps now follow the same clock
+            # the widget next to them does.
             html = build_stats_overlay_html(
                 latest_snapshot,
                 selected_stats,
-                stage_index,
-                stage_timer_seconds,
-                stage_time_seconds,
+                active_stage_index,
+                active_stage_timer_seconds,
+                active_stage_time_seconds,
                 is_graveyard,
             )
             widgets["stats"].set_text(html)
@@ -318,9 +342,9 @@ class InGameOverlay:
             graveyard_events_active = projection.graveyard_main_map_events_active
 
             html = build_event_timer_overlay_html(
-                event_stage_index,
-                event_stage_timer_seconds,
-                event_stage_time_seconds,
+                active_stage_index,
+                active_stage_timer_seconds,
+                active_stage_time_seconds,
                 is_graveyard,
                 warning_seconds,
                 graveyard_main_map_events_active=graveyard_events_active,
@@ -354,13 +378,13 @@ class InGameOverlay:
         projection = project_in_game_overlay(runtime_snapshot) if runtime_snapshot is not None else None
         self._refresh_in_game_overlay_slow_widgets(projection)
 
-    def _refresh_in_game_overlay_slow_widgets(self, projection=None) -> None:
+    def _refresh_in_game_overlay_status_widgets(self) -> None:
+        """The Scanner and REC plaques, both driven by app state rather than by
+        a memory read, so they can be painted on every fast tick for free."""
         if not self.in_game_overlay_window:
             return
-
         widgets = self.in_game_overlay_window.widgets
-        cfg = config.IN_GAME_OVERLAY
-        widget_cfg = cfg.get("widgets", {})
+        widget_cfg = config.IN_GAME_OVERLAY.get("widgets", {})
 
         if widget_cfg.get("scanner", {}).get("enabled", False):
             widgets["scanner"].set_text(
@@ -371,6 +395,17 @@ class InGameOverlay:
             widgets["recording"].set_text(
                 build_status_indicator_html("REC", bool(self._is_recording()))
             )
+
+    def _refresh_in_game_overlay_slow_widgets(self, projection=None) -> None:
+        """The 10 s widgets. `luck_rarity` alone now: it reads
+        `latest_snapshot.stats`, which cannot be fresher than the snapshot that
+        carries it, so a slow paint of slow data is the correct pairing."""
+        if not self.in_game_overlay_window:
+            return
+
+        widgets = self.in_game_overlay_window.widgets
+        cfg = config.IN_GAME_OVERLAY
+        widget_cfg = cfg.get("widgets", {})
 
         if widget_cfg.get("luck_rarity", {}).get("enabled", False):
             latest_snapshot = getattr(projection, "latest_snapshot", None) if projection is not None else None
