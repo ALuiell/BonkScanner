@@ -52,6 +52,50 @@ Tests:
 - Both files were tamper-checked: reverting each mechanism individually fails
   the case that covers it.
 
+Follow-up: per-frame cost with every section enabled (measured, not estimated)
+
+Throttling bounds how *often* a frame renders, not what one costs. With all
+comparison sections checked, a frame still ran ~83 ms on a real 713-snapshot
+recording -- a ceiling of ~12 FPS no matter how the events are coalesced.
+Profiling put effectively all of it in one section:
+
+| section | before | after |
+| --- | --- | --- |
+| `stage_summary` | 80.85 ms | 10.00 ms |
+| the other six, combined | 2.60 ms | 1.08 ms |
+| **full frame, all sections** | **~83.5 ms** | **11.08 ms** (~90 FPS) |
+
+`_build_compare_run_stage_summary_rows` rebuilds `build_stage_summary(
+snapshots[:index+1])` -- a fold over the whole run from its first snapshot --
+twice per frame, once per recording. Inside it, a single frame asked for
+~58,000 item-name normalisations of **58** distinct names, and re-parsed every
+snapshot's item list on every pass even though snapshots are frozen.
+
+Both were fixed by memoisation alone; no domain logic changed:
+
+- `lru_cache` on `_fold_item_name_for_rarity`,
+  `normalize_item_name_for_rarity` and `normalize_item_name_for_display`
+  (83 -> 37 ms). The public entry points still accept non-strings, and a `str`
+  subclass is converted rather than trusted as a cache key -- it can redefine
+  `__hash__`/`__eq__`.
+- `lru_cache` on `item_counts`, keyed by the item tuple (37 -> 11 ms).
+  **It returns a fresh dict on every call**: `create_stage_item_gain_tracker`
+  stores the result as `confirmed_counts` and then mutates it in place, so
+  handing out the cached mapping would corrupt every later reader. Unhashable
+  item lists fall back to the uncached path.
+
+Both caches are bounded, because item names come from game memory and a
+corrupted read would otherwise grow them without limit.
+
+Covered by `src/tests/test_item_lookup_memoisation.py`, tamper-checked:
+dropping the defensive copy fails five cases, two of which build a stage
+summary end to end.
+
+Known remaining limit: the stage summary is still `O(length of run)` per frame,
+so a recording twice as long costs twice as much. Removing that needs either
+debouncing the heavy sections during a drag or prefix checkpoints inside
+`build_stage_summary`; both were scoped, priced and deliberately deferred.
+
 ---
 
 ## Recently Handled Items (Archived 2026-07-22)

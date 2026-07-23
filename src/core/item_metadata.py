@@ -1,6 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+
+#: Name normalisation is memoised. The functions below are pure -- a string in,
+#: a string out, against tables built once at import -- and the callers hammer
+#: them: rebuilding one Compare Runs stage summary over a 713-snapshot
+#: recording asked for ~58 *thousand* normalisations of **58** distinct names,
+#: which was the single biggest cost in a timeline frame.
+#:
+#: Bounded rather than unbounded on purpose. The names come from game memory,
+#: so a corrupted read can produce an unbounded stream of one-off strings; a
+#: cache that grows for each of them would be a slow leak.
+_ITEM_NAME_CACHE_SIZE = 4096
 
 
 @dataclass(frozen=True)
@@ -116,6 +128,7 @@ ITEM_SCANNER_NAME_BY_ENUM_NAME: dict[str, str] = {
 }
 
 
+@lru_cache(maxsize=_ITEM_NAME_CACHE_SIZE)
 def _fold_item_name_for_rarity(item_name: str) -> str:
     return "".join(char.lower() for char in item_name if char.isalnum())
 
@@ -245,6 +258,17 @@ ITEM_DISPLAY_NAME_BY_RAW_VALUE: dict[str, str] = {
 
 
 def normalize_item_name_for_rarity(item_name: str) -> str:
+    # The cached body takes `str` only, so an unhashable argument cannot reach
+    # `lru_cache` and raise where the old code merely called `str()` on it.
+    # `type(...) is str` rather than `isinstance`: a `str` subclass can carry
+    # its own `__eq__`/`__hash__`, and cache identity must not depend on it.
+    if type(item_name) is str:
+        return _normalize_item_name_for_rarity(item_name)
+    return _normalize_item_name_for_rarity(str(item_name))
+
+
+@lru_cache(maxsize=_ITEM_NAME_CACHE_SIZE)
+def _normalize_item_name_for_rarity(item_name: str) -> str:
     normalized = " ".join(str(item_name).split())
     if normalized in ITEM_RARITY_NAME_ALIASES:
         return ITEM_RARITY_NAME_ALIASES[normalized]
@@ -257,6 +281,13 @@ def normalize_item_name_for_rarity(item_name: str) -> str:
 
 
 def normalize_item_name_for_display(item_name: str) -> str:
+    if type(item_name) is str:
+        return _normalize_item_name_for_display(item_name)
+    return _normalize_item_name_for_display(str(item_name))
+
+
+@lru_cache(maxsize=_ITEM_NAME_CACHE_SIZE)
+def _normalize_item_name_for_display(item_name: str) -> str:
     normalized = " ".join(str(item_name).split())
     folded = _fold_item_name_for_rarity(normalized)
     canonical_name = ITEM_RARITY_NAME_BY_FOLDED_NAME.get(

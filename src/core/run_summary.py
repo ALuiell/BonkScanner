@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from functools import lru_cache
 
 from core.item_metadata import (
     COLOR_MAP,
@@ -12,6 +13,12 @@ from core.item_metadata import (
 
 
 MAX_TRUSTED_ITEM_STACK_COUNT = 1_000_000
+
+#: How many distinct item lists `item_counts` remembers. Sized for scrubbing:
+#: a Compare Runs frame walks two recordings' full prefixes, so the working set
+#: is roughly the snapshot count of both runs. Bounded for the same reason the
+#: item-name caches are -- these lists come from game memory.
+_ITEM_COUNTS_CACHE_SIZE = 2048
 
 # Stage- and run-boundary tuning, moved here from gui_styles.py. This module is
 # the only consumer of six of the seven, and core/tracker/items.py already
@@ -62,6 +69,34 @@ def split_item_stack_suffix(item_text: str) -> tuple[str, str]:
 
 
 def item_counts(items) -> dict[str, int]:
+    """Stacked item names to counts, memoised over the item list.
+
+    A stage summary re-counts every snapshot's inventory from the start of the
+    run on every timeline frame, and a snapshot's item list never changes --
+    `VodSnapshot` is frozen and holds a tuple -- so the same ~33 strings were
+    being re-parsed hundreds of times per frame.
+
+    **The result is always a fresh dict.** `create_stage_item_gain_tracker`
+    stores it as `confirmed_counts` and then mutates it in place, so handing
+    out the cached mapping would let one caller corrupt every later reader's
+    answer. That is the whole risk of memoising this function, and the copy is
+    what retires it.
+    """
+    key = tuple(items or ())
+    try:
+        return dict(_cached_item_counts(key))
+    except TypeError:
+        # Unhashable entries: the cache cannot hold them, but the old
+        # behaviour -- `str(item)` on whatever arrived -- still must work.
+        return _compute_item_counts(key)
+
+
+@lru_cache(maxsize=_ITEM_COUNTS_CACHE_SIZE)
+def _cached_item_counts(items: tuple) -> dict[str, int]:
+    return _compute_item_counts(items)
+
+
+def _compute_item_counts(items) -> dict[str, int]:
     counts: dict[str, int] = {}
     for item in items or ():
         name, suffix = split_item_stack_suffix(str(item))
