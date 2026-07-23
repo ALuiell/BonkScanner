@@ -126,6 +126,7 @@ def find_matching_template(
     microwaves = template_microwaves(stats)
 
     boss = stats.get("Boss Curses", 0)
+    magnets = stats.get("Magnet Shrines", 0)
     bald_heads = stats.get("Bald Heads", 0)
     sm_total = shady + moai
 
@@ -146,6 +147,9 @@ def find_matching_template(
         if "micro" in template and microwaves < template["micro"]:
             meets_conditions = False
         if "boss" in template and boss < template["boss"]:
+            meets_conditions = False
+        magnet_requirement = template.get("magnet", template.get("magnet_shrines", 0))
+        if magnet_requirement > 0 and magnets < magnet_requirement:
             meets_conditions = False
         if "bald_heads" in template and template["bald_heads"] > 0:
             if not supports_bald_heads(stats, context) or bald_heads < template["bald_heads"]:

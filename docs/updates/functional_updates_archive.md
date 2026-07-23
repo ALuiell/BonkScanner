@@ -4,7 +4,116 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Recently Handled Items (Archived 2026-07-23)
+
+### Live Run Refactor Fixes
+
+#### 1. Compare Runs and Recordings Timeline Performance Optimization (Refactor Fixes)
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- Added `src/ui/throttle.py` with two primitives: `UiUpdateThrottle` (leading-edge
+  throttle with a trailing coalesced run, ~30 FPS window) and `batched_updates`
+  (a context manager that suspends Qt repaints for a multi-widget update).
+- Split all three timeline sliders into two tiers: the timeline captions are
+  written immediately on every `valueChanged`, while the heavy render is
+  coalesced to one run per throttle window and always renders the value the
+  drag stopped on.
+  - `CompareRunsTab.on_compare_run_slider_changed` (both side captions, since
+    moving one slider time-syncs the other).
+  - `RecordingsTab.on_vods_slider_changed`.
+  - `RecordingTimelineView.handle_slider_value` (Live Stats recording strip).
+- Added an LRU cache (128 entries) for the seven formatted Compare Runs diff
+  sections, keyed by both recordings, both indexes, the enabled sections, the
+  selected stat labels, and the item-details toggle. Scrubbing back over a
+  previously rendered frame reformats nothing. Cleared when a side's recording
+  is replaced or the two runs are swapped.
+- Added `SnapshotTimeIndex`: snapshot compare-times are sorted once per loaded
+  recording so time-sync is a bisect instead of a full scan per slider tick.
+  It reproduces the linear scan's `(distance, index)` tie-breaking exactly.
+- Added a dirty check on the Compare Runs diff cards, so an unchanged diff --
+  common between consecutive game seconds -- does not re-write seven rich-text
+  widgets.
+- Wrapped the Compare Runs panel refresh and the Recordings snapshot render in
+  `batched_updates`, so each does one Qt layout pass instead of one per widget.
+- Queued frames are dropped, not merely superseded, when the selection they
+  describe disappears: a Compare Runs load error, and loading or clearing a
+  recording in the Recordings tab.
+
+Tests:
+
+- `src/tests/test_ui_throttle.py` -- the two primitives, over an injected clock
+  and scheduler.
+- `src/tests/test_timeline_scrub_performance.py` -- caption/render split on all
+  three sliders, the diff cache and its two invalidation events, the dirty
+  check, and `SnapshotTimeIndex` parity against the linear scan it replaces.
+- Both files were tamper-checked: reverting each mechanism individually fails
+  the case that covers it.
+
+---
+
 ## Recently Handled Items (Archived 2026-07-22)
+
+### Live Run Refactor Fixes
+
+#### 1. Active Template Colors In Log Output (Refactor Fixes)
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- Formatted active template names and score tiers in `[*] Active templates updated live: ...` and `[*] Active tiers updated live: ...` log lines with rich-text/HTML colors corresponding to their template badge and score tier colors.
+- Retained colored log formatting across live checkbox updates and mode switches.
+
+Key commits:
+
+- `d3217e2` — Color live template update announcements.
+- `c799eb3` — Color live score tier announcements.
+
+#### 2. Default Height For Score Settings Dialog (Refactor Fixes)
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- Increased the default height/dimensions of the `Score Settings` dialog so the bottom `Save` / `Cancel` button panel is immediately visible without scrolling.
+
+Key commits:
+
+- `cc11cc0` — fix: increase score settings dialog height.
+
+#### 3. Enforce Scanner Start Guarding When Active Rules Are Empty (Refactor Fixes)
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- Updated score tier checkbox state sync so unchecking all score tiers explicitly saves `active_tiers = []` in configuration.
+- Prevented the scanner from starting when all tiers in `Scores Mode` or all templates in `Templates Mode` are unchecked, outputting an explicit error log line (`[-] Error: ...`).
+
+Key commits:
+
+- `59d9480` — Fix empty score tier selection.
+
+#### 4. Restore Magnets Requirement Support in Templates Mode (Refactor Fixes)
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- Restored target `Magnets` count conditions in template evaluation rules (`Templates Mode`).
+- Reused memory read and evaluation paths active for `Magnets` in `Scores Mode`.
+- Updated template editor dialog, config schema, evaluation condition matcher, and condensed UI/Twitch preset formatters to support magnet conditions.
+
+#### 5. Synchronize OBS Overlay Edit Mode On Active Widget Toggles (Refactor Fixes)
+
+Status: `[Implemented]`
+
+Implemented scope:
+
+- Automatically update active widget states in the OBS Overlay web editor when toggling checkboxes in BonkScanner UI without requiring users to manually re-enter edit mode.
 
 ### Stage Summary
 

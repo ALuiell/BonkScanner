@@ -457,6 +457,7 @@ class LogicTests(unittest.TestCase):
             {"id": 1, "name": "MOAI", "moai": 5},
             {"id": 1, "name": "MICRO", "micro": 2},
             {"id": 1, "name": "BOSS", "boss": 3},
+            {"id": 1, "name": "MAGNET", "magnet": 1},
         ]
 
         for template in blocking_templates:

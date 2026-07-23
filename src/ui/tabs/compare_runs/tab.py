@@ -34,7 +34,9 @@ generic names: once the tab left, that mixin had no callers of any of them.
 """
 from __future__ import annotations
 
+import bisect
 import threading
+from collections import OrderedDict
 from pathlib import Path
 from typing import Callable
 
@@ -60,6 +62,7 @@ from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
 from ui.shared import _apply_summary_label_padding, _make_scroll_section, _set_text
 from ui.styles import ITEM_SORT_LABELS
+from ui.throttle import UiUpdateThrottle, batched_updates
 from ui.tabs.player_stats.items_section import ItemsSectionView
 from projections import formatting
 from projections.formatting import COMPARE_RUN_STAT_LABELS
@@ -68,6 +71,12 @@ from projections.formatting import COMPARE_RUN_STAT_LABELS
 COMPARE_RUN_STAT_CONFIG_KEY = "COMPARE_RUN_STAT_LABELS"
 
 COMPARE_RUN_SECTIONS_CONFIG_KEY = "COMPARE_RUN_SECTIONS"
+
+#: How many formatted diffs to keep. A diff is seven short HTML strings, and
+#: scrubbing back and forth over the same stretch of two runs is the motion
+#: this cache exists for; 128 covers a few seconds of dragging in each
+#: direction without holding a whole recording's worth of markup.
+COMPARE_RUN_DIFF_CACHE_SIZE = 128
 
 COMPARE_RUN_SECTION_DEFAULTS = {
     "items": False,
@@ -131,18 +140,76 @@ def _checkbox_checked(checkbox) -> bool:
     return bool(checkbox is not None and checkbox.isChecked())
 
 
+class SnapshotTimeIndex:
+    """Snapshot compare-times, pre-sorted once so lookup is a bisect.
+
+    ``_nearest_snapshot_index`` used to walk every snapshot and call
+    ``_snapshot_compare_time`` on each one, and the time-sync path calls it
+    once per ``valueChanged`` -- so a drag across a 900-snapshot recording did
+    ~900 attribute probes per mouse pixel. The snapshot list of a *loaded*
+    recording never changes, so the walk belongs at load time.
+
+    Tie-breaking is the part worth being careful about, because the linear scan
+    it replaces had one: it kept the first strictly-closer snapshot, so among
+    equally distant candidates the lowest **original list index** won. A target
+    exactly between two snapshots is not a contrived case -- the two runs being
+    compared are sampled independently -- so ``nearest`` reproduces that
+    lexicographic ``(distance, index)`` order rather than whatever the sort
+    happens to yield.
+    """
+
+    __slots__ = ("_times", "_indices")
+
+    def __init__(self, times: tuple[float, ...], indices: tuple[int, ...]) -> None:
+        self._times = times
+        self._indices = indices
+
+    @classmethod
+    def build(cls, snapshots) -> "SnapshotTimeIndex":
+        entries = []
+        for index, snapshot in enumerate(snapshots):
+            snapshot_time = formatting._snapshot_compare_time(snapshot)
+            if snapshot_time is None:
+                continue
+            try:
+                entries.append((float(snapshot_time), index))
+            except (TypeError, ValueError):
+                continue
+        entries.sort()
+        return cls(
+            tuple(entry[0] for entry in entries),
+            tuple(entry[1] for entry in entries),
+        )
+
+    def nearest(self, target_time: float) -> int:
+        times = self._times
+        if not times:
+            return 0
+        target = float(target_time)
+        position = bisect.bisect_left(times, target)
+
+        best: tuple[float, int] | None = None
+        for neighbour in (position - 1, position):
+            if not 0 <= neighbour < len(times):
+                continue
+            # Every entry sharing this exact time is a candidate; the scan this
+            # replaces would have picked the earliest of them.
+            time_value = times[neighbour]
+            low = bisect.bisect_left(times, time_value)
+            high = bisect.bisect_right(times, time_value)
+            candidate = (abs(time_value - target), min(self._indices[low:high]))
+            if best is None or candidate < best:
+                best = candidate
+        return 0 if best is None else best[1]
+
+
 def _nearest_snapshot_index(snapshots, target_time: float) -> int:
-    best_index = 0
-    best_distance = float("inf")
-    for index, snapshot in enumerate(snapshots):
-        snapshot_time = formatting._snapshot_compare_time(snapshot)
-        if snapshot_time is None:
-            continue
-        distance = abs(float(snapshot_time) - float(target_time))
-        if distance < best_distance:
-            best_index = index
-            best_distance = distance
-    return best_index
+    """Uncached nearest lookup, for callers that hold no index.
+
+    The tab itself goes through ``SnapshotTimeIndex`` -- see
+    ``_compare_run_time_index`` -- because it can cache one per loaded side.
+    """
+    return SnapshotTimeIndex.build(snapshots).nearest(target_time)
 
 
 
@@ -174,11 +241,25 @@ class CompareRunsTab:
         vod_library,
         is_active: Callable[[], bool],
         schedule: Callable[[Callable[[], None]], None] | None = None,
+        diff_throttle: UiUpdateThrottle | None = None,
     ) -> None:
         self._tabview = tabview
         self._library = vod_library
         self._is_active = is_active
         self._schedule = schedule
+
+        # Slider-drag rate limiting. Injectable so a test can drive the
+        # coalescing with a fake clock instead of a real event loop; the
+        # default is the shared ~30 FPS window.
+        self._diff_throttle = diff_throttle or UiUpdateThrottle()
+        # Formatted diffs, keyed by everything that can change one. Cleared
+        # whenever a side's recording is replaced, which is also what keeps the
+        # `id(vod)` in the key from ever outliving its object.
+        self._diff_cache: OrderedDict = OrderedDict()
+        self._time_indexes: dict = {}
+        # The payload last written to the diff cards, for dirty-checking. Reset
+        # by `build()`, because widgets created after a write have not seen it.
+        self._rendered_diff_cards = None
 
         # Selection and view state. Sixteen names on `MegabonkApp` until step
         # 21d, every one measured to have zero production readers outside this
@@ -465,6 +546,9 @@ class CompareRunsTab:
             self._index_b,
             self._index_a,
         )
+        # A/B is part of every cached diff -- the overview literally reads
+        # "Run B compared to Run A" -- so a swap invalidates all of them.
+        self._invalidate_compare_runs_diff_cache()
         self._list_signature = None
         self.refresh_compare_runs_list()
         self.refresh_compare_runs_ui(changed_side="a")
@@ -485,7 +569,18 @@ class CompareRunsTab:
                 self._sync_compare_run_to_side(other_side, side)
             finally:
                 self._syncing = False
-        self.refresh_compare_runs_ui(changed_side=side)
+
+        # Two tiers, and the split is the whole point of this handler. The
+        # timeline captions are one string each, so they follow the drag 1:1
+        # and the slider never feels detached from its readout. Everything else
+        # -- summaries, seven diff formatters, the card writes -- is coalesced
+        # to the throttle's window, because a frame the user has already
+        # scrubbed past is work nobody sees.
+        self._refresh_compare_run_timeline_label("a")
+        self._refresh_compare_run_timeline_label("b")
+        self._diff_throttle.request(
+            lambda: self.refresh_compare_runs_ui(changed_side=side)
+        )
 
     def refresh_compare_runs_ui(self, *, changed_side: str | None = None):
         if changed_side in {"a", "b"} and not self._syncing:
@@ -495,12 +590,16 @@ class CompareRunsTab:
             finally:
                 self._syncing = False
 
-        self._refresh_compare_run_side("a")
-        self._refresh_compare_run_side("b")
-        self._refresh_compare_runs_diff()
-        self._refresh_compare_runs_selected_labels()
-        self._refresh_compare_runs_chooser()
-        self._refresh_compare_runs_stats_config()
+        # One repaint for the whole panel instead of one per widget written
+        # below; the tab owns ~40 of them and Qt would otherwise lay out
+        # between each pair.
+        with batched_updates(self._tab):
+            self._refresh_compare_run_side("a")
+            self._refresh_compare_run_side("b")
+            self._refresh_compare_runs_diff()
+            self._refresh_compare_runs_selected_labels()
+            self._refresh_compare_runs_chooser()
+            self._refresh_compare_runs_stats_config()
 
     def _sync_compare_run_to_side(self, target_side: str, source_side: str) -> None:
         source_vod = self._compare_run_vod(source_side)
@@ -514,13 +613,51 @@ class CompareRunsTab:
         target_time = formatting._snapshot_compare_time(source_snapshot)
         if target_time is None:
             return
-        target_index = _nearest_snapshot_index(target_vod.snapshots, target_time)
+        target_index = self._compare_run_time_index(target_side).nearest(target_time)
         self._set_compare_run_index(target_side, target_index)
         slider = self._compare_run_slider(target_side)
         if slider is not None and slider.value() != target_index:
             slider.blockSignals(True)
             slider.setValue(target_index)
             slider.blockSignals(False)
+
+    def _compare_run_time_index(self, side: str) -> SnapshotTimeIndex:
+        """The side's snapshot time index, built once per loaded recording.
+
+        Keyed by the vod object so a reload -- or a swap -- gets a fresh index
+        rather than the previous run's times.
+        """
+        vod = self._compare_run_vod(side)
+        cached = self._time_indexes.get(side)
+        if cached is not None and cached[0] is vod:
+            return cached[1]
+        index = SnapshotTimeIndex.build(() if vod is None else vod.snapshots)
+        self._time_indexes[side] = (vod, index)
+        return index
+
+    def _compare_run_timeline_text(self, side: str) -> str:
+        vod = self._compare_run_vod(side)
+        if vod is None or not vod.snapshots:
+            return "Timeline: --"
+        index = self._compare_run_index(side)
+        index = 0 if index is None else min(max(int(index), 0), len(vod.snapshots) - 1)
+        return (
+            f"Timeline: {vod.snapshots[0].time_label} - {vod.snapshots[-1].time_label}"
+            f" | Selected: {vod.snapshots[index].time_label}"
+        )
+
+    def _refresh_compare_run_timeline_label(self, side: str) -> None:
+        """The cheap half of `_refresh_compare_run_side`, on its own.
+
+        Split out so the slider handler can keep the caption in step with the
+        drag without paying for the summary and the items view. The full
+        refresh still writes the same text through the same builder, so the two
+        paths cannot drift apart.
+        """
+        _set_text(
+            self._compare_run_widget(side, "timeline_label"),
+            self._compare_run_timeline_text(side),
+        )
 
     def _refresh_compare_run_side(self, side: str) -> None:
         vod = self._compare_run_vod(side)
@@ -564,10 +701,8 @@ class CompareRunsTab:
                 slider.blockSignals(True)
                 slider.setValue(index)
                 slider.blockSignals(False)
-        first = vod.snapshots[0].time_label
-        last = vod.snapshots[-1].time_label
         _set_text(status_label, f"{vod.metadata.name} | {index + 1}/{snapshot_count}")
-        _set_text(timeline_label, f"Timeline: {first} - {last} | Selected: {snapshot.time_label}")
+        _set_text(timeline_label, self._compare_run_timeline_text(side))
         _set_text(summary_label, formatting.format_compare_run_snapshot_summary(vod, snapshot, index))
         self._compare_run_items_view(side).update(getattr(snapshot, "items", ()))
 
@@ -589,41 +724,78 @@ class CompareRunsTab:
         show_weapons = bool(self._weapons_enabled)
         show_tomes = bool(self._tomes_enabled)
         show_chaos = bool(self._chaos_enabled)
-        self._set_compare_runs_diff_cards(
-            formatting.format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b),
-            stats_text=formatting.format_compare_runs_stats_diff(
-                snapshot_a,
-                snapshot_b,
-                stat_labels=self._compare_run_selected_stat_labels(),
-            ),
-            items_text=(
-                formatting.format_compare_runs_items_diff(
+        item_details_expanded = bool(self._item_details_expanded)
+        stat_labels = tuple(self._compare_run_selected_stat_labels())
+
+        # Everything that can change a formatted diff is in this key -- both
+        # recordings, both indexes, which sections are on, the selected stats,
+        # and the item-details toggle -- so a hit is safe without any
+        # invalidation beyond replacing a recording, which clears the cache
+        # outright.
+        cache_key = (
+            id(vod_a),
+            int(self._compare_run_index("a") or 0),
+            id(vod_b),
+            int(self._compare_run_index("b") or 0),
+            stat_labels,
+            show_items,
+            item_details_expanded,
+            show_stage_summary,
+            show_weapons,
+            show_tomes,
+            show_chaos,
+        )
+        cached = self._diff_cache.get(cache_key)
+        if cached is None:
+            cached = (
+                formatting.format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b),
+                formatting.format_compare_runs_stats_diff(
                     snapshot_a,
                     snapshot_b,
-                    details_expanded=bool(self._item_details_expanded),
-                )
-                if show_items
-                else "--"
-            ),
-            stage_summary_text=(
-                formatting.format_compare_runs_stage_summary_diff(
-                    vod_a,
-                    self._compare_run_index("a"),
-                    vod_b,
-                    self._compare_run_index("b"),
-                )
-                if show_stage_summary
-                else "--"
-            ),
-            weapons_text=(
-                formatting.format_compare_runs_weapons_diff(snapshot_a, snapshot_b) if show_weapons else "--"
-            ),
-            tomes_text=(
-                formatting.format_compare_runs_tomes_diff(snapshot_a, snapshot_b) if show_tomes else "--"
-            ),
-            chaos_text=(
-                formatting.format_compare_runs_chaos_diff(snapshot_a, snapshot_b) if show_chaos else "--"
-            ),
+                    stat_labels=stat_labels,
+                ),
+                (
+                    formatting.format_compare_runs_items_diff(
+                        snapshot_a,
+                        snapshot_b,
+                        details_expanded=item_details_expanded,
+                    )
+                    if show_items
+                    else "--"
+                ),
+                (
+                    formatting.format_compare_runs_stage_summary_diff(
+                        vod_a,
+                        self._compare_run_index("a"),
+                        vod_b,
+                        self._compare_run_index("b"),
+                    )
+                    if show_stage_summary
+                    else "--"
+                ),
+                (
+                    formatting.format_compare_runs_weapons_diff(snapshot_a, snapshot_b) if show_weapons else "--"
+                ),
+                (
+                    formatting.format_compare_runs_tomes_diff(snapshot_a, snapshot_b) if show_tomes else "--"
+                ),
+                (
+                    formatting.format_compare_runs_chaos_diff(snapshot_a, snapshot_b) if show_chaos else "--"
+                ),
+            )
+            self._store_compare_runs_diff(cache_key, cached)
+        else:
+            self._diff_cache.move_to_end(cache_key)
+
+        overview_text, stats_text, items_text, stage_summary_text, weapons_text, tomes_text, chaos_text = cached
+        self._set_compare_runs_diff_cards(
+            overview_text,
+            stats_text=stats_text,
+            items_text=items_text,
+            stage_summary_text=stage_summary_text,
+            weapons_text=weapons_text,
+            tomes_text=tomes_text,
+            chaos_text=chaos_text,
             show_items=show_items,
             show_stage_summary=show_stage_summary,
             show_weapons=show_weapons,
@@ -632,7 +804,26 @@ class CompareRunsTab:
         )
         self._refresh_compare_runs_item_details_button(show_items)
 
+    def _store_compare_runs_diff(self, key, payload) -> None:
+        cache = self._diff_cache
+        cache[key] = payload
+        cache.move_to_end(key)
+        while len(cache) > COMPARE_RUN_DIFF_CACHE_SIZE:
+            cache.popitem(last=False)
+
+    def _invalidate_compare_runs_diff_cache(self) -> None:
+        """Drop cached diffs and time indexes. Called when a side's vod changes.
+
+        This is also what makes the `id(vod)` in the cache key sound: no key can
+        outlive the object it identifies, so a recycled address cannot be read
+        as a hit for a different recording.
+        """
+        self._diff_cache.clear()
+        self._time_indexes.clear()
+
     def _set_compare_run_error(self, side: str, text: str) -> None:
+        # A queued frame describes a selection that no longer exists.
+        self._diff_throttle.cancel()
         self._set_compare_run_vod(side, None)
         self._set_compare_run_index(side, None)
         self._refresh_compare_run_side(side)
@@ -668,6 +859,28 @@ class CompareRunsTab:
         show_tomes: bool = False,
         show_chaos: bool = False,
     ) -> None:
+        # Dirty check. Consecutive snapshots of the same run very often produce
+        # an identical diff -- nothing changed in that game second -- and
+        # re-writing seven rich-text widgets with the strings they already hold
+        # still costs a document re-parse and a layout pass each.
+        payload = (
+            overview_text,
+            stats_text,
+            items_text,
+            stage_summary_text,
+            weapons_text,
+            tomes_text,
+            chaos_text,
+            show_items,
+            show_stage_summary,
+            show_weapons,
+            show_tomes,
+            show_chaos,
+        )
+        if self._rendered_diff_cards == payload:
+            return
+        self._rendered_diff_cards = payload
+
         _set_text(self._diff_overview_label, overview_text)
         _set_text(self._diff_stats_label, stats_text)
         _set_text(self._diff_items_label, items_text)
@@ -756,6 +969,8 @@ class CompareRunsTab:
         return self._vod_a if side == "a" else self._vod_b
 
     def _set_compare_run_vod(self, side: str, vod) -> None:
+        if self._compare_run_vod(side) is not vod:
+            self._invalidate_compare_runs_diff_cache()
         if side == "a":
             self._vod_a = vod
         else:
@@ -964,6 +1179,10 @@ class CompareRunsTab:
         body_layout.addWidget(diff_group, 4)
         body_layout.addWidget(run_b_group, 3)
         compare_layout.addLayout(body_layout, 1)
+        # The diff cards above are brand new widgets holding their initial
+        # captions, so whatever the dirty check last saw was written to widgets
+        # that no longer exist.
+        self._rendered_diff_cards = None
         self._tabview.addTab(self._tab, "Compare Runs")
 
     def _build_diff_card(self, title: str, initial_text: str):

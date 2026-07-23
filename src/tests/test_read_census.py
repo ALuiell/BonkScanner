@@ -6,8 +6,8 @@ import unittest
 
 
 def _load_census():
-    path = Path(__file__).resolve().parents[2] / "tools" / "step28_read_census.py"
-    spec = importlib.util.spec_from_file_location("step28_read_census", path)
+    path = Path(__file__).resolve().parents[2] / "tools" / "read_census.py"
+    spec = importlib.util.spec_from_file_location("read_census", path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Cannot load census from {path}")
     module = importlib.util.module_from_spec(spec)
@@ -15,7 +15,7 @@ def _load_census():
     return module
 
 
-class Step28ReadCensusRatchetTests(unittest.TestCase):
+class ReadCensusRatchetTests(unittest.TestCase):
     def test_current_on_tick_source_set_is_exact_and_has_no_bypasses(self) -> None:
         census = _load_census()
 

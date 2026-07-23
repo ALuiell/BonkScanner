@@ -791,6 +791,7 @@ class TwitchBotWorker(QThread):
                     moai = template.get("moai", 0)
                     micro = template.get("micro", 0)
                     boss = template.get("boss", 0)
+                    magnet = template.get("magnet", template.get("magnet_shrines", 0))
 
                     if shady > 0 or moai > 0:
                         if shady > 0:
@@ -803,6 +804,8 @@ class TwitchBotWorker(QThread):
                         conds.append(f"Mic:{micro}")
                     if boss > 0:
                         conds.append(f"B:{boss}")
+                    if magnet > 0:
+                        conds.append(f"Mag:{magnet}")
 
                     conds_str = ", ".join(conds) if conds else "Any"
                     active_parts.append(f"{name}({conds_str})")

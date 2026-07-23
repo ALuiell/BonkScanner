@@ -240,6 +240,7 @@ def format_template_conditions(template: dict) -> str:
     moai = template.get("moai", 0)
     micro = template.get("micro", 0)
     boss = template.get("boss", 0)
+    magnet = template.get("magnet", template.get("magnet_shrines", 0))
     bald_heads = template.get("bald_heads", 0)
 
     if sm_total > 0:
@@ -252,6 +253,8 @@ def format_template_conditions(template: dict) -> str:
         parts.append(f"Mic:{micro}")
     if boss > 0:
         parts.append(f"B:{boss}")
+    if magnet > 0:
+        parts.append(f"Mag:{magnet}")
     if bald_heads > 0:
         parts.append(f"BH:{bald_heads}")
 
@@ -265,6 +268,7 @@ def build_template_payload(
     micro: str,
     boss: str,
     bald_heads: str = "",
+    magnet: str = "",
     source_template=None,
 ):
     name = name.strip()
@@ -283,6 +287,7 @@ def build_template_payload(
         "micro": parse_int(micro),
         "boss": parse_int(boss),
         "bald_heads": parse_int(bald_heads),
+        "magnet": parse_int(magnet),
     }
 
     if result["sm_total"] <= 0 or result["shady"] > 0 or result["moai"] > 0:
@@ -290,7 +295,7 @@ def build_template_payload(
 
     if source_template:
         for key, value in source_template.items():
-            if key not in result and key not in ["sm_total", "shady", "moai", "micro", "boss", "bald_heads"]:
+            if key not in result and key not in ["sm_total", "shady", "moai", "micro", "boss", "bald_heads", "magnet", "magnet_shrines"]:
                 result[key] = value
 
     return result

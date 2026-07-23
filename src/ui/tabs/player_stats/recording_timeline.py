@@ -66,6 +66,7 @@ from ui.styles import (
     PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
     _button_state_stylesheet,
 )
+from ui.throttle import UiUpdateThrottle
 
 
 class RecordingTimelineView:
@@ -81,6 +82,7 @@ class RecordingTimelineView:
         waiting_mode: Callable[[], str | None],
         on_toggle_recording: Callable[[], None],
         on_snapshot_selected: Callable[[int], None],
+        throttle: UiUpdateThrottle | None = None,
     ) -> None:
         self._recorder = recorder
         self._snapshots = snapshots
@@ -89,6 +91,13 @@ class RecordingTimelineView:
         self._waiting_mode = waiting_mode
         self._on_toggle_recording = on_toggle_recording
         self._on_snapshot_selected = on_snapshot_selected
+
+        # Slider-drag rate limiting. `on_snapshot_selected` re-renders the whole
+        # Live Stats tab -- stat rows, items, four cards -- and a drag emits one
+        # `valueChanged` per pixel; injectable so a test can drive the
+        # coalescing with a fake clock rather than an event loop.
+        self._throttle = throttle or UiUpdateThrottle()
+        self._requested_index: int | None = None
 
         self._record_btn = None
         self._timeline_label = None
@@ -222,7 +231,29 @@ class RecordingTimelineView:
         if snapshot_count == 0:
             return
         index = min(max(int(round(float(value))), 0), snapshot_count - 1)
-        if self._selected_index() == index:
+        # With nothing queued the app's selected index is the truth, and
+        # comparing against it is what keeps `refresh`'s own `setValue` from
+        # looping back in here. With a frame queued the two differ, and the
+        # queued index is what the slider is actually showing.
+        current = self._requested_index if self._throttle.has_pending else self._selected_index()
+        if current == index:
             return
+        self._requested_index = index
+        # Immediate and cheap, so the caption tracks the drag; selecting the
+        # snapshot re-renders the whole Live Stats tab, so that is coalesced.
+        self._slider_time_label.setText(self._timeline_range_text(index))
+        self._throttle.request(lambda: self._select_snapshot(index))
+
+    def _select_snapshot(self, index: int) -> None:
         self._on_snapshot_selected(index)
         self.refresh(update_slider=False)
+
+    def _timeline_range_text(self, index: int) -> str:
+        snapshots = self._snapshots()
+        if not snapshots:
+            return "Timeline: live stats"
+        index = min(max(int(index), 0), len(snapshots) - 1)
+        return (
+            f"Timeline: {snapshots[0].time_label} - {snapshots[-1].time_label}"
+            f" | Selected: {snapshots[index].time_label}"
+        )

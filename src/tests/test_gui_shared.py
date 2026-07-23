@@ -26,10 +26,21 @@ class GuiSharedTests(unittest.TestCase):
         self.assertIsNotNone(payload)
         self.assertEqual(payload["bald_heads"], 3)
 
+    def test_build_template_payload_includes_magnet_requirement(self) -> None:
+        payload = build_template_payload("MAGNET", "0", "0", "0", "0", "0", "", "2")
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["magnet"], 2)
+
     def test_format_template_conditions_shows_bald_heads(self) -> None:
         text = format_template_conditions({"name": "BALD", "bald_heads": 3})
 
         self.assertEqual(text, "BH:3")
+
+    def test_format_template_conditions_shows_magnet_requirement(self) -> None:
+        text = format_template_conditions({"name": "MAGNET", "magnet": 2})
+
+        self.assertEqual(text, "Mag:2")
 
 
 if __name__ == "__main__":

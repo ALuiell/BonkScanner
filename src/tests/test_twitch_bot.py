@@ -505,12 +505,12 @@ class TestTwitchBotWorker(unittest.TestCase):
              patch.object(config, 'ACTIVE_TEMPLATES', ['LIGHT', 'MERCHANT']), \
              patch.object(config, 'TEMPLATES', [
                  {"id": 1, "name": "LIGHT", "color": "WHITE", "desc": "", "sm_total": 7, "micro": 2, "boss": 2},
-                 {"id": 2, "name": "MERCHANT", "color": "CYAN", "desc": "", "sm_total": 10, "shady": 3, "moai": 7, "micro": 1, "boss": 2}
+                 {"id": 2, "name": "MERCHANT", "color": "CYAN", "desc": "", "sm_total": 10, "shady": 3, "moai": 7, "micro": 1, "boss": 2, "magnet": 2}
              ]):
             self.bot._handle_presets("channel")
             self.bot._send_chat.assert_called_once_with(
                 "channel",
-                "[Reroller] Mode: Templates | Active: LIGHT(S+M:7, Mic:2, B:2), MERCHANT(S:3, M:7, Mic:1, B:2)"
+                "[Reroller] Mode: Templates | Active: LIGHT(S+M:7, Mic:2, B:2), MERCHANT(S:3, M:7, Mic:1, B:2, Mag:2)"
             )
 
     def test_handle_presets_scores_mode(self):

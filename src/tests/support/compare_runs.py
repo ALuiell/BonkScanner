@@ -32,6 +32,12 @@ def build_compare_runs_tab(**overrides) -> CompareRunsTab:
         "vod_library": VodLibrary(load_cached=tuple, refresh_index=tuple),
         "is_active": lambda: True,
         "schedule": None,
+        # Pass a throttle over a fake clock and scheduler to assert on the
+        # slider coalescing. Do not rely on the default: it defers to a
+        # `QTimer` whenever a `QApplication` exists, and whether one exists in
+        # a suite run depends on which test files ran first -- so a queued
+        # frame may simply never arrive.
+        "diff_throttle": None,
     }
     unknown = set(overrides) - set(defaults)
     assert not unknown, f"not CompareRunsTab constructor arguments: {sorted(unknown)}"

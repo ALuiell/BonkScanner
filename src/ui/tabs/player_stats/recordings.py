@@ -83,6 +83,7 @@ from ui.shared import (
     _set_text_input,
 )
 from ui.styles import ITEM_SORT_LABELS
+from ui.throttle import UiUpdateThrottle, batched_updates
 from ui.tabs.player_stats.items_section import ItemsSectionView
 from ui.tabs.player_stats.stat_cards import StatCardsView
 from ui.tabs.player_stats.summary_cards import (
@@ -130,6 +131,7 @@ class RecordingsTab:
         is_active: Callable[[], bool],
         log: Callable[..., None],
         schedule: Callable[[Callable[[], None]], None] | None = None,
+        snapshot_throttle: UiUpdateThrottle | None = None,
     ) -> None:
         self._tabview = tabview
         self._library = vod_library
@@ -144,6 +146,12 @@ class RecordingsTab:
         # let them move wholesale rather than stay as app surface.
         self._loaded_vod = None
         self._snapshot_index = None
+        # What the slider has asked for, which runs ahead of `_snapshot_index`
+        # while a throttled frame is queued. See `on_vods_slider_changed`.
+        self._requested_snapshot_index = None
+        # Slider-drag rate limiting; injectable so a test can drive the
+        # coalescing with a fake clock instead of a real event loop.
+        self._snapshot_throttle = snapshot_throttle or UiUpdateThrottle()
         self._compare_start_index = None
         self._compare_details_expanded = False
         self._chooser_expanded = False
@@ -286,6 +294,9 @@ class RecordingsTab:
         self._load_generation = generation
         self._loaded_vod = None
         self._snapshot_index = None
+        # A queued frame describes the recording being replaced.
+        self._snapshot_throttle.cancel()
+        self._requested_snapshot_index = None
         self._compare_start_index = None
         self._set_vod_loading_state(True)
         _set_text(self._status_label, "Loading recording…")
@@ -300,6 +311,7 @@ class RecordingsTab:
                 return
             self._loaded_vod = loaded_vod
             self._snapshot_index = 0 if loaded_vod.snapshots else None
+            self._requested_snapshot_index = self._snapshot_index
             self._compare_start_index = None
             self._compare_details_expanded = False
             _clear_text_input(self._name_entry)
@@ -388,7 +400,13 @@ class RecordingsTab:
             return
         index = min(max(index, 0), len(self._loaded_vod.snapshots) - 1)
         self._snapshot_index = index
+        self._requested_snapshot_index = index
         snapshot = self._loaded_vod.snapshots[index]
+        # One repaint for the whole tab rather than one per widget: this method
+        # writes ~40 of them.
+        with batched_updates(self._tab):
+            self._render_loaded_vod_snapshot(index, snapshot)
+    def _render_loaded_vod_snapshot(self, index: int, snapshot) -> None:
         _set_text(
             self._status_label,
             (
@@ -396,9 +414,7 @@ class RecordingsTab:
                 f" at {snapshot.time_label} | {formatting.format_in_game_time(snapshot.game_time_seconds)}"
             ),
         )
-        first = self._loaded_vod.snapshots[0].time_label
-        last = self._loaded_vod.snapshots[-1].time_label
-        _set_text(self._slider_time_label, f"Timeline: {first} - {last} | Selected: {snapshot.time_label}")
+        _set_text(self._slider_time_label, self._vod_timeline_text(index))
         for spec_group in PLAYER_STAT_GROUPS:
             for spec in spec_group:
                 value_label = self._rows.get(spec.label)
@@ -460,9 +476,36 @@ class RecordingsTab:
         if self._loaded_vod is None or not self._loaded_vod.snapshots:
             return
         index = min(max(int(round(float(value))), 0), len(self._loaded_vod.snapshots) - 1)
-        if self._snapshot_index == index:
+        # With nothing queued the rendered index *is* the truth, and comparing
+        # against it is what keeps a programmatic `setValue` from looping back
+        # into a redundant render. With a frame queued the two differ, and
+        # comparing against the rendered index would let a drag that returns to
+        # the last-painted snapshot exit here while the queued frame still
+        # repaints one the user has scrubbed away from.
+        current = (
+            self._requested_snapshot_index
+            if self._snapshot_throttle.has_pending
+            else self._snapshot_index
+        )
+        if current == index:
             return
-        self.display_loaded_vod_snapshot(index)
+        self._requested_snapshot_index = index
+        # Immediate and cheap, so the caption tracks the drag; the full
+        # snapshot render -- stat rows, items, stage summary, four cards -- is
+        # coalesced to the throttle window.
+        _set_text(self._slider_time_label, self._vod_timeline_text(index))
+        self._snapshot_throttle.request(
+            lambda: self.display_loaded_vod_snapshot(index)
+        )
+    def _vod_timeline_text(self, index: int) -> str:
+        if self._loaded_vod is None or not self._loaded_vod.snapshots:
+            return "Timeline: --"
+        snapshots = self._loaded_vod.snapshots
+        index = min(max(int(index), 0), len(snapshots) - 1)
+        return (
+            f"Timeline: {snapshots[0].time_label} - {snapshots[-1].time_label}"
+            f" | Selected: {snapshots[index].time_label}"
+        )
     def set_vod_compare_start(self):
         if self._loaded_vod is None or not self._loaded_vod.snapshots:
             return
@@ -566,6 +609,8 @@ class RecordingsTab:
     def _clear_loaded_vod_selection(self) -> None:
         self._loaded_vod = None
         self._snapshot_index = None
+        self._snapshot_throttle.cancel()
+        self._requested_snapshot_index = None
         self._compare_start_index = None
         self._compare_details_expanded = False
         _clear_text_input(self._name_entry)

@@ -230,6 +230,7 @@ def build_recording_timeline_view(
     snapshot_labels: tuple[str, ...] = (),
     selected_index: int | None = None,
     waiting_mode: str | None = None,
+    throttle=None,
 ) -> RecordingTimelineHarness:
     """Construct the pilot component through its real constructor."""
     state = {
@@ -257,6 +258,7 @@ def build_recording_timeline_view(
         waiting_mode=lambda: state["waiting_mode"],
         on_toggle_recording=on_toggle,
         on_snapshot_selected=on_select,
+        throttle=throttle,
     )
     widgets = {
         "record_btn": FakeTimelineWidget("record_btn"),
@@ -461,6 +463,12 @@ def build_recordings_tab(**overrides) -> RecordingsTab:
         "is_active": lambda: True,
         "log": lambda *args, **kwargs: None,
         "schedule": None,
+        # Pass a throttle over a fake clock and scheduler to assert on the
+        # slider coalescing. Do not rely on the default: it defers to a
+        # `QTimer` whenever a `QApplication` exists, and whether one exists in
+        # a suite run depends on which test files ran first -- so a queued
+        # frame may simply never arrive.
+        "snapshot_throttle": None,
     }
     unknown = set(overrides) - set(defaults)
     assert not unknown, f"not RecordingsTab constructor arguments: {sorted(unknown)}"

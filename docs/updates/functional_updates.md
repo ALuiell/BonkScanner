@@ -244,86 +244,188 @@ This is a planned change. The current intervals and lazy-demand behavior remain 
 
 ## Live Run Refactor Fixes
 
-#### 1. Active Template Colors In Log Output (Refactor Fixes)
+#### 1. Tracked Items Refresh Latency Optimization (Refactor Fixes)
 
 Status: `[Open]`
 
 Goal:
 
-- Format template names in the `[*] Active templates updated live: ...` log line with rich-text/HTML colors corresponding to their template badge colors instead of plain white text.
-
-#### 2. Default Height For Score Settings Dialog (Refactor Fixes)
-
-Status: `[Implemented]`
-
-Goal:
-
-- Increase the default height/dimensions of the `Score Settings` dialog so the bottom `Save` / `Cancel` button panel is immediately visible without scrolling.
-
-#### 3. Enforce Scanner Start Guarding When Active Rules Are Empty (Refactor Fixes)
-
-Status: `[Open]`
-
-Goal:
-
-- Prevent the scanner from starting or rerolling when all tiers in `Scores Mode` or all templates in `Templates Mode` are unchecked.
-- Display an explicit error log line (`[-] Error: ...`) when attempting to start with no active evaluation rules.
-
-#### 4. Synchronize OBS Overlay Edit Mode On Active Widget Toggles (Refactor Fixes)
-
-Status: `[Open]`
-
-Goal:
-
-- Automatically update active widget states in the OBS Overlay web editor when toggling checkboxes in BonkScanner UI without requiring users to manually re-enter edit mode.
-
-#### 5. Force Cache Invalidation / Forced Sync For OBS Overlay (Refactor Fixes)
-
-Status: `[Open]`
-
-Goal:
-
-- Add an automated forced sync or cache-invalidation signal so configuration changes made in BonkScanner UI update the OBS browser source without requiring a manual browser cache reset.
-
-#### 6. Compare Runs and Recordings Timeline Performance Optimization (Refactor Fixes)
-
-Status: `[Open]`
-
-Goal:
-
-- Eliminate UI lag during timeline slider movement and detail inspection (`Show Details` / `Show All`) in `Compare Runs` and `Recordings` tabs when working with large recording logs or enabling multiple comparison cards.
+- Reduce high latency/delays when updating `Tracked items` in the in-game overlay, OBS overlay, and Session Stats UI after acquiring or leveling up passive items.
 
 Problem Analysis:
 
-- **High-frequency `valueChanged` Events:** Dragging `QSlider` triggers `on_compare_run_slider_changed` / `on_player_stats_slider_changed` per pixel of mouse movement (hundreds of events per second).
-- **Synchronous Heavy Diff Calculations:** Every slider tick synchronously executes binary search time-sync (`_nearest_snapshot_index`), overview summaries, and up to 7 formatting functions (`format_compare_runs_overview_diff`, `stats_diff`, `items_diff`, `stage_summary_diff`, `weapons_diff`, `tomes_diff`, `chaos_diff`).
-- **GUI Layout Thrashing:** Synchronous string/HTML updates to dozens of `QLabel` and `QTextEdit` widgets trigger continuous Qt layout passes and redraws in the main UI thread.
+- **10-Second Polling Cadence:** Item tracking state (`tracked_items`) relies on `full_player_snapshot`, which is polled on a 10,000 ms (`PLAYER_STATS_REFRESH_MS`) interval.
+- **Delayed Feedback:** Picking up or upgrading tracked items during a live run takes up to 10 seconds to reflect on overlay widgets and session stats views.
 
-Planned Optimization Strategies:
+Planned Solution:
 
-1. **Slider Event Throttling & Debouncing (Rate-Limiting Updates):**
-   - Update lightweight time labels (`Timeline: 01:23 / 02:45`) immediately on every slider tick for maximum responsiveness.
-   - Throttle heavy Diff calculations and UI card updates to 30–60 FPS (16–33 ms interval via `QTimer.singleShot` / `QElapsedTimer`).
-   - Apply debouncing during rapid continuous drag, deferring full detailed diff rendering until a brief pause in slider movement.
-2. **Diff Result Caching & Memoization:**
-   - Implement an LRU cache for `diff(snapshot_a_index, snapshot_b_index, active_sections_mask)`.
-   - When scrubbing back and forth over previously calculated frames, return cached diff structures in $O(1)$ time without re-formatting HTML strings.
-3. **Lazy Evaluation & Selective Section Updates:**
-   - Skip formatting and diff calculation for sections that are collapsed, disabled, or hidden by user settings.
-   - Perform dirty-checking against previous snapshot values to skip updating UI sections whose underlying domain data has not changed between consecutive seconds.
-4. **Snapshot Pre-Indexing:**
-   - Pre-build lookup dictionaries (e.g. item ID maps) during VOD load so snapshot diffs compare pre-indexed keys rather than traversing item lists on every slider tick.
-5. **Batching Qt Layout Redraws:**
-   - Wrap multi-widget updates in `setUpdatesEnabled(False)` / `setUpdatesEnabled(True)` around card updates to ensure Qt performs a single render pass per frame instead of multiple micro-updates per widget.
+- Decouple item/inventory change detection from the heavy 10-second `full_player_snapshot` task.
+- Introduce a lightweight item/inventory delta check on a faster tick cadence or trigger immediate item state updates when fast memory checks detect inventory pointer/count mutations.
 
-#### 7. Restore Magnets Requirement Support in Templates Mode (Refactor Fixes)
+#### 2. Game-Time Synchronized KPS Calculation (Refactor Fixes)
 
 Status: `[Open]`
 
 Goal:
 
-- Restore the ability to configure target `Magnets` count conditions in template evaluation rules (`Templates Mode`).
-- Reuse the existing memory read and evaluation paths already active for `Magnets` in `Scores Mode`.
-- Update the template editor dialog, config schema, evaluation condition matcher, and condensed UI/Twitch preset formatters to include magnet conditions.
+- Replace the strict ~1-second polling window requirement in `track_ui_kps` with a KPS calculation synchronized exclusively to the continuously increasing `run_timer`. This first iteration deliberately does not cover Event Timer, `stage_timer`, map phases, or stage transitions.
 
+Problem Analysis:
+
+- **Rigid 0.9s–1.2s Sampling Window:** Current `track_ui_kps` evaluates consecutive samples `(run_timer, mob_kills)` and only updates KPS if the game-time delta falls strictly between 0.9 and 1.2 seconds.
+- **Baseline Resets on Lag:** If fast-polling delays or timer jitter cause `time_delta` to fall outside 0.9–1.2s, the baseline sample is reset (`state.ui_kps_baseline = current_sample`), causing instant KPS to temporarily drop to zero or disappear from UI widgets.
+
+Proposed Design: KPS Synchronized with `run_timer`
+
+Current instant KPS is calculated from two samples `(run_timer, mob_kills)` and is accepted only when the game time difference falls within a narrow range of `0.9–1.2s`. If fast-polling is delayed or the timer updates unevenly, the time delta strays outside this window, causing the baseline to reset and KPS to temporarily disappear.
+
+We propose abandoning the "must hit exactly one second" constraint. `run_timer` is the source of truth: while it advances, the run is active; while it remains unchanged, the game is paused and the KPS clock must not advance. Application wall-clock time is used only to decide when to perform a memory read, never in the KPS formula.
+
+Live validation on 2026-07-23 confirms that `run_timer` is a smoothly increasing float rather than a once-per-second game value: observed updates occurred every 4.2--58.4 ms (20.8 ms median). Its integer-second boundaries were one local second apart during active gameplay, and a real ~2 s pause left the game timer frozen. Therefore the implementation must observe crossings of game-time seconds, not attempt to catch a hypothetical exact internal second tick.
+
+Algorithm:
+
+1. Store a valid KPS baseline `(baseline_time, baseline_kills)` and the last observed integer second `floor(run_timer)`.
+2. Each fast read observes `(run_timer, mob_kills)`.
+3. If `run_timer` is unchanged, treat the run as paused. Keep the last displayed KPS and do not advance the KPS baseline or the synchronized game-second cursor.
+4. If `run_timer` advances and crosses one or more integer game-time seconds, emit a synchronized KPS update. Compute:
+   - `elapsed = run_timer - baseline_time`;
+   - `kills_delta = mob_kills - baseline_kills`;
+   - `kps = round(kills_delta / elapsed)` when `elapsed > 0`.
+5. Replace the baseline with the current sample only after publishing that update. If a delayed fast read skipped one or more game seconds, `elapsed` is larger than one second, but the formula still produces the correct normalized kills-per-second value instead of discarding it.
+6. Reset the synchronizer and KPS state on `run_timer` rollback, `mob_kills` decrease, new run start, or game process loss.
+7. The first valid sample after reset only establishes the baseline; KPS remains unavailable until enough advancing game time has elapsed to cross the next game-time second.
+
+The initial implementation may use the existing fast-read cadence. A later optimization may schedule denser reads shortly before the predicted next integer `run_timer` boundary, but correctness must not depend on reading at an exact boundary.
+
+Benefits:
+
+- KPS remains strictly anchored to `run_timer` rather than application wall-clock time;
+- UI updates follow the rhythm of the game's own elapsed seconds;
+- missed or delayed fast-ticks no longer create empty output windows;
+- if 1.3, 1.8, or 2.4 game seconds elapse between reads, the result correctly normalizes to kills per second;
+- pauses preserve the last valid KPS and do not create false activity or spikes;
+- the scope is isolated from stage/map logic, so it can be implemented and characterized independently.
+
+#### 3. Event Timer: Phase-Aware Game-Time Model (Refactor Fixes)
+
+Status: `[Planned / Requires In-Game Verification]`
+
+Goal:
+
+- Build a reliable Event Timer projection from the game timer that is authoritative for the currently active map phase, including normal stages, Graveyard crypts, boss/ghost phases, pauses, timer resets, and timer jumps.
+
+Problem Analysis:
+
+- **`stage_timer` is not a universal run clock:** Normal stages reset it to `0.0` on entry and can force it forward to approximately `530--590s` to trigger Ghost Phase. A reset or a large positive jump is therefore gameplay state, not a read failure or a clock desynchronization.
+- **Graveyard has multiple timer families:** Crypt UI countdowns are backed by an upward `crypt_timer`; the main outdoor phase uses `stage_timer`; the post-boss ghost phase is most reliably represented by an upward `final_swarm_timer` that continues across boss-room and portal movement.
+- **Raw room identity is insufficient:** On Graveyard, seed, map pointer, stage pointer, and raw `stage_index` remain static through internal transitions. On Forest and Desert, the Boss Room reuses the Stage 3 pointer and raw stage behavior. The active timer cannot safely be selected from pointer or index changes alone.
+- **UI semantics differ from raw memory:** A UI countdown may be `duration - raw_elapsed`, while the raw timer itself only increases. Some timer values continue after the UI reaches `00:00`, and Ghost Phase uses a different display rule.
+
+Proposed Model:
+
+Introduce a phase-aware resolver and a per-segment game-time synchronizer:
+
+```text
+PhaseTimerResolver
+  -> identifies the active phase from timer availability, timer resets/jumps,
+     and map/activity context
+  -> selects the authoritative raw timer and display policy for that phase
+  -> begins a new segment when the phase or source changes
+
+GameTimerSynchronizer (one active segment)
+  -> observes (local_monotonic_time, raw_timer_value)
+  -> emits crossed whole game seconds while the raw timer advances
+  -> treats an unchanged raw timer as pause
+  -> predicts the next boundary only to improve read scheduling
+  -> never uses wall-clock time as the displayed game time source
+
+EventTimerProjection
+  -> converts the synchronized raw value to elapsed / remaining / overtime UI text
+```
+
+Phase timer source and display policy should be explicit data, not inferred in rendering code:
+
+| Phase family | Preferred raw source | Raw direction | Typical UI policy |
+| --- | --- | --- | --- |
+| Normal Forest/Desert stage | `stage_timer` | increasing | remaining time from stage duration, then Ghost Phase/overtime |
+| Forest/Desert boss room | `stage_timer` | increasing after reset | remaining time from boss duration, then Ghost Phase/overtime |
+| Graveyard crypt | `crypt_timer` | increasing | remaining time from the seed-specific crypt duration; clamp UI at `00:00` if required |
+| Graveyard main map | `stage_timer` | increasing | remaining time from the 960s main-map duration, then Ghost Phase formatting |
+| Graveyard post-boss swarm | `final_swarm_timer` | increasing | elapsed/phase-specific swarm presentation; preserve continuity across portal movement |
+
+Segment lifecycle:
+
+1. Resolve the best active timer source from map-specific timer availability, timer values, and activity-dictionary markers. Do not rely solely on `map_seed`, `stage_ptr`, or raw `stage_index`.
+2. On the first valid read for a source, create a segment and establish its raw baseline; do not invent elapsed time from local clock.
+3. While the selected raw timer increases normally, synchronize its integer-second boundaries exactly as in the KPS clock design. Use the local prediction only to optionally increase read frequency near the next boundary.
+4. If the raw timer is unchanged, preserve the projected value and mark the segment paused. Resume from the next advancing raw value without adding local elapsed time.
+5. If the selected source changes, or the phase detector observes a valid reset, known jump, or confirmed activity transition, close the current segment and start a new one. This is an expected transition, not an error.
+6. If a timer rollback or jump has no matching phase evidence, mark the timer state uncertain and re-enter a short calibration/confirmation mode rather than immediately displaying a fabricated countdown.
+7. Render the current segment through its explicit display policy. The resolver, not the UI layer, owns phase selection and duration semantics.
+
+Validation Required Before Implementation:
+
+- Capture live traces for every Forest and Desert transition: Stage 1 -> 2, Stage 2 -> 3, Stage 3 -> Boss Room, boss death -> Ghost Phase.
+- Capture Graveyard Crypt 1 start/exit, main map entry, Crypt 2 entry, boss entry, boss death, and return through the portal.
+- For each trace, record active timer-family values, map/stage pointers, raw `stage_index`, relevant activity dictionary changes, and the visible UI timer.
+- Verify seed-specific crypt durations and the exact display behavior at `00:00`.
+- Add characterization tests for pause, delayed reads, source switching, timer reset, expected timer jump, and unexplained timer discontinuity.
+
+Benefits:
+
+- Event Timer remains synchronized with game time even when the application is delayed or the game is paused;
+- map-specific timer semantics are isolated from generic synchronization mechanics;
+- expected stage resets and Ghost Phase jumps no longer appear as false desynchronizations;
+- the UI uses one authoritative phase/timer projection instead of duplicating fragile map rules across overlays.
+
+#### 4. OBS Overlay Stats Widget Short Stat Labels (Refactor Fixes)
+
+Status: `[Open]`
+
+Goal:
+
+- Align stat display names in the OBS Overlay Stats widget with the abbreviated/short label formatting used in the In-Game Overlay Stats widget and Twitch `!chaos` command output.
+
+Problem Analysis:
+
+- **Label Format Inconsistency:** The In-Game Overlay Stats widget and Twitch bot output use compact stat abbreviations (e.g. `abbreviate_stat_label`), whereas the OBS Overlay Stats widget formats stat rows with full names, creating visual clutter in compact OBS browser source layouts.
+
+Planned Solution:
+
+- Apply short/abbreviated stat label formatting to `_snapshot_stats` / OBS overlay state projection to maintain visual consistency across all overlay and bot outputs.
+
+#### 5. OBS Overlay "No Game" and Connection Status Audit (Refactor Fixes)
+
+Status: `[Open]`
+
+Goal:
+
+- Audit and refine status handling (`no_game`, `waiting`, `live`) in the OBS overlay server and web frontend (`overlay.js`).
+
+Problem Analysis:
+
+- **Unrefined Status States:** When the game process closes (`no_game`) or waits for attach (`waiting`), OBS overlay widgets currently display generic status cards or raw string replaces, leading to awkward visual layouts when embedded in OBS stream scenes.
+
+Planned Solution:
+
+- Audit state transitions in `OverlayStateStore`, `projections/obs.py`, and `overlay.js` to ensure clean widget hiding, customizable status overlays, and smooth transitions when switching between active run, paused, and `no_game` states.
+
+#### 6. In-Game Overlay Graveyard Difficulty & XP Gain Stat Caps (Refactor Fixes)
+
+Status: `[Open]`
+
+Goal:
+
+- Extend stat capping logic in `_build_in_game_stats_rows` (In-Game Overlay Stats widget) to include the Graveyard map, enforcing XP Gain (10x) and Difficulty (571% for first 2 minutes) stat caps.
+
+Problem Analysis:
+
+- **Graveyard Explicitly Excluded:** `_build_in_game_stats_rows` contains `if not is_graveyard and raw_val is not None:`, which completely bypasses stat capping and cap highlight colors when playing on the Graveyard map.
+- **Missing Difficulty Cap for Graveyard:** On Graveyard, the difficulty cap for the first 2 minutes (before 2m ghost spawn) should be 571% (5.71), identical to Tier 1 Stage 0.
+
+Planned Solution:
+
+- Remove `not is_graveyard` exemption in `_build_in_game_stats_rows`.
+- Define Graveyard difficulty capping rules (cap at 5.71 / 571% for the first 2 minutes of the stage, matching Tier 1 Stage 0 rules) and ensure XP Gain 10x capping applies to Graveyard as well.
 

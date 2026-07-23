@@ -118,12 +118,14 @@ class TemplateFormFrame(QWidget):
         self.micro_entry = QLineEdit()
         self.boss_entry = QLineEdit()
         self.bald_heads_entry = QLineEdit()
+        self.magnet_entry = QLineEdit()
 
         layout.addRow("S+M Total (optional):", self.sm_entry)
         layout.addRow("Shady Guy (min):", self.shady_entry)
         layout.addRow("Moais (min):", self.moai_entry)
         layout.addRow("Microwaves (min):", self.micro_entry)
         layout.addRow("Boss Curses (min):", self.boss_entry)
+        layout.addRow("Magnets (min):", self.magnet_entry)
         layout.addRow("Bald Heads (min):", self.bald_heads_entry)
 
         self.sm_entry.textChanged.connect(self._sync_sm_fields)
@@ -142,6 +144,7 @@ class TemplateFormFrame(QWidget):
         self.moai_entry.setText(str(self.template_data.get("moai", 0)))
         self.micro_entry.setText(str(self.template_data.get("micro", 0)))
         self.boss_entry.setText(str(self.template_data.get("boss", 0)))
+        self.magnet_entry.setText(str(self.template_data.get("magnet", self.template_data.get("magnet_shrines", 0))))
         self.bald_heads_entry.setText(str(self.template_data.get("bald_heads", 0)))
         for widget in (self.sm_entry, self.shady_entry, self.moai_entry):
             widget.blockSignals(False)
@@ -177,6 +180,7 @@ class TemplateFormFrame(QWidget):
             self.micro_entry.text(),
             self.boss_entry.text(),
             self.bald_heads_entry.text(),
+            self.magnet_entry.text(),
             source_template=self.template_data,
         )
 
@@ -187,7 +191,7 @@ class TemplateDialog(QDialog):
         self.result_payload = None
         self.setWindowTitle("Edit Template" if edit_template else "Add Template")
         self.setModal(True)
-        self.resize(420, 260)
+        self.resize(420, 300)
         self.form = TemplateFormFrame(self, edit_template)
         layout = QVBoxLayout(self)
         layout.addWidget(self.form)
