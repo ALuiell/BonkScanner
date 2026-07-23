@@ -207,6 +207,58 @@ class FastLaneTaskTests(unittest.TestCase):
         self.assertEqual(reads, [1])
         self.assertIsNotNone(context.metadata_for(PASSIVE_ITEMS))
 
+    def test_the_items_panel_is_repainted_on_the_live_tab(self) -> None:
+        """The panel renders exactly what this task already holds, so keeping it
+        fresh costs no read. It was the last surface still waiting for the 10 s
+        `display_player_stats` payload."""
+        painted: list[tuple] = []
+        service, world = build_refresh_tasks(
+            stats_client=self._client(lambda: ("Anvil x1",)),
+            tab_active=True,
+        )
+        world.view.set_items = lambda items: painted.append(items)
+
+        service._refresh_passive_items_task(
+            RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+        )
+
+        self.assertEqual(painted, [("Anvil x1",)])
+
+    def test_a_scrubbed_timeline_is_not_repainted_over(self) -> None:
+        """The guard the two fast stage-summary writes were missing in
+        `9c59abd`: at a fast cadence an unguarded write repaints live values
+        over the snapshot the user scrubbed to, about once a second."""
+        painted: list[tuple] = []
+        service, world = build_refresh_tasks(
+            stats_client=self._client(lambda: ("Anvil x1",)),
+            tab_active=True,
+            pinned=True,
+        )
+        world.view.set_items = lambda items: painted.append(items)
+
+        service._refresh_passive_items_task(
+            RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+        )
+
+        self.assertEqual(painted, [])
+
+    def test_a_skipped_pass_leaves_the_last_good_reading_on_screen(self) -> None:
+        """A transiently empty dictionary must not blank the panel. The tracker
+        reports the pass as not applied and the repaint is skipped with it."""
+        painted: list[tuple] = []
+        service, world = build_refresh_tasks(
+            stats_client=self._client(lambda: ()),
+            tab_active=True,
+        )
+        world.tracker.update_items = lambda _items: False
+        world.view.set_items = lambda items: painted.append(items)
+
+        service._refresh_passive_items_task(
+            RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+        )
+
+        self.assertEqual(painted, [])
+
     def test_a_read_failure_leaves_the_reconnect_streak_to_the_full_snapshot(self) -> None:
         """Memory health for `PASSIVE_ITEMS` belongs to the primary consumer.
         A second consumer recording its own failure would advance the streak

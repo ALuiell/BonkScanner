@@ -88,6 +88,7 @@ def build_refresh_tasks(
             refresh_powerups_card=lambda: None,
             set_mob_kills_text=lambda _text: None,
             set_stage_summary_rows=lambda _rows: None,
+            set_items=lambda _items: None,
         )
     world.view = view
 

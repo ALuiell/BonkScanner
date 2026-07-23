@@ -502,7 +502,22 @@ class RefreshTasks:
             )
             # `update_items` owns the transient-empty guard and the run-boundary
             # guard; a skipped pass is not a failure.
-            self._tracker().update_items(items)
+            applied = self._tracker().update_items(items)
+            # Live Stats renders this same inventory, and it was the one
+            # remaining surface still waiting for the 10 s payload -- the
+            # tracked-item *rows* got fast the moment the deltas did, but the
+            # items panel beside them is painted from `display_player_stats`.
+            # Repainting it here costs no read: the task already holds exactly
+            # what the panel renders.
+            #
+            # `not pinned`: the user may have scrubbed the timeline, and these
+            # are live values. That is the guard the two fast stage-summary
+            # writes were missing in `9c59abd`, which is what "the stage summary
+            # flickers" was. Only `applied` is repainted -- a skipped or failed
+            # read leaves the last good reading on screen rather than blanking
+            # the panel.
+            if applied and self._tab_active() and not self._pinned():
+                self._view().set_items(items)
             return True
         except Exception:
             # Deliberately no `record_memory_success`/`record_memory_failure`.

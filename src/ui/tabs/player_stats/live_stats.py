@@ -263,6 +263,18 @@ class LiveStatsTab:
         """
         set_stage_summary_labels(self._stage_summary_labels, rows)
 
+    def set_items(self, items) -> None:
+        """`PlayerStatsView` operation: repaint the items panel alone.
+
+        The section keeps its own `_expanded` and `_sort_mode`, so a repaint
+        preserves whatever the user set with "Show more" and the sort combo.
+        `items_text` is deliberately not passed: the "Items unavailable" string
+        is the slow path's to write, and the fast task simply does not repaint
+        when its read failed rather than blanking a panel that still holds a
+        good reading.
+        """
+        self._items_section.update(items)
+
     def _reset_live_player_stats_ui(self, status_text: str, *, items_text: str = "--") -> None:
         _set_text(self._status_label, status_text)
         for label in self._stat_value_rows.values():

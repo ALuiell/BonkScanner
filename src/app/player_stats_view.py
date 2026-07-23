@@ -115,6 +115,16 @@ class PlayerStatsView(Protocol):
         the mob-kills line. Six operations now, not five.
         """
 
+    def set_items(self, items) -> None:
+        """Render the live inventory into the Live Stats items panel.
+
+        The same shape as `set_stage_summary_rows` and for the same reason: a
+        fast task owns one panel's freshness and must not go through the
+        whole-card `display_player_stats` payload to write it. Added with the
+        `passive_items` task, which already holds the inventory the panel
+        renders -- so this repaint costs no read.
+        """
+
 
 @runtime_checkable
 class OverlayView(Protocol):
