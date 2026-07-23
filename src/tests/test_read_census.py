@@ -28,9 +28,16 @@ class ReadCensusRatchetTests(unittest.TestCase):
     def test_boundary_populations_are_derived_from_the_tree(self) -> None:
         census = _load_census()
 
+        # 26 since the `passive_items` fast-lane task: a *second* call site for
+        # an already-enrolled source, which is what the site count is supposed
+        # to move for. The source *set* is unchanged -- `PASSIVE_ITEMS` was
+        # already enrolled by the full snapshot -- and
+        # `test_current_on_tick_source_set_is_exact_and_has_no_bypasses` is what
+        # guards that, so this number rising alone means a shared read, not a
+        # new fact and not a bypass.
         self.assertEqual(
             census.boundary_site_count([census.SRC / rel for rel in census.ON_TICK_FILES]),
-            25,
+            26,
         )
         self.assertEqual(
             census.boundary_site_count([census.SRC / rel for rel in census.OFF_TICK_FILES]),

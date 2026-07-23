@@ -1657,10 +1657,21 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("#22C55E", rows[1]["items"])
         self.assertEqual(rows[2]["kills"], "60")
         self.assertEqual(rows[2]["time"], "00:30")
-        self.assertIn("#98A7BA", rows[2]["items"])
+        # The `150.0` snapshot is the Stage 3 -> 4 boundary (same stage_ptr, the
+        # timer collapses from 45.0 to 2.0) and it is the first read that shows
+        # `Beacon x2`. That Beacon was picked up on Stage 3 and only became
+        # visible on the read that detected the transition, so it belongs to
+        # Stage 3. It used to land on Stage 4, which is the misattribution the
+        # closing-snapshot credit fixes; the bucket append and the kill baseline
+        # on the adjacent lines already used this same predicate.
+        self.assertIn("#60A5FA", rows[2]["items"])
+        self.assertIn(">1</span>", rows[2]["items"])
         self.assertEqual(rows[3]["kills"], "100")
         self.assertEqual(rows[3]["time"], "00:30")
+        # Stage 4 keeps only what the `180.0` snapshot added -- one more Beacon
+        # and one more Ghost -- rather than also absorbing Stage 3's tail.
         self.assertIn("#60A5FA", rows[3]["items"])
+        self.assertIn("#22C55E", rows[3]["items"])
 
     def test_build_stage_summary_uses_early_new_stage_snapshot_as_previous_boundary(self) -> None:
         snapshots = [

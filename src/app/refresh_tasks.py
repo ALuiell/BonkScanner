@@ -84,6 +84,7 @@ from app.read_sources import (
     EXPECTED_CHEST_INPUTS,
     KPS_GROUP_SPAN_LIMIT_SECONDS,
     MOB_KILLS,
+    PASSIVE_ITEMS,
     POWERUP_TRACKING_SNAPSHOT,
     STAGE_TIMER_CONTEXT,
     OWNER_STATS,
@@ -112,6 +113,15 @@ PLAYER_STATS_REFRESH_MS = 10_000
 # noticed a whole interval late mis-attributes that interval's kills to the wrong
 # stage. Matches CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS, whose state it reads.
 RECORDING_LIFECYCLE_REFRESH_MS = 1_000
+# Its own decision, not an inherited interval, for the same reason
+# RECORDING_LIFECYCLE_REFRESH_MS is: `tracked_items` was the only state in the
+# app whose latency was a full PLAYER_STATS_REFRESH_MS *plus* a confirmation
+# tick, because `process_item_deltas` credits a raised count only on the next
+# read that agrees -- so 10--20 s end to end for the OBS overlay, Session Stats
+# and the Twitch commands. Not FAST_TRACKER_INTERVAL_MS (500 ms, user
+# configurable down to 100): the item dictionary is a per-entry walk, and 1 s
+# buys effectively all of the latency back at a fifth of that read cost.
+PASSIVE_ITEMS_REFRESH_MS = 1_000
 
 
 def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
@@ -178,6 +188,22 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
                 status_text=service._player_stats_refresh_status_text,
                 context=context,
             ),
+        )
+    )
+    # Registered after the full snapshot, so on a pass where both are due the
+    # snapshot resolves PASSIVE_ITEMS first and this task reads it from the
+    # pass cache. Either order shares the one physical read -- registration
+    # order only decides which task pays for it.
+    coordinator.register(
+        RefreshTask(
+            task_id="passive_items",
+            interval_ms=PASSIVE_ITEMS_REFRESH_MS,
+            # The same predicate as the full snapshot, deliberately: this task
+            # feeds the same tracked-item state that recordings consume, so a
+            # demand window where one runs and the other does not would leave a
+            # gap in the data rather than merely a stale label.
+            required=service._should_refresh_full_player_snapshot,
+            run=service._refresh_passive_items_task,
         )
     )
     coordinator.register(
@@ -453,6 +479,40 @@ class RefreshTasks:
         except Exception as exc:
             self._memory().record_memory_failure(exc)
             self._mark_fast_feature_failed("expected_chests", exc)
+            return False
+
+    def _refresh_passive_items_task(self, context: RefreshTickContext) -> bool:
+        """Read the passive inventory on the fast lane and run item deltas only.
+
+        Resolved through the named ``PASSIVE_ITEMS`` source, which is the point
+        of step 28's composable reads: on a pass where the full snapshot is also
+        due, both consumers share **one** physical walk of the item dictionary.
+        Nothing is removed from ``refresh_now`` -- it keeps reading and
+        publishing items exactly as before, so recordings, VOD capture and the
+        Stage Summary inputs are unchanged. This adds a second consumer of an
+        existing source; it does not split the existing path.
+        """
+        try:
+            client = self._fast_task_client(context)
+            owner_stats = self._fast_task_owner_stats(context)
+            items = read_memory_source(
+                context,
+                PASSIVE_ITEMS,
+                lambda: client.get_passive_items(owner_stats),
+            )
+            # `update_items` owns the transient-empty guard and the run-boundary
+            # guard; a skipped pass is not a failure.
+            self._tracker().update_items(items)
+            return True
+        except Exception:
+            # Deliberately no `record_memory_success`/`record_memory_failure`.
+            # Memory health and the reconnect streak for PASSIVE_ITEMS belong to
+            # the full snapshot, which reads the same source and still runs. A
+            # second consumer recording its own successes would reset a streak
+            # the primary path is accumulating, and recording its own failures
+            # would advance that streak twice for what may be one physical read
+            # (step_28_plan.md section 12.5: enrolling a site must not change
+            # error policy).
             return False
 
     def _combat_group_span_seconds(self, context: RefreshTickContext) -> float | None:

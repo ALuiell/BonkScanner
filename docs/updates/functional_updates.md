@@ -246,23 +246,167 @@ This is a planned change. The current intervals and lazy-demand behavior remain 
 
 #### 1. Tracked Items Refresh Latency Optimization (Refactor Fixes)
 
-Status: `[Open]`
+Status: `[Implemented / Requires In-Game Verification]`
+
+Shipped:
+
+- `PASSIVE_ITEMS_REFRESH_MS = 1_000` and the `passive_items` `RefreshTask`
+  (`app/refresh_tasks.py`), resolved through the existing named `PASSIVE_ITEMS`
+  source key so a pass where the full snapshot is also due walks the item
+  dictionary once. Gated on `_should_refresh_full_player_snapshot`, the same
+  predicate the full snapshot uses.
+- `LiveRunTracker.update_items` (`core/tracker/live_run.py`), which runs
+  `items.process_item_deltas` only. It does not append to the snapshot deque,
+  advance the stage index, reset the stage-summary cache or mark features live.
+- Transient-empty and run-boundary guards inside `update_items`; memory health
+  and the reconnect streak are deliberately left to the full snapshot.
+- Halved read cost for the walk itself: `_read_passive_item_dictionary`
+  memoises the slot layout (value address + name per slot) and re-reads only the
+  stabilised stack counts, validated against the dictionary pointer, entries
+  pointer, count and `_version` -- the same quadruple `_get_cached_key_count`
+  has used in production. ~4 reads per entry becomes ~2.
+- Coverage: `src/tests/test_passive_items_fast_lane.py`,
+  `src/tests/test_passive_item_layout_cache.py`. Each guard was tamper-tested.
+
+Still owed: a live run confirming end-to-end latency and that no duplicate or
+dropped pickup appears in the OBS overlay, Session Stats or the Twitch output.
+
+Correction to the analysis below: the claim that `current_stage_index` advances
+only inside `update()` is **wrong**. `update_fast_stage_timer` also advances it
+(`core/tracker/live_run.py`), after a 2-sample confirmation and a stage-timer
+reset hold, so fast-lane item events are stamped with a stage index that is
+accurate to ~1--2 s. The accepted-inaccuracy caveat that rested on that claim
+does not apply. One real gate remains: that fast advance happens inside the
+`event_timer` task, whose demand predicate is `_should_refresh_fast_stage_timer`
+-- with every stage-timer consumer disabled, the stage index falls back to the
+10 s path.
 
 Goal:
 
-- Reduce high latency/delays when updating `Tracked items` in the in-game overlay, OBS overlay, and Session Stats UI after acquiring or leveling up passive items.
+- Reduce high latency/delays when updating `Tracked items` in the OBS overlay, Session Stats UI, and Twitch command output after acquiring or leveling up passive items.
 
 Problem Analysis:
 
-- **10-Second Polling Cadence:** Item tracking state (`tracked_items`) relies on `full_player_snapshot`, which is polled on a 10,000 ms (`PLAYER_STATS_REFRESH_MS`) interval.
-- **Delayed Feedback:** Picking up or upgrading tracked items during a live run takes up to 10 seconds to reflect on overlay widgets and session stats views.
+- **The real latency is 10--20 s, not 10 s.** Two stages compound:
+  - `tracked_items` state relies on `full_player_snapshot`, polled on a 10,000 ms (`PLAYER_STATS_REFRESH_MS`) interval;
+  - an item gain is then *confirmed*, not trusted on first sight. `process_item_deltas` holds the raised count as a `_PendingItemIncrease` and credits it only on the next snapshot that agrees (`core/tracker/items.py`). That confirmation is correct -- the game rebuilds its item dictionary in place and a mid-write read can show a transient count -- but at a 10 s cadence it costs a second full interval.
+- **One choke point, and it is not the UI.** All consumers read the same `LiveRunTracker` tracked counts through `tracked_item_rows` / `tracked_item_rows_for_rules`: Session Stats (`session_stats.py`), the OBS overlay (`runtime_snapshot().tracked_items`), and the Twitch commands. That field is written only by `process_item_deltas` inside `LiveRunTracker.update(snapshot)`, whose only caller is `refresh_now` on the 10 s task.
+- **Transport is already fast; only the value is stale.** OBS overlay state is republished every 500 ms from `_refresh_combat_metrics_task` (when the `kps` or `stage_summary` widget is enabled). No UI plumbing needs to change.
+- **Scope correction:** the In-Game Overlay has no tracked-items widget at all. Its widget set is `scanner`, `recording`, `kps`, `powerups`, `luck_rarity`, `stats`, `event_timer`. The affected surfaces are the OBS overlay, Session Stats, and Twitch.
 
-Planned Solution:
+Planned Solution -- read passive items on the fast lane:
 
-- Decouple item/inventory change detection from the heavy 10-second `full_player_snapshot` task.
-- Introduce a lightweight item/inventory delta check on a faster tick cadence or trigger immediate item state updates when fast memory checks detect inventory pointer/count mutations.
+- Register a new `RefreshTask` for passive items with its own cadence constant (1,000 ms proposed), not by reusing `FAST_TRACKER_INTERVAL_MS`. This follows the precedent of `RECORDING_LIFECYCLE_REFRESH_MS`, which is its own decision rather than an inherited interval.
+- Resolve it through the existing named source key `PASSIVE_ITEMS` (`app/read_sources.py`). This is the point of step 28's composable reads: on every pass where the full snapshot is also due, both consumers share **one** physical read of the item dictionary. No read is duplicated.
+- Call the existing `PlayerStatsMemory.read_passive_items_only(owner_stats, context)`; it is already a standalone entry point with `context` threaded through.
+- Add a narrow `LiveRunTracker.update_items(...)` that calls `items.process_item_deltas` only. It must **not** call `update()`, which appends to the snapshot deque, advances `current_stage_index`, resets the stage-summary cache, and marks five features live. `update_items` joins the existing family of fast-lane entry points (`update_fast_run_timer`, `track_kills`, `update_powerups`, `track_expected_key_procs`, `update_chaos_tome`, ...).
+- Keep the confirmation ladder. At a 1 s cadence it costs one second, and a shorter window between the two reads makes it stricter, not weaker.
+- Nothing is removed from `refresh_now`: the full snapshot keeps reading and publishing items exactly as today, so recordings, VOD capture and Stage Summary inputs are unchanged. This adds a second consumer of an existing source; it does not split the existing path.
 
-#### 2. Game-Time Synchronized KPS Calculation (Refactor Fixes)
+Required guards:
+
+- Apply the same transient-empty-dictionary protection that `LiveSnapshotStore.merge_items` provides. Without it, one empty read drops `current_count` below the confirmed count and silently discards a pending gain.
+- Gate the task on the lifecycle probe's active-run state and on the same demand predicate as the full snapshot (`player_stats_refresh_required`), so no gap appears in data that recordings consume.
+- Do not credit items across a run boundary: new-match detection and `reset_for_new_match` currently live on the 10 s path, and the fast task must not attribute a new run's starting inventory to the previous run.
+- Stage attribution granularity stays as-is for this change: `current_stage_index` advances only inside `update()`, so an item gained within ~10 s of a stage transition can be stamped with the outgoing stage index. This is accepted here and addressed by the stage-closing snapshot in the next item.
+
+Expected result:
+
+- Detection within 1 s plus one confirmation tick: roughly **1--2 s** end to end, against 10--20 s today.
+- Added read cost is approximately 4 reads per inventory entry per tick (~120 reads/s at 30 items), because `_read_passive_item_dictionary` resolves names from `ITEM_ENUM_NAMES_BY_ID` by dictionary key and performs no string reads on the hot path. That is the same order as the fast-lane work already running (powerups, expected chests, Chaos Tome) and smaller than one cold damage-source dictionary walk.
+
+Rejected alternatives:
+
+- **Lowering `PLAYER_STATS_REFRESH_MS`.** The full snapshot reads player stats, weapons, tomes, banishes, damage sources (the cold RunStats dictionary walk), the disabled-item pool and map activity, then repaints Live Stats synchronously on the UI thread. Multiplying all of it to refresh one fact of fifteen is the wrong trade, and `disabled_items` is deliberately a once-per-run read rather than a cadence-driven one. Acceptable only as a temporary stopgap (e.g. 3,000 ms for 3--6 s latency) if a fix is needed before the task exists.
+- **Building an inventory-signature/delta detector**, as an earlier draft of this entry proposed. Counted against the source, it does not pay for itself: a signature costs roughly 3 reads per entry (value pointer + count + stable stack count) versus roughly 4 for reading the items outright. A quarter saved buys a new address-cache layer with its own invalidation and its own failure mode. Read the items directly instead.
+
+Validation Requirements:
+
+- Verify that on a pass where both the fast task and the full snapshot are due, the item dictionary is read exactly once (assert on the shared `PASSIVE_ITEMS` key, not on wall-clock timing).
+- Cover: pickup detection latency at the new cadence, a level-up (stack count change on an existing entry), a transiently empty dictionary, an `InvalidItemStackCountError`, and a run boundary.
+- Tamper-test the new task: disabling it must fail a test. A harness that stubs the 10 s path will otherwise keep passing and prove nothing.
+
+#### 2. Stage Summary Stage-Closing Snapshot (Refactor Fixes)
+
+Status: `[Implemented / Requires In-Game Verification]`
+
+The mechanism this entry proposed already existed, half-built. `update_fast_stage_timer`
+detects a stage change on the fast lane with a 2-sample confirmation and a hold
+until the stage-timer reset is observed, commits a boundary snapshot to
+`_fast_stage_boundaries`, and `_stage_summary_timeline_unlocked` already merges
+those boundaries into the list `build_stage_summary` folds over. Time and kills
+were therefore already closed to ~1--2 s. Items were excluded by one line:
+`_fast_stage_summary_snapshot_unlocked` set `items_available=False`, because
+nothing on the fast lane could supply an inventory.
+
+Shipped, as two changes rather than a new subsystem:
+
+- The fast projection now carries the fast-lane inventory when it is fresher
+  than `FAST_ITEMS_TTL_SECONDS` (3 s). Expiry withholds the inventory, which
+  degrades to the previous behaviour rather than to a wrong one.
+- `build_stage_summary` credits a closing snapshot's item gains to
+  `previous_stage_index` (`core/run_summary.py`). This is the "Cheap Interim
+  Fix" below, and it stops being a heuristic now that the boundary is a
+  recorded fact: it reuses the exact predicate the bucket append and the kill
+  baseline on the adjacent lines already use.
+
+No new snapshot field and no explicit `stage_boundary="closing"` marker was
+added, because the live fold does not need one.
+
+Known gap, and the reason a marker may still be wanted: **recordings do not see
+the boundary.** VOD snapshots are captured only on the 10 s path
+(`capture(**capture_kwargs)` in `app/player_stats_refresh.py`), and
+Recordings/Compare Runs rebuild their own Stage Summary from that list. So the
+live Stage Summary is now accurate while the same run replayed from a recording
+keeps the old misattribution. Closing that requires persisting the closing
+observation into the recording, and the fold must tolerate its absence in
+already-recorded runs.
+
+The heuristics this entry proposed retiring -- `is_stage_transition_boundary_snapshot`
+and `is_explicit_raw_stage_transition` -- were **kept**. They are what identifies
+a closing snapshot in the fold, including for recorded runs that carry no fast
+boundary at all.
+
+Goal:
+
+- Attribute items, kills and time to the stage they were actually earned on by recording an explicit *closing* observation at the moment a stage transition is detected, instead of inferring the boundary afterwards from timer heuristics.
+
+Problem Analysis:
+
+- **Item gains on a transition snapshot are credited to the wrong stage.** In `build_stage_summary` (`core/run_summary.py`) the per-snapshot loop advances `current_stage_index` *first*, then credits that snapshot's item gains to the already-advanced index. Everything picked up during the tail of the outgoing stage -- which becomes visible only on the first read taken after the transition -- lands on the incoming stage.
+- **Time and kills already get boundary handling; items do not.** The same loop appends the transition snapshot to the *previous* stage's bucket when `is_stage_transition_boundary_snapshot` or `is_explicit_raw_stage_transition` holds, and records a per-stage kill baseline. The item path has no equivalent, which is the asymmetry to close.
+- **Gains are credited on first sight.** `update_stage_item_gain_tracker`'s confirmation streak (`PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS`) applies only to a *falling* count. A rising count is credited immediately, so the very first post-transition snapshot moves the whole tail of the previous stage.
+- **The detection signal is already 10x finer than the attribution.** `RuntimeGameState.current_stage_index` is published by the lifecycle probe every `CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS` (1 s) and already reaches `refresh_now`. Stage Summary nevertheless derives stage identity from the `stage_index` field of a 10 s snapshot. The data exists; the mechanism to freeze on it does not.
+- **Double counting is not confirmed.** Only misattribution is provable from the code -- item gains are credited once. If a run shows a pickup counted on both stages, capture a trace before designing for it; the likelier source is the separate tracked-item rule path with its own `combo_run_counts`.
+
+Proposed Mechanism:
+
+- On a stage-index change observed by the 1 s lifecycle probe, emit a **closing observation** stamped as belonging to the *outgoing* stage, and begin the new stage from a fresh baseline.
+- Carry the boundary as explicit data on the snapshot (for example `stage_boundary="closing"`) rather than leaving it to be re-derived. `build_stage_summary` is a pure fold over the snapshot list and holds no incremental state, so a closing observation is a snapshot inserted into that list with a marker -- not a new state layer and not a new component.
+- Once the boundary is recorded fact, retire the heuristics that exist only because it was not: `is_stage_transition_boundary_snapshot` with its `PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS` window, and `is_explicit_raw_stage_transition`.
+
+Sequencing -- this depends on item 1:
+
+- The error is produced by the window during which a pickup is invisible, and that window is today the 10 s snapshot cadence. Moving passive items to the fast lane (item 1 above) shrinks it roughly tenfold on its own.
+- After that, the closing observation only has to cover the last ~1 s before the transition -- a window in which, by in-game behaviour, nothing can be picked up (stage-entry animations). It can then be a **boundary marker rather than an urgent extra read**, which is materially simpler and safer.
+- Recommended order: item 1 first, then this.
+
+Cheap Interim Fix (independent of the mechanism):
+
+- Credit item gains to `previous_stage_index` when the transition snapshot already satisfies `is_stage_transition_boundary_snapshot` -- the same predicate the bucket append on the adjacent lines uses. Two lines, no new concepts, and it rests on the same in-game fact this entry is built on. It closes the bulk of the cases immediately and does not remove the need for the explicit boundary.
+
+Known Limitations and Adjacent Debt:
+
+- **Graveyard is not covered.** Its internal transitions do not change the raw `stage_index`; see item 4 below. Record this as a known gap in scope rather than discovering it on a live run.
+- **Two independent item-delta engines.** `process_item_deltas` (`core/tracker/items.py`, confirmation ladder on *increases*, feeds tracked-item rules) and `update_stage_item_gain_tracker` (`core/run_summary.py`, ladder on *decreases*, feeds Stage Summary rarities) consume the same input with different algorithms and different guarantees. This entry fixes the symptom in one of them. Whether to converge them is a separate decision, but until it is made, every fix of this shape has to be applied twice.
+
+Validation Requirements:
+
+- Capture a live trace of a Forest/Desert stage transition recording: the moment `stage_index` changes, the run timer, the stage timer, and the earliest moment an item can actually be acquired on the new stage. **The safe-window assumption ("nothing drops in the first 1--2 s of a stage") is what the whole mechanism rests on and must be measured, not assumed.**
+- Cover an item acquired in the final second before a transition, an item acquired immediately after one, and a delayed or dropped read spanning the boundary.
+- Verify Stage 1 -> 2, 2 -> 3, 3 -> Boss Room and the late-attach path, and confirm Graveyard behaviour is unchanged rather than silently wrong.
+
+#### 3. Game-Time Synchronized KPS Calculation (Refactor Fixes)
 
 Status: `[Open]`
 
@@ -307,7 +451,7 @@ Benefits:
 - pauses preserve the last valid KPS and do not create false activity or spikes;
 - the scope is isolated from stage/map logic, so it can be implemented and characterized independently.
 
-#### 3. Event Timer: Phase-Aware Game-Time Model (Refactor Fixes)
+#### 4. Event Timer: Phase-Aware Game-Time Model (Refactor Fixes)
 
 Status: `[Planned / Requires In-Game Verification]`
 
@@ -379,7 +523,7 @@ Benefits:
 - expected stage resets and Ghost Phase jumps no longer appear as false desynchronizations;
 - the UI uses one authoritative phase/timer projection instead of duplicating fragile map rules across overlays.
 
-#### 4. OBS Overlay Stats Widget Short Stat Labels (Refactor Fixes)
+#### 5. OBS Overlay Stats Widget Short Stat Labels (Refactor Fixes)
 
 Status: `[Open]`
 
@@ -395,7 +539,7 @@ Planned Solution:
 
 - Apply short/abbreviated stat label formatting to `_snapshot_stats` / OBS overlay state projection to maintain visual consistency across all overlay and bot outputs.
 
-#### 5. OBS Overlay "No Game" and Connection Status Audit (Refactor Fixes)
+#### 6. OBS Overlay "No Game" and Connection Status Audit (Refactor Fixes)
 
 Status: `[Open]`
 
@@ -411,7 +555,7 @@ Planned Solution:
 
 - Audit state transitions in `OverlayStateStore`, `projections/obs.py`, and `overlay.js` to ensure clean widget hiding, customizable status overlays, and smooth transitions when switching between active run, paused, and `no_game` states.
 
-#### 6. In-Game Overlay Graveyard Difficulty & XP Gain Stat Caps (Refactor Fixes)
+#### 7. In-Game Overlay Graveyard Difficulty & XP Gain Stat Caps (Refactor Fixes)
 
 Status: `[Open]`
 

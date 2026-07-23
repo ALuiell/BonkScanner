@@ -55,6 +55,7 @@ from core.tracker.snapshots import (
     PowerupsSnapshot,
     PowerupMapContext,
     FastRunTimer,
+    FastItems,
 )
 
 FAST_STAGE_TRANSITION_CONFIRMATION_SAMPLES = 2
@@ -70,6 +71,16 @@ FAST_STAGE_TRANSITION_CONFIRMATION_SAMPLES = 2
 # genuinely dead read stops the display rather than showing a frozen time as
 # if it were live.
 FAST_RUN_TIMER_TTL_SECONDS = 2.0
+
+# The fast inventory's freshness bound. Wider than the run clock's because the
+# passive-items task runs at 1 s rather than on the 500 ms driver cadence, and
+# because the cost of a stale value here is different: a stale clock shows a
+# wrong time, a stale inventory would credit items to a stage boundary they
+# were not observed at. Three missed ticks of margin, after which the boundary
+# falls back to carrying no inventory at all -- which is what it did before the
+# fast lane existed, so expiry degrades to the previous behaviour rather than
+# to a wrong one.
+FAST_ITEMS_TTL_SECONDS = 3.0
 
 
 def with_lock(method):
@@ -111,6 +122,10 @@ class _RunState:
     # Published by every successful RUN_TIMER read, independently of whether
     # the MOB_KILLS read beside it succeeded (step_28_plan.md section 12.2).
     fast_run_timer: FastRunTimer = field(default_factory=FastRunTimer)
+    # Published by every successful fast-lane PASSIVE_ITEMS read. Consumed by
+    # the stage-summary projection so a boundary can close on the inventory as
+    # it stood at the transition rather than on the last 10 s snapshot's.
+    fast_items: FastItems = field(default_factory=FastItems)
 
 
 @dataclass
@@ -142,6 +157,7 @@ class LiveRunTracker:
             "_pending_fast_stage_index", "_pending_fast_stage_samples",
             "_pending_fast_stage_boundary", "_pending_fast_stage_awaiting_timer_reset",
             "_slow_stage_timer_reset_pending_from", "_fast_run_timer",
+            "_fast_items",
         )},
         **{name: "_combat_state" for name in (
             "_recent_kills_history", "_ui_kps_baseline", "_ui_kps_value",
@@ -284,6 +300,7 @@ class LiveRunTracker:
             combat.reset(self._combat_state)
             self._fast_stage_timer_context = FastStageTimerContext()
             self._fast_run_timer = FastRunTimer()
+            self._fast_items = FastItems()
             self._cached_stage_summary = None
 
     @with_lock
@@ -465,6 +482,17 @@ class LiveRunTracker:
         if latest_snapshot is None:
             return None
         changes: dict[str, Any] = {"items_available": False}
+        # ``items_available: False`` is the default and not a change: a fast
+        # projection had no way to refresh the inventory, so it had to withhold
+        # it rather than carry a 10 s stale list into a stage bucket. The fast
+        # lane now supplies one, and a boundary snapshot that carries the
+        # inventory as it stood at the transition is what closes a stage on its
+        # own items instead of the next stage's first read.
+        has_fresh_value = False
+        fast_items = self._fresh_fast_items_unlocked()
+        if fast_items is not None:
+            changes.update(items=fast_items, items_available=True)
+            has_fresh_value = True
 
         # The run clock comes from the dedicated fast run timer, the kill count
         # from combat state. Before step 28c both came from
@@ -487,6 +515,7 @@ class LiveRunTracker:
                     )
                     if fast_kills is not None:
                         changes.update(mob_kills=int(fast_kills))
+                    has_fresh_value = True
 
         stage_context = self._fresh_fast_stage_timer_context_unlocked()
         if include_unconfirmed_stage_context and stage_context is not None:
@@ -496,8 +525,9 @@ class LiveRunTracker:
                 stage_duration_seconds=stage_context.stage_duration_seconds,
                 stage_index=stage_context.stage_index,
             )
+            has_fresh_value = True
 
-        if len(changes) == 1:
+        if not has_fresh_value:
             return None
         # Interactable totals belong to the slow tick's game_data read; a fast
         # projection has no way to refresh them and must not carry them forward.
@@ -550,6 +580,75 @@ class LiveRunTracker:
             run_timer_seconds=float(run_timer_seconds),
         )
         self._cached_stage_summary = None
+
+    @with_lock
+    def update_items(self, items: tuple[str, ...] | None) -> bool:
+        """Fast-lane item pass: item deltas only, from one ``PASSIVE_ITEMS`` read.
+
+        Deliberately *not* ``update()``. That method appends to the snapshot
+        deque, advances ``current_stage_index``, resets the stage-summary cache
+        and marks five features live -- all of which belong to the full 10 s
+        snapshot and none of which this read has the inputs to decide. This
+        joins the existing family of narrow fast-lane entry points
+        (``update_fast_run_timer``, ``track_kills``, ``update_powerups``,
+        ``track_expected_key_procs``, ``update_chaos_tome``).
+
+        Returns whether the read was applied, so the task can report a skipped
+        pass without inventing a failure.
+        """
+        # Transient-empty protection, the same rule `LiveSnapshotStore.merge_items`
+        # applies on the slow path: the game exposes an empty inventory
+        # dictionary for a single read while it rebuilds it in place. Credited
+        # here it would drop `current_count` below the confirmed count and
+        # silently discard a pending gain. An empty read is never news -- a
+        # genuinely empty inventory has no deltas to detect -- so dropping it
+        # costs nothing and the slow path still seeds the baseline.
+        if not items:
+            return False
+        latest = self._latest_snapshot_unlocked()
+        if latest is None or not self._is_active_snapshot(latest):
+            # No run baseline yet. The slow path owns run start, including the
+            # initial-inventory candidates `process_item_deltas` seeds on its
+            # first call; starting that here would race it.
+            return False
+
+        run_timer_seconds = self._fresh_fast_run_timer_unlocked()
+        latest_time = latest.game_time_seconds
+        if run_timer_seconds is not None and latest_time is not None:
+            if (
+                float(run_timer_seconds) + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
+                < float(latest_time)
+            ):
+                # The run clock went backwards: a new match started and the slow
+                # path has not noticed yet. Its `_should_reset_for_snapshot`
+                # owns that decision. Crediting here would attribute the new
+                # run's starting inventory to the previous run.
+                return False
+
+        changes: dict[str, Any] = {
+            "items": tuple(items),
+            "items_available": True,
+            "captured_at": float(self.clock()),
+        }
+        if run_timer_seconds is not None:
+            # Item *events* carry `game_time_seconds`, and `before_time` rules
+            # compare against it. A 10 s stale run time would misjudge those.
+            changes["game_time_seconds"] = float(run_timer_seconds)
+        self._fast_items = FastItems(
+            captured_at=float(self.clock()),
+            items=tuple(items),
+        )
+        self._process_item_deltas(replace(latest, **changes))
+        self._cached_stage_summary = None
+        return True
+
+    def _fresh_fast_items_unlocked(self) -> tuple[str, ...] | None:
+        fast_items = self._fast_items
+        if fast_items.captured_at <= 0 or fast_items.items is None:
+            return None
+        if self.clock() - fast_items.captured_at > FAST_ITEMS_TTL_SECONDS:
+            return None
+        return fast_items.items
 
     def _fresh_fast_run_timer_unlocked(self) -> float | None:
         timer = self._fast_run_timer
@@ -894,6 +993,7 @@ class LiveRunTracker:
         self._fast_stage_boundaries.clear()
         self._fast_stage_timer_context = FastStageTimerContext()
         self._fast_run_timer = FastRunTimer()
+        self._fast_items = FastItems()
         self._pending_fast_stage_index = None
         self._pending_fast_stage_samples = 0
         self._pending_fast_stage_boundary = None

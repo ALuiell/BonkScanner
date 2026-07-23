@@ -154,6 +154,24 @@ class FastRunTimer:
     run_timer_seconds: float | None = None
 
 
+@dataclass
+class FastItems:
+    """The passive inventory, published by the fast-lane ``PASSIVE_ITEMS`` read.
+
+    Separate from the slow snapshot's ``items`` for the same reason
+    ``FastRunTimer`` is separate from the kill history: the full snapshot keeps
+    reading and publishing items on its own 10 s cadence, and this is a second
+    consumer of the same source, not a replacement for the first.
+
+    ``captured_at`` is the tracker clock, and freshness is bounded by
+    ``FAST_ITEMS_TTL_SECONDS`` -- a stale inventory must not be projected onto
+    a stage boundary as if it had been observed there.
+    """
+
+    captured_at: float = 0.0
+    items: tuple[str, ...] | None = None
+
+
 @dataclass(frozen=True)
 class ChestStatsSnapshot:
     current_opened: int

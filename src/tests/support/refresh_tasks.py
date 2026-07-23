@@ -75,6 +75,7 @@ def build_refresh_tasks(
             update_fast_run_timer=lambda _timer: None,
             update_chaos_tome=lambda **_kwargs: None,
             update_fast_stage_timer=lambda **_kwargs: None,
+            update_items=lambda _items: True,
             current_ui_kps=lambda: None,
             stage_summary_rows=lambda: [],
             mark_feature_available=lambda _feature: None,

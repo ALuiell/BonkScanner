@@ -252,6 +252,19 @@ class PlayerStatsClient:
         self._cached_key_dict_count = -1
         self._cached_key_version: int | None = None
         self._cached_key_stack_address = 0
+        # The passive inventory's *layout*: which slots hold an item, where each
+        # one's stack count lives, and what it is called. Validated exactly like
+        # the Key address above -- dictionary pointer, entries pointer, count and
+        # `_version` -- which is the invariant that cache already relies on in
+        # production. A .NET dictionary bumps `_version` on every Add/Remove, so
+        # any change to *which* items are held invalidates this; a stack count
+        # changing (an item levelling up) does not, and must not, because the
+        # stack counts are the part that is re-read on every pass.
+        self._cached_item_layout_dict = 0
+        self._cached_item_layout_entries = 0
+        self._cached_item_layout_count = -1
+        self._cached_item_layout_version: int | None = None
+        self._cached_item_layout: tuple[tuple[int, str], ...] | None = None
         self._cached_chaos_level_dict = 0
         self._cached_chaos_level_entries = 0
         self._cached_chaos_level_version: int | None = None
@@ -591,6 +604,21 @@ class PlayerStatsClient:
             return ()
         if count > self.MAX_PASSIVE_ITEM_DICT_ENTRIES:
             raise MemoryReadError(f"Passive item dictionary count is invalid: {count}")
+
+        # The whole walk costs 4 reads per entry -- value pointer, key id, and
+        # two for the stabilised stack count. Only the last pair can change
+        # while the dictionary's `_version` holds, so with a valid layout this
+        # halves the cost of the pass that made the fast lane affordable
+        # (~120 -> ~65 reads at 30 items). Same invalidation as
+        # `_get_cached_key_count`; nothing new is trusted here.
+        cached_layout = self._passive_item_layout(passive_item_dict, entries, count)
+        if cached_layout is not None:
+            return tuple(
+                f"{item_name} x{max(1, self._layout_stack_count(stack_address))}"
+                for stack_address, item_name in cached_layout
+            )
+
+        layout: list[tuple[int, str]] = []
         items: list[str] = []
         broken_entries = 0
         for index in range(count):
@@ -627,12 +655,84 @@ class PlayerStatsClient:
                 broken_entries += 1
                 continue
 
+            layout.append((item_value + self.ITEM_STACK_COUNT_OFFSET, item_name))
             items.append(f"{item_name} x{max(1, stack_count)}")
 
         if count > 0 and not items and broken_entries:
             raise MemoryReadError("Passive item dictionary entries could not be decoded.")
 
+        # Only a clean walk is memoised. A pass that skipped a torn entry saw an
+        # incomplete inventory, and caching that would keep the item invisible
+        # until the *next* Add/Remove instead of until the next read.
+        if not broken_entries:
+            self._store_passive_item_layout(passive_item_dict, entries, count, tuple(layout))
+        else:
+            self._clear_passive_item_layout()
+
         return tuple(items)
+
+    def _passive_item_layout(
+        self,
+        passive_item_dict: int,
+        entries: int,
+        count: int,
+    ) -> tuple[tuple[int, str], ...] | None:
+        """The memoised slot layout, or ``None`` when it must be rebuilt."""
+        if self._cached_item_layout is None:
+            return None
+        if (
+            passive_item_dict != self._cached_item_layout_dict
+            or entries != self._cached_item_layout_entries
+            or count != self._cached_item_layout_count
+        ):
+            return None
+        try:
+            version = self.memory.read_i32(passive_item_dict + self.DICT_VERSION_OFFSET)
+        except MemoryReadError:
+            self._clear_passive_item_layout()
+            return None
+        if version != self._cached_item_layout_version:
+            return None
+        return self._cached_item_layout
+
+    def _store_passive_item_layout(
+        self,
+        passive_item_dict: int,
+        entries: int,
+        count: int,
+        layout: tuple[tuple[int, str], ...],
+    ) -> None:
+        try:
+            version = self.memory.read_i32(passive_item_dict + self.DICT_VERSION_OFFSET)
+        except MemoryReadError:
+            self._clear_passive_item_layout()
+            return
+        self._cached_item_layout_dict = passive_item_dict
+        self._cached_item_layout_entries = entries
+        self._cached_item_layout_count = count
+        self._cached_item_layout_version = version
+        self._cached_item_layout = layout
+
+    def _clear_passive_item_layout(self) -> None:
+        self._cached_item_layout_dict = 0
+        self._cached_item_layout_entries = 0
+        self._cached_item_layout_count = -1
+        self._cached_item_layout_version = None
+        self._cached_item_layout = None
+
+    def _layout_stack_count(self, stack_address: int) -> int:
+        """One entry's stack count on the cached path.
+
+        ``MemoryReadError -> 1`` mirrors the full walk exactly: a transiently
+        unreadable stack reads as a *drop*, which the item-delta ladders already
+        absorb. ``InvalidItemStackCountError`` is deliberately not caught in
+        either path -- a torn read must reach the caller, not be smoothed into a
+        plausible-looking count.
+        """
+        try:
+            return self._read_stable_item_stack_count(stack_address)
+        except MemoryReadError:
+            return 1
 
     def get_live_weapons(self, owner_stats: int | None = None) -> tuple[WeaponSnapshot, ...]:
         owner_stats = owner_stats or self._resolve_owner_stats()

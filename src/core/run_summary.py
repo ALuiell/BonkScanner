@@ -218,13 +218,14 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
                 snapshot,
             )
             current_stage_index = min(max(next_stage_index, current_stage_index), 4)
-            if (
+            closes_previous_stage = (
                 current_stage_index > previous_stage_index
                 and (
                     is_stage_transition_boundary_snapshot(snapshot)
                     or is_explicit_raw_stage_transition(previous_snapshot, snapshot)
                 )
-            ):
+            )
+            if closes_previous_stage:
                 stage_buckets[previous_stage_index].append(snapshot)
             if current_stage_index > previous_stage_index:
                 baseline = getattr(snapshot, "mob_kills", None)
@@ -237,8 +238,19 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
                     item_gain_tracker,
                     getattr(snapshot, "items", ()),
                 )
+                # Credit a closing snapshot's gains to the stage it closes, not
+                # to the one just entered.  ``current_stage_index`` was advanced
+                # a few lines above, so without this every pickup made in the
+                # tail of the outgoing stage -- visible only on the first read
+                # taken after the transition -- landed on the incoming stage.
+                # Time and kills already got this treatment: the bucket append
+                # and the kill baseline above use exactly the same predicate.
+                # The item path was the asymmetry.
+                credited_stage_index = (
+                    previous_stage_index if closes_previous_stage else current_stage_index
+                )
                 for rarity, count in item_gains.items():
-                    stage_item_gains[current_stage_index][rarity] += count
+                    stage_item_gains[credited_stage_index][rarity] += count
         stage_buckets[current_stage_index].append(snapshot)
         if snapshot_mob_kills is not None:
             last_known_mob_kills = max(0, int(snapshot_mob_kills))
