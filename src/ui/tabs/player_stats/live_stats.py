@@ -466,6 +466,26 @@ class LiveStatsTab:
         """
         _set_text(self._mob_kills_label, text)
 
+    def set_kps_averages_text(self, text: str) -> None:
+        """Set the Live Stats KPS averages line.
+
+        The same shape as `set_mob_kills_text` above, for the label directly
+        beneath it.
+        """
+        _set_text(self._kps_averages_label, text)
+
+    def set_chaos_tome_card(self, chaos_tome) -> None:
+        """Repaint the Chaos Tome card alone.
+
+        The status text is derived here rather than passed in, exactly as
+        `display_player_stats` derives it, so the fast caller does not have to
+        know the card's empty-state wording.
+        """
+        self._stat_cards.display_chaos_tome(
+            chaos_tome,
+            status_text=None if chaos_tome is not None else "No Chaos Tome data yet",
+        )
+
     def set_in_game_time_text(self, text: str) -> None:
         """Set the Live Stats in-game time line.
 

@@ -3180,6 +3180,9 @@ class GuiRunControlTests(unittest.TestCase):
             track_kills=lambda run_timer, mob_kills: None,
             update_fast_run_timer=lambda run_timer: None,
             current_ui_kps=lambda: 123,
+            current_minute_avg_kps=lambda: 90,
+            current_five_minute_avg_kps=lambda: 75,
+            chaos_tome_snapshot=lambda: None,
             stage_summary_rows=lambda: [],
         )
         return app
@@ -3216,6 +3219,7 @@ class GuiRunControlTests(unittest.TestCase):
             # proves neither still reaches around the port.
             set_stage_summary_rows=lambda rows: stage_rows.append(rows),
             set_in_game_time_text=lambda text: None,
+            set_kps_averages_text=lambda text: None,
         )
 
         with patch.object(config, "OVERLAY", {"widgets": []}), patch.object(

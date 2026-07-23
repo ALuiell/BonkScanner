@@ -304,6 +304,9 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
                     track_kills=lambda *a: None,
                     update_fast_run_timer=lambda *a: None,
                     current_ui_kps=lambda: 12,
+                    current_minute_avg_kps=lambda: 10,
+                    current_five_minute_avg_kps=lambda: 8,
+                    chaos_tome_snapshot=lambda: None,
                     stage_summary_rows=lambda: [{"stage": "live"}],
                     update_fast_stage_timer=lambda **k: None,
                     mark_feature_available=lambda feature: None,
@@ -314,6 +317,8 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
                     set_in_game_time_text=(
                         lambda text: recorded["in_game_time"].append(text)
                     ),
+                    set_kps_averages_text=lambda text: None,
+                    set_chaos_tome_card=lambda chaos_tome: None,
                 )
 
             def _is_live_stats_tab_active(self) -> bool:

@@ -271,12 +271,13 @@ class ViewPortRoutingTests(unittest.TestCase):
     def test_the_three_protocols_partition_the_declared_surface(self) -> None:
         """No operation is dropped, duplicated, or invented by the split.
 
-        Thirteen now: the original nine, plus `set_stage_summary_rows` and
+        Fifteen now: the original nine, plus `set_stage_summary_rows` and
         `refresh_powerups_card` from step 19 -- both added to replace an
         app-layer call that reached the UI through the shared namespace instead
-        of through this port -- and two panel-level writes that let a fast task
+        of through this port -- and four panel-level writes that let a fast task
         keep one widget fresh instead of waiting for the 10 s
-        `display_player_stats` payload: `set_items` and `set_in_game_time_text`.
+        `display_player_stats` payload: `set_items`, `set_in_game_time_text`,
+        `set_kps_averages_text` and `set_chaos_tome_card`.
         """
         groups = [_protocol_operations(p) for p in ACCESSORS.values()]
         union: set[str] = set()
@@ -287,8 +288,8 @@ class ViewPortRoutingTests(unittest.TestCase):
             union |= group
         self.assertEqual(
             len(union),
-            13,
-            "expected the original nine, the two step-19 additions and the two "
+            15,
+            "expected the original nine, the two step-19 additions and the four "
             f"fast panel writes, got {sorted(union)}",
         )
 

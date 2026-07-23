@@ -77,6 +77,9 @@ def build_refresh_tasks(
             update_fast_stage_timer=lambda **_kwargs: None,
             update_items=lambda _items: True,
             current_ui_kps=lambda: None,
+            current_minute_avg_kps=lambda: None,
+            current_five_minute_avg_kps=lambda: None,
+            chaos_tome_snapshot=lambda: None,
             stage_summary_rows=lambda: [],
             mark_feature_available=lambda _feature: None,
             mark_feature_failed=lambda _feature, _error: None,
@@ -88,6 +91,8 @@ def build_refresh_tasks(
             refresh_powerups_card=lambda: None,
             set_mob_kills_text=lambda _text: None,
             set_in_game_time_text=lambda _text: None,
+            set_kps_averages_text=lambda _text: None,
+            set_chaos_tome_card=lambda _chaos_tome: None,
             set_stage_summary_rows=lambda _rows: None,
             set_items=lambda _items: None,
         )
@@ -107,6 +112,7 @@ def build_refresh_tasks(
 
     world.vod_recorder = vod_recorder
     world.overlay_syncs: list = []
+    world.session_tracked_item_refreshes: list = []
 
     def _predicate(value):
         return value if callable(value) else (lambda: value)
@@ -129,6 +135,7 @@ def build_refresh_tasks(
         pinned=_predicate(pinned),
         widget_refresh_active=widget_active,
         sync_overlay_state=lambda: world.overlay_syncs.append(1),
+        refresh_session_tracked_items=lambda: world.session_tracked_item_refreshes.append(1),
         refresh_required=_predicate(refresh_required),
     )
     return service, world

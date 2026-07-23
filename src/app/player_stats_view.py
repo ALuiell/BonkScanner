@@ -95,6 +95,24 @@ class PlayerStatsView(Protocol):
     def set_mob_kills_text(self, text: str) -> None:
         """Set the Live Stats mob-kills line."""
 
+    def set_kps_averages_text(self, text: str) -> None:
+        """Set the Live Stats 1-minute / 5-minute KPS line.
+
+        The averages come from the same `_recent_kills_history` the instant KPS
+        does, and `set_mob_kills_text` above has painted that at the fast
+        cadence since step 17 -- so one line of the pair was live and the line
+        under it was a 10 s reading of the same deque.
+        """
+
+    def set_chaos_tome_card(self, chaos_tome) -> None:
+        """Render the Chaos Tome card from a tracker snapshot.
+
+        `CHAOS_TRACKING_STATE` is read every fast tick and folded by
+        `update_chaos_tome`, but the card was painted only by the 10 s payload.
+        The Twitch `!chaos` command reads the tracker at command time, so chat
+        was seeing rolls before the app's own card did.
+        """
+
     def set_in_game_time_text(self, text: str) -> None:
         """Set the Live Stats in-game time line.
 

@@ -259,6 +259,65 @@ class FastLaneTaskTests(unittest.TestCase):
 
         self.assertEqual(painted, [])
 
+    def test_the_session_stats_panel_is_refreshed_from_the_same_pass(self) -> None:
+        """Session Stats is one of the three surfaces this change exists for,
+        and its panel was repainted only by `refresh_now` on the 10 s path.
+
+        Unconditional, matching that caller: the panel lives on a different tab
+        from Live Stats, so the Live Stats guards are not the right gate."""
+        service, world = build_refresh_tasks(
+            stats_client=self._client(lambda: ("Anvil x1",))
+        )
+
+        service._refresh_passive_items_task(
+            RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+        )
+
+        self.assertEqual(len(world.session_tracked_item_refreshes), 1)
+
+    def test_the_overlay_is_republished_for_the_tracked_items_widget(self) -> None:
+        """The fast tasks republished the overlay only for `kps` and
+        `stage_summary`. An overlay running Tracked Items with Stage Summary
+        switched off therefore fell back to the 10 s cadence -- exactly the
+        surface the fast lane was built for."""
+        service, world = build_refresh_tasks(
+            stats_client=self._client(lambda: ("Anvil x1",)),
+            widget_refresh_active=lambda widget_id: widget_id == "tracked_items",
+        )
+
+        service._refresh_passive_items_task(
+            RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+        )
+
+        self.assertEqual(len(world.overlay_syncs), 1)
+
+    def test_no_overlay_republish_without_the_widget(self) -> None:
+        service, world = build_refresh_tasks(
+            stats_client=self._client(lambda: ("Anvil x1",)),
+            widget_refresh_active=False,
+        )
+
+        service._refresh_passive_items_task(
+            RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+        )
+
+        self.assertEqual(world.overlay_syncs, [])
+
+    def test_a_skipped_pass_publishes_nothing(self) -> None:
+        """Nothing changed, so no consumer is told anything did."""
+        service, world = build_refresh_tasks(
+            stats_client=self._client(lambda: ()),
+            widget_refresh_active=lambda widget_id: widget_id == "tracked_items",
+        )
+        world.tracker.update_items = lambda _items: False
+
+        service._refresh_passive_items_task(
+            RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+        )
+
+        self.assertEqual(world.overlay_syncs, [])
+        self.assertEqual(world.session_tracked_item_refreshes, [])
+
     def test_a_read_failure_leaves_the_reconnect_streak_to_the_full_snapshot(self) -> None:
         """Memory health for `PASSIVE_ITEMS` belongs to the primary consumer.
         A second consumer recording its own failure would advance the streak

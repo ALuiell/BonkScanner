@@ -343,7 +343,7 @@ class RefreshTasks:
     Twelve collaborators, all callables. ``_memory``/``_lifecycle``/``_view``/
     ``_capture`` return the sibling services; ``_widget_refresh_active`` is the
     module function above with its ``owner`` already bound; the rest are the
-    owner's tracker, predicates and the one overlay command.
+    owner's tracker, predicates and the two overlay commands.
     """
 
     def __init__(
@@ -360,6 +360,7 @@ class RefreshTasks:
         pinned: Callable[[], bool],
         widget_refresh_active: Callable[[str], bool],
         sync_overlay_state: Callable[[], None],
+        refresh_session_tracked_items: Callable[[], None],
         refresh_required: Callable[[], bool],
     ) -> None:
         self._memory = memory
@@ -373,6 +374,7 @@ class RefreshTasks:
         self._pinned = pinned
         self._widget_refresh_active = widget_refresh_active
         self._sync_overlay_state = sync_overlay_state
+        self._refresh_session_tracked_items = refresh_session_tracked_items
         self._refresh_required = refresh_required
 
         # Owned state. Both initialised to the value the ``getattr`` default on
@@ -518,6 +520,23 @@ class RefreshTasks:
             # the panel.
             if applied and self._tab_active() and not self._pinned():
                 self._view().set_items(items)
+            if applied:
+                # Session Stats is one of the three surfaces this whole change
+                # exists for, and its panel was repainted only by `refresh_now`
+                # on the 10 s path. Unconditional, matching that caller: the
+                # panel lives on a different tab from Live Stats, so the Live
+                # Stats guards above are not the right gate, and the writer
+                # itself no-ops when the label has not been built.
+                self._refresh_session_tracked_items()
+                # Publish for the widget *this task* changed. Gating the
+                # overlay republish on `kps`/`stage_summary` -- the only two
+                # conditions the fast tasks had -- meant an overlay running the
+                # Tracked Items widget with Stage Summary switched off fell back
+                # to the 10 s cadence, which is exactly the surface the fast
+                # lane was built for. `stage_summary` is enabled by default, so
+                # this was covered by accident rather than by design.
+                if self._widget_refresh_active("tracked_items"):
+                    self._sync_overlay_state()
             return True
         except Exception:
             # Deliberately no `record_memory_success`/`record_memory_failure`.
@@ -618,6 +637,16 @@ class RefreshTasks:
                 self._view().set_mob_kills_text(
                     formatting.format_mob_kills(mob_kills, self._tracker().current_ui_kps()),
                 )
+                # The averages read the same deque `track_kills` just appended
+                # to, one line below the instant KPS that has been painted here
+                # since step 17. Two readings of one history, and only the top
+                # one was live.
+                self._view().set_kps_averages_text(
+                    formatting.format_kps_averages(
+                        self._tracker().current_minute_avg_kps(),
+                        self._tracker().current_five_minute_avg_kps(),
+                    ),
+                )
                 self._view().set_stage_summary_rows(
                     self._tracker().stage_summary_rows(),
                 )
@@ -689,6 +718,13 @@ class RefreshTasks:
                 chaos_level=chaos_level,
                 permanent_modifiers=permanent_modifiers if chaos_level is not None else {},
             )
+            # The card was painted only by the 10 s payload while this task
+            # folded a new reading every tick, which is why `!chaos` in chat
+            # could report a roll the app's own card had not shown yet. Same
+            # `not pinned` guard as every other fast write: these are live
+            # values and the user may have scrubbed the timeline.
+            if self._tab_active() and not self._pinned():
+                self._view().set_chaos_tome_card(self._tracker().chaos_tome_snapshot())
             return True
         except Exception as exc:
             self._memory().record_memory_failure(exc)
@@ -858,6 +894,10 @@ def refresh_tasks(owner) -> RefreshTasks:
         pinned=lambda: player_stats_snapshot_is_pinned(owner),
         widget_refresh_active=lambda widget_id: overlay_widget_refresh_active(owner, widget_id),
         sync_overlay_state=lambda: owner.update_overlay_state_from_tracker(),
+        # The same shape as `sync_overlay_state` above, and resolved through the
+        # owner for the same reason: it is one command on a component this
+        # service does not otherwise hold.
+        refresh_session_tracked_items=lambda: owner.refresh_session_tracked_item_stats_ui(),
         refresh_required=lambda: player_stats_refresh_required(owner),
     )
     if coordinator is not None:
