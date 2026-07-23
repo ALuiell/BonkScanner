@@ -342,6 +342,111 @@ class CompareRunsDiffCacheTests(unittest.TestCase):
         )
 
 
+class CompareRunsStaleDataTests(unittest.TestCase):
+    """The cache must never be the reason new data does not appear.
+
+    Two mechanisms here return *previously computed* output -- the diff cache
+    and the diff-card dirty check -- and the dirty check sits downstream of the
+    cache, so a stale hit would be painted-over twice: once by returning the
+    old strings, once by deciding there is nothing to repaint. These cases
+    drive the real path a user takes to get newer data in front of them.
+    """
+
+    def _built_enough_tab(self):
+        tab = build_compare_runs_tab()
+        for side in ("a", "b"):
+            setattr(tab, f"_run_{side}_status_label", FakeLabel())
+            setattr(tab, f"_run_{side}_timeline_label", FakeLabel())
+            setattr(tab, f"_run_{side}_summary_label", FakeLabel())
+            setattr(tab, f"_run_{side}_slider", MagicMock())
+            setattr(tab, f"_run_{side}_items_view", MagicMock())
+        tab._diff_overview_label = FakeLabel()
+        tab._diff_stats_label = FakeLabel()
+        tab._diff_items_label = FakeLabel()
+        tab._diff_stage_summary_label = FakeLabel()
+        tab._diff_weapons_label = FakeLabel()
+        tab._diff_tomes_label = FakeLabel()
+        tab._diff_chaos_label = FakeLabel()
+        tab._refresh_compare_runs_item_details_button = MagicMock()
+        tab.refresh_compare_runs_list = MagicMock()
+        tab._refresh_compare_runs_chooser = MagicMock()
+        tab._refresh_compare_runs_stats_config = MagicMock()
+        return tab
+
+    def test_reloading_a_recording_that_grew_shows_the_new_snapshots(self) -> None:
+        """The scenario a live run produces: the file gained snapshots.
+
+        `LoadedVod` is frozen and `load_vod` re-reads the file, so the reload
+        yields a *different* object -- which is exactly what the cache key's
+        `id(vod)` and the time index key off.
+        """
+        tab = self._built_enough_tab()
+        short_run = fake_vod("Run A", (0.0, 10.0))
+        grown_run = fake_vod("Run A", (0.0, 10.0, 20.0, 30.0))
+        tab._vod_b = fake_vod("Run B", (0.0, 10.0, 20.0, 30.0))
+        tab._index_b = 0
+
+        with patch.object(compare_runs_tab, "load_vod", return_value=short_run):
+            tab.load_compare_run("a", "run-a.jsonl")
+        self.assertIn("1/2", tab._run_a_status_label.text())
+        overview_before = tab._diff_overview_label.text()
+
+        with patch.object(compare_runs_tab, "load_vod", return_value=grown_run):
+            tab.load_compare_run("a", "run-a.jsonl")
+
+        self.assertIs(grown_run, tab._vod_a)
+        self.assertIn("1/4", tab._run_a_status_label.text(), "the new snapshot count")
+        # The cache is repopulated by the refresh that follows the load, so it
+        # is not empty -- what matters is that nothing in it still refers to
+        # the recording that was replaced.
+        self.assertNotIn(
+            id(short_run),
+            {key[0] for key in tab._diff_cache} | {key[2] for key in tab._diff_cache},
+            "a cached diff outlived the recording it was computed from",
+        )
+        # And the time index followed the new object rather than the old times.
+        self.assertEqual(3, tab._compare_run_time_index("a").nearest(30.0))
+        self.assertNotEqual([], tab._diff_overview_label.writes)
+        self.assertIsNotNone(overview_before)
+
+    def test_a_reload_repaints_even_when_the_diff_text_is_unchanged(self) -> None:
+        """The dirty check must not swallow a genuine reload.
+
+        It cannot: it compares the payload, and identical payload means
+        identical pixels. Pinned because the check sits downstream of the
+        cache, where a wrong answer would be invisible.
+        """
+        tab = self._built_enough_tab()
+        tab._vod_a = fake_vod("Run A", (0.0, 10.0))
+        tab._vod_b = fake_vod("Run B", (0.0, 10.0))
+        tab._index_a = 0
+        tab._index_b = 0
+        tab.refresh_compare_runs_ui()
+        painted = tab._diff_overview_label.text()
+
+        # A different recording whose overview happens to render identically.
+        replacement = fake_vod("Run A", (0.0, 10.0))
+        tab._set_compare_run_vod("a", replacement)
+        tab.refresh_compare_runs_ui()
+
+        self.assertEqual(painted, tab._diff_overview_label.text())
+        self.assertIn(
+            id(replacement),
+            {key[0] for key in tab._diff_cache},
+            "the diff was recomputed for the new recording, not served stale",
+        )
+
+    def test_selecting_a_different_recording_invalidates_the_time_index(self) -> None:
+        """Otherwise time-sync would snap side B to the previous run's times."""
+        tab = self._built_enough_tab()
+        tab._vod_a = fake_vod("Run A", (0.0, 10.0, 20.0))
+        self.assertEqual(2, tab._compare_run_time_index("a").nearest(20.0))
+
+        tab._set_compare_run_vod("a", fake_vod("Run A", (100.0, 200.0, 300.0)))
+
+        self.assertEqual(0, tab._compare_run_time_index("a").nearest(20.0))
+
+
 class CompareRunsDiffCardDirtyCheckTests(unittest.TestCase):
     def _cards(self, tab) -> dict[str, FakeLabel]:
         labels = {
