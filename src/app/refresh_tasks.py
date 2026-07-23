@@ -561,6 +561,21 @@ class RefreshTasks:
             # section 12.2 requires: the Stage Summary clock advances from the
             # first pass of a run instead of waiting for the first kill.
             self._tracker().update_fast_run_timer(run_timer_seconds)
+            # The Live Stats run clock, painted from the same read and *before*
+            # anything kills-related can fail. Its neighbours in that card were
+            # already on this task -- the mob-kills line and the Stage Summary
+            # rows below -- while the clock itself waited for the 10 s payload,
+            # so one card held two clocks advancing at different rates.
+            #
+            # Placed here rather than beside those two deliberately, and for the
+            # reason step 28c moved the tracker's own fast clock off the kill
+            # sample: a failed kills read must not freeze a timer that was read
+            # successfully. Withholding the KPS projection below returns early,
+            # and this write has already happened by then.
+            if self._tab_active() and not self._pinned():
+                self._view().set_in_game_time_text(
+                    formatting.format_in_game_time(run_timer_seconds)
+                )
             # Per-source failure isolation -- the rule this step exists for
             # (plan section 5, "Failure") -- is achieved by *publication
             # order*, not by a second `except` around this read. The timer was

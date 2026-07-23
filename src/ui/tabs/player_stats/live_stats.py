@@ -466,6 +466,14 @@ class LiveStatsTab:
         """
         _set_text(self._mob_kills_label, text)
 
+    def set_in_game_time_text(self, text: str) -> None:
+        """Set the Live Stats in-game time line.
+
+        The same shape as `set_mob_kills_text` directly above, for the label
+        sitting next to it in the same card.
+        """
+        _set_text(self._in_game_time_label, text)
+
     def refresh_player_stats_timeline_ui(self, *, update_slider: bool = True):
         """Re-render the recording timeline strip.
 

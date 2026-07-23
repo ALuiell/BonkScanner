@@ -90,6 +90,7 @@ def build_refresh_app(*, snapshots, selected, pinned, should_capture=False):
         refresh_player_stats_timeline_ui=lambda *a, **k: None,
         set_recording_status_text=lambda text: None,
         set_mob_kills_text=lambda text: None,
+        set_in_game_time_text=lambda text: None,
     )
     app._overlay_view = SimpleNamespace(
         mark_overlay_read_failed=lambda **k: None,
@@ -269,7 +270,12 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
     """
 
     def build_owner(self, *, pinned: bool):
-        recorded = {"stage_rows": [], "mob_kills": [], "powerups": []}
+        recorded = {
+            "stage_rows": [],
+            "mob_kills": [],
+            "powerups": [],
+            "in_game_time": [],
+        }
 
         # A plain owner, not a `RefreshTasksMixin` subclass: step 20f converted
         # the mixin into the `RefreshTasks` service, so the tasks are resolved
@@ -305,6 +311,9 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
                 self._player_stats_view = SimpleNamespace(
                     set_stage_summary_rows=lambda rows: recorded["stage_rows"].append(rows),
                     set_mob_kills_text=lambda text: recorded["mob_kills"].append(text),
+                    set_in_game_time_text=(
+                        lambda text: recorded["in_game_time"].append(text)
+                    ),
                 )
 
             def _is_live_stats_tab_active(self) -> bool:
@@ -354,8 +363,12 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
         refresh_tasks(owner)._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0))
         self.assertEqual([], recorded["stage_rows"])
         self.assertEqual([], recorded["mob_kills"])
+        # The run clock is written earlier in the task than the other two, so it
+        # needs the pin guard in its own right rather than inheriting theirs.
+        self.assertEqual([], recorded["in_game_time"])
 
         owner, recorded = self.build_owner(pinned=False)
         refresh_tasks(owner)._refresh_combat_metrics_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0))
         self.assertEqual([[{"stage": "live"}]], recorded["stage_rows"])
         self.assertEqual(1, len(recorded["mob_kills"]))
+        self.assertEqual(["In-Game Time: 00:30"], recorded["in_game_time"])

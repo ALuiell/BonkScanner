@@ -95,6 +95,16 @@ class PlayerStatsView(Protocol):
     def set_mob_kills_text(self, text: str) -> None:
         """Set the Live Stats mob-kills line."""
 
+    def set_in_game_time_text(self, text: str) -> None:
+        """Set the Live Stats in-game time line.
+
+        Its neighbours in that card were already fast -- `set_mob_kills_text`
+        since step 17 and the Stage Summary rows since step 19 -- while the run
+        clock beside them was written only by the 10 s `display_player_stats`
+        payload. Two clocks in one card advancing at different rates read as a
+        bug whichever one you trust.
+        """
+
     def refresh_powerups_card(self) -> None:
         """Re-render the Powerups card from the tracker's current snapshot.
 

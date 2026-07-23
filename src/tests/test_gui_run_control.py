@@ -3215,6 +3215,7 @@ class GuiRunControlTests(unittest.TestCase):
             # directly. An injected view now has to satisfy both, which is what
             # proves neither still reaches around the port.
             set_stage_summary_rows=lambda rows: stage_rows.append(rows),
+            set_in_game_time_text=lambda text: None,
         )
 
         with patch.object(config, "OVERLAY", {"widgets": []}), patch.object(
