@@ -500,6 +500,11 @@ class PlayerStatsClientTests(unittest.TestCase):
         current_stage = 0x26000700
         stage_timeline = 0x26000800
         run_timer_static_fields = 0x20000D00
+        rsg_type_info = base + PlayerStatsClient.RSG_CONTROLLER_TYPE_INFO_OFFSET
+        rsg_class = 0x26000900
+        rsg_static = 0x26000A00
+        rsg_instance = 0x26000B00
+        graveyard_boss_room = 0x26000C00
 
         memory.pointers.update(
             {
@@ -517,6 +522,10 @@ class PlayerStatsClientTests(unittest.TestCase):
                 map_controller_class + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: map_controller_static,
                 map_controller_static + PlayerStatsClient.MAP_CONTROLLER_CURRENT_STAGE_OFFSET: current_stage,
                 current_stage + PlayerStatsClient.STAGE_DATA_TIMELINE_OFFSET: stage_timeline,
+                rsg_type_info: rsg_class,
+                rsg_class + PlayerStatsClient.CLASS_STATIC_FIELDS_OFFSET: rsg_static,
+                rsg_static + PlayerStatsClient.RSG_INSTANCE_OFFSET: rsg_instance,
+                rsg_instance + PlayerStatsClient.RSG_ROOM_BOSS_OFFSET: graveyard_boss_room,
             }
         )
         memory.ints.update(
@@ -557,6 +566,10 @@ class PlayerStatsClientTests(unittest.TestCase):
             {
                 map_controller_static
                 + PlayerStatsClient.MAP_CONTROLLER_IS_FINAL_BOSS_STAGE_OFFSET: 1,
+                graveyard_boss_room
+                + PlayerStatsClient.GRAVEYARD_BOSS_IS_FIGHTING_OFFSET: 1,
+                graveyard_boss_room
+                + PlayerStatsClient.GRAVEYARD_BOSS_IS_DEFEATED_OFFSET: 0,
             }
         )
 
@@ -569,6 +582,10 @@ class PlayerStatsClientTests(unittest.TestCase):
         # Read from the MapController static block above; the boss-room flag
         # rides along the same resolution as the stage index.
         self.assertTrue(snapshot.is_final_boss_stage)
+        # RSG chain: fighting set, defeated clear -- read straight through the
+        # roomBoss pointer, positive-only.
+        self.assertTrue(snapshot.graveyard_boss_fighting)
+        self.assertFalse(snapshot.graveyard_boss_defeated)
         self.assertEqual([effect.name for effect in snapshot.effects], ["Rage", "Clock"])
         self.assertTrue(snapshot.timing_health.complete)
 

@@ -74,6 +74,12 @@ class _PowerupState:
     # ``> 0`` is true for the rest of the run after crypt 1. Only "advanced
     # since last tick" means "inside a crypt now". Reset with the run.
     previous_crypt_timer: float | None = None
+    # Sticky latch for Graveyard's post-boss phase. ``GraveyardBossRoom.isBossDefeated``
+    # latches true in memory too, but reading it back requires the RSG object to
+    # survive the door transition to the main map -- unmeasured. Latching it here
+    # the moment we first see it (while still in the room, RSG intact) makes the
+    # post-boss fallback hold on the looted main map regardless. Reset with the run.
+    graveyard_boss_ever_defeated: bool = False
 
 
 def fresh_snapshot(state: _PowerupState, now: float) -> PowerupsSnapshot:
@@ -184,6 +190,7 @@ def resolve_ui_context(
     final_swarm_timer: Any,
     is_final_boss_stage: bool = False,
     crypt_timer_advancing: bool = False,
+    graveyard_boss_active: bool = False,
 ) -> _PowerupUiContext:
     """Pick the clock an effect's marks are drawn against.
 
@@ -195,17 +202,18 @@ def resolve_ui_context(
     already means "report seconds remaining, draw no marks" -- the same
     degradation the Graveyard crypt and boss-room branches below use.
 
-    ``is_final_boss_stage`` and ``crypt_timer_advancing`` are the fast phase
-    markers, read fresh every 0.5 s straight from memory rather than inferred
-    from the activity dictionary the map context carries. They decide *before*
-    any map-context logic because the activity dictionary lags its 10 s slow
-    tick, and switching to seconds-only is safe on every map: a stage mark can
-    only ever be wrong in a crypt or boss room, never merely absent. The
+    ``is_final_boss_stage``, ``crypt_timer_advancing`` and
+    ``graveyard_boss_active`` are the fast phase markers, read fresh every
+    0.5 s straight from memory rather than inferred from the activity
+    dictionary the map context carries. They decide *before* any map-context
+    logic because the activity dictionary lags its 10 s slow tick, and
+    switching to seconds-only is safe on every map: a stage mark can only ever
+    be wrong in a crypt or boss room, never merely absent. The
     activity-dictionary crypt branch below stays as the backstop -- it is what
     catches the crypt-1 spawn room, where ``crypt_timer`` has not started
     ticking yet but the crypt markers are already loaded.
     """
-    if is_final_boss_stage or crypt_timer_advancing:
+    if is_final_boss_stage or crypt_timer_advancing or graveyard_boss_active:
         return _PowerupUiContext(stage_timer, None)
     map_context = fresh_map_context(state, now)
     if map_context is None:
@@ -235,11 +243,12 @@ def resolve_ui_context(
         return _PowerupUiContext(stage_timer, None)
 
     if not (_GRAVEYARD_OUTDOOR_MARKERS & activities.keys()):
-        # The confirmed Graveyard map has neither crypt nor outdoor markers in
-        # its boss room. Its stage clock is temporarily rewritten there, so
-        # only seconds remaining are honest. When the player exits back to the
-        # outdoor post-boss phase, Pumpkin/Gravestones return and the normal
-        # 16-minute stage timeline below resumes.
+        # NOT the boss-room detector -- that is ``graveyard_boss_active`` at the
+        # top, from the RSG flags. Live measurement (2026-07-24) showed the
+        # Graveyard boss room keeps the FULL outdoor set, so this branch never
+        # fires there. It survives only as a safe default for a genuinely
+        # unknown/mid-rebuild activity shape: with no marker to trust, report
+        # seconds remaining and draw no marks rather than guess a timeline.
         return _PowerupUiContext(stage_timer, None)
 
     if final_swarm_is_usable and pickup_time >= my_time - final_swarm_value:
@@ -343,6 +352,18 @@ def apply_snapshot(
     )
     if crypt_timer is not None:
         state.previous_crypt_timer = float(crypt_timer)
+
+    # Graveyard boss room + everything after the kill. ``fighting`` covers the
+    # live fight; ``ever_defeated`` is latched from ``defeated`` and covers the
+    # ~10 s post-kill window (swarm still zero) and the looted main map, where
+    # final_swarm would otherwise be ambiguous with the pre-boss ghost phase.
+    # Gated on ``is_graveyard`` so a stray read on another map cannot latch it.
+    if is_graveyard and bool(getattr(snapshot, "graveyard_boss_defeated", False)):
+        state.graveyard_boss_ever_defeated = True
+    graveyard_boss_active = is_graveyard and (
+        bool(getattr(snapshot, "graveyard_boss_fighting", False))
+        or state.graveyard_boss_ever_defeated
+    )
     active: list[PowerupEffectState] = []
     # Rebuilt from scratch each tick: an effect that expired or was rejected
     # simply does not get re-recorded, so the history prunes itself.
@@ -456,6 +477,7 @@ def apply_snapshot(
                     final_swarm_timer=final_swarm_timer,
                     is_final_boss_stage=is_final_boss_stage,
                     crypt_timer_advancing=crypt_timer_advancing,
+                    graveyard_boss_active=graveyard_boss_active,
                 )
                 if (
                     isfinite(added_time)
@@ -492,6 +514,7 @@ def apply_snapshot(
                         final_swarm_timer=final_swarm_timer,
                         is_final_boss_stage=is_final_boss_stage,
                         crypt_timer_advancing=crypt_timer_advancing,
+                        graveyard_boss_active=graveyard_boss_active,
                     )
                     if added_time_ui_context == ui_context:
                         pickup_time = added_time
@@ -562,6 +585,7 @@ def clear(state: _PowerupState) -> None:
     state.powerups_snapshot = PowerupsSnapshot()
     state.effect_history = {}
     state.previous_crypt_timer = None
+    state.graveyard_boss_ever_defeated = False
 
 
 def _same_reading(left: float, right: float) -> bool:

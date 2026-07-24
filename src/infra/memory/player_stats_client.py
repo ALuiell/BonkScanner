@@ -177,6 +177,16 @@ class PlayerStatsClient:
     # Graveyard it stays False (the boss room there is a separate RSG object),
     # so the powerup fallback reads it only to promote, never to demote.
     MAP_CONTROLLER_IS_FINAL_BOSS_STAGE_OFFSET = 0x20
+    # Graveyard's own boss room, reached through the RSG (random stage
+    # generator) singleton. From script.json/dump.cs, verified live 2026-07-24.
+    #   RsgController_TypeInfo -> class -> +0xB8 static -> +0x20 Instance
+    #     -> +0x48 roomBoss (GraveyardBossRoom)
+    #       +0x38 isFightingBoss, +0xA0 isBossDefeated
+    RSG_CONTROLLER_TYPE_INFO_OFFSET = 0x02F79E50
+    RSG_INSTANCE_OFFSET = 0x20
+    RSG_ROOM_BOSS_OFFSET = 0x48
+    GRAVEYARD_BOSS_IS_FIGHTING_OFFSET = 0x38
+    GRAVEYARD_BOSS_IS_DEFEATED_OFFSET = 0xA0
     STAGE_DATA_TIMELINE_OFFSET = 0xD0
     STAGE_TIMELINE_STAGE_TIME_OFFSET = 0x10
     MAX_PASSIVE_ITEM_DICT_ENTRIES = 512
@@ -294,6 +304,7 @@ class PlayerStatsClient:
         self._pending_powerup_multiplier_value: float | None = None
         self._cached_my_time_static_fields = 0
         self._cached_map_controller_static_fields = 0
+        self._cached_rsg_static_fields = 0
         self._cached_stage_pointer = 0
         self._cached_stage_timeline_pointer = 0
         self._cached_stage_index: int | None = None
@@ -1281,6 +1292,9 @@ class PlayerStatsClient:
         # False = "no information", never "not the boss room", because the
         # fallback consumes it only to promote into seconds-only mode.
         is_final_boss_stage = self._read_is_final_boss_stage()
+        graveyard_boss_fighting, graveyard_boss_defeated = (
+            self._read_graveyard_boss_flags()
+        )
 
         status_effects_result = self._read_active_status_effects(
             owner_stats,
@@ -1327,6 +1341,8 @@ class PlayerStatsClient:
             final_swarm_timer_seconds=final_swarm_timer_seconds,
             crypt_timer_seconds=crypt_timer_seconds,
             is_final_boss_stage=is_final_boss_stage,
+            graveyard_boss_fighting=graveyard_boss_fighting,
+            graveyard_boss_defeated=graveyard_boss_defeated,
             effects=effects,
             status_effects_health=status_effects_result.health,
             timing_health=timing_health,
@@ -1781,6 +1797,52 @@ class PlayerStatsClient:
             )
         except MemoryReadError:
             return False
+
+    def _resolve_rsg_static_fields(self) -> int:
+        if self._cached_rsg_static_fields:
+            return self._cached_rsg_static_fields
+        type_info_address = self.memory.module_offset(
+            self.module_name,
+            self.RSG_CONTROLLER_TYPE_INFO_OFFSET,
+        )
+        class_ptr = self.memory.read_ptr(type_info_address)
+        if not class_ptr:
+            return 0
+        static_fields = self.memory.read_ptr(class_ptr + self.CLASS_STATIC_FIELDS_OFFSET)
+        if not static_fields:
+            return 0
+        self._cached_rsg_static_fields = static_fields
+        return static_fields
+
+    def _read_graveyard_boss_flags(self) -> tuple[bool, bool]:
+        """``(is_fighting_boss, is_boss_defeated)`` for Graveyard's boss room.
+
+        Positive-only, like the other boss-room reads: any failure -- the RSG
+        singleton not resolving (every non-Graveyard map, and Graveyard before
+        the boss dungeon generates), a null ``Instance`` or ``roomBoss``, a torn
+        pointer -- returns ``(False, False)`` = "no information". ``roomBoss`` is
+        non-null from the very first tick even in crypt 1, so only the flags on
+        it carry the phase; the pointer being set means nothing on its own.
+        """
+        try:
+            static_fields = self._resolve_rsg_static_fields()
+            if not static_fields:
+                return False, False
+            instance = self.memory.read_ptr(static_fields + self.RSG_INSTANCE_OFFSET)
+            if not instance:
+                return False, False
+            room_boss = self.memory.read_ptr(instance + self.RSG_ROOM_BOSS_OFFSET)
+            if not room_boss:
+                return False, False
+            fighting = bool(
+                self.memory.read_u8(room_boss + self.GRAVEYARD_BOSS_IS_FIGHTING_OFFSET)
+            )
+            defeated = bool(
+                self.memory.read_u8(room_boss + self.GRAVEYARD_BOSS_IS_DEFEATED_OFFSET)
+            )
+            return fighting, defeated
+        except MemoryReadError:
+            return False, False
 
     def _read_current_stage_time(self) -> tuple[int | None, float | None]:
         static_fields = self._resolve_map_controller_static_fields()

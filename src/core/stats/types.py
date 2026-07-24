@@ -163,6 +163,13 @@ class PowerupTrackingSnapshot:
     # from, so it costs no extra probe. Graveyard leaves it False and needs its
     # own markers; this field is only load-bearing for the other two maps.
     is_final_boss_stage: bool = False
+    # ``GraveyardBossRoom`` flags via the RSG chain -- Graveyard's own boss
+    # room, which ``isFinalBossStage`` does not cover (it reads False there).
+    # ``fighting`` tracks the live fight and drops at the kill; ``defeated``
+    # latches true and is what the tracker keeps for the post-boss phase. Both
+    # instantaneous here; the tracker owns the latch so it can reset it per run.
+    graveyard_boss_fighting: bool = False
+    graveyard_boss_defeated: bool = False
     effects: tuple[StatusEffectSnapshot, ...] = ()
     status_effects_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
     timing_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
