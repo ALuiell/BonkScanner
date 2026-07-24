@@ -74,7 +74,7 @@ DEFAULT_OVERLAY = {
     "widgets": [
         {"id": "stage_summary", "enabled": True, "mode": "compact", "order": 40, "max_rows": 4, "background_opacity": 0.4, "show_border": True},
         {"id": "tracked_items", "enabled": True, "mode": "compact", "order": 50, "background_opacity": 0.0, "show_border": False},
-        {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False, "show_header": True},
+        {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False, "show_header": True, "short_stat_labels": True},
         {"id": "kps", "enabled": False, "mode": "compact", "order": 60, "selected_kps_metrics": ["current", "minute_avg", "five_minute_avg", "run_avg"], "background_opacity": 0.0, "show_border": False, "show_header": False},
         {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False, "show_header": True},
     ],
@@ -92,6 +92,10 @@ DEFAULT_OVERLAY = {
         "accent_color": "#F6C453",
         "background_opacity": 0.22,
         "stage_background_opacity": 0.15,
+        # Off by default: on a stream scene the status card is noise. When the
+        # game is restarting the overlay holds the last good frame instead, and
+        # the app log carries the line a streamer would actually act on.
+        "show_status": False,
     },
 }
 

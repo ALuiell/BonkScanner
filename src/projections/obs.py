@@ -147,13 +147,16 @@ def _snapshot_stats(snapshot: Any, widgets: dict[str, Any]) -> list[dict[str, st
     widget = widgets.get("stats") or {}
     selected_labels = _selected_stat_labels(widget.get("selected_stats"))
     max_rows = _coerce_int(widget.get("max_rows"), default=40)
+    use_short_labels = bool(widget.get("short_stat_labels", True))
     rows: list[dict[str, str]] = []
     for label in selected_labels:
         stat = stats.get(label)
         rows.append(
             {
                 "label": str(label),
-                "display_label": abbreviate_stat_label(str(label)),
+                "display_label": (
+                    abbreviate_stat_label(str(label)) if use_short_labels else str(label)
+                ),
                 "value": str(getattr(stat, "display_value", "--") if stat is not None else "--"),
             }
         )

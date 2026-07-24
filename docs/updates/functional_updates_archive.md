@@ -110,6 +110,67 @@ Shipped Solution:
   `src/tests/test_overlay_state.py`, which pins both the abbreviated
   `display_label` and the untouched canonical `label`.
 
+Follow-up (same day): the short form is a **per-widget setting**, not a hard
+rule. `short_stat_labels` (default `True`) lives on the stats widget config,
+is normalized in `core/overlay_config.py`, and is exposed as the
+`Short stat names` checkbox in the OBS tab's Widget Settings -> Advanced ->
+Stats section. `_snapshot_stats` resolves `display_label` from it, so the
+renderer never re-decides; the `?edit=True` demo rows read the same flag out
+of `state.widgets.stats` so the editor previews the layout the live source
+will actually render. Pinned by
+`test_overlay_state_stats_keep_full_labels_when_opted_out` and
+`test_overlay_settings_persist_stats_short_label_choice`; both were confirmed
+to fail against tampered source.
+
+#### 4. Items Vanishing From Compare Runs (Passive-Item Layout Cache)
+
+Status: `[Implemented]`
+
+Goal:
+
+- Fix intermittent missing items in Compare Runs item lists caused by incomplete passive-item layout cache memoisation.
+
+Problem Analysis:
+
+- **49 gaps total** where a passive item was present, absent for several consecutive 10 s snapshots, then present again.
+- **Root cause:** `_read_passive_item_dictionary` (`src/infra/memory/player_stats_client.py`) memoised the dictionary's slot layout and only invalidated it on a `_version` change (a .NET Add/Remove). A slot skipped without a `MemoryReadError` was memoised as clean, keeping dropped items invisible until the next Add/Remove.
+
+Fix:
+
+- An unnameable-but-live slot is treated like a torn entry (`broken_entries += 1`), skipping it for that read and preventing incomplete layout memoisation so it self-heals on the next read.
+- Covered by test cases in `test_passive_item_layout_cache.py`.
+
+#### 5. Future Runtime Data Collection Improvements & Core Lifecycle Probe
+
+Status: `[Implemented]`
+
+Goal:
+
+- Preserve core run-history reads (10s full player snapshot & 500ms expected chest inputs) during an active run even when optional UI/overlay consumers are inactive.
+- Implement a unified 1-second Core Lifecycle Probe to drive run state (`is_active_run()`, pause, resume, game over) across tasks.
+
+Implementation Details:
+
+- Extracted and implemented `RunLifecycle` service ([app/run_lifecycle.py](file:///f:/Python/MegabonkReroll/src/app/run_lifecycle.py)) with `CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS = 1.0` re-reading runtime activity state once per second and caching `RuntimeGameState`.
+- `RunLifecycle.is_active_run()` covers both `IN_GAME` and `PAUSED_IN_GAME`.
+- `refresh_tasks.py` uses `lifecycle.is_active_run()` as an always-on core demand predicate for `full_player_snapshot` (10s) and `expected_chest_inputs` (500ms).
+- VOD recording auto-start, pause, resume, and completion handling ([app/vod_capture.py](file:///f:/Python/MegabonkReroll/src/app/vod_capture.py)) are driven from `RunLifecycle`.
+- Note: Chaos Tome polling optimization remains tracked as a separate open item in `functional_updates.md`.
+
+#### 6. Compare Runs Diff Cards Are a Rich-Text Layout Problem, Not a Compute One
+
+Status: `[Implemented]`
+
+Goal:
+
+- Make a Compare Runs scrub frame cost ~20 ms instead of ~200 ms by changing how the diff cards are *rendered* (switching heavy cards to widget-based `MetricTableView` instead of re-parsing HTML `<table>`s in `QLabel`).
+
+Shipped Behavior & Results:
+
+- Replaced Weapons, Tomes, Chaos cards and the expanded Items per-item table with widget-rendered `MetricTableView` (`src/ui/metric_table.py`).
+- Scrub frame rendering time dropped from ~173 ms down to ~32 ms (~5x speedup).
+- Cells are created once and pooled; restyling happens only when cell delta direction changes.
+
 ---
 
 ## Recently Handled Items (Archived 2026-07-23)

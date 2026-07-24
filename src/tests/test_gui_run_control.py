@@ -77,6 +77,7 @@ from app.coordinator import AppCoordinator, RefreshLoop
 from app.refresh_coordinator import RefreshTickContext
 from PySide6.QtCore import QRect
 from projections import formatting
+from projections.metric_table import EMPTY_METRIC_TABLE
 
 # The modules `gui.py`'s `_PATCH_COMPAT_MODULES` used to propagate a `setattr`
 # across. Step 15 deletes that facade, so the propagation moves here -- to the
@@ -2957,7 +2958,16 @@ class GuiRunControlTests(unittest.TestCase):
             get_stage_timer_context=lambda: (25.0, 2, 480.0),
             get_chaos_tracking_state=lambda owner_stats: (None, {}),
         )
-        service, world = build_refresh_tasks(stats_client=client)
+        # An explicit game-data double, because without one the memory service
+        # builds a real ``GameDataClient`` and this test reads whatever the
+        # running game happens to be doing -- it passed or failed depending on
+        # whether Megabonk was open, and on which room the player stood in.
+        game_data_client = SimpleNamespace(
+            get_map_generation_state=lambda: SimpleNamespace(is_final_boss_stage=False),
+        )
+        service, world = build_refresh_tasks(
+            stats_client=client, game_data_client=game_data_client
+        )
         world.tracker.update_fast_stage_timer = lambda **kwargs: fast_stage_updates.append(kwargs)
 
         overlay_cfg = {
@@ -2972,6 +2982,7 @@ class GuiRunControlTests(unittest.TestCase):
              patch.object(time, "monotonic", return_value=100.0):
             self.assertTrue(service._refresh_event_timer_task(RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)))
 
+        # The boss-room flag rides along with the timer publish.
         self.assertEqual(
             fast_stage_updates,
             [
@@ -2979,6 +2990,7 @@ class GuiRunControlTests(unittest.TestCase):
                     "stage_timer_seconds": 25.0,
                     "stage_index": 2,
                     "stage_duration_seconds": 480.0,
+                    "is_final_boss_stage": False,
                 }
             ],
         )
@@ -4035,28 +4047,31 @@ class GuiRunControlTests(unittest.TestCase):
             formatting,
             format_compare_runs_overview_diff=MagicMock(return_value="overview"),
             format_compare_runs_stats_diff=MagicMock(return_value="stats"),
-            format_compare_runs_items_diff=MagicMock(return_value="items"),
+            build_compare_runs_items_summary=MagicMock(return_value="items"),
+            build_compare_runs_items_table=MagicMock(return_value="items table"),
             format_compare_runs_stage_summary_diff=MagicMock(return_value="stages"),
-            format_compare_runs_weapons_diff=MagicMock(return_value="weapons"),
-            format_compare_runs_tomes_diff=MagicMock(return_value="tomes"),
-            format_compare_runs_chaos_diff=MagicMock(return_value="chaos"),
+            build_compare_runs_weapons_table=MagicMock(return_value="weapons"),
+            build_compare_runs_tomes_table=MagicMock(return_value="tomes"),
+            build_compare_runs_chaos_table=MagicMock(return_value="chaos"),
         ):
             app._refresh_compare_runs_diff()
 
-            formatting.format_compare_runs_items_diff.assert_not_called()
+            formatting.build_compare_runs_items_summary.assert_not_called()
+            formatting.build_compare_runs_items_table.assert_not_called()
             formatting.format_compare_runs_stage_summary_diff.assert_not_called()
-            formatting.format_compare_runs_weapons_diff.assert_not_called()
-            formatting.format_compare_runs_tomes_diff.assert_not_called()
-            formatting.format_compare_runs_chaos_diff.assert_not_called()
+            formatting.build_compare_runs_weapons_table.assert_not_called()
+            formatting.build_compare_runs_tomes_table.assert_not_called()
+            formatting.build_compare_runs_chaos_table.assert_not_called()
 
         app._set_compare_runs_diff_cards.assert_called_once_with(
             "overview",
             stats_text="stats",
             items_text="--",
+            items_table=EMPTY_METRIC_TABLE,
             stage_summary_text="--",
-            weapons_text="--",
-            tomes_text="--",
-            chaos_text="--",
+            weapons_table=EMPTY_METRIC_TABLE,
+            tomes_table=EMPTY_METRIC_TABLE,
+            chaos_table=EMPTY_METRIC_TABLE,
             show_items=False,
             show_stage_summary=False,
             show_weapons=False,
@@ -4738,6 +4753,36 @@ class GuiRunControlTests(unittest.TestCase):
             self.assertTrue(config.OVERLAY["auto_start"])
             self.assertTrue(config.user_config["OVERLAY"]["auto_start"])
             save_config.assert_called_once_with(config.user_config)
+
+    def test_overlay_settings_persist_stats_short_label_choice(self) -> None:
+        component = build_overlay_test_component()
+        component.overlay_port_entry = FakeEntry("17845")
+        component.overlay_auto_start_cb = None
+        component.overlay_widget_checkboxes = {}
+        component.overlay_stats_checkboxes = {"Damage": FakeCheckbox(True)}
+        component.overlay_stats_short_labels_checkbox = FakeCheckbox(False)
+        component.overlay_stage_summary_bg_checkbox = None
+        component.overlay_banishes_bg_checkbox = None
+        component.overlay_tracked_rules_list = None
+        component.update_overlay_state_from_tracker = MagicMock()
+        component.refresh_overlay_ui = MagicMock()
+        overlay_cfg = deepcopy(config.DEFAULT_OVERLAY)
+
+        with patch.object(config, "OVERLAY", overlay_cfg), \
+             patch.object(config, "user_config", {}), \
+             patch.object(config, "save_config"):
+            component.save_overlay_settings_from_ui()
+            saved = next(
+                widget for widget in config.OVERLAY["widgets"] if widget["id"] == "stats"
+            )
+            self.assertFalse(saved["short_stat_labels"])
+
+            component.overlay_stats_short_labels_checkbox.setChecked(True)
+            component.save_overlay_settings_from_ui()
+            saved = next(
+                widget for widget in config.OVERLAY["widgets"] if widget["id"] == "stats"
+            )
+            self.assertTrue(saved["short_stat_labels"])
 
     def test_overlay_autostart_uses_auto_start_setting(self) -> None:
         component = build_overlay_test_component()

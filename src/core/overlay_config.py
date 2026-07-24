@@ -114,6 +114,10 @@ def widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
             "selected_kps_metrics": _selected_kps_metric_ids(raw_widget.get("selected_kps_metrics")),
             "background_opacity": _coerce_bounded_float(raw_widget.get("background_opacity"), default=0.0),
             "show_header": bool(raw_widget.get("show_header", True)),
+            # Stats-widget only. Defaults to the abbreviated form, which is what
+            # the In-Game overlay and the Twitch bot already show; a streamer
+            # with room in the scene can switch back to the full stat names.
+            "short_stat_labels": bool(raw_widget.get("short_stat_labels", True)),
             "x": _coerce_optional_int(raw_widget.get("x")),
             "y": _coerce_optional_int(raw_widget.get("y")),
             "width": _coerce_optional_int(raw_widget.get("width")),

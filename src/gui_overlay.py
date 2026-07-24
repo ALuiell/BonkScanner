@@ -86,6 +86,7 @@ class Overlay:
         stats_tracked_items_label: Callable[[], Any],
         overlay_tab_active: Callable[[], bool],
         server_rebuilt: Callable[[Any], None],
+        log: Callable[..., None] | None = None,
     ) -> None:
         self.coordinator = coordinator
         self.session_stats = session_stats
@@ -93,6 +94,10 @@ class Overlay:
         self._stats_tracked_items_label = stats_tracked_items_label
         self._overlay_tab_active = overlay_tab_active
         self._server_rebuilt = server_rebuilt
+        # Optional on purpose: the suite builds this object without an app, and
+        # a status transition must never be the thing that raises.
+        self._log_port = log
+        self._last_logged_overlay_status: str | None = None
 
         self.overlay_state_store = coordinator.overlay_state_store
         self.live_run_tracker = coordinator.live_run_tracker
@@ -131,6 +136,15 @@ class Overlay:
         self.overlay_state_store.set_state(
             build_overlay_state(self.live_run_tracker, self._effective_overlay_config())
         )
+
+    def _log(self, message: str, *, tag: str | None = None) -> None:
+        port = self._log_port
+        if port is None:
+            return
+        try:
+            port(message, tag=tag)
+        except Exception:
+            pass
 
     @property
     def tab_stats(self):
@@ -422,6 +436,19 @@ class Overlay:
         self.overlay_stats_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
         stats_layout.addWidget(self.overlay_stats_header_checkbox)
 
+        self.overlay_stats_short_labels_checkbox = QCheckBox("Short stat names")
+        self.overlay_stats_short_labels_checkbox.setToolTip(
+            "Show abbreviated stat names (DMG, AS, XP) as in the in-game overlay "
+            "and the Twitch bot. Uncheck to show full names (Damage, Attack Speed, XP Gain)."
+        )
+        self.overlay_stats_short_labels_checkbox.setChecked(
+            bool(stats_widget_cfg.get("short_stat_labels", True))
+        )
+        self.overlay_stats_short_labels_checkbox.stateChanged.connect(
+            lambda _state: self.save_overlay_settings_from_ui()
+        )
+        stats_layout.addWidget(self.overlay_stats_short_labels_checkbox)
+
         stats_layout.addSpacing(12)
         stats_config_layout = QGridLayout()
         self.overlay_stats_checkboxes = {}
@@ -574,6 +601,7 @@ class Overlay:
         self.overlay_stats_checkboxes = None
         self.overlay_stats_bg_checkbox = None
         self.overlay_stats_header_checkbox = None
+        self.overlay_stats_short_labels_checkbox = None
         self.overlay_stats_reset_btn = None
         self.overlay_stage_summary_bg_checkbox = None
         self.overlay_kps_bg_checkbox = None
@@ -661,6 +689,10 @@ class Overlay:
                         widget["background_opacity"] = 0.4 if self.overlay_stats_bg_checkbox.isChecked() else 0.0
                     if getattr(self, "overlay_stats_header_checkbox", None) is not None:
                         widget["show_header"] = bool(self.overlay_stats_header_checkbox.isChecked())
+                    if getattr(self, "overlay_stats_short_labels_checkbox", None) is not None:
+                        widget["short_stat_labels"] = bool(
+                            self.overlay_stats_short_labels_checkbox.isChecked()
+                        )
                 if widget_id == "stage_summary" and getattr(self, "overlay_stage_summary_bg_checkbox", None) is not None:
                     widget = dict(widget)
                     widget["background_opacity"] = 0.4 if self.overlay_stage_summary_bg_checkbox.isChecked() else 0.0
@@ -1170,10 +1202,35 @@ class Overlay:
     def update_overlay_state_from_tracker(self) -> None:
         if self.overlay_state_store is None:
             return
-        self.overlay_state_store.set_state(build_overlay_state(self.live_run_tracker, self._effective_overlay_config()))
+        state = build_overlay_state(self.live_run_tracker, self._effective_overlay_config())
+        self._log_overlay_status_transition(str(state.get("status") or ""))
+        self.overlay_state_store.set_state(state)
         tab_active = getattr(self, "_is_overlay_tab_active", lambda: True)
         if getattr(self, "tab_overlay", None) is not None and tab_active():
             self.refresh_overlay_ui()
+
+    # The overlay itself is now deliberately silent through a restart: it holds
+    # the last good frame and says nothing. That silence needs somewhere to
+    # land, or a genuinely stuck feed looks exactly like a healthy one. This is
+    # that place -- one line per *transition*, never per tick, and only for the
+    # states worth acting on. `reconnecting` is not one of them: it is the
+    # expected shape of a game restart.
+    _LOGGED_OVERLAY_STATUSES = {
+        "stale": ("[WAIT] OBS overlay: no fresh game data; widgets are holding the last known values.", "warning"),
+        "no_game": ("[WAIT] OBS overlay: game process is gone; widgets are holding the last known values.", "warning"),
+    }
+
+    def _log_overlay_status_transition(self, status: str) -> None:
+        previous = getattr(self, "_last_logged_overlay_status", None)
+        if status == previous:
+            return
+        self._last_logged_overlay_status = status
+        entry = self._LOGGED_OVERLAY_STATUSES.get(status)
+        if entry is not None:
+            self._log(entry[0], tag=entry[1])
+            return
+        if status == "live" and previous in self._LOGGED_OVERLAY_STATUSES:
+            self._log("[+] OBS overlay: live game data recovered.", tag="success")
 
     def mark_overlay_read_failed(self, *, no_game: bool = False) -> None:
         self.live_run_tracker.mark_read_failed(no_game=no_game)
@@ -1297,5 +1354,6 @@ def build_overlay(app: Any, coordinator: AppCoordinator, session_stats: SessionS
         stats_tracked_items_label=lambda: app._scanner.stats_tracked_items_label,
         overlay_tab_active=lambda: app._is_overlay_tab_active(),
         server_rebuilt=lambda server: setattr(app, "overlay_server", server),
+        log=lambda message, tag=None: app.log(message, tag=tag),
     )
 

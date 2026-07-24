@@ -3,6 +3,40 @@ let pollMs = 500;
 let canvasWidth = 1920;
 let canvasHeight = 1080;
 
+// A single failed poll used to replace the whole overlay with a status card.
+// One dropped fetch -- the app restarting its server, a closed keep-alive, a
+// browser-source reload -- emptied the OBS scene and rebuilt it from scratch on
+// the next success. Nothing is touched until this many polls have failed in a
+// row (~3 s at the 500 ms default), and even then the DOM is kept: only a
+// `overlay-degraded` class goes on, so the last good frame stays visible.
+const OVERLAY_FAILURE_GRACE_POLLS = 6;
+let consecutiveFetchFailures = 0;
+let hasRenderedOnce = false;
+let loggedDegraded = false;
+
+// Payload fields that carry run *data* rather than layout. While the tracker is
+// not `live` these are replayed from the last good frame instead of being
+// blanked to "--", so a game restart freezes the numbers rather than wiping
+// them. Layout (widgets/canvas/style) always comes from the fresh payload --
+// the overlay editor POSTs geometry to the same endpoint and must stay live.
+const HELD_STATE_FIELDS = [
+  "run_id",
+  "current_stage",
+  "run_timer_label",
+  "mob_kills",
+  "player_level",
+  "chests_per_minute",
+  "tracked_items",
+  "stage_summary",
+  "kps",
+  "stats",
+  "banishes",
+];
+// `reconnecting` is the tracker's quiet middle state: data is known frozen, but
+// a restart is the expected cause and the surface must not announce it.
+const QUIET_STATUSES = new Set(["live", "reconnecting"]);
+let lastGoodState = null;
+
 function requestedWidgetId() {
   const match = window.location.pathname.match(/^\/overlay\/([^/]+)\/?$/);
   if (!match || match[1] === "compact" || match[1] === "full") {
@@ -221,6 +255,24 @@ function shouldPositionAbsolutely(widgets) {
   return widgets.some(w => w.x !== null && w.x !== undefined && w.y !== null && w.y !== undefined);
 }
 
+function holdLastGoodState(state) {
+  const status = state.status || "waiting";
+  if (status === "live") {
+    lastGoodState = state;
+    return state;
+  }
+  if (!lastGoodState) {
+    return state;
+  }
+  const held = Object.assign({}, state);
+  HELD_STATE_FIELDS.forEach((field) => {
+    if (field in lastGoodState) {
+      held[field] = lastGoodState[field];
+    }
+  });
+  return held;
+}
+
 function getOverlayStateForRendering(state) {
   if (!isEditMode) {
     return state;
@@ -234,11 +286,16 @@ function getOverlayStateForRendering(state) {
     ];
   }
   if (!renderedState.stats || !renderedState.stats.length) {
+    // The live payload resolves display_label server-side from the widget's
+    // "Short stat names" setting; the demo rows have to honour the same setting
+    // or the editor would preview a layout the real source never renders.
+    const statsWidget = (renderedState.widgets || {}).stats || {};
+    const short = statsWidget.short_stat_labels !== false;
     renderedState.stats = [
-      { label: "Damage", display_label: "DMG", value: "+150%" },
-      { label: "Attack Speed", display_label: "AS", value: "+45%" },
+      { label: "Damage", display_label: short ? "DMG" : "Damage", value: "+150%" },
+      { label: "Attack Speed", display_label: short ? "AS" : "Attack Speed", value: "+45%" },
       { label: "Luck", display_label: "Luck", value: "82" },
-      { label: "XP Gain", display_label: "XP", value: "+25%" }
+      { label: "XP Gain", display_label: short ? "XP" : "XP Gain", value: "+25%" }
     ];
   }
   if (
@@ -666,16 +723,24 @@ function render(state) {
   const requested = requestedWidgetId();
   applyStyle(state);
 
-  const renderedState = getOverlayStateForRendering(state);
+  const heldState = isEditMode ? state : holdLastGoodState(state);
+  const renderedState = getOverlayStateForRendering(heldState);
   const widgets = enabledWidgets(renderedState);
 
   const status = isEditMode ? "live" : (renderedState.status || "waiting");
-  
+
   const useAbsolute = shouldPositionAbsolutely(widgets);
   root.classList.toggle("single-widget", Boolean(requested));
   root.classList.toggle("absolute-layout", useAbsolute);
 
-  const statusPanel = status === "live" ? "" : panel("Status", `<div class="small-value">${escapeHtml(status.replaceAll("_", " "))}</div>`, "wide status-panel");
+  // Three gates, and all three have to open. Quiet statuses never show a card;
+  // `show_status` is opt-in for streamers who want it; and a frame we have no
+  // data for at all still says something, otherwise the very first load of a
+  // freshly configured overlay is an unexplained blank page.
+  const showStatusCard = (state.style || {}).show_status === true || !lastGoodState;
+  const statusPanel = QUIET_STATUSES.has(status) || !showStatusCard
+    ? ""
+    : panel("Status", `<div class="small-value">${escapeHtml(status.replaceAll("_", " "))}</div>`, "wide status-panel");
   const missingWidgetPanel = requested && !widgets.length ? panel("Status", `<div class="small-value">widget unavailable</div>`, "wide status-panel") : "";
 
   let html = statusPanel + missingWidgetPanel;
@@ -733,6 +798,8 @@ function render(state) {
     setupDragAndDrop();
     showEditBanner();
   }
+
+  hasRenderedOnce = true;
 }
 
 async function refresh() {
@@ -745,10 +812,28 @@ async function refresh() {
     if (isEditMode) {
       lastEditWidgetRevision = Number(state.widget_revision || 0);
     }
+    consecutiveFetchFailures = 0;
+    if (loggedDegraded) {
+      console.info("[overlay] overlay state poll recovered");
+      loggedDegraded = false;
+    }
+    root.classList.remove("overlay-degraded");
     render(state);
   } catch (error) {
-    if (!isEditMode || !hasRenderedEditWidgets) {
+    consecutiveFetchFailures += 1;
+    if (!hasRenderedOnce) {
+      // Nothing has ever been drawn, so there is no frame to hold; this is the
+      // only case that may still put a card in an empty root.
       root.innerHTML = panel("Status", `<div class="small-value">overlay unavailable</div>`, "wide status-panel");
+    } else if (consecutiveFetchFailures >= OVERLAY_FAILURE_GRACE_POLLS) {
+      root.classList.add("overlay-degraded");
+      if (!loggedDegraded) {
+        loggedDegraded = true;
+        console.error(
+          `[overlay] overlay state poll failed ${consecutiveFetchFailures} times in a row `
+          + `(${error && error.message ? error.message : error}); holding the last good frame`
+        );
+      }
     }
   } finally {
     if (!isEditMode) {

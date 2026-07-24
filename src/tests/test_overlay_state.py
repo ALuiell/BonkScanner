@@ -208,6 +208,40 @@ class OverlayStateTests(unittest.TestCase):
             ["Attack Speed", "Crit Damage", "Powerup Drop Chance"],
         )
 
+    def test_overlay_state_stats_keep_full_labels_when_opted_out(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 123.0)
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=1.0,
+                stats={
+                    "Attack Speed": _DisplayValue("1.4x"),
+                    "Powerup Drop Chance": _DisplayValue("12%"),
+                },
+                game_time_seconds=5.0,
+                map_seed=1,
+                stage_ptr=10,
+            )
+        )
+
+        state = build_overlay_state(
+            tracker,
+            {
+                "widgets": [
+                    {
+                        "id": "stats",
+                        "enabled": True,
+                        "selected_stats": ["Attack Speed", "Powerup Drop Chance"],
+                        "short_stat_labels": False,
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(
+            [row["display_label"] for row in state["stats"]],
+            ["Attack Speed", "Powerup Drop Chance"],
+        )
+
     def test_overlay_state_includes_banish_widget_rows(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 123.0)
         tracker.update(
@@ -306,6 +340,87 @@ class OverlayStateTests(unittest.TestCase):
             state["widgets"]["kps"]["selected_kps_metrics"],
             ("current", "minute_avg", "five_minute_avg", "run_avg"),
         )
+
+    def test_status_card_is_off_by_default_and_reaches_the_payload(self) -> None:
+        # `overlay.js` reads this flag; if the normalization ever drops it the
+        # card silently comes back and starts shoving widgets around again.
+        overlay = config.normalize_overlay_config({})
+        self.assertIs(overlay["style"]["show_status"], False)
+
+        # An older saved config has a `style` block without the key at all.
+        migrated = config.normalize_overlay_config(
+            {"style": {"scale": 1.0, "accent_color": "#FFFFFF"}}
+        )
+        self.assertIs(migrated["style"]["show_status"], False)
+        self.assertEqual(migrated["style"]["accent_color"], "#FFFFFF")
+
+        state = build_overlay_state(LiveRunTracker(clock=lambda: 1.0), overlay)
+        self.assertIs(state["style"]["show_status"], False)
+
+    def test_status_card_opt_in_survives_normalization(self) -> None:
+        overlay = config.normalize_overlay_config({"style": {"show_status": True}})
+        self.assertIs(overlay["style"]["show_status"], True)
+
+
+class OverlayStatusLoggingTests(unittest.TestCase):
+    """The overlay is deliberately silent through a restart, so the app log is
+    the only place a genuinely stuck feed becomes visible."""
+
+    def _overlay(self):
+        from gui_overlay import Overlay
+
+        overlay = Overlay.__new__(Overlay)
+        overlay._last_logged_overlay_status = None
+        overlay.logged = []
+        overlay._log_port = lambda message, tag=None: overlay.logged.append((message, tag))
+        return overlay
+
+    def test_restart_grace_window_logs_nothing(self) -> None:
+        overlay = self._overlay()
+
+        overlay._log_overlay_status_transition("waiting")
+        overlay._log_overlay_status_transition("live")
+        overlay._log_overlay_status_transition("reconnecting")
+        overlay._log_overlay_status_transition("live")
+
+        self.assertEqual(overlay.logged, [])
+
+    def test_stale_feed_logs_once_and_recovery_logs_once(self) -> None:
+        overlay = self._overlay()
+
+        overlay._log_overlay_status_transition("live")
+        overlay._log_overlay_status_transition("reconnecting")
+        for _repeat in range(5):
+            overlay._log_overlay_status_transition("stale")
+
+        self.assertEqual(len(overlay.logged), 1)
+        self.assertEqual(overlay.logged[0][1], "warning")
+        self.assertIn("holding the last known values", overlay.logged[0][0])
+
+        overlay._log_overlay_status_transition("live")
+        self.assertEqual(len(overlay.logged), 2)
+        self.assertEqual(overlay.logged[1][1], "success")
+
+    def test_lost_game_process_is_logged(self) -> None:
+        overlay = self._overlay()
+
+        overlay._log_overlay_status_transition("live")
+        overlay._log_overlay_status_transition("no_game")
+
+        self.assertEqual(len(overlay.logged), 1)
+        self.assertIn("game process is gone", overlay.logged[0][0])
+
+    def test_a_failing_log_port_never_reaches_the_caller(self) -> None:
+        from gui_overlay import Overlay
+
+        overlay = Overlay.__new__(Overlay)
+        overlay._last_logged_overlay_status = None
+
+        def explode(_message, tag=None):
+            raise RuntimeError("log sink is gone")
+
+        overlay._log_port = explode
+        overlay._log_overlay_status_transition("stale")
 
 
 if __name__ == "__main__":
