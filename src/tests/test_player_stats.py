@@ -566,7 +566,12 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertIsNone(snapshot_without_stage.stage_time_seconds)
         self.assertTrue(snapshot_without_stage.timing_health.complete)
 
-    def test_get_powerup_tracking_snapshot_caches_powerup_multiplier_until_ttl(self) -> None:
+    def _powerup_multiplier_fixture(self):
+        """A run with one active Rage effect and a 1.5x Powerup Multiplier.
+
+        Returns the pieces the multiplier tests poke at: the memory double,
+        the owner-stats address, and the address the multiplier is read from.
+        """
         memory = self.build_memory()
         base = memory.module_base
         owner_stats = 0x20000300
@@ -622,17 +627,53 @@ class PlayerStatsClientTests(unittest.TestCase):
                 stage_timeline + PlayerStatsClient.STAGE_TIMELINE_STAGE_TIME_OFFSET: 540.0,
             }
         )
+        return memory, owner_stats, entries, powerup_spec
+
+    def test_get_powerup_tracking_snapshot_caches_powerup_multiplier_until_ttl(self) -> None:
+        memory, owner_stats, entries, powerup_spec = self._powerup_multiplier_fixture()
         client = PlayerStatsClient(memory=memory)
 
-        with patch("infra.memory.player_stats_client.time.monotonic", side_effect=(100.0, 101.0, 106.0)):
+        with patch(
+            "infra.memory.player_stats_client.time.monotonic",
+            side_effect=(100.0, 101.0, 106.0, 106.5),
+        ):
             first = client.get_powerup_tracking_snapshot(owner_stats)
             memory.floats[entries + powerup_spec.offset] = 2.0
             second = client.get_powerup_tracking_snapshot(owner_stats)
             third = client.get_powerup_tracking_snapshot(owner_stats)
+            fourth = client.get_powerup_tracking_snapshot(owner_stats)
 
         self.assertEqual(first.powerup_multiplier_display, "1.5x")
         self.assertEqual(second.powerup_multiplier_display, "1.5x")
-        self.assertEqual(third.powerup_multiplier_display, "2x")
+        # The TTL has lapsed and the read returns 2.0, but a *changed*
+        # multiplier is held back until a second read agrees with it.
+        self.assertEqual(third.powerup_multiplier_display, "1.5x")
+        self.assertEqual(fourth.powerup_multiplier_display, "2x")
+
+    def test_get_powerup_tracking_snapshot_ignores_a_one_frame_multiplier_dip(self) -> None:
+        """A single bad multiplier read must never reach the duration maths.
+
+        This read is force-refreshed on the frame a powerup is picked up --
+        exactly when the player struct is mid-update -- and downstream the
+        value sets the buff's duration, so one frame at 1.0x would shorten a
+        22.5 s buff to 15 s and move its expiry mark on the stage timer.
+        """
+        memory, owner_stats, entries, powerup_spec = self._powerup_multiplier_fixture()
+        client = PlayerStatsClient(memory=memory)
+
+        with patch(
+            "infra.memory.player_stats_client.time.monotonic",
+            side_effect=(100.0, 106.0, 106.5),
+        ):
+            first = client.get_powerup_tracking_snapshot(owner_stats)
+            memory.floats[entries + powerup_spec.offset] = 1.0
+            dip = client.get_powerup_tracking_snapshot(owner_stats)
+            memory.floats[entries + powerup_spec.offset] = 1.5
+            recovered = client.get_powerup_tracking_snapshot(owner_stats)
+
+        self.assertEqual(first.powerup_multiplier, 1.5)
+        self.assertEqual(dip.powerup_multiplier, 1.5)
+        self.assertEqual(recovered.powerup_multiplier, 1.5)
 
     def test_get_powerup_tracking_snapshot_does_not_reuse_pm_cache_for_other_owner(self) -> None:
         memory = self.build_memory()

@@ -655,8 +655,15 @@ class TwitchBotWorker(QThread):
             self._send_chat(channel, "No active run detected.")
             return
 
-        powerups = runtime.powerups
-        if powerups.available is True:
+        # `runtime.powerups` is emptied the moment its 1.5 s TTL lapses, and an
+        # empty snapshot looks exactly like one that read successfully and
+        # found nothing. The overlay never notices -- it repaints 4x a second
+        # and the next tick corrects it -- but chat gets one answer and keeps
+        # it, so a single late read used to be published as "none active".
+        # `powerups_recent` keeps the last read for a few seconds longer and
+        # flags it, which is what separates the two cases here.
+        powerups = runtime.powerups_recent
+        if powerups.available is True or powerups.stale is True:
             text = self._format_template(
                 "powerups", "Powerups: {powerups} (PM {pm})",
                 powerups=format_powerups(powerups),
@@ -664,9 +671,15 @@ class TwitchBotWorker(QThread):
                 clock_duration=self._format_seconds(powerups.clock_duration_seconds or 0.0),
                 pm=powerups.powerup_multiplier_display,
             )
+            if powerups.stale is True:
+                text = f"{text} (updating...)"
             self._send_chat(channel, text[:447] + "..." if len(text) > 450 else text)
             return
 
+        # No usable read at all. The durations below come from the player
+        # stats, which are read on their own schedule, so they are still worth
+        # reporting -- but they say nothing about what is active, and this
+        # branch must not pretend otherwise.
         stat = snap.stats.get("Powerup Multiplier") if getattr(snap, "stats", None) else None
         try:
             powerup_multiplier = float(getattr(stat, "value", None))
@@ -674,7 +687,7 @@ class TwitchBotWorker(QThread):
             powerup_multiplier = float("nan")
 
         if not isfinite(powerup_multiplier):
-            self._send_chat(channel, "Powerup Multiplier is not available.")
+            self._send_chat(channel, "Powerup tracking is not available right now.")
             return
 
         standard_duration = 15.0 * powerup_multiplier
@@ -683,7 +696,7 @@ class TwitchBotWorker(QThread):
             "powerups",
             "Powerups: {powerups} (PM {pm})",
             powerups=(
-                "none active | Durations: "
+                "refreshing, try again in a moment | Durations: "
                 f"standard {self._format_seconds(standard_duration)}s, "
                 f"clock {self._format_seconds(clock_duration)}s"
             ),

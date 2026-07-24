@@ -13,6 +13,8 @@ sys.modules['PySide6.QtCore'] = mock_pyside.QtCore
 
 from twitch_bot import TwitchBotWorker
 from core.stats.types import DisabledItemsReadResult, DisabledItemsReadStatus
+from core.tracker.live_run import LiveRunTracker
+from core.tracker.snapshots import LiveRunSnapshot, PowerupMapContext
 
 class TestTwitchBotWorker(unittest.TestCase):
     def setUp(self):
@@ -42,6 +44,7 @@ class TestTwitchBotWorker(unittest.TestCase):
                 },
                 chaos_tome=chaos,
                 powerups=self.run_tracker.powerups_snapshot(),
+                powerups_recent=self.run_tracker.recent_powerups_snapshot(),
                 legacy_disabled=disabled,
             )
         self.run_tracker.runtime_snapshot.side_effect = runtime_snapshot
@@ -250,8 +253,127 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.assertEqual(bot_cfg["tracked_items_source"], "custom")
         self.assertEqual(bot_cfg["tracked_items"][0]["id"], "twitch_custom")
 
-    def test_handle_powerups_uses_powerup_multiplier(self):
+    def _bot_on_a_real_tracker(self, clock):
+        """A real ``TwitchBotWorker`` over a real ``LiveRunTracker``.
+
+        The other powerup tests here hand the bot a hand-built snapshot, which
+        proves how it formats but not that the tracker actually publishes what
+        it formats. The staleness the bot keys on is produced by the tracker's
+        own clock against its own TTLs, so nothing but a real tracker can show
+        that ``powerups_recent`` carries it -- and a live run cannot show it
+        either, because the reader has to miss a tick first.
+        """
+        tracker = LiveRunTracker(clock=clock)
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=clock(),
+                # The player stats are read on their own schedule, so the
+                # multiplier is still there when the powerup snapshot is not --
+                # which is what the last branch reports durations from.
+                stats={
+                    "Powerup Multiplier": SimpleNamespace(
+                        value=1.5, display_value="1.5x"
+                    )
+                },
+                items=(),
+                game_time_seconds=100.0,
+                stage_time_seconds=100.0,
+                mob_kills=0,
+                map_seed=100,
+                stage_ptr=1000,
+                stage_index=1,
+                chests_total=46,
+                pots_total=55,
+            )
+        )
+        tracker.update_powerups(
+            SimpleNamespace(
+                my_time_seconds=1000.0,
+                stage_timer_seconds=440.0,
+                stage_index=1,
+                stage_time_seconds=540.0,
+                powerup_multiplier=1.5,
+                powerup_multiplier_display="1.5x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=1,
+                        name="Rage",
+                        added_time=999.0,
+                        expiration_time=1021.5,
+                    ),
+                ),
+            ),
+            map_context=PowerupMapContext.from_activity_max(
+                {"Chests": 46, "Pots": 55}, captured_at=clock()
+            ),
+        )
+        bot = TwitchBotWorker(tracker)
+        bot._send_chat = MagicMock()
+        return bot
+
+    def test_powerups_over_a_real_tracker_never_says_none_active_while_a_buff_runs(self):
+        """End to end: tracker -> runtime_snapshot -> chat, at three read ages.
+
+        This is the wiring the live run could not exercise -- 353 recorded
+        ticks never had a gap over 0.505 s, so the snapshot never went stale
+        and the bot took the fresh branch every single time.
+        """
+        now = [1000.0]
+        bot = self._bot_on_a_real_tracker(lambda: now[0])
+
+        # Fresh: inside POWERUPS_SNAPSHOT_TTL_SECONDS.
+        bot._handle_powerups("channel")
+        fresh = bot._send_chat.call_args[0][1]
+
+        # Stale: past the TTL, inside POWERUPS_SNAPSHOT_GRACE_SECONDS.
+        now[0] = 1003.0
+        bot._handle_powerups("channel")
+        stale = bot._send_chat.call_args[0][1]
+
+        # Gone: past the grace window as well.
+        now[0] = 1010.0
+        bot._handle_powerups("channel")
+        gone = bot._send_chat.call_args[0][1]
+
+        self.assertIn("Rage", fresh)
+        self.assertNotIn("updating", fresh)
+
+        self.assertIn("Rage", stale)
+        self.assertIn("(updating...)", stale)
+
+        self.assertIn("refreshing", gone)
+
+        for text in (fresh, stale, gone):
+            self.assertNotIn("none active", text)
+
+    def _powerups_snapshot(self, *, available=False, stale=False, active=()):
+        return SimpleNamespace(
+            available=available,
+            stale=stale,
+            powerup_multiplier_display="5.43x",
+            standard_duration_seconds=81.435,
+            clock_duration_seconds=65.148,
+            active=active,
+        )
+
+    def _rage(self):
+        return SimpleNamespace(
+            name="Rage",
+            remaining_seconds=80.0,
+            pickup_ui="01:33",
+            expires_ui="00:11",
+        )
+
+    def test_handle_powerups_without_a_read_does_not_claim_none_active(self):
+        """No usable read is not the same fact as "nothing is active".
+
+        The two used to produce the same chat line, so a single missed
+        background tick told viewers a buff that was plainly on screen had
+        ended. Durations still come from the player stats -- those are read on
+        their own schedule -- but the active set must not be invented.
+        """
         self.bot._send_chat = MagicMock()
+        self.run_tracker.recent_powerups_snapshot.return_value = self._powerups_snapshot()
         self.run_tracker.latest_snapshot.return_value = SimpleNamespace(
             stats={
                 "Powerup Multiplier": SimpleNamespace(value=1.5, display_value="1.5x")
@@ -262,25 +384,16 @@ class TestTwitchBotWorker(unittest.TestCase):
 
         self.bot._send_chat.assert_called_once_with(
             "channel",
-            "Powerups: none active | Durations: standard 22s, clock 18s (PM 1.5x)"
+            "Powerups: refreshing, try again in a moment | "
+            "Durations: standard 22s, clock 18s (PM 1.5x)"
         )
 
     def test_handle_powerups_uses_tracker_snapshot_when_available(self):
         self.bot._send_chat = MagicMock()
         self.run_tracker.latest_snapshot.return_value = SimpleNamespace(stats={})
-        self.run_tracker.powerups_snapshot.return_value = SimpleNamespace(
+        self.run_tracker.recent_powerups_snapshot.return_value = self._powerups_snapshot(
             available=True,
-            powerup_multiplier_display="5.43x",
-            standard_duration_seconds=81.435,
-            clock_duration_seconds=65.148,
-            active=(
-                SimpleNamespace(
-                    name="Rage",
-                    remaining_seconds=80.0,
-                    pickup_ui="01:33",
-                    expires_ui="00:11",
-                ),
-            ),
+            active=(self._rage(),),
         )
 
         self.bot._handle_powerups("channel")
@@ -288,6 +401,28 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.bot._send_chat.assert_called_once_with(
             "channel",
             "Powerups: Rage 01:33 -> 00:11 (80s left) | Durations: standard 81s, clock 65s (PM 5.43x)",
+        )
+
+    def test_handle_powerups_quotes_a_stale_read_rather_than_dropping_it(self):
+        """A read past its TTL is still the best answer available.
+
+        The overlay can afford to discard it -- it repaints four times a
+        second -- but chat gets one reply and keeps it, so the last known
+        effects are reported and marked as catching up.
+        """
+        self.bot._send_chat = MagicMock()
+        self.run_tracker.latest_snapshot.return_value = SimpleNamespace(stats={})
+        self.run_tracker.recent_powerups_snapshot.return_value = self._powerups_snapshot(
+            stale=True,
+            active=(self._rage(),),
+        )
+
+        self.bot._handle_powerups("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "Powerups: Rage 01:33 -> 00:11 (80s left) | Durations: standard 81s, clock 65s "
+            "(PM 5.43x) (updating...)",
         )
 
     def test_handle_chaos_uses_tracker_totals(self):

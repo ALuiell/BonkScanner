@@ -398,6 +398,7 @@ class LiveRunTracker:
             feature_status=self._feature_status_snapshot_unlocked(now),
             chaos_tome=self.chaos_tome_snapshot(),
             powerups=self._fresh_powerups_snapshot_unlocked(),
+            powerups_recent=self._recent_powerups_snapshot_unlocked(),
             powerup_map_context=copy.deepcopy(map_context),
             fast_stage_timer=copy.deepcopy(self._fresh_fast_stage_timer_context_unlocked()),
             graveyard_main_map_events_active=self._graveyard_main_map_events_active_unlocked(),
@@ -841,6 +842,9 @@ class LiveRunTracker:
     def _fresh_powerups_snapshot_unlocked(self) -> PowerupsSnapshot:
         return powerups.fresh_snapshot(self._powerup_state, self.clock())
 
+    def _recent_powerups_snapshot_unlocked(self) -> PowerupsSnapshot:
+        return powerups.recent_snapshot(self._powerup_state, self.clock())
+
     @with_lock
     def has_active_run(self) -> bool:
         latest = self._latest_snapshot_unlocked()
@@ -1037,7 +1041,9 @@ class LiveRunTracker:
         chests.reset(self._chest_state)
         self._reset_current_run_item_baseline()
         self._reset_chaos_tracking()
-        self._powerups_snapshot = PowerupsSnapshot()
+        # Drops the per-effect observation history along with the snapshot:
+        # continuity across a run reset is exactly the thing it must not claim.
+        powerups.clear(self._powerup_state)
         self._powerup_map_context = PowerupMapContext()
         self._cached_stage_summary = None
         self._graveyard_final_swarm_timer_is_zero = False

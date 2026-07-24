@@ -284,6 +284,9 @@ class PlayerStatsClient:
         self._cached_powerup_multiplier_value: float | None = None
         self._cached_powerup_multiplier_display = "--"
         self._cached_powerup_multiplier_read_at = 0.0
+        # A changed multiplier that has been seen once but not yet confirmed.
+        # See `_get_cached_powerup_multiplier`.
+        self._pending_powerup_multiplier_value: float | None = None
         self._cached_my_time_static_fields = 0
         self._cached_map_controller_static_fields = 0
         self._cached_stage_pointer = 0
@@ -1837,6 +1840,10 @@ class PlayerStatsClient:
         cache_age = now - self._cached_powerup_multiplier_read_at
         if (
             not force_refresh
+            # An unconfirmed value must not be left to sit out the TTL: the
+            # confirming read is what decides whether it was a real change or
+            # a bad frame, so take it on the very next call.
+            and self._pending_powerup_multiplier_value is None
             and owner_stats == self._cached_powerup_multiplier_owner_stats
             and self._cached_powerup_multiplier_read_at > 0
             and cache_age <= POWERUP_MULTIPLIER_CACHE_TTL_SECONDS
@@ -1858,8 +1865,34 @@ class PlayerStatsClient:
             self._cached_powerup_multiplier_value = None
             self._cached_powerup_multiplier_display = "--"
             self._cached_powerup_multiplier_read_at = 0.0
+            self._pending_powerup_multiplier_value = None
             return None, "--"
 
+        # Require a changed multiplier to be read twice before it is believed.
+        #
+        # This read is force-refreshed the moment the active-effect set
+        # changes -- i.e. on the exact frame a powerup is picked up, when the
+        # player struct is mid-update and the stats entries can hand back a
+        # value that is briefly wrong. Downstream that value is not cosmetic:
+        # it sets the buff's duration, so one bad frame at 1.0x turns a 22.5 s
+        # buff into a 15 s one and moves its expiry mark on the stage timer.
+        # A genuine multiplier change survives to the next read; a bad frame
+        # does not. The cost is that a real change is published one tick
+        # (500 ms) late, which nothing downstream measures.
+        confirmed = self._cached_powerup_multiplier_value
+        if (
+            confirmed is not None
+            and isfinite(confirmed)
+            and isfinite(value)
+            and value != confirmed
+            and owner_stats == self._cached_powerup_multiplier_owner_stats
+            and self._cached_powerup_multiplier_read_at > 0
+            and self._pending_powerup_multiplier_value != value
+        ):
+            self._pending_powerup_multiplier_value = value
+            return confirmed, self._cached_powerup_multiplier_display
+
+        self._pending_powerup_multiplier_value = None
         display = PlayerStatValue(spec=spec, value=value).display_value
         self._cached_powerup_multiplier_owner_stats = owner_stats
         self._cached_powerup_multiplier_value = value

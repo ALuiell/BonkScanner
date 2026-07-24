@@ -133,6 +133,12 @@ class RuntimeStateSnapshot:
     powerup_map_context: PowerupMapContext | None
     fast_stage_timer: FastStageTimerContext | None
     graveyard_main_map_events_active: bool
+    # The same read as ``powerups``, but through a longer grace window. For a
+    # consumer with a repaint loop the two are interchangeable; for one that
+    # answers a question once -- the Twitch ``!powerups`` command -- they are
+    # not, because a single missed tick empties ``powerups`` and an empty
+    # snapshot is indistinguishable from "no effects are active".
+    powerups_recent: PowerupsSnapshot
 
 
 @dataclass(frozen=True)
@@ -246,6 +252,11 @@ class PowerupsSnapshot:
     stage_time_seconds: float | None = None
     captured_at: float = 0.0
     available: bool = False
+    # Set only by ``powerups.recent_snapshot``: this read is past the strict
+    # TTL but still worth quoting. ``available`` stays False so that nothing
+    # painting from the strict accessor changes behaviour; a consumer that
+    # must answer *now* checks this to tell a late read from no read at all.
+    stale: bool = False
 
 
 @dataclass(frozen=True)

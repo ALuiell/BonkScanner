@@ -14,7 +14,7 @@ single snapshot is assembled.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import isfinite
 from typing import Any, Callable
 
@@ -29,9 +29,36 @@ from core.tracker.snapshots import (
 POWERUP_MAP_CONTEXT_TTL_SECONDS = 15.0
 FAST_STAGE_TIMER_TTL_SECONDS = 2.0
 POWERUPS_SNAPSHOT_TTL_SECONDS = 1.5
+# A second, wider window for consumers that answer once and cannot wait for
+# the next tick.  The strict TTL is right for anything that repaints -- a
+# missed read is corrected 250 ms later and nobody sees it -- but it is wrong
+# for a one-shot reply, where "no snapshot" gets read as "no effects".
+POWERUPS_SNAPSHOT_GRACE_SECONDS = 6.0
+
+# How long an effect observation stays usable as evidence that the *same*
+# effect instance is still on screen.  Powerups are read every 500 ms; this
+# tolerates two missed ticks and then gives up, because past that the record
+# could belong to a different timer epoch.
+_EFFECT_HISTORY_TTL_SECONDS = 3.0
 
 _GRAVEYARD_CRYPT_MARKERS = frozenset(("Crypt Chests", "Crypt Pots"))
 _GRAVEYARD_OUTDOOR_MARKERS = frozenset(("Pumpkin", "Gravestones"))
+
+
+@dataclass(frozen=True)
+class _EffectObservation:
+    """What the previous tick saw of one active effect.
+
+    Kept so the next tick can tell a buff it has been watching all along from
+    one it is meeting for the first time.  The game hands out no instance id,
+    so continuity has to be reconstructed from the values themselves.
+    """
+
+    added_time: float
+    expiration_time: float
+    my_time: float
+    duration: float
+    captured_at: float
 
 
 @dataclass
@@ -40,6 +67,7 @@ class _PowerupState:
     powerup_map_context: PowerupMapContext = field(default_factory=PowerupMapContext)
     fast_stage_timer_context: FastStageTimerContext = field(default_factory=FastStageTimerContext)
     graveyard_final_swarm_timer_is_zero: bool = False
+    effect_history: dict[int, _EffectObservation] = field(default_factory=dict)
 
 
 def fresh_snapshot(state: _PowerupState, now: float) -> PowerupsSnapshot:
@@ -51,6 +79,27 @@ def fresh_snapshot(state: _PowerupState, now: float) -> PowerupsSnapshot:
     if now - snapshot.captured_at > POWERUPS_SNAPSHOT_TTL_SECONDS:
         return PowerupsSnapshot()
     return snapshot
+
+
+def recent_snapshot(state: _PowerupState, now: float) -> PowerupsSnapshot:
+    """``fresh_snapshot``, extended by a grace window and labelled.
+
+    Within the strict TTL this is ``fresh_snapshot`` exactly.  Past it, and up
+    to ``POWERUPS_SNAPSHOT_GRACE_SECONDS``, it returns the same read with
+    ``available`` still False -- so nothing keyed on ``available`` changes --
+    plus ``stale=True``.  That flag is the whole point: it is the only way a
+    caller can distinguish "the reader is a tick behind" from "the reader says
+    there is nothing", which are the same empty snapshot otherwise.
+    """
+    snapshot = state.powerups_snapshot
+    if not snapshot.available or snapshot.captured_at <= 0:
+        return PowerupsSnapshot()
+    age = now - snapshot.captured_at
+    if age <= POWERUPS_SNAPSHOT_TTL_SECONDS:
+        return snapshot
+    if age > POWERUPS_SNAPSHOT_GRACE_SECONDS:
+        return PowerupsSnapshot()
+    return replace(snapshot, available=False, stale=True)
 
 
 def fresh_map_context(state: _PowerupState, now: float) -> PowerupMapContext | None:
@@ -248,6 +297,10 @@ def apply_snapshot(
     final_swarm_timer = getattr(snapshot, "final_swarm_timer_seconds", None)
     stage_index = getattr(snapshot, "stage_index", None)
     active: list[PowerupEffectState] = []
+    # Rebuilt from scratch each tick: an effect that expired or was rejected
+    # simply does not get re-recorded, so the history prunes itself.
+    history: dict[int, _EffectObservation] = {}
+    observed_at = clock()
 
     if (
         my_time is not None
@@ -267,8 +320,74 @@ def apply_snapshot(
                 remaining = expiration_time - float(my_time)
                 if remaining <= 0 or not isfinite(remaining):
                     continue
+                previous = state.effect_history.get(effect_id)
+                # The game hands out no instance id, so "still the same buff"
+                # has to be reconstructed: a record we saw a tick or two ago,
+                # with the same added_time, on a clock that has not run
+                # backwards, whose expiry has not moved earlier.  A record
+                # that survived a timer epoch fails the clock test; a
+                # different pickup of the same type fails the added_time test.
+                same_instance = (
+                    previous is not None
+                    and observed_at - previous.captured_at <= _EFFECT_HISTORY_TTL_SECONDS
+                    and float(my_time) >= previous.my_time
+                    and expiration_time >= previous.expiration_time
+                    and _same_reading(added_time, previous.added_time)
+                )
+
                 base_duration = 12.0 if effect_id == 4 else 15.0
                 duration = base_duration * powerup_multiplier
+                if same_instance and expiration_time == previous.expiration_time:
+                    # Nothing about this effect moved, so its duration may not
+                    # move either.  ``powerup_multiplier`` is re-read every
+                    # tick and its cache is deliberately busted the moment the
+                    # active set changes; a single bad read would otherwise
+                    # re-time a buff the game already committed to, dragging
+                    # its pickup mark -- and through ``resolve_ui_context``
+                    # its expiry mark -- with it.
+                    duration = previous.duration
+                elif (
+                    previous is None
+                    and isfinite(added_time)
+                    and added_time <= float(my_time)
+                    and float(my_time) - added_time <= _EFFECT_HISTORY_TTL_SECONDS
+                    # Sanity band, not a second opinion: this only has to
+                    # reject a nonsense pair, and it is wide enough that a
+                    # multiplier read which is briefly wrong still admits the
+                    # true duration.
+                    and 0.5 * duration
+                    <= expiration_time - added_time
+                    <= 2.0 * duration
+                ):
+                    # We caught the pickup itself.  The game wrote added_time
+                    # and expiration_time in the same frame, so their
+                    # difference *is* the duration it granted: exact, and
+                    # independent of what the multiplier read returns.
+                    duration = expiration_time - added_time
+                elif same_instance:
+                    # A repeat pickup: expiration_time moved out, added_time
+                    # did not, so their difference is no longer the duration.
+                    #
+                    # ``base_duration * powerup_multiplier`` is the wrong
+                    # source here. The multiplier is served from a cache with
+                    # its own 5 s TTL, and the read is only force-refreshed
+                    # when the *set* of active effects changes -- which
+                    # re-picking an already-active buff does not do. A live
+                    # run caught this exact transition recording 98.07 s for a
+                    # buff the game had granted 111.6 s of.
+                    #
+                    # The game's own numbers bound the grant far more tightly.
+                    # The pickup happened somewhere between the previous read
+                    # and this one, so the duration is at least
+                    # ``expiration_time - my_time`` and at most
+                    # ``expiration_time - previous.my_time`` -- a window one
+                    # tick wide. Believe the multiplier only when it lands
+                    # inside it; otherwise take the lower bound, which a
+                    # 500 ms tick puts within half a second of the truth.
+                    granted_at_least = expiration_time - float(my_time)
+                    granted_at_most = expiration_time - previous.my_time
+                    if not granted_at_least <= duration <= granted_at_most:
+                        duration = granted_at_least
                 pickup_time = expiration_time - duration
                 ui_context = resolve_ui_context(
                     state,
@@ -283,12 +402,22 @@ def apply_snapshot(
                     isfinite(added_time)
                     and added_time <= expiration_time
                     and added_time <= float(my_time)
-                    # A stale effect record can survive a timer epoch. Its
-                    # added_time then implies a duration wildly beyond the
-                    # current powerup duration, and must not be projected
-                    # onto the current stage timeline.
-                    and expiration_time - added_time
-                    <= max(duration * 2.0, duration + 10.0)
+                    and (
+                        # Re-picking an active buff pushes expiration_time out
+                        # but leaves added_time at the *first* pickup, so the
+                        # gap grows past the window below on every refresh.
+                        # For an instance we have watched the whole time that
+                        # gap is a fact about the buff, not evidence of a
+                        # stale record: rejecting it there is what made the
+                        # pickup mark jump on every re-pickup.
+                        same_instance
+                        # A stale effect record can survive a timer epoch. Its
+                        # added_time then implies a duration wildly beyond the
+                        # current powerup duration, and must not be projected
+                        # onto the current stage timeline.
+                        or expiration_time - added_time
+                        <= max(duration * 2.0, duration + 10.0)
+                    )
                 ):
                     added_time_ui_context = resolve_ui_context(
                         state,
@@ -310,6 +439,13 @@ def apply_snapshot(
                     continue
             except (TypeError, ValueError, OverflowError):
                 continue
+            history[effect_id] = _EffectObservation(
+                added_time=added_time,
+                expiration_time=expiration_time,
+                my_time=float(my_time),
+                duration=duration,
+                captured_at=observed_at,
+            )
             active.append(
                 PowerupEffectState(
                     effect_id=effect_id,
@@ -341,6 +477,7 @@ def apply_snapshot(
             )
 
     active.sort(key=lambda effect: effect.raw_stage_expiration, reverse=True)
+    state.effect_history = history
     state.powerups_snapshot = PowerupsSnapshot(
         active=tuple(active),
         powerup_multiplier=powerup_multiplier,
@@ -358,6 +495,19 @@ def apply_snapshot(
 
 def clear(state: _PowerupState) -> None:
     state.powerups_snapshot = PowerupsSnapshot()
+    state.effect_history = {}
+
+
+def _same_reading(left: float, right: float) -> bool:
+    """Equality that also holds for two unreadable values.
+
+    ``added_time`` becomes NaN when the field is missing, and NaN != NaN would
+    make every such effect look brand new on every tick -- which is exactly
+    the continuity the duration freeze depends on.
+    """
+    if left == right:
+        return True
+    return not isfinite(left) and not isfinite(right)
 
 
 def format_duration_seconds(value: float) -> str:

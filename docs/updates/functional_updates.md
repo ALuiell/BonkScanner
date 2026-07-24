@@ -363,3 +363,47 @@ Benefits:
 - expected stage resets and Ghost Phase jumps no longer appear as false desynchronizations;
 - the UI uses one authoritative phase/timer projection instead of duplicating fragile map rules across overlays.
 
+#### 4. Powerup Timing: Repeat Pickups and Multiplier Stability (Refactor Fixes)
+
+Status: `[Partial]`
+
+Goal:
+
+- Keep an active powerup's pickup and expiry marks stable while the buff is refreshed by repeat pickups of the same type.
+- Stop the Twitch `!powerups` command from reporting `none active` when the reader is merely a tick behind rather than genuinely empty.
+
+Problem Analysis:
+
+- **The game keeps `added_time` at the first pickup.** Re-picking an active buff rewrites `expiration_time` but leaves `added_time` untouched, so `expiration_time - added_time` grows on every refresh. The sanity window that exists to reject records surviving a timer epoch eventually rejected a mark that had been observed continuously, and the pickup mark jumped.
+- **The expiry mark is coupled to the pickup mark.** `raw_expiration` looks independent of duration, but `resolve_ui_context` is resolved *from* `pickup_time = expiration_time - duration`. On Graveyard the `pickup_time >= my_time - final_swarm_timer` branch switches the timer between `stage_timer` and the final-swarm clock, so any wobble in the computed duration throws the expiry mark across a phase boundary.
+- **The multiplier is not a trustworthy duration source at a repeat pickup.** It is served from a `5s` cache whose only force-refresh trigger is a change in the *set* of active effect ids, and re-picking an already active buff does not change that set.
+- **A missed read is not an empty read.** `POWERUPS_SNAPSHOT_TTL_SECONDS` (`1.5s`) empties the snapshot on the first missed tick, and the Twitch handler converted that into the literal string `none active`, which is indistinguishable from a successful read that found nothing.
+- **Ruled out:** sampling skew between `stage_timer` and `my_time` was investigated and is not a factor. `get_powerup_tracking_snapshot` reads both back-to-back from the same already-resolved `MyTime` static block, so the pair inside one snapshot is coherent. The `250ms` fast lane publishes a separate `FastStageTimerContext` that `apply_snapshot` never consumes.
+
+Implemented:
+
+- Per-effect observation history in `_PowerupState`, reconstructing "still the same buff" from `added_time`, clock direction, and expiry monotonicity, since the game exposes no instance id.
+- An effect's duration is frozen while nothing about it moves, so a single bad multiplier read cannot re-time a buff the game already committed to.
+- When the pickup itself is caught, the duration is taken as `expiration_time - added_time`, which the game writes in one frame and which no multiplier read can distort.
+- At a repeat pickup the duration is bounded by the game's own numbers rather than by the multiplier: the pickup happened between the previous read and this one, so `expiration_time - my_time <= D <= expiration_time - previous_my_time`. The multiplier is believed only inside that one-tick-wide window.
+- A *changed* multiplier must be read twice before it is published, so a one-frame misread never reaches the duration maths.
+- `powerups.recent_snapshot` keeps the last read past the strict TTL and marks it `stale`; the Twitch handler now separates fresh, stale, and absent, and never invents `none active`.
+
+Live validation on 2026-07-24:
+
+- 353 ticks over 176s, 10 repeat pickups across 4 effect types.
+- `added_time` never moved on a repeat pickup and the pickup mark never jumped; zero reads were rejected. One capture reached `expiration_time - added_time` of 252s against a 224s window, which the previous logic would have rejected.
+- One repeat pickup recorded 98.07s for a buff the game had granted 111.6s of, caused by the multiplier cache being a full TTL behind. Replaying the capture through the new bound reduces the worst repeat-pickup duration error from `13.50s` to `0.48s`.
+- The maximum gap between reads was `0.505s`, with none above `0.7s`. The powerup snapshot therefore never went stale during the capture, so the Twitch stale and absent branches were never exercised by it.
+
+Second live capture on 2026-07-24, with `Powerup Multiplier` deliberately raised immediately before each repeat pickup:
+
+- 152 ticks over 76s, 3 repeat pickups. `added_time` never moved and the pickup mark never jumped.
+- One repeat pickup landed on the last tick before the multiplier cache caught up: memory held `9.136` while the published value was still `8.576`. The bound recorded the granted `136.63s` exactly, where `base * multiplier` would have recorded `128.64s`. Replaying the same capture with the bound removed reproduces that `-7.99s` error, so the branch is confirmed rather than merely unexercised.
+- Worst repeat-pickup duration error across the capture: `0.33s`.
+- This closes live verification for the repeat-pickup duration bound. The Twitch branches remain unexercised; the maximum read gap was again `0.504s`.
+
+Remaining open work:
+
+- Live-verify the Twitch stale and absent branches. Waiting for a natural stall is impractical at the observed read cadence; this needs `POWERUPS_SNAPSHOT_TTL_SECONDS` and `POWERUPS_SNAPSHOT_GRACE_SECONDS` temporarily shrunk so the branches are reached deliberately.
+- The multiplier display and `standard_duration_seconds` can still lag up to the cache TTL at a repeat pickup, for the same force-refresh reason. Effect durations no longer depend on it, so this is cosmetic. The proper fix is to include expiration times, not just effect ids, in `active_signature`.

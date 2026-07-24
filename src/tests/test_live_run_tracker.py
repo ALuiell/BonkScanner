@@ -2164,6 +2164,175 @@ class LiveRunTrackerTests(unittest.TestCase):
             "Powerups: Rage 01:41 -> 01:17 (22s left) | Clock 01:40 -> 01:22 (18s left) | Durations: standard 22s, clock 18s (PM 1.5x)",
         )
 
+    def _rage_powerup_read(
+        self,
+        *,
+        my_time: float,
+        stage_timer: float,
+        expiration_time: float,
+        added_time: float = 999.0,
+        powerup_multiplier: float = 1.5,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            my_time_seconds=my_time,
+            stage_timer_seconds=stage_timer,
+            stage_index=1,
+            stage_time_seconds=540.0,
+            powerup_multiplier=powerup_multiplier,
+            powerup_multiplier_display=f"{powerup_multiplier}x",
+            effects=(
+                SimpleNamespace(
+                    effect_id=1,
+                    name="Rage",
+                    added_time=added_time,
+                    expiration_time=expiration_time,
+                ),
+            ),
+        )
+
+    def test_powerups_pickup_mark_survives_repeated_pickups_of_the_same_buff(self) -> None:
+        """Re-picking an active buff must not move where it says it started.
+
+        The game refreshes ``expiration_time`` but leaves ``added_time`` at the
+        *first* pickup, so the gap between them grows past the sanity window
+        that exists to reject records surviving a timer epoch. Rejecting a mark
+        we have watched continuously is what made the pickup time jump.
+        """
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        context = self.non_graveyard_context()
+
+        # Picked up at my_time 999 with a 1.5x multiplier: 22.5 s of Rage.
+        tracker.update_powerups(
+            self._rage_powerup_read(
+                my_time=1000.0, stage_timer=440.0, expiration_time=1021.5
+            ),
+            map_context=context,
+        )
+        first = tracker.powerups_snapshot().active[0].pickup_ui
+
+        # Two refreshes. added_time stays at 999 throughout, so by the last one
+        # expiration - added_time is 53.5 s -- well past max(2 * 22.5, 32.5).
+        tracker.update_powerups(
+            self._rage_powerup_read(
+                my_time=1015.0, stage_timer=455.0, expiration_time=1037.5
+            ),
+            map_context=context,
+        )
+        tracker.update_powerups(
+            self._rage_powerup_read(
+                my_time=1030.0, stage_timer=470.0, expiration_time=1052.5
+            ),
+            map_context=context,
+        )
+        effect = tracker.powerups_snapshot().active[0]
+
+        self.assertEqual(first, "01:41")
+        self.assertEqual(effect.pickup_ui, "01:41")
+        self.assertEqual(effect.expires_ui, "00:47")
+
+    def test_powerups_duration_is_frozen_against_a_multiplier_dip(self) -> None:
+        """An untouched buff keeps the duration the game already granted it.
+
+        The multiplier is re-read every tick and its cache is busted the moment
+        the active set changes, so a single bad frame at 1.0x would re-time a
+        buff mid-flight -- shortening it from 22.5 s to 15 s and dragging its
+        marks with it.
+        """
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        context = self.non_graveyard_context()
+
+        tracker.update_powerups(
+            self._rage_powerup_read(
+                my_time=1000.0, stage_timer=440.0, expiration_time=1021.5
+            ),
+            map_context=context,
+        )
+        tracker.update_powerups(
+            self._rage_powerup_read(
+                my_time=1001.0,
+                stage_timer=441.0,
+                expiration_time=1021.5,
+                powerup_multiplier=1.0,
+            ),
+            map_context=context,
+        )
+
+        self.assertEqual(tracker.powerups_snapshot().active[0].duration_seconds, 22.5)
+
+    def test_powerups_repeat_pickup_takes_its_duration_from_the_game(self) -> None:
+        """A stale multiplier must not decide how long a re-picked buff runs.
+
+        Numbers are lifted from a live run (tick #138 of
+        powerup_monitor_log.jsonl): Rage was re-picked while the multiplier
+        cache still held 6.538 and memory already said 7.456, so the recorded
+        duration came out 98.07 s against the 111.6 s the game had actually
+        granted. The multiplier read is only force-refreshed when the *set* of
+        active effects changes, and re-picking an already-active buff does not
+        change it, so the cache can be a full TTL behind at exactly this
+        moment.
+        """
+        context = self.non_graveyard_context()
+
+        def run(multiplier_at_repickup: float) -> float:
+            tracker = LiveRunTracker(clock=lambda: 1000.0)
+            tracker.update_powerups(
+                self._rage_powerup_read(
+                    my_time=681.27,
+                    stage_timer=440.0,
+                    expiration_time=765.48,
+                    added_time=680.85,
+                    powerup_multiplier=5.642,
+                ),
+                map_context=context,
+            )
+            tracker.update_powerups(
+                self._rage_powerup_read(
+                    my_time=692.74,
+                    stage_timer=451.47,
+                    expiration_time=804.31,
+                    added_time=680.85,
+                    powerup_multiplier=multiplier_at_repickup,
+                ),
+                map_context=context,
+            )
+            return tracker.powerups_snapshot().active[0].duration_seconds
+
+        # Stale multiplier: 15 * 6.538 = 98.07 lands below the window the
+        # game's own numbers allow, so it is rejected for the lower bound.
+        self.assertAlmostEqual(run(6.538), 111.57, places=2)
+
+        # Current multiplier: 15 * 7.456 = 111.84 lands inside the window, so
+        # the exact grant value is kept rather than rounded to the bound.
+        self.assertAlmostEqual(run(7.456), 111.84, places=2)
+
+    def test_powerups_recent_snapshot_separates_a_late_read_from_an_empty_one(self) -> None:
+        """Past the strict TTL the read is still quotable, and says so.
+
+        ``powerups`` empties on the first missed tick, and an empty snapshot is
+        indistinguishable from a successful read that found nothing -- which is
+        how ``!powerups`` came to announce "none active" over a live buff.
+        """
+        now = 1000.0
+        tracker = LiveRunTracker(clock=lambda: now)
+        tracker.update_powerups(
+            self._rage_powerup_read(
+                my_time=1000.0, stage_timer=440.0, expiration_time=1021.5
+            ),
+            map_context=self.non_graveyard_context(),
+        )
+
+        now = 1002.0  # past POWERUPS_SNAPSHOT_TTL_SECONDS, inside the grace
+        runtime = tracker.runtime_snapshot()
+
+        self.assertFalse(runtime.powerups.available)
+        self.assertEqual(runtime.powerups.active, ())
+        self.assertFalse(runtime.powerups_recent.available)
+        self.assertTrue(runtime.powerups_recent.stale)
+        self.assertEqual(len(runtime.powerups_recent.active), 1)
+
+        now = 1010.0  # past the grace window too
+        self.assertFalse(tracker.runtime_snapshot().powerups_recent.stale)
+
     def test_powerups_summary_uses_duration_fallback_when_none_active(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
         tracker.update_powerups(
