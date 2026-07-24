@@ -60,22 +60,24 @@ from app import config
 from app.vod_library import load_vod
 from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
+from ui.metric_table import MetricTableView
 from ui.shared import _apply_summary_label_padding, _make_scroll_section, _set_text
 from ui.styles import ITEM_SORT_LABELS
 from ui.throttle import UiUpdateThrottle, batched_updates
 from ui.tabs.player_stats.items_section import ItemsSectionView
 from projections import formatting
 from projections.formatting import COMPARE_RUN_STAT_LABELS
+from projections.metric_table import EMPTY_METRIC_TABLE, MetricTable
 
 
 COMPARE_RUN_STAT_CONFIG_KEY = "COMPARE_RUN_STAT_LABELS"
 
 COMPARE_RUN_SECTIONS_CONFIG_KEY = "COMPARE_RUN_SECTIONS"
 
-#: How many formatted diffs to keep. A diff is seven short HTML strings, and
-#: scrubbing back and forth over the same stretch of two runs is the motion
-#: this cache exists for; 128 covers a few seconds of dragging in each
-#: direction without holding a whole recording's worth of markup.
+#: How many rendered diffs to keep. A diff is four short HTML strings and three
+#: `MetricTable`s, and scrubbing back and forth over the same stretch of two
+#: runs is the motion this cache exists for; 128 covers a few seconds of
+#: dragging in each direction without holding a whole recording's worth.
 COMPARE_RUN_DIFF_CACHE_SIZE = 128
 
 COMPARE_RUN_SECTION_DEFAULTS = {
@@ -134,6 +136,16 @@ def configured_compare_run_sections() -> dict[str, bool]:
 def _set_visible(widget, visible: bool) -> None:
     if widget is not None and hasattr(widget, "setVisible"):
         widget.setVisible(visible)
+
+
+def _set_metric_table(view, table) -> None:
+    """`_set_text`'s counterpart for the widget-rendered cards.
+
+    No-ops on an unbuilt tab for the same reason `_set_text` does: the refresh
+    paths run before `build()` in several tests and in the error path.
+    """
+    if view is not None and hasattr(view, "set_table"):
+        view.set_table(table)
 
 
 def _checkbox_checked(checkbox) -> bool:
@@ -309,14 +321,15 @@ class CompareRunsTab:
         self._diff_stats_label = None
         self._diff_items_group = None
         self._diff_items_label = None
+        self._diff_items_table = None
         self._diff_stage_summary_group = None
         self._diff_stage_summary_label = None
         self._diff_weapons_group = None
-        self._diff_weapons_label = None
+        self._diff_weapons_table = None
         self._diff_tomes_group = None
-        self._diff_tomes_label = None
+        self._diff_tomes_table = None
         self._diff_chaos_group = None
-        self._diff_chaos_label = None
+        self._diff_chaos_table = None
         # Never built, in either tree. `_refresh_compare_runs_selected_labels`
         # writes these through `_set_text`, which no-ops on `None`; `gui_layout`
         # built no such label and `gui_app` only ever set it to `None`. Kept, not
@@ -755,13 +768,22 @@ class CompareRunsTab:
                     stat_labels=stat_labels,
                 ),
                 (
-                    formatting.format_compare_runs_items_diff(
+                    formatting.build_compare_runs_items_summary(
                         snapshot_a,
                         snapshot_b,
                         details_expanded=item_details_expanded,
                     )
                     if show_items
                     else "--"
+                ),
+                (
+                    formatting.build_compare_runs_items_table(
+                        snapshot_a,
+                        snapshot_b,
+                        details_expanded=item_details_expanded,
+                    )
+                    if show_items
+                    else EMPTY_METRIC_TABLE
                 ),
                 (
                     formatting.format_compare_runs_stage_summary_diff(
@@ -774,28 +796,44 @@ class CompareRunsTab:
                     else "--"
                 ),
                 (
-                    formatting.format_compare_runs_weapons_diff(snapshot_a, snapshot_b) if show_weapons else "--"
+                    formatting.build_compare_runs_weapons_table(snapshot_a, snapshot_b)
+                    if show_weapons
+                    else EMPTY_METRIC_TABLE
                 ),
                 (
-                    formatting.format_compare_runs_tomes_diff(snapshot_a, snapshot_b) if show_tomes else "--"
+                    formatting.build_compare_runs_tomes_table(snapshot_a, snapshot_b)
+                    if show_tomes
+                    else EMPTY_METRIC_TABLE
                 ),
                 (
-                    formatting.format_compare_runs_chaos_diff(snapshot_a, snapshot_b) if show_chaos else "--"
+                    formatting.build_compare_runs_chaos_table(snapshot_a, snapshot_b)
+                    if show_chaos
+                    else EMPTY_METRIC_TABLE
                 ),
             )
             self._store_compare_runs_diff(cache_key, cached)
         else:
             self._diff_cache.move_to_end(cache_key)
 
-        overview_text, stats_text, items_text, stage_summary_text, weapons_text, tomes_text, chaos_text = cached
+        (
+            overview_text,
+            stats_text,
+            items_text,
+            items_table,
+            stage_summary_text,
+            weapons_table,
+            tomes_table,
+            chaos_table,
+        ) = cached
         self._set_compare_runs_diff_cards(
             overview_text,
             stats_text=stats_text,
             items_text=items_text,
+            items_table=items_table,
             stage_summary_text=stage_summary_text,
-            weapons_text=weapons_text,
-            tomes_text=tomes_text,
-            chaos_text=chaos_text,
+            weapons_table=weapons_table,
+            tomes_table=tomes_table,
+            chaos_table=chaos_table,
             show_items=show_items,
             show_stage_summary=show_stage_summary,
             show_weapons=show_weapons,
@@ -849,10 +887,11 @@ class CompareRunsTab:
         *,
         stats_text: str = "--",
         items_text: str = "--",
+        items_table: MetricTable = EMPTY_METRIC_TABLE,
         stage_summary_text: str = "--",
-        weapons_text: str = "--",
-        tomes_text: str = "--",
-        chaos_text: str = "--",
+        weapons_table: MetricTable = EMPTY_METRIC_TABLE,
+        tomes_table: MetricTable = EMPTY_METRIC_TABLE,
+        chaos_table: MetricTable = EMPTY_METRIC_TABLE,
         show_items: bool = False,
         show_stage_summary: bool = False,
         show_weapons: bool = False,
@@ -861,16 +900,19 @@ class CompareRunsTab:
     ) -> None:
         # Dirty check. Consecutive snapshots of the same run very often produce
         # an identical diff -- nothing changed in that game second -- and
-        # re-writing seven rich-text widgets with the strings they already hold
-        # still costs a document re-parse and a layout pass each.
+        # re-writing seven widgets with the payload they already hold still
+        # costs a document re-parse or a relayout each. The three tables are
+        # frozen dataclasses, so they compare by value here exactly as the
+        # strings beside them do.
         payload = (
             overview_text,
             stats_text,
             items_text,
+            items_table,
             stage_summary_text,
-            weapons_text,
-            tomes_text,
-            chaos_text,
+            weapons_table,
+            tomes_table,
+            chaos_table,
             show_items,
             show_stage_summary,
             show_weapons,
@@ -884,10 +926,11 @@ class CompareRunsTab:
         _set_text(self._diff_overview_label, overview_text)
         _set_text(self._diff_stats_label, stats_text)
         _set_text(self._diff_items_label, items_text)
+        _set_metric_table(self._diff_items_table, items_table)
         _set_text(self._diff_stage_summary_label, stage_summary_text)
-        _set_text(self._diff_weapons_label, weapons_text)
-        _set_text(self._diff_tomes_label, tomes_text)
-        _set_text(self._diff_chaos_label, chaos_text)
+        _set_metric_table(self._diff_weapons_table, weapons_table)
+        _set_metric_table(self._diff_tomes_table, tomes_table)
+        _set_metric_table(self._diff_chaos_table, chaos_table)
         _set_visible(self._diff_overview_group, True)
         _set_visible(self._diff_stats_group, bool(stats_text and stats_text != "--"))
         _set_visible(self._diff_items_group, show_items)
@@ -1141,6 +1184,12 @@ class CompareRunsTab:
             "Items",
             "--",
         )
+        # The card is a summary line plus, when expanded, a per-item table. The
+        # table is the widget-rendered half for the same reason the three cards
+        # below are: as `<table>` markup it was 19 KB and 70 ms of layout per
+        # frame -- the most expensive card of the seven.
+        self._diff_items_table = MetricTableView()
+        self._diff_items_group.layout().addWidget(self._diff_items_table)
         self._item_details_btn = QPushButton("Show Item Details")
         self._item_details_btn.setProperty("class", "SmallGhostButton")
         self._item_details_btn.clicked.connect(self.toggle_compare_runs_item_details)
@@ -1150,18 +1199,13 @@ class CompareRunsTab:
             "Stage Summary",
             "--",
         )
-        self._diff_weapons_group, self._diff_weapons_label = self._build_diff_card(
-            "Weapons",
-            "--",
-        )
-        self._diff_tomes_group, self._diff_tomes_label = self._build_diff_card(
-            "Tomes",
-            "--",
-        )
-        self._diff_chaos_group, self._diff_chaos_label = self._build_diff_card(
-            "Chaos",
-            "--",
-        )
+        # The three heavy cards are widget-rendered rather than rich text. As
+        # `QLabel` documents they cost 63/23/65 ms of layout per scrub frame
+        # against 0.26 ms for the whole Python half of that frame; see
+        # `ui/metric_table.py` for the renderer comparison behind the choice.
+        self._diff_weapons_group, self._diff_weapons_table = self._build_diff_table_card("Weapons")
+        self._diff_tomes_group, self._diff_tomes_table = self._build_diff_table_card("Tomes")
+        self._diff_chaos_group, self._diff_chaos_table = self._build_diff_table_card("Chaos")
         diff_scroll_layout.addWidget(self._diff_overview_group)
         diff_scroll_layout.addWidget(self._diff_stats_group)
         diff_scroll_layout.addWidget(self._diff_stage_summary_group)
@@ -1194,6 +1238,14 @@ class CompareRunsTab:
         _apply_summary_label_padding(label)
         layout.addWidget(label)
         return group, label
+
+    def _build_diff_table_card(self, title: str):
+        """A diff card whose body is a `MetricTableView` instead of a `QLabel`."""
+        group = QGroupBox(title)
+        layout = QVBoxLayout(group)
+        view = MetricTableView()
+        layout.addWidget(view)
+        return group, view
 
     def _build_side_panel(self, title: str, side: str):
         group = QGroupBox(title)

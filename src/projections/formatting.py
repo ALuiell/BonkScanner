@@ -27,6 +27,12 @@ from core.item_metadata import (
 from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
 from core.tracker.chests import key_proc_chance
 from core.stats.types import calculate_chests_per_minute
+from projections.metric_table import (
+    EMPTY_METRIC_TABLE,
+    MetricRow,
+    MetricSection,
+    MetricTable,
+)
 
 COMPARE_RUN_STAT_LABELS = (
     "Damage",
@@ -301,6 +307,13 @@ def format_compare_runs_stage_summary_diff(vod_a, index_a, vod_b, index_b) -> st
     return "".join(blocks) if blocks else "--"
 
 
+#: Shown in place of the sections when a card has nothing to compare. One
+#: constant per card so the HTML renderer and the widget renderer cannot drift.
+WEAPONS_COMPARE_EMPTY_TEXT = "No weapon data"
+TOMES_COMPARE_EMPTY_TEXT = "No tome data"
+CHAOS_COMPARE_EMPTY_TEXT = "No Chaos Tome data"
+
+
 def format_compare_runs_weapons_diff(snapshot_a, snapshot_b) -> str:
     weapon_rows = _format_compare_run_weapon_deltas(snapshot_a, snapshot_b)
     return "<br>".join(weapon_rows) if weapon_rows else "--"
@@ -311,13 +324,84 @@ def format_compare_runs_tomes_diff(snapshot_a, snapshot_b) -> str:
     return "<br>".join(tome_rows) if tome_rows else "--"
 
 
-def format_compare_runs_chaos_diff(snapshot_a, snapshot_b) -> str:
+def build_compare_runs_weapons_table(snapshot_a, snapshot_b) -> MetricTable:
+    """The Weapons card as data: one section per weapon, one row per upgrade.
+
+    Same content as `format_compare_runs_weapons_diff`, and deliberately built
+    from the same row helper -- this exists so the card can be rendered by
+    widgets rather than by a `QLabel` re-laying-out a 12 KB HTML document per
+    scrub frame.
+    """
+    weapons_a = _index_named_snapshots(getattr(snapshot_a, "weapons", ()))
+    weapons_b = _index_named_snapshots(getattr(snapshot_b, "weapons", ()))
+    sections = tuple(
+        _entity_metric_section(
+            name,
+            weapons_a.get(name),
+            weapons_b.get(name),
+            _weapon_compare_metric_rows(weapons_a.get(name), weapons_b.get(name)),
+        )
+        for name in sorted(set(weapons_a) | set(weapons_b), key=str.casefold)
+    )
+    return MetricTable(sections=sections, empty_text=WEAPONS_COMPARE_EMPTY_TEXT)
+
+
+def build_compare_runs_tomes_table(snapshot_a, snapshot_b) -> MetricTable:
+    """The Tomes card as data. See `build_compare_runs_weapons_table`."""
+    tomes_a = _index_named_snapshots(getattr(snapshot_a, "tomes", ()))
+    tomes_b = _index_named_snapshots(getattr(snapshot_b, "tomes", ()))
+    sections = tuple(
+        _entity_metric_section(
+            name,
+            tomes_a.get(name),
+            tomes_b.get(name),
+            _tome_compare_metric_rows(name, tomes_a.get(name), tomes_b.get(name)),
+        )
+        for name in sorted(set(tomes_a) | set(tomes_b), key=str.casefold)
+    )
+    return MetricTable(sections=sections, empty_text=TOMES_COMPARE_EMPTY_TEXT)
+
+
+def build_compare_runs_chaos_table(snapshot_a, snapshot_b) -> MetricTable:
+    """The Chaos card as data: an overview section and, if tracked, the stats.
+
+    Chaos's sections are plain tables rather than named entities, so they carry
+    a column name in `headers[0]` and no title.
+    """
     chaos_a = getattr(snapshot_a, "chaos_tome", None)
     chaos_b = getattr(snapshot_b, "chaos_tome", None)
     if chaos_a is None and chaos_b is None:
-        return '<span style="color:#98A7BA;">No Chaos Tome data</span>'
+        return MetricTable(empty_text=CHAOS_COMPARE_EMPTY_TEXT)
 
-    overview_rows = [
+    sections = [
+        MetricSection(
+            headers=("Metric", "A", "B", "Diff"),
+            rows=tuple(MetricRow(*row) for row in _chaos_compare_overview_rows(chaos_a, chaos_b)),
+        )
+    ]
+    stat_rows = _format_compare_run_chaos_stat_rows(chaos_a, chaos_b)
+    if stat_rows:
+        sections.append(
+            MetricSection(
+                headers=("Stat", "A", "B", "Diff"),
+                rows=tuple(MetricRow(*row) for row in stat_rows),
+            )
+        )
+    return MetricTable(sections=tuple(sections), empty_text=CHAOS_COMPARE_EMPTY_TEXT)
+
+
+def _entity_metric_section(name: str, value_a, value_b, rows) -> MetricSection:
+    return MetricSection(
+        headers=("", "A", "B", "Diff"),
+        rows=tuple(MetricRow(*row) for row in rows),
+        title=str(name),
+        subtitle=_entity_level_text(value_a, value_b),
+    )
+
+
+def _chaos_compare_overview_rows(chaos_a, chaos_b) -> list[tuple[str, str, str, str]]:
+    """Chaos's level/rolls/stats rows, without markup."""
+    return [
         _format_compare_metric_row(
             "Level",
             _metric_value(getattr(chaos_a, "level", None), getattr(chaos_a, "level", None)),
@@ -336,7 +420,20 @@ def format_compare_runs_chaos_diff(snapshot_a, snapshot_b) -> str:
             _format_signed_count(_chaos_stat_count(chaos_b) - _chaos_stat_count(chaos_a)),
         ),
     ]
-    blocks = [_format_compare_metric_table(("Metric", "A", "B", "Diff"), overview_rows)]
+
+
+def format_compare_runs_chaos_diff(snapshot_a, snapshot_b) -> str:
+    chaos_a = getattr(snapshot_a, "chaos_tome", None)
+    chaos_b = getattr(snapshot_b, "chaos_tome", None)
+    if chaos_a is None and chaos_b is None:
+        return f'<span style="color:#98A7BA;">{CHAOS_COMPARE_EMPTY_TEXT}</span>'
+
+    blocks = [
+        _format_compare_metric_table(
+            ("Metric", "A", "B", "Diff"),
+            _chaos_compare_overview_rows(chaos_a, chaos_b),
+        )
+    ]
 
     stat_rows = _format_compare_run_chaos_stat_rows(chaos_a, chaos_b)
     if stat_rows:
@@ -423,7 +520,8 @@ def _parse_stage_summary_count(value: str | None) -> int | None:
         return None
 
 
-def _format_compare_run_item_deltas(snapshot_a, snapshot_b, *, details_expanded: bool = False) -> list[str]:
+def _compare_run_item_counts(snapshot_a, snapshot_b):
+    """Both inventories as counts, plus what each side has more of."""
     counts_a = _item_counts(getattr(snapshot_a, "items", ()))
     counts_b = _item_counts(getattr(snapshot_b, "items", ()))
     more_in_b: dict[str, int] = {}
@@ -434,7 +532,16 @@ def _format_compare_run_item_deltas(snapshot_a, snapshot_b, *, details_expanded:
             more_in_b[name] = delta
         elif delta < 0:
             more_in_a[name] = abs(delta)
+    return counts_a, counts_b, more_in_b, more_in_a
 
+
+def _item_delta_text_rows(more_in_b, more_in_a, *, include_inline: bool) -> list[str]:
+    """The Items card's text half: the rarity line, and the inline lists.
+
+    Everything here is a short flowing line, which is cheap to lay out; the
+    per-item table that used to follow it is what cost 70 ms a frame and is now
+    built by `build_compare_runs_items_table` instead.
+    """
     rarity_rows = _format_item_delta_rarity_totals(more_in_b, more_in_a)
     if not more_in_b and not more_in_a:
         return [
@@ -442,14 +549,53 @@ def _format_compare_run_item_deltas(snapshot_a, snapshot_b, *, details_expanded:
             '<span style="color:#98A7BA;">No item count differences</span>',
         ]
     rows = [f'<span style="font-size:14px;"><span style="color:#98A7BA; font-weight:700;">Rarity Delta:</span> {rarity_rows}</span>']
-    if details_expanded:
-        rows.append(_format_item_delta_table(counts_a, counts_b))
-    else:
+    if include_inline:
         if more_in_b:
             rows.append(f'<span style="color:#98A7BA;">B has more:</span> {_format_item_delta_inline(more_in_b, "+", max_items=3)}')
         if more_in_a:
             rows.append(f'<span style="color:#98A7BA;">A has more:</span> {_format_item_delta_inline(more_in_a, "-", max_items=3)}')
     return rows
+
+
+def _format_compare_run_item_deltas(snapshot_a, snapshot_b, *, details_expanded: bool = False) -> list[str]:
+    counts_a, counts_b, more_in_b, more_in_a = _compare_run_item_counts(snapshot_a, snapshot_b)
+    rows = _item_delta_text_rows(more_in_b, more_in_a, include_inline=not details_expanded)
+    if details_expanded and (more_in_b or more_in_a):
+        rows.append(_format_item_delta_table(counts_a, counts_b))
+    return rows
+
+
+def build_compare_runs_items_summary(snapshot_a, snapshot_b, *, details_expanded: bool = False) -> str:
+    """The Items card's text half, with the per-item table left to the widget."""
+    _counts_a, _counts_b, more_in_b, more_in_a = _compare_run_item_counts(snapshot_a, snapshot_b)
+    rows = _item_delta_text_rows(more_in_b, more_in_a, include_inline=not details_expanded)
+    return "<br>".join(rows) if rows else "--"
+
+
+def build_compare_runs_items_table(snapshot_a, snapshot_b, *, details_expanded: bool = False) -> MetricTable:
+    """The per-item table, and only when the user has expanded the details.
+
+    Folded away it is an empty table, which the view renders as nothing at all
+    -- the summary line above it already says there is nothing to show.
+    """
+    if not details_expanded:
+        return EMPTY_METRIC_TABLE
+    counts_a, counts_b, _more_in_b, _more_in_a = _compare_run_item_counts(snapshot_a, snapshot_b)
+    rows = tuple(
+        MetricRow(
+            label=_normalize_item_name_for_display(name),
+            value_a=format_count(count_a),
+            value_b=format_count(count_b),
+            delta=_format_signed_count(delta),
+            label_color=_item_delta_color(name),
+        )
+        for name, count_a, count_b, delta in _item_delta_table_rows(counts_a, counts_b)
+    )
+    if not rows:
+        return EMPTY_METRIC_TABLE
+    return MetricTable(
+        sections=(MetricSection(headers=("Name", "A", "B", "Diff"), rows=rows),)
+    )
 
 
 def _format_item_delta_rarity_totals(more_in_b: dict[str, int], more_in_a: dict[str, int]) -> str:
@@ -570,12 +716,20 @@ def _format_item_delta_by_rarity(deltas: dict[str, int], sign: str) -> str:
     return "<br>".join(rows) if rows else "--"
 
 
-def _format_item_delta_name(item_name: str) -> str:
+def _item_delta_color(item_name: str) -> str:
+    """An item's display colour: its rarity, overridden by its own palette entry."""
     display_name = _normalize_item_name_for_display(item_name)
     rarity = _item_rarity_name(display_name)
     color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
-    color = item_display_color(display_name, color)
-    return f'<span style="color:{color}; font-weight:700;">{html.escape(display_name)}</span>'
+    return item_display_color(display_name, color)
+
+
+def _format_item_delta_name(item_name: str) -> str:
+    display_name = _normalize_item_name_for_display(item_name)
+    return (
+        f'<span style="color:{_item_delta_color(item_name)}; font-weight:700;">'
+        f"{html.escape(display_name)}</span>"
+    )
 
 
 def _item_rarity_name(item_name: str) -> str | None:
@@ -590,7 +744,7 @@ def _format_compare_run_weapon_deltas(snapshot_a, snapshot_b) -> list[str]:
     rows: list[str] = []
     for name in sorted(set(weapons_a) | set(weapons_b), key=str.casefold):
         rows.append(_format_weapon_compare_card(name, weapons_a.get(name), weapons_b.get(name)))
-    return rows or ['<span style="color:#98A7BA;">No weapon data</span>']
+    return rows or [f'<span style="color:#98A7BA;">{WEAPONS_COMPARE_EMPTY_TEXT}</span>']
 
 
 def _format_compare_run_tome_deltas(snapshot_a, snapshot_b) -> list[str]:
@@ -601,7 +755,7 @@ def _format_compare_run_tome_deltas(snapshot_a, snapshot_b) -> list[str]:
         card = _format_tome_compare_card(name, tomes_a.get(name), tomes_b.get(name))
         if card:
             rows.append(card)
-    return rows or ['<span style="color:#98A7BA;">No tome data</span>']
+    return rows or [f'<span style="color:#98A7BA;">{TOMES_COMPARE_EMPTY_TEXT}</span>']
 
 
 def _format_compare_run_chaos_stat_rows(chaos_a, chaos_b) -> list[tuple[str, str, str, str]]:
@@ -721,7 +875,12 @@ def _format_weapon_compare_block(name: str, weapon_a, weapon_b) -> str:
     return f'{title}<br>{table}'
 
 
-def _format_weapon_compare_card(name: str, weapon_a, weapon_b) -> str:
+def _weapon_compare_metric_rows(weapon_a, weapon_b) -> list[tuple[str, str, str, str]]:
+    """The rows of one weapon's compare card, without markup.
+
+    Extracted so the HTML card and the widget-rendered card cannot disagree
+    about content: both fold over this list.
+    """
     metric_rows: list[tuple[str, str, str, str]] = [
         ("Level", _level_display(weapon_a), _level_display(weapon_b), _level_delta(weapon_a, weapon_b))
     ]
@@ -740,7 +899,16 @@ def _format_weapon_compare_card(name: str, weapon_a, weapon_b) -> str:
             stat_b,
         )
         metric_rows.append((label, display_a, display_b, delta))
-    return _format_compare_mini_card(name, weapon_a, weapon_b, metric_rows)
+    return metric_rows
+
+
+def _format_weapon_compare_card(name: str, weapon_a, weapon_b) -> str:
+    return _format_compare_mini_card(
+        name,
+        weapon_a,
+        weapon_b,
+        _weapon_compare_metric_rows(weapon_a, weapon_b),
+    )
 
 
 def _format_tome_compare_block(name: str, tome_a, tome_b) -> str:
@@ -765,21 +933,28 @@ def _format_tome_compare_block(name: str, tome_a, tome_b) -> str:
     return f'{title}<br>{table}'
 
 
-def _format_tome_compare_card(name: str, tome_a, tome_b) -> str:
-    metric_rows = []
+def _tome_compare_metric_rows(name: str, tome_a, tome_b) -> list[tuple[str, str, str, str]]:
+    """One tome's compare rows, without markup. See `_weapon_compare_metric_rows`."""
     if name.casefold() == "chaos":
-        metric_rows.append(("Level", _level_display(tome_a), _level_display(tome_b), _level_delta(tome_a, tome_b)))
-    else:
-        metric_rows.append(
-            (
-                _tome_value_label(tome_a, tome_b),
-                *_format_compare_metric_values(
-                    _metric_value(getattr(tome_a, "value", None), getattr(tome_a, "display_value", None)),
-                    _metric_value(getattr(tome_b, "value", None), getattr(tome_b, "display_value", None)),
-                ),
-            )
+        return [("Level", _level_display(tome_a), _level_display(tome_b), _level_delta(tome_a, tome_b))]
+    return [
+        (
+            _tome_value_label(tome_a, tome_b),
+            *_format_compare_metric_values(
+                _metric_value(getattr(tome_a, "value", None), getattr(tome_a, "display_value", None)),
+                _metric_value(getattr(tome_b, "value", None), getattr(tome_b, "display_value", None)),
+            ),
         )
-    return _format_compare_mini_card(name, tome_a, tome_b, metric_rows)
+    ]
+
+
+def _format_tome_compare_card(name: str, tome_a, tome_b) -> str:
+    return _format_compare_mini_card(
+        name,
+        tome_a,
+        tome_b,
+        _tome_compare_metric_rows(name, tome_a, tome_b),
+    )
 
 
 def _format_compare_metric_transition(value_a, value_b) -> tuple[str, str]:
@@ -829,31 +1004,30 @@ def _format_compare_mini_card(name: str, value_a, value_b, metric_rows: list[tup
     return "".join(rows)
 
 
-def _format_compare_entity_title(name: str, value_a, value_b) -> str:
+def _entity_level_text(value_a, value_b) -> str:
+    """`Lv. 3 -> 5`, or the `--` forms when one side has no entity.
+
+    One implementation for the two HTML titles below and for the widget
+    renderer's subtitle; it was duplicated verbatim in both titles before.
+    """
     level_a = getattr(value_a, "level", None)
     level_b = getattr(value_b, "level", None)
     if level_a is None and level_b is None:
-        level_text = "Lv. --"
-    elif level_a is None:
-        level_text = f"Lv. -- -> {int(level_b)}"
-    elif level_b is None:
-        level_text = f"Lv. {int(level_a)} -> --"
-    else:
-        level_text = f"Lv. {int(level_a)} -> {int(level_b)}"
+        return "Lv. --"
+    if level_a is None:
+        return f"Lv. -- -> {int(level_b)}"
+    if level_b is None:
+        return f"Lv. {int(level_a)} -> --"
+    return f"Lv. {int(level_a)} -> {int(level_b)}"
+
+
+def _format_compare_entity_title(name: str, value_a, value_b) -> str:
+    level_text = _entity_level_text(value_a, value_b)
     return f'<span style="color:#E5E7EB; font-weight:700;">{html.escape(name)}</span> <span style="color:#98A7BA;">({level_text})</span>'
 
 
 def _format_compare_entity_label(name: str, value_a, value_b) -> str:
-    level_a = getattr(value_a, "level", None)
-    level_b = getattr(value_b, "level", None)
-    if level_a is None and level_b is None:
-        level_text = "Lv. --"
-    elif level_a is None:
-        level_text = f"Lv. -- -> {int(level_b)}"
-    elif level_b is None:
-        level_text = f"Lv. {int(level_a)} -> --"
-    else:
-        level_text = f"Lv. {int(level_a)} -> {int(level_b)}"
+    level_text = _entity_level_text(value_a, value_b)
     return f'<span style="font-weight:700;">{html.escape(name)}</span><br><span style="color:#98A7BA;">{level_text}</span>'
 
 

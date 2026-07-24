@@ -23,6 +23,7 @@ from unittest.mock import MagicMock, patch
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from projections import formatting
+from projections.metric_table import MetricRow, MetricSection, MetricTable
 from support.compare_runs import build_compare_runs_tab
 from support.player_stats import build_recordings_tab, build_recording_timeline_view
 from test_ui_throttle import FakeClock, FakeScheduler
@@ -42,6 +43,22 @@ class FakeLabel:
 
     def text(self) -> str:
         return self.value
+
+
+class FakeMetricTable:
+    """Stands in for `MetricTableView`, which needs real Qt to construct.
+
+    Same shape as `FakeLabel` so the dirty-check assertions read the same way
+    for the widget-rendered cards as for the rich-text ones.
+    """
+
+    def __init__(self) -> None:
+        self.value = None
+        self.writes: list[object] = []
+
+    def set_table(self, table) -> None:
+        self.value = table
+        self.writes.append(table)
 
 
 def paused_throttle(interval_ms: float = 100.0):
@@ -241,11 +258,12 @@ def patched_formatters():
         formatting,
         format_compare_runs_overview_diff=MagicMock(return_value="overview"),
         format_compare_runs_stats_diff=MagicMock(return_value="stats"),
-        format_compare_runs_items_diff=MagicMock(return_value="items"),
+        build_compare_runs_items_summary=MagicMock(return_value="items"),
+        build_compare_runs_items_table=MagicMock(return_value="items table"),
         format_compare_runs_stage_summary_diff=MagicMock(return_value="stages"),
-        format_compare_runs_weapons_diff=MagicMock(return_value="weapons"),
-        format_compare_runs_tomes_diff=MagicMock(return_value="tomes"),
-        format_compare_runs_chaos_diff=MagicMock(return_value="chaos"),
+        build_compare_runs_weapons_table=MagicMock(return_value="weapons"),
+        build_compare_runs_tomes_table=MagicMock(return_value="tomes"),
+        build_compare_runs_chaos_table=MagicMock(return_value="chaos"),
     )
 
 
@@ -281,11 +299,11 @@ class CompareRunsDiffCacheTests(unittest.TestCase):
             tab._weapons_enabled = True
             tab._refresh_compare_runs_diff()
 
-            formatting.format_compare_runs_weapons_diff.assert_called_once()
+            formatting.build_compare_runs_weapons_table.assert_called_once()
 
         self.assertEqual(
             "weapons",
-            tab._set_compare_runs_diff_cards.call_args_list[-1].kwargs["weapons_text"],
+            tab._set_compare_runs_diff_cards.call_args_list[-1].kwargs["weapons_table"],
         )
 
     def test_changing_the_selected_stats_is_not_a_cache_hit(self) -> None:
@@ -364,9 +382,10 @@ class CompareRunsStaleDataTests(unittest.TestCase):
         tab._diff_stats_label = FakeLabel()
         tab._diff_items_label = FakeLabel()
         tab._diff_stage_summary_label = FakeLabel()
-        tab._diff_weapons_label = FakeLabel()
-        tab._diff_tomes_label = FakeLabel()
-        tab._diff_chaos_label = FakeLabel()
+        tab._diff_items_table = FakeMetricTable()
+        tab._diff_weapons_table = FakeMetricTable()
+        tab._diff_tomes_table = FakeMetricTable()
+        tab._diff_chaos_table = FakeMetricTable()
         tab._refresh_compare_runs_item_details_button = MagicMock()
         tab.refresh_compare_runs_list = MagicMock()
         tab._refresh_compare_runs_chooser = MagicMock()
@@ -448,22 +467,30 @@ class CompareRunsStaleDataTests(unittest.TestCase):
 
 
 class CompareRunsDiffCardDirtyCheckTests(unittest.TestCase):
-    def _cards(self, tab) -> dict[str, FakeLabel]:
-        labels = {
+    def _cards(self, tab) -> dict[str, object]:
+        cards: dict[str, object] = {
             name: FakeLabel()
             for name in (
                 "_diff_overview_label",
                 "_diff_stats_label",
                 "_diff_items_label",
                 "_diff_stage_summary_label",
-                "_diff_weapons_label",
-                "_diff_tomes_label",
-                "_diff_chaos_label",
             )
         }
-        for name, label in labels.items():
-            setattr(tab, name, label)
-        return labels
+        cards.update(
+            {
+                name: FakeMetricTable()
+                for name in (
+                    "_diff_items_table",
+                    "_diff_weapons_table",
+                    "_diff_tomes_table",
+                    "_diff_chaos_table",
+                )
+            }
+        )
+        for name, card in cards.items():
+            setattr(tab, name, card)
+        return cards
 
     def test_an_unchanged_diff_is_not_rewritten(self) -> None:
         """Consecutive game seconds very often produce an identical diff."""
@@ -494,6 +521,39 @@ class CompareRunsDiffCardDirtyCheckTests(unittest.TestCase):
         tab._set_compare_runs_diff_cards("overview", show_weapons=True)
 
         self.assertEqual(["overview", "overview"], labels["_diff_overview_label"].writes)
+
+    def test_an_unchanged_metric_table_is_not_rewritten(self) -> None:
+        """The widget cards go through the same dirty check as the labels.
+
+        `MetricTable` is a frozen dataclass, so an equal-but-not-identical
+        table must compare equal here -- otherwise every frame would repaint
+        the three most expensive cards.
+        """
+        tab = build_compare_runs_tab()
+        cards = self._cards(tab)
+        table = MetricTable(
+            sections=(
+                MetricSection(
+                    headers=("", "A", "B", "Diff"),
+                    rows=(MetricRow("Level", "3", "5", "+2"),),
+                    title="Sword",
+                ),
+            )
+        )
+        rebuilt = MetricTable(
+            sections=(
+                MetricSection(
+                    headers=("", "A", "B", "Diff"),
+                    rows=(MetricRow("Level", "3", "5", "+2"),),
+                    title="Sword",
+                ),
+            )
+        )
+
+        tab._set_compare_runs_diff_cards("overview", weapons_table=table)
+        tab._set_compare_runs_diff_cards("overview", weapons_table=rebuilt)
+
+        self.assertEqual([table], cards["_diff_weapons_table"].writes)
 
 
 class RecordingsScrubTests(unittest.TestCase):
