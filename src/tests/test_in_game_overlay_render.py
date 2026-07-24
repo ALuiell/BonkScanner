@@ -105,6 +105,76 @@ class InGameOverlayRenderTests(unittest.TestCase):
         self.assertIn("#ff4d4d", html)
         self.assertNotIn("12.5x", html)
 
+    def test_stats_overlay_caps_graveyard_difficulty_like_tier_one_stage_zero(self) -> None:
+        snapshot = SimpleNamespace(
+            stats={
+                "Difficulty": SimpleNamespace(value=5.0, display_value="500%"),
+            },
+        )
+
+        # The Graveyard boundary is the fixed 960 s main-map duration plus the
+        # two ghost minutes, regardless of the duration the snapshot carries.
+        early_html = build_stats_overlay_html(
+            snapshot,
+            ["Difficulty"],
+            2,
+            1079.0,
+            480.0,
+            True,
+        )
+        late_html = build_stats_overlay_html(
+            snapshot,
+            ["Difficulty"],
+            2,
+            1080.0,
+            480.0,
+            True,
+        )
+
+        self.assertIn("500% / 571%", early_html)
+        self.assertIn("#16e7ff", early_html)
+        self.assertIn("500% / 495%", late_html)
+        self.assertIn("#ff4d4d", late_html)
+
+    def test_stats_overlay_ignores_stage_index_tiers_on_graveyard(self) -> None:
+        snapshot = SimpleNamespace(
+            stats={
+                "Difficulty": SimpleNamespace(value=5.0, display_value="500%"),
+            },
+        )
+
+        for stage_index in (0, 1, 2):
+            with self.subTest(stage_index=stage_index):
+                html = build_stats_overlay_html(
+                    snapshot,
+                    ["Difficulty"],
+                    stage_index,
+                    0.0,
+                    960.0,
+                    True,
+                )
+                self.assertIn("500% / 571%", html)
+
+    def test_stats_overlay_clamps_xp_gain_to_cap_on_graveyard(self) -> None:
+        snapshot = SimpleNamespace(
+            stats={
+                "XP Gain": SimpleNamespace(value=12.5, display_value="12.5x"),
+            },
+        )
+
+        html = build_stats_overlay_html(
+            snapshot,
+            ["XP Gain"],
+            2,
+            0.0,
+            960.0,
+            True,
+        )
+
+        self.assertIn("10x / 10x", html)
+        self.assertIn("#ff4d4d", html)
+        self.assertNotIn("12.5x", html)
+
     def test_event_timer_uses_stage_timestamp_for_boss_warning(self) -> None:
         html = build_event_timer_overlay_html(
             0,

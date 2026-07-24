@@ -41,6 +41,11 @@ _KPS_METRICS: dict[str, tuple[str, str]] = {
 _STATS_LABEL_MIN_WIDTH_PX = 40
 _STATS_LABEL_WIDTH_PER_CHAR_PX = 9
 _XP_GAIN_CAP = 10.0
+# The Graveyard main map runs a fixed 960 s stage.  `stage_duration_seconds` read
+# from CurrentStage -> Timeline -> stageTime is a live timeline marker there, so
+# every Graveyard schedule -- the Event Timer and the Difficulty cap alike --
+# uses this constant instead of the value carried by the snapshot.
+_GRAVEYARD_STAGE_DURATION_SECONDS = 960.0
 
 
 def build_kps_overlay_html_from_values(
@@ -214,12 +219,23 @@ def _build_in_game_stats_rows(
         color = "#16e7ff"  # Cyan by default
         cap_suffix = ""
 
-        if not is_graveyard and raw_val is not None:
+        if raw_val is not None:
             if label == "Difficulty":
-                is_after_2m_ghosts = stage_timer_seconds >= (stage_time_seconds + 120.0)
+                # Graveyard carries no stage tier: its raw `stage_index` stays at
+                # the value of whatever stage pointer the map reuses (2 in
+                # practice), so the tier table below must not be consulted there.
+                # One rule covers the whole map -- crypts, main map and boss room
+                # alike -- because no phase marker is available to the projection
+                # yet.
+                cap_stage_duration = (
+                    _GRAVEYARD_STAGE_DURATION_SECONDS if is_graveyard else stage_time_seconds
+                )
+                is_after_2m_ghosts = stage_timer_seconds >= (cap_stage_duration + 120.0)
 
                 cap = None
-                if stage_index == 0:
+                if is_graveyard:
+                    cap = 4.95 if is_after_2m_ghosts else 5.71
+                elif stage_index == 0:
                     cap = 4.95 if is_after_2m_ghosts else 5.71
                 elif stage_index == 1:
                     cap = 4.38 if is_after_2m_ghosts else 5.14
@@ -352,7 +368,7 @@ def build_event_timer_overlay_html(
     # the map's total duration, so it must not be used as the countdown base.
     # Event schedules use the fixed duration of the active map stage.
     if is_graveyard:
-        event_stage_duration = 960.0
+        event_stage_duration = _GRAVEYARD_STAGE_DURATION_SECONDS
     elif stage_index in (0, 1):
         event_stage_duration = 600.0 if stage_index == 0 else 540.0
     elif stage_index == 2:
