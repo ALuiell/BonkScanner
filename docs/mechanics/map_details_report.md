@@ -12,6 +12,53 @@ Please fill in the data for each of the 3 maps below, including memory addresses
 
 ---
 
+## Complete In-Game Timer Reference & Memory Structures (`MyTime`)
+
+All game timing fields reside in the static fields of `MyTime` (`GameAssembly.dll + 0x2F62398` -> `class_ptr` -> `static_fields + 0xB8`).
+
+### 1. Memory Offsets & Timer Fields (`MyTime`)
+
+| Field Name | Offset in `MyTime` (`+0xB8`) | Type | Engine Purpose & Behavior Across Maps |
+| :--- | :---: | :---: | :--- |
+| **`MyTime.paused`** | `0x00` | `bool` | Game pause status (`true` during pause/menu, `false` in gameplay). |
+| **`MyTime.time`** | `0x04` | `float` | **Core Game Clock (`my_time`)**. Absolute unpaused elapsed time since run start. Does **not** reset on stage transitions. Anchor for `StatusEffect` timers. |
+| **`MyTime.deltaTime`** | `0x08` | `float` | Delta time of current render frame. |
+| **`MyTime.fixedDeltaTime`** | `0x0C` | `float` | Fixed delta time for physics updates. |
+| **`MyTime.timeScale`** | `0x10` | `float` | Time multiplier (`1.0` normal speed, modified by time-scale powerups). |
+| **`MyTime.tick`** | `0x14` | `int` | Global frame/tick counter. |
+| **`MyTime.unpauseTick`** | `0x18` | `int` | Frame tick at which the game was last unpaused. |
+| **`MyTime.stageTimer`** | `0x1C` | `float` | **Stage Timer (`stage_timer`)**. Elapsed time on current stage. Resets to `0.0` on new stage entry (Forest/Desert). Ticks up to `960s` (16:00) on Graveyard outdoor map. |
+| **`MyTime.runTimer`** | `0x20` | `float` | **Run Timer (`run_timer`)**. Total elapsed run duration from initial spawn. |
+| **`MyTime.finalSwarmTimer`** | `0x24` | `float` | **Overtime / Ghost Phase Timer (`final_swarm_timer`)**. Equal to `0.0` in standard gameplay; becomes `> 0.0` when Ghost Phase / Final Swarm begins or after final boss is defeated. |
+| **`MyTime.difficultyTimer`** | `0x28` | `float` | Difficulty scaling timer. |
+| **`MyTime.cryptTimer`** | `0x2C` | `float` | **Crypt Timer (`crypt_timer`)**. Dedicated upward timer for Graveyard Crypt 1 & 2. Ticks from `0.0` inside crypts, continues past `00:00` UI countdown, and retains last value outdoors. |
+
+---
+
+### 2. Status Effects & Powerup Timing Mechanics
+
+Active powerups and status buffs (Haste, Rage, Shield, Strength, Powerups) are stored in `PlayerStatusEffects.statusEffects` (`PlayerInventory + 0x38 -> +0x10` `Dictionary<EStatusEffect, StatusEffect>`).
+
+Each `StatusEffect` instance (TypeDefIndex: 5584) contains:
+- `+0x10`: `eStatusEffect` (`EStatusEffect` enum)
+- `+0x18`: `modifiers` (`StatModifier[]`)
+- `+0x20`: **`expirationTime`** (`float`)
+- `+0x24`: **`addedTime`** (`float`)
+
+#### Core Timing Rule for Powerups:
+- **`addedTime`** (`0x24`) and **`expirationTime`** (`0x20`) are anchored directly to **`MyTime.time`** (`MyTime` static fields offset `0x04`).
+- **Remaining Duration**:
+  $$\text{remaining\_seconds} = \text{expirationTime} - \text{MyTime.time}$$
+- **Elapsed Buff Duration**:
+  $$\text{elapsed\_seconds} = \text{MyTime.time} - \text{addedTime}$$
+
+#### Why `MyTime.time` (`0x04`) is the Only Stable Powerup Anchor:
+1. **Stage Transition Immunity**: Because `MyTime.time` is monotonic and does not reset on stage transitions or portal teleports, picking up a powerup immediately before entering a portal or stage transition will **not** corrupt or jump the remaining duration.
+2. **Pause Handling**: When the game is paused (`MyTime.paused == True`), `MyTime.time` freezes in memory. The delta $(\text{expirationTime} - \text{MyTime.time})$ remains completely frozen, preventing buffs from expiring during pause screens.
+3. **Overtime / Ghost Phase Compatibility**: During Ghost Phase (`finalSwarmTimer > 0.0`), `MyTime.time` continues ticking normally. Powerup duration calculations remain 100% accurate without needing special overtime offsets.
+
+---
+
 ## Map 1: Graveyard
 
 ### Basic Metadata:

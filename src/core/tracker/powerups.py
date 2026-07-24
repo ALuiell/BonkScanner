@@ -174,9 +174,19 @@ def resolve_ui_context(
     my_time: float,
     pickup_time: float,
     stage_timer: float,
-    stage_time: float,
+    stage_time: float | None,
     final_swarm_timer: Any,
 ) -> _PowerupUiContext:
+    """Pick the clock an effect's marks are drawn against.
+
+    ``stage_time`` is optional because it is the one input here that can go
+    missing on its own: ``_read_current_stage_time`` returns it as ``None``
+    when MapController does not resolve, or when its raw value falls outside
+    the sanity band and the stage index has no nominal duration to fall back
+    on. A ``None`` reaches ``_PowerupUiContext`` as "no timer limit", which
+    already means "report seconds remaining, draw no marks" -- the same
+    degradation the Graveyard crypt and boss-room branches below use.
+    """
     map_context = fresh_map_context(state, now)
     if map_context is None:
         return _PowerupUiContext(stage_timer, None)
@@ -302,10 +312,18 @@ def apply_snapshot(
     history: dict[int, _EffectObservation] = {}
     observed_at = clock()
 
+    # Deliberately does not require ``stage_time``. Whether a stage mark can be
+    # drawn says nothing about whether a buff is running, and conflating the
+    # two is what let a silent read failure be published as "none active" over
+    # a live effect: ``_read_current_stage_time`` hands back ``None`` without
+    # raising, so no health flag catches it, the whole loop was skipped, and
+    # the snapshot still went out available with its durations and multiplier
+    # intact. The remaining three inputs are genuinely load-bearing -- seconds
+    # remaining needs ``my_time``, the duration needs the multiplier, and every
+    # ui context is anchored on ``stage_timer``.
     if (
         my_time is not None
         and stage_timer is not None
-        and stage_time is not None
         and powerup_multiplier is not None
         and int(stage_index if stage_index is not None else -1) < 3
     ):
@@ -395,7 +413,9 @@ def apply_snapshot(
                     my_time=float(my_time),
                     pickup_time=pickup_time,
                     stage_timer=float(stage_timer),
-                    stage_time=float(stage_time),
+                    stage_time=(
+                        float(stage_time) if stage_time is not None else None
+                    ),
                     final_swarm_timer=final_swarm_timer,
                 )
                 if (
@@ -425,7 +445,11 @@ def apply_snapshot(
                         my_time=float(my_time),
                         pickup_time=added_time,
                         stage_timer=float(stage_timer),
-                        stage_time=float(stage_time),
+                        stage_time=(
+                            float(stage_time)
+                            if stage_time is not None
+                            else None
+                        ),
                         final_swarm_timer=final_swarm_timer,
                     )
                     if added_time_ui_context == ui_context:
