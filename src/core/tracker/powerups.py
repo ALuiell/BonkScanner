@@ -191,6 +191,7 @@ def resolve_ui_context(
     is_final_boss_stage: bool = False,
     crypt_timer_advancing: bool = False,
     graveyard_boss_active: bool = False,
+    graveyard_post_boss: bool = False,
 ) -> _PowerupUiContext:
     """Pick the clock an effect's marks are drawn against.
 
@@ -255,7 +256,19 @@ def resolve_ui_context(
         # In the outdoor final-swarm phase this is the game/UI clock. Keeping
         # its zero origin makes manual time adjustments move both endpoints,
         # as they did before the Graveyard room fallback was introduced.
+        # This is the path a powerup picked up on the post-boss main map takes,
+        # and it renders +MM:SS (N s) exactly as it always did.
         return _PowerupUiContext(final_swarm_value, 0.0)
+
+    if graveyard_post_boss:
+        # Killing the boss slams ``stage_timer`` down to ~590, so the 16-minute
+        # outdoor timeline below no longer exists to measure against. An effect
+        # carried through the fight was picked up in that dead epoch and cannot
+        # be placed on the overtime clock either -- its pickup predates the
+        # overtime origin. Reporting seconds remaining is the only honest
+        # option; the 960 limit produced a plausible-looking countdown
+        # ("06:44 -> 02:43") that was pure fiction.
+        return _PowerupUiContext(stage_timer, None)
 
     graveyard_stage_limit = 960.0
     return _PowerupUiContext(stage_timer, graveyard_stage_limit)
@@ -373,6 +386,10 @@ def apply_snapshot(
         bool(getattr(snapshot, "graveyard_boss_fighting", False))
         or (state.graveyard_boss_ever_defeated and not final_swarm_usable)
     )
+    # The whole post-kill era, overtime included. Separate from the flag above
+    # because it does not force fallback -- it only retires the 16-minute
+    # outdoor timeline, which the kill destroys by slamming stage_timer to ~590.
+    graveyard_post_boss = is_graveyard and state.graveyard_boss_ever_defeated
     active: list[PowerupEffectState] = []
     # Rebuilt from scratch each tick: an effect that expired or was rejected
     # simply does not get re-recorded, so the history prunes itself.
@@ -487,6 +504,7 @@ def apply_snapshot(
                     is_final_boss_stage=is_final_boss_stage,
                     crypt_timer_advancing=crypt_timer_advancing,
                     graveyard_boss_active=graveyard_boss_active,
+                    graveyard_post_boss=graveyard_post_boss,
                 )
                 if (
                     isfinite(added_time)
@@ -524,6 +542,7 @@ def apply_snapshot(
                         is_final_boss_stage=is_final_boss_stage,
                         crypt_timer_advancing=crypt_timer_advancing,
                         graveyard_boss_active=graveyard_boss_active,
+                        graveyard_post_boss=graveyard_post_boss,
                     )
                     if added_time_ui_context == ui_context:
                         pickup_time = added_time

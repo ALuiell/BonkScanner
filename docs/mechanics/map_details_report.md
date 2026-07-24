@@ -214,17 +214,31 @@ slow tick, so the switch lagged up to 10 s. The detection below runs on the
 2. Entering Crypt 2 **resets** that overtime.
 3. **Second ghost phase**: after the boss kill — one shared `finalSwarmTimer` across the boss room and the main map, reached by **doors (not a portal)** so the player loots the main map and burns farmed powerups.
 
-Both ghost phases show `finalSwarmTimer > 0` and **both must render overtime
+Both ghost phases show `finalSwarmTimer > 0` and **both render overtime
 `+MM:SS (N s)`**, not seconds-only. So the seconds-only fallback in the boss
 phase is deliberately narrow — it applies to (a) the active fight
 (`isFightingBoss`), and (b) only the **~10 s post-kill gap** where the boss is
 dead but `finalSwarmTimer` is still `0` and `stageTimer` has jumped to ~590,
 so stage marks would be nonsense. The `isBossDefeated` latch (set while the
 player is still in the room, RSG intact) covers that gap; the moment
-`finalSwarmTimer > 0` it **releases**, handing off to the overtime branch. This
-is why the post-boss main map shows `+MM:SS` just like the pre-boss ghost
-phase — the door transition and whether `roomBoss` survives it never matter,
-because by then the display is driven by `finalSwarmTimer`, not the RSG flags.
+`finalSwarmTimer > 0` it **releases**, handing off to the overtime branch. The
+door transition and whether `roomBoss` survives it never matter, because by
+then the display is driven by `finalSwarmTimer`, not the RSG flags.
+
+**The kill also retires the 960 outdoor timeline — two pickup cases differ:**
+the kill slams `stageTimer` from its outdoor value down to ~590, so the
+16-minute timeline no longer measures anything.
+
+| Powerup | Path | Renders |
+| --- | --- | --- |
+| Picked up **on the post-boss main map** (or in the room during overtime) | pickup is inside the overtime epoch → the `finalSwarmTimer` branch | `+MM:SS (N s)` — unchanged, this is the case that must keep working |
+| **Carried through the kill** (picked up before overtime began) | pickup predates the overtime origin, and the 960 timeline is dead | `(N s)` only |
+
+The carried-through case previously fell through to the `960` limit and
+produced a plausible-looking but entirely fictional countdown — a live
+screenshot showed `Shield: 06:44 → 02:43 (173s)` on the post-boss main map,
+where `960 - 590` had been dressed up as a stage time. There is no honest mark
+for it: its pickup lives in an epoch the game destroyed.
 
 **RSG chain (offsets, from `script.json` / `dump.cs`, verified live):**
 

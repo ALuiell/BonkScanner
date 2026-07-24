@@ -2938,6 +2938,68 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertIn("->", overtime)
         self.assertIn("+", overtime)
 
+    def test_powerups_picked_up_on_post_boss_main_map_show_overtime_marks(self) -> None:
+        # The case that must keep working: after the kill the player walks the
+        # doors back to the main map and picks up a powerup THERE. Its pickup
+        # and expiry both live in the overtime epoch, so it renders +MM:SS (N s)
+        # exactly as it always did.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            self._fast_fallback_snapshot(
+                stage_index=0,
+                stage_time_seconds=960.0,
+                stage_timer_seconds=600.0,
+                final_swarm_timer_seconds=40.0,
+                graveyard_boss_fighting=False,
+                graveyard_boss_defeated=True,
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        # Picked up 5 s ago, well inside the 40 s overtime.
+                        added_time=995.0,
+                        expiration_time=1015.0,
+                    ),
+                ),
+            ),
+            map_context=self.graveyard_context(),
+        )
+        summary = tracker.format_powerups_summary()
+        self.assertIn("->", summary)
+        self.assertIn("+", summary)
+
+    def test_powerups_carried_through_the_kill_drop_the_dead_960_timeline(self) -> None:
+        # Killing the boss slams stage_timer to ~590, so the 16-minute outdoor
+        # timeline is gone. An effect carried through the fight was picked up in
+        # that dead epoch and cannot be placed on the overtime clock either.
+        # It used to render a plausible-looking but fictional countdown
+        # ("06:44 -> 02:43") against the 960 limit; seconds remaining is the
+        # only honest output.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update_powerups(
+            self._fast_fallback_snapshot(
+                stage_index=0,
+                stage_time_seconds=960.0,
+                stage_timer_seconds=590.0,
+                final_swarm_timer_seconds=40.0,
+                graveyard_boss_fighting=False,
+                graveyard_boss_defeated=True,
+                powerup_multiplier=14.9,
+                powerup_multiplier_display="14.9x",
+                effects=(
+                    SimpleNamespace(
+                        effect_id=2,
+                        name="Shield",
+                        # Picked up long before overtime started (1000 - 40 = 960).
+                        added_time=830.0,
+                        expiration_time=1003.0,
+                    ),
+                ),
+            ),
+            map_context=self.graveyard_context(),
+        )
+        self.assertNotIn("->", tracker.format_powerups_summary())
+
     def test_powerups_post_boss_latch_is_gated_on_graveyard(self) -> None:
         # A stray isBossDefeated read on another map must not latch: the gate is
         # is_graveyard, so a non-graveyard map ignores it entirely.
