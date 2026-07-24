@@ -257,3 +257,45 @@ $$\text{Price} = \text{Round}\left( \left( \text{chestBasePrice} \times \text{ch
 
 Where:
 * **$\text{CardCount}$** = number of `ItemCreditCardGreen` stacks in the player's inventory.
+
+---
+
+## 5. Dropped Chest Mechanics & Item Source Elimination Algorithm
+
+### Dropped Chest Spawn Architecture
+Chests dropped from Mobs, Bosses, Cacti, or Eggs do not exist at map generation time. They are spawned dynamically by `EffectManager.CheckChestSpawn(Enemy)` -> `EffectManager.SpawnChest(GameObject chestPrefab, Vector3 pos)`.
+
+Key memory properties of dropped chests:
+1. **Identical Object Structure**: Dropped chests instantiate the standard `InteractableChest` prefab.
+2. **Animation Skip Safety**: If the player enables "Skip Chest Animation", interaction invokes `ChestUtility.OpenChestNoAnimation(EChest chestType)` (RVA `0x451950`). This bypasses the UI `ChestOpening` animation routine while updating `MoneyUtility.chestsPurchased` (`static +0x48`), `PlayerInventory.gold` (`+0x70`), and `ItemInventory.items` (`+0x10`) **instantaneously** within a single frame.
+3. **Global Static Events**: Opening any chest (pre-spawned or dropped, animated or skipped) triggers `InteractableChest.A_ChestOpened` (static offset `0x8`) and `InteractablesStatus.A_InteractableUsed` (static offset `0x8`).
+
+### Item Source Classification via Elimination Algorithm
+To accurately classify item gains for live overlay widgets (e.g. `!chests` widget and Luck Rarity widget) without high-frequency polling:
+
+When `ItemInventory.items.Count` increases by 1 between polling ticks:
+```text
+Item Gained
+  │
+  ├── 1. MoneyUtility.chestsPurchased > 0 AND (Gold_before - Gold_after == Price)
+  │      └── Source: Paid Chest (Map or Dropped)
+  │
+  ├── 2. Gold_before == Gold_after AND (chestsPurchased > 0 OR InteractableChest active)
+  │      └── Source: Free Chest / Key Proc (Paid chest opened via Key proc)
+  │
+  ├── 3. InteractablesStatus["Shady Guy"].numUsed > 0 OR Gold drop matches Shady price
+  │      └── Source: Shady Guy Purchase
+  │
+  ├── 4. InteractablesStatus["Moais"].numUsed > 0
+  │      └── Source: Moai Item Reward
+  │
+  ├── 5. InteractableSkeletonKingStatue or InteractableCharacterFight interacted
+  │      └── Source: Boss Statue / Character Fight Reward
+  │
+  ├── 6. InteractableMicrowave.usesLeft decreased
+  │      └── Source: Microwave Reroll (Total item count unchanged, ID swapped)
+  │
+  └── 7. Default (None of 3–6 triggered)
+         └── Source: Dropped Chest (Spawned from Mob / Boss / Cactus / Egg)
+```
+

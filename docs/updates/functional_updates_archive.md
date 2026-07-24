@@ -171,6 +171,20 @@ Shipped Behavior & Results:
 - Scrub frame rendering time dropped from ~173 ms down to ~32 ms (~5x speedup).
 - Cells are created once and pooled; restyling happens only when cell delta direction changes.
 
+#### 7. OBS Overlay "No Game" and Connection Status Audit (Refactor Fixes)
+
+Status: `[Implemented]`
+
+Goal:
+
+- Audit and refine status handling (`no_game`, `waiting`, `live`, `reconnecting`, `stale`) in the OBS overlay server and web frontend (`overlay.js`).
+
+Shipped Behavior & Results:
+
+- `LiveRunTracker` gained `reconnect_grace_seconds` (10.0s) and a `reconnecting` status between `live` and `stale` to prevent false error states on routine game restarts.
+- `overlay.js` holds the last good frame across non-`live` states and tolerates up to 6 failed polls without clearing the DOM.
+- Status card styled with `position: absolute` so it never alters widget document flow.
+
 ---
 
 ## Recently Handled Items (Archived 2026-07-23)
