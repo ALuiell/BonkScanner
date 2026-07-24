@@ -146,7 +146,7 @@ Each `StatusEffect` instance (TypeDefIndex: 5584) contains:
 
 - **Dynamic Interactables & Object Mapping**:
   - `Crypt Pots` and `Crypt Chests` exist **only** inside the crypts. When exiting to the Main Map or entering the Boss room, they are completely removed from the memory dictionary.
-  - **The Graveyard boss room KEEPS the full outdoor activity set.** Verified live from inside the room: `Pumpkin 105`, `Gravestones 22`, `Chests 69`, plus the usual shrines — 12 labels in total, identical to the main map. This is a **direct contradiction of the comment in `src/core/tracker/powerups.py`**, which states the Graveyard boss room has "neither crypt nor outdoor markers" and detects the room by that absence. That elimination branch is describing something that does not hold; treat it as a known defect, not as documentation.
+  - **The Graveyard boss room KEEPS the full outdoor activity set.** Verified live from inside the room: `Pumpkin 105`, `Gravestones 22`, `Chests 69`, plus the usual shrines — 12 labels in total, identical to the main map. An earlier `src/core/tracker/powerups.py` branch tried to detect the boss room by the *absence* of both crypt and outdoor markers — an elimination that never fires, since the outdoor set is present. That has been replaced by the RSG-flag detection below; the residual absence-branch is kept only as a safe default for an unknown/rebuilding activity shape (see the Powerup Phase Detection section).
   - Practical consequence: on Graveyard the activity dictionary **cannot** distinguish the boss room from the main map. Only the `GraveyardBossRoom` flags above can.
   - On the Main Map, standard `Pots` are entirely replaced by **`Pumpkins`** (105).
   - In addition to standard `Greed Shrines` (12), the Main Map features **`Gravestones`** (22) which serve a similar or supplementary role.
@@ -170,6 +170,80 @@ Across all three transitions, `map_ptr` remained `0x23a40d06ee0`,
 `stage_ptr` remained `0x23a40d01c60`, and `stage_index` remained `0`. Therefore
 the Graveyard internal rooms/phases do not generate a new seed or a new raw
 stage identity; phase detection must use timers and activity changes.
+
+### Powerup Phase Detection — fast fallback (measured live 2026-07-24)
+
+The powerups card renders each buff two ways: **full** (pickup mark → expiry
+mark → seconds remaining, drawn against a stage timeline) and **fallback**
+(seconds remaining only). Marks are only meaningful where a stable stage
+timeline exists — the outdoor main map. In a crypt or a boss room the stage
+clock is frozen or rewritten, so the card must drop to fallback there. It used
+to infer location from the activity dictionary, which refreshes on the 10 s
+slow tick, so the switch lagged up to 10 s. The detection below runs on the
+0.5 s powerup tick instead. All facts are from `tools/probe_graveyard_phase.py`
+(gitignored), a 0.5 s-per-tick trace that logs every tick (not just changes).
+
+**Detectors actually used** (each maps to fallback):
+
+| Phase | Marker | Notes |
+| --- | --- | --- |
+| Forest/Desert boss room | `MapController.isFinalBossStage` (`+0x20`) | Reads **False** on Graveyard for the whole run — do not use it there. |
+| Crypt 1 & 2 | `MyTime.cryptTimer` (`+0x2C`) **delta > 0** between fast ticks | The *value* is useless: it retains its last reading outdoors (measured frozen at `70.706` across the entire main map). Only "advanced since last tick" means "inside a crypt now". |
+| Graveyard boss room + post-boss | RSG `isFightingBoss OR` a latched `isBossDefeated` | See lifecycle below. |
+
+**Crypt-timer behaviour (measured):**
+- Ticks `+0.5`/tick (at `timeScale 1`) inside a crypt; frozen (`delta 0`) outdoors; **resets to 0 on crypt-2 entry** then ticks again.
+- Blind spot: the **crypt-1 spawn room**, where `cryptTimer` has not started yet (`delta 0`) but the crypt activity markers are already loaded — so the activity-dictionary crypt branch is kept as the backstop for exactly that room.
+
+**RSG boss-room lifecycle (measured through a full fight):**
+
+| Moment | `isFightingBoss` (`+0x38`) | `hasSpawnedBoss` (`+0x4C`) | `isBossDefeated` (`+0xA0`) |
+| --- | :---: | :---: | :---: |
+| Enter room (boss not yet spawned) | **1** | 0 | 0 |
+| ~3 s later, boss spawns | 1 | **1** | 0 |
+| Kill | **0** | 1 | **1** |
+| Post-kill / ghost phase | 0 | 1 | 1 (latched) |
+
+- `isFightingBoss` is **True on room entry, before `hasSpawnedBoss`** — no gap to cover between entering and the flag.
+- `isFightingBoss` **drops at the kill**, so it tracks the fight, not the room. `isBossDefeated` latches true and covers the rest.
+- `roomBoss` (the `GraveyardBossRoom` pointer) is **non-null from the very first tick of the run**, in crypt 1 and on the main map — so `roomBoss != null` is NOT a room marker; only the flags on it are.
+- `RsgController.dungeonType` (`+0x60`, `EDungeonType { Normal = 0, BossDungeon = 1 }`) also **latches** (Normal for crypt 1 + main map, BossDungeon for crypt 2 + boss + ghost) and is not a where-am-I signal.
+
+**Two ghost phases share one `finalSwarmTimer` — do NOT use it as a post-boss marker:**
+1. **First ghost phase**: on the main map after the 16-min (`stageTimer` → `960`) expiry, *before* Crypt 2. `finalSwarmTimer > 0`, `isBossDefeated` false. This is the main map → keep **overtime** `+MM:SS`, not fallback. (Measured: `finalSwarmTimer` started ticking exactly as `stageTimer` crossed `960.08`, with `dead=0 fight=0`.)
+2. Entering Crypt 2 **resets** that overtime.
+3. **Second ghost phase**: after the boss kill — one shared `finalSwarmTimer` across the boss room and the main map, reached by **doors (not a portal)** so the player loots the main map and burns farmed powerups.
+
+Both phases show `finalSwarmTimer > 0`; the only thing separating them is
+`isBossDefeated`. Post-boss detection therefore rides on `isBossDefeated`,
+**latched in tracker state** the moment it is first read (while the player is
+still in the room and the RSG object is intact). That makes the post-boss
+fallback hold on the looted main map regardless of whether `roomBoss` survives
+the door transition — an unmeasured question the latch renders moot.
+
+**RSG chain (offsets, from `script.json` / `dump.cs`, verified live):**
+
+```
+GameAssembly.dll + 0x2F79E50   (RsgController_TypeInfo)
+  -> read_ptr                   class ptr
+  -> + 0xB8                     static fields
+  -> + 0x20                     RsgController.Instance
+  -> + 0x48                     roomBoss  (GraveyardBossRoom)
+       + 0x38  isFightingBoss   (bool)
+       + 0x4C  hasSpawnedBoss   (bool)
+       + 0xA0  isBossDefeated   (bool)
+  static fields + 0x08          A_BossDied (Action)   [not read]
+RsgController.Instance + 0x60   dungeonType (EDungeonType)   [latches; unused]
+RsgController.Instance + 0x80   rsgEnd (InteractableCryptLeave)   [not used]
+```
+
+Still **unmeasured** (not needed by the current design, listed for future work):
+what happens to `roomBoss` / `RsgController.Instance` after the player walks
+the post-boss doors back to the main map — the latch sidesteps it. Candidate
+exit signal if ever needed: `GraveyardBossRoom.interactableGhostBossLeave`
+(`roomBoss + 0x30`) → `+0x60 hasInteracted` (it flipped True at the portal in
+the trace, but while the player was still in the room, so it marks "interacted",
+not "left").
 
 ---
 
