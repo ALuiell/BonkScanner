@@ -23,6 +23,7 @@ class FakeMemory:
         ints: dict[int, int] | None = None,
         ascii_strings: dict[int, str] | None = None,
         mono_strings: dict[int, str] | None = None,
+        bytes_: dict[int, int] | None = None,
     ) -> None:
         self.module_base = module_base
         self.pointers = pointers or {}
@@ -30,6 +31,7 @@ class FakeMemory:
         self.ints = ints or {}
         self.ascii_strings = ascii_strings or {}
         self.mono_strings = mono_strings or {}
+        self.bytes = bytes_ or {}
 
     def module_offset(self, _module_name: str, offset: int) -> int:
         return self.module_base + offset
@@ -48,6 +50,11 @@ class FakeMemory:
         if address not in self.ints:
             raise MemoryReadError(f"missing int at 0x{address:X}")
         return self.ints[address]
+
+    def read_u8(self, address: int) -> int:
+        if address not in self.bytes:
+            raise MemoryReadError(f"missing byte at 0x{address:X}")
+        return self.bytes[address]
 
     def read_ascii_string(self, address: int, max_length: int = 128) -> str | None:
         _ = max_length
@@ -546,6 +553,12 @@ class PlayerStatsClientTests(unittest.TestCase):
                 stage_timeline + PlayerStatsClient.STAGE_TIMELINE_STAGE_TIME_OFFSET: 480.0,
             }
         )
+        memory.bytes.update(
+            {
+                map_controller_static
+                + PlayerStatsClient.MAP_CONTROLLER_IS_FINAL_BOSS_STAGE_OFFSET: 1,
+            }
+        )
 
         client = PlayerStatsClient(memory=memory)
         snapshot = client.get_powerup_tracking_snapshot()
@@ -553,6 +566,9 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(snapshot.stage_index, 2)
         self.assertEqual(snapshot.stage_time_seconds, 480.0)
         self.assertEqual(snapshot.stage_timer_seconds, 46.5)
+        # Read from the MapController static block above; the boss-room flag
+        # rides along the same resolution as the stage index.
+        self.assertTrue(snapshot.is_final_boss_stage)
         self.assertEqual([effect.name for effect in snapshot.effects], ["Rage", "Clock"])
         self.assertTrue(snapshot.timing_health.complete)
 

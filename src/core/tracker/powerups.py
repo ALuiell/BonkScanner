@@ -68,6 +68,12 @@ class _PowerupState:
     fast_stage_timer_context: FastStageTimerContext = field(default_factory=FastStageTimerContext)
     graveyard_final_swarm_timer_is_zero: bool = False
     effect_history: dict[int, _EffectObservation] = field(default_factory=dict)
+    # The previous tick's ``crypt_timer`` reading, kept so the *delta* can drive
+    # crypt detection. The value alone cannot: ``crypt_timer`` retains its last
+    # reading outdoors (measured frozen at 70.7 across the whole main map), so
+    # ``> 0`` is true for the rest of the run after crypt 1. Only "advanced
+    # since last tick" means "inside a crypt now". Reset with the run.
+    previous_crypt_timer: float | None = None
 
 
 def fresh_snapshot(state: _PowerupState, now: float) -> PowerupsSnapshot:
@@ -176,6 +182,8 @@ def resolve_ui_context(
     stage_timer: float,
     stage_time: float | None,
     final_swarm_timer: Any,
+    is_final_boss_stage: bool = False,
+    crypt_timer_advancing: bool = False,
 ) -> _PowerupUiContext:
     """Pick the clock an effect's marks are drawn against.
 
@@ -186,7 +194,19 @@ def resolve_ui_context(
     on. A ``None`` reaches ``_PowerupUiContext`` as "no timer limit", which
     already means "report seconds remaining, draw no marks" -- the same
     degradation the Graveyard crypt and boss-room branches below use.
+
+    ``is_final_boss_stage`` and ``crypt_timer_advancing`` are the fast phase
+    markers, read fresh every 0.5 s straight from memory rather than inferred
+    from the activity dictionary the map context carries. They decide *before*
+    any map-context logic because the activity dictionary lags its 10 s slow
+    tick, and switching to seconds-only is safe on every map: a stage mark can
+    only ever be wrong in a crypt or boss room, never merely absent. The
+    activity-dictionary crypt branch below stays as the backstop -- it is what
+    catches the crypt-1 spawn room, where ``crypt_timer`` has not started
+    ticking yet but the crypt markers are already loaded.
     """
+    if is_final_boss_stage or crypt_timer_advancing:
+        return _PowerupUiContext(stage_timer, None)
     map_context = fresh_map_context(state, now)
     if map_context is None:
         return _PowerupUiContext(stage_timer, None)
@@ -306,6 +326,23 @@ def apply_snapshot(
     stage_time = getattr(snapshot, "stage_time_seconds", None)
     final_swarm_timer = getattr(snapshot, "final_swarm_timer_seconds", None)
     stage_index = getattr(snapshot, "stage_index", None)
+    is_final_boss_stage = bool(getattr(snapshot, "is_final_boss_stage", False))
+
+    # Crypt detection from the crypt-timer delta, computed here rather than in
+    # the client so the "previous reading" lives in run-scoped state that
+    # ``clear`` resets. A strictly greater reading means the timer advanced
+    # since the last accepted tick -- i.e. we are inside a crypt now. Equality
+    # (frozen outdoors) and a reset to zero (crypt re-entry) both read as not
+    # advancing; the reset's single tick is covered by the activity-marker
+    # backstop in ``resolve_ui_context``.
+    crypt_timer = getattr(snapshot, "crypt_timer_seconds", None)
+    crypt_timer_advancing = (
+        state.previous_crypt_timer is not None
+        and crypt_timer is not None
+        and float(crypt_timer) > float(state.previous_crypt_timer)
+    )
+    if crypt_timer is not None:
+        state.previous_crypt_timer = float(crypt_timer)
     active: list[PowerupEffectState] = []
     # Rebuilt from scratch each tick: an effect that expired or was rejected
     # simply does not get re-recorded, so the history prunes itself.
@@ -417,6 +454,8 @@ def apply_snapshot(
                         float(stage_time) if stage_time is not None else None
                     ),
                     final_swarm_timer=final_swarm_timer,
+                    is_final_boss_stage=is_final_boss_stage,
+                    crypt_timer_advancing=crypt_timer_advancing,
                 )
                 if (
                     isfinite(added_time)
@@ -451,6 +490,8 @@ def apply_snapshot(
                             else None
                         ),
                         final_swarm_timer=final_swarm_timer,
+                        is_final_boss_stage=is_final_boss_stage,
+                        crypt_timer_advancing=crypt_timer_advancing,
                     )
                     if added_time_ui_context == ui_context:
                         pickup_time = added_time
@@ -520,6 +561,7 @@ def apply_snapshot(
 def clear(state: _PowerupState) -> None:
     state.powerups_snapshot = PowerupsSnapshot()
     state.effect_history = {}
+    state.previous_crypt_timer = None
 
 
 def _same_reading(left: float, right: float) -> bool:

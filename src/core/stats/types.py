@@ -158,6 +158,11 @@ class PowerupTrackingSnapshot:
     powerup_multiplier_display: str
     final_swarm_timer_seconds: float | None = None
     crypt_timer_seconds: float | None = None
+    # ``MapController.isFinalBossStage`` -- the Forest/Desert boss room, the
+    # game's own flag. Read from the same static block the stage index comes
+    # from, so it costs no extra probe. Graveyard leaves it False and needs its
+    # own markers; this field is only load-bearing for the other two maps.
+    is_final_boss_stage: bool = False
     effects: tuple[StatusEffectSnapshot, ...] = ()
     status_effects_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)
     timing_health: PowerupReadHealth = field(default_factory=PowerupReadHealth)

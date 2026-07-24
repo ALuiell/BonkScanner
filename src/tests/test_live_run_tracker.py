@@ -2804,6 +2804,89 @@ class LiveRunTrackerTests(unittest.TestCase):
             "Powerups: Shield 11:00 -> 10:45 (15s left) | Durations: standard 15s, clock 12s (PM 1x)",
         )
 
+    def _fast_fallback_snapshot(self, **overrides):
+        base = dict(
+            my_time_seconds=1000.0,
+            stage_timer_seconds=300.0,
+            run_timer_seconds=300.0,
+            stage_index=2,
+            stage_time_seconds=600.0,
+            final_swarm_timer_seconds=0.0,
+            crypt_timer_seconds=0.0,
+            is_final_boss_stage=False,
+            powerup_multiplier=1.0,
+            powerup_multiplier_display="1x",
+            effects=(
+                SimpleNamespace(
+                    effect_id=2,
+                    name="Shield",
+                    added_time=990.0,
+                    expiration_time=1015.0,
+                ),
+            ),
+        )
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def test_powerups_fallback_in_forest_boss_room_from_is_final_boss_stage(self) -> None:
+        # Forest/Desert boss room: MapController.isFinalBossStage is the game's
+        # own flag. Without it a non-graveyard map shows stage marks; the flag
+        # alone must switch to seconds-only. Tamper guard: the negative case
+        # proves the flag, not the map, is what suppresses the marks.
+        def run(is_final_boss_stage: bool) -> str:
+            tracker = LiveRunTracker(clock=lambda: 1000.0)
+            tracker.update_powerups(
+                self._fast_fallback_snapshot(is_final_boss_stage=is_final_boss_stage),
+                map_context=self.non_graveyard_context(),
+            )
+            return tracker.format_powerups_summary()
+
+        self.assertNotIn("->", run(True))
+        self.assertIn("->", run(False))
+
+    def test_powerups_fallback_from_crypt_timer_delta_before_activity_dict_updates(self) -> None:
+        # Entering a crypt, the activity dictionary still reads outdoor for up
+        # to its 10 s slow tick, but crypt_timer advances every fast tick. The
+        # delta must switch to seconds-only immediately, without the dict.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        def push(crypt_timer: float) -> str:
+            tracker.update_powerups(
+                self._fast_fallback_snapshot(
+                    stage_index=0,
+                    stage_time_seconds=960.0,
+                    crypt_timer_seconds=crypt_timer,
+                ),
+                map_context=self.graveyard_context(),
+            )
+            return tracker.format_powerups_summary()
+
+        # No previous reading yet -> not advancing -> outdoor marks.
+        self.assertIn("->", push(40.0))
+        # Advanced since last tick -> fallback, despite the stale outdoor dict.
+        self.assertNotIn("->", push(40.5))
+
+    def test_powerups_keeps_marks_when_crypt_timer_frozen_outdoors(self) -> None:
+        # crypt_timer retains its last value outdoors (measured frozen at ~70.7
+        # across the whole main map). Two ticks at the SAME non-zero reading
+        # must NOT read as "in a crypt" -- only an advancing timer does. Guards
+        # against a naive ``crypt_timer > 0`` implementation.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+
+        def push() -> str:
+            tracker.update_powerups(
+                self._fast_fallback_snapshot(
+                    stage_index=0,
+                    stage_time_seconds=960.0,
+                    crypt_timer_seconds=70.7,
+                ),
+                map_context=self.graveyard_context(),
+            )
+            return tracker.format_powerups_summary()
+
+        push()
+        self.assertIn("->", push())
+
     def test_powerups_summary_uses_seconds_when_stage_timer_outran_the_run_timer(self) -> None:
         # The boss room replaces outdoor activity with unmarked entries and
         # temporarily fast-forwards the stage clock. The stored Graveyard

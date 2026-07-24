@@ -172,6 +172,11 @@ class PlayerStatsClient:
     STATUS_EFFECT_ADDED_OFFSET = 0x24
     MAP_CONTROLLER_INDEX_OFFSET = 0x08
     MAP_CONTROLLER_CURRENT_STAGE_OFFSET = 0x18
+    # ``MapController.isFinalBossStage`` -- the game naming the Forest/Desert
+    # boss room, one byte after ``currentStage`` in the same static block. On
+    # Graveyard it stays False (the boss room there is a separate RSG object),
+    # so the powerup fallback reads it only to promote, never to demote.
+    MAP_CONTROLLER_IS_FINAL_BOSS_STAGE_OFFSET = 0x20
     STAGE_DATA_TIMELINE_OFFSET = 0xD0
     STAGE_TIMELINE_STAGE_TIME_OFFSET = 0x10
     MAX_PASSIVE_ITEM_DICT_ENTRIES = 512
@@ -1272,6 +1277,10 @@ class PlayerStatsClient:
             stage_index, stage_time_seconds = self._read_current_stage_time()
         except MemoryReadError:
             stage_index, stage_time_seconds = None, None
+        # Positive-only, like every other boss-room read: a failed read is
+        # False = "no information", never "not the boss room", because the
+        # fallback consumes it only to promote into seconds-only mode.
+        is_final_boss_stage = self._read_is_final_boss_stage()
 
         status_effects_result = self._read_active_status_effects(
             owner_stats,
@@ -1317,6 +1326,7 @@ class PlayerStatsClient:
             powerup_multiplier_display=powerup_multiplier_display,
             final_swarm_timer_seconds=final_swarm_timer_seconds,
             crypt_timer_seconds=crypt_timer_seconds,
+            is_final_boss_stage=is_final_boss_stage,
             effects=effects,
             status_effects_health=status_effects_result.health,
             timing_health=timing_health,
@@ -1751,6 +1761,26 @@ class PlayerStatsClient:
             raise MemoryReadError("MyTime static fields are not initialized.")
         self._cached_my_time_static_fields = static_fields
         return static_fields
+
+    def _read_is_final_boss_stage(self) -> bool:
+        """``MapController.isFinalBossStage`` -- the Forest/Desert boss room.
+
+        Reuses the same cached MapController static block ``_read_current_stage_time``
+        resolves, so it is one byte on an already-resolved pointer. Positive-only:
+        any failure returns False, which the fallback treats as "no information",
+        never as "not the boss room".
+        """
+        static_fields = self._resolve_map_controller_static_fields()
+        if not static_fields:
+            return False
+        try:
+            return bool(
+                self.memory.read_u8(
+                    static_fields + self.MAP_CONTROLLER_IS_FINAL_BOSS_STAGE_OFFSET
+                )
+            )
+        except MemoryReadError:
+            return False
 
     def _read_current_stage_time(self) -> tuple[int | None, float | None]:
         static_fields = self._resolve_map_controller_static_fields()
