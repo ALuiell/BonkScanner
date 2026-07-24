@@ -743,15 +743,23 @@ class LiveRunTracker:
             # ``awaiting_timer_reset`` hold, since a 3 -> 4 promotion carries no
             # raw index advance to detect.
             next_stage_index = self._suppress_desync_stage_four_unlocked(next_stage_index)
-            # The game's own flag, and nothing layered on top of it: it comes
-            # from the same MapController static block as stage_index, so it is
-            # exactly as reliable as the stage detection it completes.
-            if (
-                is_final_boss_stage
-                and self.current_stage_index == 3
-                and next_stage_index < 4
-            ):
-                next_stage_index = 4
+            # Stage 4 on the fast lane comes from the game's own flag and from
+            # nothing else.
+            #
+            # The heuristics cannot be trusted *here* specifically. Their one
+            # defence against an ordinary stage change is that a real stage
+            # boundary loads a new ``stage_ptr`` while the boss room reuses the
+            # old one -- but ``_fast_stage_summary_snapshot_unlocked`` builds the
+            # fast sample with ``replace(latest_snapshot, ...)``, so it *inherits*
+            # that pointer and the comparison is always "same ptr". The guard is
+            # structurally dead on this path. A fresh fast timer measured against
+            # a slow snapshot that is merely old then reads as a collapse, which
+            # is a live-observed false Stage 4 on the 2 -> 3 transition.
+            #
+            # The slow lane keeps them: there both sides are real snapshots
+            # carrying real pointers, so the boundary check does its job.
+            if self.current_stage_index == 3:
+                next_stage_index = 4 if is_final_boss_stage else min(next_stage_index, 3)
             if next_stage_index > self.current_stage_index:
                 current_timer = float(stage_timer_seconds)
                 if self._pending_fast_stage_index == next_stage_index:

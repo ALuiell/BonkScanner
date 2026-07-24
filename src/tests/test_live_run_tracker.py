@@ -528,32 +528,40 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertEqual(rows[0]["kills"], "11,730")
         self.assertEqual(rows[1]["kills"], "100")
 
-    def test_fast_stage_timer_preserves_stage_four_transition_heuristic(self) -> None:
-        tracker = LiveRunTracker(clock=lambda: 1000.0)
-        tracker.update(
-            snapshot(
-                time_seconds=500.0,
-                mob_kills=5_000,
-                stage_index=2,
-                stage_time_seconds=500.0,
+    def test_fast_stage_four_requires_the_flag_not_the_timer_heuristic(self) -> None:
+        # This used to assert the opposite -- that a bare timer collapse promoted
+        # on the fast lane -- and that behaviour was the live bug: entering
+        # Stage 3 was counted as Stage 4.
+        #
+        # The heuristics' only defence against an ordinary stage change is that a
+        # real boundary loads a new ``stage_ptr`` while the boss room reuses the
+        # old one. The fast sample is built with ``replace(latest_snapshot, ...)``
+        # and *inherits* the pointer, so that check can never fail here and a
+        # merely-old slow snapshot reads as a collapse. On this lane the flag is
+        # the signal; the slow lane, where both pointers are real, keeps them.
+        def drive(*, is_final_boss_stage: bool) -> int:
+            tracker = LiveRunTracker(clock=lambda: 1000.0)
+            tracker.update(
+                snapshot(
+                    time_seconds=500.0,
+                    mob_kills=5_000,
+                    stage_index=2,
+                    stage_time_seconds=500.0,
+                )
             )
-        )
-        tracker.update_fast_run_timer(501.0)
-        tracker.track_kills(501.0, 5_050)
+            tracker.update_fast_run_timer(501.0)
+            tracker.track_kills(501.0, 5_050)
+            for timer in (1.0, 2.0):
+                tracker.update_fast_stage_timer(
+                    stage_timer_seconds=timer,
+                    stage_index=2,
+                    stage_duration_seconds=600.0,
+                    is_final_boss_stage=is_final_boss_stage,
+                )
+            return tracker.run_identity()[1]
 
-        tracker.update_fast_stage_timer(
-            stage_timer_seconds=1.0,
-            stage_index=2,
-            stage_duration_seconds=600.0,
-        )
-        tracker.update_fast_stage_timer(
-            stage_timer_seconds=2.0,
-            stage_index=2,
-            stage_duration_seconds=600.0,
-        )
-
-        _, stage_index = tracker.run_identity()
-        self.assertEqual(stage_index, 4)
+        self.assertEqual(drive(is_final_boss_stage=False), 3)
+        self.assertEqual(drive(is_final_boss_stage=True), 4)
 
     def test_fast_stage_transition_survives_transient_timer_read_failure(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
