@@ -39,6 +39,10 @@ body {
 }
 
 .overlay-shell {
+  /* Containing block for the out-of-flow status card below. The absolute
+     layout already set this on itself; the grid layout needs it too, or the
+     card would anchor to the viewport instead of the shell. */
+  position: relative;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, auto));
   align-items: start;
@@ -58,6 +62,26 @@ body {
 
 .overlay-shell.single-widget .panel {
   max-width: calc(100vw - (16px * var(--scale)));
+}
+
+/* The status card had no rule at all, so it was a plain in-flow panel: in the
+   grid layout it pushed every widget down, and in the absolute layout it landed
+   on top of whatever sat in the corner. It appears for at most a poll or two
+   during a game restart, and that flicker was the whole complaint. Taking it
+   out of flow means it can never move a widget again. */
+.status-panel {
+  position: absolute;
+  top: calc(6px * var(--scale));
+  left: calc(6px * var(--scale));
+  z-index: 50;
+  pointer-events: none;
+}
+
+/* Held frame: the data is known frozen, so the surface dims slightly rather
+   than emptying. No layout property here -- nothing may move. */
+.overlay-shell.overlay-degraded {
+  opacity: 0.75;
+  transition: opacity 0.4s ease;
 }
 
 .panel {

@@ -426,19 +426,82 @@ Benefits:
 
 #### 4. OBS Overlay "No Game" and Connection Status Audit (Refactor Fixes)
 
-Status: `[Open]`
+Status: `[Implemented / Live Verification Owed]`
 
 Goal:
 
 - Audit and refine status handling (`no_game`, `waiting`, `live`) in the OBS overlay server and web frontend (`overlay.js`).
 
-Problem Analysis:
+Problem Analysis (what the audit actually found):
 
-- **Unrefined Status States:** When the game process closes (`no_game`) or waits for attach (`waiting`), OBS overlay widgets currently display generic status cards or raw string replaces, leading to awkward visual layouts when embedded in OBS stream scenes.
+The reported symptom was overlay widgets disappearing from the OBS scene during
+game restarts. Four separate causes, in descending order of impact:
 
-Planned Solution:
+1. **A single failed poll wiped the whole overlay.** `overlay.js`'s `refresh()`
+   catch block replaced `root.innerHTML` with one status card on *any* fetch
+   failure, with no retry tolerance. One dropped request -- a server restart, a
+   closed keep-alive, a browser-source reload -- emptied the scene and rebuilt
+   it from scratch on the next success.
+2. **The status card was in the document flow.** `.status-panel` had no CSS rule
+   at all, so it rendered as an ordinary `.panel`: in the grid layout it pushed
+   every widget down, and in the absolute layout it landed on top of whatever
+   occupied the corner. It appears for one or two polls during a restart, and
+   that flicker was the visible break.
+3. **`stale` fired 5 s into every restart.** `LiveRunTracker._status_unlocked`
+   had no grace window between `live` and `stale`, so a routine restart was
+   reported the same way as a genuinely stuck feed -- and then hit cause 2.
+4. **Non-`live` payloads blanked the widgets to `--`.** The frontend rendered
+   whatever the current payload held, with no memory of the last good frame.
 
-- Audit state transitions in `OverlayStateStore`, `projections/obs.py`, and `overlay.js` to ensure clean widget hiding, customizable status overlays, and smooth transitions when switching between active run, paused, and `no_game` states.
+Also found: **`no_game` is unreachable in production.** Both production callers
+of `mark_overlay_read_failed` pass `no_game=False` hard-coded
+(`app/player_stats_refresh.py`), so `_last_no_game_at` is only ever set by
+tests. The statuses a user can actually see are `waiting`, `live`,
+`reconnecting`, and `stale`. `no_game` handling is kept and logged, but the
+original framing of this item as a `no_game` audit was misdirected.
+
+Shipped Solution:
+
+- `LiveRunTracker` gained `reconnect_grace_seconds` (default `10.0`) and a new
+  `reconnecting` status between `live` and `stale`. A restart now reads as a
+  known-frozen feed rather than an error. `stale` is reserved for silence past
+  the grace window.
+- `overlay.js` holds the last good frame: run-data fields (`kps`, `stats`,
+  `tracked_items`, `stage_summary`, `banishes`, timers, counters) are replayed
+  from the last `live` payload while the status is not `live`. Layout fields
+  (`widgets`, canvas, `style`) always come from the fresh payload, so the
+  overlay editor keeps working.
+- `overlay.js` tolerates `OVERLAY_FAILURE_GRACE_POLLS` (6, ~3 s) consecutive
+  failed polls without touching the DOM. Past the threshold it only adds an
+  `overlay-degraded` class (a slight dim); it never empties the scene again. The
+  one remaining case that draws a card is a cold overlay that has never
+  rendered, where there is no frame to hold.
+- The status card is out of flow (`position: absolute`) and off by default,
+  behind `OVERLAY.style.show_status` (default `false`). It cannot move a widget
+  under any layout.
+- Because the overlay is now deliberately silent, `Overlay` logs one app-log
+  line per *transition* into `stale`/`no_game` and one on recovery, and
+  `overlay.js` writes one `console.error` when it crosses the failure threshold.
+  `reconnecting` is never logged -- it is the expected shape of a restart.
+
+Coverage:
+
+- `src/tests/test_live_run_tracker.py` -- grace window, boundaries, and that
+  `no_game` is never masked by `reconnecting`.
+- `src/tests/test_overlay_state.py` -- `show_status` default and migration of an
+  older `style` block; the status-transition logging rules.
+- `src/tests/test_overlay_js.py` + `src/tests/support/overlay_js_check.mjs` --
+  the browser behaviour, evaluated under node against a DOM stub. Skips when
+  node is absent, so a green suite on a machine without node does not mean the
+  frontend was checked.
+
+Remaining work:
+
+- Live verification in OBS across a real game restart: confirm no widget moves,
+  no scene empties, and exactly one app-log line appears if the feed stays down.
+- No UI control exists for `show_status`; it is config-file only. Add a checkbox
+  to the OBS Overlay tab if streamers ask for it.
+
 
 #### 5. Compare Runs Diff Cards Are a Rich-Text Layout Problem, Not a Compute One
 

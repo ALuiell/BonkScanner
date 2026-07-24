@@ -283,11 +283,49 @@ class LiveRunTrackerTests(unittest.TestCase):
 
     def test_tracker_marks_state_stale_after_missing_updates(self) -> None:
         now = [1000.0]
-        tracker = LiveRunTracker(clock=lambda: now[0], stale_after_seconds=5.0)
+        tracker = LiveRunTracker(
+            clock=lambda: now[0],
+            stale_after_seconds=5.0,
+            reconnect_grace_seconds=0.0,
+        )
         tracker.update(snapshot(time_seconds=1.0))
         self.assertEqual(tracker.status(), "live")
         now[0] = 1007.0
         self.assertEqual(tracker.status(), "stale")
+
+    def test_tracker_reports_reconnecting_inside_the_restart_grace_window(self) -> None:
+        now = [1000.0]
+        tracker = LiveRunTracker(
+            clock=lambda: now[0],
+            stale_after_seconds=5.0,
+            reconnect_grace_seconds=10.0,
+        )
+        tracker.update(snapshot(time_seconds=1.0))
+
+        now[0] = 1004.0
+        self.assertEqual(tracker.status(), "live")
+        # Past the stale window but inside the grace window: a game restart, not
+        # something the overlay should announce.
+        now[0] = 1007.0
+        self.assertEqual(tracker.status(), "reconnecting")
+        now[0] = 1015.0
+        self.assertEqual(tracker.status(), "reconnecting")
+        # Past the grace window the silence is worth reporting.
+        now[0] = 1016.0
+        self.assertEqual(tracker.status(), "stale")
+
+        # A resumed feed leaves the quiet state immediately.
+        tracker.update(snapshot(time_seconds=2.0))
+        self.assertEqual(tracker.status(), "live")
+
+    def test_reconnecting_never_masks_a_lost_game_process(self) -> None:
+        now = [1000.0]
+        tracker = LiveRunTracker(clock=lambda: now[0], stale_after_seconds=5.0)
+        tracker.update(snapshot(time_seconds=1.0))
+        now[0] = 1006.0
+        tracker.mark_read_failed(no_game=True)
+        self.assertEqual(tracker.status(), "no_game")
+
 
     def test_runtime_snapshot_is_coherent_and_records_feature_status(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)

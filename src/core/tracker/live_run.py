@@ -209,10 +209,12 @@ class LiveRunTracker:
         tracked_item_rules: Iterable[TrackedItemRule] = DEFAULT_TRACKED_ITEM_RULES,
         max_snapshots: int = 3600,
         stale_after_seconds: float = 5.0,
+        reconnect_grace_seconds: float = 10.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.max_snapshots = max(1, int(max_snapshots))
         self.stale_after_seconds = max(0.1, float(stale_after_seconds))
+        self.reconnect_grace_seconds = max(0.0, float(reconnect_grace_seconds))
         self.clock = clock
         self._run_state = _RunState(snapshots=deque(maxlen=self.max_snapshots))
         self._combat_state = _CombatState()
@@ -937,14 +939,27 @@ class LiveRunTracker:
         now = self.clock()
         return self._status_unlocked(now)
 
+    # A game restart is a *silence*, not an error, and it is the common case:
+    # the process goes away for a few seconds and comes back. Reporting `stale`
+    # the instant the 5 s window lapses made the OBS overlay swap a widget for a
+    # status card mid-scene for one or two polls -- the visual break the overlay
+    # status audit is about. `reconnecting` is the quiet middle: the payload is
+    # known to be frozen, but the surface is expected to keep showing the last
+    # good frame rather than announce anything. Only past the grace window does
+    # the state become `stale`, which is the one worth showing and logging.
     def _status_unlocked(self, now: float) -> str:
         if not self.snapshots:
             return "no_game" if self._last_no_game_at is not None else "waiting"
         if self._last_no_game_at is not None:
             return "no_game"
-        if self._last_update_at is None or now - self._last_update_at > self.stale_after_seconds:
+        if self._last_update_at is None:
             return "stale"
-        return "live"
+        silence = now - self._last_update_at
+        if silence <= self.stale_after_seconds:
+            return "live"
+        if silence <= self.stale_after_seconds + self.reconnect_grace_seconds:
+            return "reconnecting"
+        return "stale"
 
     def _mark_feature_success_unlocked(self, feature: str, now: float) -> None:
         previous = self._feature_status.get(feature, FeatureStatus(FeatureAvailability.NEVER_LOADED))
