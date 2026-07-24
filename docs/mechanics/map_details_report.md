@@ -189,7 +189,7 @@ slow tick, so the switch lagged up to 10 s. The detection below runs on the
 | --- | --- | --- |
 | Forest/Desert boss room | `MapController.isFinalBossStage` (`+0x20`) | Reads **False** on Graveyard for the whole run — do not use it there. |
 | Crypt 1 & 2 | `MyTime.cryptTimer` (`+0x2C`) **delta > 0** between fast ticks | The *value* is useless: it retains its last reading outdoors (measured frozen at `70.706` across the entire main map). Only "advanced since last tick" means "inside a crypt now". |
-| Graveyard boss room + post-boss | RSG `isFightingBoss OR` a latched `isBossDefeated` | See lifecycle below. |
+| Graveyard boss **fight** + post-kill **gap** | RSG `isFightingBoss OR` (latched `isBossDefeated` **while `finalSwarmTimer == 0`**) | Fallback is narrow: the fight and the ~10 s gap only. Once overtime starts the latch releases — both ghost phases render `+MM:SS`. See below. |
 
 **Crypt-timer behaviour (measured):**
 - Ticks `+0.5`/tick (at `timeScale 1`) inside a crypt; frozen (`delta 0`) outdoors; **resets to 0 on crypt-2 entry** then ticks again.
@@ -209,17 +209,22 @@ slow tick, so the switch lagged up to 10 s. The detection below runs on the
 - `roomBoss` (the `GraveyardBossRoom` pointer) is **non-null from the very first tick of the run**, in crypt 1 and on the main map — so `roomBoss != null` is NOT a room marker; only the flags on it are.
 - `RsgController.dungeonType` (`+0x60`, `EDungeonType { Normal = 0, BossDungeon = 1 }`) also **latches** (Normal for crypt 1 + main map, BossDungeon for crypt 2 + boss + ghost) and is not a where-am-I signal.
 
-**Two ghost phases share one `finalSwarmTimer` — do NOT use it as a post-boss marker:**
-1. **First ghost phase**: on the main map after the 16-min (`stageTimer` → `960`) expiry, *before* Crypt 2. `finalSwarmTimer > 0`, `isBossDefeated` false. This is the main map → keep **overtime** `+MM:SS`, not fallback. (Measured: `finalSwarmTimer` started ticking exactly as `stageTimer` crossed `960.08`, with `dead=0 fight=0`.)
+**Two ghost phases share one `finalSwarmTimer` — both render overtime `+MM:SS`:**
+1. **First ghost phase**: on the main map after the 16-min (`stageTimer` → `960`) expiry, *before* Crypt 2. `finalSwarmTimer > 0`, `isBossDefeated` false. (Measured: `finalSwarmTimer` started ticking exactly as `stageTimer` crossed `960.08`, with `dead=0 fight=0`.)
 2. Entering Crypt 2 **resets** that overtime.
 3. **Second ghost phase**: after the boss kill — one shared `finalSwarmTimer` across the boss room and the main map, reached by **doors (not a portal)** so the player loots the main map and burns farmed powerups.
 
-Both phases show `finalSwarmTimer > 0`; the only thing separating them is
-`isBossDefeated`. Post-boss detection therefore rides on `isBossDefeated`,
-**latched in tracker state** the moment it is first read (while the player is
-still in the room and the RSG object is intact). That makes the post-boss
-fallback hold on the looted main map regardless of whether `roomBoss` survives
-the door transition — an unmeasured question the latch renders moot.
+Both ghost phases show `finalSwarmTimer > 0` and **both must render overtime
+`+MM:SS (N s)`**, not seconds-only. So the seconds-only fallback in the boss
+phase is deliberately narrow — it applies to (a) the active fight
+(`isFightingBoss`), and (b) only the **~10 s post-kill gap** where the boss is
+dead but `finalSwarmTimer` is still `0` and `stageTimer` has jumped to ~590,
+so stage marks would be nonsense. The `isBossDefeated` latch (set while the
+player is still in the room, RSG intact) covers that gap; the moment
+`finalSwarmTimer > 0` it **releases**, handing off to the overtime branch. This
+is why the post-boss main map shows `+MM:SS` just like the pre-boss ghost
+phase — the door transition and whether `roomBoss` survives it never matter,
+because by then the display is driven by `finalSwarmTimer`, not the RSG flags.
 
 **RSG chain (offsets, from `script.json` / `dump.cs`, verified live):**
 

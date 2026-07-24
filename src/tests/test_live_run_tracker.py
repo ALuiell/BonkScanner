@@ -2907,30 +2907,36 @@ class LiveRunTrackerTests(unittest.TestCase):
         self.assertNotIn("->", run(True))
         self.assertIn("->", run(False))
 
-    def test_powerups_post_boss_latch_holds_fallback_after_fight_flag_drops(self) -> None:
-        # isFightingBoss drops at the kill; isBossDefeated latches. The latch
-        # must keep fallback through the post-boss phase -- including the looted
-        # main map -- even once the instantaneous flags both read False.
+    def test_powerups_post_kill_gap_is_fallback_then_overtime_shows_marks(self) -> None:
+        # isFightingBoss drops at the kill; isBossDefeated latches. In the ~10 s
+        # gap before the swarm timer starts (final_swarm == 0, stage_timer
+        # jumped to ~590) the latch holds fallback so no nonsense marks show.
+        # The moment overtime begins (final_swarm > 0) the latch stops forcing
+        # fallback and the post-boss ghost phase renders +MM:SS, like the
+        # pre-boss ghost phase -- both ghost phases are overtime.
         tracker = LiveRunTracker(clock=lambda: 1000.0)
 
-        def push(fighting: bool, defeated: bool) -> str:
+        def push(final_swarm: float, defeated: bool) -> str:
             tracker.update_powerups(
                 self._fast_fallback_snapshot(
                     stage_index=0,
                     stage_time_seconds=960.0,
                     stage_timer_seconds=590.0,
-                    final_swarm_timer_seconds=30.0,
-                    graveyard_boss_fighting=fighting,
+                    final_swarm_timer_seconds=final_swarm,
+                    graveyard_boss_fighting=False,
                     graveyard_boss_defeated=defeated,
                 ),
                 map_context=self.graveyard_context(),
             )
             return tracker.format_powerups_summary()
 
-        self.assertNotIn("->", push(fighting=False, defeated=True))
-        # Fight over, defeated flag no longer readable (RSG gone on the main
-        # map): the latch alone must hold fallback, not fall to overtime marks.
-        self.assertNotIn("->", push(fighting=False, defeated=False))
+        # Post-kill gap: latched, swarm not started -> fallback.
+        self.assertNotIn("->", push(final_swarm=0.0, defeated=True))
+        # Overtime running (defeated no longer readable on the main map): the
+        # latch releases, overtime marks return.
+        overtime = push(final_swarm=30.0, defeated=False)
+        self.assertIn("->", overtime)
+        self.assertIn("+", overtime)
 
     def test_powerups_post_boss_latch_is_gated_on_graveyard(self) -> None:
         # A stray isBossDefeated read on another map must not latch: the gate is

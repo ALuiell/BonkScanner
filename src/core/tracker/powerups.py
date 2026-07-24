@@ -353,16 +353,25 @@ def apply_snapshot(
     if crypt_timer is not None:
         state.previous_crypt_timer = float(crypt_timer)
 
-    # Graveyard boss room + everything after the kill. ``fighting`` covers the
-    # live fight; ``ever_defeated`` is latched from ``defeated`` and covers the
-    # ~10 s post-kill window (swarm still zero) and the looted main map, where
-    # final_swarm would otherwise be ambiguous with the pre-boss ghost phase.
-    # Gated on ``is_graveyard`` so a stray read on another map cannot latch it.
+    # Graveyard boss room fallback. ``fighting`` covers the live fight;
+    # ``ever_defeated`` is latched from ``defeated`` and covers only the ~10 s
+    # post-kill window where the swarm timer has not started yet (stage_timer
+    # has jumped to ~590, so stage marks would be nonsense). The moment
+    # overtime actually begins the latch stops forcing fallback and hands off
+    # to the final-swarm branch, so the post-boss ghost phase renders +MM:SS on
+    # the looted main map exactly like the pre-boss ghost phase -- both ghost
+    # phases are overtime, the fight is the only seconds-only part. Gated on
+    # ``is_graveyard`` so a stray read on another map cannot latch it.
+    try:
+        _swarm = float(final_swarm_timer)
+        final_swarm_usable = isfinite(_swarm) and _swarm > 0.0
+    except (TypeError, ValueError):
+        final_swarm_usable = False
     if is_graveyard and bool(getattr(snapshot, "graveyard_boss_defeated", False)):
         state.graveyard_boss_ever_defeated = True
     graveyard_boss_active = is_graveyard and (
         bool(getattr(snapshot, "graveyard_boss_fighting", False))
-        or state.graveyard_boss_ever_defeated
+        or (state.graveyard_boss_ever_defeated and not final_swarm_usable)
     )
     active: list[PowerupEffectState] = []
     # Rebuilt from scratch each tick: an effect that expired or was rejected
