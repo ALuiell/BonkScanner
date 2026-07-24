@@ -106,10 +106,11 @@ function renderStats(state, widget) {
   if (!rows.length) {
     return `<div class="muted">--</div>`;
   }
-  const maxLen = Math.max(...rows.map((row) => String(row.label || "").length));
+  const labels = rows.map((row) => String(row.display_label || row.label || ""));
+  const maxLen = Math.max(...labels.map((label) => label.length));
   const labelWidth = Math.max(60, maxLen * 8.8);
   const style = `--stat-label-width: calc(${labelWidth}px * var(--scale));`;
-  const body = rows.map((row) => `<div class="stat-row"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value || "--")}</strong></div>`).join("");
+  const body = rows.map((row, index) => `<div class="stat-row"><span>${escapeHtml(labels[index])}</span><strong>${escapeHtml(row.value || "--")}</strong></div>`).join("");
   return `<div class="stats-list" style="${style}">${body}</div>`;
 }
 
@@ -234,10 +235,10 @@ function getOverlayStateForRendering(state) {
   }
   if (!renderedState.stats || !renderedState.stats.length) {
     renderedState.stats = [
-      { label: "Damage", value: "+150%" },
-      { label: "Attack Speed", value: "+45%" },
-      { label: "Luck", value: "82" },
-      { label: "XP Gain", value: "+25%" }
+      { label: "Damage", display_label: "DMG", value: "+150%" },
+      { label: "Attack Speed", display_label: "AS", value: "+45%" },
+      { label: "Luck", display_label: "Luck", value: "82" },
+      { label: "XP Gain", display_label: "XP", value: "+25%" }
     ];
   }
   if (

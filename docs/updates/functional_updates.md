@@ -171,6 +171,25 @@ Validation requirements:
 - Do not ship expected-versus-actual rarity output until the free-chest signal
   and item-source attribution are validated in live runs.
 
+#### 5.1. Overlay Chests & Luck-Rarity Widgets Implementation Blueprint
+
+Status: `[Open / Designed]`
+
+Implementation details for future overlay widgets:
+
+- **Chest Overlay Widget (`!chests` live format)**:
+  - Displays live total opened chests (`MoneyUtility.chestsPurchased` + free chests), paid openings, free key procs, and inherent free chests.
+  - Computes expected key procs cumulatively for each paid attempt $i$ using `ItemKey` hyperbolic probability:
+    $$\text{ExpectedFree} = \sum_{i=1}^{N_{\text{paid}}} \frac{0.10 \cdot \text{KeyStacks}_i}{0.10 \cdot \text{KeyStacks}_i + 1.0}$$
+- **Luck & Rarity Distribution Widget**:
+  - Monitors `PlayerStatsNew` / `StatValue` Luck stat (ID `30`).
+  - Records acquired items grouped by `ItemData.rarity` (`1` = Common, `2` = Uncommon, `3` = Rare, `4` = Epic, `5` = Legendary).
+  - Computes cumulative expected rarity distribution $E[R_k] = \sum_{j} P(R_k \mid \text{Luck}_j)$ and compares observed item counts against expected values.
+- **Dropped Chest & Item Source Classification**:
+  - Dropped chests (from Mobs, Bosses, Cacti, Eggs) instantiate standard `InteractableChest` prefabs (`EffectManager.SpawnChest`).
+  - Animation skip ("Skip Chest Animation") invokes `ChestUtility.OpenChestNoAnimation()`, which updates memory structures (`chestsPurchased`, `gold`, `ItemInventory.items`) **instantaneously** within a single frame.
+  - Item acquisition sources are classified via the **Item Source Elimination Algorithm** (see reverse engineering report [2026-06-10-chests-and-keys-detection.md](file:///f:/Python/MegabonkReroll/docs/recovery/reports/2026-06-10-chests-and-keys-detection.md)), ensuring dropped chests are credited correctly without requiring high-frequency memory polling.
+
 ### In-Game Overlay
 
 ### Help & Documentation
@@ -206,6 +225,50 @@ Why this helps:
 - Users will not need to manually search the help text every time they forget what a tab does.
 - Feature discovery should improve, especially for `OBS Overlay`, `Recordings`, `Compare Runs`, and Twitch bot setup.
 - This should reduce repetitive support questions about the purpose of specific tabs, controls, and nested views.
+
+### Items Vanishing From Compare Runs (Passive-Item Layout Cache)
+
+Status: `[Fixed / Requires In-Game Verification]`
+
+The report was that some items disappear from the Compare Runs item list for a
+stretch and then come back, when a passive item is permanent and should always
+be there. It was not a rendering bug -- the holes are in the recorded data.
+
+Evidence (offline audit over four real recordings, scratchpad):
+
+- 49 gaps total where a passive item was present, absent for several consecutive
+  10 s snapshots, then present again. One example: `Old Mask` missing for 49
+  snapshots (~8 min of game time) in `885к.jsonl`, returning at snapshot 494 in
+  a *different* list position than it left -- so the dictionary entry really
+  left the read, it was not merely renamed.
+- **36 of 49 gaps (73%) end on a snapshot where an unrelated item was
+  added/removed**, against an 8% base rate of such snapshots -- ~9x chance. In
+  the worst recording, 32 of 33.
+
+Root cause: `_read_passive_item_dictionary` (`src/infra/memory/player_stats_client.py`)
+memoises the dictionary's slot layout and only invalidates it on a `_version`
+change (a .NET Add/Remove). A slot could be skipped **without** a
+`MemoryReadError` -- an unknown enum id plus a class-meta/name pointer that read
+as zero that pass makes `_format_item_name` return `None`, and the old code
+`continue`d without counting it as a broken entry. That incomplete walk was then
+memoised as clean, so the dropped item stayed invisible until the next
+Add/Remove moved `_version` -- exactly the 73%/9x signal.
+
+`merge_items` in `src/app/snapshot_store.py` cannot mask this: it only substitutes
+the last-known inventory for an *empty* read, and these reads are non-empty (they
+are missing one item out of ~40).
+
+Fix: an unnameable-but-live slot is now treated like a torn entry
+(`broken_entries += 1`), which both skips it for that read *and* prevents the
+incomplete layout from being memoised, so it self-heals on the very next read
+instead of on the next Add/Remove. A genuinely free slot (null value pointer)
+stays a silent skip, so a normal removal does not disable the layout cache.
+Covered by two new cases in `test_passive_item_layout_cache.py`, one of which
+fails on the pre-fix code.
+
+Still owed: confirm in a live run that the intermittently-missing item is an
+ordinary passive (not a disabled/blessing item read through a different path),
+and that the fix holds across an attach mid-run.
 
 ### Future Runtime Data Collection Improvements
 
@@ -244,169 +307,7 @@ This is a planned change. The current intervals and lazy-demand behavior remain 
 
 ## Live Run Refactor Fixes
 
-#### 1. Tracked Items Refresh Latency Optimization (Refactor Fixes)
-
-Status: `[Implemented / Requires In-Game Verification]`
-
-Shipped:
-
-- `PASSIVE_ITEMS_REFRESH_MS = 1_000` and the `passive_items` `RefreshTask`
-  (`app/refresh_tasks.py`), resolved through the existing named `PASSIVE_ITEMS`
-  source key so a pass where the full snapshot is also due walks the item
-  dictionary once. Gated on `_should_refresh_full_player_snapshot`, the same
-  predicate the full snapshot uses.
-- `LiveRunTracker.update_items` (`core/tracker/live_run.py`), which runs
-  `items.process_item_deltas` only. It does not append to the snapshot deque,
-  advance the stage index, reset the stage-summary cache or mark features live.
-- Transient-empty and run-boundary guards inside `update_items`; memory health
-  and the reconnect streak are deliberately left to the full snapshot.
-- Halved read cost for the walk itself: `_read_passive_item_dictionary`
-  memoises the slot layout (value address + name per slot) and re-reads only the
-  stabilised stack counts, validated against the dictionary pointer, entries
-  pointer, count and `_version` -- the same quadruple `_get_cached_key_count`
-  has used in production. ~4 reads per entry becomes ~2.
-- Coverage: `src/tests/test_passive_items_fast_lane.py`,
-  `src/tests/test_passive_item_layout_cache.py`. Each guard was tamper-tested.
-
-Still owed: a live run confirming end-to-end latency and that no duplicate or
-dropped pickup appears in the OBS overlay, Session Stats or the Twitch output.
-
-Correction to the analysis below: the claim that `current_stage_index` advances
-only inside `update()` is **wrong**. `update_fast_stage_timer` also advances it
-(`core/tracker/live_run.py`), after a 2-sample confirmation and a stage-timer
-reset hold, so fast-lane item events are stamped with a stage index that is
-accurate to ~1--2 s. The accepted-inaccuracy caveat that rested on that claim
-does not apply. One real gate remains: that fast advance happens inside the
-`event_timer` task, whose demand predicate is `_should_refresh_fast_stage_timer`
--- with every stage-timer consumer disabled, the stage index falls back to the
-10 s path.
-
-Goal:
-
-- Reduce high latency/delays when updating `Tracked items` in the OBS overlay, Session Stats UI, and Twitch command output after acquiring or leveling up passive items.
-
-Problem Analysis:
-
-- **The real latency is 10--20 s, not 10 s.** Two stages compound:
-  - `tracked_items` state relies on `full_player_snapshot`, polled on a 10,000 ms (`PLAYER_STATS_REFRESH_MS`) interval;
-  - an item gain is then *confirmed*, not trusted on first sight. `process_item_deltas` holds the raised count as a `_PendingItemIncrease` and credits it only on the next snapshot that agrees (`core/tracker/items.py`). That confirmation is correct -- the game rebuilds its item dictionary in place and a mid-write read can show a transient count -- but at a 10 s cadence it costs a second full interval.
-- **One choke point, and it is not the UI.** All consumers read the same `LiveRunTracker` tracked counts through `tracked_item_rows` / `tracked_item_rows_for_rules`: Session Stats (`session_stats.py`), the OBS overlay (`runtime_snapshot().tracked_items`), and the Twitch commands. That field is written only by `process_item_deltas` inside `LiveRunTracker.update(snapshot)`, whose only caller is `refresh_now` on the 10 s task.
-- **Transport is already fast; only the value is stale.** OBS overlay state is republished every 500 ms from `_refresh_combat_metrics_task` (when the `kps` or `stage_summary` widget is enabled). No UI plumbing needs to change.
-- **Scope correction:** the In-Game Overlay has no tracked-items widget at all. Its widget set is `scanner`, `recording`, `kps`, `powerups`, `luck_rarity`, `stats`, `event_timer`. The affected surfaces are the OBS overlay, Session Stats, and Twitch.
-
-Planned Solution -- read passive items on the fast lane:
-
-- Register a new `RefreshTask` for passive items with its own cadence constant (1,000 ms proposed), not by reusing `FAST_TRACKER_INTERVAL_MS`. This follows the precedent of `RECORDING_LIFECYCLE_REFRESH_MS`, which is its own decision rather than an inherited interval.
-- Resolve it through the existing named source key `PASSIVE_ITEMS` (`app/read_sources.py`). This is the point of step 28's composable reads: on every pass where the full snapshot is also due, both consumers share **one** physical read of the item dictionary. No read is duplicated.
-- Call the existing `PlayerStatsMemory.read_passive_items_only(owner_stats, context)`; it is already a standalone entry point with `context` threaded through.
-- Add a narrow `LiveRunTracker.update_items(...)` that calls `items.process_item_deltas` only. It must **not** call `update()`, which appends to the snapshot deque, advances `current_stage_index`, resets the stage-summary cache, and marks five features live. `update_items` joins the existing family of fast-lane entry points (`update_fast_run_timer`, `track_kills`, `update_powerups`, `track_expected_key_procs`, `update_chaos_tome`, ...).
-- Keep the confirmation ladder. At a 1 s cadence it costs one second, and a shorter window between the two reads makes it stricter, not weaker.
-- Nothing is removed from `refresh_now`: the full snapshot keeps reading and publishing items exactly as today, so recordings, VOD capture and Stage Summary inputs are unchanged. This adds a second consumer of an existing source; it does not split the existing path.
-
-Required guards:
-
-- Apply the same transient-empty-dictionary protection that `LiveSnapshotStore.merge_items` provides. Without it, one empty read drops `current_count` below the confirmed count and silently discards a pending gain.
-- Gate the task on the lifecycle probe's active-run state and on the same demand predicate as the full snapshot (`player_stats_refresh_required`), so no gap appears in data that recordings consume.
-- Do not credit items across a run boundary: new-match detection and `reset_for_new_match` currently live on the 10 s path, and the fast task must not attribute a new run's starting inventory to the previous run.
-- Stage attribution granularity stays as-is for this change: `current_stage_index` advances only inside `update()`, so an item gained within ~10 s of a stage transition can be stamped with the outgoing stage index. This is accepted here and addressed by the stage-closing snapshot in the next item.
-
-Expected result:
-
-- Detection within 1 s plus one confirmation tick: roughly **1--2 s** end to end, against 10--20 s today.
-- Added read cost is approximately 4 reads per inventory entry per tick (~120 reads/s at 30 items), because `_read_passive_item_dictionary` resolves names from `ITEM_ENUM_NAMES_BY_ID` by dictionary key and performs no string reads on the hot path. That is the same order as the fast-lane work already running (powerups, expected chests, Chaos Tome) and smaller than one cold damage-source dictionary walk.
-
-Rejected alternatives:
-
-- **Lowering `PLAYER_STATS_REFRESH_MS`.** The full snapshot reads player stats, weapons, tomes, banishes, damage sources (the cold RunStats dictionary walk), the disabled-item pool and map activity, then repaints Live Stats synchronously on the UI thread. Multiplying all of it to refresh one fact of fifteen is the wrong trade, and `disabled_items` is deliberately a once-per-run read rather than a cadence-driven one. Acceptable only as a temporary stopgap (e.g. 3,000 ms for 3--6 s latency) if a fix is needed before the task exists.
-- **Building an inventory-signature/delta detector**, as an earlier draft of this entry proposed. Counted against the source, it does not pay for itself: a signature costs roughly 3 reads per entry (value pointer + count + stable stack count) versus roughly 4 for reading the items outright. A quarter saved buys a new address-cache layer with its own invalidation and its own failure mode. Read the items directly instead.
-
-Validation Requirements:
-
-- Verify that on a pass where both the fast task and the full snapshot are due, the item dictionary is read exactly once (assert on the shared `PASSIVE_ITEMS` key, not on wall-clock timing).
-- Cover: pickup detection latency at the new cadence, a level-up (stack count change on an existing entry), a transiently empty dictionary, an `InvalidItemStackCountError`, and a run boundary.
-- Tamper-test the new task: disabling it must fail a test. A harness that stubs the 10 s path will otherwise keep passing and prove nothing.
-
-#### 2. Stage Summary Stage-Closing Snapshot (Refactor Fixes)
-
-Status: `[Implemented / Requires In-Game Verification]`
-
-The mechanism this entry proposed already existed, half-built. `update_fast_stage_timer`
-detects a stage change on the fast lane with a 2-sample confirmation and a hold
-until the stage-timer reset is observed, commits a boundary snapshot to
-`_fast_stage_boundaries`, and `_stage_summary_timeline_unlocked` already merges
-those boundaries into the list `build_stage_summary` folds over. Time and kills
-were therefore already closed to ~1--2 s. Items were excluded by one line:
-`_fast_stage_summary_snapshot_unlocked` set `items_available=False`, because
-nothing on the fast lane could supply an inventory.
-
-Shipped, as two changes rather than a new subsystem:
-
-- The fast projection now carries the fast-lane inventory when it is fresher
-  than `FAST_ITEMS_TTL_SECONDS` (3 s). Expiry withholds the inventory, which
-  degrades to the previous behaviour rather than to a wrong one.
-- `build_stage_summary` credits a closing snapshot's item gains to
-  `previous_stage_index` (`core/run_summary.py`). This is the "Cheap Interim
-  Fix" below, and it stops being a heuristic now that the boundary is a
-  recorded fact: it reuses the exact predicate the bucket append and the kill
-  baseline on the adjacent lines already use.
-
-No new snapshot field and no explicit `stage_boundary="closing"` marker was
-added, because the live fold does not need one.
-
-Known gap, and the reason a marker may still be wanted: **recordings do not see
-the boundary.** VOD snapshots are captured only on the 10 s path
-(`capture(**capture_kwargs)` in `app/player_stats_refresh.py`), and
-Recordings/Compare Runs rebuild their own Stage Summary from that list. So the
-live Stage Summary is now accurate while the same run replayed from a recording
-keeps the old misattribution. Closing that requires persisting the closing
-observation into the recording, and the fold must tolerate its absence in
-already-recorded runs.
-
-The heuristics this entry proposed retiring -- `is_stage_transition_boundary_snapshot`
-and `is_explicit_raw_stage_transition` -- were **kept**. They are what identifies
-a closing snapshot in the fold, including for recorded runs that carry no fast
-boundary at all.
-
-Goal:
-
-- Attribute items, kills and time to the stage they were actually earned on by recording an explicit *closing* observation at the moment a stage transition is detected, instead of inferring the boundary afterwards from timer heuristics.
-
-Problem Analysis:
-
-- **Item gains on a transition snapshot are credited to the wrong stage.** In `build_stage_summary` (`core/run_summary.py`) the per-snapshot loop advances `current_stage_index` *first*, then credits that snapshot's item gains to the already-advanced index. Everything picked up during the tail of the outgoing stage -- which becomes visible only on the first read taken after the transition -- lands on the incoming stage.
-- **Time and kills already get boundary handling; items do not.** The same loop appends the transition snapshot to the *previous* stage's bucket when `is_stage_transition_boundary_snapshot` or `is_explicit_raw_stage_transition` holds, and records a per-stage kill baseline. The item path has no equivalent, which is the asymmetry to close.
-- **Gains are credited on first sight.** `update_stage_item_gain_tracker`'s confirmation streak (`PLAYER_STATS_ITEM_DROP_CONFIRMATION_SNAPSHOTS`) applies only to a *falling* count. A rising count is credited immediately, so the very first post-transition snapshot moves the whole tail of the previous stage.
-- **The detection signal is already 10x finer than the attribution.** `RuntimeGameState.current_stage_index` is published by the lifecycle probe every `CORE_LIFECYCLE_PROBE_INTERVAL_SECONDS` (1 s) and already reaches `refresh_now`. Stage Summary nevertheless derives stage identity from the `stage_index` field of a 10 s snapshot. The data exists; the mechanism to freeze on it does not.
-- **Double counting is not confirmed.** Only misattribution is provable from the code -- item gains are credited once. If a run shows a pickup counted on both stages, capture a trace before designing for it; the likelier source is the separate tracked-item rule path with its own `combo_run_counts`.
-
-Proposed Mechanism:
-
-- On a stage-index change observed by the 1 s lifecycle probe, emit a **closing observation** stamped as belonging to the *outgoing* stage, and begin the new stage from a fresh baseline.
-- Carry the boundary as explicit data on the snapshot (for example `stage_boundary="closing"`) rather than leaving it to be re-derived. `build_stage_summary` is a pure fold over the snapshot list and holds no incremental state, so a closing observation is a snapshot inserted into that list with a marker -- not a new state layer and not a new component.
-- Once the boundary is recorded fact, retire the heuristics that exist only because it was not: `is_stage_transition_boundary_snapshot` with its `PLAYER_STATS_STAGE_TRANSITION_BOUNDARY_SECONDS` window, and `is_explicit_raw_stage_transition`.
-
-Sequencing -- this depends on item 1:
-
-- The error is produced by the window during which a pickup is invisible, and that window is today the 10 s snapshot cadence. Moving passive items to the fast lane (item 1 above) shrinks it roughly tenfold on its own.
-- After that, the closing observation only has to cover the last ~1 s before the transition -- a window in which, by in-game behaviour, nothing can be picked up (stage-entry animations). It can then be a **boundary marker rather than an urgent extra read**, which is materially simpler and safer.
-- Recommended order: item 1 first, then this.
-
-Cheap Interim Fix (independent of the mechanism):
-
-- Credit item gains to `previous_stage_index` when the transition snapshot already satisfies `is_stage_transition_boundary_snapshot` -- the same predicate the bucket append on the adjacent lines uses. Two lines, no new concepts, and it rests on the same in-game fact this entry is built on. It closes the bulk of the cases immediately and does not remove the need for the explicit boundary.
-
-Known Limitations and Adjacent Debt:
-
-- **Graveyard is not covered.** Its internal transitions do not change the raw `stage_index`; see item 4 below. Record this as a known gap in scope rather than discovering it on a live run.
-- **Two independent item-delta engines.** `process_item_deltas` (`core/tracker/items.py`, confirmation ladder on *increases*, feeds tracked-item rules) and `update_stage_item_gain_tracker` (`core/run_summary.py`, ladder on *decreases*, feeds Stage Summary rarities) consume the same input with different algorithms and different guarantees. This entry fixes the symptom in one of them. Whether to converge them is a separate decision, but until it is made, every fix of this shape has to be applied twice.
-
-Validation Requirements:
-
-- Capture a live trace of a Forest/Desert stage transition recording: the moment `stage_index` changes, the run timer, the stage timer, and the earliest moment an item can actually be acquired on the new stage. **The safe-window assumption ("nothing drops in the first 1--2 s of a stage") is what the whole mechanism rests on and must be measured, not assumed.**
-- Cover an item acquired in the final second before a transition, an item acquired immediately after one, and a delayed or dropped read spanning the boundary.
-- Verify Stage 1 -> 2, 2 -> 3, 3 -> Boss Room and the late-attach path, and confirm Graveyard behaviour is unchanged rather than silently wrong.
-
-#### 3. Game-Time Synchronized KPS Calculation (Refactor Fixes)
+#### 1. Game-Time Synchronized KPS Calculation (Refactor Fixes)
 
 Status: `[Open]`
 
@@ -451,7 +352,7 @@ Benefits:
 - pauses preserve the last valid KPS and do not create false activity or spikes;
 - the scope is isolated from stage/map logic, so it can be implemented and characterized independently.
 
-#### 4. Event Timer: Phase-Aware Game-Time Model (Refactor Fixes)
+#### 3. Event Timer: Phase-Aware Game-Time Model (Refactor Fixes)
 
 Status: `[Planned / Requires In-Game Verification]`
 
@@ -523,23 +424,7 @@ Benefits:
 - expected stage resets and Ghost Phase jumps no longer appear as false desynchronizations;
 - the UI uses one authoritative phase/timer projection instead of duplicating fragile map rules across overlays.
 
-#### 5. OBS Overlay Stats Widget Short Stat Labels (Refactor Fixes)
-
-Status: `[Open]`
-
-Goal:
-
-- Align stat display names in the OBS Overlay Stats widget with the abbreviated/short label formatting used in the In-Game Overlay Stats widget and Twitch `!chaos` command output.
-
-Problem Analysis:
-
-- **Label Format Inconsistency:** The In-Game Overlay Stats widget and Twitch bot output use compact stat abbreviations (e.g. `abbreviate_stat_label`), whereas the OBS Overlay Stats widget formats stat rows with full names, creating visual clutter in compact OBS browser source layouts.
-
-Planned Solution:
-
-- Apply short/abbreviated stat label formatting to `_snapshot_stats` / OBS overlay state projection to maintain visual consistency across all overlay and bot outputs.
-
-#### 6. OBS Overlay "No Game" and Connection Status Audit (Refactor Fixes)
+#### 4. OBS Overlay "No Game" and Connection Status Audit (Refactor Fixes)
 
 Status: `[Open]`
 
@@ -555,21 +440,201 @@ Planned Solution:
 
 - Audit state transitions in `OverlayStateStore`, `projections/obs.py`, and `overlay.js` to ensure clean widget hiding, customizable status overlays, and smooth transitions when switching between active run, paused, and `no_game` states.
 
-#### 7. In-Game Overlay Graveyard Difficulty & XP Gain Stat Caps (Refactor Fixes)
+#### 5. Compare Runs Diff Cards Are a Rich-Text Layout Problem, Not a Compute One
 
-Status: `[Open]`
+Status: `[Step 1 Implemented / Requires In-Game Verification]`
+
+Shipped: the Weapons, Tomes and Chaos cards, and the Items card's expanded
+per-item table, are widget-rendered (`src/ui/metric_table.py`) from `MetricTable`
+models built in `projections/formatting.py`.
+
+Before/after, measured **on the real Windows platform plugin** by running the
+same benchmark against a pristine worktree at `HEAD` and against the working
+tree -- two real recordings, 60 frames at the end of the timeline:
+
+| Frame | before | after |
+| --- | --- | --- |
+| all sections, Stage Summary on, items collapsed | 153 ms | **68 ms** |
+| all sections, Stage Summary off, items collapsed | 165 ms | **34 ms** |
+| all sections, Stage Summary off, items **expanded** | 173 ms | **32 ms** |
+| everything off but Overview + Stats (the floor) | 24 ms | 25 ms |
+
+The Stage Summary row is item 7's: at the end of a long timeline that card
+re-folds the whole snapshot prefix, and the ~34 ms it adds is compute, not
+paint.
+
+**The floor is now the dominant term.** With every heavy card off, a frame still
+costs ~24 ms, and that is unchanged by this work: it is the whole-tab repaint
+`batched_updates` forces plus the two side panels. At 34 ms the frame is also
+sitting exactly on `DEFAULT_UI_THROTTLE_MS` (33 ms, ~30 FPS), so the next
+worthwhile move is step 2 below plus an attribution of that floor -- not more
+card work.
+
+Step 3 is **not** done and is no longer urgent at these numbers.
+
+Measurement caveat, learned the hard way: the per-card attributions further down
+were taken with the **offscreen** platform and a standalone label. Offscreen and
+Windows agree closely on the full-frame numbers (217/186 vs 153/165 for the same
+before-configurations), but a standalone card measured on Windows costs
+~0.5 ms -- the cost only appears when the card is inside the tab's scroll area
+and its siblings relayout. Treat the per-card table as a **ranking**, and trust
+the full-frame numbers for magnitudes.
+
+Two things found while implementing, both worth keeping in mind for any future
+widget card:
+
+- The app stylesheet carries a global `QWidget { background: #10141B; }`, and
+  giving a widget its own stylesheet routes it through `QStyleSheetStyle`,
+  which then paints that background. Every cell must declare
+  `background: transparent;` or it tiles its own rectangle over the container's
+  painted zebra, leaving a seam in each gap between columns.
+- `_format_metric_delta_rich_text` special-cases the exact string `"--"` before
+  its sign test. A reimplementation that only checks `startswith("-")` paints
+  every missing value red; `delta_direction` in `projections/metric_table.py`
+  mirrors the original ordering, and a test pins it.
 
 Goal:
 
-- Extend stat capping logic in `_build_in_game_stats_rows` (In-Game Overlay Stats widget) to include the Graveyard map, enforcing XP Gain (10x) and Difficulty (571% for first 2 minutes) stat caps.
+- Make a Compare Runs scrub frame cost ~20 ms instead of ~200 ms by changing how
+  the diff cards are *rendered*, not what is computed for them.
+
+Measurements (2026-07-23, the real `CompareRunsTab` built against a real
+`QApplication`, offscreen platform, two real recordings of 713 and 744
+snapshots; each sample is one `refresh_compare_runs_ui` plus the event-loop pump
+that lays out and paints it):
+
+| Frame | median | p90 |
+| --- | --- | --- |
+| all sections on, Stage Summary **on** | 210 ms | 324 ms |
+| all sections on, Stage Summary **off** | 186 ms | 284 ms |
+| Stage Summary off, **all other sections off** | 17 ms | 20 ms |
+
+Turning Stage Summary off saves ~24 ms of a ~200 ms frame. Turning the other
+four sections off saves ~170 ms. Splitting one such frame:
+
+| Phase | Cost |
+| --- | --- |
+| `refresh_compare_runs_ui`, Python only | **0.26 ms** |
+| the same frame's layout + paint | **14--200 ms** |
+
+Attributed per card (rewrite one card, then pump the loop; offscreen, so read
+this as a ranking -- see the caveat above):
+
+| Card | HTML size | Write + relayout + paint |
+| --- | --- | --- |
+| Items, **expanded** | 19.3 KB, 37 rows, 1 table | **69.8 ms** |
+| Chaos | 15.6 KB, 2 tables, 128 cells | **64.9 ms** |
+| Weapons | 12.1 KB, 3 tables, 84 cells | **62.9 ms** |
+| Tomes | 7.1 KB | **23.3 ms** |
+| Stats | 0.5 KB | 2.7 ms |
+| Items, collapsed | 1.1 KB | 1.3 ms |
+| Overview | 0.4 KB | 0.01 ms |
+| A card that is **hidden** | any | **0.00 ms** |
+| Side items view (44 items) | -- | 0.09 ms |
+| Side snapshot summary | -- | 0.56 ms |
+
+The Items card is the reason a card's *collapsed* cost says nothing about its
+expanded one: folded away it is a flowing summary line and among the cheapest
+cards; with `Show Item Details` on it becomes a 37-row table and the single most
+expensive card of the seven. It is now split accordingly -- the summary line
+stays rich text, the table is a `MetricTableView`.
 
 Problem Analysis:
 
-- **Graveyard Explicitly Excluded:** `_build_in_game_stats_rows` contains `if not is_graveyard and raw_val is not None:`, which completely bypasses stat capping and cap highlight colors when playing on the Graveyard map.
-- **Missing Difficulty Cap for Graveyard:** On Graveyard, the difficulty cap for the first 2 minutes (before 2m ghost spawn) should be 571% (5.71), identical to Tier 1 Stage 0.
+- **The cost is `QLabel` + `Qt.RichText` + `<table>`.** The diff cards are
+  `QLabel`s holding HTML built by `_format_compare_metric_table` and
+  `_format_grouped_compare_table` (`src/projections/formatting.py`). Qt re-parses
+  the whole document and re-lays-out every table cell on each `setText`.
+- **Table markup is what costs, not the text.** Re-rendering the same Chaos
+  content with the tables flattened to `<br>` rows: **75 ms -> 5.4 ms (~14x)**,
+  and the HTML shrinks 15.6 KB -> 2.8 KB. `wordWrap=False` alone gives 75 -> 51 ms,
+  so it is the tables, not the wrapping.
+- **Cost scales with tables.** Weapons: 1 table 18.6 ms, 2 tables 32.8 ms,
+  3 tables 54.8 ms. Chaos's second table (32 stat rows) alone takes it from
+  7.6 ms to 75 ms.
+- **A hidden card is free; a scrolled-out-of-view card is not.** Setting text on
+  a hidden label costs 0.00 ms -- which is why the section checkboxes help so
+  much. But the diff column is a `QScrollArea`, and a card that is *visible* yet
+  scrolled outside the viewport still pays full layout. In practice only one or
+  two cards are on screen while six are being laid out.
+- **`batched_updates` is earning its place.** The same frame without it:
+  76 ms vs 46 ms. Keep it.
+- **The existing dirty checks are already working.** `_set_compare_runs_diff_cards`
+  compares the whole payload, and `QLabel::setText` early-returns on identical
+  text, so an unchanged card is free. The problem is the frames where the text
+  *does* change -- which, mid-drag, is most of them.
 
-Planned Solution:
+Renderer comparison (same content -- 32 rows x 4 columns, header, zebra
+striping, right-aligned numbers, coloured delta -- re-rendered once per frame):
 
-- Remove `not is_graveyard` exemption in `_build_in_game_stats_rows`.
-- Define Graveyard difficulty capping rules (cap at 5.71 / 571% for the first 2 minutes of the stage, matching Tier 1 Stage 0 rules) and ensure XP Gain 10x capping applies to Graveyard as well.
+| Renderer | Update per frame | Keeps the look? |
+| --- | --- | --- |
+| A. `QLabel` + `<table>` (as shipped) | 67.3 ms | yes |
+| B. `QLabel` + flat `<br>` rows | 6.7 ms | **no** -- loses column alignment and zebra |
+| C. Pooled `QGridLayout` of plain `QLabel`s | **3.7 ms** | yes |
+| D. `QTreeWidget` | **2.0 ms** | yes |
+
+Collapsed to the 6 rows a folded card would show: A 11.9 ms, C 0.7 ms, D 0.5 ms.
+One-off first fill of 32 rows: C 20.7 ms, D 8.9 ms.
+
+**The look does not have to be traded away.** Flattening the markup (B) is the
+only option that costs visual quality, and it is also the *slowest* of the three
+alternatives. A widget-based table is 18--33x faster than the shipped table and
+renders real aligned columns rather than an HTML approximation of them.
+
+Planned Solution, in measured-impact order:
+
+1. **Replace the three heavy cards with a widget-based metric table.** `[Done]`
+   Shipped as `MetricTableView` over the pooled-`QGridLayout` variant rather
+   than `QTreeWidget`: the cards sit inside a `QScrollArea` already, and a tree
+   brings its own scroll area and header into it, plus a stylesheet the app does
+   not have. The grid needs no new stylesheet and keeps the column proportions
+   the HTML tables used (52/16/16/16), so every card's columns line up with
+   every other card's -- which the old markup did not manage between the
+   mini-cards and the Chaos tables.
+   `formatting.py` keeps producing rows and stops producing markup for these
+   cards; `_weapon_compare_metric_rows`, `_tome_compare_metric_rows` and
+   `_chaos_compare_overview_rows` were extracted so the HTML formatters (still
+   used by `format_compare_runs_diff`) and the models fold over the same rows.
+   The two rules that keep it fast: cells are created once and pooled, and a
+   cell's colour is restyled **only when it changes** -- the delta by direction,
+   and the Items card's label by item colour.
+   The Items card is split rather than converted: its summary line (rarity
+   delta, and the inline "A/B has more" lists while collapsed) stays a rich-text
+   `QLabel`, and only the per-item table underneath is a `MetricTableView`. An
+   empty `MetricTable` with an empty caption renders as nothing at all, which is
+   what the folded state writes.
+2. **Do not write cards that are outside the scroll viewport.** A hidden card
+   costs 0.00 ms, but a card that is visible and merely scrolled out of the
+   `QScrollArea` viewport pays full layout. Write only the cards intersecting the
+   viewport, mark the rest dirty, and flush a dirty card when it scrolls into
+   view. The correctness risk is a card left stale after a scroll, so cover the
+   scroll-into-view flush explicitly.
+3. **Optional after 1: collapse-by-default for Weapons and Chaos.** Items
+   already has `Show Item Details`; these two render every weapon and all 32
+   Chaos stats unconditionally. Worth much less once the renderer is a widget
+   table (0.5 ms collapsed vs 2.0 ms expanded), so treat it as a readability
+   choice rather than a performance one.
+4. **Rejected: flattening the markup.** Slower than both widget renderers *and*
+   the only option that degrades the look. Recorded so it is not re-proposed.
+
+Validation Requirements:
+
+- Re-run the frame measurement above after each step and record the numbers
+  here; a step that does not move the median is not worth its diff. `[Done for
+  step 1]`
+- Verify against a **real** window, not only the offscreen platform: offscreen
+  performs the same document layout but not the platform blit, so treat the
+  numbers above as a floor. **Still owed:** the shipped numbers were taken
+  offscreen, and the look was checked from a real-backend screenshot rather
+  than from the running app.
+- Assert the rendered *content* is unchanged by step 1 -- same values, same
+  ordering, same signs. The row tuples are the contract; test those, not the
+  widget, so the renderer stays swappable between the tree and the grid.
+- Confirm the delta colour is restyled only on a sign change, by counting
+  restyle calls across a scrub. A per-frame `setStyleSheet` would silently undo
+  most of the win.
+- Check the same rich-text-table shape in the other tabs before assuming it is
+  local to Compare Runs: the same formatters back the Recordings and Live Stats
+  cards.
 

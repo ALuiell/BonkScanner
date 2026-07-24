@@ -159,9 +159,53 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual(
             state["stats"],
             [
-                {"label": "Luck", "value": "15%"},
-                {"label": "Damage", "value": "2x"},
+                {"label": "Luck", "display_label": "Luck", "value": "15%"},
+                {"label": "Damage", "display_label": "DMG", "value": "2x"},
             ],
+        )
+
+    def test_overlay_state_stats_use_short_labels(self) -> None:
+        tracker = LiveRunTracker(clock=lambda: 123.0)
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=1.0,
+                stats={
+                    "Attack Speed": _DisplayValue("1.4x"),
+                    "Crit Damage": _DisplayValue("2.5x"),
+                    "Powerup Drop Chance": _DisplayValue("12%"),
+                },
+                game_time_seconds=5.0,
+                map_seed=1,
+                stage_ptr=10,
+            )
+        )
+
+        state = build_overlay_state(
+            tracker,
+            {
+                "widgets": [
+                    {
+                        "id": "stats",
+                        "enabled": True,
+                        "selected_stats": [
+                            "Attack Speed",
+                            "Crit Damage",
+                            "Powerup Drop Chance",
+                        ],
+                    }
+                ],
+            },
+        )
+
+        self.assertEqual(
+            [row["display_label"] for row in state["stats"]],
+            ["AS", "CritDMG", "PDC"],
+        )
+        # The canonical label stays intact so selectors and templates that key
+        # off it keep working.
+        self.assertEqual(
+            [row["label"] for row in state["stats"]],
+            ["Attack Speed", "Crit Damage", "Powerup Drop Chance"],
         )
 
     def test_overlay_state_includes_banish_widget_rows(self) -> None:

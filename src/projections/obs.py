@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from core import run_summary
 from core.tracker.snapshots import RuntimeStateSnapshot
 from core.item_metadata import COLOR_MAP, ITEM_RARITY_COLOR_MAP
+from core.stat_labels import abbreviate_stat_label
 # Overlay-config normalization moved down to core/ in step 17b, so that
 # infra/overlay_server.py can consume it without an infra -> projections import.
 # The coercion helpers are still used throughout this module.
@@ -152,6 +153,7 @@ def _snapshot_stats(snapshot: Any, widgets: dict[str, Any]) -> list[dict[str, st
         rows.append(
             {
                 "label": str(label),
+                "display_label": abbreviate_stat_label(str(label)),
                 "value": str(getattr(stat, "display_value", "--") if stat is not None else "--"),
             }
         )
