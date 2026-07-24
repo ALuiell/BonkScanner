@@ -69,6 +69,11 @@ class MapGenerationState:
     # adding it costs no extra memory read. None means the read failed or the
     # field could not be resolved this probe.
     stage_index: int | None = None
+    # ``MapController.isFinalBossStage``. The boss room reuses the stage pointer
+    # and never advances stage_index, so every other stage-4 signal is inferred
+    # from side effects; this is the game stating it. Read from the same static
+    # block as the fields above, so it costs no extra probe.
+    is_final_boss_stage: bool = False
 
     @property
     def has_loaded_map(self) -> bool:

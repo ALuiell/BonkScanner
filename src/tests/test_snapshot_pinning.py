@@ -109,7 +109,7 @@ def build_refresh_app(*, snapshots, selected, pinned, should_capture=False):
     # caches the same instance the refresh path re-resolves.
     player_stats_memory(app)._read_live_player_stats_data = lambda _context=None: (
         {}, (), True, (), True, (), True, (), True, (), True,
-        21.5, None, None, 37, 2, 111, 0, None, (), True,
+        21.5, None, None, 37, 2, 111, 0, None, (), True, False,
     )
     # A real `RunLifecycle` with its game-state read faked, not a stubbed
     # method: `state_for_refresh` with a cold cache falls through to the

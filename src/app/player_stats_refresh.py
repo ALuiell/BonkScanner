@@ -227,6 +227,7 @@ class PlayerStatsRefresh:
                 stage_index,
                 disabled_items,
                 disabled_items_available,
+                is_final_boss_stage,
             ) = self._memory_service()._read_live_player_stats_data(context)
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
             self._memory_service().record_memory_failure(exc)
@@ -357,6 +358,7 @@ class PlayerStatsRefresh:
             stage_index=stage_index,
             chests_total=map_chests_total,
             pots_total=map_pots_total,
+            is_final_boss_stage=is_final_boss_stage,
         )
         self._live_tracker().update(live_snapshot)
 

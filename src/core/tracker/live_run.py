@@ -702,6 +702,7 @@ class LiveRunTracker:
         stage_timer_seconds: float | None,
         stage_index: int | None,
         stage_duration_seconds: float | None,
+        is_final_boss_stage: bool = False,
     ) -> None:
         if stage_timer_seconds is None:
             self._fast_stage_timer_context = FastStageTimerContext()
@@ -742,6 +743,15 @@ class LiveRunTracker:
             # ``awaiting_timer_reset`` hold, since a 3 -> 4 promotion carries no
             # raw index advance to detect.
             next_stage_index = self._suppress_desync_stage_four_unlocked(next_stage_index)
+            # The game's own flag, and nothing layered on top of it: it comes
+            # from the same MapController static block as stage_index, so it is
+            # exactly as reliable as the stage detection it completes.
+            if (
+                is_final_boss_stage
+                and self.current_stage_index == 3
+                and next_stage_index < 4
+            ):
+                next_stage_index = 4
             if next_stage_index > self.current_stage_index:
                 current_timer = float(stage_timer_seconds)
                 if self._pending_fast_stage_index == next_stage_index:

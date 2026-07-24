@@ -684,6 +684,7 @@ class RefreshTasks:
                 stage_timer_seconds=stage_timer_seconds,
                 stage_index=stage_index,
                 stage_duration_seconds=stage_duration_seconds,
+                is_final_boss_stage=self._fast_stage_four_flag(context),
             )
             self._mark_fast_feature_available("stage_timer")
             # Same guard, same reason: see `_refresh_fast_kps_task` above.
@@ -703,6 +704,23 @@ class RefreshTasks:
             )
             self._mark_fast_feature_failed("stage_timer", exc)
             return False
+
+    def _fast_stage_four_flag(self, context: RefreshTickContext) -> bool:
+        """``MapController.isFinalBossStage`` for the fast lane.
+
+        The boss room is exactly where the slow lane has been observed to stall,
+        which is what left Stage Summary stuck on Stage 3 for a whole room.  The
+        flag costs one byte, so the lane that keeps running during a stall can
+        afford to carry the one signal that needs no inference at all.
+
+        Failure returns ``False`` -- "no information", never "not the boss
+        room" -- because the tracker consumes it only to promote.
+        """
+        try:
+            state = self._memory().read_player_stats_recording_state(context)
+        except Exception:
+            return False
+        return bool(getattr(state, "is_final_boss_stage", False))
 
     def _refresh_chaos_tome_task(self, context: RefreshTickContext) -> bool:
         try:

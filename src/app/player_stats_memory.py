@@ -322,19 +322,30 @@ class PlayerStatsMemory:
         # 2. Read map seed and stage ptr
         map_seed = None
         stage_ptr = 0
+        # A failed read is not "not the boss room": it is no information. False
+        # here only means the tracker keeps whatever it already decided, since
+        # the flag is consumed as a positive signal and never as a negative one.
+        is_final_boss_stage = False
         try:
             recording_state = self.read_player_stats_recording_state(context)
             self.record_game_data_success()
             map_seed = recording_state.map_seed
             stage_ptr = recording_state.current_stage_ptr
+            # ``getattr`` rather than an attribute read: this is a memory
+            # boundary, and a state object without the field must degrade to
+            # "no information" rather than raise into the branch that recycles
+            # the client.
+            is_final_boss_stage = bool(getattr(recording_state, "is_final_boss_stage", False))
         except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError, ValueError) as exc:
             self.record_game_data_failure(exc)
             map_seed = None
             stage_ptr = 0
+            is_final_boss_stage = False
         except Exception:
             self.close_player_stats_game_data_client()
             map_seed = None
             stage_ptr = 0
+            is_final_boss_stage = False
 
         # 3. Detect match start
         snapshot_store = self._snapshot_store()
@@ -473,6 +484,7 @@ class PlayerStatsMemory:
             stage_index,
             disabled_items,
             disabled_items_available,
+            is_final_boss_stage,
         )
 
     def _read_player_stats_recording_seed_safe(self) -> int | None:

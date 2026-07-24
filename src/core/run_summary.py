@@ -338,6 +338,23 @@ def reconcile_stage_summary_kills(rows: list[dict[str, str]], snapshots) -> None
     rows[last_index]["kills"] = format_count(updated_total)
 
 
+def reports_final_boss_stage(snapshot) -> bool:
+    """Whether the game itself says this is the boss room.
+
+    ``MapController.isFinalBossStage`` flips atomically on entry.  Everything
+    else in this module infers stage 4 from side effects -- the interactable
+    wipe, the stage-timer collapse -- because the boss room reuses the stage
+    pointer and leaves the raw stage index at 2.  Those inferences stay, as a
+    fallback for when the flag cannot be read, but they are no longer the only
+    thing standing between the tracker and a wrong Stage Summary.
+
+    Positive-only, deliberately: ``False`` means either "not the boss room" or
+    "the read failed", and those must not be told apart here.  Callers use it to
+    promote, never to demote.
+    """
+    return bool(getattr(snapshot, "is_final_boss_stage", False))
+
+
 def resolve_next_stage_index(current_stage_index: int, previous_snapshot, snapshot) -> int:
     previous_tracked_stage_index = current_stage_index
     previous_raw_stage_number = raw_stage_index_to_stage_number(
@@ -377,7 +394,8 @@ def resolve_next_stage_index(current_stage_index: int, previous_snapshot, snapsh
         previous_tracked_stage_index == 3
         and current_stage_index == 3
         and (
-            looks_like_stage_four_from_map_activity(snapshot)
+            reports_final_boss_stage(snapshot)
+            or looks_like_stage_four_from_map_activity(snapshot)
             or looks_like_stage_four_transition(previous_snapshot, snapshot)
         )
     ):
@@ -387,7 +405,12 @@ def resolve_next_stage_index(current_stage_index: int, previous_snapshot, snapsh
 
 def resolve_initial_stage_index(snapshot) -> int:
     raw_stage_number = raw_stage_index_to_stage_number(getattr(snapshot, "stage_index", None))
-    if raw_stage_number == 3 and looks_like_stage_four_from_map_activity(snapshot):
+    # Attaching mid-boss-room has no previous sample to diff against, so the
+    # flag matters most here: it is the only signal that needs just one read.
+    if raw_stage_number == 3 and (
+        reports_final_boss_stage(snapshot)
+        or looks_like_stage_four_from_map_activity(snapshot)
+    ):
         return 4
     if raw_stage_number is not None:
         return raw_stage_number
@@ -489,7 +512,15 @@ def looks_like_stage_four_transition(previous_snapshot, snapshot) -> bool:
         or current_run_time is None
     ):
         return False
-    if current_run_time <= previous_run_time:
+    # The run clock is not monotonic across the boss-room boundary: a live trace
+    # caught it rewinding a fraction (286.086 -> 286.000) and then freezing for
+    # ~7 s of boss intro, exactly over the one sample where the stage timer
+    # collapses.  A strict ``<=`` disqualified that sample, and once the reset
+    # has landed ``previous_stage_time`` is already ~0, so the window below can
+    # never reopen -- this predicate got exactly one chance and the freeze took
+    # it.  Tolerating a sub-threshold dip keeps a genuine new run (a drop of
+    # hundreds of seconds) rejected.
+    if current_run_time + PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS < previous_run_time:
         return False
     if (
         current_stage_time <= PLAYER_STATS_STAGE4_RESET_WINDOW_SECONDS

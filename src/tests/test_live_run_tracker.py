@@ -3,6 +3,7 @@ from __future__ import annotations
 import src
 
 import unittest
+from dataclasses import replace
 from types import SimpleNamespace
 
 from core.tracker.live_run import (
@@ -13,6 +14,7 @@ from core.tracker.live_run import (
     TrackedItemRule,
 )
 from core.stats.formats import PlayerStatFormat
+from core import run_summary
 from projections.vod import build_vod_capture_kwargs
 
 
@@ -325,7 +327,6 @@ class LiveRunTrackerTests(unittest.TestCase):
         now[0] = 1006.0
         tracker.mark_read_failed(no_game=True)
         self.assertEqual(tracker.status(), "no_game")
-
 
     def test_runtime_snapshot_is_coherent_and_records_feature_status(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 1000.0)
@@ -1661,6 +1662,156 @@ class LiveRunTrackerTests(unittest.TestCase):
 
         _, stage_index = tracker.run_identity()
         self.assertEqual(stage_index, 3)
+
+    def _stage_three_tracker_on_fast_lane(self) -> LiveRunTracker:
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=280.0,
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=2,
+                stage_time_seconds=90.0,
+                mob_kills=5_000,
+                chests_total=46,
+                pots_total=55,
+            )
+        )
+        _, stage_index = tracker.run_identity()
+        self.assertEqual(stage_index, 3)
+        return tracker
+
+    def test_final_boss_stage_flag_promotes_without_any_side_effect(self) -> None:
+        # The flag is the game naming the boss room. It must stand alone: no
+        # interactable wipe, no timer collapse, nothing for the heuristics to
+        # work with.
+        previous = snapshot(
+            time_seconds=286.0,
+            stage_index=2,
+            stage_time_seconds=97.0,
+            chests_total=46,
+            pots_total=55,
+        )
+        current = snapshot(
+            time_seconds=286.5,
+            stage_index=2,
+            stage_time_seconds=97.5,
+            chests_total=46,
+            pots_total=55,
+        )
+        self.assertEqual(run_summary.resolve_next_stage_index(3, previous, current), 3)
+
+        flagged = replace(current, is_final_boss_stage=True)
+        self.assertTrue(run_summary.reports_final_boss_stage(flagged))
+        self.assertEqual(run_summary.resolve_next_stage_index(3, previous, flagged), 4)
+
+    def test_final_boss_stage_flag_promotes_a_late_attach(self) -> None:
+        # Attaching mid-boss-room has no previous sample to diff against, so the
+        # flag is the only signal that works from a single read.
+        attach = snapshot(
+            time_seconds=300.0,
+            stage_index=2,
+            stage_time_seconds=42.0,
+            chests_total=46,
+            pots_total=55,
+        )
+        self.assertEqual(run_summary.resolve_initial_stage_index(attach), 3)
+        self.assertEqual(
+            run_summary.resolve_initial_stage_index(replace(attach, is_final_boss_stage=True)),
+            4,
+        )
+
+    def test_final_boss_stage_flag_is_never_read_as_a_denial(self) -> None:
+        # ``False`` covers both "not the boss room" and "the read failed", so a
+        # false flag must never veto what the fallback heuristics still see.
+        previous = snapshot(
+            time_seconds=286.0,
+            stage_index=2,
+            stage_time_seconds=97.0,
+            chests_total=46,
+            pots_total=55,
+        )
+        wiped = snapshot(
+            time_seconds=286.5,
+            stage_index=2,
+            stage_time_seconds=97.5,
+            chests_total=4,
+            pots_total=6,
+        )
+        self.assertFalse(run_summary.reports_final_boss_stage(wiped))
+        self.assertEqual(run_summary.resolve_next_stage_index(3, previous, wiped), 4)
+
+    def test_fast_lane_flag_promotes_through_a_stuck_desync_veto(self) -> None:
+        # The flag needs none of the guards the inferences do, so it also walks
+        # straight past the veto that used to strand the whole boss room.
+        tracker = LiveRunTracker(clock=lambda: 1000.0)
+        tracker.update(
+            snapshot(
+                time_seconds=200.0,
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=1,
+                stage_time_seconds=500.0,
+                mob_kills=4_000,
+            )
+        )
+        tracker.update(
+            snapshot(
+                time_seconds=205.0,
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=2,
+                stage_time_seconds=505.0,
+                mob_kills=4_100,
+            )
+        )
+        self.assertIsNotNone(tracker._slow_stage_timer_reset_pending_from)
+
+        for timer in (3.0, 3.5):
+            tracker.update_fast_stage_timer(
+                stage_timer_seconds=timer,
+                stage_index=2,
+                stage_duration_seconds=480.0,
+                is_final_boss_stage=True,
+            )
+
+        self.assertEqual(tracker.run_identity()[1], 4)
+
+    def test_stage_four_transition_survives_frozen_run_clock(self) -> None:
+        # The live trace caught the run clock rewinding a fraction
+        # (286.086 -> 286.000) and then freezing across the boss intro, over the
+        # single sample where the stage timer collapses.  The old strict
+        # monotonic guard threw that sample away and the window never reopened.
+        previous = snapshot(
+            time_seconds=286.086,
+            stage_index=2,
+            stage_time_seconds=97.092,
+        )
+        current = snapshot(
+            time_seconds=286.0,
+            stage_index=2,
+            stage_time_seconds=0.0,
+        )
+        self.assertTrue(
+            run_summary.looks_like_stage_four_transition(previous, current)
+        )
+
+    def test_stage_four_transition_still_rejects_new_run_clock_reset(self) -> None:
+        # Tolerating the fractional dip above must not tolerate a real new run,
+        # where the clock falls by hundreds of seconds.
+        previous = snapshot(
+            time_seconds=600.0,
+            stage_index=2,
+            stage_time_seconds=97.0,
+        )
+        current = snapshot(
+            time_seconds=1.0,
+            stage_index=2,
+            stage_time_seconds=0.0,
+        )
+        self.assertFalse(
+            run_summary.looks_like_stage_four_transition(previous, current)
+        )
 
     def test_fast_two_to_three_with_lagging_timer_reset_does_not_flip_to_stage_four(self) -> None:
         # Regression for the second propagation path of the same live bug: the

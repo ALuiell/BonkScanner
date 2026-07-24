@@ -52,6 +52,13 @@ class GameDataClient:
     MAP_CONTROLLER_CURRENT_MAP_OFFSET = 0x10
     MAP_CONTROLLER_CURRENT_STAGE_OFFSET = 0x18
     MAP_CONTROLLER_INDEX_OFFSET = 0x08
+    # ``MapController.isFinalBossStage``, the game's own name for the boss room,
+    # sitting immediately before ``reseting`` in the static block.  Every other
+    # stage-4 signal we have is an inference from side effects -- an interactable
+    # wipe, a stage-timer collapse -- because the boss room reuses the stage
+    # pointer and never advances the raw stage index.  This one is the fact
+    # itself, and it is a single byte.
+    MAP_CONTROLLER_IS_FINAL_BOSS_STAGE_OFFSET = 0x20
     MAP_CONTROLLER_RESETING_OFFSET = 0x21
     MAP_CONTROLLER_RUN_CONFIG_OFFSET = 0x30
     MAP_GENERATION_IS_GENERATING_OFFSET = 0x10
@@ -156,6 +163,10 @@ class GameDataClient:
             map_controller_static_fields,
             self.MAP_CONTROLLER_INDEX_OFFSET,
         )
+        is_final_boss_stage = self._read_bool(
+            map_controller_static_fields,
+            self.MAP_CONTROLLER_IS_FINAL_BOSS_STAGE_OFFSET,
+        )
 
         return MapGenerationState(
             is_generating=is_generating,
@@ -164,6 +175,7 @@ class GameDataClient:
             current_stage_ptr=current_stage_ptr,
             is_resetting=is_resetting,
             stage_index=stage_index,
+            is_final_boss_stage=is_final_boss_stage,
         )
 
     def get_runtime_activity_state(self) -> RuntimeGameState:

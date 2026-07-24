@@ -42,6 +42,11 @@ class LiveRunSnapshot:
     stage_index: int | None = None
     chests_total: int | None = None
     pots_total: int | None = None
+    # ``MapController.isFinalBossStage``: the game naming the boss room outright,
+    # rather than the side effects every other stage-4 signal has to infer it
+    # from. Consumed as a positive signal only -- ``False`` covers both "not the
+    # boss room" and "the read failed", so it may never retract a promotion.
+    is_final_boss_stage: bool = False
 
 
 @dataclass(frozen=True)
