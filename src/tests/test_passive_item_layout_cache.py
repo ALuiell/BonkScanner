@@ -170,6 +170,65 @@ class PassiveItemLayoutCacheTests(unittest.TestCase):
             client._read_passive_item_dictionary(DICT), ("Anvil x1", "Wrench x1")
         )
 
+    def test_an_unnameable_entry_is_not_memoised_as_a_clean_walk(self) -> None:
+        """The silent sibling of `test_a_torn_walk_is_not_memoised`.
+
+        An entry can be dropped without any `MemoryReadError`: the key id is
+        not in `ITEM_ENUM_NAMES_BY_ID` and the class-meta pointer reads as a
+        legitimate zero, so `_format_item_name` returns `None` and the walk
+        skips the slot. Something *is* in that slot -- the value pointer was
+        non-null -- so the pass saw an incomplete inventory, and memoising it
+        hides the item until the next Add/Remove rather than until the next
+        read.
+
+        This is the shape found in recorded runs: 49 gaps across four
+        recordings, single items missing for tens of consecutive 10 s
+        snapshots and returning at the moment an unrelated item was picked up.
+        """
+        C = PlayerStatsClient
+        memory = build_memory()
+        entry_1 = ENTRIES + C.DICT_ENTRY_START_OFFSET + C.DICT_ENTRY_SIZE
+        # Unknown id, and a class-meta pointer that reads as zero rather than
+        # raising -- neither path produces a name, and neither raises.
+        memory.ints[entry_1 + C.DICT_ENTRY_KEY_OFFSET] = 999_999
+        memory.pointers[WRENCH_VALUE + C.ITEM_CLASS_META_OFFSET] = 0
+        client = client_for(memory)
+
+        self.assertEqual(client._read_passive_item_dictionary(DICT), ("Anvil x1",))
+        self.assertIsNone(
+            client._cached_item_layout,
+            "an incomplete walk was memoised; the dropped item is now invisible "
+            "until the dictionary's _version moves",
+        )
+
+        # The name resolves again on the next pass. Nothing about the
+        # dictionary changed -- no Add, no Remove, so no version bump -- and
+        # the item must still come back.
+        memory.ints[entry_1 + C.DICT_ENTRY_KEY_OFFSET] = WRENCH_ID
+        self.assertEqual(
+            client._read_passive_item_dictionary(DICT), ("Anvil x1", "Wrench x1")
+        )
+
+    def test_an_empty_slot_is_not_treated_as_a_dropped_item(self) -> None:
+        """A null value pointer is a *free slot*, not a lost item.
+
+        .NET keeps removed entries in the array with their value nulled, and
+        `count` still spans them. Counting those as incomplete walks would
+        disable the layout cache permanently for any inventory that ever had a
+        removal, so this stays a silent skip.
+        """
+        C = PlayerStatsClient
+        memory = build_memory()
+        entry_1 = ENTRIES + C.DICT_ENTRY_START_OFFSET + C.DICT_ENTRY_SIZE
+        memory.pointers[entry_1 + C.DICT_ENTRY_VALUE_OFFSET] = 0
+        client = client_for(memory)
+
+        self.assertEqual(client._read_passive_item_dictionary(DICT), ("Anvil x1",))
+        self.assertIsNotNone(
+            client._cached_item_layout,
+            "a free slot must not defeat the layout cache",
+        )
+
     def test_a_torn_stack_count_still_raises_on_the_cached_path(self) -> None:
         """`InvalidItemStackCountError` must reach the caller from both paths.
         Smoothing it into a plausible count here would put a fabricated stack

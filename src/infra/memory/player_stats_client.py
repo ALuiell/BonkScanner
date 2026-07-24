@@ -626,6 +626,9 @@ class PlayerStatsClient:
             try:
                 item_value = self.memory.read_ptr(entry + self.DICT_ENTRY_VALUE_OFFSET)
                 if not item_value:
+                    # A free slot: .NET nulls the value of a removed entry but
+                    # keeps it inside `count`. Nothing is here to lose, so this
+                    # is not an incomplete walk and does not defeat the memo.
                     continue
 
                 try:
@@ -643,6 +646,16 @@ class PlayerStatsClient:
                     item_name = self._format_item_name(raw_name)
 
                 if not item_name:
+                    # A live value pointer that would not resolve to a name --
+                    # an unknown enum id, or a class-meta/name chain that read
+                    # as zero this pass. There *is* an item in this slot, so the
+                    # walk is incomplete, not free: skip it for this read but
+                    # treat it exactly like a torn entry so the incomplete
+                    # layout is never memoised. Otherwise the item stays
+                    # invisible until the dictionary's `_version` next moves --
+                    # an Add or Remove -- which in recorded runs left single
+                    # items missing for tens of consecutive snapshots.
+                    broken_entries += 1
                     continue
 
                 try:
