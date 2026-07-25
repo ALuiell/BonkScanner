@@ -484,6 +484,8 @@ class FakeRecordingRecorder:
         expected_key_procs=None,
         chests_opened_by_stage=None,
         chests_total_by_stage=None,
+        loot_actual=None,
+        loot_expected=None,
     ):
         snapshot = SimpleNamespace(
             stats=stats,
@@ -515,6 +517,8 @@ class FakeRecordingRecorder:
             expected_key_procs=expected_key_procs,
             chests_opened_by_stage=chests_opened_by_stage,
             chests_total_by_stage=chests_total_by_stage,
+            loot_actual=loot_actual,
+            loot_expected=loot_expected,
             time_label="00:00",
         )
         self.capture_calls.append(

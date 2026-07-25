@@ -28,8 +28,14 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics
-from PySide6.QtWidgets import QFormLayout, QFrame, QLabel
+from PySide6.QtWidgets import QFormLayout, QFrame, QGridLayout, QLabel, QVBoxLayout
 
+from core.item_metadata import ITEM_RARITY_COLOR_MAP
+from core.luck_rarity import (
+    GAME_RARITY_NAMES,
+    LUCK_RARITY_MODEL_ATTRIBUTION,
+    LUCK_RARITY_ORDER,
+)
 from core.stats.formats import PlayerStatFormat
 
 
@@ -98,6 +104,70 @@ def _build_chests_stats_card():
         layout.addRow(title, value_label)
         values[key] = value_label
     return card, values
+
+
+def _build_loot_rarity_card():
+    """Four lines, one per tier: drop chance, actual, expectation.
+
+    Same grouping the `!luck` line uses, so the two read alike -- and the same
+    vocabulary, because this is the other surface with words on it. Our internal
+    keys are offset by one tier in the middle (`GAME_RARITY_NAMES`), which is
+    invisible where colour carries the meaning and wrong here.
+
+    This is also where the *streamer* learns why the numbers are missing.
+    Viewers never see the reason; the one person who can act on it does.
+    """
+    card = QFrame()
+    card.setObjectName("StatCard")
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(8, 8, 8, 8)
+    layout.setSpacing(4)
+
+    grid = QGridLayout()
+    grid.setContentsMargins(0, 0, 0, 0)
+    grid.setHorizontalSpacing(10)
+    grid.setVerticalSpacing(4)
+    values = {}
+    for row, rarity in enumerate(LUCK_RARITY_ORDER):
+        name_label = QLabel(GAME_RARITY_NAMES[rarity])
+        name_label.setStyleSheet(
+            f"color: {ITEM_RARITY_COLOR_MAP.get(rarity, '#E5E7EB')}; font-weight: 700;"
+        )
+        chance_label = QLabel("--")
+        chance_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
+        chance_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        counts_label = QLabel("--")
+        counts_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
+        counts_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(name_label, row, 0)
+        grid.addWidget(chance_label, row, 1)
+        grid.addWidget(counts_label, row, 2)
+        values[rarity] = {"chance": chance_label, "counts": counts_label}
+    grid.setColumnStretch(0, 1)
+    layout.addLayout(grid)
+
+    status_label = QLabel("")
+    status_label.setWordWrap(True)
+    status_label.setStyleSheet("color: #98A7BA;")
+    status_label.setVisible(False)
+    layout.addWidget(status_label)
+    values["status"] = status_label
+    card.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
+    return card, values
+
+
+def _build_empty_placeholder_card():
+    """The hole the chests card leaves behind in `Stats`, to be filled later.
+
+    A visible empty card rather than a closed gap: the grid's other cards keep
+    their positions, so nothing the user has learned to find by place moves.
+    """
+    card = QFrame()
+    card.setObjectName("StatCard")
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(8, 8, 8, 8)
+    layout.addStretch(1)
+    return card
 
 
 def _apply_run_summary_baselines(chests_per_minute_label, *labels) -> None:

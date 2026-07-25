@@ -680,6 +680,17 @@ class LiveRunTracker:
             return
         self._fast_luck = FastLuck(captured_at=self.clock(), luck=float(luck))
 
+    @with_lock
+    def fast_luck(self) -> float | None:
+        """The fast lane's Luck, or ``None`` when there is no fresh reading.
+
+        A named getter beside ``get_loot_stats`` so a card that wants the chance
+        row does not have to build a whole ``runtime_snapshot()`` -- that
+        deep-copies the latest snapshot, which is not a price a repaint should
+        pay for one float.
+        """
+        return self._fresh_fast_luck_unlocked()
+
     def _fresh_fast_luck_unlocked(self) -> float | None:
         fast_luck = self._fast_luck
         if fast_luck.captured_at <= 0 or fast_luck.luck is None:

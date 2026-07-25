@@ -80,12 +80,15 @@ from ui.tabs.player_stats.metrics import (
     _apply_run_summary_baselines,
     _apply_stage_summary_column_baseline,
     _build_chests_stats_card,
+    _build_empty_placeholder_card,
+    _build_loot_rarity_card,
     _retain_hidden_widget_size,
 )
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 from ui.tabs.player_stats.stat_cards import StatCardsView
 from ui.tabs.player_stats.summary_cards import (
     set_chests_card_values,
+    set_loot_rarity_card_values,
     set_stage_summary_labels,
 )
 from projections import formatting
@@ -150,6 +153,7 @@ class LiveStatsTab:
         self._powerup_labels: dict = {}
         self._banishes_label = None
         self._chests_card_values = None
+        self._loot_rarity_card_values = None
         # These two are never built, here or anywhere else -- they were `None`
         # on the shared namespace and `_set_text(None, ...)` is a no-op, so
         # every write to them has always been dead in production. Carried over
@@ -292,6 +296,7 @@ class LiveStatsTab:
             self._chests_card_values,
             None,
         )
+        set_loot_rarity_card_values(self._loot_rarity_card_values, None, None)
         _set_text(self._new_items_label, "Live snapshot")
         _set_text(self._banishes_label, "No banishes yet")
         set_stage_summary_labels(self._stage_summary_labels, None)
@@ -362,9 +367,11 @@ class LiveStatsTab:
             self._level_label,
             formatting.format_player_level(player_level),
         )
-        get_chest_stats = getattr(self._live_run_tracker(), "get_chest_stats", None)
+        tracker = self._live_run_tracker()
+        get_chest_stats = getattr(tracker, "get_chest_stats", None)
         if callable(get_chest_stats):
             self._update_live_chest_summary(get_chest_stats())
+        self._update_live_loot_rarity_summary(tracker, stats)
         if new_items_text is not None:
             _set_text(self._new_items_label, new_items_text)
         else:
@@ -524,6 +531,25 @@ class LiveStatsTab:
                     chest_stats.total_opened_is_minimum,
                 ),
             )
+
+    def _update_live_loot_rarity_summary(self, tracker, stats) -> None:
+        """Repaint the rarity card from the tracker's own summary.
+
+        Luck comes from the fast lane when there is a fresh reading and from
+        the 10 s snapshot's `stats` otherwise -- the same fallback the in-game
+        widget uses, and for the same reason: a slightly stale Luck is a better
+        chance row than none, and `None` here means "not read", never zero.
+        """
+        labels = self._loot_rarity_card_values
+        if not labels:
+            return
+        get_loot_stats = getattr(tracker, "get_loot_stats", None)
+        loot_stats = get_loot_stats() if callable(get_loot_stats) else None
+        fast_luck = getattr(tracker, "fast_luck", None)
+        luck_value = fast_luck() if callable(fast_luck) else None
+        if luck_value is None and isinstance(stats, dict):
+            luck_value = getattr(stats.get("Luck"), "value", None)
+        set_loot_rarity_card_values(labels, luck_value, loot_stats)
 
     # -- construction -----------------------------------------------------
 
@@ -729,10 +755,12 @@ class LiveStatsTab:
                 index // LIVE_STATS_CARD_COLUMNS,
                 index % LIVE_STATS_CARD_COLUMNS,
             )
+        # The chests card used to live in this slot and has moved to the Loot
+        # tab below, unchanged. An empty card holds the place rather than the
+        # grid closing up, so every other card stays where the user found it.
         placeholder_index = len(PLAYER_STAT_GROUPS)
-        placeholder_group, self._chests_card_values = _build_chests_stats_card()
         player_stats_grid.addWidget(
-            placeholder_group,
+            _build_empty_placeholder_card(),
             placeholder_index // LIVE_STATS_CARD_COLUMNS,
             placeholder_index % LIVE_STATS_CARD_COLUMNS,
         )
@@ -740,6 +768,37 @@ class LiveStatsTab:
             player_stats_grid.setColumnStretch(column, 1)
         player_stats_scroll_layout.addLayout(player_stats_grid)
         player_stats_scroll_layout.addStretch(1)
+        # The Loot tab: the chests card as it was, and the rarity card beside
+        # it. Both say "Expected" and they mean different things -- key procs
+        # there, items per tier here -- so the group titles say which, which is
+        # the labelling-apart the design asks for without touching the chests
+        # card's own layout.
+        loot_tab = QWidget()
+        loot_tab_layout = QVBoxLayout(loot_tab)
+        loot_scroll, _loot_scroll_content, loot_scroll_layout = _make_scroll_section()
+        loot_tab_layout.addWidget(loot_scroll)
+        loot_grid = QGridLayout()
+        loot_grid.setContentsMargins(0, 0, 0, 0)
+        loot_grid.setHorizontalSpacing(8)
+        loot_grid.setVerticalSpacing(8)
+
+        chests_group = QGroupBox("Chests (Expected = key procs)")
+        chests_group_layout = QVBoxLayout(chests_group)
+        chests_card, self._chests_card_values = _build_chests_stats_card()
+        chests_group_layout.addWidget(chests_card)
+        loot_grid.addWidget(chests_group, 0, 0)
+
+        rarity_group = QGroupBox("Item Rarity (Expected = items by tier)")
+        rarity_group_layout = QVBoxLayout(rarity_group)
+        rarity_card, self._loot_rarity_card_values = _build_loot_rarity_card()
+        rarity_group_layout.addWidget(rarity_card)
+        loot_grid.addWidget(rarity_group, 0, 1)
+
+        for column in range(LIVE_STATS_CARD_COLUMNS):
+            loot_grid.setColumnStretch(column, 1)
+        loot_scroll_layout.addLayout(loot_grid)
+        loot_scroll_layout.addStretch(1)
+
         weapons_tab = QWidget()
         weapons_tab_layout = QVBoxLayout(weapons_tab)
         weapons_status_label = QLabel("Waiting for weapon data...")
@@ -788,6 +847,7 @@ class LiveStatsTab:
             damage_sources_status_label=damage_sources_status_label,
         )
         self._detail_tabs.addTab(player_stats_tab, "Stats")
+        self._detail_tabs.addTab(loot_tab, "Loot")
         self._detail_tabs.addTab(weapons_tab, "Weapons")
         self._detail_tabs.addTab(tomes_tab, "Tomes")
         self._detail_tabs.addTab(chaos_tab, "Chaos")
@@ -798,6 +858,7 @@ class LiveStatsTab:
         tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
         chaos_tab_layout.setContentsMargins(0, 0, 0, 0)
         damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
+        loot_tab_layout.setContentsMargins(0, 0, 0, 0)
         self._tabview.addTab(self._root, "Live Stats")
         return self
 

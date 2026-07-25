@@ -410,6 +410,53 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(loaded.snapshots[0].tomes, ())
             self.assertEqual(loaded.snapshots[0].banishes, ())
 
+    def test_loot_totals_round_trip_through_a_recording(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = VodRecorder(
+                vods_dir=Path(temp_dir), interval_seconds=60, clock=lambda: 1000.0
+            )
+            path = recorder.start(name="Loot run")
+            recorder.capture(
+                {},
+                loot_actual={"LEGENDARY": 116, "RARE": 78, "UNCOMMON": 38, "COMMON": 45},
+                loot_expected={"LEGENDARY": 118.4, "RARE": 78.0, "UNCOMMON": 36.2, "COMMON": 45.0},
+            )
+            recorder.stop()
+
+            snapshot = load_vod(path).snapshots[0]
+
+            self.assertEqual(116, snapshot.loot_actual["LEGENDARY"])
+            self.assertAlmostEqual(36.2, snapshot.loot_expected["UNCOMMON"])
+
+    def test_a_recording_without_the_field_reads_as_not_recorded_not_zero(self) -> None:
+        """The explicit missing-value path, and the whole reason for it.
+
+        Older files have no such key, and so does any run the tracker could not
+        measure. Both mean "not recorded". Reading that as zero would say the
+        run gained no items of that tier, which is a different and false claim
+        -- so the load must produce `None`, and nothing downstream may default
+        it.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "no-loot-field.jsonl"
+            path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":6,"name":"Older run","created_at":"2026-07-01T10:00:00","snapshot_interval_seconds":10}',
+                        '{"type":"snapshot","elapsed_seconds":0,"captured_at":1000.0,"stats":{},"items":[],"key_procs":3}',
+                        '{"type":"summary","duration_seconds":0,"snapshot_count":1}',
+                    ],
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            snapshot = load_vod(path).snapshots[0]
+
+            self.assertIsNone(snapshot.loot_actual)
+            self.assertIsNone(snapshot.loot_expected)
+            self.assertEqual(3, snapshot.key_procs, "the rest of the record still loads")
+
     def test_delete_vods_below_snapshot_count_removes_only_short_recordings(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

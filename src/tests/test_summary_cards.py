@@ -13,12 +13,15 @@ carried, on code this step is responsible for moving.
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
+from core.luck_rarity import LUCK_RARITY_ORDER
 from projections import formatting
 from ui.tabs.player_stats.summary_cards import (
     set_chests_card_values,
+    set_loot_rarity_card_values,
     set_stage_summary_labels,
 )
 
@@ -26,12 +29,19 @@ from ui.tabs.player_stats.summary_cards import (
 class FakeLabel:
     def __init__(self) -> None:
         self._text = ""
+        self._visible = True
 
     def setText(self, text) -> None:
         self._text = str(text)
 
     def text(self) -> str:
         return self._text
+
+    def setVisible(self, visible) -> None:
+        self._visible = bool(visible)
+
+    def isVisible(self) -> bool:
+        return self._visible
 
 
 def gridded_labels(count: int = 4) -> list[dict]:
@@ -187,6 +197,65 @@ class ChestsCardTests(unittest.TestCase):
     def test_no_labels_is_a_no_op(self) -> None:
         set_chests_card_values(None, {"opened": "1"})
         set_chests_card_values({}, {"opened": "1"})
+
+
+def _rarity_labels() -> dict:
+    labels = {
+        rarity: {"chance": FakeLabel(), "counts": FakeLabel()}
+        for rarity in LUCK_RARITY_ORDER
+    }
+    labels["status"] = FakeLabel()
+    return labels
+
+
+class LootRarityCardTests(unittest.TestCase):
+    """The Live Stats rarity card: four lines, and a reason when it cannot fill."""
+
+    LOOT = SimpleNamespace(
+        available=True,
+        actual={"LEGENDARY": 116, "RARE": 78, "UNCOMMON": 38, "COMMON": 45},
+        expected={"LEGENDARY": 118.4, "RARE": 78.0, "UNCOMMON": 36.2, "COMMON": 45.0},
+    )
+
+    def test_each_tier_gets_a_chance_and_a_count_pair(self) -> None:
+        labels = _rarity_labels()
+
+        set_loot_rarity_card_values(labels, 3.0, self.LOOT)
+
+        self.assertEqual("116 (exp 118)", labels["LEGENDARY"]["counts"].text())
+        self.assertEqual("38 (exp 36)", labels["UNCOMMON"]["counts"].text())
+        for rarity in LUCK_RARITY_ORDER:
+            self.assertTrue(labels[rarity]["chance"].text().endswith("%"))
+        self.assertFalse(labels["status"].isVisible())
+
+    def test_an_unmeasurable_run_keeps_the_chances_and_says_why(self) -> None:
+        """The two halves fail apart, as they do in `!luck`.
+
+        This is the surface the *streamer* reads, and the only one that can
+        carry the reason -- viewers see nothing, and the one person who can act
+        on it sees it here.
+        """
+        labels = _rarity_labels()
+
+        set_loot_rarity_card_values(
+            labels, 3.0, SimpleNamespace(available=False, actual={}, expected={})
+        )
+
+        for rarity in LUCK_RARITY_ORDER:
+            self.assertTrue(labels[rarity]["chance"].text().endswith("%"))
+            self.assertEqual("--", labels[rarity]["counts"].text())
+        self.assertTrue(labels["status"].isVisible())
+        self.assertIn("running from the start", labels["status"].text())
+
+    def test_no_loot_stats_at_all_is_the_unmeasurable_state(self) -> None:
+        labels = _rarity_labels()
+        set_loot_rarity_card_values(labels, None, None)
+        self.assertEqual("--", labels["LEGENDARY"]["chance"].text())
+        self.assertTrue(labels["status"].isVisible())
+
+    def test_no_labels_is_a_no_op(self) -> None:
+        set_loot_rarity_card_values(None, 1.0, self.LOOT)
+        set_loot_rarity_card_values({}, 1.0, self.LOOT)
 
 
 if __name__ == "__main__":

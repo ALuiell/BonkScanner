@@ -16,6 +16,7 @@ def build_vod_capture_kwargs(
     if snapshot is None:
         return {}
     chests = runtime.chest_stats
+    loot = runtime.loot_stats
     return {
         "stats": dict(snapshot.stats),
         # A snapshot may intentionally carry the last known good value while
@@ -50,4 +51,9 @@ def build_vod_capture_kwargs(
         ),
         "chests_opened_by_stage": dict(chests.opened_by_stage),
         "chests_total_by_stage": dict(chests.total_by_stage),
+        # Only when the run is measurable. An unmeasurable one records nothing
+        # rather than zeros, which is the same thing an older file says: "not
+        # recorded". A zero would claim the run gained no items of that tier.
+        "loot_actual": dict(loot.actual) if loot.available else None,
+        "loot_expected": dict(loot.expected) if loot.available else None,
     }

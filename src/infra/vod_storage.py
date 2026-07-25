@@ -16,7 +16,12 @@ from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
 
-VOD_FORMAT_VERSION = 6
+# 7 adds `loot_actual` / `loot_expected`. Bumped rather than slipped in under 6
+# because the absence of those keys has to stay readable as "not recorded":
+# older files and unmeasurable runs both omit them, and both mean the same
+# thing. Reading absence as zero would say "no items of this tier", which is a
+# different and false claim -- so nothing downstream may default them.
+VOD_FORMAT_VERSION = 7
 RECORDINGS_DIR = Path(paths.application_path()) / "stats_recordings"
 LEGACY_VODS_DIR = Path(paths.application_path()) / "vods"
 _VOD_METADATA_CACHE: dict[Path, tuple[int, int, VodMetadata]] = {}
@@ -74,6 +79,13 @@ class VodSnapshot:
     expected_key_procs: float | None = None
     chests_opened_by_stage: dict[int, int] | None = None
     chests_total_by_stage: dict[int, int] | None = None
+    # Per-tier actual and expected, keyed by our internal rarity names. `None`
+    # is "not recorded" -- an older file, or a run the tracker could not
+    # measure -- and is deliberately *not* an empty dict or a zeroed one: a
+    # comparison that read absence as zero would report "no items of this tier"
+    # where the truth is "we do not know".
+    loot_actual: dict[str, int] | None = None
+    loot_expected: dict[str, float] | None = None
 
     @property
     def time_label(self) -> str:
@@ -333,6 +345,8 @@ class VodRecorder:
         expected_key_procs: float | None = None,
         chests_opened_by_stage: dict[int, int] | None = None,
         chests_total_by_stage: dict[int, int] | None = None,
+        loot_actual: dict[str, int] | None = None,
+        loot_expected: dict[str, float] | None = None,
     ) -> VodSnapshot:
         if not self.is_recording or self._file is None:
             raise RuntimeError("VOD recorder is not active.")
@@ -377,6 +391,8 @@ class VodRecorder:
             chests_total_by_stage=(
                 dict(chests_total_by_stage) if chests_total_by_stage is not None else None
             ),
+            loot_actual=dict(loot_actual) if loot_actual is not None else None,
+            loot_expected=dict(loot_expected) if loot_expected is not None else None,
         )
         self.snapshot_count += 1
         self._write_record(
@@ -698,6 +714,10 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
         record["chests_opened_by_stage"] = snapshot.chests_opened_by_stage
     if snapshot.chests_total_by_stage is not None:
         record["chests_total_by_stage"] = snapshot.chests_total_by_stage
+    if snapshot.loot_actual is not None:
+        record["loot_actual"] = snapshot.loot_actual
+    if snapshot.loot_expected is not None:
+        record["loot_expected"] = snapshot.loot_expected
     return record
 
 
@@ -744,6 +764,8 @@ def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
         expected_key_procs=_coerce_optional_float(record.get("expected_key_procs")),
         chests_opened_by_stage=_coerce_int_dict(record.get("chests_opened_by_stage")),
         chests_total_by_stage=_coerce_int_dict(record.get("chests_total_by_stage")),
+        loot_actual=_coerce_rarity_int_dict(record.get("loot_actual")),
+        loot_expected=_coerce_rarity_float_dict(record.get("loot_expected")),
     )
 
 
@@ -752,6 +774,35 @@ def _coerce_optional_int(value: Any) -> int | None:
         return int(value) if value is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def _coerce_rarity_int_dict(value: Any) -> dict[str, int] | None:
+    """Tier -> count, or ``None`` when the key was absent.
+
+    Absence must survive as ``None`` all the way to the comparison. Returning
+    ``{}`` here would look like a recorded run that gained nothing.
+    """
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, int] = {}
+    for key, item in value.items():
+        try:
+            result[str(key)] = int(item)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def _coerce_rarity_float_dict(value: Any) -> dict[str, float] | None:
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, float] = {}
+    for key, item in value.items():
+        try:
+            result[str(key)] = float(item)
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def _coerce_int_dict(value: Any) -> dict[int, int] | None:

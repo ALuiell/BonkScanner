@@ -13,6 +13,12 @@ reach a widget through them.
 
 from __future__ import annotations
 
+from core.luck_rarity import (
+    LUCK_RARITY_ORDER,
+    calculate_luck_rarity_probabilities,
+    format_expected_count,
+    format_luck_rarity_percent,
+)
 from projections import formatting
 from ui.shared import _set_text
 
@@ -45,6 +51,47 @@ def set_stage_summary_labels(labels, rows) -> None:
             labels_by_column.setText(
                 f"{row['label']}: Kills {row['kills']} | Time {row['time']} | Items {row['items']}"
             )
+
+
+LOOT_RARITY_UNAVAILABLE_TEXT = (
+    "Actual and expected counts need the app to have been running from the "
+    "start of the run. Items already held when it attached were absorbed into "
+    "the baseline, so both halves would be wrong."
+)
+
+
+def set_loot_rarity_card_values(labels, luck_value, loot_stats) -> None:
+    """Write the rarity card: chance always, counts only when measurable.
+
+    The two halves fail apart, exactly as they do in `!luck`. The chance
+    depends on nothing but the Luck held right now, so it survives a late
+    attach; the counts do not, and rather than showing partial numbers the card
+    says why -- this is the surface the streamer reads, and the only one that
+    can carry the reason.
+    """
+    if not labels:
+        return
+    probabilities = calculate_luck_rarity_probabilities(luck_value)
+    available = bool(getattr(loot_stats, "available", False))
+    actual = getattr(loot_stats, "actual", None) or {}
+    expected = getattr(loot_stats, "expected", None) or {}
+    for rarity in LUCK_RARITY_ORDER:
+        row = labels.get(rarity)
+        if not row:
+            continue
+        _set_text(row["chance"], format_luck_rarity_percent(probabilities.get(rarity)))
+        if available:
+            counts = (
+                f"{int(actual.get(rarity, 0))} "
+                f"(exp {format_expected_count(expected.get(rarity))})"
+            )
+        else:
+            counts = "--"
+        _set_text(row["counts"], counts)
+    status = labels.get("status")
+    if status is not None:
+        _set_text(status, "" if available else LOOT_RARITY_UNAVAILABLE_TEXT)
+        status.setVisible(not available)
 
 
 def set_chests_card_values(labels, values: dict[str, str] | None) -> None:
