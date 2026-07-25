@@ -77,6 +77,10 @@ SELF_CONSUMING_ITEM_NAMES = frozenset({"Za Warudo"})
 # mid-run attach.  Stated against that function on purpose: the two must agree,
 # because it is exactly the items that function absorbs into the baseline that
 # make a late-attached run unmeasurable.
+#
+# Only the *second* of the two arms in `observe_run_position`. An inventory that
+# is empty needs no window at all, because that function absorbs nothing from
+# one -- it builds a candidate only `if count > 0`.
 LATE_ATTACH_GRACE_SECONDS = 10.0
 
 # The backward window spans two polls at the production 1 s cadence, and a gain
@@ -174,17 +178,38 @@ def observe_run_position(
     *,
     stage_index: int,
     game_time_seconds: float | None,
+    item_count: int | None = None,
+    items_available: bool = True,
 ) -> None:
     """Fold the run clock the current item pass carries.
 
     Two jobs, both one-shot per run. First, a clock that has gone *backwards* is
     a new match this lane has noticed before the snapshot lane did -- start the
     run here and leave the flag for ``reset``. Second, the first position seen
-    in a run decides whether the run is measurable at all: attaching after the
-    start means the inventory already held was absorbed into the item baseline
-    in one block, which leaves ``actual`` short by that block and ``expected``
-    short by the same rolls. Neither half is salvageable, so the answer is "not
-    measurable", not a smaller number.
+    in a run decides whether the run is measurable at all.
+
+    What makes a run unmeasurable is not lateness itself but the *block of items
+    already held* when the app arrives: ``initial_item_increase_candidates``
+    folds those into the baseline in one go, which leaves ``actual`` short by
+    that block and ``expected`` short by the same rolls. Neither half is
+    salvageable, so the answer is "not measurable" rather than a smaller number.
+
+    Which means an **empty inventory on the first map is measurable however late
+    it is**. That function builds a candidate only ``if count > 0``, so with
+    nothing held there is nothing absorbed and no rolls have been missed --
+    there were none to miss. A player who has opened no chest yet is at the
+    start of their loot history whatever the run clock says, and the old rule
+    turned that perfectly good run away for being three minutes old.
+
+    The clock window stays as the second arm, for the case the first cannot
+    cover: attaching a few seconds in with an item already picked up. That one
+    *does* lose a roll, and accepting one item of error inside ten seconds is
+    the trade the original rule made deliberately.
+
+    The decision waits for a pass that actually read the inventory. An empty
+    ``items`` from a failed read is not an empty inventory, and deciding off one
+    would call an unmeasurable run measurable -- the one direction of error this
+    gate exists to prevent.
     """
     previous = state.last_game_time_seconds
     if (
@@ -199,14 +224,15 @@ def observe_run_position(
     if game_time_seconds is not None:
         state.last_game_time_seconds = float(game_time_seconds)
 
-    if state.availability_decided:
+    if state.availability_decided or not items_available:
         return
     state.availability_decided = True
-    state.available = bool(
-        int(stage_index) == 1
-        and game_time_seconds is not None
+    started_empty = item_count is not None and int(item_count) <= 0
+    within_grace = (
+        game_time_seconds is not None
         and float(game_time_seconds) <= LATE_ATTACH_GRACE_SECONDS
     )
+    state.available = bool(int(stage_index) == 1 and (started_empty or within_grace))
 
 
 def note_map_identity(

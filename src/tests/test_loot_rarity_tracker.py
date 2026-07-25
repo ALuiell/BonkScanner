@@ -373,6 +373,76 @@ class LootAccumulationTests(unittest.TestCase):
         self.assertTrue(early.stats().available)
         self.assertEqual(early.stats().actual["LEGENDARY"], 1)
 
+    def test_an_empty_inventory_on_the_first_map_is_measurable_however_late(self) -> None:
+        """What makes a run unmeasurable is the block of items already held, not
+        the clock. `initial_item_increase_candidates` builds a candidate only
+        `if count > 0`, so an empty inventory absorbs nothing and no roll has
+        been missed -- there were none to miss. A player who has opened no chest
+        yet is at the start of their loot history whatever the run timer says.
+        """
+        late_but_empty = LootRun(start_time=900.0).begin(())
+        late_but_empty.acquire(LEGENDARY_ITEMS[0])
+        late_but_empty.acquire(COMMON_ITEM)
+
+        stats = late_but_empty.stats()
+        self.assertTrue(stats.available)
+        self.assertEqual(1, stats.actual["LEGENDARY"])
+        self.assertEqual(1, stats.actual["COMMON"])
+        self.assertGreater(sum(stats.expected.values()), 0.0)
+
+    def test_the_empty_exception_does_not_extend_past_the_first_map(self) -> None:
+        """Deliberately conservative. An empty inventory on a later map is not a
+        clean start -- it is a reading that should not happen, and the whole
+        point of this gate is that it errs towards "not measurable"."""
+        run = LootRun(start_time=900.0)
+        run.stage_ptr = 2000
+        run.tracker.update(
+            LiveRunSnapshot(
+                captured_at=900.0,
+                stats={},
+                items=(),
+                game_time_seconds=900.0,
+                stage_time_seconds=30.0,
+                map_seed=200,
+                stage_ptr=2000,
+                stage_index=2,
+            )
+        )
+        run.time = 900.0
+        run.clock.now = 900.0
+        run.acquire(LEGENDARY_ITEMS[0])
+
+        self.assertFalse(run.stats().available)
+
+    def test_a_failed_inventory_read_does_not_decide_availability(self) -> None:
+        """An empty `items` from a failed read is not an empty inventory.
+
+        Deciding off one would call an unmeasurable run measurable, which is the
+        one direction of error this gate exists to prevent. The decision waits
+        for a pass that actually read the inventory -- and that pass, here,
+        finds the held item and says no.
+        """
+        state = loot._LootState()
+
+        loot.observe_run_position(
+            state,
+            stage_index=1,
+            game_time_seconds=900.0,
+            item_count=0,
+            items_available=False,
+        )
+        self.assertFalse(state.availability_decided, "a failed read decides nothing")
+
+        loot.observe_run_position(
+            state,
+            stage_index=1,
+            game_time_seconds=900.0,
+            item_count=3,
+            items_available=True,
+        )
+        self.assertTrue(state.availability_decided)
+        self.assertFalse(state.available)
+
     def test_a_new_run_clears_state(self) -> None:
         """Two mechanisms enforce this and either one alone is enough: the
         tracker-wide `_reset_for_new_run` calls `loot.reset`, and the loot lane

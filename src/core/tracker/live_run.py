@@ -1188,6 +1188,13 @@ class LiveRunTracker:
             self._loot_state,
             stage_index=self.current_stage_index,
             game_time_seconds=snapshot.game_time_seconds,
+            # The inventory as this pass read it. An empty one on the first map
+            # means no roll has been missed however late the app attached, so it
+            # is measurable -- see `observe_run_position`. `items_available`
+            # comes with it because an empty tuple from a failed read is not an
+            # empty inventory.
+            item_count=len(snapshot.items or ()),
+            items_available=bool(snapshot.items_available),
         )
         loot.note_map_identity(
             self._loot_state,
