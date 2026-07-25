@@ -242,6 +242,11 @@ class LuckRarityExpectedFrameTests(unittest.TestCase):
                 widget = self._widget(show_bar=show_bar, show_expected=show_expected)
                 widths[(show_bar, show_expected)] = widget.width()
                 self.assertNotEqual("", widget.label.text(), "the percentage row is always drawn")
+                self.assertEqual(
+                    show_expected,
+                    widget.expected_label.isVisibleTo(widget),
+                    "the block must follow its own toggle, not the bar's",
+                )
         self.assertEqual(
             1,
             len(set(widths.values())),
@@ -266,7 +271,11 @@ class LuckRarityExpectedFrameTests(unittest.TestCase):
         widget.set_expected(None, None, show_expected=False)
         widget.adjustSize()
 
-        self.assertFalse(widget.expected_label.isVisible())
+        # `isVisibleTo`, not `isVisible`: the host is never shown, so
+        # `isVisible()` is false for every child regardless of the toggle and
+        # asserting on it proves nothing. This assertion was vacuous until the
+        # end-to-end render check showed a block that was on reporting false.
+        self.assertFalse(widget.expected_label.isVisibleTo(widget))
         self.assertNotEqual("", widget.label.text())
         self.assertEqual(baseline, widget.width())
 

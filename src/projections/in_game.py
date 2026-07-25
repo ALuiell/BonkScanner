@@ -18,6 +18,12 @@ class InGameOverlayProjection:
     # the Luck Rarity widget falls back to the 10 s snapshot's copy on ``None``
     # rather than rendering a failed read as a real reading.
     luck: float | None = None
+    # The actual-versus-expected summary the Luck widget's expected frame
+    # renders. Carried on the projection rather than read off the tracker for
+    # the same reason ``luck`` is: this object is the whole of what the fast
+    # tick hands the widgets, so anything missing here is simply invisible --
+    # which is exactly how the frame shipped switched off.
+    loot_stats: object | None = None
 
 
 def project_in_game_overlay(runtime: RuntimeStateSnapshot) -> InGameOverlayProjection:
@@ -30,4 +36,5 @@ def project_in_game_overlay(runtime: RuntimeStateSnapshot) -> InGameOverlayProje
         fast_stage_timer=runtime.fast_stage_timer,
         graveyard_main_map_events_active=runtime.graveyard_main_map_events_active,
         luck=getattr(runtime, "luck", None),
+        loot_stats=getattr(runtime, "loot_stats", None),
     )

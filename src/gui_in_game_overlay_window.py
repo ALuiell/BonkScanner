@@ -305,10 +305,15 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
         and a run the tracker cannot measure. The percentage row above stays
         either way -- it depends on the current Luck alone.
         """
+        # `isVisibleTo(self)`, never `isVisible()`. The latter is false for
+        # every child while the overlay window itself is hidden, so guarding on
+        # it made "switch the frame off" a no-op whenever the overlay was not on
+        # screen -- and the block came back the moment it was shown again.
+        was_shown = self.expected_label.isVisibleTo(self)
         self._show_expected = bool(show_expected)
         self._expected_layout = str(layout)
         if not self._show_expected:
-            if self.expected_label.isVisible():
+            if was_shown:
                 self.expected_label.setVisible(False)
                 self.adjustSize()
                 self.reclamp_to_parent()
@@ -316,8 +321,7 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
         html = build_luck_expected_overlay_html(
             actual or {}, expected or {}, layout=self._expected_layout
         )
-        changed = self.expected_label.text() != html or not self.expected_label.isVisible()
-        if changed:
+        if self.expected_label.text() != html or not was_shown:
             self.expected_label.setText(html)
             self.expected_label.setVisible(True)
             self.adjustSize()

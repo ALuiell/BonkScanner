@@ -118,6 +118,10 @@ def _snapshot_luck_rarity(
     actual = getattr(loot, "actual", None) or {}
     expected = getattr(loot, "expected", None) or {}
     available = bool(getattr(loot, "available", False))
+    layout = _luck_expected_layout(widget.get("expected_layout"))
+    # `row` puts all four groups on one line, so the tenth is the first thing
+    # to give when the scene is narrow. `column` keeps it.
+    whole_expected = layout == "row"
     return {
         # An unmeasurable run reports itself so, and the renderer drops the
         # block rather than drawing zeros. The chance row stays either way: it
@@ -125,7 +129,7 @@ def _snapshot_luck_rarity(
         "available": available,
         "show_bar": bool(widget.get("show_bar", True)),
         "show_expected": bool(widget.get("show_expected", True)) and available,
-        "expected_layout": _luck_expected_layout(widget.get("expected_layout")),
+        "expected_layout": layout,
         "tiers": [
             {
                 "rarity": rarity,
@@ -133,7 +137,9 @@ def _snapshot_luck_rarity(
                 "chance": probabilities.get(rarity),
                 "chance_text": format_luck_rarity_percent(probabilities.get(rarity)),
                 "actual": _coerce_int(actual.get(rarity), default=0),
-                "expected_text": format_expected_count(expected.get(rarity)),
+                "expected_text": format_expected_count(
+                    expected.get(rarity), whole=whole_expected
+                ),
             }
             for rarity in LUCK_RARITY_ORDER
         ],

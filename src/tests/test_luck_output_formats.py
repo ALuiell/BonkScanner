@@ -14,6 +14,7 @@ import src  # noqa: F401  -- puts `src/` on sys.path regardless of collection or
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import re
 
@@ -25,6 +26,8 @@ from projections.in_game_html import (
     build_luck_expected_overlay_html,
     normalize_luck_expected_layout,
 )
+from app import config
+from projections.in_game import project_in_game_overlay
 from projections.obs import build_overlay_state_from_snapshot
 from projections.twitch import format_luck
 
@@ -321,6 +324,132 @@ class ObsLuckPayloadTests(unittest.TestCase):
         self.assertEqual(
             "column", self._payload(config_widget={"expected_layout": "grid"})["expected_layout"]
         )
+
+    def test_the_row_layout_drops_the_tenths_and_column_keeps_them(self) -> None:
+        """One surface's opt-in, not a change to the rule.
+
+        `row` puts four groups on one line inside a scene that is usually
+        narrower than the game HUD, so the tenth is the first thing to give.
+        Everywhere else it stays, because `0 (0.4)` collapsing to `0 (0)` reads
+        as "nothing was expected".
+        """
+        loot = _loot(
+            actual={"LEGENDARY": 1, "RARE": 0, "UNCOMMON": 3, "COMMON": 7},
+            expected={"LEGENDARY": 0.8, "RARE": 0.4, "UNCOMMON": 2.6, "COMMON": 47.2},
+        )
+        by_layout = {
+            layout: {
+                tier["rarity"]: tier["expected_text"]
+                for tier in self._payload(
+                    loot=loot, config_widget={"expected_layout": layout}
+                )["tiers"]
+            }
+            for layout in ("column", "row")
+        }
+
+        self.assertEqual("0.8", by_layout["column"]["LEGENDARY"])
+        self.assertEqual("1", by_layout["row"]["LEGENDARY"])
+        self.assertEqual("0", by_layout["row"]["RARE"])
+        self.assertEqual("47", by_layout["row"]["COMMON"], "above 10 is unchanged")
+
+
+class InGameOverlayLuckWiringTests(unittest.TestCase):
+    """The path the four format tests could not see, and shipped broken.
+
+    The in-game widgets are fed an `InGameOverlayProjection`, not the runtime
+    snapshot -- that object is the whole of what the fast tick hands them, so a
+    field missing from it is simply invisible. The expected frame rendered
+    correctly in isolation and never appeared in the game, because the
+    projection carried no `loot_stats` and the toggle resolved to false on
+    every tick.
+    """
+
+    def test_the_projection_carries_the_loot_summary(self) -> None:
+        runtime = _obs_runtime()
+
+        projection = project_in_game_overlay(
+            SimpleNamespace(
+                **{
+                    **vars(runtime),
+                    "powerup_map_context": None,
+                    "powerups": None,
+                    "fast_stage_timer": None,
+                    "graveyard_main_map_events_active": False,
+                }
+            )
+        )
+
+        self.assertIs(runtime.loot_stats, projection.loot_stats)
+
+    def test_the_refresh_hands_the_summary_to_the_widget(self) -> None:
+        from gui_in_game_overlay import InGameOverlay
+
+        calls = []
+
+        class _Widget:
+            def set_probabilities(self, probabilities, *, show_bar):
+                pass
+
+            def set_expected(self, actual, expected, *, show_expected, layout):
+                calls.append(
+                    {
+                        "actual": actual,
+                        "show_expected": show_expected,
+                        "layout": layout,
+                    }
+                )
+
+        owner = SimpleNamespace(
+            in_game_overlay_window=SimpleNamespace(widgets={"luck_rarity": _Widget()})
+        )
+        overlay_config = {
+            "widgets": {
+                "luck_rarity": {
+                    "enabled": True,
+                    "show_bar": True,
+                    "show_expected": True,
+                    "expected_layout": "row",
+                }
+            }
+        }
+        projection = SimpleNamespace(
+            latest_snapshot=None, luck=3.0, loot_stats=_loot()
+        )
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config):
+            InGameOverlay._refresh_in_game_overlay_luck_widget(owner, projection)
+
+        self.assertEqual(1, len(calls))
+        self.assertTrue(calls[0]["show_expected"], "the frame must actually turn on")
+        self.assertEqual(116, calls[0]["actual"]["LEGENDARY"])
+        self.assertEqual("row", calls[0]["layout"])
+
+    def test_an_unmeasurable_run_still_reaches_the_widget_switched_off(self) -> None:
+        from gui_in_game_overlay import InGameOverlay
+
+        calls = []
+
+        class _Widget:
+            def set_probabilities(self, probabilities, *, show_bar):
+                pass
+
+            def set_expected(self, actual, expected, *, show_expected, layout):
+                calls.append(show_expected)
+
+        owner = SimpleNamespace(
+            in_game_overlay_window=SimpleNamespace(widgets={"luck_rarity": _Widget()})
+        )
+        overlay_config = {
+            "widgets": {"luck_rarity": {"enabled": True, "show_expected": True}}
+        }
+        projection = SimpleNamespace(
+            latest_snapshot=None, luck=3.0, loot_stats=_loot(available=False)
+        )
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config):
+            InGameOverlay._refresh_in_game_overlay_luck_widget(owner, projection)
+
+        self.assertEqual([False], calls)
 
 
 if __name__ == "__main__":

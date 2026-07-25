@@ -64,7 +64,7 @@ LUCK_RARITY_MODEL_ATTRIBUTION = (
 )
 
 
-def format_expected_count(value: float | None) -> str:
+def format_expected_count(value: float | None, *, whole: bool = False) -> str:
     """An expectation as text: one decimal below 10, whole numbers above.
 
     Dropping the tenths outright turns ``1 (0.8)`` into ``1 (1)``, which reads
@@ -72,6 +72,12 @@ def format_expected_count(value: float | None) -> str:
     ``0 (0.4)`` into ``0 (0)``, as if nothing had been expected at all. Above 10
     the tenth is noise beside a count that size, and it costs width every
     surface here is short of.
+
+    ``whole`` forces the rounded form at every size, and has exactly one
+    caller: the OBS overlay's ``row`` layout. That layout puts four groups on a
+    single line inside a scene that is usually narrower than the game HUD, so
+    the tenth is what gives first. The reading above is the cost, and it is the
+    reason this is one surface's opt-in rather than a change to the rule.
     """
     if value is None:
         return "--"
@@ -82,7 +88,7 @@ def format_expected_count(value: float | None) -> str:
     if not isfinite(number):
         return "--"
     number = max(0.0, number)
-    if number < 10.0:
+    if number < 10.0 and not whole:
         return f"{number:.1f}"
     return f"{number:.0f}"
 

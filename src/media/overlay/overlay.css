@@ -847,6 +847,13 @@ body:has(#edit-mode-banner) .overlay-shell.absolute-layout {
  * -- which is always drawn -- rather than being positioned against the bar.
  * Nothing here reads the bar's segment widths: the bar is proportional, so a
  * tier at 1% is a one-pixel segment with no room under it. */
+/* The same yellow the Stats and KPS titles take. `.panel-title`'s own default
+ * is white, so every widget that wants the heading colour states it. */
+.luck-widget .panel-title {
+  margin-bottom: calc(5px * var(--scale));
+  color: var(--hud-yellow);
+}
+
 .luck-block {
   display: flex;
   flex-direction: column;
