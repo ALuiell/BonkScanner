@@ -75,6 +75,7 @@ unguarded call sites (``_should_refresh_expected_chest_inputs`` and
 """
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from app import config
@@ -83,6 +84,7 @@ from app.read_sources import (
     CHAOS_TRACKING_STATE,
     EXPECTED_CHEST_INPUTS,
     KPS_GROUP_SPAN_LIMIT_SECONDS,
+    LUCK,
     MOB_KILLS,
     PASSIVE_ITEMS,
     POWERUP_TRACKING_SNAPSHOT,
@@ -95,6 +97,7 @@ from app.read_sources import (
 )
 from app.refresh_coordinator import RefreshCoordinator, RefreshTask, RefreshTickContext
 from app.run_lifecycle import run_lifecycle
+from core.tracker.snapshots import PowerupMapContext
 from app.player_stats_view import player_stats_view
 from app.snapshot_selection import player_stats_snapshot_is_pinned
 from app.vod_capture import vod_capture
@@ -198,11 +201,11 @@ def ensure_refresh_coordinator(owner) -> RefreshCoordinator:
         RefreshTask(
             task_id="passive_items",
             interval_ms=PASSIVE_ITEMS_REFRESH_MS,
-            # The same predicate as the full snapshot, deliberately: this task
-            # feeds the same tracked-item state that recordings consume, so a
-            # demand window where one runs and the other does not would leave a
-            # gap in the data rather than merely a stale label.
-            required=service._should_refresh_full_player_snapshot,
+            # Everything the full snapshot demands, plus the Luck widget, which
+            # reads this task's `LUCK` source now instead of the snapshot's
+            # per-stat walk. Strictly wider than the snapshot's predicate, so
+            # the no-gap property the two shared still holds.
+            required=service._should_refresh_passive_items,
             run=service._refresh_passive_items_task,
         )
     )
@@ -310,9 +313,12 @@ def in_game_overlay_widget_enabled(widget_id: str) -> bool:
 
 
 def in_game_overlay_requires_player_stats_refresh() -> bool:
+    # `luck_rarity` is **not** here any more. It demanded the 10 s full snapshot
+    # only because Luck was reachable nowhere else; it now rides the narrow
+    # `LUCK` source on the `passive_items` task, and leaving it here would keep
+    # paying for a full per-stat walk it no longer reads from.
     return (
-        in_game_overlay_widget_enabled("luck_rarity")
-        or in_game_overlay_widget_enabled("stats")
+        in_game_overlay_widget_enabled("stats")
         or in_game_overlay_widget_enabled("event_timer")
     )
 
@@ -483,8 +489,82 @@ class RefreshTasks:
             self._mark_fast_feature_failed("expected_chests", exc)
             return False
 
+    def _publish_fast_luck(self, context: RefreshTickContext) -> None:
+        """Luck, from the same pass as the inventory.
+
+        Its own narrow ``LUCK`` source rather than ``PLAYER_STATS``, which
+        resolves a full per-stat walk this pass has no other use for.
+
+        Failures are swallowed into a cleared reading, exactly as this task
+        already swallows a ``PASSIVE_ITEMS`` failure: no health is recorded
+        here, because ``get_luck`` reports an unreadable stat as ``None``
+        rather than raising, matching what the full snapshot puts in
+        ``PlayerStatValue.value`` for the same failure.
+        """
+        try:
+            client = self._fast_task_client(context)
+            owner_stats = self._fast_task_owner_stats(context)
+            luck = read_memory_source(
+                context, LUCK, lambda: client.get_luck(owner_stats)
+            )
+        except Exception:
+            luck = None
+        update_fast_luck = getattr(self._tracker(), "update_fast_luck", None)
+        if callable(update_fast_luck):
+            update_fast_luck(luck)
+
+    def _publish_fast_map_activity(self, context: RefreshTickContext) -> None:
+        """The interactable counters, from the same pass as the inventory.
+
+        Costs no extra read on a pass where the 10 s snapshot also runs:
+        ``get_map_activity_values`` already walks the whole dictionary and
+        returns every key, and both consumers resolve the one
+        ``MAP_ACTIVITY_VALUES`` key, so the pass cache shares the single
+        physical walk.
+
+        **Error policy, decided:** the full snapshot stays the health owner for
+        this source. It records health in its own task body rather than through
+        ``read_source`` callbacks, so a second consumer does not steal that
+        accounting -- whichever task resolves the key first performs the
+        physical read, and the snapshot still records its own success or failure
+        from the cached result. This task swallows, the way it already does for
+        ``PASSIVE_ITEMS``.
+
+        Reading it every second also fixes ``PowerupMapContext`` being absent
+        for the first ten seconds of every run: the snapshot publishes it after
+        ``update``, which is the call that blanks it on run start, so until the
+        *second* snapshot there was no map context at all.
+        """
+        try:
+            activity_values = self._memory().read_map_activity_values(context) or {}
+        except Exception:
+            return
+        if not activity_values:
+            # Not an error here. An empty dictionary is legitimate outside a run
+            # and means "the chain did not resolve" during one -- and the full
+            # snapshot is the consumer that owns that distinction and raises on
+            # it. Publishing an empty context would replace a good reading with
+            # a blank one.
+            return
+        update_powerup_map_context = getattr(
+            self._tracker(), "update_powerup_map_context", None
+        )
+        if not callable(update_powerup_map_context):
+            return
+        update_powerup_map_context(
+            PowerupMapContext.from_activity_max(
+                {label: int(value.max) for label, value in activity_values.items()},
+                # `time.monotonic()`, not `context.started_at`: the freshness
+                # window this is measured against is read on the tracker's own
+                # clock, and the two are the same clock only by convention. The
+                # 10 s snapshot stamps this the same way.
+                captured_at=time.monotonic(),
+            )
+        )
+
     def _refresh_passive_items_task(self, context: RefreshTickContext) -> bool:
-        """Read the passive inventory on the fast lane and run item deltas only.
+        """Read the whole loot sample -- items, the interactable counters and
+        Luck -- in one pass.
 
         Resolved through the named ``PASSIVE_ITEMS`` source, which is the point
         of step 28's composable reads: on a pass where the full snapshot is also
@@ -492,8 +572,22 @@ class RefreshTasks:
         Nothing is removed from ``refresh_now`` -- it keeps reading and
         publishing items exactly as before, so recordings, VOD capture and the
         Stage Summary inputs are unchanged. This adds a second consumer of an
-        existing source; it does not split the existing path.
+        existing source; it does not split the existing path. The same holds for
+        ``MAP_ACTIVITY_VALUES``.
+
+        The three sources are read here rather than by three tasks because a
+        key resolves **once** per ``RefreshTickContext``: items, counters and
+        Luck therefore carry one timestamp and are coherent by construction.
+        The "did the counter move before or after this gain" question and the
+        "which Luck applied to this roll" question stop existing rather than
+        being solved by matching two buffers.
+
+        The other two are published before the item body so that a failing
+        inventory read -- the one source here that raises -- does not also
+        starve them.
         """
+        self._publish_fast_luck(context)
+        self._publish_fast_map_activity(context)
         try:
             client = self._fast_task_client(context)
             owner_stats = self._fast_task_owner_stats(context)
@@ -814,6 +908,26 @@ class RefreshTasks:
 
     def _should_refresh_full_player_snapshot(self) -> bool:
         return self._lifecycle().is_active_run() or self._refresh_required()
+
+    def _should_refresh_passive_items(self) -> bool:
+        """Everything the full snapshot demands, plus the Luck widget.
+
+        The snapshot's own predicate was this task's predicate too, deliberately:
+        it feeds the same tracked-item state recordings consume, so a demand
+        window where one runs and the other does not would leave a gap in the
+        data rather than merely a stale label. That still holds -- this is
+        strictly wider, never narrower, so no such window can open.
+
+        The extra arm is the other half of dropping `luck_rarity` from
+        `in_game_overlay_requires_player_stats_refresh`. Luck rides this task
+        now, so the widget has to be able to demand *this* task; without the arm
+        a user running the Luck widget alone outside an active run would get no
+        Luck read at all.
+        """
+        return (
+            self._should_refresh_full_player_snapshot()
+            or in_game_overlay_widget_enabled("luck_rarity")
+        )
 
     def _should_refresh_chaos_tome(self) -> bool:
         if self._lifecycle().completed_run:

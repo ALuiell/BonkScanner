@@ -28,16 +28,19 @@ class ReadCensusRatchetTests(unittest.TestCase):
     def test_boundary_populations_are_derived_from_the_tree(self) -> None:
         census = _load_census()
 
-        # 26 since the `passive_items` fast-lane task: a *second* call site for
-        # an already-enrolled source, which is what the site count is supposed
-        # to move for. The source *set* is unchanged -- `PASSIVE_ITEMS` was
-        # already enrolled by the full snapshot -- and
+        # 28 since the `passive_items` task became the whole loot sample. Two
+        # of the twenty-eight arrived together and mean different things:
+        #
+        # `get_map_activity_values` is a *second* call site for an already
+        # enrolled source, which is what this count is supposed to move for --
+        # the 10 s snapshot reads the same key, so the pass cache shares the one
+        # physical walk. `get_luck` is genuinely new, and it is a new *source*
+        # too (`LUCK`), declared in the census beside the rest;
         # `test_current_on_tick_source_set_is_exact_and_has_no_bypasses` is what
-        # guards that, so this number rising alone means a shared read, not a
-        # new fact and not a bypass.
+        # proves it went in through the pass rather than around it.
         self.assertEqual(
             census.boundary_site_count([census.SRC / rel for rel in census.ON_TICK_FILES]),
-            26,
+            28,
         )
         self.assertEqual(
             census.boundary_site_count([census.SRC / rel for rel in census.OFF_TICK_FILES]),

@@ -57,6 +57,7 @@ from core.tracker.snapshots import (
     PowerupMapContext,
     FastRunTimer,
     FastItems,
+    FastLuck,
 )
 
 FAST_STAGE_TRANSITION_CONFIRMATION_SAMPLES = 2
@@ -82,6 +83,12 @@ FAST_RUN_TIMER_TTL_SECONDS = 2.0
 # fast lane existed, so expiry degrades to the previous behaviour rather than
 # to a wrong one.
 FAST_ITEMS_TTL_SECONDS = 3.0
+
+# Luck's freshness bound. Equal to the inventory's, and for the reason the run
+# clock's is equal to the stage timer's: these two are read by the *same task*
+# in the *same pass*, so a bound that expired one before the other would let a
+# gain be projected against a Luck the pass that observed it did not carry.
+FAST_LUCK_TTL_SECONDS = FAST_ITEMS_TTL_SECONDS
 
 
 def with_lock(method):
@@ -127,6 +134,10 @@ class _RunState:
     # the stage-summary projection so a boundary can close on the inventory as
     # it stood at the transition rather than on the last 10 s snapshot's.
     fast_items: FastItems = field(default_factory=FastItems)
+    # Published by the same fast-lane pass that publishes ``fast_items``. Kept
+    # beside it rather than inside it because a failed Luck read must not
+    # withhold the inventory, nor the reverse.
+    fast_luck: FastLuck = field(default_factory=FastLuck)
 
 
 @dataclass
@@ -158,7 +169,7 @@ class LiveRunTracker:
             "_pending_fast_stage_index", "_pending_fast_stage_samples",
             "_pending_fast_stage_boundary", "_pending_fast_stage_awaiting_timer_reset",
             "_slow_stage_timer_reset_pending_from", "_fast_run_timer",
-            "_fast_items",
+            "_fast_items", "_fast_luck",
         )},
         **{name: "_combat_state" for name in (
             "_recent_kills_history", "_ui_kps_baseline", "_ui_kps_value",
@@ -305,6 +316,7 @@ class LiveRunTracker:
             self._fast_stage_timer_context = FastStageTimerContext()
             self._fast_run_timer = FastRunTimer()
             self._fast_items = FastItems()
+            self._fast_luck = FastLuck()
             self._cached_stage_summary = None
 
     @with_lock
@@ -404,6 +416,7 @@ class LiveRunTracker:
             powerup_map_context=copy.deepcopy(map_context),
             fast_stage_timer=copy.deepcopy(self._fresh_fast_stage_timer_context_unlocked()),
             graveyard_main_map_events_active=self._graveyard_main_map_events_active_unlocked(),
+            luck=self._fresh_fast_luck_unlocked(),
         )
 
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:
@@ -646,6 +659,29 @@ class LiveRunTracker:
         self._process_item_deltas(replace(latest, **changes))
         self._cached_stage_summary = None
         return True
+
+    @with_lock
+    def update_fast_luck(self, luck: float | None) -> None:
+        """Publish Luck from the fast loot pass.
+
+        ``None`` clears the reading rather than storing a null one: an absent
+        Luck and a Luck of zero are different facts, and the rarity model
+        produces a perfectly valid distribution from zero. Clearing lets the
+        consumer fall back to the 10 s snapshot's copy instead of rendering a
+        failed read as a real one.
+        """
+        if luck is None:
+            self._fast_luck = FastLuck()
+            return
+        self._fast_luck = FastLuck(captured_at=self.clock(), luck=float(luck))
+
+    def _fresh_fast_luck_unlocked(self) -> float | None:
+        fast_luck = self._fast_luck
+        if fast_luck.captured_at <= 0 or fast_luck.luck is None:
+            return None
+        if self.clock() - fast_luck.captured_at > FAST_LUCK_TTL_SECONDS:
+            return None
+        return fast_luck.luck
 
     @with_lock
     def last_item_losses(self) -> tuple[ItemLossEvent, ...]:
@@ -1043,6 +1079,7 @@ class LiveRunTracker:
         self._fast_stage_timer_context = FastStageTimerContext()
         self._fast_run_timer = FastRunTimer()
         self._fast_items = FastItems()
+        self._fast_luck = FastLuck()
         self._pending_fast_stage_index = None
         self._pending_fast_stage_samples = 0
         self._pending_fast_stage_boundary = None

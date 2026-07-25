@@ -57,6 +57,7 @@ from app.read_sources import (
     LIVE_DAMAGE_SOURCES,
     LIVE_TOMES,
     LIVE_WEAPONS,
+    MAP_ACTIVITY_VALUES,
     MAP_GENERATION_STATE,
     MOB_KILLS,
     OWNER_STATS,
@@ -242,6 +243,21 @@ class PlayerStatsMemory:
         return read_source(
             context, MAP_GENERATION_STATE, client.get_map_generation_state
         )
+
+    def read_map_activity_values(self, context=None):
+        """The whole ``InteractablesStatus`` dictionary, by name.
+
+        The same key the 10 s snapshot resolves, so whichever consumer comes
+        first in a pass performs the one physical walk and the other reads it
+        from the pass cache. Deliberately **no** health callbacks: the full
+        snapshot stays the health owner for this source and records its own
+        success or failure in its own task body from the cached result, so a
+        second consumer cannot steal that accounting or double-count it.
+        """
+        if self._read_game_data_client() is None:
+            self._write_game_data_client(GameDataClient(config.PROCESS_NAME))
+        client = self._read_game_data_client()
+        return read_source(context, MAP_ACTIVITY_VALUES, client.get_map_activity_values)
 
     def read_player_stats_runtime_game_state(self, context=None):
         if self._read_game_data_client() is None:

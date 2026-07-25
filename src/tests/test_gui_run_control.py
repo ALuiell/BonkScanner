@@ -4985,7 +4985,6 @@ class GuiRunControlTests(unittest.TestCase):
         status_updates: list[str] = []
         overlay._update_igo_status_ui = lambda: status_updates.append("status")
         overlay._overlay_fast_tick = lambda: status_updates.append("fast")
-        overlay._overlay_slow_tick = lambda: status_updates.append("slow")
 
         overlay_cfg = {"enabled": False, "widgets": {}}
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
@@ -4993,7 +4992,6 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(overlay.in_game_overlay_window.hide_calls, 1)
         self.assertEqual(overlay.overlay_fast_timer.stop_calls, 1)
-        self.assertEqual(overlay.overlay_slow_timer.stop_calls, 1)
         self.assertEqual(status_updates, ["status"])
 
     def test_apply_in_game_overlay_settings_restarts_runtime_when_edit_mode_left_window_visible(self) -> None:
@@ -5003,15 +5001,13 @@ class GuiRunControlTests(unittest.TestCase):
         status_updates: list[str] = []
         overlay._update_igo_status_ui = lambda: status_updates.append("status")
         overlay._overlay_fast_tick = lambda: status_updates.append("fast")
-        overlay._overlay_slow_tick = lambda: status_updates.append("slow")
 
         overlay_cfg = {"enabled": True, "widgets": {}}
         with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
             overlay.apply_in_game_overlay_settings()
 
         self.assertEqual(overlay.overlay_fast_timer.start_calls, 1)
-        self.assertEqual(overlay.overlay_slow_timer.start_calls, 1)
-        self.assertEqual(status_updates, ["fast", "slow", "status"])
+        self.assertEqual(status_updates, ["fast", "status"])
 
     def test_overlay_fast_tick_hides_disabled_overlay_even_if_game_is_active(self) -> None:
         tracker = SimpleNamespace(
@@ -5227,7 +5223,7 @@ class GuiRunControlTests(unittest.TestCase):
         overlay.in_game_overlay_window.widgets = {
             "stats": SimpleNamespace(set_text=MagicMock())
         }
-        overlay._refresh_in_game_overlay_slow_widgets = lambda *_args: None
+        overlay._refresh_in_game_overlay_luck_widget = lambda *_args: None
         overlay_cfg = {
             "enabled": True,
             "widgets": {
@@ -5317,13 +5313,11 @@ class GuiRunControlTests(unittest.TestCase):
 
 
     def test_in_game_overlay_luck_rarity_html_formats_game_rarity_order(self) -> None:
-        snapshot = SimpleNamespace(
-            stats={
-                "Luck": SimpleNamespace(value=0.5, display_value="50%"),
-            },
-        )
+        probabilities = gui_in_game_overlay.calculate_luck_rarity_probabilities(0.5)
 
-        html = gui_in_game_overlay.build_luck_rarity_overlay_html(snapshot)
+        html = gui_in_game_overlay.build_luck_rarity_overlay_html_for_probabilities(
+            probabilities
+        )
 
         self.assertIn("#FACC15", html)
         self.assertIn("#E879F9", html)
@@ -5334,43 +5328,82 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("18.79%", html)
         self.assertIn("68.52%", html)
 
-    def test_overlay_slow_tick_updates_luck_rarity_widget_from_latest_snapshot(self) -> None:
-        widget = SimpleNamespace(set_text=MagicMock())
+    def _luck_rarity_overlay(self, widget, *, fast_luck, snapshot_luck):
+        latest_snapshot = (
+            None
+            if snapshot_luck is None
+            else SimpleNamespace(
+                stats={"Luck": SimpleNamespace(value=snapshot_luck, display_value="")}
+            )
+        )
         tracker = SimpleNamespace(
             runtime_snapshot=lambda: SimpleNamespace(
-                latest_snapshot=SimpleNamespace(
-                    stats={"Luck": SimpleNamespace(value=1.0, display_value="100%")}
-                ),
+                latest_snapshot=latest_snapshot,
                 kps={},
                 powerups=SimpleNamespace(),
                 powerup_map_context=None,
                 fast_stage_timer=None,
                 graveyard_main_map_events_active=False,
+                luck=fast_luck,
             )
         )
-        overlay = build_in_game_overlay_test_component(tracker=tracker)
+        overlay = build_in_game_overlay_test_component(
+            tracker=tracker,
+            is_game_window_active=lambda _process_name: True,
+        )
         overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
         overlay.in_game_overlay_window.widgets = {
             "scanner": SimpleNamespace(set_text=MagicMock()),
             "recording": SimpleNamespace(set_text=MagicMock()),
             "luck_rarity": widget,
+            "kps": SimpleNamespace(set_text=MagicMock()),
+            "powerups": SimpleNamespace(set_text=MagicMock(), setVisible=MagicMock()),
         }
+        return overlay
 
-        overlay_cfg = {
+    def _luck_rarity_overlay_cfg(self):
+        return {
+            "enabled": True,
             "widgets": {
                 "scanner": {"enabled": False},
                 "recording": {"enabled": False},
                 "luck_rarity": {"enabled": True},
+                "kps": {"enabled": False},
+                "powerups": {"enabled": False},
             },
         }
-        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
-            overlay._overlay_slow_tick()
+
+    def test_fast_tick_paints_luck_rarity_from_the_fast_loot_pass(self) -> None:
+        """Luck rides the 1 s loot pass now. Painting it on the 10 s tick was
+        correct while `latest_snapshot.stats` was its only home; with a narrow
+        `LUCK` source the widget lagged its own input by up to a snapshot."""
+        widget = SimpleNamespace(set_text=MagicMock())
+        # The snapshot carries a *different* Luck, so a fallback to the slow
+        # copy would be visible in the rendered percentages rather than hidden.
+        overlay = self._luck_rarity_overlay(widget, fast_luck=1.0, snapshot_luck=0.5)
+
+        with patch.object(config, "IN_GAME_OVERLAY", self._luck_rarity_overlay_cfg()):
+            overlay._overlay_fast_tick()
 
         widget.set_text.assert_called_once()
         rendered_html = widget.set_text.call_args.args[0]
         self.assertIn("4.74%", rendered_html)
         self.assertIn("12.43%", rendered_html)
         self.assertIn("20.39%", rendered_html)
+        self.assertIn("62.43%", rendered_html)
+
+    def test_luck_rarity_falls_back_to_the_snapshot_before_the_first_fast_read(self) -> None:
+        """`None` is "no fresh read", never "Luck is zero". A stale Luck beats
+        no Luck, and the widget renders base probabilities without one."""
+        widget = SimpleNamespace(set_text=MagicMock())
+        overlay = self._luck_rarity_overlay(widget, fast_luck=None, snapshot_luck=1.0)
+
+        with patch.object(config, "IN_GAME_OVERLAY", self._luck_rarity_overlay_cfg()):
+            overlay._overlay_fast_tick()
+
+        widget.set_text.assert_called_once()
+        rendered_html = widget.set_text.call_args.args[0]
+        self.assertIn("4.74%", rendered_html)
         self.assertIn("62.43%", rendered_html)
 
     def test_overlay_fast_tick_uses_fast_stage_timer_context_for_event_timer(self) -> None:
@@ -5399,7 +5432,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
         overlay.in_game_overlay_window.widgets = {"event_timer": widget}
-        overlay._refresh_in_game_overlay_slow_widgets = lambda *_args: None
+        overlay._refresh_in_game_overlay_luck_widget = lambda *_args: None
 
         overlay_cfg = {
             "enabled": True,
@@ -5443,7 +5476,7 @@ class GuiRunControlTests(unittest.TestCase):
         )
         overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
         overlay.in_game_overlay_window.widgets = {"event_timer": widget}
-        overlay._refresh_in_game_overlay_slow_widgets = lambda *_args: None
+        overlay._refresh_in_game_overlay_luck_widget = lambda *_args: None
 
         overlay_cfg = {
             "enabled": True,
@@ -5475,7 +5508,7 @@ class GuiRunControlTests(unittest.TestCase):
         overlay = build_in_game_overlay_test_component(tracker=tracker)
         overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True, edit_mode=True)
         overlay.in_game_overlay_window.widgets = {"event_timer": widget}
-        overlay._refresh_in_game_overlay_slow_widgets = lambda *_args: None
+        overlay._refresh_in_game_overlay_luck_widget = lambda *_args: None
 
         overlay_cfg = {
             "enabled": True,

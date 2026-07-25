@@ -12,6 +12,12 @@ boundary already existed (`_fast_stage_boundaries`, committed by
 `build_stage_summary`; it simply had `items_available=False` because nothing on
 the fast lane could supply an inventory. With one, it becomes the closing
 observation a stage needs to keep its own pickups.
+
+The task has since become the whole *loot sample*: `MAP_ACTIVITY_VALUES` and
+`LUCK` are read in the same pass as the inventory. That is one change, not
+three reads -- a key resolves once per `RefreshTickContext`, so items, the
+interactable counters and Luck carry one timestamp and are coherent by
+construction rather than by matching timestamps afterwards.
 """
 from __future__ import annotations
 
@@ -19,13 +25,19 @@ import src  # noqa: F401  -- puts `src/` on sys.path regardless of collection or
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
-from app.read_sources import PASSIVE_ITEMS
+from app import config
+from app.read_sources import LUCK, MAP_ACTIVITY_VALUES, PASSIVE_ITEMS
 from app.refresh_coordinator import RefreshTickContext
-from app.refresh_tasks import PASSIVE_ITEMS_REFRESH_MS
+from app.refresh_tasks import (
+    PASSIVE_ITEMS_REFRESH_MS,
+    in_game_overlay_requires_player_stats_refresh,
+)
 from core import run_summary
 from core.tracker.live_run import (
     FAST_ITEMS_TTL_SECONDS,
+    FAST_LUCK_TTL_SECONDS,
     LiveRunSnapshot,
     LiveRunTracker,
     TrackedItemRule,
@@ -356,7 +368,7 @@ class FastLaneTaskTests(unittest.TestCase):
         deleting the registration would leave them all passing while the feature
         is dead in the app. This is the test that fails when the task is removed
         or folded back onto the 10 s interval."""
-        from app.refresh_tasks import ensure_refresh_coordinator
+        from app.refresh_tasks import ensure_refresh_coordinator, refresh_tasks
 
         owner = SimpleNamespace(coordinator=None)
         coordinator = ensure_refresh_coordinator(owner)
@@ -365,15 +377,242 @@ class FastLaneTaskTests(unittest.TestCase):
         self.assertIn("passive_items", by_id)
         self.assertEqual(by_id["passive_items"].interval_ms, PASSIVE_ITEMS_REFRESH_MS)
         self.assertEqual(PASSIVE_ITEMS_REFRESH_MS, 1_000)
-        # Same demand as the full snapshot: a window where one runs and the
-        # other does not would leave a gap in data recordings consume.
         # `assertEqual`, not `assertIs`: each attribute access on a bound method
         # builds a fresh object, so identity never holds even for the same
         # function on the same instance.
         self.assertEqual(
             by_id["passive_items"].required,
-            by_id["full_player_snapshot"].required,
+            refresh_tasks(owner)._should_refresh_passive_items,
         )
+
+    def test_the_demand_is_wider_than_the_snapshots_never_narrower(self) -> None:
+        """This task feeds the same tracked-item state recordings consume, so a
+        window where the snapshot runs and this does not would leave a gap in
+        the data rather than merely a stale label -- which is why the two shared
+        one predicate. The extra arm is the Luck widget, which reads this task's
+        `LUCK` source now instead of the snapshot's per-stat walk, so it has to
+        be able to demand *this* task."""
+        service, world = build_refresh_tasks()
+
+        with patch.object(config, "IN_GAME_OVERLAY", {}):
+            for demanded in (False, True):
+                world.lifecycle.is_active_run = lambda demanded=demanded: demanded
+                self.assertEqual(
+                    service._should_refresh_passive_items(),
+                    service._should_refresh_full_player_snapshot(),
+                )
+
+        luck_only = {"enabled": True, "widgets": {"luck_rarity": {"enabled": True}}}
+        with patch.object(config, "IN_GAME_OVERLAY", luck_only):
+            world.lifecycle.is_active_run = lambda: False
+            self.assertFalse(service._should_refresh_full_player_snapshot())
+            self.assertTrue(service._should_refresh_passive_items())
+
+    def test_the_luck_widget_no_longer_demands_the_full_stat_walk(self) -> None:
+        """The other half of the same change. `luck_rarity` demanded the 10 s
+        snapshot only because Luck was reachable nowhere else; leaving it in
+        `in_game_overlay_requires_player_stats_refresh` would keep paying for a
+        per-stat walk it no longer reads from."""
+        luck_only = {"enabled": True, "widgets": {"luck_rarity": {"enabled": True}}}
+        with patch.object(config, "IN_GAME_OVERLAY", luck_only):
+            self.assertFalse(in_game_overlay_requires_player_stats_refresh())
+
+        stats_widget = {"enabled": True, "widgets": {"stats": {"enabled": True}}}
+        with patch.object(config, "IN_GAME_OVERLAY", stats_widget):
+            self.assertTrue(in_game_overlay_requires_player_stats_refresh())
+
+
+class LootSamplePassTests(unittest.TestCase):
+    """Items, the interactable counters and Luck, read in **one** pass.
+
+    Not "three sources are read" -- three sources read *together*. A key
+    resolves once per `RefreshTickContext`, so every consumer of this pass sees
+    one value from one moment, which is what makes "did the counter move before
+    or after this gain" and "which Luck applied to this roll" stop being
+    questions instead of being answered by matching two buffers.
+    """
+
+    def _stats_client(self, *, items=("Anvil x1",), luck=1.25):
+        return type(
+            "Client",
+            (),
+            {
+                "resolve_owner_stats": lambda self: 0x1234,
+                "get_passive_items": lambda self, owner=None: (
+                    items() if callable(items) else items
+                ),
+                "get_luck": lambda self, owner=None: (
+                    luck() if callable(luck) else luck
+                ),
+            },
+        )()
+
+    def _game_data_client(self, activity=None, *, calls=None):
+        if activity is None:
+            activity = {"Moais": SimpleNamespace(current=1, max=3)}
+
+        def get_map_activity_values(_self):
+            if calls is not None:
+                calls.append(1)
+            return activity() if callable(activity) else activity
+
+        return type(
+            "GameData",
+            (),
+            {"get_map_activity_values": get_map_activity_values},
+        )()
+
+    def setUp(self) -> None:
+        self.context = RefreshTickContext(pass_id=1, started_at=0.0, clock=lambda: 0.0)
+
+    def _build(self, **kwargs):
+        world_state = SimpleNamespace(luck=[], contexts=[], items=[])
+        service, world = build_refresh_tasks(world=world_state, **kwargs)
+        world.tracker.update_fast_luck = lambda value: world.luck.append(value)
+        world.tracker.update_powerup_map_context = lambda ctx: world.contexts.append(ctx)
+        world.tracker.update_items = lambda items: world.items.append(items) or True
+        return service, world
+
+    def test_one_tick_yields_items_counters_and_luck_together(self) -> None:
+        service, world = self._build(
+            stats_client=self._stats_client(),
+            game_data_client=self._game_data_client(),
+        )
+
+        self.assertTrue(service._refresh_passive_items_task(self.context))
+
+        self.assertEqual(world.items, [("Anvil x1",)])
+        self.assertEqual(world.luck, [1.25])
+        self.assertEqual([ctx.activity_max for ctx in world.contexts], [{"Moais": 3}])
+        # The load-bearing assertion: all three resolved inside *this* pass, so
+        # they carry one timestamp. Three sources read on three passes would
+        # satisfy every assertion above and none of this one.
+        for key in (PASSIVE_ITEMS, MAP_ACTIVITY_VALUES, LUCK):
+            self.assertIsNotNone(self.context.metadata_for(key), key)
+
+    def test_the_counters_cost_no_extra_read_when_the_snapshot_is_also_due(self) -> None:
+        """`get_map_activity_values` already walks the whole dictionary and
+        returns every key. Both consumers resolve the one `MAP_ACTIVITY_VALUES`
+        key, so the pass cache shares the single physical walk."""
+        calls: list[int] = []
+        service, world = self._build(
+            stats_client=self._stats_client(),
+            game_data_client=self._game_data_client(calls=calls),
+        )
+
+        # The 10 s snapshot's own entry point, resolving the same key.
+        world.memory.read_map_activity_values(self.context)
+        service._refresh_passive_items_task(self.context)
+
+        self.assertEqual(calls, [1])
+
+    def test_a_counter_read_failure_leaves_the_health_streaks_to_the_snapshot(self) -> None:
+        """Error policy, decided: the full snapshot stays the health owner for
+        `MAP_ACTIVITY_VALUES`. It records health in its own task body from the
+        cached result, so a second consumer must not steal that accounting nor
+        advance the streak twice for one physical read."""
+        service, world = self._build(
+            stats_client=self._stats_client(),
+            game_data_client=self._game_data_client(
+                activity=lambda: (_ for _ in ()).throw(MemoryReadError("no map"))
+            ),
+        )
+
+        self.assertTrue(service._refresh_passive_items_task(self.context))
+
+        self.assertEqual(world.memory._player_stats_game_data_memory_error_streak, 0)
+        self.assertEqual(world.memory._game_data_source_error_streaks, {})
+        self.assertEqual(world.contexts, [])
+
+    def test_the_snapshot_still_sees_a_counter_failure_this_task_swallowed(self) -> None:
+        """Swallowing must not hide the failure from the health owner. The pass
+        caches the *exception*, so the snapshot's own resolution of the key
+        re-raises it and records its health exactly as before -- one physical
+        read, one accounting, and it is still the snapshot's."""
+        calls: list[int] = []
+
+        def failing():
+            calls.append(1)
+            raise MemoryReadError("no map")
+
+        service, world = self._build(
+            stats_client=self._stats_client(),
+            game_data_client=self._game_data_client(activity=failing, calls=None),
+        )
+        service._refresh_passive_items_task(self.context)
+
+        with self.assertRaises(MemoryReadError):
+            world.memory.read_map_activity_values(self.context)
+        self.assertEqual(calls, [1])
+
+    def test_an_empty_counter_dictionary_does_not_blank_a_good_map_context(self) -> None:
+        """`get_map_activity_values` returns `{}` whenever a pointer in its
+        chain reads zero, and outside a run that is legitimate. Publishing an
+        empty context would replace a good reading with a blank one; deciding
+        that empty-during-a-run is a failure belongs to the snapshot, which
+        raises on it."""
+        service, world = self._build(
+            stats_client=self._stats_client(),
+            game_data_client=self._game_data_client(activity={}),
+        )
+
+        service._refresh_passive_items_task(self.context)
+
+        self.assertEqual(world.contexts, [])
+
+    def test_a_failing_inventory_read_still_publishes_luck_and_the_counters(self) -> None:
+        """Per-source failure isolation. The inventory is the one source here
+        that raises, and it is read last for exactly this reason."""
+        service, world = self._build(
+            stats_client=self._stats_client(
+                items=lambda: (_ for _ in ()).throw(MemoryReadError("inventory gone"))
+            ),
+            game_data_client=self._game_data_client(),
+        )
+
+        self.assertFalse(service._refresh_passive_items_task(self.context))
+
+        self.assertEqual(world.items, [])
+        self.assertEqual(world.luck, [1.25])
+        self.assertEqual(len(world.contexts), 1)
+
+    def test_an_unreadable_luck_clears_the_reading_rather_than_publishing_zero(self) -> None:
+        """`None` is "no fresh read". Zero is a real Luck the rarity model
+        produces a valid distribution from, so publishing it for a failed read
+        would render a failure as a reading."""
+        service, world = self._build(
+            stats_client=self._stats_client(luck=None),
+            game_data_client=self._game_data_client(),
+        )
+
+        service._refresh_passive_items_task(self.context)
+
+        self.assertEqual(world.luck, [None])
+
+
+class FastLuckPublicationTests(unittest.TestCase):
+    def test_the_runtime_snapshot_carries_the_fast_luck(self) -> None:
+        tracker = tracker_with_baseline()
+
+        tracker.update_fast_luck(2.5)
+
+        self.assertEqual(tracker.runtime_snapshot().luck, 2.5)
+
+    def test_a_stale_luck_is_withheld_rather_than_published(self) -> None:
+        now = [1000.0]
+        tracker = tracker_with_baseline(clock=lambda: now[0])
+        tracker.update_fast_luck(2.5)
+        now[0] += FAST_LUCK_TTL_SECONDS + 0.1
+
+        self.assertIsNone(tracker.runtime_snapshot().luck)
+
+    def test_luck_is_cleared_on_a_new_run(self) -> None:
+        tracker = tracker_with_baseline()
+        tracker.update_fast_luck(2.5)
+
+        tracker._reset_for_new_run()
+
+        self.assertIsNone(tracker.runtime_snapshot().luck)
 
 
 class FastStageBoundaryItemsTests(unittest.TestCase):

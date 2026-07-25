@@ -175,6 +175,10 @@ class RuntimeStateSnapshot:
     # not, because a single missed tick empties ``powerups`` and an empty
     # snapshot is indistinguishable from "no effects are active".
     powerups_recent: PowerupsSnapshot
+    # Luck, from the fast loot pass rather than from ``latest_snapshot.stats``.
+    # ``None`` means no fresh read -- never "Luck is zero", which is a real
+    # reading the rarity model produces a valid distribution from.
+    luck: float | None = None
 
 
 @dataclass(frozen=True)
@@ -217,6 +221,24 @@ class FastItems:
 
     captured_at: float = 0.0
     items: tuple[str, ...] | None = None
+
+
+@dataclass
+class FastLuck:
+    """Luck, published by the fast-lane ``LUCK`` read.
+
+    Read in the same pass as ``PASSIVE_ITEMS``, which is the whole point: the
+    rarity roll behind an item gain happened at the Luck the player held when
+    the gain was observed, and reading both from one ``RefreshTickContext``
+    makes that true by construction rather than by matching two timestamps
+    afterwards.
+
+    ``luck`` stays ``None`` when the read failed, matching what the full
+    snapshot puts in ``PlayerStatValue.value`` for the same failure.
+    """
+
+    captured_at: float = 0.0
+    luck: float | None = None
 
 
 @dataclass(frozen=True)

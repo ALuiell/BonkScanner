@@ -86,14 +86,6 @@ def build_status_indicator_html(label: str, is_active: bool) -> str:
     )
 
 
-def build_luck_rarity_overlay_html(snapshot: Any) -> str:
-    stats = getattr(snapshot, "stats", None)
-    luck_stat = stats.get("Luck") if isinstance(stats, dict) else None
-    luck_value = getattr(luck_stat, "value", None)
-    probabilities = calculate_luck_rarity_probabilities(luck_value)
-    return build_luck_rarity_overlay_html_for_probabilities(probabilities)
-
-
 def build_luck_rarity_overlay_html_for_probabilities(
     probabilities: dict[str, float | None],
 ) -> str:

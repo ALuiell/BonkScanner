@@ -36,7 +36,7 @@ from projections.in_game import project_in_game_overlay
 from projections.in_game_html import (
     build_event_timer_overlay_html,
     build_kps_overlay_html_from_values,
-    build_luck_rarity_overlay_html,
+    build_luck_rarity_overlay_html_for_probabilities,
     build_powerups_overlay_html,
     build_stats_overlay_html,
     build_status_indicator_html,
@@ -100,13 +100,13 @@ class InGameOverlay:
 
         self.in_game_overlay_window: InGameOverlayWindow | None = None
 
+        # One timer. The 10 s companion existed for `luck_rarity` alone, which
+        # was paired with the slow tick because its input arrived on the 10 s
+        # snapshot; with Luck on its own source in the 1 s loot pass there is
+        # nothing left that a slower cadence serves.
         self.overlay_fast_timer = timer_factory()
         self.overlay_fast_timer.timeout.connect(self._overlay_fast_tick)
         self.overlay_fast_timer.setInterval(500)
-
-        self.overlay_slow_timer = timer_factory()
-        self.overlay_slow_timer.timeout.connect(self._overlay_slow_tick)
-        self.overlay_slow_timer.setInterval(10000)
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -129,17 +129,13 @@ class InGameOverlay:
         if not self.in_game_overlay_window:
             return
         self.overlay_fast_timer.start()
-        self.overlay_slow_timer.start()
         if initial_refresh:
-            became_visible = self._overlay_fast_tick()
-            if not became_visible:
-                self._overlay_slow_tick()
+            self._overlay_fast_tick()
 
     def stop_in_game_overlay(self) -> None:
         if self.in_game_overlay_window:
             self.in_game_overlay_window.hide()
         self.overlay_fast_timer.stop()
-        self.overlay_slow_timer.stop()
 
     def apply_in_game_overlay_settings(self) -> None:
         cfg = config.IN_GAME_OVERLAY
@@ -172,7 +168,6 @@ class InGameOverlay:
                 widget.move(widget_cfg["x"], widget_cfg["y"])
 
         self._overlay_fast_tick()
-        self._overlay_slow_tick()
         self._update_igo_status_ui()
 
     # -- geometry ----------------------------------------------------------
@@ -364,19 +359,9 @@ class InGameOverlay:
             else:
                 widgets["powerups"].setVisible(False)
 
-        became_visible = not was_visible and self.in_game_overlay_window.isVisible()
-        if became_visible:
-            self._refresh_in_game_overlay_slow_widgets(projection)
-        return became_visible
+        self._refresh_in_game_overlay_luck_widget(projection)
 
-    def _overlay_slow_tick(self) -> None:
-        if not self.in_game_overlay_window or not self.in_game_overlay_window.isVisible():
-            return
-
-        tracker = self._tracker()
-        runtime_snapshot = tracker.runtime_snapshot() if tracker is not None else None
-        projection = project_in_game_overlay(runtime_snapshot) if runtime_snapshot is not None else None
-        self._refresh_in_game_overlay_slow_widgets(projection)
+        return not was_visible and self.in_game_overlay_window.isVisible()
 
     def _refresh_in_game_overlay_status_widgets(self) -> None:
         """The Scanner and REC plaques, both driven by app state rather than by
@@ -396,10 +381,20 @@ class InGameOverlay:
                 build_status_indicator_html("REC", bool(self._is_recording()))
             )
 
-    def _refresh_in_game_overlay_slow_widgets(self, projection=None) -> None:
-        """The 10 s widgets. `luck_rarity` alone now: it reads
-        `latest_snapshot.stats`, which cannot be fresher than the snapshot that
-        carries it, so a slow paint of slow data is the correct pairing."""
+    def _refresh_in_game_overlay_luck_widget(self, projection=None) -> None:
+        """`luck_rarity`, on the fast tick.
+
+        It was the only widget on a 10 s tick, and the pairing was correct at
+        the time: it read `latest_snapshot.stats`, which cannot be fresher than
+        the snapshot carrying it. Luck is now read on its own `LUCK` source by
+        the 1 s loot pass, so the input is fresh and the slow paint was the only
+        thing making the widget lag -- by up to a whole snapshot interval.
+
+        `projection.luck` is `None` when that pass has not produced a reading
+        yet (before the first one, or after a failed read expires). The 10 s
+        snapshot's copy is the fallback, because a stale Luck is a better answer
+        than none and the widget renders base probabilities without one.
+        """
         if not self.in_game_overlay_window:
             return
 
@@ -409,10 +404,12 @@ class InGameOverlay:
 
         if widget_cfg.get("luck_rarity", {}).get("enabled", False):
             latest_snapshot = getattr(projection, "latest_snapshot", None) if projection is not None else None
-            luck_stat = None
-            if latest_snapshot is not None and isinstance(getattr(latest_snapshot, "stats", None), dict):
-                luck_stat = latest_snapshot.stats.get("Luck")
-            luck_value = getattr(luck_stat, "value", None)
+            luck_value = getattr(projection, "luck", None) if projection is not None else None
+            if luck_value is None:
+                luck_stat = None
+                if latest_snapshot is not None and isinstance(getattr(latest_snapshot, "stats", None), dict):
+                    luck_stat = latest_snapshot.stats.get("Luck")
+                luck_value = getattr(luck_stat, "value", None)
             probabilities = calculate_luck_rarity_probabilities(luck_value)
             widget = widgets["luck_rarity"]
             if hasattr(widget, "set_probabilities"):
@@ -421,7 +418,12 @@ class InGameOverlay:
                     show_bar=widget_cfg.get("luck_rarity", {}).get("show_bar", True),
                 )
             else:
-                widget.set_text(build_luck_rarity_overlay_html(latest_snapshot))
+                # The probabilities are already resolved above, and resolving
+                # them again from `latest_snapshot` would silently drop the fast
+                # Luck this method exists to use.
+                widget.set_text(
+                    build_luck_rarity_overlay_html_for_probabilities(probabilities)
+                )
 
     # -- the settings tab --------------------------------------------------
 
