@@ -252,6 +252,12 @@ POWERUP_STATUS_EFFECT_NAMES: dict[int, str] = {
 POWERUP_MULTIPLIER_LABEL = "Powerup Multiplier"
 
 
+# Stat 30. Named because it is now read on its own, outside the
+# `PLAYER_STAT_GROUPS` walk: the rarity roll is a function of Luck alone, so it
+# is the one stat whose freshness a 1 s consumer depends on.
+LUCK_LABEL = "Luck"
+
+
 POWERUP_MULTIPLIER_CACHE_TTL_SECONDS = 5.0
 
 

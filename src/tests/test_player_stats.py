@@ -9,7 +9,13 @@ from infra.memory.reader import MemoryReadError
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.formatters import format_chaos_tome_stat_delta, format_player_stat_value, format_weapon_stat_value
 from core.stats.timeline import PlayerStatsTimeline
-from core.stats.types import ChaosTomeStatSnapshot, DisabledItemsReadStatus, PLAYER_STAT_SPEC_BY_LABEL, calculate_chests_per_minute
+from core.stats.types import (
+    ChaosTomeStatSnapshot,
+    DisabledItemsReadStatus,
+    PLAYER_STAT_GROUPS,
+    PLAYER_STAT_SPEC_BY_LABEL,
+    calculate_chests_per_minute,
+)
 from infra.memory.player_stats_client import PlayerStatsClient
 
 
@@ -252,6 +258,61 @@ class PlayerStatsClientTests(unittest.TestCase):
         self.assertEqual(stats["Max HP"].display_value, "198")
         self.assertEqual(stats["Armor"].display_value, "15%")
         self.assertEqual(stats["Difficulty"].display_value, "9%")
+
+    def _seed_luck(self, memory: FakeMemory, value: float) -> None:
+        entries = 0x20000500
+        luck_offset = (
+            PlayerStatsClient.STAT_VALUE_BASE_OFFSET
+            + (30 * PlayerStatsClient.STAT_SLOT_SIZE)
+        )
+        memory.floats[entries + luck_offset] = value
+
+    def test_the_narrow_luck_read_agrees_with_the_full_snapshot(self) -> None:
+        """The whole point of the separate source: it must be the same fact,
+        only cheaper. A reader that drifted from `PLAYER_STAT_GROUPS` -- a wrong
+        stat id, a wrong slot size -- would make the fast lane and the 10 s
+        snapshot report two different Lucks for one moment."""
+        memory = self.build_memory()
+        self._seed_luck(memory, 1.25)
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertEqual(client.get_luck(), 1.25)
+        self.assertEqual(client.get_player_stats()["Luck"].value, 1.25)
+
+    def test_the_narrow_luck_read_does_not_walk_the_stat_block(self) -> None:
+        """It exists because `PLAYER_STATS` resolves a full per-stat walk, which
+        is the right cost on a 10 s snapshot and the wrong one every second."""
+        memory = self.build_memory()
+        self._seed_luck(memory, 0.5)
+        reads: list[int] = []
+        underlying = memory.read_float
+        memory.read_float = lambda address: (reads.append(address), underlying(address))[1]
+        client = PlayerStatsClient(memory=memory)
+
+        client.get_luck()
+        narrow_reads = len(reads)
+        reads.clear()
+        client.get_player_stats()
+
+        full_walk = sum(
+            1
+            for group in PLAYER_STAT_GROUPS
+            for spec in group
+            if spec.offset is not None
+        )
+        self.assertEqual(narrow_reads, 1)
+        self.assertEqual(len(reads), full_walk)
+
+    def test_an_unreadable_luck_reports_absent_rather_than_zero(self) -> None:
+        """Matching what `get_player_stats` puts in `PlayerStatValue.value` for
+        the same failure. Zero is a real reading -- a run with no Luck items --
+        and the rarity model produces a valid distribution from it, so a failure
+        disguised as zero would be indistinguishable from a fresh run."""
+        memory = self.build_memory()
+        client = PlayerStatsClient(memory=memory)
+
+        self.assertIsNone(client.get_luck())
+        self.assertIsNone(client.get_player_stats()["Luck"].value)
 
     def test_player_crit_damage_display_includes_base_crit_multiplier(self) -> None:
         memory = self.build_memory()

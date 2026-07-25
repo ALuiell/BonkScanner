@@ -34,6 +34,12 @@ MOB_KILLS = "memory.player_stats.mob_kills"
 # point of naming it.
 PLAYER_STATS = "memory.player_stats.player_stats"
 PASSIVE_ITEMS = "memory.player_stats.passive_items"
+# Luck (stat 30) alone, deliberately **not** folded into `PLAYER_STATS`. That
+# key resolves a full per-stat walk, and sharing it would make every fast pass
+# that wants Luck pay for one. Two keys for two facts of different cost, per
+# section 12.7's "one key per logical fact": "the whole stat block" and "the
+# rarity roll's only input" are not the same fact.
+LUCK = "memory.player_stats.luck"
 STAGE_TIMER_CONTEXT = "memory.player_stats.stage_timer_context"
 PLAYER_LEVEL = "memory.player_stats.player_level"
 LIVE_WEAPONS = "memory.player_stats.live_weapons"

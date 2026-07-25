@@ -40,6 +40,7 @@ from core.stats.types import (
     DisabledItemsReadResult,
     DisabledItemsReadStatus,
     InvalidItemStackCountError,
+    LUCK_LABEL,
     MemoryReader,
     PLAYER_STAT_GROUPS,
     PLAYER_STAT_SPEC_BY_LABEL,
@@ -75,6 +76,7 @@ __all__ = [
     "DisabledItemsReadResult",
     "DisabledItemsReadStatus",
     "InvalidItemStackCountError",
+    "LUCK_LABEL",
     "MemoryReader",
     "PICKUP_RANGE_BASE_METERS",
     "PLAYER_STAT_GROUPS",
@@ -341,6 +343,37 @@ class PlayerStatsClient:
                 stats[spec.label] = PlayerStatValue(spec=spec, value=value)
 
         return stats
+
+    def get_luck(self, owner_stats: int | None = None) -> float | None:
+        """Read Luck (stat 30) on its own.
+
+        Its own reader rather than a ``get_player_stats`` call, because that
+        walks every spec in ``PLAYER_STAT_GROUPS`` -- forty-odd ``read_float``
+        calls -- which is the right cost on the 10 s snapshot and the wrong one
+        on a pass that runs every second. This is the cached entries pointer
+        and one float.
+
+        ``None`` on a failed read, matching what ``get_player_stats`` puts in
+        ``PlayerStatValue.value`` for the same failure, so the narrow source and
+        the full snapshot report the same thing including when they fail.
+        Deliberately not ``0.0``: Luck 0 is a real reading -- a run with no Luck
+        items yet -- and the rarity model produces a valid distribution from it,
+        so a failure disguised as zero would be indistinguishable from a fresh
+        run rather than visible as an absent one.
+        """
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        spec = PLAYER_STAT_SPEC_BY_LABEL.get(LUCK_LABEL)
+        if spec is None or spec.offset is None:
+            return None
+        try:
+            entries = self._resolve_stats_entries_cached(owner_stats)
+            return self.memory.read_float(entries + spec.offset)
+        except MemoryReadError:
+            # Same as `_get_cached_powerup_multiplier`: a failed read through
+            # the cached entries pointer is the signal that the pointer itself
+            # is stale, so drop it rather than failing against it every pass.
+            self._cached_stats_entries = 0
+            return None
 
     def get_current_gold(self, owner_stats: int | None = None) -> int:
         owner_stats = owner_stats or self._resolve_owner_stats()
