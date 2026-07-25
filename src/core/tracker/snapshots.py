@@ -72,12 +72,48 @@ class TrackedItemEvent:
 
 
 @dataclass(frozen=True)
+class ItemLossEvent:
+    """A *confirmed* drop in one item's count, timestamped from the read that
+    observed the drop rather than from the read that confirmed it.
+
+    The mirror image of the gain side's ``TrackedItemEvent``, and published for
+    the same reason a gain is: a decrease is a fact about the run, not merely a
+    baseline correction. Nothing here interprets it -- the item that left the
+    inventory is named, and what that means (a microwave craft, ``Za Warudo``
+    breaking) is the consumer's question.
+    """
+
+    item_name: str
+    lost_count: int
+    game_time_seconds: float | None
+    stage_index: int
+    map_seed: int | None
+    captured_at: float
+
+
+@dataclass(frozen=True)
 class _PendingItemIncrease:
     observed_count: int
     snapshot: LiveRunSnapshot
     stage_index: int
     combo_stage_index: int
     initial_map_one_only: bool = False
+
+
+@dataclass(frozen=True)
+class _PendingItemDecrease:
+    """A count that has been read *low* once and is not believed yet.
+
+    Deliberately the same shape as ``_PendingItemIncrease`` minus the two
+    fields only the rule engine needs. The game rebuilds the item array in
+    place, so a single low read is a torn read until a second one agrees --
+    exactly the reason increases are held pending, and a decrease applied on
+    first sight would turn every torn read into a phantom item loss.
+    """
+
+    observed_count: int
+    snapshot: LiveRunSnapshot
+    stage_index: int
 
 
 @dataclass(frozen=True)

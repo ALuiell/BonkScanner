@@ -11,6 +11,14 @@ show a transient count.  ``_PendingItemIncrease`` carries the snapshot that
 observed the rise, so the event is timestamped from when it happened rather
 than from when it was confirmed.
 
+Losses are confirmed the same way, through ``_PendingItemDecrease``.  The
+symmetry is not tidiness: a torn read is torn in whichever direction it lands,
+so a decrease applied on first sight would report an item leaving the inventory
+every time the array was read mid-rebuild.  Before this existed the baseline
+was monotonically non-decreasing for the life of a run, which meant an item
+that left the inventory kept its stale high count and re-acquiring it was never
+credited at all.
+
 The run-state dependency (``current_stage_index``) is passed in explicitly
 rather than reached for: rules like ``map_1_only`` are evaluated against the
 stage the item was picked up on.
@@ -27,9 +35,11 @@ from core import run_summary
 # roadmap asks for that debt not to be deepened before step 14).
 from core.run_summary import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
 from core.tracker.snapshots import (
+    ItemLossEvent,
     LiveRunSnapshot,
     TrackedItemEvent,
     TrackedItemRule,
+    _PendingItemDecrease,
     _PendingItemIncrease,
 )
 
@@ -39,9 +49,16 @@ class _TrackedItemState:
     tracked_item_rules: tuple[TrackedItemRule, ...] = ()
     previous_item_counts: dict[str, int] | None = None
     pending_item_increases: dict[str, _PendingItemIncrease] = field(default_factory=dict)
+    pending_item_decreases: dict[str, _PendingItemDecrease] = field(default_factory=dict)
     tracked_events: list[TrackedItemEvent] = field(default_factory=list)
     tracked_counts: dict[str, int] = field(default_factory=dict)
     combo_run_counts: dict[str, int] = field(default_factory=dict)
+    # The losses confirmed by the most recent ``process_item_deltas`` call, and
+    # only those: replaced on every call rather than accumulated. A loss is a
+    # signal a consumer acts on in the pass that produced it, not a run-long
+    # ledger -- and an unread accumulating list would grow for the life of a
+    # run with nothing ever draining it.
+    last_item_losses: tuple[ItemLossEvent, ...] = ()
 
 
 def fold_item_match_name(value: str) -> str:
@@ -70,6 +87,8 @@ def rows_for_rules(
 def reset_baseline(state: _TrackedItemState, *, reset_combo_counts: bool = True) -> None:
     state.previous_item_counts = None
     state.pending_item_increases = {}
+    state.pending_item_decreases = {}
+    state.last_item_losses = ()
     if reset_combo_counts:
         state.combo_run_counts = {rule.id: 0 for rule in state.tracked_item_rules}
 
@@ -119,9 +138,15 @@ def process_item_deltas(
     snapshot: LiveRunSnapshot,
     *,
     current_stage_index: int,
-) -> None:
+) -> tuple[ItemLossEvent, ...]:
+    """Fold one inventory read into the confirmed baseline.
+
+    Returns the losses this call confirmed -- the same tuple left on
+    ``state.last_item_losses`` -- so a caller can react to a decrease in the
+    pass that produced it without diffing state.
+    """
     if not snapshot.items_available:
-        return
+        return ()
     current_counts = run_summary.item_counts(snapshot.items)
     if state.previous_item_counts is None:
         state.previous_item_counts = {}
@@ -130,16 +155,78 @@ def process_item_deltas(
             current_counts,
             current_stage_index=current_stage_index,
         )
-        return
+        state.pending_item_decreases = {}
+        state.last_item_losses = ()
+        return ()
 
     confirmed_counts = dict(state.previous_item_counts)
     confirmed_gain_contexts: dict[str, _PendingItemIncrease] = {}
-    for item_name in set(current_counts) | set(state.pending_item_increases):
+    confirmed_losses: list[ItemLossEvent] = []
+    # ``confirmed_counts`` and ``pending_item_decreases`` join the iteration set
+    # for the decrease path: an item that leaves the inventory outright vanishes
+    # from ``current_counts``, so before this it was never visited at all and
+    # its stale baseline survived the whole run.
+    item_names = (
+        set(current_counts)
+        | set(state.pending_item_increases)
+        | set(state.pending_item_decreases)
+        | set(confirmed_counts)
+    )
+    for item_name in item_names:
         current_count = max(0, int(current_counts.get(item_name, 0)))
         confirmed_count = max(0, int(confirmed_counts.get(item_name, 0)))
         pending = state.pending_item_increases.get(item_name)
 
-        if current_count <= confirmed_count:
+        if current_count < confirmed_count:
+            # A read below the baseline voids any pending *rise* for this item:
+            # the two disagree and the newer observation wins, exactly as the
+            # increase path re-arms on a lower read below.
+            state.pending_item_increases.pop(item_name, None)
+            pending_decrease = state.pending_item_decreases.get(item_name)
+            if pending_decrease is None or current_count > pending_decrease.observed_count:
+                # First sighting, or a second read that disagrees with the
+                # first by landing higher. Either way this is one observation,
+                # and one observation never moves the baseline.
+                state.pending_item_decreases[item_name] = item_decrease_candidate(
+                    snapshot,
+                    current_count,
+                    current_stage_index=current_stage_index,
+                )
+                continue
+
+            # Confirmed: a later read agrees the count is at or below the one
+            # held pending. Credit the *pending* count, not the current one, so
+            # the loss is measured and timestamped from the read that first saw
+            # it -- the mirror of `pending.observed_count` on the gain side.
+            lost_count = confirmed_count - pending_decrease.observed_count
+            confirmed_counts[item_name] = pending_decrease.observed_count
+            confirmed_losses.append(
+                ItemLossEvent(
+                    item_name=item_name,
+                    lost_count=lost_count,
+                    game_time_seconds=pending_decrease.snapshot.game_time_seconds,
+                    stage_index=pending_decrease.stage_index,
+                    map_seed=pending_decrease.snapshot.map_seed,
+                    captured_at=pending_decrease.snapshot.captured_at,
+                )
+            )
+            if current_count < pending_decrease.observed_count:
+                # Still falling. Hold the newest observation for the next read
+                # to confirm, the same way a gain past the confirmed one re-arms.
+                state.pending_item_decreases[item_name] = item_decrease_candidate(
+                    snapshot,
+                    current_count,
+                    current_stage_index=current_stage_index,
+                )
+            else:
+                state.pending_item_decreases.pop(item_name, None)
+            continue
+
+        # At or above the baseline: whatever dip was pending has recovered, and
+        # a recovered dip is a torn read rather than a loss.
+        state.pending_item_decreases.pop(item_name, None)
+
+        if current_count == confirmed_count:
             state.pending_item_increases.pop(item_name, None)
             continue
 
@@ -198,6 +285,8 @@ def process_item_deltas(
         stage_index=current_stage_index,
         gain_contexts=confirmed_gain_contexts,
     )
+    state.last_item_losses = tuple(confirmed_losses)
+    return state.last_item_losses
 
 
 def initial_item_increase_candidates(
@@ -249,6 +338,19 @@ def item_increase_candidate(
             else int(combo_stage_index)
         ),
         initial_map_one_only=initial_map_one_only,
+    )
+
+
+def item_decrease_candidate(
+    snapshot: LiveRunSnapshot,
+    count: int,
+    *,
+    current_stage_index: int,
+) -> _PendingItemDecrease:
+    return _PendingItemDecrease(
+        observed_count=max(0, int(count)),
+        snapshot=snapshot,
+        stage_index=int(current_stage_index),
     )
 
 

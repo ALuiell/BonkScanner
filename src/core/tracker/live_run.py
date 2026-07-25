@@ -44,6 +44,7 @@ from core.tracker.combat import _CombatState
 from core.tracker.items import _TrackedItemState
 from core.tracker.powerups import _PowerupState
 from core.tracker.snapshots import (
+    ItemLossEvent,
     LiveRunSnapshot,
     TrackedItemRule,
     FeatureAvailability,
@@ -180,8 +181,9 @@ class LiveRunTracker:
             "_graveyard_final_swarm_timer_is_zero",
         )},
         **{name: "_tracked_item_state" for name in (
-            "tracked_item_rules", "_previous_item_counts", "_pending_item_increases", "_tracked_events",
-            "_tracked_counts", "_combo_run_counts",
+            "tracked_item_rules", "_previous_item_counts", "_pending_item_increases",
+            "_pending_item_decreases", "_tracked_events",
+            "_tracked_counts", "_combo_run_counts", "_last_item_losses",
         )},
         "_feature_status": "_availability_state",
     }
@@ -645,6 +647,16 @@ class LiveRunTracker:
         self._cached_stage_summary = None
         return True
 
+    @with_lock
+    def last_item_losses(self) -> tuple[ItemLossEvent, ...]:
+        """The item losses confirmed by the most recent item pass.
+
+        Both entry points into ``_process_item_deltas`` -- the 1 s fast lane and
+        the 10 s snapshot -- replace this, so a consumer reads it in the pass it
+        was written by rather than treating it as a queue.
+        """
+        return self._last_item_losses
+
     def _fresh_fast_items_unlocked(self) -> tuple[str, ...] | None:
         fast_items = self._fast_items
         if fast_items.captured_at <= 0 or fast_items.items is None:
@@ -1107,8 +1119,8 @@ class LiveRunTracker:
             return True
         return False
 
-    def _process_item_deltas(self, snapshot: LiveRunSnapshot) -> None:
-        items.process_item_deltas(
+    def _process_item_deltas(self, snapshot: LiveRunSnapshot) -> tuple[ItemLossEvent, ...]:
+        return items.process_item_deltas(
             self._tracked_item_state,
             snapshot,
             current_stage_index=self.current_stage_index,
