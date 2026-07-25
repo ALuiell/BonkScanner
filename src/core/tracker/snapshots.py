@@ -92,12 +92,42 @@ class ItemLossEvent:
 
 
 @dataclass(frozen=True)
+class ItemGainEvent:
+    """A *confirmed* rise in one item's count, timestamped -- and *Luck-stamped*
+    -- from the read that observed the rise rather than the one that confirmed it.
+
+    The sibling of ``ItemLossEvent``.  ``TrackedItemEvent`` is not this: that one
+    is emitted per matching rule and says nothing about an item no rule names,
+    whereas the loot tracker treats **every** confirmed gain as a rarity roll.
+
+    ``luck`` is the value read in the same pass as the rise, which is what makes
+    ``P(tier | Luck_j)`` answerable at all -- Luck sweeps continuously through a
+    run, so a gain matched against the current reading rather than its own would
+    accumulate expectation at the wrong point on the curve.  ``None`` means the
+    Luck read failed, and a gain with no Luck is dropped from both sides of the
+    comparison rather than counted on one.
+    """
+
+    item_name: str
+    gained_count: int
+    luck: float | None
+    game_time_seconds: float | None
+    stage_index: int
+    map_seed: int | None
+    captured_at: float
+
+
+@dataclass(frozen=True)
 class _PendingItemIncrease:
     observed_count: int
     snapshot: LiveRunSnapshot
     stage_index: int
     combo_stage_index: int
     initial_map_one_only: bool = False
+    # Luck as it stood in the pass that observed the rise. Carried on the
+    # *pending* record rather than resolved at confirmation time: confirmation is
+    # a tick later by construction, and by then Luck has moved.
+    luck: float | None = None
 
 
 @dataclass(frozen=True)
@@ -282,6 +312,31 @@ class ChestStatsSnapshot:
             and self.expected_available
             and self.expected_tracked_opens == self.normal_opened
         )
+
+
+@dataclass(frozen=True)
+class LootStatsSnapshot:
+    """Actual against expected rarities for the current run, and nothing else.
+
+    ``available`` is a hard gate, stricter than ``ChestStatsSnapshot``'s: a run
+    the app did not watch from its start has *both* halves wrong, because the
+    items already held were absorbed into the item baseline as a single silent
+    block. Partial numbers are not a degraded version of this answer, they are a
+    different and false one.
+    """
+
+    actual: dict[str, int]
+    expected: dict[str, float]
+    # ``acquisitions`` can never be fewer than ``map_chest_opens``: the counters
+    # see every chest spawned at map generation and nothing else, so the excess
+    # is dropped chests (expected -- three quarters of the recorded sample) plus
+    # the three excluded sources. A *shortfall* would mean the model has lost
+    # gains, and a runaway excess an item source it does not know about. This is
+    # the standing check the design asks to log rather than a displayed figure.
+    acquisitions: int
+    map_chest_opens: int
+    available: bool
+    outstanding_tier_debts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

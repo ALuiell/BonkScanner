@@ -35,6 +35,7 @@ from core import run_summary
 # roadmap asks for that debt not to be deepened before step 14).
 from core.run_summary import PLAYER_STATS_RUN_TIMER_RESET_TOLERANCE_SECONDS
 from core.tracker.snapshots import (
+    ItemGainEvent,
     ItemLossEvent,
     LiveRunSnapshot,
     TrackedItemEvent,
@@ -59,6 +60,11 @@ class _TrackedItemState:
     # ledger -- and an unread accumulating list would grow for the life of a
     # run with nothing ever draining it.
     last_item_losses: tuple[ItemLossEvent, ...] = ()
+    # The gains confirmed by the most recent call, on the same replace-per-pass
+    # terms as ``last_item_losses``. Distinct from ``tracked_events``, which is
+    # a run-long ledger of *rule matches*: the loot tracker scores every gain as
+    # a rarity roll, including items no rule names and items nothing displays.
+    last_item_gains: tuple[ItemGainEvent, ...] = ()
 
 
 def fold_item_match_name(value: str) -> str:
@@ -89,6 +95,7 @@ def reset_baseline(state: _TrackedItemState, *, reset_combo_counts: bool = True)
     state.pending_item_increases = {}
     state.pending_item_decreases = {}
     state.last_item_losses = ()
+    state.last_item_gains = ()
     if reset_combo_counts:
         state.combo_run_counts = {rule.id: 0 for rule in state.tracked_item_rules}
 
@@ -138,12 +145,20 @@ def process_item_deltas(
     snapshot: LiveRunSnapshot,
     *,
     current_stage_index: int,
+    luck: float | None = None,
 ) -> tuple[ItemLossEvent, ...]:
     """Fold one inventory read into the confirmed baseline.
 
     Returns the losses this call confirmed -- the same tuple left on
     ``state.last_item_losses`` -- so a caller can react to a decrease in the
-    pass that produced it without diffing state.
+    pass that produced it without diffing state.  The gains confirmed by the
+    same call are left on ``state.last_item_gains``.
+
+    ``luck`` is this pass's reading, stored on each pending rise so that a gain
+    confirmed a tick later still carries the Luck of the pass that *observed*
+    it.  Passed in rather than read off the snapshot because the fast lane and
+    the 10 s snapshot source it differently, and the caller is the one that
+    knows which is fresher.
     """
     if not snapshot.items_available:
         return ()
@@ -154,14 +169,17 @@ def process_item_deltas(
             snapshot,
             current_counts,
             current_stage_index=current_stage_index,
+            luck=luck,
         )
         state.pending_item_decreases = {}
         state.last_item_losses = ()
+        state.last_item_gains = ()
         return ()
 
     confirmed_counts = dict(state.previous_item_counts)
     confirmed_gain_contexts: dict[str, _PendingItemIncrease] = {}
     confirmed_losses: list[ItemLossEvent] = []
+    confirmed_gains: list[ItemGainEvent] = []
     # ``confirmed_counts`` and ``pending_item_decreases`` join the iteration set
     # for the decrease path: an item that leaves the inventory outright vanishes
     # from ``current_counts``, so before this it was never visited at all and
@@ -235,6 +253,7 @@ def process_item_deltas(
                 snapshot,
                 current_count,
                 current_stage_index=current_stage_index,
+                luck=luck,
             )
             continue
 
@@ -244,6 +263,7 @@ def process_item_deltas(
                 current_count,
                 current_stage_index=current_stage_index,
                 initial_map_one_only=pending.initial_map_one_only,
+                luck=luck,
             )
             continue
 
@@ -261,11 +281,26 @@ def process_item_deltas(
         )
         confirmed_counts[item_name] = pending.observed_count
         confirmed_gain_contexts[item_name] = pending
+        confirmed_gains.append(
+            ItemGainEvent(
+                item_name=item_name,
+                gained_count=gained_count,
+                # From the *pending* record, not from this pass: the roll behind
+                # the rise happened at the Luck the player held when the rise was
+                # observed, one tick before this read confirmed it.
+                luck=pending.luck,
+                game_time_seconds=pending.snapshot.game_time_seconds,
+                stage_index=pending.stage_index,
+                map_seed=pending.snapshot.map_seed,
+                captured_at=pending.snapshot.captured_at,
+            )
+        )
         if current_count > pending.observed_count:
             state.pending_item_increases[item_name] = item_increase_candidate(
                 snapshot,
                 current_count,
                 current_stage_index=current_stage_index,
+                luck=luck,
             )
         else:
             state.pending_item_increases.pop(item_name, None)
@@ -286,6 +321,7 @@ def process_item_deltas(
         gain_contexts=confirmed_gain_contexts,
     )
     state.last_item_losses = tuple(confirmed_losses)
+    state.last_item_gains = tuple(confirmed_gains)
     return state.last_item_losses
 
 
@@ -294,6 +330,7 @@ def initial_item_increase_candidates(
     counts: dict[str, int],
     *,
     current_stage_index: int,
+    luck: float | None = None,
 ) -> dict[str, _PendingItemIncrease]:
     is_clearly_early = (
         current_stage_index == 1
@@ -312,6 +349,7 @@ def initial_item_increase_candidates(
             stage_index=initial_stage_index,
             combo_stage_index=current_stage_index,
             initial_map_one_only=not is_clearly_early,
+            luck=luck,
         )
         for item_name, count in counts.items()
         if count > 0
@@ -326,6 +364,7 @@ def item_increase_candidate(
     stage_index: int | None = None,
     combo_stage_index: int | None = None,
     initial_map_one_only: bool = False,
+    luck: float | None = None,
 ) -> _PendingItemIncrease:
     resolved_stage_index = current_stage_index if stage_index is None else int(stage_index)
     return _PendingItemIncrease(
@@ -338,6 +377,7 @@ def item_increase_candidate(
             else int(combo_stage_index)
         ),
         initial_map_one_only=initial_map_one_only,
+        luck=luck,
     )
 
 

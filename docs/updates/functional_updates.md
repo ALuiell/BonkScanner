@@ -125,72 +125,427 @@ Open product decision:
   - the whole app session;
   - or both, with one of them clearly marked as the default/stat-friendly view.
 
-#### 5. Free-Chest Loot Tracking and `!chestloot`
+#### 5. Item Rarity Loot Tracking (`!luck` / Luck Rarity Widget / OBS Overlay / Live Stats)
+
+Status: `[Open / Mechanics Verified]`
+
+Goal:
+
+- Compare the rarities the player *actually* received against the rarities the game's own model *expected* to give them at the Luck they had at each moment, and expose that through the existing In-Game Overlay `Luck Rarity` widget, a mirrored OBS Overlay widget, a Twitch command, and a Live Stats card.
+- Because Luck (`PlayerStatsNew` stat ID `30`) scales continuously during a run, expected counts cannot be computed retrospectively from end-of-run Luck. For every acquisition $j$ the instantaneous $\text{Luck}_j$ is captured and expectations accumulate:
+  $$E[R_k] = \sum_{j=1}^{N} P(R_k \mid \text{Luck}_j), \quad R_k \in \{\text{COMMON}, \text{UNCOMMON}, \text{RARE}, \text{LEGENDARY}\}$$
+- **Scope is the current run only.** Nothing accumulates across runs or across an app session; Compare Runs is where multiple runs are put side by side.
+- The widget is an extension of `Luck Rarity`, not a new concept: that widget already renders $P(R_k \mid \text{Luck})$ for the current instant. This adds the cumulative actual-vs-expected line underneath it.
+
+##### Verified Game Mechanics (Megabonk `v2.1.7`)
+
+Evidence levels: `[asm]` disassembled from `GameAssembly.dll`; `[dump]` declaration in the IL2CPP metadata dump; `[game]` direct in-game observation; `[live]` our own earlier live capture; `[assumed]` accepted without verification, low risk.
+
+**Rarity roll.** The rarity model our `Luck Rarity` widget already implements is confirmed correct, instruction for instruction.
+
+- `[asm]` `Rarity.CalculateRarityWeights(float[], float)` — RVA `0x42D1B0`. Computes `S = ln(luck + 1.0) * 1.5` (`addss` 1.0f at `0x18042D1B6`, `logf` at `0x18042D1C9`, `mulss` 1.5f at `0x18042D1FF`), then `W_i = Base_i * 1.5^(-k_i * S)` via `powf` at `0x18042D235`, then normalizes by `Enumerable.Sum`.
+- `[asm]` `k_i = length - 1 - i`, computed in the loop from the array length rather than a table — hence exactly `3 / 2 / 1 / 0`.
+- `[asm]` Base weights are immediates written into the array by `Rarity.GetItemRarity` (RVA `0x42D3F0`): `0x428C0000` = **70.0**, `0x41700000` = **15.0**, `0x40C00000` = **6.0**, `0x3FC00000` = **1.5**.
+- `[asm]` The weight array is **exactly 4 elements**. `Corrupted` and `Quest` do not participate in the normalization, so dividing by the sum of four is correct.
+- `[asm]` Luck is passed as a **fraction**, not a percentage (`0.5` means "+50%"): `mov edx, 0x1e` (stat 30) at `0x1804539F7` in `InteractableChest.OpenChestImplementation` (RVA `0x453990`), result fed straight into `addss xmm1, 1.0f`. Our code passes raw `stat.value`, which is already a fraction — correct.
+- `[asm]` The game applies no clamp; `luck < -1` would yield `NaN`. Our `max(luck, -0.999999999)` is more defensive than the game and unreachable in practice.
+- `[assumed]` Tier selection is a cumulative sum against `Random.Range(0,1)` over indices `0 -> 3`.
+- `[game]` If the drawn tier's pool is empty the game falls back to an adjacent tier. Unreachable in practice: duplicates stack rather than leaving the pool, so a tier can only empty through deliberate mass banishing or lobby-disabling.
+
+**Rarity tiers and naming.** The game and this project use different names for the same four droppable tiers. There is no fifth droppable tier.
+
+- `[dump]` `EItemRarity`: `Common=0, Rare=1, Epic=2, Legendary=3, Corrupted=4, Quest=5`.
+- `[dump]` `ERarity`: `New=0, Common=1, Uncommon=2, Rare=3, Epic=4, Legendary=5`.
+- Our `core/item_metadata.ITEMS` uses `COMMON / UNCOMMON / RARE / LEGENDARY`. The correspondence with `EItemRarity` is positional: our `UNCOMMON` is the game's `Rare` (weight 15), our `RARE` is the game's `Epic` (weight 6). **Not yet verified per item** — see Open Items.
+
+**Item sources.** Every source below yields items; only the first group uses the Luck model above.
+
+| Source | Rolls via `GetItemRarity(luck)` | Evidence |
+| --- | --- | --- |
+| Paid map chest (`EChest.Normal`) | yes | `[asm]` |
+| Free map chest (`EChest.Free`) | yes | `[asm]` |
+| Crypt chest (`EChest.FreeCrypt`) | yes | `[asm]` |
+| Ghost chest (`EChest.Ghost`) | yes | `[asm]` |
+| Chest dropped by mob / elite / boss / cactus / egg | yes | `[asm]` — same `InteractableChest` path |
+| Skeleton King Statue, Character Fight | yes — they spawn an enemy whose death drops a chest | `[assumed]` |
+| Corrupt chest (`EChest.Corrupt`) | **no** — forces `EItemRarity.Corrupted`, which is outside our four tiers and drops out of both sides | `[asm]` |
+| Shady Guy (merchant, one item chosen from three offers) | **no** — `Rarity.GetShadyGuyRarity(float, float[])`, RVA `0x42DA60`, separate weights | `[dump]` |
+| Moai statue | **no** — own model, see below | `[game]` |
+| Microwave | **no** — not a roll at all: the player names the item to create (`UseMicrowave(EItem eItemToCreate)`) and pays for it with others of the same tier | `[game]` |
+
+- `[game]` **Moai does not spawn a chest.** The player opens the statue, is offered 2 or 3 items, picks **one**, and it goes straight to the inventory. Its Luck model differs by statue mode:
+
+  | Mode | Options | Effective Luck |
+  | --- | --- | --- |
+  | 0 | 2 | `Luck * 0.5` |
+  | 1 | 3 | `Luck * 1.0` |
+  | 2 | 3 | `Luck * 1.5` |
+  | 3 | 3 | ignored — always Legendary |
+
+- `[game]` **Microwave** takes **one item per use and returns one** of the same tier. A microwave's own rarity sets how many uses it has — green 3, blue and purple 2, legendary 1 — and it is spent once they are gone. `[dump]` `InteractableMicrowave.usesLeft` is at `+0x84`. The audit's reading of those 3/2/2/1 figures as a *per-craft item cost* was wrong; they are the appliance's use count. Measured live 2026-07-25: three crafts, one item consumed each, `numUsed` moving only after the third.
+- `[game]` Graves and Pots do not yield items.
+- `[game]` No other item source is known to exist.
+- `[asm]` `Clover` and `Beacon` have no special branch in the roll; `Clover` simply raises the Luck stat. Difficulty, stage index and map type do not affect the weights.
+- `[assumed]` One chest opening yields exactly one item. Duplicates stack (`ItemBase.amount`) and remain full rolls. `Key` (id 0) is in the Common pool; `CageKey` (69) and `CryptKey` (81) are `EItemRarity.Quest` and excluded from drop pools — consistent with `rarity=None` in our table. Banishing removes an item from its tier pool but does not alter the weights.
+
+**Interactable counters.** These decide what we can and cannot observe, and several earlier assumptions about them were wrong.
+
+- `[dump]` `InteractablesStatus.InteractableStatusContainer`: `numTotal` at `+0x10`, `numUsed` at `+0x14`. Our reader maps these to `StatValue(current=numUsed, max=numTotal)` correctly.
+- `[game]` **The chest counter only ever counts chests spawned at map generation.** Forest: 3 maps x 46. Graveyard: 69 on the main map plus 6 per crypt.
+- `[live]` Free *map* chests do increment it — this is what the existing `!chests` breakdown `free = opened - chestsBought` rests on.
+- `[game]` **Dropped chests are invisible to every counter**: they do not increment `numUsed`, do not raise `numTotal`, and do not touch `chestsBought` or `chestsPurchased`. There is currently no way to observe that a dropped chest was opened.
+- `[game]` **`numUsed` counts exhausted or completed interactables, not individual interactions.** The microwave's entry moves only once the appliance is spent (after 3 / 2 / 1 crafts), and the Shady Guy's moves once when trading ends, after all purchased items are already in the inventory. `OnInteractableUsed` may well fire per interaction; what is verified is that the readable field does not.
+- `[assumed]` Counters reset on every map generation, consistent with the known per-stage reset of `MapStat.CHESTS.current`.
+- `[live]` `chestsBought` (RunStats) and `chestsPurchased` (MoneyUtility) are cumulative for the run and survive map transitions.
+
+##### Detection Design
+
+Because dropped chests cannot be observed, the count of chest openings cannot drive the maths. The design is inverted: **every confirmed item gain is treated as a roll**, and only the three sources with a different model are excluded. No per-item source attribution is required.
+
+**Microwave** — the most reliable of the three signals, not the weakest. Its trigger is a **decrease in an individual item's count**, not a drop in the total — a craft consumes 1 and yields 1, leaving the total unchanged, so a total-based signal would miss every craft.
+
+- `[game]` **One item other than the microwave reduces a count: `Za Warudo`.** It breaks and leaves the inventory when the player is killed, granting a second life. It is the only self-consuming item in the game. Treated as a craft it would raise a phantom `LEGENDARY` debt and silently swallow the next genuine legendary, so `actual` would undercount while `expected` did not. It must be named explicitly and never open a debt.
+- On a decrease, record the consumed tier as a **debt**, and let the next gain of that tier settle it without counting. Deliberately not a time window: `[game]` the craft takes 2-3 s but its output lands on the ground, so it only reaches the inventory when the player walks over it. Measured gaps of 8.6 / 12.6 / 9.3 s were the player being chased off by mobs and coming back, not craft latency — there is no upper bound to size a window against.
+- Mis-settling the debt is harmless. If a chest yields a same-tier item before the player collects the craft output, the debt is settled by the chest item and the craft output is counted instead — and since both carry the same tier, the totals are identical either way. Item identity never enters the maths.
+- The one guard needed is for a craft the player never collects: **clear outstanding debts on map generation**. An item left on the floor of the previous stage is not coming, and the interactable counters reset at that boundary anyway.
+- No identity resolution is needed. Two same-tier appearances in one window are not ambiguous for our purposes: we count rarities, not items, so it does not matter which of the two is labelled the craft output — either assignment yields the same tally. Excluding the whole window instead would discard a chest legitimately opened during the craft.
+- If no appearance of that tier arrives, close the window with no exclusion (the craft was interrupted).
+- `[game]` The craft output is always **the same tier as the input** — a white item in yields a white item out — so keying the subtraction on the consumed tier is safe. The microwave never raises a tier.
+
+**Shady Guy** — `[game]` the merchant sells exactly one item, chosen from three offers, and its counter fires once after the item is granted. The exclusion therefore drops the single **preceding** gain. `[game]` The counter does not fire if the player browses and leaves without buying, so a window never opens spuriously. Trading takes about 5 s, so a few seconds of lookback is enough. If it ever proves too greedy, bound it by `DetectInteractables.currentInteractable` rather than by elapsed time.
+
+**Moai** — `[game]` the statue grants exactly one item, picked from 2 or 3 offers, and its counter fires at the interaction, before the grant. The exclusion drops the single **following** gain.
+
+All three sources therefore share one rule — **one increment, one excluded gain** — differing only in direction. At the observed acquisition rate of roughly 1.8 per minute, two gains landing inside the same narrow window is rare, so mislabelling one of them is both uncommon and cheap.
+
+**Window sizes, measured live on 2026-07-25** (`tools/probe_loot_sources.py`, 250 ms sampling):
+
+| source | direction | window | measured gaps |
+| --- | --- | ---: | --- |
+| Moai | forward | 3 s | 0.75 / 1.00 / 1.77 s |
+| Shady Guy | backward | 2 s | same tick, twice (<= 0.25 s) |
+| Microwave | untimed debt | — | see above |
+
+Moai's counter fires when the player picks, not when the statue opens, so deliberation never lands in the gap — the earlier estimate of 20 s was wrong by an order of magnitude. The merchant's counter and its item arrive together, so its window only needs to absorb the case where a 1 s poll splits them across two ticks. Both of those items go straight to the inventory, which is why their gaps are short and consistent; only the microwave's output waits on the ground, which is why it gets a debt rather than a window.
+
+At the production 1 s cadence every one of these collapses to "this tick or the next", so the implementation needs a short pending queue, not a multi-second scan.
+
+**Ambiguity rule** — where a window still cannot be resolved, the affected gains are dropped from **both** `actual` and `expected`. Consistency between the two numbers matters more than completeness.
+
+**Unresolvable rarity is dropped from both sides.** If a gained item's rarity cannot be resolved against `ITEMS`, it contributes to neither `actual` nor `expected`. Accumulating expectation for an item whose actual tier we cannot record would drift the two apart. This is what makes chest *source* genuinely irrelevant: an item from a Corrupt chest carries `EItemRarity.Corrupted`, which is not one of our four tiers, so it falls out of both sides on its own and needs no special handling. The rule matters more for game updates — new items our table does not know yet would otherwise skew the numbers silently.
+
+**Sanity check** — map-spawned chest openings *are* countable, so item gains must always be at least that number. Logging both and watching the excess is a cheap standing check that no unknown item source exists. This uses a counter we already read.
+
+##### Implementation Notes
+
+- **One task reads the whole loot sample.** Items, the interactable counters and Luck are consumed by the existing `passive_items` task in a single pass, so all three carry one timestamp and are **coherent by construction**. The "did the counter move before or after this gain" question and the "which Luck applied to this roll" question both stop existing rather than being solved. This is what the named sources are for: within one `RefreshTickContext` a key resolves once and every consumer in that pass sees the same value.
+- **Luck needs a narrow source of its own.** It is currently only available inside `PLAYER_STATS` on the 10 s full snapshot. Add a reader for stat `30` alone under its own key; reusing `PLAYER_STATS` would pay for a full per-stat walk on every fast pass. Moving it also fixes the In-Game Overlay's Luck widget lagging up to 10 s, which is worth having on its own.
+- **The interactable counters cost no extra read.** `get_map_activity_values` already walks the whole `InteractablesStatus` dictionary and returns every key, `Moais` / `Shady Guy` / `Microwaves` included. It resolves today through `MAP_ACTIVITY_VALUES` on the 10 s snapshot ([player_stats_refresh.py:288](../../src/app/player_stats_refresh.py:288)), whose consumers are `chests_total`, `pots_total` and `PowerupMapContext.from_activity_max` — **not** Stage Summary, which does not use this source. Adding a second consumer is exactly the case the pass cache exists for, and reading it every second also fixes `PowerupMapContext` being absent for the first ten seconds of every run.
+- **Optional: skip the fast walk once a map is spent.** `numUsed == numTotal` for all three keys means no further exclusion window can open on this map, which fits `RefreshTask.required` in a few lines. Worth having, but do not expect much from it: the counters reset on every map generation, so it re-arms per stage, and it never fires at all if the player leaves one statue or merchant untouched.
+- **Luck sampling needs no further precision.** `[game]` A chest deposits its item instantly on interaction, so only our own ~1 s poll separates the roll from the observed gain — and no Luck source moves the stat enough in one second to shift the rarity probabilities beyond hundredths of a percent. With Luck read in the same pass as the gain there is nothing left to correct for; do not build a matching buffer.
+- **`process_item_deltas` must learn to handle decreases** before any of this can work — see Build Order below.
+- **Late attach is a hard unavailable state**, stricter than `!chests`. Attaching mid-run leaves both `expected` *and* `actual` wrong, since items already held are absorbed into the baseline by `initial_item_increase_candidates`. The widget must say the run is not measurable rather than show partial numbers.
+
+##### Deliverables
+
+**Twitch `!luck`** — a single message, pipe-separated like every other command, pairing each tier's current chance with what it has actually produced:
+
+```
+Luck: Legendary 54.88% - 116 (exp 118) | Epic 29.28% - 78 (exp 78) | Rare 9.76% - 38 (exp 36) | Common 6.08% - 45 (exp 45)
+```
+
+When the run is not measurable — the app was not running from its start — the actual and expected halves drop out and only the chances remain:
+
+```
+Luck: Legendary 54.88% | Epic 29.28% | Rare 9.76% | Common 6.08%
+```
+
+- The chance half always works, since it depends only on the current Luck and not on when the app attached. Omitting the rest leaves a shorter command rather than a broken-looking one; `!chests` keeps its own `Expected: --` instead, because there the value sits inside one whole message and a gap would read as a fault.
+- **Chat uses the game's own rarity vocabulary — `Legendary / Epic / Rare / Common`** — not our internal keys. Our `ITEMS` labels the middle two `UNCOMMON` and `RARE`, one tier down from what the game calls them, which is invisible where colour carries the meaning and actively wrong in plain text: a viewer reading "Rare" pictures the blue tier while we mean the purple one. Chat is the only surface with words, so it is the only place this mapping is needed.
+- No abbreviations. The line runs about 120 characters against a 500-character limit, so shortening buys nothing and costs readability.
+
+**In-Game Overlay** — extend `LuckRarityOverlayWidget` with a `Show Expected Frame` toggle alongside the existing `show_bar`, adding a compact panel of actual-versus-expected counts under the probability row.
+
+Layout, all of it settled against a real game frame on 2026-07-25 rather than against a mockup:
+
+- **Two selectable layouts, `expected_layout: "column" | "row"`.** `column` is a two-by-two block of `● 116 (118)` with the dot carrying the tier colour; `row` is a single line of `116/118` per tier, no dots. They trade roughly 45 px of screen against legibility — a real user preference, not an unmade decision — and share every other rule, so the branch is one arm in the HTML builder. Default to `column`: someone enabling the frame for the first time should meet the readable form, since a cramped first impression gets the whole frame switched back off.
+- **Either layout stretches across the widget's width**, first cell flush left, last flush right. Growing numbers eat the centre gap instead of changing the footprint. `row` works without dots precisely because of the stretch — at ~38 px of gap the whitespace separates the groups the way the dot does in `column`. Keep a minimum centre gap so cells can never touch.
+- **Anchor to the percentage row, not to the bar.** `show_bar` can hide the bar, so anchoring to it leaves the block without a reference in two of the four toggle states. The percentage row is always drawn. In Qt: give the block the label's width inside the shared `QVBoxLayout` rather than computing offsets. On the captured frame the percentage row measures slightly wider than the bar and the cause is not determinable from a screenshot — verify all four toggle combinations by eye.
+- **Never tie the figures to the bar's segment geometry.** The bar is proportional, so a tier at 1% is a segment one pixel wide and nothing can sit under it. Only the tier order (`LUCK_RARITY_ORDER`) and the colours are shared with it.
+- With the bar hidden, `column` reads airier than it does with the bar present — the bar was doing structural work, filling the span and tying the two text rows into one block, and without it the centre is visibly empty while `row` stays tight. Cosmetic rather than broken, and worth leaving alone in a first version; if it grates, centring each column within its half instead of pinning to the extremes closes the gap at the price of one conditional.
+- **Actual in the tier colour, expected in the muted grey already used for the `|` separators.** A darker tint of the tier hue is unreadable over grass and wood; white outranks the actual figure when the hierarchy should run the other way. One grey for all four beats four hand-picked shades.
+- **One decimal below 10, whole numbers above.** Dropping tenths outright turns `1 (0.8)` into `1 (1)`, reading as "exactly on expectation" when the player was ahead, and `0 (0.4)` into `0 (0)`, as if nothing had been expected.
+- Stress-tested on the same frame: `column` holds a 147 px centre gap at `999 (999)` and 87 px at an unreachable four digits; `row` has 38 px today and 8 px at `999`. The largest single-tier count across the real recordings was 116.
+- No rarity words anywhere in the overlay, so the naming question that governs chat never reaches it and the two surfaces cannot disagree.
+- **Enabling the frame or switching layout changes the widget's height**, which trips `_keep_widgets_inside_bounds` and makes a widget near an edge jump. One fix covers both, and the default position should sit high enough that the extra rows do not land on the item hotbar.
+
+**OBS Overlay** — the same content, colours, tier order and both toggles, with its own `expected_layout`. Configured **separately** from the in-game widget rather than mirroring it: "show it to chat but not to me" has to be expressible, and the two surfaces have genuinely different space budgets.
+
+**Live Stats** — a new `Loot` tab holding the existing chest card, moved across unchanged, plus a new rarity card beside it. Leave an empty placeholder card in the slot the chest card vacates in `Stats`, to be filled later.
+
+- The rarity card is four lines, one per tier, each carrying the current drop chance, the actual count and the expectation — the same grouping the Twitch line uses, so the two read alike:
+
+  ```
+  Legendary   54.88%     116 (exp 118)
+  Epic        29.28%      78 (exp 78)
+  Rare         9.76%      38 (exp 36)
+  Common       6.08%      45 (exp 45)
+  ```
+
+- This card is where the **streamer** learns why the data is unavailable ("app was not running from the start of the run"). Viewers see nothing; the one person who can act on it sees the reason.
+- Label its `Expected` apart from the chest card's — expected counts by rarity versus expected key procs — since the two now sit side by side meaning different things.
+
+**Recordings and Compare Runs** — serialize the per-tier actual and expected totals into the recording snapshots so Compare Runs can diff luck between runs, behind its own toggle. This is the most interesting use of the data: a single run's legendary count is mostly noise, and only across runs does a deviation mean anything. Older recordings have no such field, so the comparison needs an explicit missing-value path rather than a zero. The chest breakdown gets the same treatment under a separate toggle — see item 6, where the recording side already exists.
+
+**Twitch Bot settings** — enable/disable and permissions for `!luck` alongside the other commands, in the same shape as the existing entries.
+
+**Visual consistency** is a reuse requirement, not a style guideline. `ITEM_RARITY_COLOR_MAP` and `COLOR_MAP` in `core/item_metadata.py` are already shared by the in-game overlay, the OBS overlay and the GUI cards. Every new block takes its colours from there; anything that hardcodes its own will drift at the first edit.
+
+**Attribution** — surface the model's provenance in a tooltip, so the numbers read as a stated model rather than as our own claim about the game's internals.
+
+##### Chests Stay Their Own Thing
+
+The chest count takes no part in this feature's maths, and nothing about the existing chest tracking changes. Whether a chest was paid for or opened by a Key proc says nothing about the roll inside it — that distinction is what `!chests` exists for, and its `Expected` counts expected *key procs*, an unrelated quantity.
+
+- `!luck` carries **no chest count at all**, only the two lines above.
+- Neither overlay shows one either. The game's own HUD already lists `Chests 9/46`, `Moais 3/3`, `Shady Guy 5/5` and `Microwaves 1/1` in the corner, so an overlay copy would duplicate what the player is already looking at.
+- The Live Stats chest card moves into the new tab **unchanged**, keeping its current layout and semantics, with the new rarity card beside it.
+
+The one thing to watch is that this puts **two cards labelled `Expected` side by side** meaning different things. Label them apart — expected key procs versus expected counts by rarity — or the first question asked will be why one reads 12.4 and the other 1.4.
+
+The deviation is written as `116 (exp 118)` rather than a signed `+0.6` throughout: a bare delta loses scale, reading identically against an expectation of 1.4 and of 15.
+
+##### Build Order and Tests
+
+Item 7 holds the step-by-step build plan, the prerequisite fix to `process_item_deltas` and the full test list. It is written to be handed to an implementer on its own; this item is the design that plan must not re-open.
+
+##### Offline Validation (2026-07-25)
+
+`tools/replay_loot_expectation.py` replays the model over the recordings in `stats_recordings/`. It accumulates expectation from the disassembled formula against the Luck recorded at each moment, and tallies `actual` through our own `ITEMS` rarity table — two independent paths, so agreement is evidence rather than tautology.
+
+Seven ordinary runs, 1396 acquisitions, Luck sweeping from single digits to `11497%` (where `P(Legendary)` passes 50%):
+
+| tier | actual | expected | sigma | z |
+| --- | ---: | ---: | ---: | ---: |
+| LEGENDARY | 632 | 630.9 | 16.4 | +0.1 |
+| RARE | 335 | 339.7 | 15.8 | −0.3 |
+| UNCOMMON | 181 | 163.2 | 11.8 | +1.5 |
+| COMMON | 248 | 262.1 | 11.5 | −1.2 |
+
+What this settles:
+
+- The formula, its constants, and the fractional Luck units hold across the whole Luck range, not merely at one point.
+- **Our four rarity labels map correctly onto the game's tiers.** A misaligned label would have shown up as tens of sigma over this many samples. The planned live read of `RunUnlockables.availableItems` is no longer needed for that purpose.
+- The residual `+1.5` on UNCOMMON is the expected signature of the exclusions the replay does not implement: Moai rolls at `Luck * 0.5` in mode 0 and the merchant uses its own weights, and at high Luck those land in the thin middle tiers. Roughly a dozen such items per run.
+- `950k` recorded 77 map chest openings against 277 acquisitions. Three quarters of the data comes from drops the chest counter cannot see, which is the measured form of why the counter cannot drive the maths.
+
+Recordings made with cheats are unmistakable and must be filtered before pooling. Ordinary play sits at 1.7-1.9 acquisitions per minute in every long run; cheated ones start at 2.2 and reach 33/min, usually with one item gaining +99 to +198 in minutes. Pooled over 23 such runs the model "fails" by up to 28 sigma — an artefact of the fixture, not the model.
+
+The script doubles as a regression, but on itself: run against the same fixtures it must keep producing the same table. **Do not expect the live tracker to match it.** The replay reconstructs gains from consecutive 10 s snapshots, so several acquisitions share one Luck sample and the Moai, merchant and microwave exclusions cannot be applied at all — they resolve inside a second. The live tracker has both, and should therefore land closer to expectation than the replay does. A disagreement between the two is the design working, not a defect.
+
+The 10 s recording interval is otherwise harmless to the feature: what gets serialized is the accumulated per-tier totals, computed continuously on the 1 s lane and merely sampled for writing. The interval only sets the granularity of a Compare Runs timeline, which over a two-hour run is ample.
+
+##### Open Items
+
+- Nothing blocking. The exclusion window sizes were measured on 2026-07-25 and are recorded above, and `Za Warudo` is confirmed to be the only self-consuming item.
+- No way to detect a dropped-chest opening. **This does not block the feature** — it only limits the context line to "items acquired: N" instead of "chests opened: N".
+- Whether `EChest.FreeCrypt` draws from a separate pool is unconfirmed; it does not affect the rarity distribution either way.
+
+##### Superseded Assumptions
+
+Recorded so they are not re-derived. Every claim in the dump-based audits that lacked a disassembly listing and touched observable game behaviour turned out to be wrong; the listings themselves held up.
+
+- The five-rarity scale including a droppable `Epic` distinct from `Rare` — there are four droppable tiers under two different naming schemes.
+- "Moai spawns an `EChest.Free`" — reported with a listing, contradicted by gameplay. The audit prompt had stated this as a hypothesis to check, and the answer echoed it back.
+- "Dropped chests register in `InteractablesStatus` via `InteractableChest.Awake`" — they do not.
+- "`InteractablesStatus["Microwaves"]` increments on every craft" — measured: it moved only after the third and final craft of a green microwave.
+- "A craft consumes 3 / 2 / 1 items depending on the tier" — those figures are the appliance's use count by its own rarity. Every craft takes exactly one item and returns one.
+- Estimated exclusion windows of 20 s for Moai and 8 s for the merchant, both derived from assumed player deliberation. Measurement put them at ~1 s and ~0 s: the Moai counter fires at the pick rather than at the interaction, and the merchant's fires together with its item.
+- Reconciling item gains against the chest-opening counter, which assumed that counter sees every opening. It does not.
+- Including Moai items as ordinary chest rolls — its Luck multipliers would have skewed the expectation systematically, not merely added noise.
+- Function labels in the audits contradict each other across reports (`0x18112df20`, `0x51AF60`); treat any name in them as unverified unless a listing backs it.
+
+##### References
+
+- [2026-06-10-chests-and-keys-detection.md](file:///f:/Python/MegabonkReroll/docs/recovery/reports/2026-06-10-chests-and-keys-detection.md) — `EChest`, `ItemKey`, `InteractableChest`, `ItemInventory`, and the Item Source Elimination Algorithm this design deliberately replaces.
+- [chests-command-detection.md](file:///f:/Python/MegabonkReroll/docs/design/game/chests-command-detection.md) — the live-tested counter semantics behind `!chests`, and the `DetectInteractables.currentInteractable` path.
+- [2026-06-09-disabled-items-detection.md](file:///f:/Python/MegabonkReroll/docs/recovery/reports/2026-06-09-disabled-items-detection.md) — `RunUnlockables.availableItems`, needed for the rarity-label verification above.
+- [In_Game_Overlay.md](file:///f:/Python/MegabonkReroll/docs/wiki/In_Game_Overlay.md) — `LuckRarityBarWidget` and the rarity probability rendering.
+- [data_flow_architecture.md](file:///f:/Python/MegabonkReroll/docs/design/app/data_flow_architecture.md) & [data_flow_refactor_plan.md](file:///f:/Python/MegabonkReroll/docs/design/app/data_flow_refactor_plan.md) — the fast/slow refresh lanes a Luck task would join.
+
+#### 6. Chest Statistics in Recordings and Compare Runs
 
 Status: `[Open]`
 
 Goal:
 
-- Add a Twitch command (working name: `!chestloot`) and a future in-game overlay
-  widget that compare the expected and actually received Epic/Legendary loot
-  from free chests dropped by enemies.
-- Keep this separate from the existing `!chests` / key-proc statistics: those
-  counters describe paid/key chest opens and cannot be treated as the source of
-  enemy-dropped chest rewards.
+- Expose the chest breakdown in Compare Runs the same way the rarity totals from item 5 are exposed, behind its own toggle so the two can be shown independently.
 
-Required investigation and implementation work:
+What is already done:
 
-- Find and validate a memory-backed source that reliably signals a *free* chest
-  opening after it happens; identify its update timing, reset behavior, and
-  whether it can distinguish a free chest from paid, key-proc, reward, or other
-  chest-like interactions.
-- Record every detected chest-open event with its classified source, at minimum
-  `free` versus `paid/key`, so later loot accounting never has to infer the
-  source from aggregate counters alone.
-- When an item is gained, retain the item event together with its attributed
-  source. Attribute it to a chest only when a validated chest-open event and
-  the item gain can be matched; leave ambiguous gains explicitly unclassified
-  instead of counting them as chest loot.
-- Preserve the item's canonical rarity with the attributed event, allowing
-  actual Epic and Legendary counts to be calculated from confirmed free-chest
-  rewards.
-- Capture the Luck-derived rarity probabilities at each confirmed free-chest
-  open. Calculate expected Epic/Legendary counts as the sum of those per-open
-  probabilities, rather than applying the current Luck value retrospectively
-  to all opened chests.
-- Define reset and stage-transition behavior, and ensure the command, any
-  overlay widget, recordings, and later summaries consume the same event
-  ledger.
+- **The recording side needs little or no work.** Snapshots already carry `chests_opened`, `chests_total`, `chests_opened_by_stage`, `chests_total_by_stage`, `paid_chests`, `key_procs`, `expected_key_procs`, `free_chests` and `keys_count` — verified against `stats_recordings/950k.jsonl` (metadata `version: 6`). The remaining work is reading them back and rendering the comparison.
 
-Validation requirements:
+Remaining work:
 
-- Produce controlled captures covering a free chest, a paid chest, a key-proc
-  chest, and an item gain unrelated to a chest.
-- Verify that each capture produces the correct source classification and that
-  ambiguous timing does not inflate actual free-chest loot counts.
-- Do not ship expected-versus-actual rarity output until the free-chest signal
-  and item-source attribution are validated in live runs.
+- Add a Compare Runs toggle for the chest block, a sibling of the rarity one rather than a shared switch: a viewer comparing luck between runs and one comparing looting efficiency want different rows on screen.
+- Decide which fields are worth comparing. Paid versus Key procs versus inherently free is the interesting split, and `expected_key_procs` beside the actual proc count is the one figure that says whether the Key stack paid off. Raw `chests_opened` alone compares map progress more than player decisions.
+- Handle older recordings explicitly. Even inside a single version-6 file the early snapshots predate some keys — `chests_total`, `expected_key_procs` and `free_chests` are absent from the first few rows of `950k.jsonl` — so the comparison needs a real missing-value path rather than treating absence as zero, which would read as "no chests opened" instead of "not recorded".
+- Keep the `Expected` label distinct from the rarity card's. Here it counts expected **key procs**; in item 5 it counts expected items per tier. The two now appear in the same tab and the same comparison view.
 
-#### 5.1. Overlay Chests & Luck-Rarity Widgets Implementation Blueprint
+#### 7. Item Rarity Loot Tracking — Implementation Plan
 
-Status: `[Open / Designed]`
+Status: `[Partial]` — steps 1-4 landed 2026-07-25 (`b583d8a`, `2328aa8`, `a783c8e`, this commit); steps 5-6 open.
 
-Implementation details for future overlay widgets:
+Note from step 4, which the plan did not anticipate: the rarity model had to move from `src/projections/in_game_html.py` down to a new `src/core/luck_rarity.py` before the tracker could use it at all — `core/` may not import `projections/` (§2 layer table), and this step is the model's second consumer. `in_game_html` re-exports both public names, so the overlay, its window and `tools/replay_loot_expectation.py` still import them at the old address.
 
-- **Chest Overlay Widget (`!chests` live format)**:
-  - Displays live total opened chests (`MoneyUtility.chestsPurchased` + free chests), paid openings, free key procs, and inherent free chests.
-  - Computes expected key procs cumulatively for each paid attempt $i$ using `ItemKey` hyperbolic probability:
-    $$\text{ExpectedFree} = \sum_{i=1}^{N_{\text{paid}}} \frac{0.10 \cdot \text{KeyStacks}_i}{0.10 \cdot \text{KeyStacks}_i + 1.0}$$
-- **Luck & Rarity Distribution Widget**:
-  - Monitors `PlayerStatsNew` / `StatValue` Luck stat (ID `30`).
-  - Records acquired items grouped by `ItemData.rarity` (`1` = Common, `2` = Uncommon, `3` = Rare, `4` = Epic, `5` = Legendary).
-  - Computes cumulative expected rarity distribution $E[R_k] = \sum_{j} P(R_k \mid \text{Luck}_j)$ and compares observed item counts against expected values.
-- **Dropped Chest & Item Source Classification**:
-  - Dropped chests (from Mobs, Bosses, Cacti, Eggs) instantiate standard `InteractableChest` prefabs (`EffectManager.SpawnChest`).
-  - Animation skip ("Skip Chest Animation") invokes `ChestUtility.OpenChestNoAnimation()`, which updates memory structures (`chestsPurchased`, `gold`, `ItemInventory.items`) **instantaneously** within a single frame.
-  - Item acquisition sources are classified via the **Item Source Elimination Algorithm** (see reverse engineering report [2026-06-10-chests-and-keys-detection.md](file:///f:/Python/MegabonkReroll/docs/recovery/reports/2026-06-10-chests-and-keys-detection.md)), ensuring dropped chests are credited correctly without requiring high-frequency memory polling.
+Note from step 1's tamper check, worth keeping: a naive decrease that skips confirmation passed the **entire** existing `test_live_run_tracker.py`, including `test_tracker_does_not_double_count_after_transient_item_drop`, whose sequence ends before the re-armed increase is confirmed. A test named for the scenario is not the same as a test that covers it.
 
-### In-Game Overlay
+Outstanding from step 3: `src/tests/test_read_census.py` loads `tools/read_census.py` by path, and `tools/` is gitignored (`.gitignore:54`), so the census update for the new `LUCK` source cannot be committed. The test therefore guards nothing on a clean checkout. Either except that one file from the ignore or stop treating the test as protection.
+
+The design, the verified game mechanics, the measured constants and the output formats all live in item 5. **Read item 5 first; this item is the build order only.** Nothing here re-opens a decision made there — where this plan says something is decided, it is decided, and the reasoning is in item 5.
+
+Six steps. Steps 1 and 2 are independent of the rest and each fixes something on its own, so they can land separately.
+
+---
+
+**Step 1 — Handle item-count decreases in `process_item_deltas`**
+
+`src/core/tracker/items.py:117`, with `_PendingItemIncrease` in `src/core/tracker/snapshots.py`.
+
+The function copies previous counts into `confirmed_counts`, and its `current_count <= confirmed_count` branch drops the pending entry and `continue`s without writing back. `previous_item_counts` is therefore monotonically non-decreasing for the life of a run.
+
+- Add a confirmed-decrease path **symmetric with the existing increase path**. Increases are held pending and credited only when a later read agrees, because the game rebuilds the item array in place and a mid-write read shows a torn count. Do the same for decreases: one low read is a torn read until a second confirms it. A plain assignment would make every torn read look like a microwave craft in step 4.
+- Expose the confirmed decrease as an observable event, not only as a baseline adjustment — step 4 consumes it as the microwave signal.
+
+This is a live bug independent of the feature: after an item leaves the inventory, its stale high baseline means re-acquiring it never registers, so `process_item_gain` never fires and the tracked-item rules behind the OBS overlay, Session Stats and the Twitch commands silently miss it.
+
+Tests in `src/tests/`, alongside `test_live_run_tracker.py` and `test_passive_items_fast_lane.py`:
+
+- a single low read does not lower the baseline; a second agreeing read does;
+- a torn read that dips and recovers produces neither a gain nor a loss;
+- after a confirmed decrease, re-acquiring the same item credits the gain exactly once.
+
+Done when: those tests pass and no existing item-delta test regresses.
+
+---
+
+**Step 2 — A narrow `LUCK` source**
+
+`src/app/read_sources.py`, `src/infra/memory/player_stats_client.py`.
+
+- Add a reader for stat `30` alone and give it its own key. Do **not** reuse the `PLAYER_STATS` key: it resolves a full per-stat walk, which would then run on every fast pass.
+- No task yet — step 3 is where it gets consumed. Keeping the reader separate from the wiring makes the memory-side change reviewable on its own.
+
+Done when: the source exists and resolves the same value the full snapshot reports for `Luck`.
+
+---
+
+**Step 3 — Read the whole loot sample in one pass**
+
+`src/app/refresh_tasks.py` (`_refresh_passive_items_task`, around line 486), `src/app/player_stats_refresh.py:288`, `src/gui_in_game_overlay.py`.
+
+Make the existing `passive_items` task consume **three** sources in the same pass: `PASSIVE_ITEMS`, `MAP_ACTIVITY_VALUES` and the new `LUCK`.
+
+- This is the point of the whole shape. Within one `RefreshTickContext` a key resolves once and every consumer in that pass sees the same value, so items, counters and Luck all carry one timestamp. Step 4's Moai and merchant exclusions need that — at this cadence the counter increment and the gain land in the same tick — and the "which Luck applied to this roll" question disappears rather than needing a matching buffer.
+- The counters cost no extra read: `get_map_activity_values` (`src/infra/memory/game_data_client.py:517`) already walks the whole dictionary and returns every key. The 10 s snapshot keeps its own consumption — `chests_total`, `pots_total` and `PowerupMapContext.from_activity_max`, **not** Stage Summary, which does not use this source — and the pass cache shares one physical walk whenever both are due. Reading it every second also fixes `PowerupMapContext` being absent for the first ten seconds of every run, which the comment at that site already notes.
+- Publish Luck on `RuntimeStateSnapshot` and repoint the In-Game Overlay `luck_rarity` widget at it. The widget currently reads `latest_snapshot.stats["Luck"]` on the 10 s slow tick (`_refresh_in_game_overlay_slow_widgets`); move it to the fast tick and update the comment there, which explicitly justifies the slow pairing this step removes. Drop `luck_rarity` from `in_game_overlay_requires_player_stats_refresh`.
+- Check the task's `required` predicate still fits. `passive_items` uses `_should_refresh_full_player_snapshot`; confirm that covers the case where the Luck widget is enabled, since Luck now rides this task.
+- **Error policy, decided:** the full snapshot stays the health owner for `MAP_ACTIVITY_VALUES`. It records health in its own task body rather than through `read_source` callbacks, so a second consumer does not steal that accounting — whichever task resolves the key first performs the physical read, and the snapshot still records its own success or failure from the cached result. The item task keeps swallowing failures the way it already does for `PASSIVE_ITEMS`. Put the reasoning in the code comment; the existing one there explains the equivalent decision for `PASSIVE_ITEMS`.
+- Optional, a few lines: skip the fast dictionary walk once `numUsed == numTotal` for all three keys, via `RefreshTask.required`. The counters reset per map so it re-arms each stage, and it never fires if the player leaves one statue untouched. Worth having, not worth much.
+
+Done when: one tick yields items, counters and Luck together; the Luck widget updates at the fast cadence; memory-health behaviour for `MAP_ACTIVITY_VALUES` is unchanged from today.
+
+---
+
+**Step 4 — The loot tracker**
+
+New `src/core/tracker/loot.py`, modelled on `src/core/tracker/chests.py`; snapshot type in `src/core/tracker/snapshots.py`; wired through `src/core/tracker/live_run.py`.
+
+State per run: `actual[tier]`, `expected[tier]`, the tracked-acquisition count, an availability flag, and the pending structures below. Copy the `expected_detected_run_reset` pattern from `_ChestState` so a spurious reset does not wipe a valid run.
+
+Rules, all already decided in item 5:
+
+- Every confirmed item gain is a roll. Accumulate `expected[tier] += P(tier | Luck_j)` using `calculate_luck_rarity_probabilities` (`src/projections/in_game_html.py:157`). `Luck_j` is the value read in the **same pass** as the gain, courtesy of step 3 — no buffer, no nearest-sample matching. A gain confirmed a tick late still carries the Luck from the pass that observed the rise, because `_PendingItemIncrease` holds that snapshot.
+- Rarity resolves through `ITEM_RARITY_BY_NAME` and `normalize_item_name_for_rarity`. **If it does not resolve, the gain contributes to neither side** — that is what makes Corrupt-chest items and post-update unknown items harmless.
+- **Microwave:** a confirmed decrease opens a *debt* for the consumed tier; the next gain of that tier settles it and is not counted. No timer — the craft output lies on the ground until collected. Debts queue; clear outstanding debts on map generation.
+- **`Za Warudo` never opens a debt.** It leaves the inventory when the player dies, and treating that as a craft would swallow the next genuine legendary.
+- **Moai:** a counter increment excludes the *next* gain, 3 s forward window.
+- **Shady Guy:** a counter increment excludes the *preceding* gain, 2 s backward window.
+- Where a window cannot be resolved, drop the affected gain from **both** sides.
+- Late attach is a hard unavailable state — both `actual` and `expected` are wrong once existing items are absorbed into the baseline by `initial_item_increase_candidates`.
+- Log map-spawned chest openings beside the acquisition count. Gains must always be at least that number, and the excess is the standing check that no unknown source exists.
+
+Tests — this is the part that matters. The powerup timing work needed two live captures to find behaviour that had looked obvious, and this is the same shape of state machine over noisy reads.
+
+*Exclusions*
+
+- a decrease opens a tier debt; the next same-tier gain settles it uncounted, while other-tier gains in between count normally;
+- a second decrease before the first settles queues rather than replaces;
+- debts clear at map generation, and a same-tier gain after that boundary counts;
+- a `Za Warudo` decrease opens no debt;
+- a Moai increment excludes the next gain, a Shady Guy increment the preceding one;
+- an increment with no gain in its window expires without excluding anything;
+- the counters resetting at map generation is not read as an increment.
+
+*Accumulation*
+
+- expectation uses the Luck sampled at the gain's timestamp, not at confirmation;
+- an unresolvable rarity contributes to neither side;
+- a stack increase on an already-owned item counts as a full roll;
+- attaching mid-run yields the unavailable state, not partial numbers;
+- a new run clears state, and a spurious reset does not.
+
+Done when: those tests pass and `tools/replay_loot_expectation.py` still reproduces its recorded table — it exercises the model, not the tracker, so it must be unaffected.
+
+*Landed 2026-07-25 as `src/core/tracker/loot.py` and `src/tests/test_loot_rarity_tracker.py`, thirteen tests.* Each was tamper-checked by breaking the decision it names and confirming it reddens — a green suite proves nothing here, as step 1 established:
+
+| decision broken | test that reddened |
+| --- | --- |
+| the debt never settles | `..._a_decrease_opens_a_tier_debt...` (and the queue test with it) |
+| a repeat debt dedupes instead of queueing | `..._a_second_decrease_before_the_first_settles_queues` |
+| map generation leaves debts standing | `..._debts_clear_at_map_generation` |
+| `Za Warudo` opens a debt | `..._za_warudo_leaving_the_inventory_opens_no_debt` |
+| the two window directions swapped | `..._moai_excludes_the_next_gain_and_shady_guy_the_preceding_one` |
+| the forward window never expires | `..._an_increment_with_no_gain_in_its_window_excludes_nothing` |
+| a counter *drop* read as movement | `..._counters_resetting_at_map_generation_is_not_an_increment` |
+| Luck taken at confirmation | `..._expectation_uses_the_luck_at_the_gain_not_at_confirmation` |
+| unresolvable rarity defaulted to a tier | `..._an_unresolvable_rarity_contributes_to_neither_side` |
+| `gained_count` forced to 1 | `..._a_stack_increase_on_an_owned_item_is_a_full_roll` |
+| the late-attach grace widened | `..._attaching_mid_run_yields_the_unavailable_state` |
+| the run clearing made a no-op | `..._a_new_run_clears_state` |
+| the `expected_detected_run_reset` guard removed | `..._a_spurious_reset_does_not_wipe_a_valid_run` |
+
+One mutation was **survived**, and it is worth recording rather than patching: removing `loot.reset` from `_reset_for_new_run` leaves `..._a_new_run_clears_state` green, because the loot lane recognises a run clock that has gone backwards on its own and has already cleared by then. Two mechanisms enforce one property; the test asserts the property. Deleting the clearing itself reddens it.
+
+The first version of the stack test was also survived, which is the more useful finding: `x1 -> x2` yields `gained_count == 1`, so it never exercised the multi-copy path at all. It now goes on to `x2 -> x4` in one pass.
+
+---
+
+**Step 5 — The four output surfaces**
+
+Formats are fixed in item 5's Deliverables. Do not redesign them.
+
+- **Twitch `!luck`** — `src/twitch_bot.py`, dispatch around lines 229-269, plus a `commands_cfg` entry and the Twitch settings panel. One pipe-separated message. Uses the **game's** rarity vocabulary (`Legendary / Epic / Rare / Common`), which differs from our internal keys by one tier. When unavailable, the actual and expected halves drop and only the chances remain.
+- **In-Game Overlay** — `src/gui_in_game_overlay_window.py` (`LuckRarityOverlayWidget`), `src/projections/in_game_html.py`, settings in `src/gui_in_game_overlay_settings.py`, defaults in `src/app/config.py`. A `Show Expected Frame` toggle beside `show_bar`, plus `expected_layout: "column" | "row"` as a sub-option of the frame, defaulting to `column`. Anchor the block to the percentage row, not to the bar. Colours from `ITEM_RARITY_COLOR_MAP`; expected in the muted separator grey. Handle the height change tripping `_keep_widgets_inside_bounds`.
+- **OBS Overlay** — `src/projections/obs.py` and the widget config list in `src/app/config.py`. Same content and layouts, its own copy of both toggles. `projections/` may import `core/` only, so publish the summary on `RuntimeStateSnapshot` rather than computing it in the projector.
+- **Live Stats** — a new `Loot` tab in `src/ui/tabs/player_stats/`, holding the existing chest card moved across unchanged plus the new four-line rarity card. Leave an empty placeholder card where the chest card was in `Stats`. Label this card's `Expected` distinctly from the chest card's, which counts key procs.
+- **Recordings** — serialize the per-tier totals into the recording snapshots, behind its own Compare Runs toggle. Older recordings lack the field and need an explicit missing-value path, not a zero.
+
+*Formatting tests*
+
+- one decimal below 10, whole numbers above;
+- the unavailable state drops the actual and expected half of the Twitch line and keeps the chances;
+- both overlay layouts emit four cells in `LUCK_RARITY_ORDER`.
+
+---
+
+**Step 6 — Live run and the residual check**
+
+Play a full ordinary run with the app attached from the start, then compare the tracker's totals against `tools/replay_loot_expectation.py` on the same recording.
+
+They will **not** match, and that is correct. The replay works from 10 s snapshots, so it shares one Luck sample across several gains and cannot apply any exclusion at all. The live tracker should land *closer* to expectation than the replay does.
+
+The specific thing to check: the replay leaves a `+1.5` sigma residual on UNCOMMON, attributed in item 5 to the un-excluded Moai and merchant items. With the exclusions live, that residual should shrink. **If it does not, an item source exists that this design does not account for** — and the logged gap between acquisitions and map-spawned chest openings is where it will surface.
 
 ### Help & Documentation
 

@@ -546,6 +546,17 @@ class RefreshTasks:
             # it. Publishing an empty context would replace a good reading with
             # a blank one.
             return
+        # `current` (numUsed), not `max`: the loot tracker's exclusions key on a
+        # counter *moving*, which is the only observable the game gives for a
+        # Moai pick or a completed merchant trade. Published before the item
+        # body below, so an increment is folded ahead of the gain it excludes.
+        update_loot_interactables = getattr(
+            self._tracker(), "update_loot_interactables", None
+        )
+        if callable(update_loot_interactables):
+            update_loot_interactables(
+                {label: int(value.current) for label, value in activity_values.items()}
+            )
         update_powerup_map_context = getattr(
             self._tracker(), "update_powerup_map_context", None
         )

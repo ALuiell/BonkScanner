@@ -37,15 +37,17 @@ from core.stats.types import (
     DisabledItemsReadResult,
     DisabledItemsReadStatus,
 )
-from core.tracker import chaos, chests, combat, items, powerups
+from core.tracker import chaos, chests, combat, items, loot, powerups
 from core.tracker.chaos import _ChaosTomeState
 from core.tracker.chests import _ChestState
 from core.tracker.combat import _CombatState
 from core.tracker.items import _TrackedItemState
+from core.tracker.loot import _LootState
 from core.tracker.powerups import _PowerupState
 from core.tracker.snapshots import (
     ItemLossEvent,
     LiveRunSnapshot,
+    LootStatsSnapshot,
     TrackedItemRule,
     FeatureAvailability,
     RunLifecycle,
@@ -195,6 +197,7 @@ class LiveRunTracker:
             "tracked_item_rules", "_previous_item_counts", "_pending_item_increases",
             "_pending_item_decreases", "_tracked_events",
             "_tracked_counts", "_combo_run_counts", "_last_item_losses",
+            "_last_item_gains",
         )},
         "_feature_status": "_availability_state",
     }
@@ -235,6 +238,7 @@ class LiveRunTracker:
         self._chaos_state = _ChaosTomeState()
         self._powerup_state = _PowerupState()
         self._tracked_item_state = _TrackedItemState()
+        self._loot_state = _LootState()
         self._availability_state = _AvailabilityState(feature_status={
             name: FeatureStatus(FeatureAvailability.NEVER_LOADED)
             for name in (
@@ -1088,6 +1092,7 @@ class LiveRunTracker:
         combat.reset(self._combat_state)
         self.current_stage_index = 1
         chests.reset(self._chest_state)
+        loot.reset(self._loot_state)
         self._reset_current_run_item_baseline()
         self._reset_chaos_tracking()
         # Drops the per-effect observation history along with the snapshot:
@@ -1157,8 +1162,59 @@ class LiveRunTracker:
         return False
 
     def _process_item_deltas(self, snapshot: LiveRunSnapshot) -> tuple[ItemLossEvent, ...]:
-        return items.process_item_deltas(
+        losses = items.process_item_deltas(
             self._tracked_item_state,
             snapshot,
             current_stage_index=self.current_stage_index,
+            luck=self._pass_luck_unlocked(snapshot),
         )
+        # Losses before gains: a decrease opens the debt that a gain in the same
+        # pass may settle. The craft output takes seconds to reach the inventory
+        # so the two practically never share a pass, but the order is the one
+        # the design states and costs nothing to honour.
+        loot.observe_run_position(
+            self._loot_state,
+            stage_index=self.current_stage_index,
+            game_time_seconds=snapshot.game_time_seconds,
+        )
+        loot.note_map_identity(
+            self._loot_state,
+            stage_ptr=snapshot.stage_ptr,
+            map_seed=snapshot.map_seed,
+        )
+        loot.process_item_losses(self._loot_state, losses)
+        loot.process_item_gains(self._loot_state, self._last_item_gains)
+        return losses
+
+    def _pass_luck_unlocked(self, snapshot: LiveRunSnapshot) -> float | None:
+        """Luck as this pass read it, falling back to the 10 s snapshot's copy.
+
+        The fast reading is the one that matters -- it is published by the same
+        ``RefreshTickContext`` that supplied the inventory, which is what makes
+        a gain and its Luck coherent by construction rather than by matching
+        timestamps. The fallback is not a second-best sample of the same fact so
+        much as the only one available on a pass the fast lane did not run
+        (the item task disabled, or a failed ``LUCK`` read); it is up to 10 s
+        old, and at that age the rarity probabilities have still barely moved.
+        """
+        fast_luck = self._fresh_fast_luck_unlocked()
+        if fast_luck is not None:
+            return fast_luck
+        stats = snapshot.stats if isinstance(snapshot.stats, dict) else {}
+        return getattr(stats.get("Luck"), "value", None)
+
+    @with_lock
+    def update_loot_interactables(self, counters: dict[str, int]) -> None:
+        """Publish ``InteractablesStatus`` ``numUsed`` from the fast loot pass.
+
+        Read in the same pass as the inventory, and folded *before* it: a Moai
+        increment excludes the gain that follows it and the merchant's the one
+        before, and at the 1 s cadence both collapse to "this tick or the next".
+        """
+        loot.update_interactable_counters(
+            self._loot_state, counters, captured_at=self.clock()
+        )
+
+    @with_lock
+    def get_loot_stats(self) -> LootStatsSnapshot:
+        return loot.get_loot_stats(self._loot_state)

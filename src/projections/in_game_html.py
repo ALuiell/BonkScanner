@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from html import escape
-from math import isfinite, log
 from typing import Any
 
 from core.stat_labels import abbreviate_stat_label
 from core.item_metadata import ITEM_RARITY_COLOR_MAP
+# The rarity roll moved down to core/ when the loot tracker became its second
+# consumer -- core/ may not import projections/, and the model was never a
+# rendering concern. Both names stay importable from here because every existing
+# consumer (the in-game overlay, its window, `tools/replay_loot_expectation.py`)
+# reaches for them at this address. The two weight tables did not come with
+# them: nothing outside the model itself ever read those.
+from core.luck_rarity import LUCK_RARITY_ORDER, calculate_luck_rarity_probabilities
 
 TEXT_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
 POWERUP_COLORS: dict[str, str] = {
@@ -18,19 +24,6 @@ POWERUP_COLORS: dict[str, str] = {
 CRITICAL_COLOR = "#ff4444"
 HEADER_COLOR = "#ffffff"
 FALLBACK_COLOR = "#d8b4fe"
-LUCK_RARITY_BASE_WEIGHTS: dict[str, float] = {
-    "COMMON": 70.0,
-    "UNCOMMON": 15.0,
-    "RARE": 6.0,
-    "LEGENDARY": 1.5,
-}
-LUCK_RARITY_ORDER: tuple[str, ...] = ("LEGENDARY", "RARE", "UNCOMMON", "COMMON")
-_LUCK_RARITY_EXPONENTS: dict[str, int] = {
-    "COMMON": 3,
-    "UNCOMMON": 2,
-    "RARE": 1,
-    "LEGENDARY": 0,
-}
 
 _KPS_METRICS: dict[str, tuple[str, str]] = {
     "instant": ("current_ui_kps", "KPS"),
@@ -144,34 +137,6 @@ def build_powerups_overlay_html(
         )
 
     return "<br>".join(lines)
-
-
-def calculate_luck_rarity_probabilities(luck_value: float | None) -> dict[str, float | None]:
-    if luck_value is None:
-        return {rarity: None for rarity in LUCK_RARITY_ORDER}
-    try:
-        luck_value = float(luck_value)
-    except (TypeError, ValueError):
-        return {rarity: None for rarity in LUCK_RARITY_ORDER}
-    if not isfinite(luck_value):
-        return {rarity: None for rarity in LUCK_RARITY_ORDER}
-
-    adjusted_luck = max(luck_value, -0.999999999)
-    strength = log(adjusted_luck + 1.0) * 1.5
-
-    weights: dict[str, float] = {}
-    for rarity, base_weight in LUCK_RARITY_BASE_WEIGHTS.items():
-        exponent = _LUCK_RARITY_EXPONENTS[rarity] * strength
-        weights[rarity] = base_weight * (1.5 ** (-exponent))
-
-    total_weight = sum(weights.values())
-    if total_weight <= 0 or not isfinite(total_weight):
-        return {rarity: None for rarity in LUCK_RARITY_ORDER}
-
-    return {
-        rarity: (weights[rarity] / total_weight) * 100.0
-        for rarity in LUCK_RARITY_ORDER
-    }
 
 
 def _format_stats_display_value(label: str, display_value: Any, raw_value: float | None) -> str:
