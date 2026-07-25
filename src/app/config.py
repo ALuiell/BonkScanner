@@ -107,7 +107,21 @@ DEFAULT_IN_GAME_OVERLAY = {
         "recording": {"enabled": True, "x": 150, "y": 10, "scale": 1.0},
         "kps": {"enabled": True, "x": 10, "y": 40, "scale": 1.0, "metrics": ["instant"]},
         "powerups": {"enabled": True, "x": 10, "y": 70, "scale": 1.0},
-        "luck_rarity": {"enabled": True, "x": 10, "y": 100, "scale": 1.0, "show_bar": True},
+        # `show_expected` and `expected_layout` have a deliberate twin under
+        # OBS_OVERLAY below rather than one shared setting: "show it to chat but
+        # not to me" has to be expressible, and the two surfaces have genuinely
+        # different space budgets. `column` is the default because someone
+        # enabling the frame for the first time should meet the readable form --
+        # a cramped first impression gets the whole frame switched back off.
+        "luck_rarity": {
+            "enabled": True,
+            "x": 10,
+            "y": 100,
+            "scale": 1.0,
+            "show_bar": True,
+            "show_expected": False,
+            "expected_layout": "column",
+        },
         "stats": {"enabled": False, "x": 10, "y": 130, "scale": 1.0, "selected_stats": ["Damage", "Difficulty", "XP Gain", "Luck"]},
         "event_timer": {"enabled": False, "x": 10, "y": 160, "scale": 1.0, "warning_seconds": 15},
     }
@@ -538,6 +552,14 @@ def normalize_in_game_overlay_config(value):
             )
             if key == "luck_rarity":
                 widgets[key]["show_bar"] = bool(widgets[key].get("show_bar", default_widget.get("show_bar", True)))
+                widgets[key]["show_expected"] = bool(
+                    widgets[key].get("show_expected", default_widget.get("show_expected", False))
+                )
+                widgets[key]["expected_layout"] = (
+                    widgets[key].get("expected_layout")
+                    if widgets[key].get("expected_layout") in ("column", "row")
+                    else default_widget.get("expected_layout", "column")
+                )
             
             if key == "stats":
                 selected_stats_val = widgets[key].get("selected_stats")

@@ -5,6 +5,7 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFrame,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
+from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
 from ui.shared import _make_scroll_section
 from ui.styles import _button_state_stylesheet
 
@@ -118,6 +120,33 @@ class InGameWidgetSettingsDialog(QDialog):
             self._save_settings,
         )
         luck_rarity_layout.addWidget(self.luck_rarity_show_bar_cb)
+
+        # Independent of the bar, not nested under it: all four combinations of
+        # the two are valid, and the block anchors to the percentage row, which
+        # is always drawn.
+        self.luck_rarity_show_expected_cb = _build_checkbox(
+            "Show expected frame",
+            bool(config.IN_GAME_OVERLAY["widgets"]["luck_rarity"].get("show_expected", False)),
+            self._save_settings,
+        )
+        self.luck_rarity_show_expected_cb.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
+        luck_rarity_layout.addWidget(self.luck_rarity_show_expected_cb)
+
+        expected_layout_row = QHBoxLayout()
+        expected_layout_row.addWidget(QLabel("Expected layout:"))
+        self.luck_rarity_expected_layout_combo = QComboBox()
+        for label, value in (("Column (2x2)", "column"), ("Row (single line)", "row")):
+            self.luck_rarity_expected_layout_combo.addItem(label, value)
+        current_layout = config.IN_GAME_OVERLAY["widgets"]["luck_rarity"].get(
+            "expected_layout", "column"
+        )
+        self.luck_rarity_expected_layout_combo.setCurrentIndex(
+            max(0, self.luck_rarity_expected_layout_combo.findData(current_layout))
+        )
+        self.luck_rarity_expected_layout_combo.currentIndexChanged.connect(self._save_settings)
+        expected_layout_row.addWidget(self.luck_rarity_expected_layout_combo)
+        expected_layout_row.addStretch(1)
+        luck_rarity_layout.addLayout(expected_layout_row)
         layout.addWidget(luck_rarity_group)
 
         event_timer_group = QGroupBox("Event Timer Settings")
@@ -191,6 +220,10 @@ class InGameWidgetSettingsDialog(QDialog):
         widgets["powerups"]["scale"] = self.powerups_scale_spin.value()
         widgets["luck_rarity"]["scale"] = self.luck_rarity_scale_spin.value()
         widgets["luck_rarity"]["show_bar"] = self.luck_rarity_show_bar_cb.isChecked()
+        widgets["luck_rarity"]["show_expected"] = self.luck_rarity_show_expected_cb.isChecked()
+        widgets["luck_rarity"]["expected_layout"] = (
+            self.luck_rarity_expected_layout_combo.currentData() or "column"
+        )
         widgets["event_timer"]["scale"] = self.event_timer_scale_spin.value()
         widgets["event_timer"]["warning_seconds"] = self.event_timer_warning_spin.value()
         widgets["stats"]["scale"] = self.stats_scale_spin.value()

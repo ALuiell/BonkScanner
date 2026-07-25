@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import src
 from PySide6.QtCore import QPoint, QRect
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QWidget
 
 from app import config
 from gui_in_game_overlay_window import InGameOverlayWindow
@@ -123,9 +123,46 @@ class InGameOverlayWindowTests(unittest.TestCase):
                 self.assertGreaterEqual(stats.y(), 0)
                 self.assertLessEqual(stats.x() + stats.width(), window.width())
                 self.assertLessEqual(stats.y() + stats.height(), window.height())
-                self.assertEqual(overlay_config["widgets"]["stats"]["x"], stats.x())
-                self.assertEqual(overlay_config["widgets"]["stats"]["y"], stats.y())
-                save_config.assert_called()
+                # The clamp is a display adjustment, not an edit. It used to be
+                # written back, and that is what made a widget near an edge
+                # creep permanently upward every time it grew a row -- which the
+                # Luck widget now does whenever the expected frame is switched
+                # on or its layout changes. The configured position is the
+                # user's intent and only a drag changes it.
+                self.assertEqual(1500, overlay_config["widgets"]["stats"]["x"])
+                self.assertEqual(900, overlay_config["widgets"]["stats"]["y"])
+                save_config.assert_not_called()
+            finally:
+                window.close()
+
+    def test_a_clamped_widget_returns_to_its_configured_place(self) -> None:
+        """The half of the fix the clamp alone cannot give.
+
+        Growing a widget pushes it off the bottom edge; shrinking it back has to
+        put it where the user left it, not where the clamp last parked it.
+        """
+        target_rect = QRect(0, 0, 320, 240)
+        parent_mixin = SimpleNamespace(
+            _in_game_overlay_target_geometry=lambda: target_rect,
+            _toggle_igo_edit_mode=lambda: None,
+        )
+        overlay_config = _test_overlay_config()
+        overlay_config["widgets"]["stats"]["x"] = 200
+        overlay_config["widgets"]["stats"]["y"] = 180
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config), patch.object(
+            config, "save_config"
+        ):
+            window = InGameOverlayWindow(parent_mixin)
+            try:
+                window.sync_geometry_to_target()
+                stats = window.widgets["stats"]
+                stats.set_text("<span>" + "<br>".join(["tall"] * 12) + "</span>")
+                self.assertLess(stats.y(), 180, "a grown widget should be clamped up")
+
+                stats.set_text("<span>short</span>")
+
+                self.assertEqual(QPoint(200, 180), stats.pos())
             finally:
                 window.close()
 
@@ -151,6 +188,87 @@ class InGameOverlayWindowTests(unittest.TestCase):
                 )
             finally:
                 window.close()
+
+
+class LuckRarityExpectedFrameTests(unittest.TestCase):
+    """The expected block against the percentage row, in all four toggle states.
+
+    `show_bar` and `show_expected` are independent and every combination is
+    valid, which is why the block is a sibling of the percentage row in the
+    shared `QVBoxLayout` rather than positioned against the bar: the bar can be
+    switched off, and an anchor that can disappear is not an anchor.
+    """
+
+    ACTUAL = {"LEGENDARY": 116, "RARE": 78, "UNCOMMON": 38, "COMMON": 45}
+    EXPECTED = {"LEGENDARY": 118.4, "RARE": 78.0, "UNCOMMON": 36.2, "COMMON": 45.0}
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        # Every widget is parented to this host and torn down with it. A
+        # parentless `LuckRarityOverlayWidget` becomes a real top-level window,
+        # which Qt paints on the next event pass -- after the test has dropped
+        # its reference, so the bar's `paintEvent` runs against a destroyed C++
+        # object and takes the whole process down with an access violation.
+        self._host = QWidget()
+        self._host.resize(1200, 800)
+        self.addCleanup(self._host.deleteLater)
+
+    def _widget(self, *, show_bar: bool, show_expected: bool, layout: str = "column"):
+        from core.luck_rarity import calculate_luck_rarity_probabilities
+        from gui_in_game_overlay_window import LuckRarityOverlayWidget
+
+        overlay_config = _test_overlay_config()
+        overlay_config["widgets"]["luck_rarity"].update(
+            show_bar=show_bar, show_expected=show_expected, expected_layout=layout
+        )
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config):
+            widget = LuckRarityOverlayWidget("luck_rarity", self._host)
+            widget.set_probabilities(
+                calculate_luck_rarity_probabilities(3.0), show_bar=show_bar
+            )
+            widget.set_expected(
+                self.ACTUAL, self.EXPECTED, show_expected=show_expected, layout=layout
+            )
+            widget.adjustSize()
+            return widget
+
+    def test_every_toggle_combination_keeps_the_percentage_rows_width(self) -> None:
+        widths = {}
+        for show_bar in (True, False):
+            for show_expected in (True, False):
+                widget = self._widget(show_bar=show_bar, show_expected=show_expected)
+                widths[(show_bar, show_expected)] = widget.width()
+                self.assertNotEqual("", widget.label.text(), "the percentage row is always drawn")
+        self.assertEqual(
+            1,
+            len(set(widths.values())),
+            f"the block must not change the widget's width: {widths}",
+        )
+
+    def test_the_frame_adds_height_and_removing_it_gives_it_back(self) -> None:
+        for show_bar in (True, False):
+            with self.subTest(show_bar=show_bar):
+                without = self._widget(show_bar=show_bar, show_expected=False)
+                with_frame = self._widget(show_bar=show_bar, show_expected=True)
+                self.assertGreater(with_frame.height(), without.height())
+
+    def test_row_is_shorter_than_column(self) -> None:
+        column = self._widget(show_bar=True, show_expected=True, layout="column")
+        row = self._widget(show_bar=True, show_expected=True, layout="row")
+        self.assertLess(row.height(), column.height())
+
+    def test_an_unmeasurable_run_hides_the_block_and_keeps_the_row(self) -> None:
+        widget = self._widget(show_bar=True, show_expected=True)
+        baseline = widget.width()
+        widget.set_expected(None, None, show_expected=False)
+        widget.adjustSize()
+
+        self.assertFalse(widget.expected_label.isVisible())
+        self.assertNotEqual("", widget.label.text())
+        self.assertEqual(baseline, widget.width())
 
 
 if __name__ == "__main__":

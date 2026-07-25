@@ -15,8 +15,16 @@ import src  # noqa: F401  -- puts `src/` on sys.path regardless of collection or
 import unittest
 from types import SimpleNamespace
 
+import re
+
+from core.item_metadata import ITEM_RARITY_COLOR_MAP
 from core.luck_rarity import LUCK_RARITY_ORDER, format_expected_count
 from core.tracker.snapshots import LootStatsSnapshot
+from projections.in_game_html import (
+    LUCK_EXPECTED_MUTED_COLOR,
+    build_luck_expected_overlay_html,
+    normalize_luck_expected_layout,
+)
 from projections.twitch import format_luck
 
 
@@ -147,6 +155,88 @@ class TwitchLuckLineTests(unittest.TestCase):
     def test_the_line_fits_a_chat_message_with_room_to_spare(self) -> None:
         line = format_luck(_runtime(), _template)
         self.assertLess(len(line), 200)
+
+
+class ExpectedFrameLayoutTests(unittest.TestCase):
+    """The two overlay layouts. Same rules, one arm apart."""
+
+    ACTUAL = {"LEGENDARY": 116, "RARE": 78, "UNCOMMON": 38, "COMMON": 45}
+    EXPECTED = {"LEGENDARY": 118.4, "RARE": 78.0, "UNCOMMON": 36.2, "COMMON": 45.0}
+
+    def _cells(self, html: str) -> list[str]:
+        return re.findall(r"<td\b[^>]*>(.*?)</td>", html, flags=re.S)
+
+    def _text(self, cell: str) -> str:
+        return re.sub(r"<[^>]+>", "", cell).strip()
+
+    def test_both_layouts_emit_four_cells_in_tier_order(self) -> None:
+        for layout in ("column", "row"):
+            with self.subTest(layout=layout):
+                cells = self._cells(
+                    build_luck_expected_overlay_html(self.ACTUAL, self.EXPECTED, layout=layout)
+                )
+                self.assertEqual(4, len(cells))
+                for cell, tier in zip(cells, LUCK_RARITY_ORDER):
+                    self.assertIn(ITEM_RARITY_COLOR_MAP[tier], cell)
+                    self.assertIn(str(self.ACTUAL[tier]), cell)
+
+    def test_column_carries_a_dot_and_row_does_not(self) -> None:
+        column = build_luck_expected_overlay_html(self.ACTUAL, self.EXPECTED, layout="column")
+        row = build_luck_expected_overlay_html(self.ACTUAL, self.EXPECTED, layout="row")
+
+        self.assertEqual(4, column.count("&#9679;"))
+        self.assertEqual(0, row.count("&#9679;"))
+        self.assertEqual("&#9679; 116 (118)", self._text(self._cells(column)[0]))
+        self.assertEqual("116/118", self._text(self._cells(row)[0]))
+
+    def test_the_block_stretches_with_the_ends_pinned(self) -> None:
+        """Growing numbers eat the centre gap rather than the footprint."""
+        for layout in ("column", "row"):
+            with self.subTest(layout=layout):
+                html = build_luck_expected_overlay_html(
+                    self.ACTUAL, self.EXPECTED, layout=layout
+                )
+                self.assertIn("width='100%'", html)
+                cells = re.findall(r"<td\b[^>]*>", html, flags=re.S)
+                self.assertIn("align='left'", cells[0])
+                self.assertIn("align='right'", cells[-1])
+
+    def test_expected_is_the_muted_grey_and_actual_the_tier_colour(self) -> None:
+        """A darker tint of the tier hue is unreadable over grass and wood, and
+        white would outrank the actual figure when the hierarchy runs the other
+        way. One grey for all four."""
+        for layout in ("column", "row"):
+            with self.subTest(layout=layout):
+                html = build_luck_expected_overlay_html(
+                    self.ACTUAL, self.EXPECTED, layout=layout
+                )
+                self.assertEqual(4, html.count(LUCK_EXPECTED_MUTED_COLOR))
+                for tier in LUCK_RARITY_ORDER:
+                    self.assertIn(ITEM_RARITY_COLOR_MAP[tier], html)
+
+    def test_no_rarity_word_reaches_either_overlay_layout(self) -> None:
+        """Colour carries the tier here, which is what keeps the naming question
+        that governs chat from ever reaching this surface."""
+        for layout in ("column", "row"):
+            html = build_luck_expected_overlay_html(
+                self.ACTUAL, self.EXPECTED, layout=layout
+            )
+            for word in ("Legendary", "Epic", "Rare", "Common", "LEGENDARY", "UNCOMMON"):
+                self.assertNotIn(word, html)
+
+    def test_the_tenths_rule_reaches_the_overlay_too(self) -> None:
+        html = build_luck_expected_overlay_html(
+            {"LEGENDARY": 1, "RARE": 0, "UNCOMMON": 3, "COMMON": 7},
+            {"LEGENDARY": 0.8, "RARE": 0.4, "UNCOMMON": 2.6, "COMMON": 7.9},
+            layout="column",
+        )
+        self.assertIn("(0.8)", html)
+        self.assertIn("(0.4)", html)
+
+    def test_an_unknown_layout_falls_back_to_column(self) -> None:
+        self.assertEqual("column", normalize_luck_expected_layout("grid"))
+        self.assertEqual("column", normalize_luck_expected_layout(None))
+        self.assertEqual("row", normalize_luck_expected_layout("row"))
 
 
 if __name__ == "__main__":

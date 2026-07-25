@@ -18,7 +18,9 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy, QV
 
 from app import config
 from projections.in_game_html import (
+    LUCK_EXPECTED_DEFAULT_LAYOUT,
     LUCK_RARITY_ORDER,
+    build_luck_expected_overlay_html,
     build_luck_rarity_overlay_html_for_probabilities,
 )
 from core.item_metadata import ITEM_RARITY_COLOR_MAP
@@ -111,6 +113,32 @@ class DraggableOverlayWidget(QWidget):
         if self.label.text() != text:
             self.label.setText(text)
             self.adjustSize()
+            self.reclamp_to_parent()
+
+    def configured_position(self) -> QPoint:
+        """Where the user put this widget, which is not always where it sits."""
+        widget_cfg = config.IN_GAME_OVERLAY.get("widgets", {}).get(self.widget_id)
+        if not isinstance(widget_cfg, dict):
+            return self.pos()
+        return QPoint(int(widget_cfg.get("x", self.x())), int(widget_cfg.get("y", self.y())))
+
+    def reclamp_to_parent(self) -> None:
+        """Re-place from the configured position rather than the current one.
+
+        A widget that grows -- the Luck widget gains two rows when the expected
+        frame is switched on, and changes height again between the two layouts
+        -- gets pushed off the bottom edge and clamped upward. Clamping from
+        where it *currently* sits makes that shift permanent, so the widget
+        creeps up the screen and never comes back when the frame is switched off
+        again. Clamping from the configured position instead makes the move
+        purely a display adjustment: the intent survives, and the widget returns
+        the moment there is room. Same fix covers a resized game window.
+        """
+        if self.edit_mode or self._dragging:
+            return
+        position = self._clamp_to_parent(self.configured_position())
+        if position != self.pos():
+            self.move(position)
 
 
 class LuckRarityBarWidget(QWidget):
@@ -205,6 +233,16 @@ class LuckRarityBarWidget(QWidget):
 
 
 class LuckRarityOverlayWidget(DraggableOverlayWidget):
+    """The percentage row, the bar, and the actual-versus-expected block.
+
+    Three children of the one ``QVBoxLayout`` `DraggableOverlayWidget` already
+    owns, in that order. Two independent toggles govern the second and third,
+    and all four combinations are valid -- which is why the expected block is
+    laid out as a sibling of the percentage row rather than positioned against
+    the bar. `show_bar` can hide the bar, and an anchor that can disappear is
+    not an anchor; the percentage row is always drawn.
+    """
+
     def __init__(self, widget_id: str, parent: QWidget | None = None):
         self._current_probabilities: dict[str, float | None] = {
             rarity: None for rarity in LUCK_RARITY_ORDER
@@ -212,12 +250,33 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
         super().__init__(widget_id, parent)
         self.bar_widget = LuckRarityBarWidget(self)
         self._widget_layout.addWidget(self.bar_widget)
+
+        self.expected_label = QLabel()
+        self.expected_label.setTextFormat(Qt.RichText)
+        self.expected_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        # Minimum rather than Preferred so the block never widens the widget
+        # past the percentage row it is anchored to; the 100%-width table inside
+        # it takes whatever width the layout hands down.
+        self.expected_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self._widget_layout.addWidget(self.expected_label)
+
         widget_cfg = config.IN_GAME_OVERLAY["widgets"][self.widget_id]
+        self._show_expected = bool(widget_cfg.get("show_expected", False))
+        self._expected_layout = str(
+            widget_cfg.get("expected_layout", LUCK_EXPECTED_DEFAULT_LAYOUT)
+        )
+        self.expected_label.setVisible(self._show_expected)
         self.bar_widget.set_show_bar(widget_cfg.get("show_bar", True))
         self.update_scale(widget_cfg.get("scale", 1.0))
 
     def update_scale(self, scale: float) -> None:
         super().update_scale(scale)
+        if hasattr(self, "expected_label"):
+            px_size = int(16 * scale)
+            self.expected_label.setStyleSheet(
+                f"font-size: {px_size}px; font-weight: bold; "
+                "background: transparent; border: none;"
+            )
         if hasattr(self, "bar_widget"):
             self.bar_widget.set_bar_scale(scale)
             self.adjustSize()
@@ -231,6 +290,38 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
     def set_show_bar(self, show_bar: bool) -> None:
         self.bar_widget.set_show_bar(show_bar)
         self.adjustSize()
+
+    def set_expected(
+        self,
+        actual: dict[str, int] | None,
+        expected: dict[str, float] | None,
+        *,
+        show_expected: bool,
+        layout: str = LUCK_EXPECTED_DEFAULT_LAYOUT,
+    ) -> None:
+        """Update the block, or hide it.
+
+        Hidden covers both halves of "nothing to show": the toggle being off,
+        and a run the tracker cannot measure. The percentage row above stays
+        either way -- it depends on the current Luck alone.
+        """
+        self._show_expected = bool(show_expected)
+        self._expected_layout = str(layout)
+        if not self._show_expected:
+            if self.expected_label.isVisible():
+                self.expected_label.setVisible(False)
+                self.adjustSize()
+                self.reclamp_to_parent()
+            return
+        html = build_luck_expected_overlay_html(
+            actual or {}, expected or {}, layout=self._expected_layout
+        )
+        changed = self.expected_label.text() != html or not self.expected_label.isVisible()
+        if changed:
+            self.expected_label.setText(html)
+            self.expected_label.setVisible(True)
+            self.adjustSize()
+            self.reclamp_to_parent()
 
 
 class InGameOverlayWindow(QWidget):
@@ -291,20 +382,13 @@ class InGameOverlayWindow(QWidget):
         if self.width() <= 0 or self.height() <= 0:
             return
 
-        changed = False
-        for widget_id, widget in getattr(self, "widgets", {}).items():
-            position = widget._clamp_to_parent(widget.pos())
-            if position == widget.pos():
-                continue
-            widget.move(position)
-            widget_cfg = config.IN_GAME_OVERLAY.get("widgets", {}).get(widget_id)
-            if isinstance(widget_cfg, dict):
-                widget_cfg["x"] = position.x()
-                widget_cfg["y"] = position.y()
-            changed = True
-
-        if changed:
-            config.save_config(config.user_config)
+        # Deliberately does not write the clamped position back to the config.
+        # It used to, and that is what made a widget near an edge creep upward
+        # every time it grew a row -- see `reclamp_to_parent`. The configured
+        # position is the user's intent and only the user changes it; a drag
+        # already saves through the `moved` signal.
+        for widget in getattr(self, "widgets", {}).values():
+            widget.reclamp_to_parent()
 
     def paintEvent(self, event) -> None:
         if self.edit_mode:

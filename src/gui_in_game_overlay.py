@@ -417,6 +417,22 @@ class InGameOverlay:
                     probabilities,
                     show_bar=widget_cfg.get("luck_rarity", {}).get("show_bar", True),
                 )
+            if hasattr(widget, "set_expected"):
+                loot = getattr(projection, "loot_stats", None) if projection is not None else None
+                # A run the tracker cannot measure hides the block rather than
+                # showing zeros: both halves are wrong once the inventory
+                # already held was absorbed into the item baseline, and a zero
+                # that looks like a count is worse than no block. The row above
+                # keeps rendering -- it depends on Luck alone.
+                widget.set_expected(
+                    getattr(loot, "actual", None),
+                    getattr(loot, "expected", None),
+                    show_expected=(
+                        bool(widget_cfg.get("luck_rarity", {}).get("show_expected", False))
+                        and bool(getattr(loot, "available", False))
+                    ),
+                    layout=widget_cfg.get("luck_rarity", {}).get("expected_layout", "column"),
+                )
             else:
                 # The probabilities are already resolved above, and resolving
                 # them again from `latest_snapshot` would silently drop the fast

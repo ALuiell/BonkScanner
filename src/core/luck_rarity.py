@@ -52,6 +52,18 @@ GAME_RARITY_NAMES: dict[str, str] = {
 }
 
 
+# Shown wherever the expected figures are configured or displayed. The numbers
+# are a *stated model* -- the game's own roll, read out of its disassembly --
+# rather than our claim about how lucky a run was, and a surface that does not
+# say so invites the reading that we made them up.
+LUCK_RARITY_MODEL_ATTRIBUTION = (
+    "Expected counts come from the game's own rarity roll "
+    "(Rarity.CalculateRarityWeights, base weights 70/15/6/1.5), accumulated "
+    "against the Luck held at each item gain. Requires the app to have been "
+    "running from the start of the run."
+)
+
+
 def format_expected_count(value: float | None) -> str:
     """An expectation as text: one decimal below 10, whole numbers above.
 

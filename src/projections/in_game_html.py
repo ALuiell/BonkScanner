@@ -11,7 +11,11 @@ from core.item_metadata import ITEM_RARITY_COLOR_MAP
 # consumer (the in-game overlay, its window, `tools/replay_loot_expectation.py`)
 # reaches for them at this address. The two weight tables did not come with
 # them: nothing outside the model itself ever read those.
-from core.luck_rarity import LUCK_RARITY_ORDER, calculate_luck_rarity_probabilities
+from core.luck_rarity import (
+    LUCK_RARITY_ORDER,
+    calculate_luck_rarity_probabilities,
+    format_expected_count,
+)
 
 TEXT_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
 POWERUP_COLORS: dict[str, str] = {
@@ -91,6 +95,123 @@ def build_luck_rarity_overlay_html_for_probabilities(
         value_text = "--" if probability is None else f"{probability:.2f}%"
         spans.append(f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>{value_text}</span>")
     return sep.join(spans)
+
+
+# The grey the `|` separators already use. Expected takes it rather than a
+# darker tint of the tier hue, which is unreadable over grass and wood, and
+# rather than white, which would outrank the actual figure when the hierarchy
+# runs the other way. One grey for all four beats four hand-picked shades.
+LUCK_EXPECTED_MUTED_COLOR = "#94a3b8"
+
+LUCK_EXPECTED_LAYOUTS = ("column", "row")
+LUCK_EXPECTED_DEFAULT_LAYOUT = "column"
+
+# The minimum centre gap, so cells can never touch at counts the stress test did
+# not reach. `column` holds 147 px at `999 (999)` and `row` 8 px, which is where
+# this number comes from -- it is the floor `row` is already at, not a guess.
+_LUCK_EXPECTED_CELL_PAD_PX = 4
+_LUCK_EXPECTED_COLUMN_PAD_PX = 12
+
+
+def normalize_luck_expected_layout(value: Any) -> str:
+    return str(value) if value in LUCK_EXPECTED_LAYOUTS else LUCK_EXPECTED_DEFAULT_LAYOUT
+
+
+def _luck_expected_cell_html(
+    rarity: str,
+    actual: Any,
+    expected: Any,
+    *,
+    with_dot: bool,
+) -> str:
+    """One tier's figures: actual in the tier colour, expected in the grey.
+
+    No rarity words anywhere -- colour carries the tier on both overlays, which
+    is what keeps the naming question that governs chat from ever reaching them
+    and the two surfaces from being able to disagree.
+    """
+    color = ITEM_RARITY_COLOR_MAP.get(rarity, FALLBACK_COLOR)
+    actual_text = escape(str(max(0, int(actual or 0))))
+    expected_text = escape(format_expected_count(expected))
+    dot = (
+        f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>&#9679;</span> "
+        if with_dot
+        else ""
+    )
+    joined = (
+        f"({expected_text})" if with_dot else f"/{expected_text}"
+    )
+    separator = " " if with_dot else ""
+    return (
+        f"{dot}"
+        f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>{actual_text}</span>"
+        f"{separator}"
+        f"<span style='color: {LUCK_EXPECTED_MUTED_COLOR}; text-shadow: {TEXT_SHADOW};'>"
+        f"{joined}</span>"
+    )
+
+
+def build_luck_expected_overlay_html(
+    actual: dict[str, Any],
+    expected: dict[str, Any],
+    *,
+    layout: str = LUCK_EXPECTED_DEFAULT_LAYOUT,
+) -> str:
+    """The actual-versus-expected block, in one of the two settled layouts.
+
+    ``column`` is a two-by-two block of ``● 116 (118)``, the dot carrying the
+    tier colour; ``row`` is a single line of ``116/118`` per tier with no dots.
+    They trade roughly 45 px of screen against legibility -- a real user
+    preference rather than an unmade decision -- and share every other rule, so
+    the branch is one arm here rather than two builders.
+
+    Either layout **stretches across the widget's width**, first cell flush
+    left, last flush right, so growing numbers eat the centre gap instead of
+    changing the footprint. ``row`` works without dots precisely because of that
+    stretch: at ~38 px the whitespace separates the groups the way the dot does
+    in ``column``.
+
+    Nothing here is tied to the bar's segment geometry, and it must not be: the
+    bar is proportional, so a tier at 1% is a segment one pixel wide with no
+    room under it. Only `LUCK_RARITY_ORDER` and the colours are shared.
+    """
+    layout = normalize_luck_expected_layout(layout)
+    cell_style = (
+        f"padding: 0 {_LUCK_EXPECTED_CELL_PAD_PX}px; white-space: nowrap;"
+    )
+
+    if layout == "row":
+        alignments = ("left", "center", "center", "right")
+        cells = "".join(
+            f"<td width='25%' align='{alignment}' style='{cell_style}'>"
+            f"{_luck_expected_cell_html(rarity, actual.get(rarity), expected.get(rarity), with_dot=False)}"
+            "</td>"
+            for rarity, alignment in zip(LUCK_RARITY_ORDER, alignments)
+        )
+        rows = f"<tr>{cells}</tr>"
+    else:
+        rows = ""
+        for index in (0, 2):
+            left, right = LUCK_RARITY_ORDER[index], LUCK_RARITY_ORDER[index + 1]
+            rows += (
+                "<tr>"
+                f"<td width='50%' align='left' style='{cell_style} "
+                f"padding-right: {_LUCK_EXPECTED_COLUMN_PAD_PX}px;'>"
+                f"{_luck_expected_cell_html(left, actual.get(left), expected.get(left), with_dot=True)}"
+                "</td>"
+                f"<td width='50%' align='right' style='{cell_style} "
+                f"padding-left: {_LUCK_EXPECTED_COLUMN_PAD_PX}px;'>"
+                f"{_luck_expected_cell_html(right, actual.get(right), expected.get(right), with_dot=True)}"
+                "</td>"
+                "</tr>"
+            )
+
+    return (
+        "<table width='100%' cellspacing='0' cellpadding='0' "
+        "style='border-collapse: collapse; border-spacing: 0;'>"
+        f"{rows}"
+        "</table>"
+    )
 
 
 def build_powerups_overlay_html(
