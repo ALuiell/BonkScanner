@@ -407,6 +407,7 @@ class LiveRunTracker:
             tracked_items=tuple(self._tracked_item_rows_unlocked()),
             stage_summary=tuple(self._stage_summary_rows_unlocked()),
             chest_stats=self._get_chest_stats_unlocked(),
+            loot_stats=self._get_loot_stats_unlocked(),
             kps={
                 "current": self._ui_kps_value,
                 "minute_avg": self._average_kps_for_window_unlocked(60.0),
@@ -1217,4 +1218,7 @@ class LiveRunTracker:
 
     @with_lock
     def get_loot_stats(self) -> LootStatsSnapshot:
+        return self._get_loot_stats_unlocked()
+
+    def _get_loot_stats_unlocked(self) -> LootStatsSnapshot:
         return loot.get_loot_stats(self._loot_state)

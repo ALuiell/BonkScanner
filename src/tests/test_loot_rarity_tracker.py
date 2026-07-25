@@ -433,6 +433,42 @@ class LootAccumulationTests(unittest.TestCase):
         self.assertEqual(state.actual["RARE"], 0, "the guard is spent, not sticky")
 
 
+class LootStatsOnRuntimeSnapshotTests(unittest.TestCase):
+    """The summary has to travel on the boundary object, not on the tracker.
+
+    ``projections/`` may import ``core/`` only, so the OBS projector cannot
+    reach the rarity model or ``_LootState``; it has to be handed the finished
+    numbers. Reading the summary off ``runtime_snapshot()`` is therefore not a
+    convenience -- it is the only route the layer rule leaves open.
+    """
+
+    def test_runtime_snapshot_carries_the_same_summary_as_the_getter(self) -> None:
+        run = LootRun().begin()
+        run.acquire(LEGENDARY_ITEMS[0])
+        run.acquire(COMMON_ITEM)
+
+        published = run.tracker.runtime_snapshot().loot_stats
+
+        self.assertEqual(published, run.stats())
+        self.assertEqual(published.actual["LEGENDARY"], 1)
+        self.assertEqual(published.actual["COMMON"], 1)
+        self.assertTrue(published.available)
+
+    def test_runtime_snapshot_carries_the_unavailable_state(self) -> None:
+        """An unmeasurable run must reach the projections *as* unmeasurable.
+
+        Publishing zeros with ``available`` left true would give every surface a
+        number that looks like an answer and is not one.
+        """
+        run = LootRun(start_time=600.0).begin((LEGENDARY_ITEMS[0],))
+        run.acquire(COMMON_ITEM)
+
+        published = run.tracker.runtime_snapshot().loot_stats
+
+        self.assertFalse(published.available)
+        self.assertEqual(published.actual, {tier: 0 for tier in published.actual})
+
+
 def _gain(item_name: str, *, captured_at: float, luck: float = DEFAULT_LUCK) -> ItemGainEvent:
     return ItemGainEvent(
         item_name=item_name,

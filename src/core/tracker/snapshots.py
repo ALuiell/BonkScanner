@@ -192,6 +192,11 @@ class RuntimeStateSnapshot:
     tracked_items: tuple[dict[str, Any], ...]
     stage_summary: tuple[dict[str, Any], ...]
     chest_stats: ChestStatsSnapshot
+    # The per-tier actual-against-expected summary, computed on the tracker and
+    # carried here ready to render. ``projections/`` may import ``core/`` only
+    # (§2 layer table), so the OBS projector cannot reach the rarity model or the
+    # loot state itself -- it has to be handed the finished numbers.
+    loot_stats: LootStatsSnapshot
     kps: dict[str, int | None]
     feature_status: dict[str, FeatureStatus]
     chaos_tome: Any | None
