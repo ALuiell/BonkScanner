@@ -79,6 +79,7 @@ _COMMAND_KEYS = (
     "kps",
     "scanner",
     "chests",
+    "luck",
     "presets",
     "bonkhelp",
     "disabled",
@@ -87,6 +88,7 @@ _COMMAND_KEYS = (
 # Defaults as the mixin had them inline, per checkbox.
 _COMMAND_DEFAULTS = {
     "chests": False,
+    "luck": False,
     "presets": False,
     "disabled": False,
 }

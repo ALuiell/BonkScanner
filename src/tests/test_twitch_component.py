@@ -565,6 +565,7 @@ class TwitchTabTests(unittest.TestCase):
                     "disabled",
                     "items",
                     "kps",
+                    "luck",
                     "powerups",
                     "presets",
                     "scanner",
@@ -585,10 +586,10 @@ class TwitchTabTests(unittest.TestCase):
         self.assertTrue(command_checked({"commands": False, "bonkhelp": True}, "bonkhelp"))
         self.assertTrue(command_checked({}, "bonkhelp"))
 
-    def test_the_three_opt_in_commands_start_unchecked(self) -> None:
+    def test_the_opt_in_commands_start_unchecked(self) -> None:
         from ui.tabs.twitch.panel import command_checked
 
-        for key in ("chests", "presets", "disabled"):
+        for key in ("chests", "luck", "presets", "disabled"):
             with self.subTest(command=key):
                 self.assertFalse(command_checked({}, key))
         self.assertTrue(command_checked({}, "stats"))

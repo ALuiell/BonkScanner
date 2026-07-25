@@ -157,6 +157,10 @@ DEFAULT_TWITCH_BOT = {
         "kps": True,
         "scanner": True,
         "chests": False,
+        # Opt-in like the three above it. `!luck` answers nothing at all unless
+        # the app was attached from the run's start, so a streamer who has not
+        # chosen it would meet it as a command that mostly says half a line.
+        "luck": False,
         "presets": False,
         "bonkhelp": True,
         "disabled": False
@@ -182,6 +186,7 @@ DEFAULT_TWITCH_BOT = {
         "kps": "KPS: {kps} | 60s Avg: {minute_avg} | 5m Avg: {five_minute_avg} | Run Avg: {run_avg}",
         "scanner": "Download it here: {github_url} | Support the creator here: {patreon_url} | Try !bonkhelp.",
         "chests": "Chests: {stages} | Total: {opened}/{total} | Paid: {paid} | Key Procs: {procs}/{normal} ({proc_rate}) | Expected: {expected} | Free Chests: {free} | Keys: {keys} ({chance})",
+        "luck": "Luck: {tiers}",
         "bonkhelp": "Available commands: {commands_list}",
         "disabled": "Disabled Items: {items}",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",

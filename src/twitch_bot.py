@@ -11,7 +11,12 @@ from app import config
 from core.stat_labels import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
 from infra.twitch_credentials import get_twitch_oauth_token
 from core.stats.formatters import format_chaos_tome_stat_delta
-from projections.twitch import format_kps, format_powerups, truncate_chat_message
+from projections.twitch import (
+    format_kps,
+    format_luck,
+    format_powerups,
+    truncate_chat_message,
+)
 
 
 COMMAND_COOLDOWN_KEYS = {
@@ -261,6 +266,9 @@ class TwitchBotWorker(QThread):
             handled = True
         elif cmd in ("!chests", "!chest") and commands_cfg.get("chests", False):
             self._handle_chests(channel)
+            handled = True
+        elif cmd == "!luck" and commands_cfg.get("luck", False):
+            self._handle_luck(channel)
             handled = True
         elif cmd in ("!presets", "!preset") and commands_cfg.get("presets", False):
             self._handle_presets(channel)
@@ -784,6 +792,15 @@ class TwitchBotWorker(QThread):
             text = text[:447] + "..."
         self._send_chat(channel, text)
 
+    def _handle_luck(self, channel: str):
+        runtime = self._runtime_snapshot()
+        if not runtime.latest_snapshot:
+            self._send_chat(channel, "No active run detected.")
+            return
+        self._send_chat(
+            channel, truncate_chat_message(format_luck(runtime, self._format_template))
+        )
+
     def _handle_presets(self, channel: str):
         mode = getattr(config, "EVALUATION_MODE", "templates")
 
@@ -865,6 +882,7 @@ class TwitchBotWorker(QThread):
             ("powerups", "!powerups"),
             ("scanner", "!scanner"),
             ("chests", "!chests"),
+            ("luck", "!luck"),
             ("presets", "!presets"),
             ("disabled", "!disabled"),
             ("kps", "!kps"),
