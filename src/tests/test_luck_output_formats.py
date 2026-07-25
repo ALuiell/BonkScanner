@@ -25,6 +25,7 @@ from projections.in_game_html import (
     build_luck_expected_overlay_html,
     normalize_luck_expected_layout,
 )
+from projections.obs import build_overlay_state_from_snapshot
 from projections.twitch import format_luck
 
 
@@ -49,6 +50,22 @@ def _runtime(*, luck: float | None = 3.0, loot: LootStatsSnapshot | None = None)
 
 def _template(_key: str, default: str, **values) -> str:
     return default.format(**values)
+
+
+def _obs_runtime(*, luck: float | None = 3.0, loot: LootStatsSnapshot | None = None):
+    """A `RuntimeStateSnapshot` with only the fields the OBS projector reads."""
+    return SimpleNamespace(
+        luck=luck,
+        loot_stats=_loot() if loot is None else loot,
+        status="live",
+        updated_at=0.0,
+        run_id=None,
+        current_stage_index=1,
+        latest_snapshot=None,
+        tracked_items=(),
+        stage_summary=(),
+        kps={},
+    )
 
 
 class ExpectedCountFormatTests(unittest.TestCase):
@@ -237,6 +254,73 @@ class ExpectedFrameLayoutTests(unittest.TestCase):
         self.assertEqual("column", normalize_luck_expected_layout("grid"))
         self.assertEqual("column", normalize_luck_expected_layout(None))
         self.assertEqual("row", normalize_luck_expected_layout("row"))
+
+
+class ObsLuckPayloadTests(unittest.TestCase):
+    """The OBS projector, which may reach neither the model nor `_LootState`.
+
+    `projections/` imports `core/` only, so the summary has to arrive finished
+    on `RuntimeStateSnapshot` -- and every number, colour and toggle is resolved
+    here rather than in `overlay.js`, which is what keeps the two overlays from
+    drifting on what they say.
+    """
+
+    def _payload(self, *, config_widget: dict | None = None, **runtime_kwargs) -> dict:
+        overlay_config = {
+            "widgets": [
+                dict({"id": "luck_rarity", "enabled": True, "order": 10}, **(config_widget or {}))
+            ]
+        }
+        return build_overlay_state_from_snapshot(
+            _obs_runtime(**runtime_kwargs), overlay_config
+        )["luck_rarity"]
+
+    def test_the_payload_carries_four_tiers_in_order_with_colours(self) -> None:
+        payload = self._payload()
+
+        self.assertEqual(
+            list(LUCK_RARITY_ORDER), [tier["rarity"] for tier in payload["tiers"]]
+        )
+        for tier in payload["tiers"]:
+            self.assertEqual(ITEM_RARITY_COLOR_MAP[tier["rarity"]], tier["color"])
+            self.assertTrue(tier["chance_text"].endswith("%"))
+
+    def test_the_figures_are_formatted_by_the_same_rules_as_everywhere_else(self) -> None:
+        payload = self._payload(
+            loot=_loot(
+                actual={"LEGENDARY": 1, "RARE": 0, "UNCOMMON": 3, "COMMON": 7},
+                expected={"LEGENDARY": 0.8, "RARE": 0.4, "UNCOMMON": 2.6, "COMMON": 47.2},
+            )
+        )
+        by_tier = {tier["rarity"]: tier for tier in payload["tiers"]}
+
+        self.assertEqual("0.8", by_tier["LEGENDARY"]["expected_text"])
+        self.assertEqual("0.4", by_tier["RARE"]["expected_text"])
+        self.assertEqual("47", by_tier["COMMON"]["expected_text"])
+
+    def test_both_toggles_come_from_the_obs_widgets_own_config(self) -> None:
+        """Not mirrored from the in-game widget: "show it to chat but not to me"."""
+        payload = self._payload(
+            config_widget={"show_bar": False, "show_expected": True, "expected_layout": "row"}
+        )
+
+        self.assertFalse(payload["show_bar"])
+        self.assertTrue(payload["show_expected"])
+        self.assertEqual("row", payload["expected_layout"])
+
+    def test_an_unmeasurable_run_clears_show_expected_but_not_the_chances(self) -> None:
+        payload = self._payload(
+            loot=_loot(available=False), config_widget={"show_expected": True}
+        )
+
+        self.assertFalse(payload["available"])
+        self.assertFalse(payload["show_expected"])
+        self.assertTrue(all(tier["chance_text"].endswith("%") for tier in payload["tiers"]))
+
+    def test_an_unknown_layout_in_the_config_falls_back_to_column(self) -> None:
+        self.assertEqual(
+            "column", self._payload(config_widget={"expected_layout": "grid"})["expected_layout"]
+        )
 
 
 if __name__ == "__main__":

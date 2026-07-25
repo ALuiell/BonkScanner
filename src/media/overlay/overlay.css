@@ -839,3 +839,97 @@ body:has(#edit-mode-banner) .overlay-shell.absolute-layout {
   width: 100% !important;
   height: 100% !important;
 }
+
+/* --- Luck widget ---------------------------------------------------------
+ * Three stacked children of one column: the chance row, the optional bar, and
+ * the optional expected block. Both toggles are independent and all four
+ * combinations are valid, so the expected block is a sibling of the chance row
+ * -- which is always drawn -- rather than being positioned against the bar.
+ * Nothing here reads the bar's segment widths: the bar is proportional, so a
+ * tier at 1% is a one-pixel segment with no room under it. */
+.luck-block {
+  display: flex;
+  flex-direction: column;
+  gap: calc(4px * var(--scale));
+  width: 100%;
+}
+
+.luck-chances {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(6px * var(--scale));
+  font-size: calc(13px * var(--scale));
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  text-shadow: var(--hud-shadow);
+}
+
+.luck-sep {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.luck-bar {
+  display: flex;
+  gap: calc(1.5px * var(--scale));
+  width: 100%;
+  height: calc(6px * var(--scale));
+  border-radius: calc(3px * var(--scale));
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.7);
+}
+
+.luck-bar-segment {
+  flex-basis: 0;
+  min-width: 1px;
+}
+
+/* Both layouts stretch across the widget, first cell flush left and last flush
+ * right, so growing numbers eat the centre gap instead of the footprint. */
+.luck-expected-block {
+  display: grid;
+  width: 100%;
+  column-gap: calc(8px * var(--scale));
+  row-gap: calc(2px * var(--scale));
+  font-size: calc(12.5px * var(--scale));
+  font-variant-numeric: tabular-nums;
+  text-shadow: var(--hud-shadow);
+}
+
+.luck-layout-column {
+  grid-template-columns: 1fr 1fr;
+}
+
+.luck-layout-row {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.luck-cell {
+  display: flex;
+  align-items: baseline;
+  gap: calc(3px * var(--scale));
+  white-space: nowrap;
+}
+
+.luck-layout-column .luck-cell:nth-child(even),
+.luck-layout-row .luck-cell:last-child {
+  justify-content: flex-end;
+}
+
+.luck-layout-row .luck-cell:nth-child(2),
+.luck-layout-row .luck-cell:nth-child(3) {
+  justify-content: center;
+}
+
+.luck-cell strong {
+  font-weight: 900;
+}
+
+/* The same muted grey the in-game overlay gives expected, and for the same
+ * reason: a darker tint of the tier hue is unreadable and white would outrank
+ * the actual figure. */
+.luck-expected {
+  color: var(--muted);
+  font-weight: 800;
+}

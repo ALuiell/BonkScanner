@@ -31,6 +31,7 @@ const HELD_STATE_FIELDS = [
   "kps",
   "stats",
   "banishes",
+  "luck_rarity",
 ];
 // `reconnecting` is the tracker's quiet middle state: data is known frozen, but
 // a restart is the expected cause and the surface must not announce it.
@@ -118,6 +119,8 @@ function renderWidget(widget, state) {
       return panel("Stage Summary", renderStageSummary(state), "wide stage-summary-widget", widget);
     case "banishes":
       return panel("Banishes", renderBanishes(state, widget), "wide banishes-widget", widget);
+    case "luck_rarity":
+      return panel("Luck", renderLuckRarity(state), "wide luck-widget", widget);
     default:
       return "";
   }
@@ -216,6 +219,64 @@ function renderStageItems(items) {
 
 
 
+// The Luck widget. Every number, colour and toggle arrives resolved from
+// `projections/obs.py`, which is where the rarity model and the run's summary
+// live; this does layout only, so the two overlays cannot drift apart on what
+// they say -- only on how they arrange it.
+//
+// The block anchors to the chance row, not to the bar: the bar is optional and
+// an anchor that can disappear is not one. Both are children of the same
+// column, which is also why nothing here reads the bar's segment widths -- a
+// tier at 1% is a one-pixel segment with no room under it.
+function renderLuckRarity(state) {
+  const luck = state.luck_rarity || {};
+  const tiers = Array.isArray(luck.tiers) ? luck.tiers : [];
+  if (!tiers.length) {
+    return `<div class="muted">--</div>`;
+  }
+  const chances = tiers.map((tier) => `
+    <span class="luck-chance" style="color:${escapeHtml(String(tier.color || "#E5E7EB"))};">${escapeHtml(String(tier.chance_text || "--"))}</span>
+  `).join(`<span class="luck-sep">|</span>`);
+
+  const bar = luck.show_bar ? renderLuckBar(tiers) : "";
+  const expected = luck.show_expected ? renderLuckExpected(tiers, luck.expected_layout) : "";
+  return `<div class="luck-block">
+    <div class="luck-chances">${chances}</div>
+    ${bar}
+    ${expected}
+  </div>`;
+}
+
+function renderLuckBar(tiers) {
+  const total = tiers.reduce((sum, tier) => sum + Math.max(0, Number(tier.chance) || 0), 0);
+  if (total <= 0) {
+    return `<div class="luck-bar"></div>`;
+  }
+  const segments = tiers
+    .filter((tier) => (Number(tier.chance) || 0) > 0)
+    .map((tier) => `<span class="luck-bar-segment" style="flex-grow:${(Number(tier.chance) || 0) / total};background:${escapeHtml(String(tier.color || "#E5E7EB"))};"></span>`)
+    .join("");
+  return `<div class="luck-bar">${segments}</div>`;
+}
+
+function renderLuckExpected(tiers, layout) {
+  // `column` is a 2x2 of `● 116 (118)` with the dot carrying the tier colour;
+  // `row` is one line of `116/118` with no dots, which works because the cells
+  // stretch to the full width and the whitespace does what the dot does.
+  const isRow = String(layout || "column") === "row";
+  const cells = tiers.map((tier) => {
+    const color = escapeHtml(String(tier.color || "#E5E7EB"));
+    const actual = escapeHtml(formatNumber(tier.actual));
+    const expected = escapeHtml(String(tier.expected_text || "--"));
+    const dot = isRow ? "" : `<span class="luck-dot" style="color:${color};">&#9679;</span>`;
+    const pair = isRow ? `/${expected}` : `(${expected})`;
+    return `<span class="luck-cell">
+      ${dot}<strong style="color:${color};">${actual}</strong><span class="luck-expected">${pair}</span>
+    </span>`;
+  }).join("");
+  return `<div class="luck-expected-block ${isRow ? "luck-layout-row" : "luck-layout-column"}">${cells}</div>`;
+}
+
 function renderBanishes(state, widget) {
   const maxRows = Number(widget.max_rows || 40);
   const allRows = state.banishes || [];
@@ -242,7 +303,8 @@ const DEFAULT_COORDINATES = {
   tracked_items: { x: 20, y: 280 },
   stats: { x: 1600, y: 80 },
   kps: { x: 1600, y: 320 },
-  banishes: { x: 1600, y: 400 }
+  banishes: { x: 1600, y: 400 },
+  luck_rarity: { x: 1600, y: 500 }
 };
 
 function shouldPositionAbsolutely(widgets) {

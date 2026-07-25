@@ -207,4 +207,68 @@ const liveState = {
   console.log("ok: cold-start failure card");
 }
 
+// --- 6. the Luck widget renders, and both toggles are honoured --------------
+{
+  const luckWidgets = { luck_rarity: { id: "luck_rarity", enabled: true, order: 1 } };
+  const luckPayload = {
+    available: true,
+    show_bar: true,
+    show_expected: true,
+    expected_layout: "column",
+    tiers: [
+      { rarity: "LEGENDARY", color: "#FACC15", chance: 54.88, chance_text: "54.88%", actual: 116, expected_text: "118" },
+      { rarity: "RARE", color: "#E879F9", chance: 29.28, chance_text: "29.28%", actual: 78, expected_text: "78" },
+      { rarity: "UNCOMMON", color: "#60A5FA", chance: 9.76, chance_text: "9.76%", actual: 38, expected_text: "36" },
+      { rarity: "COMMON", color: "#22C55E", chance: 6.08, chance_text: "6.08%", actual: 45, expected_text: "45" },
+    ],
+  };
+  const luckState = { status: "live", style: {}, widgets: luckWidgets, luck_rarity: luckPayload };
+
+  const { t, rootEl } = makeContext();
+
+  // Without a renderer the widget is silently blank, which is the whole reason
+  // this check exists: the Python payload can be perfect and show nothing.
+  t.render(luckState);
+  let html = rootEl.innerHTML;
+  assert.ok(html.includes("54.88%"), "the chance row must render");
+  assert.ok(html.includes("luck-bar-segment"), "the bar must render when show_bar is on");
+  assert.ok(html.includes("(118)"), "column must render the expected figure in brackets");
+  assert.ok(html.includes("luck-layout-column"), "column layout class");
+  assert.ok(!html.includes("Legendary"), "no rarity words reach the overlay");
+  assert.strictEqual((html.match(/luck-cell/g) || []).length, 4, "four cells");
+
+  // All four toggle combinations, and the chance row survives every one.
+  for (const showBar of [true, false]) {
+    for (const showExpected of [true, false]) {
+      t.render({ ...luckState, luck_rarity: { ...luckPayload, show_bar: showBar, show_expected: showExpected } });
+      const combo = rootEl.innerHTML;
+      assert.ok(combo.includes("54.88%"), `chance row must survive bar=${showBar} expected=${showExpected}`);
+      assert.strictEqual(
+        combo.includes("luck-bar-segment"),
+        showBar,
+        `bar visibility must follow show_bar (${showBar})`
+      );
+      assert.strictEqual(
+        combo.includes("luck-expected-block"),
+        showExpected,
+        `block visibility must follow show_expected (${showExpected})`
+      );
+    }
+  }
+
+  t.render({ ...luckState, luck_rarity: { ...luckPayload, expected_layout: "row" } });
+  html = rootEl.innerHTML;
+  assert.ok(html.includes("luck-layout-row"), "row layout class");
+  assert.ok(html.includes("/118"), "row joins the pair with a slash");
+  assert.ok(!html.includes("luck-dot"), "row carries no dots");
+
+  // Unmeasurable: the projector clears show_expected, and the chances stay.
+  t.render({ ...luckState, luck_rarity: { ...luckPayload, available: false, show_expected: false } });
+  html = rootEl.innerHTML;
+  assert.ok(html.includes("54.88%"), "an unmeasurable run keeps its chances");
+  assert.ok(!html.includes("luck-expected-block"), "and drops the block rather than showing zeros");
+
+  console.log("ok: luck widget layouts and toggles");
+}
+
 console.log("\nall overlay.js checks passed");

@@ -77,6 +77,11 @@ DEFAULT_OVERLAY = {
         {"id": "stats", "enabled": False, "mode": "compact", "order": 55, "max_rows": 40, "selected_stats": ["Damage", "Attack Speed", "Luck", "XP Gain"], "background_opacity": 0.0, "show_border": False, "show_header": True, "short_stat_labels": True},
         {"id": "kps", "enabled": False, "mode": "compact", "order": 60, "selected_kps_metrics": ["current", "minute_avg", "five_minute_avg", "run_avg"], "background_opacity": 0.0, "show_border": False, "show_header": False},
         {"id": "banishes", "enabled": False, "mode": "compact", "order": 80, "max_rows": 40, "background_opacity": 0.0, "show_border": False, "show_header": True},
+        # Its own copy of both toggles rather than mirroring the in-game
+        # widget's. Not duplication: "show it to chat but not to me" has to be
+        # expressible, and a stream scene and a game HUD have genuinely
+        # different space budgets, so the layout choice cannot be shared either.
+        {"id": "luck_rarity", "enabled": False, "mode": "compact", "order": 70, "background_opacity": 0.0, "show_border": False, "show_header": True, "show_bar": True, "show_expected": True, "expected_layout": "column"},
     ],
     "tracked_items_source": "custom",
     "tracked_items": [
@@ -107,10 +112,11 @@ DEFAULT_IN_GAME_OVERLAY = {
         "recording": {"enabled": True, "x": 150, "y": 10, "scale": 1.0},
         "kps": {"enabled": True, "x": 10, "y": 40, "scale": 1.0, "metrics": ["instant"]},
         "powerups": {"enabled": True, "x": 10, "y": 70, "scale": 1.0},
-        # `show_expected` and `expected_layout` have a deliberate twin under
-        # OBS_OVERLAY below rather than one shared setting: "show it to chat but
-        # not to me" has to be expressible, and the two surfaces have genuinely
-        # different space budgets. `column` is the default because someone
+        # `show_expected` and `expected_layout` have a deliberate twin on the
+        # OBS overlay's `luck_rarity` widget above rather than one shared
+        # setting: "show it to chat but not to me" has to be expressible, and
+        # the two surfaces have different space budgets. `column` is the
+        # default on both, because someone
         # enabling the frame for the first time should meet the readable form --
         # a cramped first impression gets the whole frame switched back off.
         "luck_rarity": {

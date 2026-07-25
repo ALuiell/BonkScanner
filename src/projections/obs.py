@@ -14,8 +14,15 @@ from core.overlay_config import (
     _coerce_int,
     _coerce_optional_float,
     _coerce_optional_int,
+    _luck_expected_layout,
     _selected_stat_labels,
     widget_config_by_id,
+)
+from core.luck_rarity import (
+    LUCK_RARITY_ORDER,
+    calculate_luck_rarity_probabilities,
+    format_expected_count,
+    format_luck_rarity_percent,
 )
 
 if TYPE_CHECKING:
@@ -88,7 +95,49 @@ def build_overlay_state_from_snapshot(
     data["style"] = dict(overlay_config.get("style") or {})
     data["stats"] = _snapshot_stats(snapshot, widgets)
     data["banishes"] = _snapshot_banishes(snapshot, widgets)
+    data["luck_rarity"] = _snapshot_luck_rarity(runtime, widgets)
     return data
+
+
+def _snapshot_luck_rarity(
+    runtime: RuntimeStateSnapshot,
+    widgets: dict[str, Any],
+) -> dict[str, Any]:
+    """The Luck widget's payload: chances, counts and both toggles.
+
+    Everything is resolved here rather than in the browser. `projections/` may
+    import `core/` only, so this module can reach the rarity model and the
+    already-computed summary on the snapshot, and `overlay.js` can reach
+    neither -- the renderer gets finished strings and colours and does layout.
+    That split is also what keeps the two overlays from drifting: one model, one
+    formatter, two renderers.
+    """
+    widget = widgets.get("luck_rarity") or {}
+    loot = getattr(runtime, "loot_stats", None)
+    probabilities = calculate_luck_rarity_probabilities(getattr(runtime, "luck", None))
+    actual = getattr(loot, "actual", None) or {}
+    expected = getattr(loot, "expected", None) or {}
+    available = bool(getattr(loot, "available", False))
+    return {
+        # An unmeasurable run reports itself so, and the renderer drops the
+        # block rather than drawing zeros. The chance row stays either way: it
+        # depends on the current Luck alone and a late attach cannot spoil it.
+        "available": available,
+        "show_bar": bool(widget.get("show_bar", True)),
+        "show_expected": bool(widget.get("show_expected", True)) and available,
+        "expected_layout": _luck_expected_layout(widget.get("expected_layout")),
+        "tiers": [
+            {
+                "rarity": rarity,
+                "color": ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"]),
+                "chance": probabilities.get(rarity),
+                "chance_text": format_luck_rarity_percent(probabilities.get(rarity)),
+                "actual": _coerce_int(actual.get(rarity), default=0),
+                "expected_text": format_expected_count(expected.get(rarity)),
+            }
+            for rarity in LUCK_RARITY_ORDER
+        ],
+    }
 
 
 def _overlay_stage_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

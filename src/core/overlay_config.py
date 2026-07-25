@@ -41,6 +41,9 @@ from typing import Any
 DEFAULT_STATS_WIDGET_LABELS = ("Damage", "Attack Speed", "Luck", "XP Gain")
 DEFAULT_KPS_WIDGET_METRIC_IDS = ("current", "minute_avg", "five_minute_avg", "run_avg")
 
+LUCK_EXPECTED_LAYOUT_IDS = ("column", "row")
+DEFAULT_LUCK_EXPECTED_LAYOUT = "column"
+
 
 def _coerce_optional_int(value: Any) -> int | None:
     try:
@@ -91,6 +94,12 @@ def _selected_kps_metric_ids(value: Any) -> tuple[str, ...]:
     return DEFAULT_KPS_WIDGET_METRIC_IDS
 
 
+def _luck_expected_layout(value: Any) -> str:
+    if isinstance(value, str) and value in LUCK_EXPECTED_LAYOUT_IDS:
+        return value
+    return DEFAULT_LUCK_EXPECTED_LAYOUT
+
+
 def widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
     """Normalize the persisted overlay config into per-widget settings by id.
 
@@ -118,6 +127,11 @@ def widget_config_by_id(overlay_config: dict[str, Any]) -> dict[str, Any]:
             # the In-Game overlay and the Twitch bot already show; a streamer
             # with room in the scene can switch back to the full stat names.
             "short_stat_labels": bool(raw_widget.get("short_stat_labels", True)),
+            # `luck_rarity` only, and its own settings rather than the in-game
+            # widget's: the two surfaces are configured apart on purpose.
+            "show_bar": bool(raw_widget.get("show_bar", True)),
+            "show_expected": bool(raw_widget.get("show_expected", True)),
+            "expected_layout": _luck_expected_layout(raw_widget.get("expected_layout")),
             "x": _coerce_optional_int(raw_widget.get("x")),
             "y": _coerce_optional_int(raw_widget.get("y")),
             "width": _coerce_optional_int(raw_widget.get("width")),

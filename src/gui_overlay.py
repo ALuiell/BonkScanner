@@ -55,6 +55,7 @@ from app.coordinator import AppCoordinator
 from projections.obs import build_overlay_state
 from projections.session_stats import format_tracked_item_rows_for_stats_tab
 from core.stats.types import PLAYER_STAT_GROUPS
+from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
 from session_stats import SessionStats
 from tracked_item_rules import tracked_item_rules_from_config
 
@@ -65,6 +66,7 @@ OVERLAY_WIDGET_LABELS = {
     "stats": "Stats",
     "kps": "KPS",
     "banishes": "Banishes",
+    "luck_rarity": "Luck",
 }
 
 OVERLAY_KPS_METRIC_LABELS = (
@@ -420,6 +422,49 @@ class Overlay:
             self.overlay_kps_metric_checkboxes[metric_id] = checkbox
             kps_layout.addWidget(checkbox)
         basic_layout.addWidget(kps_group)
+
+        luck_group = QGroupBox("Luck")
+        luck_layout = QVBoxLayout(luck_group)
+        luck_layout.addWidget(QLabel("Configure the Luck overlay widget."))
+        luck_widget_cfg = self._overlay_widget_config_by_id().get("luck_rarity", {})
+        self.overlay_luck_bg_checkbox = QCheckBox("Show background")
+        self.overlay_luck_bg_checkbox.setChecked(float(luck_widget_cfg.get("background_opacity", 0)) > 0)
+        self.overlay_luck_bg_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        luck_layout.addWidget(self.overlay_luck_bg_checkbox)
+
+        self.overlay_luck_header_checkbox = QCheckBox("Show header")
+        self.overlay_luck_header_checkbox.setChecked(bool(luck_widget_cfg.get("show_header", True)))
+        self.overlay_luck_header_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        luck_layout.addWidget(self.overlay_luck_header_checkbox)
+
+        # Configured apart from the in-game widget's pair on purpose: a streamer
+        # may want the frame on the stream and not in their own view.
+        self.overlay_luck_bar_checkbox = QCheckBox("Show rarity bar")
+        self.overlay_luck_bar_checkbox.setChecked(bool(luck_widget_cfg.get("show_bar", True)))
+        self.overlay_luck_bar_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        luck_layout.addWidget(self.overlay_luck_bar_checkbox)
+
+        self.overlay_luck_expected_checkbox = QCheckBox("Show expected frame")
+        self.overlay_luck_expected_checkbox.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
+        self.overlay_luck_expected_checkbox.setChecked(bool(luck_widget_cfg.get("show_expected", True)))
+        self.overlay_luck_expected_checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+        luck_layout.addWidget(self.overlay_luck_expected_checkbox)
+
+        luck_layout_row = QHBoxLayout()
+        luck_layout_row.addWidget(QLabel("Expected layout:"))
+        self.overlay_luck_layout_combo = QComboBox()
+        for label, value in (("Column (2x2)", "column"), ("Row (single line)", "row")):
+            self.overlay_luck_layout_combo.addItem(label, value)
+        self.overlay_luck_layout_combo.setCurrentIndex(
+            max(0, self.overlay_luck_layout_combo.findData(luck_widget_cfg.get("expected_layout", "column")))
+        )
+        self.overlay_luck_layout_combo.currentIndexChanged.connect(
+            lambda _index: self.save_overlay_settings_from_ui()
+        )
+        luck_layout_row.addWidget(self.overlay_luck_layout_combo)
+        luck_layout_row.addStretch(1)
+        luck_layout.addLayout(luck_layout_row)
+        basic_layout.addWidget(luck_group)
         basic_layout.addStretch(1)
 
         stats_group = CollapsibleSection("Stats", expanded=True)
@@ -609,6 +654,11 @@ class Overlay:
         self.overlay_kps_metric_checkboxes = None
         self.overlay_banishes_bg_checkbox = None
         self.overlay_banishes_header_checkbox = None
+        self.overlay_luck_bg_checkbox = None
+        self.overlay_luck_header_checkbox = None
+        self.overlay_luck_bar_checkbox = None
+        self.overlay_luck_expected_checkbox = None
+        self.overlay_luck_layout_combo = None
         self.overlay_item_search_entry = None
         self.overlay_item_selector = None
         self.overlay_map_one_only_checkbox = None
@@ -715,6 +765,20 @@ class Overlay:
                         widget["background_opacity"] = 0.4 if self.overlay_banishes_bg_checkbox.isChecked() else 0.0
                     if getattr(self, "overlay_banishes_header_checkbox", None) is not None:
                         widget["show_header"] = bool(self.overlay_banishes_header_checkbox.isChecked())
+                if widget_id == "luck_rarity":
+                    widget = dict(widget)
+                    if getattr(self, "overlay_luck_bg_checkbox", None) is not None:
+                        widget["background_opacity"] = 0.4 if self.overlay_luck_bg_checkbox.isChecked() else 0.0
+                    if getattr(self, "overlay_luck_header_checkbox", None) is not None:
+                        widget["show_header"] = bool(self.overlay_luck_header_checkbox.isChecked())
+                    if getattr(self, "overlay_luck_bar_checkbox", None) is not None:
+                        widget["show_bar"] = bool(self.overlay_luck_bar_checkbox.isChecked())
+                    if getattr(self, "overlay_luck_expected_checkbox", None) is not None:
+                        widget["show_expected"] = bool(self.overlay_luck_expected_checkbox.isChecked())
+                    if getattr(self, "overlay_luck_layout_combo", None) is not None:
+                        widget["expected_layout"] = (
+                            self.overlay_luck_layout_combo.currentData() or "column"
+                        )
                 widgets.append(widget)
             overlay["widgets"] = widgets
             if getattr(self, "overlay_tags_layout", None) is not None:
