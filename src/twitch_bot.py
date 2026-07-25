@@ -316,7 +316,8 @@ class TwitchBotWorker(QThread):
     def _stat_val(self, stats: dict, key: str) -> str:
         """Helper to safely extract a display value from stats dict."""
         if key in stats and stats[key] is not None:
-            return getattr(stats[key], "display_value", "--")
+            stat = stats[key]
+            return getattr(stat, "capped_display_value", getattr(stat, "display_value", "--"))
         return "--"
 
     def _format_template(self, template_key: str, default_template: str, **kwargs) -> str:

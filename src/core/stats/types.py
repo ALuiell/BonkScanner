@@ -261,6 +261,13 @@ LUCK_LABEL = "Luck"
 POWERUP_MULTIPLIER_CACHE_TTL_SECONDS = 5.0
 
 
+# Twitch !stats and the OBS Stats widget surface raw stat values straight to
+# viewers; items can push multiplier stats (Damage, XP Gain, ...) into absurd
+# numbers, so both clamp display here the same way the in-game overlay
+# already clamps XP Gain (projections/in_game_html.py's `_XP_GAIN_CAP`).
+MULTIPLIER_DISPLAY_CAP = 10.0
+
+
 @dataclass(frozen=True)
 class PlayerStatValue:
     spec: PlayerStatSpec
@@ -271,6 +278,15 @@ class PlayerStatValue:
         value = self.value
         if value is not None and isfinite(value):
             value *= self.spec.display_scale
+        return format_player_stat_value(value, self.spec.value_format)
+
+    @property
+    def capped_display_value(self) -> str:
+        value = self.value
+        if value is not None and isfinite(value):
+            value *= self.spec.display_scale
+            if self.spec.value_format is PlayerStatFormat.MULTIPLIER and value >= MULTIPLIER_DISPLAY_CAP:
+                return f"{int(MULTIPLIER_DISPLAY_CAP)}x"
         return format_player_stat_value(value, self.spec.value_format)
 
 

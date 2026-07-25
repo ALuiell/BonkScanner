@@ -212,7 +212,11 @@ def _snapshot_stats(snapshot: Any, widgets: dict[str, Any]) -> list[dict[str, st
                 "display_label": (
                     abbreviate_stat_label(str(label)) if use_short_labels else str(label)
                 ),
-                "value": str(getattr(stat, "display_value", "--") if stat is not None else "--"),
+                "value": str(
+                    getattr(stat, "capped_display_value", getattr(stat, "display_value", "--"))
+                    if stat is not None
+                    else "--"
+                ),
             }
         )
         if len(rows) >= max_rows:
