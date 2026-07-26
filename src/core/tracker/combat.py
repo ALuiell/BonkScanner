@@ -3,28 +3,48 @@
 Split out of ``live_run_tracker.py`` in step 13.  Nothing here acquires a
 lock; ``LiveRunTracker`` calls in while already holding its single ``RLock``.
 
-Two KPS notions live here and they are not interchangeable:
+Both KPS notions here are windowed rates over the same sample history and
+differ only in window length and in when they are emitted:
 
-``average_kps_for_window`` is a windowed rate over the sample history, used
-for the 3 s / 60 s / 300 s readouts.  ``track_ui_kps`` reproduces the game's
-own on-screen counter, which only accepts a baseline pair roughly one second
-apart -- hence the 0.9/1.2 s gate.
+``average_kps_for_window`` is computed on demand for the 3 s / 60 s / 300 s
+readouts, and takes the *oldest* sample inside its window.  ``track_ui_kps``
+is the instant readout: it publishes on each crossing of an integer
+``run_timer`` second -- the rhythm of the game's own on-screen counter -- over
+a fixed ~1 game-second window, and so takes the *newest* sample at or before
+the cutoff.  Publication rhythm and measurement window are separate
+decisions; conflating them collapses the window to the poll interval.
+
+Application wall-clock time never enters either formula.
 """
 from __future__ import annotations
 
+import math
 from collections import deque
 from dataclasses import dataclass, field
+
+UI_KPS_WINDOW_SECONDS = 1.0
+"""Game-time length of the instant-KPS measurement window."""
+
+UI_KPS_BASELINE_TOLERANCE_SECONDS = 0.05
+"""How much later than the window mark a sample may sit and still be the baseline.
+
+Not slack: without it a poll landing milliseconds short of the mark is
+rejected and the next-oldest sample stretches the window to ~1.5 s at 500 ms
+polling.  It must also stay below half of the tightest possible spacing --
+``FAST_TRACKER_INTERVAL_MS`` floors at 100 ms -- or it *shrinks* the window
+instead, which is what a 0.1 s tolerance did at 100 ms polling.
+"""
 
 
 @dataclass
 class _CombatState:
     recent_kills_history: deque[tuple[float, int]] = field(default_factory=deque)
-    ui_kps_baseline: tuple[float, int] | None = None
+    ui_kps_second: int | None = None
     ui_kps_value: int | None = None
 
 
 def reset_ui_kps(state: _CombatState) -> None:
-    state.ui_kps_baseline = None
+    state.ui_kps_second = None
     state.ui_kps_value = None
 
 
@@ -65,24 +85,48 @@ def track_kills(
 
 
 def track_ui_kps(state: _CombatState, game_time_seconds: float, current_kills: int) -> None:
-    baseline = state.ui_kps_baseline
-    current_sample = (float(game_time_seconds), int(current_kills))
+    """Publish the instant KPS if this sample crossed an integer game second.
+
+    Called from ``track_kills`` *after* the sample has been appended, so the
+    window is already in ``recent_kills_history`` and no private baseline pair
+    is kept -- only the cursor naming the last second published for.
+
+    A paused run never reaches here: ``track_kills`` collapses the repeated
+    sample and returns, so the cursor does not advance and the last published
+    value stays readable.
+    """
+    game_time_seconds = float(game_time_seconds)
+    current_second = math.floor(game_time_seconds)
+
+    last_second = state.ui_kps_second
+    if last_second is None:
+        # First sample after a reset: arm the cursor, publish nothing. The
+        # window is not filled yet either.
+        state.ui_kps_second = current_second
+        return
+    if current_second <= last_second:
+        return
+
+    state.ui_kps_second = current_second
+
+    cutoff = game_time_seconds - UI_KPS_WINDOW_SECONDS + UI_KPS_BASELINE_TOLERANCE_SECONDS
+    baseline: tuple[float, int] | None = None
+    for sample in reversed(state.recent_kills_history):
+        if sample[0] <= cutoff:
+            baseline = sample
+            break
+
     if baseline is None:
-        state.ui_kps_baseline = current_sample
+        # History shorter than the window -- start of a run or of a reattach.
+        # KPS stays unavailable rather than being measured over a stub.
         return
 
     baseline_time, baseline_kills = baseline
-    time_delta = float(game_time_seconds) - baseline_time
+    time_delta = game_time_seconds - baseline_time
     if time_delta <= 0:
         return
-    if time_delta < 0.9:
-        return
-    if time_delta > 1.2:
-        state.ui_kps_baseline = current_sample
-        return
 
-    state.ui_kps_value = max(0, int(current_kills) - baseline_kills)
-    state.ui_kps_baseline = current_sample
+    state.ui_kps_value = max(0, int(round((int(current_kills) - baseline_kills) / time_delta)))
 
 
 def average_kps_for_window(state: _CombatState, window_seconds: float) -> int | None:

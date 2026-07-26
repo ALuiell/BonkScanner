@@ -446,131 +446,6 @@ Until these cases are reliably validated, keep the existing `500ms` task and ext
 
 ## Live Run Refactor Fixes
 
-#### 1. Game-Time Synchronized KPS Calculation (Refactor Fixes)
-
-Status: `[Planned]` — design settled against live measurement on 2026-07-26; not implemented.
-
-Goal:
-
-- Replace the strict ~1-second polling window requirement in `track_ui_kps` with a KPS calculation whose publication rhythm is driven exclusively by the continuously increasing `run_timer`. This first iteration deliberately does not cover Event Timer, `stage_timer`, map phases, or stage transitions.
-
-Problem Analysis:
-
-- **Rigid 0.9s–1.2s Sampling Window:** Current `track_ui_kps` ([combat.py:67](../../src/core/tracker/combat.py:67)) evaluates consecutive samples `(run_timer, mob_kills)` and only updates KPS if the game-time delta falls strictly between 0.9 and 1.2 seconds.
-- **Baseline Resets on Lag:** If fast-polling delays or timer jitter cause `time_delta` to exceed 1.2s, the baseline sample is reset (`state.ui_kps_baseline = current_sample`) and that tick is lost outright, freezing the last displayed KPS in every consumer.
-- **The published value is a raw kill delta, not a rate.** [combat.py:84](../../src/core/tracker/combat.py:84) publishes `kills - baseline_kills` with no division. It is only a correct kills-per-second figure because the gate guarantees the window is ~1 s wide.
-- **The defect does not reproduce on a healthy machine.** Measured below: at the app's own cadence with no induced stalls, the current algorithm lost zero ticks in 81 samples. The fix targets the lag case specifically, and its priority should be read that way.
-
-##### Live Measurement (2026-07-26)
-
-`tools/probe_kps_sync.py` polls `run_timer`/`mob_kills` against a live run and drives several candidate KPS monitors over one shared sample stream, so the comparison is differential rather than sequential. Two scenarios, both at `interval=0.5` (the `FAST_TRACKER_INTERVAL_MS` default), against an active mid-run fight.
-
-**Baseline conditions.** `run_timer` advanced in steps of 0.483–0.509 s per poll. The paired `run_timer`+`mob_kills` read spanned 16 ms at worst and never approached `KPS_GROUP_SPAN_LIMIT_SECONDS` (0.100), so the coherence gate at [refresh_tasks.py:720](../../src/app/refresh_tasks.py:720) withheld nothing during these captures.
-
-**Clean cadence, 40 s, 81 samples:**
-
-| monitor | publishes | ticks lost | measured window |
-| --- | ---: | ---: | --- |
-| current (0.9/1.2 gate) | 40 | 0 | 0.979–1.021 s |
-| second-crossing, baseline = publishing sample | 40 | 0 | 0.979–1.021 s |
-| second-crossing, 1 s window | 40 | 0 | 0.979–1.021 s |
-
-**With emulated driver stalls (1 s stall at p=0.25 per tick), 50 s, 59 samples:**
-
-| monitor | publishes | ticks lost | measured window | worst display freeze |
-| --- | ---: | ---: | --- | ---: |
-| current (0.9/1.2 gate) | 13 | 20 | — | **12.0 game seconds** |
-| second-crossing, baseline = publishing sample | 42 | 0 | 0.492–2.016 s | 2.0 s |
-| second-crossing, 1 s window | 42 | 0 | 0.991–2.017 s | 2.0 s |
-
-A twelve-second frozen KPS readout is the measured form of the defect this item exists to fix.
-
-##### Why the Baseline Cannot Be the Previous Publishing Sample
-
-The algorithm as originally drafted here re-anchored the baseline to the sample that published. Measurement rejects it: the window collapses to **0.492 s under stalls and 0.500 s even on the clean run**, and the resulting peak read 567 KPS where the 1 s-window monitor read 352 over the same fight.
-
-The cause is that a crossing detected *late* leaves the next crossing only milliseconds away in game time. A sample landing at `run_timer = 101.98` publishes and becomes the baseline; the very next poll at `102.48` has already crossed second 102 and publishes again over a 0.5 s interval. Dividing normalizes the units but not the quantization — a half-second window doubles the noise of every kill.
-
-Anchoring only the *first* crossing after a reset (an intermediate proposal) does not fix this either. It bounds the first published interval and nothing after it; the 0.492 s minimum above was measured with that variant active.
-
-##### Design: Second-Crossing Rhythm, Fixed Game-Time Window
-
-Publication is synchronized to `run_timer`; measurement is over a window of fixed game-time length. The two are separate decisions and conflating them is what produced the variants above.
-
-- **When to publish:** on each crossing of an integer `run_timer` second. This is the same rhythm the game's own HUD counter runs at — live validation on 2026-07-23 established that `run_timer` updates every 4.2–58.4 ms (20.8 ms median) and that its integer-second boundaries fall one local second apart during active play — so we match the HUD's cadence without needing to read at any exact instant.
-- **What to measure:** the kill rate over the last ~1.0 game second, taken from the sample history `track_kills` already maintains, not from a private baseline pair.
-- Application wall-clock time decides only when to perform a memory read. It never enters the formula.
-
-Algorithm:
-
-1. Keep one new piece of state: the last integer second published for, `floor(run_timer)`. The `ui_kps_baseline` pair is deleted.
-2. Each fast read appends `(run_timer, mob_kills)` to `recent_kills_history` exactly as today.
-3. If `run_timer` is unchanged, the run is paused: `track_kills` already collapses the sample and returns before `track_ui_kps` is reached ([combat.py:54](../../src/core/tracker/combat.py:54)). The last published KPS stays on screen and the second cursor does not advance. No new code is required for this case.
-4. If `floor(run_timer)` has not advanced past the cursor, publish nothing and leave the previous value in place.
-5. Otherwise set the cursor to the new second and select the baseline: **the newest history sample whose time is at or before `run_timer - 1.0`, admitting samples up to `TOLERANCE` seconds later than that mark** (`TOLERANCE = 0.05`, see the interval note below). Publish `round((kills - baseline_kills) / (run_timer - baseline_time))`, floored at zero.
-6. If no sample qualifies — the history is shorter than the window, i.e. the first second of a run or of a reattach — publish nothing. KPS stays unavailable until the window fills.
-7. Reset on `run_timer` rollback, `mob_kills` decrease, new run, or game process loss. `track_kills` ([combat.py:51](../../src/core/tracker/combat.py:51)) and `reset` already cover all four; only the second cursor needs adding to `reset_ui_kps`.
-
-**The tolerance in step 5 is not slack, it is required — but it must be smaller than half the poll interval.** Without any tolerance, a poll landing a few milliseconds short of the one-second mark is rejected and the next-oldest sample is taken instead — measured at 500 ms, this puts the window at ~1.5 s for half of all publications, visibly over-smoothing the readout. But a tolerance that is too large *shrinks* the window at fine cadences: see the interval measurements below, where a 0.1 s tolerance at 100 ms polling pulled the window down to ~0.9 s. Since `FAST_TRACKER_INTERVAL_MS` has a hard floor of 100 ms, the tolerance must not exceed 0.05 s to stay under half of the tightest possible spacing. At `TOLERANCE = 0.05` the window measured 0.979–1.021 s across the 500 ms clean capture and sits at ~1.0 s at 100 ms.
-
-##### Read Interval Is Configurable, and This Design Depends On That Being Free
-
-The fast lane's cadence is `FAST_TRACKER_INTERVAL_MS` ([config.py:824](../../src/app/config.py:824)): default **500 ms**, hard floor **100 ms**, set through `config.json` (no GUI control). It is a single knob feeding five sites — the driver timer ([gui_app.py:306](../../src/gui_app.py:306)) and the `combat_metrics`, `powerups`, `expected_chest_inputs`, and `chaos_tome` tasks ([refresh_tasks.py:215](../../src/app/refresh_tasks.py:215)) — so KPS cannot be re-timed in isolation without giving it its own constant, the way `PASSIVE_ITEMS_REFRESH_MS` (1 s) and `event_timer` (1 s) already stand apart. The driver interval is also the floor for every task: at 1000 ms a 1 s task effectively runs at 1–2 s.
-
-Measured across intervals on 2026-07-26 (`tools/probe_kps_sync.py`):
-
-| interval | `run_timer` delta/poll | current algo (0.9/1.2 gate) | new (1 s window) |
-| --- | --- | --- | --- |
-| 1000 ms | 0.996–1.008 s | publishes, but sits **dead-center of the gate** — one skipped poll = ~2.0 s delta = lost tick + rebase | window 0.996–1.008 s, unaffected |
-| 500 ms | 0.483–0.509 s | 0 ticks lost when clean | window 0.979–1.021 s |
-| 100 ms | ~0.100 s | narrow subsecond gate, frequent holds | window ~0.9 s **only because a 0.1 s tolerance was too large** — fixed by `TOLERANCE = 0.05` |
-
-The decisive point for this item: **after the change, the interval stops being a correctness parameter and becomes a cost/precision one.** Today 1000 ms actively breaks the current KPS (jitter throws deltas past the 1.2 s gate); afterward 1000 ms merely coarsens the window, and 100 ms merely multiplies read cost fourfold across the shared lane for fractions of a kill in the readout. That decoupling is an independent argument for the change, separate from the stall scenario.
-
-##### What Changes On Screen
-
-In healthy conditions, almost nothing — which is the point. Over the clean capture the new value matched the current one on **33 of 40 publications**, the other 7 differing by 1–3 kills purely from dividing by a 0.98–1.02 s window instead of treating it as exactly 1 s. The number continues to agree with the game's HUD counter in the normal case, and diverges only where the current algorithm published nothing at all.
-
-Consumers of `current_ui_kps` that inherit the change: the Live Stats kills line ([refresh_tasks.py:743](../../src/app/refresh_tasks.py:743)), the recording snapshot's `kps` field ([player_stats_refresh.py:505](../../src/app/player_stats_refresh.py:505)), the OBS overlay widget ([obs.py:237](../../src/projections/obs.py:237)) and the In-Game Overlay's instant KPS ([in_game_html.py:33](../../src/projections/in_game_html.py:33)). Recordings written after this change carry rate-normalized instant KPS; runs recorded before it do not, so a Compare Runs diff of that field spans two slightly different definitions. The difference is within the 1–3 kill band measured above and needs no migration, but it should not be discovered later as a mystery.
-
-##### Implementation Notes
-
-- **`track_ui_kps` becomes a consumer of `recent_kills_history`.** `track_kills` appends to that deque one line before calling it ([combat.py:59](../../src/core/tracker/combat.py:59)), so the window is already in hand; `_CombatState.ui_kps_baseline` is removed and replaced by an integer second cursor. The 300 s trim above it stays as is.
-- **This makes instant KPS the same computation as the windowed readouts,** differing only in window length and in being emitted on second-crossings rather than on demand. `average_kps_for_window` ([combat.py:88](../../src/core/tracker/combat.py:88)) picks the *oldest* sample inside its window, which is right for a 60 s or 300 s average and wrong for a 1 s one — at 0.5 s polling it would land 1.5 s back. Share the deque, not that selector; the new one takes the newest sample at or before the cutoff.
-- **The module docstring is now false and must be rewritten.** [combat.py:6-11](../../src/core/tracker/combat.py:6) states that the 0.9/1.2 s gate exists to reproduce the game's own on-screen counter and that the two KPS notions are not interchangeable. After this change the gate is gone and the two notions differ only by window.
-- **`LiveRunTracker` needs no new surface.** `current_ui_kps` ([live_run.py:741](../../src/core/tracker/live_run.py:741)), `track_kills` ([live_run.py:572](../../src/core/tracker/live_run.py:572)) and `_reset_ui_kps_unlocked` ([live_run.py:1132](../../src/core/tracker/live_run.py:1132)) keep their signatures. The `__init__` state list at [live_run.py:177](../../src/core/tracker/live_run.py:177) names `_ui_kps_baseline` and must be updated with it.
-- **Do not touch the coherence gate.** When the combat group's span exceeds `KPS_GROUP_SPAN_LIMIT_SECONDS` the pass withholds the pair entirely and `track_kills` is never called ([refresh_tasks.py:720](../../src/app/refresh_tasks.py:720)). That is the lag case this design is built to survive: the skipped kills are not lost, they are counted at the next publication over a correspondingly longer window.
-- **Delete `_last_fast_kps_game_time_seconds`** ([refresh_tasks.py:390](../../src/app/refresh_tasks.py:390)). It is written at [refresh_tasks.py:732](../../src/app/refresh_tasks.py:732) and read nowhere in `src/` — three occurrences in the repository, all in that one file: the docstring, the initializer and the write. It is not the second cursor this design needs and must not be repurposed as one; the cursor belongs next to the history it indexes, in `_CombatState`.
-
-##### Tests
-
-The two existing tests over this path — `test_current_ui_kps_uses_valid_one_second_tick` and `test_current_ui_kps_ignores_tiny_timer_jump_after_pause` ([test_live_run_tracker.py:367](../../src/tests/test_live_run_tracker.py:367)) — **pass unchanged both before and after this change** and therefore prove nothing about it. `100.0 → 100.5 → 101.0` crosses second 101 over a 1.0 s window and still yields 300; `586.522 → 586.770` crosses no integer second and still yields `None`. Keep them, do not count them as coverage.
-
-Required new cases, each of which must fail against the current implementation:
-
-- **Skipped second.** `100.0 → 100.5 → 102.4`: the current code loses the tick, the new one publishes a rate over the ~1.9 s window.
-- **Late crossing must not shrink the window.** `100.0 → 100.5 → 101.98 → 102.48`: the second publication must measure over ~1 s, not over the 0.5 s between the two publishing samples. This is the case that fails the rejected variants and is the single most important test here.
-- **Tolerance admits a near-miss.** At coarse spacing, a sample at `run_timer - 0.998` must be admitted as the baseline rather than deferring to one at `run_timer - 1.498`.
-- **Tolerance must not shrink the window at fine spacing.** With samples 0.1 s apart, the baseline chosen for a publication must sit at ~`run_timer - 1.0`, giving a ~1.0 s window — not `run_timer - 0.9`. This is the case that catches a too-large tolerance; it failed at `TOLERANCE = 0.1` and passes at `0.05`.
-- **Window not yet filled.** The first second after a reset publishes nothing.
-- **Pause.** A repeated identical `run_timer` neither publishes nor advances the cursor, and the previous value remains readable.
-- **Resets.** Rollback and kill-count decrease clear the cursor as well as the value, and the next run starts from an empty window.
-- `track_ui_kps` currently has no unit coverage at the `combat.py` level at all — only indirect coverage through `LiveRunTracker`. Add the above at the pure-function level where the state is directly inspectable.
-
-##### Validation
-
-- Re-run `tools/probe_kps_sync.py` after implementation with a monitor mirroring the shipped code, and confirm on a live run that the app's `current_ui_kps` tracks it.
-- **Open measurement, worth doing before implementing:** the stalls above were *emulated*. Log `lost_overshoot` occurrences from the real Qt-driven fast lane over a ten-minute run. If the production driver loses ticks at a rate comparable to the emulation, this change has a measured payoff; if it loses as few as the probe's tight loop did (zero in 40 s), the item is a correctness improvement for a rare condition and should be prioritized accordingly.
-
-Benefits:
-
-- KPS remains strictly anchored to `run_timer` rather than to application wall-clock time;
-- UI updates follow the rhythm of the game's own elapsed seconds, which is also the HUD's;
-- missed or delayed fast-ticks no longer create empty output windows — measured 42 publications against 13 under stalls;
-- the measurement window cannot collapse below ~1 game second, so a late read produces a smoothed value rather than a spike;
-- pauses preserve the last valid KPS and do not create false activity;
-- the scope is isolated from stage/map logic, so it can be implemented and characterized independently.
-
 #### 3. Event Timer: Phase-Aware Game-Time Model (Refactor Fixes)
 
 Status: `[Planned / Requires In-Game Verification]`
@@ -622,7 +497,7 @@ Segment lifecycle:
 
 1. Resolve the best active timer source from map-specific timer availability, timer values, and activity-dictionary markers. Do not rely solely on `map_seed`, `stage_ptr`, or raw `stage_index`.
 2. On the first valid read for a source, create a segment and establish its raw baseline; do not invent elapsed time from local clock.
-3. While the selected raw timer increases normally, synchronize its integer-second boundaries exactly as in the KPS clock design. Use the local prediction only to optionally increase read frequency near the next boundary.
+3. While the selected raw timer increases normally, synchronize its integer-second boundaries exactly as in the KPS clock design. Use the local prediction only to optionally increase read frequency near the next boundary. Measured constraints for that fine window are recorded in [functional_updates_archive.md](functional_updates_archive.md), under the archived KPS item's "Considered and rejected: chasing the boundary with a variable interval" — a ~7 ms floor from the game's per-frame write, a 13 µs read, and Windows' 15.6 ms timer resolution, which together mean this needs its own thread rather than a faster `QTimer`.
 4. If the raw timer is unchanged, preserve the projected value and mark the segment paused. Resume from the next advancing raw value without adding local elapsed time.
 5. If the selected source changes, or the phase detector observes a valid reset, known jump, or confirmed activity transition, close the current segment and start a new one. This is an expected transition, not an error.
 6. If a timer rollback or jump has no matching phase evidence, mark the timer state uncertain and re-enter a short calibration/confirmation mode rather than immediately displaying a fabricated countdown.

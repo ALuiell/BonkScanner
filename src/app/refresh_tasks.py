@@ -56,13 +56,15 @@ predicate, and when the memory conversion reused ``VodCapture``'s
 callables as one piece of unowned state. ``_tab_active``/``_twitch_active``/
 ``_tracker`` and friends below are checked against both.
 
-**What this service owns: two fields, decided by counting.**
-``_player_stats_refresh_status_text`` and ``_last_fast_kps_game_time_seconds``
-had every reader and writer inside this file -- nothing in ``src/`` else touches
-either -- so they move in, exactly as the two reconnect streaks moved into
-``PlayerStatsMemory``. Both keep their old spellings and both are initialised to
-the value the ``getattr`` default used to supply, so the pre-first-write read is
-unchanged. ``_refresh_coordinator`` does **not** move: it stays behind
+**What this service owns: one field, decided by counting.**
+``_player_stats_refresh_status_text`` had every reader and writer inside this
+file -- nothing in ``src/`` else touches it -- so it moved in, exactly as the
+two reconnect streaks moved into ``PlayerStatsMemory``. It keeps its old
+spelling and is initialised to the value the ``getattr`` default used to
+supply, so the pre-first-write read is unchanged. (``_last_fast_kps_game_time_seconds``
+moved in the same way and has since been deleted: the game-time KPS rework
+keeps its second cursor next to the history it indexes, in ``_CombatState``.)
+``_refresh_coordinator`` does **not** move: it stays behind
 ``ensure_refresh_coordinator`` because the coordinator owns it and a test reads
 ``app._refresh_coordinator.diagnostics()``.
 
@@ -383,11 +385,10 @@ class RefreshTasks:
         self._refresh_session_tracked_items = refresh_session_tracked_items
         self._refresh_required = refresh_required
 
-        # Owned state. Both initialised to the value the ``getattr`` default on
-        # the app used to supply, so the read before the first write is
-        # unchanged. Nothing outside this file ever touched either name.
+        # Owned state. Initialised to the value the ``getattr`` default on the
+        # app used to supply, so the read before the first write is unchanged.
+        # Nothing outside this file ever touched this name.
         self._player_stats_refresh_status_text = "Live player stats"
-        self._last_fast_kps_game_time_seconds: float | None = None
 
     def _refresh_run_lifecycle_probe_task(self, context: RefreshTickContext) -> bool:
         """Refresh lifecycle state first, inside the shared read pass.
@@ -729,7 +730,6 @@ class RefreshTasks:
                 )
                 return False
             self._tracker().track_kills(run_timer_seconds, mob_kills)
-            self._last_fast_kps_game_time_seconds = run_timer_seconds
             self._mark_fast_feature_available("combat")
             # `not pinned`: the user may have scrubbed the timeline to an
             # earlier snapshot, and these two writes are live values. The slow

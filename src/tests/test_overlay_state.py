@@ -275,6 +275,10 @@ class OverlayStateTests(unittest.TestCase):
         tracker.track_kills(1.0, 100)
         tracker.track_kills(2.0, 150)
         tracker.track_kills(60.0, 400)
+        # Instant KPS is measured over the last ~1 game second of history, so
+        # this sample is what makes `current` differ from the averages; without
+        # it the nearest baseline is 60 s back and all four readings converge.
+        tracker.track_kills(119.0, 640)
         tracker.track_kills(120.0, 700)
 
         state = build_overlay_state(
@@ -292,7 +296,7 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual(
             state["kps"],
             {
-                "current": 50,
+                "current": 60,
                 "minute_avg": 5,
                 "five_minute_avg": 5,
                 "run_avg": 6,

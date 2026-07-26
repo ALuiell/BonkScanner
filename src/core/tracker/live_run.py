@@ -174,7 +174,7 @@ class LiveRunTracker:
             "_fast_items", "_fast_luck",
         )},
         **{name: "_combat_state" for name in (
-            "_recent_kills_history", "_ui_kps_baseline", "_ui_kps_value",
+            "_recent_kills_history", "_ui_kps_second", "_ui_kps_value",
         )},
         **{name: "_chest_state" for name in (
             "_chests_opened", "_chests_total", "_keys_count", "_paid_chest_opens",
