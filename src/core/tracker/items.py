@@ -140,6 +140,23 @@ def set_rules(
                 state.combo_run_counts[rule.id] = combo_count_for_rule(rule, current_counts)
 
 
+def baseline_is_empty(state: _TrackedItemState) -> bool:
+    """Whether the confirmed inventory baseline holds nothing.
+
+    A baseline that was never seeded (``None``) counts as empty: no successful
+    read has moved it, so nothing has been absorbed into it either.
+
+    The one caller is the fast lane's empty-inventory reading, which needs to
+    tell a *genuinely* empty inventory from the single-read empty dictionary the
+    game exposes while it rebuilds one. A player holding items has a non-empty
+    baseline, so an empty read against it is the transient and nothing else.
+    """
+    counts = state.previous_item_counts
+    if counts is None:
+        return True
+    return not any(int(count) > 0 for count in counts.values())
+
+
 def process_item_deltas(
     state: _TrackedItemState,
     snapshot: LiveRunSnapshot,

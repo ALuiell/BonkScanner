@@ -19,7 +19,13 @@ from unittest.mock import patch
 import re
 
 from core.item_metadata import ITEM_RARITY_COLOR_MAP
-from core.luck_rarity import LUCK_RARITY_ORDER, format_expected_count
+from core.luck_rarity import (
+    LUCK_EXPECTED_PENDING_MESSAGE,
+    LUCK_EXPECTED_UNAVAILABLE_MESSAGE,
+    LUCK_RARITY_ORDER,
+    format_expected_count,
+    resolve_luck_expected_status_text,
+)
 from core.tracker.snapshots import LootStatsSnapshot
 from projections.in_game_html import (
     LUCK_EXPECTED_MUTED_COLOR,
@@ -35,6 +41,7 @@ from projections.twitch import format_luck
 def _loot(
     *,
     available: bool = True,
+    availability_decided: bool = True,
     actual: dict[str, int] | None = None,
     expected: dict[str, float] | None = None,
 ) -> LootStatsSnapshot:
@@ -44,6 +51,7 @@ def _loot(
         acquisitions=277,
         map_chest_opens=77,
         available=available,
+        availability_decided=availability_decided,
     )
 
 
@@ -259,6 +267,32 @@ class ExpectedFrameLayoutTests(unittest.TestCase):
         self.assertEqual("row", normalize_luck_expected_layout("row"))
 
 
+class LuckExpectedStatusTextTests(unittest.TestCase):
+    """The one function both overlays resolve their wording through.
+
+    Two distinct unmeasurable states, not one: before the decision is made the
+    answer is still coming, and telling a player their run is spoiled while it
+    is merely young is the one error this message could make.
+    """
+
+    def test_a_measurable_run_draws_the_figures(self) -> None:
+        self.assertEqual(
+            "", resolve_luck_expected_status_text(available=True, availability_decided=True)
+        )
+
+    def test_decided_unavailable_names_the_missed_start(self) -> None:
+        self.assertEqual(
+            LUCK_EXPECTED_UNAVAILABLE_MESSAGE,
+            resolve_luck_expected_status_text(available=False, availability_decided=True),
+        )
+
+    def test_undecided_says_it_is_still_waiting_not_that_it_failed(self) -> None:
+        self.assertEqual(
+            LUCK_EXPECTED_PENDING_MESSAGE,
+            resolve_luck_expected_status_text(available=False, availability_decided=False),
+        )
+
+
 class ObsLuckPayloadTests(unittest.TestCase):
     """The OBS projector, which may reach neither the model nor `_LootState`.
 
@@ -319,6 +353,39 @@ class ObsLuckPayloadTests(unittest.TestCase):
         self.assertFalse(payload["available"])
         self.assertFalse(payload["show_expected"])
         self.assertTrue(all(tier["chance_text"].endswith("%") for tier in payload["tiers"]))
+
+    def test_a_decided_unmeasurable_run_carries_the_missed_start_message(self) -> None:
+        payload = self._payload(
+            loot=_loot(available=False, availability_decided=True),
+            config_widget={"show_expected": True},
+        )
+
+        self.assertEqual(LUCK_EXPECTED_UNAVAILABLE_MESSAGE, payload["status_message"])
+
+    def test_an_undecided_run_carries_the_waiting_message_not_the_missed_start_one(
+        self,
+    ) -> None:
+        payload = self._payload(
+            loot=_loot(available=False, availability_decided=False),
+            config_widget={"show_expected": True},
+        )
+
+        self.assertEqual(LUCK_EXPECTED_PENDING_MESSAGE, payload["status_message"])
+
+    def test_the_toggle_being_off_carries_no_message_even_when_unmeasurable(self) -> None:
+        """The block is hidden by the user's own choice here, not by the run --
+        drawing a message would be answering a question nobody asked."""
+        payload = self._payload(
+            loot=_loot(available=False, availability_decided=False),
+            config_widget={"show_expected": False},
+        )
+
+        self.assertEqual("", payload["status_message"])
+
+    def test_a_measurable_run_carries_no_status_message(self) -> None:
+        payload = self._payload(config_widget={"show_expected": True})
+
+        self.assertEqual("", payload["status_message"])
 
     def test_an_unknown_layout_in_the_config_falls_back_to_column(self) -> None:
         self.assertEqual(
@@ -390,12 +457,13 @@ class InGameOverlayLuckWiringTests(unittest.TestCase):
             def set_probabilities(self, probabilities, *, show_bar):
                 pass
 
-            def set_expected(self, actual, expected, *, show_expected, layout):
+            def set_expected(self, actual, expected, *, show_expected, layout, status_message=None):
                 calls.append(
                     {
                         "actual": actual,
                         "show_expected": show_expected,
                         "layout": layout,
+                        "status_message": status_message,
                     }
                 )
 
@@ -423,6 +491,7 @@ class InGameOverlayLuckWiringTests(unittest.TestCase):
         self.assertTrue(calls[0]["show_expected"], "the frame must actually turn on")
         self.assertEqual(116, calls[0]["actual"]["LEGENDARY"])
         self.assertEqual("row", calls[0]["layout"])
+        self.assertFalse(calls[0]["status_message"], "a measurable run has nothing to say")
 
     def test_an_unmeasurable_run_still_reaches_the_widget_switched_off(self) -> None:
         from gui_in_game_overlay import InGameOverlay
@@ -433,8 +502,8 @@ class InGameOverlayLuckWiringTests(unittest.TestCase):
             def set_probabilities(self, probabilities, *, show_bar):
                 pass
 
-            def set_expected(self, actual, expected, *, show_expected, layout):
-                calls.append(show_expected)
+            def set_expected(self, actual, expected, *, show_expected, layout, status_message=None):
+                calls.append((show_expected, status_message))
 
         owner = SimpleNamespace(
             in_game_overlay_window=SimpleNamespace(widgets={"luck_rarity": _Widget()})
@@ -443,13 +512,75 @@ class InGameOverlayLuckWiringTests(unittest.TestCase):
             "widgets": {"luck_rarity": {"enabled": True, "show_expected": True}}
         }
         projection = SimpleNamespace(
-            latest_snapshot=None, luck=3.0, loot_stats=_loot(available=False)
+            latest_snapshot=None,
+            luck=3.0,
+            loot_stats=_loot(available=False, availability_decided=True),
         )
 
         with patch.object(config, "IN_GAME_OVERLAY", overlay_config):
             InGameOverlay._refresh_in_game_overlay_luck_widget(owner, projection)
 
-        self.assertEqual([False], calls)
+        self.assertEqual([(False, LUCK_EXPECTED_UNAVAILABLE_MESSAGE)], calls)
+
+    def test_an_undecided_run_reaches_the_widget_with_the_waiting_message(self) -> None:
+        """The gate not having decided yet must not read to the player as the
+        gate having decided no."""
+        from gui_in_game_overlay import InGameOverlay
+
+        calls = []
+
+        class _Widget:
+            def set_probabilities(self, probabilities, *, show_bar):
+                pass
+
+            def set_expected(self, actual, expected, *, show_expected, layout, status_message=None):
+                calls.append((show_expected, status_message))
+
+        owner = SimpleNamespace(
+            in_game_overlay_window=SimpleNamespace(widgets={"luck_rarity": _Widget()})
+        )
+        overlay_config = {
+            "widgets": {"luck_rarity": {"enabled": True, "show_expected": True}}
+        }
+        projection = SimpleNamespace(
+            latest_snapshot=None,
+            luck=3.0,
+            loot_stats=_loot(available=False, availability_decided=False),
+        )
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config):
+            InGameOverlay._refresh_in_game_overlay_luck_widget(owner, projection)
+
+        self.assertEqual([(False, LUCK_EXPECTED_PENDING_MESSAGE)], calls)
+
+    def test_the_toggle_being_off_sends_no_message_to_the_widget(self) -> None:
+        from gui_in_game_overlay import InGameOverlay
+
+        calls = []
+
+        class _Widget:
+            def set_probabilities(self, probabilities, *, show_bar):
+                pass
+
+            def set_expected(self, actual, expected, *, show_expected, layout, status_message=None):
+                calls.append((show_expected, status_message))
+
+        owner = SimpleNamespace(
+            in_game_overlay_window=SimpleNamespace(widgets={"luck_rarity": _Widget()})
+        )
+        overlay_config = {
+            "widgets": {"luck_rarity": {"enabled": True, "show_expected": False}}
+        }
+        projection = SimpleNamespace(
+            latest_snapshot=None,
+            luck=3.0,
+            loot_stats=_loot(available=False, availability_decided=True),
+        )
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config):
+            InGameOverlay._refresh_in_game_overlay_luck_widget(owner, projection)
+
+        self.assertEqual([(False, None)], calls)
 
 
 if __name__ == "__main__":

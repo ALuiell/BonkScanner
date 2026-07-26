@@ -341,6 +341,10 @@ class LootStatsSnapshot:
     acquisitions: int
     map_chest_opens: int
     available: bool
+    # Distinguishes "decided unmeasurable" from "not decided yet" once
+    # ``available`` alone reads the same (``False``) in both -- the difference
+    # a waiting-for-first-item message needs from a missed-the-start one.
+    availability_decided: bool = False
     outstanding_tier_debts: tuple[str, ...] = ()
 
 

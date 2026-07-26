@@ -216,7 +216,14 @@ class LuckRarityExpectedFrameTests(unittest.TestCase):
         self._host.resize(1200, 800)
         self.addCleanup(self._host.deleteLater)
 
-    def _widget(self, *, show_bar: bool, show_expected: bool, layout: str = "column"):
+    def _widget(
+        self,
+        *,
+        show_bar: bool,
+        show_expected: bool,
+        layout: str = "column",
+        status_message: str | None = None,
+    ):
         from core.luck_rarity import calculate_luck_rarity_probabilities
         from gui_in_game_overlay_window import LuckRarityOverlayWidget
 
@@ -230,7 +237,11 @@ class LuckRarityExpectedFrameTests(unittest.TestCase):
                 calculate_luck_rarity_probabilities(3.0), show_bar=show_bar
             )
             widget.set_expected(
-                self.ACTUAL, self.EXPECTED, show_expected=show_expected, layout=layout
+                self.ACTUAL,
+                self.EXPECTED,
+                show_expected=show_expected,
+                layout=layout,
+                status_message=status_message,
             )
             widget.adjustSize()
             return widget
@@ -278,6 +289,26 @@ class LuckRarityExpectedFrameTests(unittest.TestCase):
         self.assertFalse(widget.expected_label.isVisibleTo(widget))
         self.assertNotEqual("", widget.label.text())
         self.assertEqual(baseline, widget.width())
+
+    def test_an_unmeasurable_run_with_a_status_message_shows_it_instead_of_hiding(
+        self,
+    ) -> None:
+        """An empty area is indistinguishable from an unchecked toggle or a
+        widget dragged off-screen. A status message is the third, distinct
+        state: the toggle is on, but the run is not measurable (yet, or ever).
+        """
+        widget = self._widget(show_bar=True, show_expected=True)
+        widget.set_expected(
+            None,
+            None,
+            show_expected=False,
+            status_message="Expected counts — waiting for first item",
+        )
+        widget.adjustSize()
+
+        self.assertTrue(widget.expected_label.isVisibleTo(widget))
+        self.assertIn("waiting for first item", widget.expected_label.text())
+
 
 
 if __name__ == "__main__":

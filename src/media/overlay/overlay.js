@@ -239,7 +239,14 @@ function renderLuckRarity(state) {
   `).join(`<span class="luck-sep">|</span>`);
 
   const bar = luck.show_bar ? renderLuckBar(tiers) : "";
-  const expected = luck.show_expected ? renderLuckExpected(tiers, luck.expected_layout) : "";
+  // Presence alone decides: a resolved status string always means "draw this
+  // instead", whatever made the run unmeasurable. This side never learns that.
+  const statusMessage = luck.status_message ? String(luck.status_message) : "";
+  const expected = statusMessage
+    ? `<div class="luck-expected-status muted">${escapeHtml(statusMessage)}</div>`
+    : luck.show_expected
+      ? renderLuckExpected(tiers, luck.expected_layout)
+      : "";
   return `<div class="luck-block">
     <div class="luck-chances">${chances}</div>
     ${bar}

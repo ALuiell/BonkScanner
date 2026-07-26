@@ -93,6 +93,35 @@ def format_expected_count(value: float | None, *, whole: bool = False) -> str:
     return f"{number:.0f}"
 
 
+# The expected frame's two failure states, worded so a player can tell them
+# apart from a toggle left off or a widget dragged out of view. Resolved once,
+# here, so the in-game Qt overlay and the browser/OBS overlay cannot drift onto
+# different wording for the same state -- and so neither has to know the other
+# exists.
+LUCK_EXPECTED_UNAVAILABLE_MESSAGE = "Expected counts unavailable — app missed the run start"
+LUCK_EXPECTED_PENDING_MESSAGE = "Expected counts — waiting for first item"
+
+
+def resolve_luck_expected_status_text(*, available: bool, availability_decided: bool) -> str:
+    """The text that replaces the expected frame, or "" to draw the figures.
+
+    Two distinct unmeasurable states, not one: before the loot tracker decides,
+    the answer is still coming, and telling a player their run is spoiled while
+    it is merely young would be the one error this message could make. Once
+    decided-and-unavailable, the block cannot recover for the rest of the run.
+
+    A caller must gate this on its own "show expected" toggle first -- when the
+    toggle is off, nothing should be drawn, and this function has no way to
+    know that; it only distinguishes the two reasons figures are missing once
+    someone already wants them shown.
+    """
+    if available:
+        return ""
+    if availability_decided:
+        return LUCK_EXPECTED_UNAVAILABLE_MESSAGE
+    return LUCK_EXPECTED_PENDING_MESSAGE
+
+
 def format_luck_rarity_percent(value: float | None) -> str:
     if value is None:
         return "--"

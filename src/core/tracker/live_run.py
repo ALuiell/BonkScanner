@@ -626,13 +626,21 @@ class LiveRunTracker:
         # silently discard a pending gain. An empty read is never news -- a
         # genuinely empty inventory has no deltas to detect -- so dropping it
         # costs nothing and the slow path still seeds the baseline.
-        if not items:
-            return False
         latest = self._latest_snapshot_unlocked()
         if latest is None or not self._is_active_snapshot(latest):
             # No run baseline yet. The slow path owns run start, including the
             # initial-inventory candidates `process_item_deltas` seeds on its
             # first call; starting that here would race it.
+            return False
+        if not items:
+            if items is not None and self._item_baseline_is_empty_unlocked():
+                # A read that succeeded and found nothing. It cannot move the
+                # baseline (see below), but it is exactly the evidence the loot
+                # gate needs, and this lane is the only one that sees it once a
+                # second -- see `loot.note_empty_inventory_reading`.
+                loot.note_empty_inventory_reading(
+                    self._loot_state, stage_index=self.current_stage_index
+                )
             return False
 
         run_timer_seconds = self._fresh_fast_run_timer_unlocked()
@@ -708,6 +716,12 @@ class LiveRunTracker:
         was written by rather than treating it as a queue.
         """
         return self._last_item_losses
+
+    def _item_baseline_is_empty_unlocked(self) -> bool:
+        # A method rather than a direct `items.baseline_is_empty(...)` call at
+        # the use site: `update_items`'s own parameter is named `items` and
+        # shadows the module there.
+        return items.baseline_is_empty(self._tracked_item_state)
 
     def _fresh_fast_items_unlocked(self) -> tuple[str, ...] | None:
         fast_items = self._fast_items

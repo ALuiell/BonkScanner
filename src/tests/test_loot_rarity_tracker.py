@@ -443,6 +443,131 @@ class LootAccumulationTests(unittest.TestCase):
         self.assertTrue(state.availability_decided)
         self.assertFalse(state.available)
 
+    def test_an_empty_first_map_reading_is_retained_but_does_not_decide(self) -> None:
+        """The fast item lane refuses to publish an empty inventory at all, so
+        only the slow snapshot lane can ever report `item_count == 0` -- up to
+        ten seconds late. A one-shot decision made off that stale zero would be
+        deciding on data already out of date. The reading is kept as evidence
+        instead, and the decision itself waits for the first pass that shows an
+        item.
+        """
+        state = loot._LootState()
+
+        loot.observe_run_position(
+            state, stage_index=1, game_time_seconds=900.0, item_count=0
+        )
+        self.assertFalse(
+            state.availability_decided, "an empty reading is evidence, not a decision"
+        )
+        self.assertTrue(state.observed_empty_first_map)
+
+        # The item appears on a later pass, long past the grace window --
+        # the retained evidence is what carries the run to measurable.
+        loot.observe_run_position(
+            state, stage_index=1, game_time_seconds=930.0, item_count=1
+        )
+        self.assertTrue(state.availability_decided)
+        self.assertTrue(state.available)
+
+    def test_the_fast_lane_records_emptiness_when_the_slow_read_failed(self) -> None:
+        """The race that condemned runs the app *had* watched from the start.
+
+        Only the 10 s snapshot lane could record the "inventory was empty"
+        evidence, because `update_items` refuses to publish an empty inventory.
+        At attach the first slow read very often fails and the next is ten
+        seconds away, so a player who picks something up inside that window got
+        "app missed the run start" while every 1 s pass in between had read an
+        empty inventory successfully and thrown the answer away.
+
+        Driven through the real lanes rather than `LootRun`, which only uses
+        the slow one and therefore cannot see this at all.
+        """
+        clock = _Clock(200.0)
+        tracker = LiveRunTracker(clock=clock)
+
+        # Attach mid-first-map. The inventory read fails on this pass.
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=200.0,
+                stats={},
+                items=(),
+                items_available=False,
+                game_time_seconds=200.0,
+                stage_time_seconds=200.0,
+                map_seed=100,
+                stage_ptr=1000,
+            )
+        )
+        self.assertFalse(tracker.get_loot_stats().availability_decided)
+
+        # The 1 s lane reads the same empty inventory successfully.
+        for tick in range(201, 210):
+            clock.now = float(tick)
+            tracker.update_fast_run_timer(float(tick))
+            tracker.update_fast_luck(DEFAULT_LUCK)
+            tracker.update_items(())
+
+        # The first item arrives long past the ten-second grace window.
+        clock.now = 209.5
+        tracker.update_items((LEGENDARY_ITEMS[0],))
+        clock.now = 210.5
+        tracker.update_items((LEGENDARY_ITEMS[0],))
+
+        stats = tracker.get_loot_stats()
+        self.assertTrue(stats.available, "the app watched this run from the start")
+        self.assertEqual(1, stats.actual["LEGENDARY"])
+
+    def test_a_transient_empty_read_against_held_items_is_not_evidence(self) -> None:
+        """The guard that keeps the lane above on the safe side of the gate.
+
+        The game exposes an empty inventory dictionary for a single read while
+        it rebuilds one. Read as "the inventory was empty" it would call a
+        late-attached run measurable -- the one direction of error this gate
+        exists to prevent -- so an empty read against a non-empty baseline is
+        the transient and never evidence.
+        """
+        clock = _Clock(200.0)
+        tracker = LiveRunTracker(clock=clock)
+
+        # A late attach: the player already holds an item.
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=200.0,
+                stats={},
+                items=(COMMON_ITEM,),
+                game_time_seconds=200.0,
+                stage_time_seconds=200.0,
+                map_seed=100,
+                stage_ptr=1000,
+            )
+        )
+
+        clock.now = 201.0
+        tracker.update_items(())
+        self.assertFalse(
+            tracker._loot_state.observed_empty_first_map,
+            "an empty read against held items is the transient, not an empty inventory",
+        )
+
+        clock.now = 202.0
+        tracker.update_items((COMMON_ITEM, LEGENDARY_ITEMS[0]))
+        clock.now = 203.0
+        tracker.update_items((COMMON_ITEM, LEGENDARY_ITEMS[0]))
+
+        self.assertFalse(tracker.get_loot_stats().available)
+
+    def test_omitting_item_count_is_a_type_error(self) -> None:
+        """The parameter used to default to `None`, which landed an omitted
+        argument in the same branch a failed read does -- an availability
+        decision that never came, with nothing in the log to say why. Making it
+        a required keyword turns that silent gap into an immediate, loud one.
+        """
+        state = loot._LootState()
+        with self.assertRaises(TypeError):
+            loot.observe_run_position(  # type: ignore[call-arg]
+                state, stage_index=1, game_time_seconds=1.0
+            )
+
     def test_a_new_run_clears_state(self) -> None:
         """Two mechanisms enforce this and either one alone is enough: the
         tracker-wide `_reset_for_new_run` calls `loot.reset`, and the loot lane
@@ -482,14 +607,18 @@ class LootAccumulationTests(unittest.TestCase):
         delta.
         """
         state = loot._LootState()
-        loot.observe_run_position(state, stage_index=1, game_time_seconds=1500.0)
+        loot.observe_run_position(
+            state, stage_index=1, game_time_seconds=1500.0, item_count=None
+        )
         loot.process_item_gains(
             state, (_gain(LEGENDARY_ITEMS[0], captured_at=1500.0),)
         )
         self.assertEqual(state.actual["LEGENDARY"], 1)
 
         # The item lane sees the new match first and starts the run itself.
-        loot.observe_run_position(state, stage_index=1, game_time_seconds=2.0)
+        loot.observe_run_position(
+            state, stage_index=1, game_time_seconds=2.0, item_count=None
+        )
         self.assertEqual(state.actual["LEGENDARY"], 0)
         self.assertTrue(state.expected_detected_run_reset)
         loot.process_item_gains(state, (_gain(RARE_ITEM, captured_at=3.0),))
@@ -524,6 +653,24 @@ class LootStatsOnRuntimeSnapshotTests(unittest.TestCase):
         self.assertEqual(published.actual["LEGENDARY"], 1)
         self.assertEqual(published.actual["COMMON"], 1)
         self.assertTrue(published.available)
+
+    def test_runtime_snapshot_carries_whether_availability_was_decided(self) -> None:
+        """The pending and the decided-unavailable states both read `available`
+        as `False`; `availability_decided` is the only field that tells them
+        apart, and it has to survive the trip to the projections."""
+        run = LootRun(start_time=900.0).begin((COMMON_ITEM,))
+        run.acquire(LEGENDARY_ITEMS[0])
+
+        published = run.tracker.runtime_snapshot().loot_stats
+        self.assertFalse(published.available)
+        self.assertTrue(published.availability_decided, "a late attach decides immediately")
+
+        pending = LootRun().begin(())
+        pending_stats = pending.tracker.runtime_snapshot().loot_stats
+        self.assertFalse(pending_stats.available)
+        self.assertFalse(
+            pending_stats.availability_decided, "no item has appeared yet to decide on"
+        )
 
     def test_runtime_snapshot_carries_the_unavailable_state(self) -> None:
         """An unmeasurable run must reach the projections *as* unmeasurable.

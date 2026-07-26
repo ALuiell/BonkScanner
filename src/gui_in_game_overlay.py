@@ -42,6 +42,7 @@ from projections.in_game_html import (
     build_status_indicator_html,
     calculate_luck_rarity_probabilities,
 )
+from core.luck_rarity import resolve_luck_expected_status_text
 from gui_in_game_overlay_settings import (
     InGameWidgetSettingsDialog,
     build_in_game_overlay_tab,
@@ -419,17 +420,24 @@ class InGameOverlay:
                 )
             if hasattr(widget, "set_expected"):
                 loot = getattr(projection, "loot_stats", None) if projection is not None else None
-                # A run the tracker cannot measure hides the block rather than
-                # showing zeros: both halves are wrong once the inventory
+                # A run the tracker cannot measure draws a status line rather
+                # than showing zeros: both halves are wrong once the inventory
                 # already held was absorbed into the item baseline, and a zero
                 # that looks like a count is worse than no block. The row above
                 # keeps rendering -- it depends on Luck alone.
+                toggle_on = bool(widget_cfg.get("luck_rarity", {}).get("show_expected", False))
+                available = bool(getattr(loot, "available", False))
+                availability_decided = bool(getattr(loot, "availability_decided", False))
                 widget.set_expected(
                     getattr(loot, "actual", None),
                     getattr(loot, "expected", None),
-                    show_expected=(
-                        bool(widget_cfg.get("luck_rarity", {}).get("show_expected", False))
-                        and bool(getattr(loot, "available", False))
+                    show_expected=toggle_on and available,
+                    status_message=(
+                        resolve_luck_expected_status_text(
+                            available=available, availability_decided=availability_decided
+                        )
+                        if toggle_on
+                        else None
                     ),
                     layout=widget_cfg.get("luck_rarity", {}).get("expected_layout", "column"),
                 )

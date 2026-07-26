@@ -23,6 +23,7 @@ from core.luck_rarity import (
     calculate_luck_rarity_probabilities,
     format_expected_count,
     format_luck_rarity_percent,
+    resolve_luck_expected_status_text,
 )
 
 if TYPE_CHECKING:
@@ -118,17 +119,31 @@ def _snapshot_luck_rarity(
     actual = getattr(loot, "actual", None) or {}
     expected = getattr(loot, "expected", None) or {}
     available = bool(getattr(loot, "available", False))
+    availability_decided = bool(getattr(loot, "availability_decided", False))
     layout = _luck_expected_layout(widget.get("expected_layout"))
     # `row` puts all four groups on one line, so the tenth is the first thing
     # to give when the scene is narrow. `column` keeps it.
     whole_expected = layout == "row"
+    toggle_on = bool(widget.get("show_expected", True))
+    # Resolved here, not in the browser: the wording has to match the in-game
+    # overlay's, and the JS side must never learn what makes a run measurable.
+    # "" when the toggle is off -- there is nothing to say about a block the
+    # user chose to hide, and no message would be drawn for it either way.
+    status_message = (
+        resolve_luck_expected_status_text(
+            available=available, availability_decided=availability_decided
+        )
+        if toggle_on
+        else ""
+    )
     return {
         # An unmeasurable run reports itself so, and the renderer drops the
         # block rather than drawing zeros. The chance row stays either way: it
         # depends on the current Luck alone and a late attach cannot spoil it.
         "available": available,
         "show_bar": bool(widget.get("show_bar", True)),
-        "show_expected": bool(widget.get("show_expected", True)) and available,
+        "show_expected": toggle_on and available,
+        "status_message": status_message,
         "expected_layout": layout,
         "tiers": [
             {

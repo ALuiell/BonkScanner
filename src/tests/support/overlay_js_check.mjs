@@ -262,11 +262,43 @@ const liveState = {
   assert.ok(html.includes("/118"), "row joins the pair with a slash");
   assert.ok(!html.includes("luck-dot"), "row carries no dots");
 
-  // Unmeasurable: the projector clears show_expected, and the chances stay.
+  // Unmeasurable, toggle off: the projector clears show_expected and sends no
+  // status_message (the toggle itself hides the block, nothing to say).
   t.render({ ...luckState, luck_rarity: { ...luckPayload, available: false, show_expected: false } });
   html = rootEl.innerHTML;
   assert.ok(html.includes("54.88%"), "an unmeasurable run keeps its chances");
   assert.ok(!html.includes("luck-expected-block"), "and drops the block rather than showing zeros");
+
+  // Unmeasurable, toggle on: a resolved status_message replaces the figures
+  // instead of leaving an empty area indistinguishable from the toggle being
+  // off. Presence alone decides -- this side never learns what "available"
+  // means.
+  t.render({
+    ...luckState,
+    luck_rarity: {
+      ...luckPayload,
+      available: false,
+      show_expected: false,
+      status_message: "Expected counts unavailable — app missed the run start",
+    },
+  });
+  html = rootEl.innerHTML;
+  assert.ok(html.includes("54.88%"), "a status message still keeps the chances");
+  assert.ok(!html.includes("luck-expected-block"), "the figures block is not drawn alongside the message");
+  assert.ok(
+    html.includes("app missed the run start"),
+    "the resolved status text must render in place of the figures"
+  );
+
+  // A measurable run must never show a leftover status message even if one
+  // arrived on the payload -- figures win once show_expected is true.
+  t.render({
+    ...luckState,
+    luck_rarity: { ...luckPayload, status_message: "" },
+  });
+  html = rootEl.innerHTML;
+  assert.ok(html.includes("luck-expected-block"), "figures render when show_expected is true");
+  assert.ok(!html.includes("luck-expected-status"), "no status line alongside real figures");
 
   console.log("ok: luck widget layouts and toggles");
 }

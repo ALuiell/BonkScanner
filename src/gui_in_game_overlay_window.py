@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt, QTimer, Signal
@@ -298,12 +299,17 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
         *,
         show_expected: bool,
         layout: str = LUCK_EXPECTED_DEFAULT_LAYOUT,
+        status_message: str | None = None,
     ) -> None:
-        """Update the block, or hide it.
+        """Update the block, show a status line in its place, or hide it.
 
-        Hidden covers both halves of "nothing to show": the toggle being off,
-        and a run the tracker cannot measure. The percentage row above stays
-        either way -- it depends on the current Luck alone.
+        Three states, not two. Hidden is the toggle being off -- there is
+        nothing to say about a block the user chose not to see. A run the
+        tracker cannot (yet) measure instead draws `status_message`: an empty
+        area reads the same as an unchecked toggle or a widget dragged off
+        screen, and neither the player nor support could tell those apart.
+        The percentage row above stays in all three -- it depends on the
+        current Luck alone.
         """
         # `isVisibleTo(self)`, never `isVisible()`. The latter is false for
         # every child while the overlay window itself is hidden, so guarding on
@@ -313,6 +319,14 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
         self._show_expected = bool(show_expected)
         self._expected_layout = str(layout)
         if not self._show_expected:
+            if status_message:
+                html = escape(status_message)
+                if self.expected_label.text() != html or not was_shown:
+                    self.expected_label.setText(html)
+                    self.expected_label.setVisible(True)
+                    self.adjustSize()
+                    self.reclamp_to_parent()
+                return
             if was_shown:
                 self.expected_label.setVisible(False)
                 self.adjustSize()

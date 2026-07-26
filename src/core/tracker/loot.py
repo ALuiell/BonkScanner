@@ -131,6 +131,10 @@ class _LootState:
     map_chest_opens: int = 0
     available: bool = False
     availability_decided: bool = False
+    # Retained evidence: an empty inventory seen on the first map, before the
+    # decision is spent. Set only there, and never unset except by a full reset
+    # -- see `observe_run_position`.
+    observed_empty_first_map: bool = False
     # Consumed tiers awaiting their craft output, oldest first. A queue rather
     # than a set: two crafts of the same tier owe two exclusions.
     tier_debts: list[str] = field(default_factory=list)
@@ -151,6 +155,7 @@ def _clear_run_totals(state: _LootState) -> None:
     state.map_chest_opens = 0
     state.available = False
     state.availability_decided = False
+    state.observed_empty_first_map = False
     state.tier_debts = []
     state.pending_exclusions = []
     state.recent_gains.clear()
@@ -178,15 +183,15 @@ def observe_run_position(
     *,
     stage_index: int,
     game_time_seconds: float | None,
-    item_count: int | None = None,
+    item_count: int | None,
     items_available: bool = True,
 ) -> None:
     """Fold the run clock the current item pass carries.
 
-    Two jobs, both one-shot per run. First, a clock that has gone *backwards* is
-    a new match this lane has noticed before the snapshot lane did -- start the
-    run here and leave the flag for ``reset``. Second, the first position seen
-    in a run decides whether the run is measurable at all.
+    Two jobs. First, a clock that has gone *backwards* is a new match this
+    lane has noticed before the snapshot lane did -- start the run here and
+    leave the flag for ``reset``. Second, the first pass that actually shows an
+    item decides whether the run is measurable at all.
 
     What makes a run unmeasurable is not lateness itself but the *block of items
     already held* when the app arrives: ``initial_item_increase_candidates``
@@ -198,18 +203,30 @@ def observe_run_position(
     it is**. That function builds a candidate only ``if count > 0``, so with
     nothing held there is nothing absorbed and no rolls have been missed --
     there were none to miss. A player who has opened no chest yet is at the
-    start of their loot history whatever the run clock says, and the old rule
-    turned that perfectly good run away for being three minutes old.
+    start of their loot history whatever the run clock says.
 
-    The clock window stays as the second arm, for the case the first cannot
-    cover: attaching a few seconds in with an item already picked up. That one
-    *does* lose a roll, and accepting one item of error inside ten seconds is
-    the trade the original rule made deliberately.
+    That empty reading cannot be spent as the decision itself, though: the fast
+    item lane refuses to publish an empty inventory at all (``update_fast_items``
+    bails on ``if not items``), so the *only* lane that can ever report
+    ``item_count == 0`` is the slow snapshot lane, up to ten seconds behind. A
+    one-shot decision made off that stale zero would be deciding on data that is
+    already out of date the moment it arrives. So an empty first-map reading is
+    recorded as retained evidence and the count returns without deciding -- the
+    decision itself waits for the first pass that actually shows an item, and is
+    then made from the evidence:
+    ``observed_empty_first_map or (stage_index == 1 and within_grace)``. The
+    stage-one constraint lives inside the retained flag, not beside it, because
+    the flag is only ever set while on the first map.
 
-    The decision waits for a pass that actually read the inventory. An empty
-    ``items`` from a failed read is not an empty inventory, and deciding off one
-    would call an unmeasurable run measurable -- the one direction of error this
-    gate exists to prevent.
+    The clock window is the second arm, for the case the first cannot cover:
+    attaching a few seconds in with an item already picked up. That one *does*
+    lose a roll, and accepting one item of error inside ten seconds is the
+    trade the original rule made deliberately.
+
+    A failed read never decides anything either way. An empty ``items`` from a
+    failed read is not an empty inventory, and deciding off one would call an
+    unmeasurable run measurable -- the one direction of error this gate exists
+    to prevent.
     """
     previous = state.last_game_time_seconds
     if (
@@ -226,13 +243,50 @@ def observe_run_position(
 
     if state.availability_decided or not items_available:
         return
+
+    if item_count is None or int(item_count) <= 0:
+        if int(stage_index) == 1 and item_count is not None:
+            state.observed_empty_first_map = True
+        return
+
     state.availability_decided = True
-    started_empty = item_count is not None and int(item_count) <= 0
     within_grace = (
         game_time_seconds is not None
         and float(game_time_seconds) <= LATE_ATTACH_GRACE_SECONDS
     )
-    state.available = bool(int(stage_index) == 1 and (started_empty or within_grace))
+    state.available = bool(
+        state.observed_empty_first_map or (int(stage_index) == 1 and within_grace)
+    )
+
+
+def note_empty_inventory_reading(state: _LootState, *, stage_index: int) -> None:
+    """Record a successfully-read *empty* inventory as measurability evidence.
+
+    The 1 s item lane cannot deliver this through ``observe_run_position``,
+    because ``update_items`` refuses to publish an empty inventory at all --
+    crediting one would drop the confirmed baseline and silently discard a
+    pending gain. That refusal is right for the baseline and was wrong for this
+    gate: it left the 10 s snapshot lane as the *only* lane able to record the
+    one fact the gate needs.
+
+    Which lost runs the app had watched from the very first second. At attach
+    the first inventory read very often fails, and the next slow read is ten
+    seconds away; a player who picks something up inside that window is
+    condemned with "app missed the run start" even though every pass in between
+    read an empty inventory successfully and threw the answer away. The fast
+    lane sees the same emptiness once a second, so it is the lane that closes
+    the race.
+
+    ``baseline_is_empty`` is the caller's guard against the transient empty
+    dictionary the game exposes mid-rebuild: a player who holds items has a
+    non-empty baseline, so an empty read against one is the transient and never
+    evidence. Marking an unmeasurable run measurable is the one direction of
+    error this gate exists to prevent, and that guard is what keeps this
+    addition on the safe side of it.
+    """
+    if state.availability_decided or int(stage_index) != 1:
+        return
+    state.observed_empty_first_map = True
 
 
 def note_map_identity(
@@ -460,5 +514,6 @@ def get_loot_stats(state: _LootState) -> LootStatsSnapshot:
         acquisitions=state.acquisitions,
         map_chest_opens=state.map_chest_opens,
         available=state.available,
+        availability_decided=state.availability_decided,
         outstanding_tier_debts=tuple(state.tier_debts),
     )
