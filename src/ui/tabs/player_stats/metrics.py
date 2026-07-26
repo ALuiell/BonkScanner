@@ -81,12 +81,21 @@ def _retain_hidden_widget_size(widget) -> None:
 
 
 def _build_chests_stats_card():
+    """Six rows, plus the same reason-when-it-can't-fill line the rarity card
+    uses below it: `Expected` here fails apart for the same underlying
+    reason -- a late attach -- so it gets the same explanation, not a
+    second one invented for this card.
+    """
     card = QFrame()
     card.setObjectName("StatCard")
-    layout = QFormLayout(card)
-    layout.setContentsMargins(8, 8, 8, 8)
-    layout.setHorizontalSpacing(6)
-    layout.setVerticalSpacing(4)
+    outer = QVBoxLayout(card)
+    outer.setContentsMargins(8, 8, 8, 8)
+    outer.setSpacing(4)
+
+    form = QFormLayout()
+    form.setContentsMargins(0, 0, 0, 0)
+    form.setHorizontalSpacing(6)
+    form.setVerticalSpacing(4)
     values = {}
     for key, title in (
         ("maps", "Maps"),
@@ -101,8 +110,16 @@ def _build_chests_stats_card():
         value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         if key == "maps":
             value_label.setWordWrap(True)
-        layout.addRow(title, value_label)
+        form.addRow(title, value_label)
         values[key] = value_label
+    outer.addLayout(form)
+
+    status_label = QLabel("")
+    status_label.setWordWrap(True)
+    status_label.setStyleSheet("color: #98A7BA;")
+    status_label.setVisible(False)
+    outer.addWidget(status_label)
+    values["status"] = status_label
     return card, values
 
 

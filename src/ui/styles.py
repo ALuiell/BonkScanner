@@ -134,6 +134,15 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     border-radius: 8px;
                     padding: 8px;
                 }
+                /* A StatCard already inside a QGroupBox: same surface, no
+                   second border. The background is not decoration -- the
+                   generic `QWidget` rule above paints every QLabel #10141B,
+                   so it is this lighter fill behind them that makes the rows
+                   read as stripes. Drop it and the card goes flat. */
+                QFrame#StatCardInner {
+                    background: #131A23;
+                    border: none;
+                }
                 QFrame#WarningCard {
                     background: #312114;
                     border: 1px solid #5E3417;

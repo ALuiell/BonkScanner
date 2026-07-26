@@ -785,12 +785,14 @@ class LiveStatsTab:
         chests_group = QGroupBox("Chests (Expected = key procs)")
         chests_group_layout = QVBoxLayout(chests_group)
         chests_card, self._chests_card_values = _build_chests_stats_card()
+        chests_card.setObjectName("StatCardInner")
         chests_group_layout.addWidget(chests_card)
         loot_grid.addWidget(chests_group, 0, 0)
 
         rarity_group = QGroupBox("Item Rarity (Expected = items by tier)")
         rarity_group_layout = QVBoxLayout(rarity_group)
         rarity_card, self._loot_rarity_card_values = _build_loot_rarity_card()
+        rarity_card.setObjectName("StatCardInner")
         rarity_group_layout.addWidget(rarity_card)
         loot_grid.addWidget(rarity_group, 0, 1)
 

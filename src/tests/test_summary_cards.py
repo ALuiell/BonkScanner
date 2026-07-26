@@ -198,6 +198,22 @@ class ChestsCardTests(unittest.TestCase):
         set_chests_card_values(None, {"opened": "1"})
         set_chests_card_values({}, {"opened": "1"})
 
+    def test_expected_present_hides_the_status_line(self) -> None:
+        labels = {"expected": FakeLabel(), "status": FakeLabel()}
+
+        set_chests_card_values(labels, {"expected": "23.4"})
+
+        self.assertFalse(labels["status"].isVisible())
+        self.assertEqual("", labels["status"].text())
+
+    def test_expected_dashed_shows_the_shared_reason(self) -> None:
+        labels = {"expected": FakeLabel(), "status": FakeLabel()}
+
+        set_chests_card_values(labels, {"expected": "--"})
+
+        self.assertTrue(labels["status"].isVisible())
+        self.assertIn("running from the start", labels["status"].text())
+
 
 def _rarity_labels() -> dict:
     labels = {

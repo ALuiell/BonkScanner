@@ -4,6 +4,214 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Recently Handled Items (Archived 2026-07-26)
+
+### Twitch Commands
+
+#### 1. Item Rarity Loot Tracking — Implementation Plan
+
+Status: `[Partial / Archived]`
+
+Note from step 4, which the plan did not anticipate: the rarity model had to move from `src/projections/in_game_html.py` down to a new `src/core/luck_rarity.py` before the tracker could use it at all — `core/` may not import `projections/` (§2 layer table), and this step is the model's second consumer. `in_game_html` re-exports both public names, so the overlay, its window and `tools/replay_loot_expectation.py` still import them at the old address.
+
+Note from step 1's tamper check, worth keeping: a naive decrease that skips confirmation passed the **entire** existing `test_live_run_tracker.py`, including `test_tracker_does_not_double_count_after_transient_item_drop`, whose sequence ends before the re-armed increase is confirmed. A test named for the scenario is not the same as a test that covers it.
+
+Outstanding from step 3: `src/tests/test_read_census.py` loads `tools/read_census.py` by path, and `tools/` is gitignored (`.gitignore:54`), so the census update for the new `LUCK` source cannot be committed. The test therefore guards nothing on a clean checkout. Either except that one file from the ignore or stop treating the test as protection.
+
+The design, the verified game mechanics, the measured constants and the output formats all live in item 5. **Read item 5 first; this item is the build order only.** Nothing here re-opens a decision made there — where this plan says something is decided, it is decided, and the reasoning is in item 5.
+
+Six steps. Steps 1 and 2 are independent of the rest and each fixes something on its own, so they can land separately.
+
+---
+
+**Step 1 — Handle item-count decreases in `process_item_deltas`**
+
+`src/core/tracker/items.py:117`, with `_PendingItemIncrease` in `src/core/tracker/snapshots.py`.
+
+The function copies previous counts into `confirmed_counts`, and its `current_count <= confirmed_count` branch drops the pending entry and `continue`s without writing back. `previous_item_counts` is therefore monotonically non-decreasing for the life of a run.
+
+- Add a confirmed-decrease path **symmetric with the existing increase path**. Increases are held pending and credited only when a later read agrees, because the game rebuilds the item array in place and a mid-write read shows a torn count. Do the same for decreases: one low read is a torn read until a second confirms it. A plain assignment would make every torn read look like a microwave craft in step 4.
+- Expose the confirmed decrease as an observable event, not only as a baseline adjustment — step 4 consumes it as the microwave signal.
+
+This is a live bug independent of the feature: after an item leaves the inventory, its stale high baseline means re-acquiring it never registers, so `process_item_gain` never fires and the tracked-item rules behind the OBS overlay, Session Stats and the Twitch commands silently miss it.
+
+Tests in `src/tests/`, alongside `test_live_run_tracker.py` and `test_passive_items_fast_lane.py`:
+
+- a single low read does not lower the baseline; a second agreeing read does;
+- a torn read that dips and recovers produces neither a gain nor a loss;
+- after a confirmed decrease, re-acquiring the same item credits the gain exactly once.
+
+Done when: those tests pass and no existing item-delta test regresses.
+
+---
+
+**Step 2 — A narrow `LUCK` source**
+
+`src/app/read_sources.py`, `src/infra/memory/player_stats_client.py`.
+
+- Add a reader for stat `30` alone and give it its own key. Do **not** reuse the `PLAYER_STATS` key: it resolves a full per-stat walk, which would then run on every fast pass.
+- No task yet — step 3 is where it gets consumed. Keeping the reader separate from the wiring makes the memory-side change reviewable on its own.
+
+Done when: the source exists and resolves the same value the full snapshot reports for `Luck`.
+
+---
+
+**Step 3 — Read the whole loot sample in one pass**
+
+`src/app/refresh_tasks.py` (`_refresh_passive_items_task`, around line 486), `src/app/player_stats_refresh.py:288`, `src/gui_in_game_overlay.py`.
+
+Make the existing `passive_items` task consume **three** sources in the same pass: `PASSIVE_ITEMS`, `MAP_ACTIVITY_VALUES` and the new `LUCK`.
+
+- This is the point of the whole shape. Within one `RefreshTickContext` a key resolves once and every consumer in that pass sees the same value, so items, counters and Luck all carry one timestamp. Step 4's Moai and merchant exclusions need that — at this cadence the counter increment and the gain land in the same tick — and the "which Luck applied to this roll" question disappears rather than needing a matching buffer.
+- The counters cost no extra read: `get_map_activity_values` (`src/infra/memory/game_data_client.py:517`) already walks the whole dictionary and returns every key. The 10 s snapshot keeps its own consumption — `chests_total`, `pots_total` and `PowerupMapContext.from_activity_max`, **not** Stage Summary, which does not use this source — and the pass cache shares one physical walk whenever both are due. Reading it every second also fixes `PowerupMapContext` being absent for the first ten seconds of every run, which the comment at that site already notes.
+- Publish Luck on `RuntimeStateSnapshot` and repoint the In-Game Overlay `luck_rarity` widget at it. The widget currently reads `latest_snapshot.stats["Luck"]` on the 10 s slow tick (`_refresh_in_game_overlay_slow_widgets`); move it to the fast tick and update the comment there, which explicitly justifies the slow pairing this step removes. Drop `luck_rarity` from `in_game_overlay_requires_player_stats_refresh`.
+- Check the task's `required` predicate still fits. `passive_items` uses `_should_refresh_full_player_snapshot`; confirm that covers the case where the Luck widget is enabled, since Luck now rides this task.
+- **Error policy, decided:** the full snapshot stays the health owner for `MAP_ACTIVITY_VALUES`. It records health in its own task body rather than through `read_source` callbacks, so a second consumer does not steal that accounting — whichever task resolves the key first performs the physical read, and the snapshot still records its own success or failure from the cached result. The item task keeps swallowing failures the way it already does for `PASSIVE_ITEMS`. Put the reasoning in the code comment; the existing one there explains the equivalent decision for `PASSIVE_ITEMS`.
+- Optional, a few lines: skip the fast dictionary walk once `numUsed == numTotal` for all three keys, via `RefreshTask.required`. The counters reset per map so it re-arms each stage, and it never fires if the player leaves one statue untouched. Worth having, not worth much.
+
+Done when: one tick yields items, counters and Luck together; the Luck widget updates at the fast cadence; memory-health behaviour for `MAP_ACTIVITY_VALUES` is unchanged from today.
+
+---
+
+**Step 4 — The loot tracker**
+
+New `src/core/tracker/loot.py`, modelled on `src/core/tracker/chests.py`; snapshot type in `src/core/tracker/snapshots.py`; wired through `src/core/tracker/live_run.py`.
+
+State per run: `actual[tier]`, `expected[tier]`, the tracked-acquisition count, an availability flag, and the pending structures below. Copy the `expected_detected_run_reset` pattern from `_ChestState` so a spurious reset does not wipe a valid run.
+
+Rules, all already decided in item 5:
+
+- Every confirmed item gain is a roll. Accumulate `expected[tier] += P(tier | Luck_j)` using `calculate_luck_rarity_probabilities` (`src/projections/in_game_html.py:157`). `Luck_j` is the value read in the **same pass** as the gain, courtesy of step 3 — no buffer, no nearest-sample matching. A gain confirmed a tick late still carries the Luck from the pass that observed the rise, because `_PendingItemIncrease` holds that snapshot.
+- Rarity resolves through `ITEM_RARITY_BY_NAME` and `normalize_item_name_for_rarity`. **If it does not resolve, the gain contributes to neither side** — that is what makes Corrupt-chest items and post-update unknown items harmless.
+- **Microwave:** a confirmed decrease opens a *debt* for the consumed tier; the next gain of that tier settles it and is not counted. No timer — the craft output lies on the ground until collected. Debts queue; clear outstanding debts on map generation.
+- **`Za Warudo` never opens a debt.** It leaves the inventory when the player dies, and treating that as a craft would swallow the next genuine legendary.
+- **Moai:** a counter increment excludes the *next* gain, 3 s forward window.
+- **Shady Guy:** a counter increment excludes the *preceding* gain, 2 s backward window.
+- Where a window cannot be resolved, drop the affected gain from **both** sides.
+- Late attach is a hard unavailable state — both `actual` and `expected` are wrong once existing items are absorbed into the baseline by `initial_item_increase_candidates`.
+- Log map-spawned chest openings beside the acquisition count. Gains must always be at least that number, and the excess is the standing check that no unknown source exists.
+
+Tests — this is the part that matters. The powerup timing work needed two live captures to find behaviour that had looked obvious, and this is the same shape of state machine over noisy reads.
+
+*Exclusions*
+
+- a decrease opens a tier debt; the next same-tier gain settles it uncounted, while other-tier gains in between count normally;
+- a second decrease before the first settles queues rather than replaces;
+- debts clear at map generation, and a same-tier gain after that boundary counts;
+- a `Za Warudo` decrease opens no debt;
+- a Moai increment excludes the next gain, a Shady Guy increment the preceding one;
+- an increment with no gain in its window expires without excluding anything;
+- the counters resetting at map generation is not read as an increment.
+
+*Accumulation*
+
+- expectation uses the Luck sampled at the gain's timestamp, not at confirmation;
+- an unresolvable rarity contributes to neither side;
+- a stack increase on an already-owned item counts as a full roll;
+- attaching mid-run yields the unavailable state, not partial numbers;
+- a new run clears state, and a spurious reset does not.
+
+Done when: those tests pass and `tools/replay_loot_expectation.py` still reproduces its recorded table — it exercises the model, not the tracker, so it must be unaffected.
+
+*Landed 2026-07-25 as `src/core/tracker/loot.py` and `src/tests/test_loot_rarity_tracker.py`, thirteen tests.* Each was tamper-checked by breaking the decision it names and confirming it reddens — a green suite proves nothing here, as step 1 established:
+
+| decision broken | test that reddened |
+| --- | --- |
+| the debt never settles | `..._a_decrease_opens_a_tier_debt...` (and the queue test with it) |
+| a repeat debt dedupes instead of queueing | `..._a_second_decrease_before_the_first_settles_queues` |
+| map generation leaves debts standing | `..._debts_clear_at_map_generation` |
+| `Za Warudo` opens a debt | `..._za_warudo_leaving_the_inventory_opens_no_debt` |
+| the two window directions swapped | `..._moai_excludes_the_next_gain_and_shady_guy_the_preceding_one` |
+| the forward window never expires | `..._an_increment_with_no_gain_in_its_window_excludes_nothing` |
+| a counter *drop* read as movement | `..._counters_resetting_at_map_generation_is_not_an_increment` |
+| Luck taken at confirmation | `..._expectation_uses_the_luck_at_the_gain_not_at_confirmation` |
+| unresolvable rarity defaulted to a tier | `..._an_unresolvable_rarity_contributes_to_neither_side` |
+| `gained_count` forced to 1 | `..._a_stack_increase_on_an_owned_item_is_a_full_roll` |
+| the late-attach grace widened | `..._attaching_mid_run_yields_the_unavailable_state` |
+| the run clearing made a no-op | `..._a_new_run_clears_state` |
+| the `expected_detected_run_reset` guard removed | `..._a_spurious_reset_does_not_wipe_a_valid_run` |
+
+One mutation was **survived**, and it is worth recording rather than patching: removing `loot.reset` from `_reset_for_new_run` leaves `..._a_new_run_clears_state` green, because the loot lane recognises a run clock that has gone backwards on its own and has already cleared by then. Two mechanisms enforce one property; the test asserts the property. Deleting the clearing itself reddens it.
+
+The first version of the stack test was also survived, which is the more useful finding: `x1 -> x2` yields `gained_count == 1`, so it never exercised the multi-copy path at all. It now goes on to `x2 -> x4` in one pass.
+
+---
+
+**Step 5 — The four output surfaces**
+
+Formats are fixed in item 5's Deliverables. Do not redesign them.
+
+- **Twitch `!luck`** — `src/twitch_bot.py`, dispatch around lines 229-269, plus a `commands_cfg` entry and the Twitch settings panel. One pipe-separated message. Uses the **game's** rarity vocabulary (`Legendary / Epic / Rare / Common`), which differs from our internal keys by one tier. When unavailable, the actual and expected halves drop and only the chances remain.
+- **In-Game Overlay** — `src/gui_in_game_overlay_window.py` (`LuckRarityOverlayWidget`), `src/projections/in_game_html.py`, settings in `src/gui_in_game_overlay_settings.py`, defaults in `src/app/config.py`. A `Show Expected Frame` toggle beside `show_bar`, plus `expected_layout: "column" | "row"` as a sub-option of the frame, defaulting to `column`. Anchor the block to the percentage row, not to the bar. Colours from `ITEM_RARITY_COLOR_MAP`; expected in the muted separator grey. Handle the height change tripping `_keep_widgets_inside_bounds`.
+- **OBS Overlay** — `src/projections/obs.py` and the widget config list in `src/app/config.py`. Same content and layouts, its own copy of both toggles. `projections/` may import `core/` only, so publish the summary on `RuntimeStateSnapshot` rather than computing it in the projector.
+- **Live Stats** — a new `Loot` tab in `src/ui/tabs/player_stats/`, holding the existing chest card moved across unchanged plus the new four-line rarity card. Leave an empty placeholder card where the chest card was in `Stats`. Label this card's `Expected` distinctly from the chest card's, which counts key procs.
+- **Recordings** — serialize the per-tier totals into the recording snapshots, behind its own Compare Runs toggle. Older recordings lack the field and need an explicit missing-value path, not a zero.
+
+*Formatting tests*
+
+- one decimal below 10, whole numbers above;
+- the unavailable state drops the actual and expected half of the Twitch line and keeps the chances;
+- both overlay layouts emit four cells in `LUCK_RARITY_ORDER`.
+
+---
+
+**Step 6 — Live run and the residual check**
+
+Play a full ordinary run with the app attached from the start, then compare the tracker's totals against `tools/replay_loot_expectation.py` on the same recording.
+
+They will **not** match, and that is correct. The replay works from 10 s snapshots, so it shares one Luck sample across several gains and cannot apply any exclusion at all. The live tracker should land *closer* to expectation than the replay does.
+
+The specific thing to check: the replay leaves a `+1.5` sigma residual on UNCOMMON, attributed in item 5 to the un-excluded Moai and merchant items. With the exclusions live, that residual should shrink. **If it does not, an item source exists that this design does not account for** — and the logged gap between acquisitions and map-spawned chest openings is where it will surface.
+
+### Live Run Refactor Fixes
+
+#### 1. Powerup Timing: Repeat Pickups and Multiplier Stability (Refactor Fixes)
+
+Status: `[Partial / Archived]`
+
+Goal:
+
+- Keep an active powerup's pickup and expiry marks stable while the buff is refreshed by repeat pickups of the same type.
+- Stop the Twitch `!powerups` command from reporting `none active` when the reader is merely a tick behind rather than genuinely empty.
+
+Problem Analysis:
+
+- **The game keeps `added_time` at the first pickup.** Re-picking an active buff rewrites `expiration_time` but leaves `added_time` untouched, so `expiration_time - added_time` grows on every refresh. The sanity window that exists to reject records surviving a timer epoch eventually rejected a mark that had been observed continuously, and the pickup mark jumped.
+- **The expiry mark is coupled to the pickup mark.** `raw_expiration` looks independent of duration, but `resolve_ui_context` is resolved *from* `pickup_time = expiration_time - duration`. On Graveyard the `pickup_time >= my_time - final_swarm_timer` branch switches the timer between `stage_timer` and the final-swarm clock, so any wobble in the computed duration throws the expiry mark across a phase boundary.
+- **The multiplier is not a trustworthy duration source at a repeat pickup.** It is served from a `5s` cache whose only force-refresh trigger is a change in the *set* of active effect ids, and re-picking an already active buff does not change that set.
+- **A missed read is not an empty read.** `POWERUPS_SNAPSHOT_TTL_SECONDS` (`1.5s`) empties the snapshot on the first missed tick, and the Twitch handler converted that into the literal string `none active`, which is indistinguishable from a successful read that found nothing.
+- **Ruled out:** sampling skew between `stage_timer` and `my_time` was investigated and is not a factor. `get_powerup_tracking_snapshot` reads both back-to-back from the same already-resolved `MyTime` static block, so the pair inside one snapshot is coherent. The `250ms` fast lane publishes a separate `FastStageTimerContext` that `apply_snapshot` never consumes.
+
+Implemented:
+
+- Per-effect observation history in `_PowerupState`, reconstructing "still the same buff" from `added_time`, clock direction, and expiry monotonicity, since the game exposes no instance id.
+- An effect's duration is frozen while nothing about it moves, so a single bad multiplier read cannot re-time a buff the game already committed to.
+- When the pickup itself is caught, the duration is taken as `expiration_time - added_time`, which the game writes in one frame and which no multiplier read can distort.
+- At a repeat pickup the duration is bounded by the game's own numbers rather than by the multiplier: the pickup happened between the previous read and this one, so `expiration_time - my_time <= D <= expiration_time - previous_my_time`. The multiplier is believed only inside that one-tick-wide window.
+- A *changed* multiplier must be read twice before it is published, so a one-frame misread never reaches the duration maths.
+- `powerups.recent_snapshot` keeps the last read past the strict TTL and marks it `stale`; the Twitch handler now separates fresh, stale, and absent, and never invents `none active`.
+
+Live validation on 2026-07-24:
+
+- 353 ticks over 176s, 10 repeat pickups across 4 effect types.
+- `added_time` never moved on a repeat pickup and the pickup mark never jumped; zero reads were rejected. One capture reached `expiration_time - added_time` of 252s against a 224s window, which the previous logic would have rejected.
+- One repeat pickup recorded 98.07s for a buff the game had granted 111.6s of, caused by the multiplier cache being a full TTL behind. Replaying the capture through the new bound reduces the worst repeat-pickup duration error from `13.50s` to `0.48s`.
+- The maximum gap between reads was `0.505s`, with none above `0.7s`. The powerup snapshot therefore never went stale during the capture, so the Twitch stale and absent branches were never exercised by it.
+
+Second live capture on 2026-07-24, with `Powerup Multiplier` deliberately raised immediately before each repeat pickup:
+
+- 152 ticks over 76s, 3 repeat pickups. `added_time` never moved and the pickup mark never jumped.
+- One repeat pickup landed on the last tick before the multiplier cache caught up: memory held `9.136` while the published value was still `8.576`. The bound recorded the granted `136.63s` exactly, where `base * multiplier` would have recorded `128.64s`. Replaying the same capture with the bound removed reproduces that `-7.99s` error, so the branch is confirmed rather than merely unexercised.
+- Worst repeat-pickup duration error across the capture: `0.33s`.
+- This closes live verification for the repeat-pickup duration bound. The Twitch branches remain unexercised; the maximum read gap was again `0.504s`.
+
+Remaining open work:
+
+- Live-verify the Twitch stale and absent branches. Waiting for a natural stall is impractical at the observed read cadence; this needs `POWERUPS_SNAPSHOT_TTL_SECONDS` and `POWERUPS_SNAPSHOT_GRACE_SECONDS` temporarily shrunk so the branches are reached deliberately.
+- The multiplier display and `standard_duration_seconds` can still lag up to the cache TTL at a repeat pickup, for the same force-refresh reason. Effect durations no longer depend on it, so this is cosmetic. The proper fix is to include expiration times, not just effect ids, in `active_signature`.
+
+---
+
 ## Recently Handled Items (Archived 2026-07-24)
 
 ### Live Run Refactor Fixes

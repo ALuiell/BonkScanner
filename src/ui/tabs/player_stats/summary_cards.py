@@ -53,10 +53,11 @@ def set_stage_summary_labels(labels, rows) -> None:
             )
 
 
-LOOT_RARITY_UNAVAILABLE_TEXT = (
-    "Actual and expected counts need the app to have been running from the "
-    "start of the run. Items already held when it attached were absorbed into "
-    "the baseline, so both halves would be wrong."
+#: Shared by the Chests and Item Rarity cards: both fail apart for the same
+#: reason -- a late attach breaks the baseline "Expected" is computed from --
+#: so they show the same one-line reason rather than each spelling it out.
+EXPECTED_COUNTS_UNAVAILABLE_TEXT = (
+    "Needs the app running from the start of the run for an accurate count."
 )
 
 
@@ -90,16 +91,28 @@ def set_loot_rarity_card_values(labels, luck_value, loot_stats) -> None:
         _set_text(row["counts"], counts)
     status = labels.get("status")
     if status is not None:
-        _set_text(status, "" if available else LOOT_RARITY_UNAVAILABLE_TEXT)
+        _set_text(status, "" if available else EXPECTED_COUNTS_UNAVAILABLE_TEXT)
         status.setVisible(not available)
 
 
 def set_chests_card_values(labels, values: dict[str, str] | None) -> None:
-    """Write the chests card, falling back to the all-empty projection."""
+    """Write the chests card, falling back to the all-empty projection.
+
+    `Expected` fails apart the same way the rarity card's counts do, so its
+    own "why" line is driven off the same signal: the cell reads `"--"`
+    exactly when the value passed in was `None`.
+    """
     if not labels:
         return
     values = values or formatting.chests_card_values(
         None, None, None, None, None, None, None, None, None
     )
     for key, label in labels.items():
+        if key == "status":
+            continue
         _set_text(label, values.get(key, "--"))
+    status = labels.get("status")
+    if status is not None:
+        expected_available = values.get("expected", "--") != "--"
+        _set_text(status, "" if expected_available else EXPECTED_COUNTS_UNAVAILABLE_TEXT)
+        status.setVisible(not expected_available)

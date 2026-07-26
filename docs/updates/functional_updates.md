@@ -392,161 +392,6 @@ Remaining work:
 - Handle older recordings explicitly. Even inside a single version-6 file the early snapshots predate some keys — `chests_total`, `expected_key_procs` and `free_chests` are absent from the first few rows of `950k.jsonl` — so the comparison needs a real missing-value path rather than treating absence as zero, which would read as "no chests opened" instead of "not recorded".
 - Keep the `Expected` label distinct from the rarity card's. Here it counts expected **key procs**; in item 5 it counts expected items per tier. The two now appear in the same tab and the same comparison view.
 
-#### 7. Item Rarity Loot Tracking — Implementation Plan
-
-Status: `[Partial]` — steps 1-4 landed 2026-07-25 (`b583d8a`, `2328aa8`, `a783c8e`, this commit); steps 5-6 open.
-
-Note from step 4, which the plan did not anticipate: the rarity model had to move from `src/projections/in_game_html.py` down to a new `src/core/luck_rarity.py` before the tracker could use it at all — `core/` may not import `projections/` (§2 layer table), and this step is the model's second consumer. `in_game_html` re-exports both public names, so the overlay, its window and `tools/replay_loot_expectation.py` still import them at the old address.
-
-Note from step 1's tamper check, worth keeping: a naive decrease that skips confirmation passed the **entire** existing `test_live_run_tracker.py`, including `test_tracker_does_not_double_count_after_transient_item_drop`, whose sequence ends before the re-armed increase is confirmed. A test named for the scenario is not the same as a test that covers it.
-
-Outstanding from step 3: `src/tests/test_read_census.py` loads `tools/read_census.py` by path, and `tools/` is gitignored (`.gitignore:54`), so the census update for the new `LUCK` source cannot be committed. The test therefore guards nothing on a clean checkout. Either except that one file from the ignore or stop treating the test as protection.
-
-The design, the verified game mechanics, the measured constants and the output formats all live in item 5. **Read item 5 first; this item is the build order only.** Nothing here re-opens a decision made there — where this plan says something is decided, it is decided, and the reasoning is in item 5.
-
-Six steps. Steps 1 and 2 are independent of the rest and each fixes something on its own, so they can land separately.
-
----
-
-**Step 1 — Handle item-count decreases in `process_item_deltas`**
-
-`src/core/tracker/items.py:117`, with `_PendingItemIncrease` in `src/core/tracker/snapshots.py`.
-
-The function copies previous counts into `confirmed_counts`, and its `current_count <= confirmed_count` branch drops the pending entry and `continue`s without writing back. `previous_item_counts` is therefore monotonically non-decreasing for the life of a run.
-
-- Add a confirmed-decrease path **symmetric with the existing increase path**. Increases are held pending and credited only when a later read agrees, because the game rebuilds the item array in place and a mid-write read shows a torn count. Do the same for decreases: one low read is a torn read until a second confirms it. A plain assignment would make every torn read look like a microwave craft in step 4.
-- Expose the confirmed decrease as an observable event, not only as a baseline adjustment — step 4 consumes it as the microwave signal.
-
-This is a live bug independent of the feature: after an item leaves the inventory, its stale high baseline means re-acquiring it never registers, so `process_item_gain` never fires and the tracked-item rules behind the OBS overlay, Session Stats and the Twitch commands silently miss it.
-
-Tests in `src/tests/`, alongside `test_live_run_tracker.py` and `test_passive_items_fast_lane.py`:
-
-- a single low read does not lower the baseline; a second agreeing read does;
-- a torn read that dips and recovers produces neither a gain nor a loss;
-- after a confirmed decrease, re-acquiring the same item credits the gain exactly once.
-
-Done when: those tests pass and no existing item-delta test regresses.
-
----
-
-**Step 2 — A narrow `LUCK` source**
-
-`src/app/read_sources.py`, `src/infra/memory/player_stats_client.py`.
-
-- Add a reader for stat `30` alone and give it its own key. Do **not** reuse the `PLAYER_STATS` key: it resolves a full per-stat walk, which would then run on every fast pass.
-- No task yet — step 3 is where it gets consumed. Keeping the reader separate from the wiring makes the memory-side change reviewable on its own.
-
-Done when: the source exists and resolves the same value the full snapshot reports for `Luck`.
-
----
-
-**Step 3 — Read the whole loot sample in one pass**
-
-`src/app/refresh_tasks.py` (`_refresh_passive_items_task`, around line 486), `src/app/player_stats_refresh.py:288`, `src/gui_in_game_overlay.py`.
-
-Make the existing `passive_items` task consume **three** sources in the same pass: `PASSIVE_ITEMS`, `MAP_ACTIVITY_VALUES` and the new `LUCK`.
-
-- This is the point of the whole shape. Within one `RefreshTickContext` a key resolves once and every consumer in that pass sees the same value, so items, counters and Luck all carry one timestamp. Step 4's Moai and merchant exclusions need that — at this cadence the counter increment and the gain land in the same tick — and the "which Luck applied to this roll" question disappears rather than needing a matching buffer.
-- The counters cost no extra read: `get_map_activity_values` (`src/infra/memory/game_data_client.py:517`) already walks the whole dictionary and returns every key. The 10 s snapshot keeps its own consumption — `chests_total`, `pots_total` and `PowerupMapContext.from_activity_max`, **not** Stage Summary, which does not use this source — and the pass cache shares one physical walk whenever both are due. Reading it every second also fixes `PowerupMapContext` being absent for the first ten seconds of every run, which the comment at that site already notes.
-- Publish Luck on `RuntimeStateSnapshot` and repoint the In-Game Overlay `luck_rarity` widget at it. The widget currently reads `latest_snapshot.stats["Luck"]` on the 10 s slow tick (`_refresh_in_game_overlay_slow_widgets`); move it to the fast tick and update the comment there, which explicitly justifies the slow pairing this step removes. Drop `luck_rarity` from `in_game_overlay_requires_player_stats_refresh`.
-- Check the task's `required` predicate still fits. `passive_items` uses `_should_refresh_full_player_snapshot`; confirm that covers the case where the Luck widget is enabled, since Luck now rides this task.
-- **Error policy, decided:** the full snapshot stays the health owner for `MAP_ACTIVITY_VALUES`. It records health in its own task body rather than through `read_source` callbacks, so a second consumer does not steal that accounting — whichever task resolves the key first performs the physical read, and the snapshot still records its own success or failure from the cached result. The item task keeps swallowing failures the way it already does for `PASSIVE_ITEMS`. Put the reasoning in the code comment; the existing one there explains the equivalent decision for `PASSIVE_ITEMS`.
-- Optional, a few lines: skip the fast dictionary walk once `numUsed == numTotal` for all three keys, via `RefreshTask.required`. The counters reset per map so it re-arms each stage, and it never fires if the player leaves one statue untouched. Worth having, not worth much.
-
-Done when: one tick yields items, counters and Luck together; the Luck widget updates at the fast cadence; memory-health behaviour for `MAP_ACTIVITY_VALUES` is unchanged from today.
-
----
-
-**Step 4 — The loot tracker**
-
-New `src/core/tracker/loot.py`, modelled on `src/core/tracker/chests.py`; snapshot type in `src/core/tracker/snapshots.py`; wired through `src/core/tracker/live_run.py`.
-
-State per run: `actual[tier]`, `expected[tier]`, the tracked-acquisition count, an availability flag, and the pending structures below. Copy the `expected_detected_run_reset` pattern from `_ChestState` so a spurious reset does not wipe a valid run.
-
-Rules, all already decided in item 5:
-
-- Every confirmed item gain is a roll. Accumulate `expected[tier] += P(tier | Luck_j)` using `calculate_luck_rarity_probabilities` (`src/projections/in_game_html.py:157`). `Luck_j` is the value read in the **same pass** as the gain, courtesy of step 3 — no buffer, no nearest-sample matching. A gain confirmed a tick late still carries the Luck from the pass that observed the rise, because `_PendingItemIncrease` holds that snapshot.
-- Rarity resolves through `ITEM_RARITY_BY_NAME` and `normalize_item_name_for_rarity`. **If it does not resolve, the gain contributes to neither side** — that is what makes Corrupt-chest items and post-update unknown items harmless.
-- **Microwave:** a confirmed decrease opens a *debt* for the consumed tier; the next gain of that tier settles it and is not counted. No timer — the craft output lies on the ground until collected. Debts queue; clear outstanding debts on map generation.
-- **`Za Warudo` never opens a debt.** It leaves the inventory when the player dies, and treating that as a craft would swallow the next genuine legendary.
-- **Moai:** a counter increment excludes the *next* gain, 3 s forward window.
-- **Shady Guy:** a counter increment excludes the *preceding* gain, 2 s backward window.
-- Where a window cannot be resolved, drop the affected gain from **both** sides.
-- Late attach is a hard unavailable state — both `actual` and `expected` are wrong once existing items are absorbed into the baseline by `initial_item_increase_candidates`.
-- Log map-spawned chest openings beside the acquisition count. Gains must always be at least that number, and the excess is the standing check that no unknown source exists.
-
-Tests — this is the part that matters. The powerup timing work needed two live captures to find behaviour that had looked obvious, and this is the same shape of state machine over noisy reads.
-
-*Exclusions*
-
-- a decrease opens a tier debt; the next same-tier gain settles it uncounted, while other-tier gains in between count normally;
-- a second decrease before the first settles queues rather than replaces;
-- debts clear at map generation, and a same-tier gain after that boundary counts;
-- a `Za Warudo` decrease opens no debt;
-- a Moai increment excludes the next gain, a Shady Guy increment the preceding one;
-- an increment with no gain in its window expires without excluding anything;
-- the counters resetting at map generation is not read as an increment.
-
-*Accumulation*
-
-- expectation uses the Luck sampled at the gain's timestamp, not at confirmation;
-- an unresolvable rarity contributes to neither side;
-- a stack increase on an already-owned item counts as a full roll;
-- attaching mid-run yields the unavailable state, not partial numbers;
-- a new run clears state, and a spurious reset does not.
-
-Done when: those tests pass and `tools/replay_loot_expectation.py` still reproduces its recorded table — it exercises the model, not the tracker, so it must be unaffected.
-
-*Landed 2026-07-25 as `src/core/tracker/loot.py` and `src/tests/test_loot_rarity_tracker.py`, thirteen tests.* Each was tamper-checked by breaking the decision it names and confirming it reddens — a green suite proves nothing here, as step 1 established:
-
-| decision broken | test that reddened |
-| --- | --- |
-| the debt never settles | `..._a_decrease_opens_a_tier_debt...` (and the queue test with it) |
-| a repeat debt dedupes instead of queueing | `..._a_second_decrease_before_the_first_settles_queues` |
-| map generation leaves debts standing | `..._debts_clear_at_map_generation` |
-| `Za Warudo` opens a debt | `..._za_warudo_leaving_the_inventory_opens_no_debt` |
-| the two window directions swapped | `..._moai_excludes_the_next_gain_and_shady_guy_the_preceding_one` |
-| the forward window never expires | `..._an_increment_with_no_gain_in_its_window_excludes_nothing` |
-| a counter *drop* read as movement | `..._counters_resetting_at_map_generation_is_not_an_increment` |
-| Luck taken at confirmation | `..._expectation_uses_the_luck_at_the_gain_not_at_confirmation` |
-| unresolvable rarity defaulted to a tier | `..._an_unresolvable_rarity_contributes_to_neither_side` |
-| `gained_count` forced to 1 | `..._a_stack_increase_on_an_owned_item_is_a_full_roll` |
-| the late-attach grace widened | `..._attaching_mid_run_yields_the_unavailable_state` |
-| the run clearing made a no-op | `..._a_new_run_clears_state` |
-| the `expected_detected_run_reset` guard removed | `..._a_spurious_reset_does_not_wipe_a_valid_run` |
-
-One mutation was **survived**, and it is worth recording rather than patching: removing `loot.reset` from `_reset_for_new_run` leaves `..._a_new_run_clears_state` green, because the loot lane recognises a run clock that has gone backwards on its own and has already cleared by then. Two mechanisms enforce one property; the test asserts the property. Deleting the clearing itself reddens it.
-
-The first version of the stack test was also survived, which is the more useful finding: `x1 -> x2` yields `gained_count == 1`, so it never exercised the multi-copy path at all. It now goes on to `x2 -> x4` in one pass.
-
----
-
-**Step 5 — The four output surfaces**
-
-Formats are fixed in item 5's Deliverables. Do not redesign them.
-
-- **Twitch `!luck`** — `src/twitch_bot.py`, dispatch around lines 229-269, plus a `commands_cfg` entry and the Twitch settings panel. One pipe-separated message. Uses the **game's** rarity vocabulary (`Legendary / Epic / Rare / Common`), which differs from our internal keys by one tier. When unavailable, the actual and expected halves drop and only the chances remain.
-- **In-Game Overlay** — `src/gui_in_game_overlay_window.py` (`LuckRarityOverlayWidget`), `src/projections/in_game_html.py`, settings in `src/gui_in_game_overlay_settings.py`, defaults in `src/app/config.py`. A `Show Expected Frame` toggle beside `show_bar`, plus `expected_layout: "column" | "row"` as a sub-option of the frame, defaulting to `column`. Anchor the block to the percentage row, not to the bar. Colours from `ITEM_RARITY_COLOR_MAP`; expected in the muted separator grey. Handle the height change tripping `_keep_widgets_inside_bounds`.
-- **OBS Overlay** — `src/projections/obs.py` and the widget config list in `src/app/config.py`. Same content and layouts, its own copy of both toggles. `projections/` may import `core/` only, so publish the summary on `RuntimeStateSnapshot` rather than computing it in the projector.
-- **Live Stats** — a new `Loot` tab in `src/ui/tabs/player_stats/`, holding the existing chest card moved across unchanged plus the new four-line rarity card. Leave an empty placeholder card where the chest card was in `Stats`. Label this card's `Expected` distinctly from the chest card's, which counts key procs.
-- **Recordings** — serialize the per-tier totals into the recording snapshots, behind its own Compare Runs toggle. Older recordings lack the field and need an explicit missing-value path, not a zero.
-
-*Formatting tests*
-
-- one decimal below 10, whole numbers above;
-- the unavailable state drops the actual and expected half of the Twitch line and keeps the chances;
-- both overlay layouts emit four cells in `LUCK_RARITY_ORDER`.
-
----
-
-**Step 6 — Live run and the residual check**
-
-Play a full ordinary run with the app attached from the start, then compare the tracker's totals against `tools/replay_loot_expectation.py` on the same recording.
-
-They will **not** match, and that is correct. The replay works from 10 s snapshots, so it shares one Luck sample across several gains and cannot apply any exclusion at all. The live tracker should land *closer* to expectation than the replay does.
-
-The specific thing to check: the replay leaves a `+1.5` sigma residual on UNCOMMON, attributed in item 5 to the un-excluded Moai and merchant items. With the exclusions live, that residual should shrink. **If it does not, an item source exists that this design does not account for** — and the logged gap between acquisitions and map-spawned chest openings is where it will surface.
-
 ### Help & Documentation
 
 #### 1. Contextual Help Buttons With Deep Links
@@ -603,47 +448,127 @@ Until these cases are reliably validated, keep the existing `500ms` task and ext
 
 #### 1. Game-Time Synchronized KPS Calculation (Refactor Fixes)
 
-Status: `[Open]`
+Status: `[Planned]` — design settled against live measurement on 2026-07-26; not implemented.
 
 Goal:
 
-- Replace the strict ~1-second polling window requirement in `track_ui_kps` with a KPS calculation synchronized exclusively to the continuously increasing `run_timer`. This first iteration deliberately does not cover Event Timer, `stage_timer`, map phases, or stage transitions.
+- Replace the strict ~1-second polling window requirement in `track_ui_kps` with a KPS calculation whose publication rhythm is driven exclusively by the continuously increasing `run_timer`. This first iteration deliberately does not cover Event Timer, `stage_timer`, map phases, or stage transitions.
 
 Problem Analysis:
 
-- **Rigid 0.9s–1.2s Sampling Window:** Current `track_ui_kps` evaluates consecutive samples `(run_timer, mob_kills)` and only updates KPS if the game-time delta falls strictly between 0.9 and 1.2 seconds.
-- **Baseline Resets on Lag:** If fast-polling delays or timer jitter cause `time_delta` to fall outside 0.9–1.2s, the baseline sample is reset (`state.ui_kps_baseline = current_sample`), causing instant KPS to temporarily drop to zero or disappear from UI widgets.
+- **Rigid 0.9s–1.2s Sampling Window:** Current `track_ui_kps` ([combat.py:67](../../src/core/tracker/combat.py:67)) evaluates consecutive samples `(run_timer, mob_kills)` and only updates KPS if the game-time delta falls strictly between 0.9 and 1.2 seconds.
+- **Baseline Resets on Lag:** If fast-polling delays or timer jitter cause `time_delta` to exceed 1.2s, the baseline sample is reset (`state.ui_kps_baseline = current_sample`) and that tick is lost outright, freezing the last displayed KPS in every consumer.
+- **The published value is a raw kill delta, not a rate.** [combat.py:84](../../src/core/tracker/combat.py:84) publishes `kills - baseline_kills` with no division. It is only a correct kills-per-second figure because the gate guarantees the window is ~1 s wide.
+- **The defect does not reproduce on a healthy machine.** Measured below: at the app's own cadence with no induced stalls, the current algorithm lost zero ticks in 81 samples. The fix targets the lag case specifically, and its priority should be read that way.
 
-Proposed Design: KPS Synchronized with `run_timer`
+##### Live Measurement (2026-07-26)
 
-Current instant KPS is calculated from two samples `(run_timer, mob_kills)` and is accepted only when the game time difference falls within a narrow range of `0.9–1.2s`. If fast-polling is delayed or the timer updates unevenly, the time delta strays outside this window, causing the baseline to reset and KPS to temporarily disappear.
+`tools/probe_kps_sync.py` polls `run_timer`/`mob_kills` against a live run and drives several candidate KPS monitors over one shared sample stream, so the comparison is differential rather than sequential. Two scenarios, both at `interval=0.5` (the `FAST_TRACKER_INTERVAL_MS` default), against an active mid-run fight.
 
-We propose abandoning the "must hit exactly one second" constraint. `run_timer` is the source of truth: while it advances, the run is active; while it remains unchanged, the game is paused and the KPS clock must not advance. Application wall-clock time is used only to decide when to perform a memory read, never in the KPS formula.
+**Baseline conditions.** `run_timer` advanced in steps of 0.483–0.509 s per poll. The paired `run_timer`+`mob_kills` read spanned 16 ms at worst and never approached `KPS_GROUP_SPAN_LIMIT_SECONDS` (0.100), so the coherence gate at [refresh_tasks.py:720](../../src/app/refresh_tasks.py:720) withheld nothing during these captures.
 
-Live validation on 2026-07-23 confirms that `run_timer` is a smoothly increasing float rather than a once-per-second game value: observed updates occurred every 4.2--58.4 ms (20.8 ms median). Its integer-second boundaries were one local second apart during active gameplay, and a real ~2 s pause left the game timer frozen. Therefore the implementation must observe crossings of game-time seconds, not attempt to catch a hypothetical exact internal second tick.
+**Clean cadence, 40 s, 81 samples:**
+
+| monitor | publishes | ticks lost | measured window |
+| --- | ---: | ---: | --- |
+| current (0.9/1.2 gate) | 40 | 0 | 0.979–1.021 s |
+| second-crossing, baseline = publishing sample | 40 | 0 | 0.979–1.021 s |
+| second-crossing, 1 s window | 40 | 0 | 0.979–1.021 s |
+
+**With emulated driver stalls (1 s stall at p=0.25 per tick), 50 s, 59 samples:**
+
+| monitor | publishes | ticks lost | measured window | worst display freeze |
+| --- | ---: | ---: | --- | ---: |
+| current (0.9/1.2 gate) | 13 | 20 | — | **12.0 game seconds** |
+| second-crossing, baseline = publishing sample | 42 | 0 | 0.492–2.016 s | 2.0 s |
+| second-crossing, 1 s window | 42 | 0 | 0.991–2.017 s | 2.0 s |
+
+A twelve-second frozen KPS readout is the measured form of the defect this item exists to fix.
+
+##### Why the Baseline Cannot Be the Previous Publishing Sample
+
+The algorithm as originally drafted here re-anchored the baseline to the sample that published. Measurement rejects it: the window collapses to **0.492 s under stalls and 0.500 s even on the clean run**, and the resulting peak read 567 KPS where the 1 s-window monitor read 352 over the same fight.
+
+The cause is that a crossing detected *late* leaves the next crossing only milliseconds away in game time. A sample landing at `run_timer = 101.98` publishes and becomes the baseline; the very next poll at `102.48` has already crossed second 102 and publishes again over a 0.5 s interval. Dividing normalizes the units but not the quantization — a half-second window doubles the noise of every kill.
+
+Anchoring only the *first* crossing after a reset (an intermediate proposal) does not fix this either. It bounds the first published interval and nothing after it; the 0.492 s minimum above was measured with that variant active.
+
+##### Design: Second-Crossing Rhythm, Fixed Game-Time Window
+
+Publication is synchronized to `run_timer`; measurement is over a window of fixed game-time length. The two are separate decisions and conflating them is what produced the variants above.
+
+- **When to publish:** on each crossing of an integer `run_timer` second. This is the same rhythm the game's own HUD counter runs at — live validation on 2026-07-23 established that `run_timer` updates every 4.2–58.4 ms (20.8 ms median) and that its integer-second boundaries fall one local second apart during active play — so we match the HUD's cadence without needing to read at any exact instant.
+- **What to measure:** the kill rate over the last ~1.0 game second, taken from the sample history `track_kills` already maintains, not from a private baseline pair.
+- Application wall-clock time decides only when to perform a memory read. It never enters the formula.
 
 Algorithm:
 
-1. Store a valid KPS baseline `(baseline_time, baseline_kills)` and the last observed integer second `floor(run_timer)`.
-2. Each fast read observes `(run_timer, mob_kills)`.
-3. If `run_timer` is unchanged, treat the run as paused. Keep the last displayed KPS and do not advance the KPS baseline or the synchronized game-second cursor.
-4. If `run_timer` advances and crosses one or more integer game-time seconds, emit a synchronized KPS update. Compute:
-   - `elapsed = run_timer - baseline_time`;
-   - `kills_delta = mob_kills - baseline_kills`;
-   - `kps = round(kills_delta / elapsed)` when `elapsed > 0`.
-5. Replace the baseline with the current sample only after publishing that update. If a delayed fast read skipped one or more game seconds, `elapsed` is larger than one second, but the formula still produces the correct normalized kills-per-second value instead of discarding it.
-6. Reset the synchronizer and KPS state on `run_timer` rollback, `mob_kills` decrease, new run start, or game process loss.
-7. The first valid sample after reset only establishes the baseline; KPS remains unavailable until enough advancing game time has elapsed to cross the next game-time second.
+1. Keep one new piece of state: the last integer second published for, `floor(run_timer)`. The `ui_kps_baseline` pair is deleted.
+2. Each fast read appends `(run_timer, mob_kills)` to `recent_kills_history` exactly as today.
+3. If `run_timer` is unchanged, the run is paused: `track_kills` already collapses the sample and returns before `track_ui_kps` is reached ([combat.py:54](../../src/core/tracker/combat.py:54)). The last published KPS stays on screen and the second cursor does not advance. No new code is required for this case.
+4. If `floor(run_timer)` has not advanced past the cursor, publish nothing and leave the previous value in place.
+5. Otherwise set the cursor to the new second and select the baseline: **the newest history sample whose time is at or before `run_timer - 1.0`, admitting samples up to `TOLERANCE` seconds later than that mark** (`TOLERANCE = 0.05`, see the interval note below). Publish `round((kills - baseline_kills) / (run_timer - baseline_time))`, floored at zero.
+6. If no sample qualifies — the history is shorter than the window, i.e. the first second of a run or of a reattach — publish nothing. KPS stays unavailable until the window fills.
+7. Reset on `run_timer` rollback, `mob_kills` decrease, new run, or game process loss. `track_kills` ([combat.py:51](../../src/core/tracker/combat.py:51)) and `reset` already cover all four; only the second cursor needs adding to `reset_ui_kps`.
 
-The initial implementation may use the existing fast-read cadence. A later optimization may schedule denser reads shortly before the predicted next integer `run_timer` boundary, but correctness must not depend on reading at an exact boundary.
+**The tolerance in step 5 is not slack, it is required — but it must be smaller than half the poll interval.** Without any tolerance, a poll landing a few milliseconds short of the one-second mark is rejected and the next-oldest sample is taken instead — measured at 500 ms, this puts the window at ~1.5 s for half of all publications, visibly over-smoothing the readout. But a tolerance that is too large *shrinks* the window at fine cadences: see the interval measurements below, where a 0.1 s tolerance at 100 ms polling pulled the window down to ~0.9 s. Since `FAST_TRACKER_INTERVAL_MS` has a hard floor of 100 ms, the tolerance must not exceed 0.05 s to stay under half of the tightest possible spacing. At `TOLERANCE = 0.05` the window measured 0.979–1.021 s across the 500 ms clean capture and sits at ~1.0 s at 100 ms.
+
+##### Read Interval Is Configurable, and This Design Depends On That Being Free
+
+The fast lane's cadence is `FAST_TRACKER_INTERVAL_MS` ([config.py:824](../../src/app/config.py:824)): default **500 ms**, hard floor **100 ms**, set through `config.json` (no GUI control). It is a single knob feeding five sites — the driver timer ([gui_app.py:306](../../src/gui_app.py:306)) and the `combat_metrics`, `powerups`, `expected_chest_inputs`, and `chaos_tome` tasks ([refresh_tasks.py:215](../../src/app/refresh_tasks.py:215)) — so KPS cannot be re-timed in isolation without giving it its own constant, the way `PASSIVE_ITEMS_REFRESH_MS` (1 s) and `event_timer` (1 s) already stand apart. The driver interval is also the floor for every task: at 1000 ms a 1 s task effectively runs at 1–2 s.
+
+Measured across intervals on 2026-07-26 (`tools/probe_kps_sync.py`):
+
+| interval | `run_timer` delta/poll | current algo (0.9/1.2 gate) | new (1 s window) |
+| --- | --- | --- | --- |
+| 1000 ms | 0.996–1.008 s | publishes, but sits **dead-center of the gate** — one skipped poll = ~2.0 s delta = lost tick + rebase | window 0.996–1.008 s, unaffected |
+| 500 ms | 0.483–0.509 s | 0 ticks lost when clean | window 0.979–1.021 s |
+| 100 ms | ~0.100 s | narrow subsecond gate, frequent holds | window ~0.9 s **only because a 0.1 s tolerance was too large** — fixed by `TOLERANCE = 0.05` |
+
+The decisive point for this item: **after the change, the interval stops being a correctness parameter and becomes a cost/precision one.** Today 1000 ms actively breaks the current KPS (jitter throws deltas past the 1.2 s gate); afterward 1000 ms merely coarsens the window, and 100 ms merely multiplies read cost fourfold across the shared lane for fractions of a kill in the readout. That decoupling is an independent argument for the change, separate from the stall scenario.
+
+##### What Changes On Screen
+
+In healthy conditions, almost nothing — which is the point. Over the clean capture the new value matched the current one on **33 of 40 publications**, the other 7 differing by 1–3 kills purely from dividing by a 0.98–1.02 s window instead of treating it as exactly 1 s. The number continues to agree with the game's HUD counter in the normal case, and diverges only where the current algorithm published nothing at all.
+
+Consumers of `current_ui_kps` that inherit the change: the Live Stats kills line ([refresh_tasks.py:743](../../src/app/refresh_tasks.py:743)), the recording snapshot's `kps` field ([player_stats_refresh.py:505](../../src/app/player_stats_refresh.py:505)), the OBS overlay widget ([obs.py:237](../../src/projections/obs.py:237)) and the In-Game Overlay's instant KPS ([in_game_html.py:33](../../src/projections/in_game_html.py:33)). Recordings written after this change carry rate-normalized instant KPS; runs recorded before it do not, so a Compare Runs diff of that field spans two slightly different definitions. The difference is within the 1–3 kill band measured above and needs no migration, but it should not be discovered later as a mystery.
+
+##### Implementation Notes
+
+- **`track_ui_kps` becomes a consumer of `recent_kills_history`.** `track_kills` appends to that deque one line before calling it ([combat.py:59](../../src/core/tracker/combat.py:59)), so the window is already in hand; `_CombatState.ui_kps_baseline` is removed and replaced by an integer second cursor. The 300 s trim above it stays as is.
+- **This makes instant KPS the same computation as the windowed readouts,** differing only in window length and in being emitted on second-crossings rather than on demand. `average_kps_for_window` ([combat.py:88](../../src/core/tracker/combat.py:88)) picks the *oldest* sample inside its window, which is right for a 60 s or 300 s average and wrong for a 1 s one — at 0.5 s polling it would land 1.5 s back. Share the deque, not that selector; the new one takes the newest sample at or before the cutoff.
+- **The module docstring is now false and must be rewritten.** [combat.py:6-11](../../src/core/tracker/combat.py:6) states that the 0.9/1.2 s gate exists to reproduce the game's own on-screen counter and that the two KPS notions are not interchangeable. After this change the gate is gone and the two notions differ only by window.
+- **`LiveRunTracker` needs no new surface.** `current_ui_kps` ([live_run.py:741](../../src/core/tracker/live_run.py:741)), `track_kills` ([live_run.py:572](../../src/core/tracker/live_run.py:572)) and `_reset_ui_kps_unlocked` ([live_run.py:1132](../../src/core/tracker/live_run.py:1132)) keep their signatures. The `__init__` state list at [live_run.py:177](../../src/core/tracker/live_run.py:177) names `_ui_kps_baseline` and must be updated with it.
+- **Do not touch the coherence gate.** When the combat group's span exceeds `KPS_GROUP_SPAN_LIMIT_SECONDS` the pass withholds the pair entirely and `track_kills` is never called ([refresh_tasks.py:720](../../src/app/refresh_tasks.py:720)). That is the lag case this design is built to survive: the skipped kills are not lost, they are counted at the next publication over a correspondingly longer window.
+- **Delete `_last_fast_kps_game_time_seconds`** ([refresh_tasks.py:390](../../src/app/refresh_tasks.py:390)). It is written at [refresh_tasks.py:732](../../src/app/refresh_tasks.py:732) and read nowhere in `src/` — three occurrences in the repository, all in that one file: the docstring, the initializer and the write. It is not the second cursor this design needs and must not be repurposed as one; the cursor belongs next to the history it indexes, in `_CombatState`.
+
+##### Tests
+
+The two existing tests over this path — `test_current_ui_kps_uses_valid_one_second_tick` and `test_current_ui_kps_ignores_tiny_timer_jump_after_pause` ([test_live_run_tracker.py:367](../../src/tests/test_live_run_tracker.py:367)) — **pass unchanged both before and after this change** and therefore prove nothing about it. `100.0 → 100.5 → 101.0` crosses second 101 over a 1.0 s window and still yields 300; `586.522 → 586.770` crosses no integer second and still yields `None`. Keep them, do not count them as coverage.
+
+Required new cases, each of which must fail against the current implementation:
+
+- **Skipped second.** `100.0 → 100.5 → 102.4`: the current code loses the tick, the new one publishes a rate over the ~1.9 s window.
+- **Late crossing must not shrink the window.** `100.0 → 100.5 → 101.98 → 102.48`: the second publication must measure over ~1 s, not over the 0.5 s between the two publishing samples. This is the case that fails the rejected variants and is the single most important test here.
+- **Tolerance admits a near-miss.** At coarse spacing, a sample at `run_timer - 0.998` must be admitted as the baseline rather than deferring to one at `run_timer - 1.498`.
+- **Tolerance must not shrink the window at fine spacing.** With samples 0.1 s apart, the baseline chosen for a publication must sit at ~`run_timer - 1.0`, giving a ~1.0 s window — not `run_timer - 0.9`. This is the case that catches a too-large tolerance; it failed at `TOLERANCE = 0.1` and passes at `0.05`.
+- **Window not yet filled.** The first second after a reset publishes nothing.
+- **Pause.** A repeated identical `run_timer` neither publishes nor advances the cursor, and the previous value remains readable.
+- **Resets.** Rollback and kill-count decrease clear the cursor as well as the value, and the next run starts from an empty window.
+- `track_ui_kps` currently has no unit coverage at the `combat.py` level at all — only indirect coverage through `LiveRunTracker`. Add the above at the pure-function level where the state is directly inspectable.
+
+##### Validation
+
+- Re-run `tools/probe_kps_sync.py` after implementation with a monitor mirroring the shipped code, and confirm on a live run that the app's `current_ui_kps` tracks it.
+- **Open measurement, worth doing before implementing:** the stalls above were *emulated*. Log `lost_overshoot` occurrences from the real Qt-driven fast lane over a ten-minute run. If the production driver loses ticks at a rate comparable to the emulation, this change has a measured payoff; if it loses as few as the probe's tight loop did (zero in 40 s), the item is a correctness improvement for a rare condition and should be prioritized accordingly.
 
 Benefits:
 
-- KPS remains strictly anchored to `run_timer` rather than application wall-clock time;
-- UI updates follow the rhythm of the game's own elapsed seconds;
-- missed or delayed fast-ticks no longer create empty output windows;
-- if 1.3, 1.8, or 2.4 game seconds elapse between reads, the result correctly normalizes to kills per second;
-- pauses preserve the last valid KPS and do not create false activity or spikes;
+- KPS remains strictly anchored to `run_timer` rather than to application wall-clock time;
+- UI updates follow the rhythm of the game's own elapsed seconds, which is also the HUD's;
+- missed or delayed fast-ticks no longer create empty output windows — measured 42 publications against 13 under stalls;
+- the measurement window cannot collapse below ~1 game second, so a late read produces a smoothed value rather than a spike;
+- pauses preserve the last valid KPS and do not create false activity;
 - the scope is isolated from stage/map logic, so it can be implemented and characterized independently.
 
 #### 3. Event Timer: Phase-Aware Game-Time Model (Refactor Fixes)
@@ -717,48 +642,3 @@ Benefits:
 - map-specific timer semantics are isolated from generic synchronization mechanics;
 - expected stage resets and Ghost Phase jumps no longer appear as false desynchronizations;
 - the UI uses one authoritative phase/timer projection instead of duplicating fragile map rules across overlays.
-
-#### 4. Powerup Timing: Repeat Pickups and Multiplier Stability (Refactor Fixes)
-
-Status: `[Partial]`
-
-Goal:
-
-- Keep an active powerup's pickup and expiry marks stable while the buff is refreshed by repeat pickups of the same type.
-- Stop the Twitch `!powerups` command from reporting `none active` when the reader is merely a tick behind rather than genuinely empty.
-
-Problem Analysis:
-
-- **The game keeps `added_time` at the first pickup.** Re-picking an active buff rewrites `expiration_time` but leaves `added_time` untouched, so `expiration_time - added_time` grows on every refresh. The sanity window that exists to reject records surviving a timer epoch eventually rejected a mark that had been observed continuously, and the pickup mark jumped.
-- **The expiry mark is coupled to the pickup mark.** `raw_expiration` looks independent of duration, but `resolve_ui_context` is resolved *from* `pickup_time = expiration_time - duration`. On Graveyard the `pickup_time >= my_time - final_swarm_timer` branch switches the timer between `stage_timer` and the final-swarm clock, so any wobble in the computed duration throws the expiry mark across a phase boundary.
-- **The multiplier is not a trustworthy duration source at a repeat pickup.** It is served from a `5s` cache whose only force-refresh trigger is a change in the *set* of active effect ids, and re-picking an already active buff does not change that set.
-- **A missed read is not an empty read.** `POWERUPS_SNAPSHOT_TTL_SECONDS` (`1.5s`) empties the snapshot on the first missed tick, and the Twitch handler converted that into the literal string `none active`, which is indistinguishable from a successful read that found nothing.
-- **Ruled out:** sampling skew between `stage_timer` and `my_time` was investigated and is not a factor. `get_powerup_tracking_snapshot` reads both back-to-back from the same already-resolved `MyTime` static block, so the pair inside one snapshot is coherent. The `250ms` fast lane publishes a separate `FastStageTimerContext` that `apply_snapshot` never consumes.
-
-Implemented:
-
-- Per-effect observation history in `_PowerupState`, reconstructing "still the same buff" from `added_time`, clock direction, and expiry monotonicity, since the game exposes no instance id.
-- An effect's duration is frozen while nothing about it moves, so a single bad multiplier read cannot re-time a buff the game already committed to.
-- When the pickup itself is caught, the duration is taken as `expiration_time - added_time`, which the game writes in one frame and which no multiplier read can distort.
-- At a repeat pickup the duration is bounded by the game's own numbers rather than by the multiplier: the pickup happened between the previous read and this one, so `expiration_time - my_time <= D <= expiration_time - previous_my_time`. The multiplier is believed only inside that one-tick-wide window.
-- A *changed* multiplier must be read twice before it is published, so a one-frame misread never reaches the duration maths.
-- `powerups.recent_snapshot` keeps the last read past the strict TTL and marks it `stale`; the Twitch handler now separates fresh, stale, and absent, and never invents `none active`.
-
-Live validation on 2026-07-24:
-
-- 353 ticks over 176s, 10 repeat pickups across 4 effect types.
-- `added_time` never moved on a repeat pickup and the pickup mark never jumped; zero reads were rejected. One capture reached `expiration_time - added_time` of 252s against a 224s window, which the previous logic would have rejected.
-- One repeat pickup recorded 98.07s for a buff the game had granted 111.6s of, caused by the multiplier cache being a full TTL behind. Replaying the capture through the new bound reduces the worst repeat-pickup duration error from `13.50s` to `0.48s`.
-- The maximum gap between reads was `0.505s`, with none above `0.7s`. The powerup snapshot therefore never went stale during the capture, so the Twitch stale and absent branches were never exercised by it.
-
-Second live capture on 2026-07-24, with `Powerup Multiplier` deliberately raised immediately before each repeat pickup:
-
-- 152 ticks over 76s, 3 repeat pickups. `added_time` never moved and the pickup mark never jumped.
-- One repeat pickup landed on the last tick before the multiplier cache caught up: memory held `9.136` while the published value was still `8.576`. The bound recorded the granted `136.63s` exactly, where `base * multiplier` would have recorded `128.64s`. Replaying the same capture with the bound removed reproduces that `-7.99s` error, so the branch is confirmed rather than merely unexercised.
-- Worst repeat-pickup duration error across the capture: `0.33s`.
-- This closes live verification for the repeat-pickup duration bound. The Twitch branches remain unexercised; the maximum read gap was again `0.504s`.
-
-Remaining open work:
-
-- Live-verify the Twitch stale and absent branches. Waiting for a natural stall is impractical at the observed read cadence; this needs `POWERUPS_SNAPSHOT_TTL_SECONDS` and `POWERUPS_SNAPSHOT_GRACE_SECONDS` temporarily shrunk so the branches are reached deliberately.
-- The multiplier display and `standard_duration_seconds` can still lag up to the cache TTL at a repeat pickup, for the same force-refresh reason. Effect durations no longer depend on it, so this is cosmetic. The proper fix is to include expiration times, not just effect ids, in `active_signature`.

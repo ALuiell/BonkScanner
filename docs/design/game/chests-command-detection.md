@@ -551,3 +551,26 @@ paid        = MoneyUtility.chestsPurchased
 key procs   = RunStats.chestsBought - MoneyUtility.chestsPurchased
 free chests = tracked map openings - RunStats.chestsBought
 ```
+
+## Option 5: Mob, Elite & Boss Chest Drop Detection via `EffectManager`
+
+### Reverse-Engineered Discovery (July 25, 2026 Audit)
+
+Mob, elite, and boss chest drops triggered by `EffectManager.CheckChestSpawn(Enemy)` (RVA `0x4FB6A0`) **do NOT spawn physical `InteractableChest` map components**. Instead, `CheckChestSpawn` instantiates `openChestNormal` (`EffectManager + 0x98`) or `wuiFreeChest` (`+0xA8`) directly. Consequently:
+
+- Mob/elite chest drops do NOT increment `InteractablesStatus["Chests"]` counters.
+- They bypass `InteractableChest` component methods completely.
+
+### Memory Paths
+
+- **`EffectManager.lastChestAtTime` (`GameAssembly.dll + 0x02F9C188` $\to$ static fields $\to$ `Instance` $\to$ `+0x20C`)**:
+  Float game timestamp (`Time.time` in seconds) updated every time a mob, elite, or boss drops a chest. **Updates reliably even with Skip Animation enabled.**
+- **`EffectManager.hasSpawnedFirstEliteChest` (`+0x250`)**:
+  Byte flag (`0` $\to$ `1`) set when the first elite mob drops a chest in the run.
+
+### Complete Detection Formula
+
+```text
+mob_dropped_chests = timestamp_updates(EffectManager.lastChestAtTime)
+map_free_chests    = tracked_map_free_chests - Moai_uses
+```
