@@ -21,8 +21,9 @@ those tests are about. So this builds a genuine `PlayerStatsMemory` through
 
 `world` holds the mutable state the service and its memory reach through their
 read/write callables: `world.stats_client`, `world.game_data_client`,
-`world.tracker`, `world.view`, `world.snapshot_store`, `world.memory`, and
-`world.overlay_syncs` (appended to on every `update_overlay_state_from_tracker`).
+`world.tracker`, `world.view`, `world.snapshot_store`, `world.memory`,
+`world.overlay_syncs` (appended to on every `update_overlay_state_from_tracker`)
+and `world.in_game_kps_syncs` (the same, for the in-game overlay's KPS repaint).
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ def build_refresh_tasks(
     memory: Any = None,
     world: Any = None,
 ) -> tuple[RefreshTasks, Any]:
-    """A real `RefreshTasks` with its twelve collaborators faked."""
+    """A real `RefreshTasks` with its thirteen collaborators faked."""
     if world is None:
         world = SimpleNamespace()
 
@@ -112,6 +113,7 @@ def build_refresh_tasks(
 
     world.vod_recorder = vod_recorder
     world.overlay_syncs: list = []
+    world.in_game_kps_syncs: list = []
     world.session_tracked_item_refreshes: list = []
 
     def _predicate(value):
@@ -135,6 +137,7 @@ def build_refresh_tasks(
         pinned=_predicate(pinned),
         widget_refresh_active=widget_active,
         sync_overlay_state=lambda: world.overlay_syncs.append(1),
+        sync_in_game_kps=lambda: world.in_game_kps_syncs.append(1),
         refresh_session_tracked_items=lambda: world.session_tracked_item_refreshes.append(1),
         refresh_required=_predicate(refresh_required),
     )

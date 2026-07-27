@@ -548,6 +548,15 @@ class MegabonkApp:
         if overlay is not None:
             overlay.stop_in_game_overlay()
 
+    # The combat pass calls this the instant it publishes a new KPS value, so
+    # the widget stops waiting for the overlay's own timer to come round. Same
+    # forwarding shape as the two above, and here for the same reason: the
+    # refresh service holds the app, not the overlay component.
+    def refresh_in_game_overlay_kps(self) -> None:
+        overlay = self.__dict__.get("_in_game_overlay")
+        if overlay is not None:
+            overlay.refresh_kps_widget()
+
     # -- footer dialogs (step 22c) ----------------------------------------
     #
     # These two sat in `gui_templates.py` and have nothing to do with templates:

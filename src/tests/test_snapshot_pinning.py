@@ -327,6 +327,13 @@ class FastTaskStageSummaryPinTests(unittest.TestCase):
             def update_overlay_state_from_tracker(self) -> None:
                 pass
 
+            # The combat task's other overlay command. Unlike the panel writes
+            # above it is *not* pin-guarded -- the in-game overlay always shows
+            # live values -- so it is here only to keep the real call path
+            # intact for the assertions that are about the pin.
+            def refresh_in_game_overlay_kps(self) -> None:
+                pass
+
         return Owner(), recorded
 
     def test_powerups_task_does_not_repaint_the_card_while_pinned(self) -> None:

@@ -17,7 +17,9 @@ from __future__ import annotations
 import src  # noqa: F401  -- puts `src/` on sys.path regardless of collection order
 
 import unittest
+from unittest.mock import patch
 
+from app import config
 from app.refresh_coordinator import RefreshTickContext
 from tests.support.refresh_tasks import build_refresh_tasks
 
@@ -78,6 +80,43 @@ class KpsAveragesRepaintTests(unittest.TestCase):
         service._refresh_combat_metrics_task(context())
 
         self.assertEqual(painted, [])
+
+
+class InGameOverlayKpsRepaintTests(unittest.TestCase):
+    """The same defect one surface over: the value was fast, the paint was not.
+
+    The in-game overlay painted KPS off its own 500 ms `QTimer`, whose phase is
+    unrelated to the pass that publishes the value, so the number reached the
+    screen up to a whole tick after it existed -- and the lag drifted, because
+    the two timers are independent wall-clock timers.
+    """
+
+    @staticmethod
+    def overlay_config(*, enabled: bool, widget_enabled: bool = True) -> dict:
+        return {
+            "enabled": enabled,
+            "widgets": {"kps": {"enabled": widget_enabled}},
+        }
+
+    def test_the_widget_is_repainted_by_the_pass_that_publishes_the_value(self) -> None:
+        service, world = build_refresh_tasks(stats_client=combat_client())
+
+        with patch.object(config, "IN_GAME_OVERLAY", self.overlay_config(enabled=True)):
+            self.assertTrue(service._refresh_combat_metrics_task(context()))
+
+        self.assertEqual(world.in_game_kps_syncs, [1])
+
+    def test_a_disabled_widget_costs_the_pass_nothing(self) -> None:
+        service, world = build_refresh_tasks(stats_client=combat_client())
+
+        with patch.object(
+            config, "IN_GAME_OVERLAY", self.overlay_config(enabled=True, widget_enabled=False)
+        ):
+            self.assertTrue(service._refresh_combat_metrics_task(context()))
+        with patch.object(config, "IN_GAME_OVERLAY", self.overlay_config(enabled=False)):
+            self.assertTrue(service._refresh_combat_metrics_task(context()))
+
+        self.assertEqual(world.in_game_kps_syncs, [])
 
 
 class ChaosTomeCardRepaintTests(unittest.TestCase):

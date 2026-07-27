@@ -264,11 +264,10 @@ class InGameOverlay:
         if runtime_snapshot is None:
             return False
         projection = project_in_game_overlay(runtime_snapshot)
-        if cfg["widgets"]["kps"]["enabled"]:
-            metrics_cfg = cfg["widgets"]["kps"].get("metrics", ["instant"])
-            widgets["kps"].set_text(
-                build_kps_overlay_html_from_values(projection.kps, metrics_cfg)
-            )
+        # KPS is painted through the shared entry rather than off `projection`,
+        # so the widget has one painter no matter which pass triggers it. See
+        # `refresh_kps_widget` for why the combat pass is the one that matters.
+        self.refresh_kps_widget()
 
         # Retrieve snapshot and powerups map context to determine stage metadata
         latest_snapshot = projection.latest_snapshot
@@ -363,6 +362,60 @@ class InGameOverlay:
         self._refresh_in_game_overlay_luck_widget(projection)
 
         return not was_visible and self.in_game_overlay_window.isVisible()
+
+    def refresh_kps_widget(self) -> None:
+        """Paint the KPS widget. Called by whichever pass has fresh numbers.
+
+        The instant value is published by ``track_ui_kps`` on each crossing of
+        an integer ``run_timer`` second, inside the combat pass -- which runs on
+        the fast tracker timer. Painting the widget from ``_overlay_fast_tick``
+        put a *second*, unrelated 500 ms timer between that publication and the
+        screen: the two are both wall-clock ``QTimer``s with independent phase,
+        so they beat against each other and the moment the number changed
+        wandered by up to a whole tick against the game's own counter, on top of
+        the 0--0.5 s the poll phase already costs. The combat pass now calls
+        this the moment it publishes.
+
+        The fast tick still calls it too. That repaint is redundant while the
+        combat pass is running -- same values, same HTML -- and it is the only
+        thing that paints the widget when the pass is not: a widget switched on
+        from the settings dialog mid-run, or the first frame after the window
+        becomes visible, would otherwise sit blank until the next publication.
+
+        Reads the four tracker accessors rather than ``runtime_snapshot``: the
+        snapshot deep-copies the whole run state, which is the wrong price to
+        pay on a path whose entire job is to be prompt.
+        """
+        window = self.in_game_overlay_window
+        if window is None or not window.isVisible():
+            return
+
+        widget_cfg = (config.IN_GAME_OVERLAY.get("widgets", {}) or {}).get("kps", {}) or {}
+        if not widget_cfg.get("enabled", False):
+            return
+        widget = window.widgets.get("kps")
+        if widget is None:
+            return
+
+        tracker = self._tracker()
+        if tracker is None:
+            return
+
+        def value(name: str) -> int | None:
+            reader = getattr(tracker, name, None)
+            return reader() if callable(reader) else None
+
+        values = {
+            "current": value("current_ui_kps"),
+            "minute_avg": value("current_minute_avg_kps"),
+            "five_minute_avg": value("current_five_minute_avg_kps"),
+            "run_avg": value("current_run_avg_kps"),
+        }
+        widget.set_text(
+            build_kps_overlay_html_from_values(
+                values, widget_cfg.get("metrics", ["instant"])
+            )
+        )
 
     def _refresh_in_game_overlay_status_widgets(self) -> None:
         """The Scanner and REC plaques, both driven by app state rather than by

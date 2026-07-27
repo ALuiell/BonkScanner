@@ -5120,6 +5120,106 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(became_visible)
         luck_widget.set_probabilities.assert_called_once()
 
+    def test_refresh_kps_widget_paints_from_the_tracker_readings(self) -> None:
+        """The entry the combat pass calls the moment it publishes a value.
+
+        It reads the four accessors rather than `runtime_snapshot`, so the
+        tracker here has no snapshot at all: a painter that fell back to the
+        snapshot path would raise instead of quietly agreeing.
+        """
+        kps_widget = SimpleNamespace(set_text=MagicMock())
+        tracker = SimpleNamespace(
+            current_ui_kps=lambda: 42,
+            current_minute_avg_kps=lambda: 30,
+            current_five_minute_avg_kps=lambda: 20,
+            current_run_avg_kps=lambda: 10,
+        )
+        overlay = build_in_game_overlay_test_component(tracker=tracker)
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.widgets = {"kps": kps_widget}
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {"kps": {"enabled": True, "metrics": ["instant", "60s"]}},
+        }
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            overlay.refresh_kps_widget()
+
+        kps_widget.set_text.assert_called_once()
+        html = kps_widget.set_text.call_args.args[0]
+        self.assertIn("42", html)
+        self.assertIn("30", html)
+        # `metrics` selects what is rendered; the two unselected readings must
+        # not leak into the widget just because the painter now reads all four.
+        self.assertNotIn("20", html)
+        self.assertNotIn("10", html)
+
+    def test_refresh_kps_widget_paints_nothing_when_hidden_or_disabled(self) -> None:
+        kps_widget = SimpleNamespace(set_text=MagicMock())
+        tracker = SimpleNamespace(current_ui_kps=lambda: 42)
+
+        for visible, widget_enabled in ((False, True), (True, False)):
+            overlay = build_in_game_overlay_test_component(tracker=tracker)
+            overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=visible)
+            overlay.in_game_overlay_window.widgets = {"kps": kps_widget}
+            overlay_cfg = {
+                "enabled": True,
+                "widgets": {"kps": {"enabled": widget_enabled}},
+            }
+            with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+                overlay.refresh_kps_widget()
+
+        kps_widget.set_text.assert_not_called()
+
+    def test_overlay_fast_tick_still_paints_kps_between_publications(self) -> None:
+        """The fast tick keeps its KPS paint, through the same entry.
+
+        The combat pass is now the timely painter, but it only runs while the
+        pass is running: a widget switched on from the settings dialog, or the
+        first frame after the window appears, would otherwise stay blank until
+        the next publication.
+        """
+        kps_widget = SimpleNamespace(set_text=MagicMock())
+        tracker = SimpleNamespace(
+            runtime_snapshot=lambda: SimpleNamespace(
+                latest_snapshot=None,
+                kps={},
+                powerups=SimpleNamespace(),
+                powerup_map_context=SimpleNamespace(is_graveyard=False),
+                fast_stage_timer=None,
+                graveyard_main_map_events_active=False,
+            ),
+            current_ui_kps=lambda: 42,
+            current_minute_avg_kps=lambda: None,
+            current_five_minute_avg_kps=lambda: None,
+            current_run_avg_kps=lambda: None,
+        )
+        overlay = build_in_game_overlay_test_component(
+            tracker=tracker,
+            is_game_window_active=lambda _process_name: True,
+        )
+        overlay.in_game_overlay_window = FakeInGameOverlayWindow(visible=True)
+        overlay.in_game_overlay_window.widgets = {"kps": kps_widget}
+        overlay._refresh_in_game_overlay_luck_widget = lambda *_args: None
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "scanner": {"enabled": False},
+                "recording": {"enabled": False},
+                "kps": {"enabled": True, "metrics": ["instant"]},
+                "luck_rarity": {"enabled": False},
+                "stats": {"enabled": False},
+                "event_timer": {"enabled": False},
+                "powerups": {"enabled": False},
+            },
+        }
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            overlay._overlay_fast_tick()
+
+        kps_widget.set_text.assert_called_once()
+        self.assertIn("42", kps_widget.set_text.call_args.args[0])
+
     def test_overlay_fast_tick_paints_the_status_plaques_every_tick(self) -> None:
         """They read app state, not game memory: the scan flag flips the moment
         the user starts a scan, and `REC` flips on the record button or on

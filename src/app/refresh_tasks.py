@@ -348,10 +348,11 @@ class RefreshTasks:
     """The fast-tick task bodies and their demand predicates, constructible
     without Qt or ``MegabonkApp``.
 
-    Twelve collaborators, all callables. ``_memory``/``_lifecycle``/``_view``/
+    Thirteen collaborators, all callables. ``_memory``/``_lifecycle``/``_view``/
     ``_capture`` return the sibling services; ``_widget_refresh_active`` is the
     module function above with its ``owner`` already bound; the rest are the
-    owner's tracker, predicates and the two overlay commands.
+    owner's tracker, predicates and the three overlay commands -- one per
+    overlay surface, plus the session tracked-items refresh.
     """
 
     def __init__(
@@ -368,6 +369,7 @@ class RefreshTasks:
         pinned: Callable[[], bool],
         widget_refresh_active: Callable[[str], bool],
         sync_overlay_state: Callable[[], None],
+        sync_in_game_kps: Callable[[], None],
         refresh_session_tracked_items: Callable[[], None],
         refresh_required: Callable[[], bool],
     ) -> None:
@@ -382,6 +384,7 @@ class RefreshTasks:
         self._pinned = pinned
         self._widget_refresh_active = widget_refresh_active
         self._sync_overlay_state = sync_overlay_state
+        self._sync_in_game_kps = sync_in_game_kps
         self._refresh_session_tracked_items = refresh_session_tracked_items
         self._refresh_required = refresh_required
 
@@ -731,6 +734,16 @@ class RefreshTasks:
                 return False
             self._tracker().track_kills(run_timer_seconds, mob_kills)
             self._mark_fast_feature_available("combat")
+            # First consumer served, and deliberately ahead of the panel paints
+            # below: `track_kills` has just published the instant KPS, and the
+            # in-game overlay was reading it off its own 500 ms timer, whose
+            # phase is unrelated to this pass's. That second timer was worth up
+            # to a whole extra tick of lag against the game's on-screen counter,
+            # and it drifted. Gated exactly like the OBS sync below -- the
+            # component re-checks the config itself, but a disabled overlay
+            # should not cost a cross-component call every pass.
+            if in_game_overlay_widget_enabled("kps"):
+                self._sync_in_game_kps()
             # `not pinned`: the user may have scrubbed the timeline to an
             # earlier snapshot, and these two writes are live values. The slow
             # refresh tick has honoured the pin since `d7d1350`; these were
@@ -1037,6 +1050,10 @@ def refresh_tasks(owner) -> RefreshTasks:
         pinned=lambda: player_stats_snapshot_is_pinned(owner),
         widget_refresh_active=lambda widget_id: overlay_widget_refresh_active(owner, widget_id),
         sync_overlay_state=lambda: owner.update_overlay_state_from_tracker(),
+        # The in-game overlay's counterpart to `sync_overlay_state`: one command
+        # on the other overlay component, resolved through the owner for the
+        # same reason.
+        sync_in_game_kps=lambda: owner.refresh_in_game_overlay_kps(),
         # The same shape as `sync_overlay_state` above, and resolved through the
         # owner for the same reason: it is one command on a component this
         # service does not otherwise hold.
