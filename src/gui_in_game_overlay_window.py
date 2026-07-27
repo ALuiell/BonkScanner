@@ -366,7 +366,7 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
         self._expected_layout = str(layout)
         if not self._show_expected:
             if status_message:
-                html = escape(status_message)
+                html = f'<span style="color: #8a8d9b;">{escape(status_message)}</span>'
                 if self.expected_label.text() != html or not was_shown:
                     self.expected_label.setText(html)
                     self.expected_label.setVisible(True)
