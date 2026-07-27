@@ -98,8 +98,14 @@ def format_expected_count(value: float | None, *, whole: bool = False) -> str:
 # here, so the in-game Qt overlay and the browser/OBS overlay cannot drift onto
 # different wording for the same state -- and so neither has to know the other
 # exists.
-LUCK_EXPECTED_UNAVAILABLE_MESSAGE = "Expected counts unavailable — app missed the run start"
-LUCK_EXPECTED_PENDING_MESSAGE = "Expected counts — waiting for first item"
+#
+# Kept to a few words each because these sit in the expected frame's place
+# inside the Luck widget, and that widget is only as wide as its percentage
+# row. A sentence has to wrap to two or three lines there, which is a lot of
+# screen for "nothing to show yet"; the prefix it lost said only what the
+# surrounding widget already says.
+LUCK_EXPECTED_UNAVAILABLE_MESSAGE = "Missed run start"
+LUCK_EXPECTED_PENDING_MESSAGE = "Waiting for first item"
 
 
 def resolve_luck_expected_status_text(*, available: bool, availability_decided: bool) -> str:

@@ -259,6 +259,11 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
         # past the percentage row it is anchored to; the 100%-width table inside
         # it takes whatever width the layout hands down.
         self.expected_label.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        # Word wrap plus the width cap `_fit_expected_block` applies is what
+        # keeps that promise. The size policy alone never did: a policy governs
+        # how spare space is *shared*, and the block's own size hint -- a status
+        # sentence on one unbreakable line -- still fed the column's width.
+        self.expected_label.setWordWrap(True)
         self._widget_layout.addWidget(self.expected_label)
 
         widget_cfg = config.IN_GAME_OVERLAY["widgets"][self.widget_id]
@@ -278,9 +283,50 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
                 f"font-size: {px_size}px; font-weight: bold; "
                 "background: transparent; border: none;"
             )
+        self._fit_expected_block()
         if hasattr(self, "bar_widget"):
             self.bar_widget.set_bar_scale(scale)
             self.adjustSize()
+
+    def set_text(self, text: str) -> None:
+        super().set_text(text)
+        # The percentage row is what the block is measured against, so a row
+        # that changed width invalidates the cap computed for the old one.
+        self._fit_expected_block()
+
+    def _fit_expected_block(self) -> None:
+        """Make the percentage row the only child that decides the width.
+
+        The three children share one column layout, and a column is as wide as
+        its widest child. The bar is `Expanding`, so it does not merely tolerate
+        that width -- it paints itself across all of it. Which meant switching
+        the expected frame on stretched the bar to whatever the block underneath
+        happened to need, and a status message stretched it to roughly three
+        times the percentage row it is supposed to sit under.
+
+        Capping the block at the row's width inverts the relationship the user
+        sees: the bar is sized by the percentages, exactly as it is with the
+        frame switched off, and the block fits itself into that width. The
+        explicit height is the other half -- a wrapping label's size hint is a
+        guess made before the layout hands down a width, and without pinning the
+        height to `heightForWidth` the wrapped lines get clipped.
+        """
+        if not hasattr(self, "expected_label"):
+            return
+        width = self.label.sizeHint().width()
+        if width <= 0:
+            return
+        changed = False
+        if self.expected_label.maximumWidth() != width:
+            self.expected_label.setMaximumWidth(width)
+            changed = True
+        height = self.expected_label.heightForWidth(width)
+        if height > 0 and self.expected_label.minimumHeight() != height:
+            self.expected_label.setFixedHeight(height)
+            changed = True
+        if changed:
+            self.adjustSize()
+            self.reclamp_to_parent()
 
     def set_probabilities(self, probabilities: dict[str, float | None], *, show_bar: bool) -> None:
         self._current_probabilities = dict(probabilities)
@@ -324,6 +370,7 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
                 if self.expected_label.text() != html or not was_shown:
                     self.expected_label.setText(html)
                     self.expected_label.setVisible(True)
+                    self._fit_expected_block()
                     self.adjustSize()
                     self.reclamp_to_parent()
                 return
@@ -338,6 +385,7 @@ class LuckRarityOverlayWidget(DraggableOverlayWidget):
         if self.expected_label.text() != html or not was_shown:
             self.expected_label.setText(html)
             self.expected_label.setVisible(True)
+            self._fit_expected_block()
             self.adjustSize()
             self.reclamp_to_parent()
 

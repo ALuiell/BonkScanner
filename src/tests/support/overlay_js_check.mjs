@@ -279,14 +279,14 @@ const liveState = {
       ...luckPayload,
       available: false,
       show_expected: false,
-      status_message: "Expected counts unavailable — app missed the run start",
+      status_message: "Missed run start",
     },
   });
   html = rootEl.innerHTML;
   assert.ok(html.includes("54.88%"), "a status message still keeps the chances");
   assert.ok(!html.includes("luck-expected-block"), "the figures block is not drawn alongside the message");
   assert.ok(
-    html.includes("app missed the run start"),
+    html.includes("Missed run start"),
     "the resolved status text must render in place of the figures"
   );
 

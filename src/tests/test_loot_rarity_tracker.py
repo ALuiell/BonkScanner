@@ -556,6 +556,48 @@ class LootAccumulationTests(unittest.TestCase):
 
         self.assertFalse(tracker.get_loot_stats().available)
 
+    def test_the_fast_lane_clears_the_last_runs_verdict_without_an_item(self) -> None:
+        """A new run must not open still showing the previous one's status.
+
+        `observe_run_position` was reachable only through `_process_item_deltas`,
+        which the 1 s lane enters only for a *non-empty* inventory -- and a run
+        opens empty. So the backwards run clock that means "new match" was seen
+        either when the player picked something up or when the 10 s snapshot
+        came round, whichever was sooner, and until then the Luck widget's
+        expected frame kept rendering the finished run's verdict.
+
+        Asserting on `availability_decided` rather than on the message: that
+        flag is what the two unmeasurable states are told apart by, so a stale
+        `True` here *is* the stale plaque.
+        """
+        clock = _Clock(200.0)
+        tracker = LiveRunTracker(clock=clock)
+
+        # A late attach decides the run unmeasurable on the spot.
+        tracker.update(
+            LiveRunSnapshot(
+                captured_at=200.0,
+                stats={},
+                items=(COMMON_ITEM,),
+                game_time_seconds=200.0,
+                stage_time_seconds=200.0,
+                map_seed=100,
+                stage_ptr=1000,
+            )
+        )
+        self.assertTrue(tracker.get_loot_stats().availability_decided)
+        self.assertFalse(tracker.get_loot_stats().available)
+
+        # The next run begins. One 1 s pass, an empty inventory, no snapshot.
+        clock.now = 201.0
+        tracker.update_fast_run_timer(1.0)
+        tracker.update_items(())
+
+        self.assertFalse(
+            tracker.get_loot_stats().availability_decided,
+            "the new run is undecided from its first pass, not from its first item",
+        )
+
     def test_omitting_item_count_is_a_type_error(self) -> None:
         """The parameter used to default to `None`, which landed an omitted
         argument in the same branch a failed read does -- an availability

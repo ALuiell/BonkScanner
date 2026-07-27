@@ -309,6 +309,47 @@ class LuckRarityExpectedFrameTests(unittest.TestCase):
         self.assertTrue(widget.expected_label.isVisibleTo(widget))
         self.assertIn("waiting for first item", widget.expected_label.text())
 
+    def test_a_status_message_does_not_stretch_the_widget_or_the_bar(self) -> None:
+        """The bar is `Expanding`, so whatever widens the column widens the bar.
+
+        A status message is a run of unbreakable words, and before the block was
+        capped it set the column's width all by itself -- the bar underneath the
+        percentages stretched to about three times the row it belongs to. The
+        message is the widest thing the block ever holds, so it is the case
+        worth pinning.
+        """
+        widget = self._widget(show_bar=True, show_expected=False)
+        baseline = widget.width()
+
+        # Deliberately far longer than any message shipped. Two separate things
+        # keep the column narrow -- word wrap, and the explicit cap -- and word
+        # wrap alone happens to be enough for a message the length of the real
+        # ones, so pinning the shipped wording here would prove only that the
+        # string is short. Past roughly the percentage row's own width Qt's
+        # wrapping hint starts widening again and only the cap holds, which is
+        # the length this asserts at.
+        widget.set_expected(
+            None,
+            None,
+            show_expected=False,
+            status_message=(
+                "Expected counts unavailable because the app missed the run start. " * 4
+            ).strip(),
+        )
+        widget.adjustSize()
+
+        self.assertTrue(widget.expected_label.isVisibleTo(widget))
+        self.assertEqual(
+            baseline,
+            widget.width(),
+            "the percentage row alone decides the width, message or not",
+        )
+        self.assertLessEqual(
+            widget.expected_label.width(),
+            widget.label.width(),
+            "the block fits itself to the row rather than the other way round",
+        )
+
 
 
 if __name__ == "__main__":

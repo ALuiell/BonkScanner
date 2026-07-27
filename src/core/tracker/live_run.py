@@ -619,6 +619,34 @@ class LiveRunTracker:
         Returns whether the read was applied, so the task can report a skipped
         pass without inventing a failure.
         """
+        # The run clock first, before any of the guards below can return.
+        #
+        # `observe_run_position` carries two jobs, and only one of them needs an
+        # item: a clock that has gone backwards is a new match, and this lane
+        # sees that once a second. Reaching it only through `_process_item_deltas`
+        # meant the loot state learned about a new run either when the player
+        # picked something up or when the 10 s snapshot came round -- whichever
+        # was sooner. Until then the Luck widget's expected frame kept showing
+        # the *previous* run's verdict, so a player who ended a run on
+        # "missed run start" began the next one still reading it. Passing no
+        # inventory (`items_available=False`) is what keeps this to the clock
+        # arm: an empty read here is not evidence of an empty inventory, and
+        # deciding measurability off one is the single direction of error the
+        # gate exists to prevent.
+        #
+        # `_fresh_fast_run_timer_unlocked` is `None` when the combat pass is not
+        # running -- it is what publishes the clock, and the Luck widget alone
+        # does not demand it -- and a `None` clock decides nothing. That case
+        # falls back to the 10 s snapshot exactly as it did before, which is the
+        # right shape for it: this is strictly an improvement where the clock is
+        # there, never a new dependency on it.
+        loot.observe_run_position(
+            self._loot_state,
+            stage_index=self.current_stage_index,
+            game_time_seconds=self._fresh_fast_run_timer_unlocked(),
+            item_count=None,
+            items_available=False,
+        )
         # Transient-empty protection, the same rule `LiveSnapshotStore.merge_items`
         # applies on the slow path: the game exposes an empty inventory
         # dictionary for a single read while it rebuilds it in place. Credited
