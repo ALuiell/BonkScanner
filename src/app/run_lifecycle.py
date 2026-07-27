@@ -186,6 +186,24 @@ class RunLifecycle:
         elif state.mode is RuntimeGameMode.GAME_OVER and not self.completed_run:
             self._completed_run = True
             self.mark_completed_on_tracker()
+        elif state.mode is not RuntimeGameMode.UNKNOWN:
+            # Leaving GAME_OVER for a state we could actually read -- the main
+            # menu, in practice -- ends the completed run. Without this the flag
+            # only ever cleared on ``is_active_run``, so a probe that failed to
+            # see the *next* run start left it latched, and ``completed_run`` is
+            # the one gate every demand predicate sits behind: full snapshot,
+            # passive items, expected chest inputs, KPS, powerups, event timer.
+            # The whole in-game overlay then starved together, fed only by the
+            # ungated direct ``refresh_now`` calls that starting a recording or
+            # opening the Live Stats tab happen to make -- which is exactly what
+            # made the HUD look like it needed a recording to come alive.
+            #
+            # ``UNKNOWN`` is excluded deliberately and is the whole reason this
+            # is a mode check rather than ``not GAME_OVER``: a failed read
+            # becomes UNKNOWN (see ``refresh`` above and ``state_or_unknown``),
+            # and clearing on it would let one flaky read un-complete a finished
+            # run and re-arm capture on a game that is over.
+            self._completed_run = False
         return state
 
     def state_or_unknown(self, context=None) -> RuntimeGameState:

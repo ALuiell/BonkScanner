@@ -735,6 +735,71 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(lifecycle.completed_run)
         app.live_run_tracker.mark_run_completed.assert_called_once_with()
 
+    def test_app_answers_the_twitch_bot_predicate_without_a_session(self) -> None:
+        # `_is_twitch_bot_active` is called on the app by `refresh_tasks` and
+        # `player_stats_memory` and used to be defined nowhere, so `__getattr__`
+        # forwarded it to the window and it raised `AttributeError`. It is the
+        # last `or` arm of the optional-reads gate in
+        # `_read_live_player_stats_data`, so it only ran with recording off and
+        # the Live Stats tab closed -- and then it aborted the whole read, which
+        # is why the in-game overlay only came alive with one of those on.
+        #
+        # The unbound-call idiom with a `SimpleNamespace` self, not
+        # `object.__new__(MegabonkApp)`: the method reads only `self.__dict__`,
+        # and `test_componentization_inventory` ratchets the double count down.
+        self.assertFalse(MegabonkApp._is_twitch_bot_active(SimpleNamespace()))
+
+    def test_app_reports_the_twitch_bot_active_from_the_session(self) -> None:
+        app = SimpleNamespace(_twitch_session=SimpleNamespace(is_bot_active=lambda: True))
+
+        self.assertTrue(MegabonkApp._is_twitch_bot_active(app))
+
+    def test_optional_live_reads_gate_survives_an_idle_app(self) -> None:
+        # The end-to-end shape of the bug above: nothing is demanding the
+        # optional reads, so every arm of the gate is False and the last one
+        # must answer rather than raise. A raise here aborts the snapshot read
+        # and starves the tracker of the snapshot the overlay renders from.
+        app = SimpleNamespace()
+        app._is_twitch_bot_active = lambda: MegabonkApp._is_twitch_bot_active(app)
+        memory = player_stats_memory(app)
+        memory._recording_active = lambda: False
+        memory._live_stats_tab_active = lambda: False
+        memory._overlay_refresh_wanted = lambda: False
+
+        self.assertFalse(
+            memory._recording_active()
+            or memory._live_stats_tab_active()
+            or memory._overlay_refresh_wanted()
+            or memory._twitch_bot_active()
+        )
+
+    def test_returning_to_the_main_menu_clears_the_completed_run_latch(self) -> None:
+        # The latch used to clear only on `is_active_run`, so a probe that never
+        # saw the next run start kept every demand predicate switched off for
+        # the whole of it. The menu between the two runs ends the completed run.
+        lifecycle = build_run_lifecycle(
+            activity_states=(RuntimeGameState(mode=RuntimeGameMode.MAIN_MENU),),
+            completed_run=True,
+        )
+
+        with patch.object(time, "monotonic", return_value=10.0):
+            state = lifecycle.refresh()
+
+        self.assertEqual(state.mode, RuntimeGameMode.MAIN_MENU)
+        self.assertFalse(lifecycle.completed_run)
+
+    def test_unreadable_state_leaves_the_completed_run_latch_alone(self) -> None:
+        # An exhausted reader is what a failed read looks like here, and it
+        # becomes UNKNOWN. Clearing on it would let one flaky read un-complete a
+        # finished run, which is what the latch exists to prevent.
+        lifecycle = build_run_lifecycle(activity_states=(), completed_run=True)
+
+        with patch.object(time, "monotonic", return_value=10.0):
+            state = lifecycle.refresh()
+
+        self.assertEqual(state.mode, RuntimeGameMode.UNKNOWN)
+        self.assertTrue(lifecycle.completed_run)
+
     def test_refresh_uses_fresh_core_lifecycle_state_for_vod_gate(self) -> None:
         lifecycle = build_run_lifecycle(
             cached_state=RuntimeGameState(mode=RuntimeGameMode.PAUSED_IN_GAME),
@@ -2772,6 +2837,52 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(config, "AUTO_START_RECORDING", False), \
              patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
             self.assertTrue(refresh_tasks(app)._should_refresh_fast_kps())
+
+    def test_expected_chest_inputs_demand_is_active_when_luck_expected_frame_shown(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.player_stats_vod_recorder.is_recording = False
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
+        # No active run, no completed run: the only thing that can demand the
+        # task is the Expected Frame's own recipient arm.
+        install_run_lifecycle(app, cached_state=None, completed_run=False)
+
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "luck_rarity": {"enabled": True, "show_expected": True},
+            },
+        }
+        with patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            self.assertTrue(
+                refresh_tasks(app)._should_refresh_expected_chest_inputs()
+            )
+
+    def test_expected_chest_inputs_demand_ignores_luck_widget_with_frame_hidden(self) -> None:
+        app = self.build_recording_app()
+        app._is_shutting_down = False
+        app.player_stats_vod_recorder.is_recording = False
+        app._is_live_stats_tab_active = lambda: False
+        app.overlay_should_refresh_live_stats = lambda: False
+        app._is_twitch_bot_active = lambda: False
+        install_run_lifecycle(app, cached_state=None, completed_run=False)
+
+        # The widget is enabled but the Expected Frame is off, so the task's
+        # output goes unread and the widget must not demand it.
+        overlay_cfg = {
+            "enabled": True,
+            "widgets": {
+                "luck_rarity": {"enabled": True, "show_expected": False},
+            },
+        }
+        with patch.object(config, "AUTO_START_RECORDING", False), \
+             patch.object(config, "IN_GAME_OVERLAY", overlay_cfg):
+            self.assertFalse(
+                refresh_tasks(app)._should_refresh_expected_chest_inputs()
+            )
 
     def test_event_timer_demand_is_active_when_in_game_overlay_event_timer_enabled(self) -> None:
         app = self.build_recording_app()

@@ -325,6 +325,23 @@ def in_game_overlay_requires_player_stats_refresh() -> bool:
     )
 
 
+def in_game_overlay_luck_expected_frame_active() -> bool:
+    """True when the in-game Luck Rarity widget is showing its Expected Frame.
+
+    The frame reads the key-proc expectation the ``expected_chest_inputs`` task
+    produces (``track_expected_key_procs`` -> ``projection.loot_stats``), so an
+    enabled-and-showing frame is a *recipient* of that task -- exactly the way
+    the Luck probabilities beside it are recipients of ``passive_items``. Gated
+    on ``show_expected`` because with the frame hidden the widget renders from
+    Luck alone and this task's output goes unread.
+    """
+    if not in_game_overlay_widget_enabled("luck_rarity"):
+        return False
+    widgets = (getattr(config, "IN_GAME_OVERLAY", {}) or {}).get("widgets", {}) or {}
+    widget_cfg = widgets.get("luck_rarity", {}) if isinstance(widgets, dict) else {}
+    return isinstance(widget_cfg, dict) and bool(widget_cfg.get("show_expected", False))
+
+
 def overlay_requires_player_snapshot(owner) -> bool:
     return any(
         overlay_widget_refresh_active(owner, widget_id)
@@ -924,6 +941,17 @@ class RefreshTasks:
             return True
         if lifecycle.completed_run:
             return False
+        # The in-game Luck Rarity Expected Frame reads this task's key-proc
+        # expectation. Enabling it (with ``show_expected`` on) makes the widget a
+        # recipient of this task, the same arm ``passive_items`` already grants
+        # the Luck probabilities beside it -- without it the frame only fills
+        # while a run reads as active or the Live Stats tab / a recording happens
+        # to be holding this task up, which is the "widget is not a recipient"
+        # gap the other overlay widgets closed. Placed below the completed_run
+        # gate to match the powerups and KPS widgets (see
+        # ``test_completed_run_blocks_all_refresh_demands``).
+        if in_game_overlay_luck_expected_frame_active():
+            return True
         # Unguarded, exactly as before: these two sites always called the
         # predicate directly and let it propagate.
         if self._tab_active() or self._is_vod_recording():

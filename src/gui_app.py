@@ -467,6 +467,29 @@ class MegabonkApp:
         if session is not None:
             session.stop_bot()
 
+    # Called on the app by `app/refresh_tasks.py` (twice) and
+    # `app/player_stats_memory.py`, and defined **nowhere** until now. It was
+    # not a dormant name: `__getattr__` forwards unknown attributes to
+    # `self.window`, a `QMainWindow` that has no such method, so every call
+    # raised `AttributeError` instead of answering False.
+    #
+    # The damage was hidden by `or` short-circuiting. In
+    # `_read_live_player_stats_data`'s optional-reads gate this is the *last*
+    # arm, so it only ran when recording was off, the Live Stats tab was closed
+    # and the OBS overlay wanted nothing -- and then it raised straight out of
+    # the read, where `refresh_now` caught it, logged a memory failure and
+    # returned before ever calling `live_run_tracker.update()`. The tracker
+    # never got a snapshot, so every in-game overlay widget downstream of
+    # `latest_snapshot` sat empty until a recording or the tab short-circuited
+    # the gate before this arm.
+    #
+    # Same `__dict__` guard as `stop_twitch_bot` above, and for the same
+    # reason: this is called from the refresh loop, which runs on app doubles
+    # and can run before `__init__` has finished on a construction fault.
+    def _is_twitch_bot_active(self) -> bool:
+        session = self.__dict__.get("_twitch_session")
+        return session is not None and session.is_bot_active()
+
     @property
     def twitch_auth_thread(self):
         session = self.__dict__.get("_twitch_session")

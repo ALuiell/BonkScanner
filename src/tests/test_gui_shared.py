@@ -70,6 +70,13 @@ class ResourcePathAnchorTests(unittest.TestCase):
         self.assertEqual(resolved.parent.parent.parent.name, "src")
 
     def test_non_media_resolves_at_the_repository_root(self) -> None:
+        # The checkout name is derived from this file's own location rather than
+        # spelled out. It used to read "MegabonkReroll", which made the test a
+        # statement about one directory on one machine: this tree is a copy of
+        # that repository under a different name, so the assertion failed here
+        # for a reason that has nothing to do with the anchor being wrong.
+        # `parents[2]` is the repository root -- src/tests/this_file.py.
+        repository_root = Path(__file__).resolve().parents[2]
         resolved = Path(gui_shared.resource_path("config.json"))
-        self.assertEqual(resolved.parent.name, "MegabonkReroll")
+        self.assertEqual(resolved.parent.name, repository_root.name)
         self.assertEqual(resolved.parent, Path(paths.application_path()))
