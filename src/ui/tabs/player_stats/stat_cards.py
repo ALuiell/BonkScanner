@@ -283,10 +283,12 @@ class StatCardsView:
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
         weapon_name_label = QLabel(weapon.name)
-        weapon_name_label.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent;")
+        weapon_name_label.setStyleSheet("font-size: 15px; font-weight: 700; background: transparent;")
         weapon_level_label = QLabel(f"Lv. {weapon.level}")
         weapon_level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        weapon_level_label.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent;")
+        weapon_level_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
+        )
         header_layout.addWidget(weapon_name_label, 1)
         header_layout.addWidget(weapon_level_label)
         layout.addLayout(header_layout)
@@ -299,9 +301,16 @@ class StatCardsView:
             stat = weapon.upgraded_stats.get(stat_id)
             if stat is None:
                 continue
+            name_label = QLabel(stat.label)
+            name_label.setStyleSheet(
+                "font-size: 13px; color: #D7DEE8; background: transparent;"
+            )
             value_label = QLabel(stat.display_value)
             value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            rows.addRow(stat.label, value_label)
+            value_label.setStyleSheet(
+                "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
+            )
+            rows.addRow(name_label, value_label)
             has_rows = True
         if has_rows:
             layout.addLayout(rows)
@@ -376,10 +385,12 @@ class StatCardsView:
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
         tome_name_label = QLabel(tome.name)
-        tome_name_label.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent;")
+        tome_name_label.setStyleSheet("font-size: 15px; font-weight: 700; background: transparent;")
         tome_level_label = QLabel(f"Lv. {tome.level}")
         tome_level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        tome_level_label.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent;")
+        tome_level_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
+        )
         header_layout.addWidget(tome_name_label, 1)
         header_layout.addWidget(tome_level_label)
         layout.addLayout(header_layout)
@@ -387,9 +398,16 @@ class StatCardsView:
         rows = QFormLayout()
         rows.setContentsMargins(0, 0, 0, 0)
         rows.setVerticalSpacing(6)
+        stat_name_label = QLabel(tome.stat_label)
+        stat_name_label.setStyleSheet(
+            "font-size: 13px; color: #D7DEE8; background: transparent;"
+        )
         value_label = QLabel(tome.display_value)
         value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        rows.addRow(tome.stat_label, value_label)
+        value_label.setStyleSheet(
+            "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
+        )
+        rows.addRow(stat_name_label, value_label)
         layout.addLayout(rows)
         return card
 
@@ -484,17 +502,21 @@ class StatCardsView:
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
         title_label = QLabel("Chaos Tome")
-        title_label.setStyleSheet("font-size: 13px; font-weight: 700; background: transparent;")
+        title_label.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent;")
         level_label = QLabel(f"Lv. {int(getattr(chaos_tome, 'level', 0))}")
         level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        level_label.setStyleSheet("font-size: 13px; font-weight: 700; background: transparent;")
+        level_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
+        )
         header_layout.addWidget(title_label, 1)
         header_layout.addWidget(level_label)
         layout.addLayout(header_layout)
 
         rolls = sum(int(getattr(stat, "rolls", 0) or 0) for stat in stats)
         summary = QLabel(f"Tracked rolls: {rolls} | Stats: {len(stats)}")
-        summary.setStyleSheet("color: #98A7BA; background: transparent;")
+        summary.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; background: transparent;"
+        )
         layout.addWidget(summary)
         return card
 
@@ -506,9 +528,13 @@ class StatCardsView:
         layout.setSpacing(3)
 
         name_label = QLabel(chaos_stat_label(stat))
-        name_label.setStyleSheet("font-size: 12px; font-weight: 700; background: transparent;")
+        name_label.setStyleSheet(
+            "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
+        )
         value_label = QLabel(getattr(stat, "display_delta", "--"))
-        value_label.setStyleSheet("font-size: 12px; font-weight: 700; background: transparent;")
+        value_label.setStyleSheet(
+            "font-size: 14px; color: #F3F4F6; font-weight: 700; background: transparent;"
+        )
         value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -523,7 +549,7 @@ class StatCardsView:
         rolls_word = "roll" if rolls == 1 else "rolls"
         rolls_label = QLabel(f"● {rolls} {rolls_word}")
         rolls_label.setStyleSheet(
-            f"font-size: 11px; font-weight: 700; color: {quality_color}; "
+            f"font-size: 12px; font-weight: 700; color: {quality_color}; "
             "background: transparent;"
         )
         if quality is not None:
@@ -607,7 +633,7 @@ class StatCardsView:
 
         title_label = QLabel("Total Damage")
         title_label.setStyleSheet(
-            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
+            "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
         )
         summary_layout.addWidget(title_label)
 
@@ -622,7 +648,7 @@ class StatCardsView:
         count_label = QLabel(f"{source_count} {'source' if source_count == 1 else 'sources'}")
         count_label.setObjectName("DamageSourcesSummaryCount")
         count_label.setStyleSheet(
-            "font-size: 11px; color: #98A7BA; font-weight: 600; background: transparent;"
+            "font-size: 12px; color: #98A7BA; font-weight: 600; background: transparent;"
         )
         summary_layout.addWidget(count_label)
         return card
@@ -651,7 +677,7 @@ class StatCardsView:
         rank_label = QLabel(f"#{rank}")
         rank_label.setObjectName("DamageSourceRank")
         rank_label.setStyleSheet(
-            "font-size: 11px; color: #65758B; font-weight: 700; background: transparent;"
+            "font-size: 12px; color: #65758B; font-weight: 700; background: transparent;"
         )
         top_layout.addWidget(rank_label)
 
@@ -660,7 +686,7 @@ class StatCardsView:
         name_label.setWordWrap(True)
         name_label.setToolTip(source_name)
         name_label.setStyleSheet(
-            f"font-size: 13px; color: {text_color};"
+            f"font-size: 14px; color: {text_color};"
             " font-weight: 700; background: transparent;"
         )
         top_layout.addWidget(name_label, 1)
@@ -678,7 +704,7 @@ class StatCardsView:
         percentage_label.setObjectName("DamageSourcePercent")
         percentage_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         percentage_label.setStyleSheet(
-            "font-size: 11px; color: #98A7BA; font-weight: 600; background: transparent;"
+            "font-size: 12px; color: #98A7BA; font-weight: 600; background: transparent;"
         )
         top_layout.addWidget(percentage_label)
         card_layout.addLayout(top_layout)

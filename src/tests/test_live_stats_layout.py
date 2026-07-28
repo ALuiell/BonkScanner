@@ -57,7 +57,12 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
                 QTabWidget,
                 QWidget,
             )
+            from app import config
             from ui.tabs.player_stats.live_stats import LiveStatsTab
+
+            config.user_config.pop("LIVE_STATS_EXPANDED", None)
+            saved_configs = []
+            config.save_config = lambda payload: saved_configs.append(dict(payload))
 
             class Recorder:
                 is_recording = False
@@ -116,6 +121,43 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
             tabview.show()
             for _ in range(4):
                 app.processEvents()
+            stats_page = view._detail_tabs.widget(0)
+            stats_grids = stats_page.findChildren(QWidget, "LiveStatsCardGrid")
+            compact_grid = next(
+                grid for grid in stats_grids if grid.property("viewMode") == "compact"
+            )
+            expanded_grid = next(
+                grid for grid in stats_grids if grid.property("viewMode") == "expanded"
+            )
+            expanded_toggle = stats_page.findChild(QWidget, "LiveStatsExpandedToggle")
+            assert expanded_toggle is not None
+            assert not expanded_toggle.isChecked()
+            assert compact_grid.isVisible()
+            assert not expanded_grid.isVisible()
+            compact_stat_names = [
+                label.text()
+                for label in compact_grid.findChildren(QLabel, "LiveStatsCompactStatName")
+            ]
+            assert "DMG" in compact_stat_names
+            assert "AS" in compact_stat_names
+            assert "XP" in compact_stat_names
+            assert expanded_grid.findChildren(QLabel, "LiveStatsExpandedStatName")
+            assert expanded_grid.findChildren(QLabel, "LiveStatsExpandedStatValue")
+            compact_cards = compact_grid.findChildren(QFrame, "StatCard")
+            assert len(compact_cards) == 5
+            assert {(card.width(), card.height()) for card in compact_cards} == {(160, 174)}
+            expanded_toggle.setChecked(True)
+            app.processEvents()
+            assert not compact_grid.isVisible()
+            assert expanded_grid.isVisible()
+            assert config.user_config["LIVE_STATS_EXPANDED"] is True
+            assert saved_configs[-1]["LIVE_STATS_EXPANDED"] is True
+            expanded_toggle.setChecked(False)
+            app.processEvents()
+            assert compact_grid.isVisible()
+            assert not expanded_grid.isVisible()
+            assert config.user_config["LIVE_STATS_EXPANDED"] is False
+            assert saved_configs[-1]["LIVE_STATS_EXPANDED"] is False
             outer_scroll = view.root_widget.findChildren(QScrollArea)[0]
             geometry_by_tab = []
             for index in range(view._detail_tabs.count()):
@@ -169,9 +211,9 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
                 assert card.maximumWidth() > 1000
                 labels = card.findChildren(QLabel)
                 assert not labels[0].wordWrap()
-                assert "font-size: 12px" in labels[0].styleSheet()
+                assert "font-size: 13px" in labels[0].styleSheet()
                 rolls_label = next(label for label in labels if "roll" in label.text())
-                assert "font-size: 11px" in rolls_label.styleSheet()
+                assert "font-size: 12px" in rolls_label.styleSheet()
 
             view._stat_cards.display_damage_sources((
                 SimpleNamespace(source_key="zero", source_name="Zero Source", damage=0.0),

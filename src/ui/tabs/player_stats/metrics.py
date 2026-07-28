@@ -105,18 +105,21 @@ def _build_chests_stats_card():
         ("expected", "Expected"),
         ("keys", "Keys"),
     ):
+        name_label = QLabel(title)
+        name_label.setObjectName("LiveStatsLootStatName")
         value_label = QLabel("--")
+        value_label.setObjectName("LiveStatsLootStatValue")
         value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
         value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         if key == "maps":
             value_label.setWordWrap(True)
-        form.addRow(title, value_label)
+        form.addRow(name_label, value_label)
         values[key] = value_label
     outer.addLayout(form)
 
     status_label = QLabel("")
+    status_label.setObjectName("LiveStatsMetaText")
     status_label.setWordWrap(True)
-    status_label.setStyleSheet("color: #98A7BA; background: transparent;")
     status_label.setVisible(False)
     outer.addWidget(status_label)
     values["status"] = status_label
@@ -147,13 +150,16 @@ def _build_loot_rarity_card():
     values = {}
     for row, rarity in enumerate(LUCK_RARITY_ORDER):
         name_label = QLabel(GAME_RARITY_NAMES[rarity])
+        name_label.setObjectName("LiveStatsLootStatName")
         name_label.setStyleSheet(
             f"color: {ITEM_RARITY_COLOR_MAP.get(rarity, '#E5E7EB')}; font-weight: 700; background: transparent;"
         )
         chance_label = QLabel("--")
+        chance_label.setObjectName("LiveStatsLootStatValue")
         chance_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
         chance_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         counts_label = QLabel("--")
+        counts_label.setObjectName("LiveStatsLootStatValue")
         counts_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
         counts_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         grid.addWidget(name_label, row, 0)
@@ -164,8 +170,8 @@ def _build_loot_rarity_card():
     layout.addLayout(grid)
 
     status_label = QLabel("")
+    status_label.setObjectName("LiveStatsMetaText")
     status_label.setWordWrap(True)
-    status_label.setStyleSheet("color: #98A7BA; background: transparent;")
     status_label.setVisible(False)
     layout.addWidget(status_label)
     values["status"] = status_label

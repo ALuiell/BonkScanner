@@ -142,8 +142,50 @@ QWidget#cardContent {
 }
 QWidget#LiveStatsPage,
 QWidget#LiveStatsMain,
-QWidget#LiveStatsCardGrid {
+QWidget#LiveStatsCardGrid,
+QWidget#LiveStatsCompactRows {
     background: transparent;
+}
+QWidget#LiveStatsCompactStat {
+    background: transparent;
+    border: none;
+}
+QLabel#LiveStatsCompactStatName {
+    color: #D7DEE8;
+    font-size: 14px;
+    font-weight: 700;
+}
+QLabel#LiveStatsCompactStatValue {
+    color: #F3F4F6;
+    font-size: 15px;
+    font-weight: 700;
+}
+QLabel#LiveStatsExpandedStatName {
+    color: #D7DEE8;
+    font-size: 14px;
+}
+QLabel#LiveStatsExpandedStatValue {
+    color: #F3F4F6;
+    font-size: 15px;
+    font-weight: 700;
+}
+QLabel#LiveStatsLootStatName {
+    color: #D7DEE8;
+    font-size: 13px;
+}
+QLabel#LiveStatsLootStatValue {
+    color: #F3F4F6;
+    font-size: 14px;
+    font-weight: 700;
+}
+QLabel#LiveStatsMetaText {
+    color: #98A7BA;
+    font-size: 12px;
+}
+QGroupBox#LiveStatsRunSummary QLabel,
+QGroupBox#LiveStatsPowerups QLabel,
+QGroupBox#LiveStatsStageSummary QLabel {
+    font-size: 14px;
 }
 QWidget#LiveStatsBanishes {
     background-color: rgba(127, 29, 29, 0.16);

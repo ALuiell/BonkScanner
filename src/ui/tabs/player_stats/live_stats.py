@@ -53,6 +53,7 @@ from typing import Callable, Sequence
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QFrame,
@@ -69,6 +70,8 @@ from PySide6.QtWidgets import (
 
 from math import isfinite
 
+from app import config
+from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS
 from ui.shared import FlowLayout, _apply_summary_label_padding, _make_scroll_section, _set_text
 from ui.styles import ITEM_SORT_LABELS
@@ -87,6 +90,9 @@ from ui.tabs.player_stats.summary_cards import (
     set_stage_summary_labels,
 )
 from projections import formatting
+
+
+LIVE_STATS_EXPANDED_CONFIG_KEY = "LIVE_STATS_EXPANDED"
 
 
 def pin_for_selection(index: int, snapshot_count: int) -> bool:
@@ -122,12 +128,14 @@ class _ResponsiveCardGrid(QWidget):
         minimum_card_width: int = 212,
         spacing: int = 8,
         maximum_columns: int = 4,
+        stretch_columns: bool = True,
     ) -> None:
         super().__init__()
         self.setObjectName("LiveStatsCardGrid")
         self._minimum_card_width = minimum_card_width
         self._spacing = spacing
         self._maximum_columns = maximum_columns
+        self._stretch_columns = stretch_columns
         self._columns = 0
         self._cards: list[QWidget] = []
         self._grid = QGridLayout(self)
@@ -185,9 +193,17 @@ class _ResponsiveCardGrid(QWidget):
         while self._grid.count():
             self._grid.takeAt(0)
         for index, card in enumerate(self._cards):
-            self._grid.addWidget(card, index // columns, index % columns)
-        for column in range(self._maximum_columns):
-            self._grid.setColumnStretch(column, 1 if column < columns else 0)
+            row = index // columns
+            column = index % columns
+            if self._stretch_columns:
+                self._grid.addWidget(card, row, column)
+            else:
+                self._grid.addWidget(card, row, column, Qt.AlignLeft | Qt.AlignTop)
+        for column in range(self._maximum_columns + 1):
+            stretch = 1 if self._stretch_columns and column < columns else 0
+            self._grid.setColumnStretch(column, stretch)
+        if not self._stretch_columns:
+            self._grid.setColumnStretch(columns, 1)
         self._columns = columns
         self.updateGeometry()
 
@@ -231,6 +247,8 @@ class LiveStatsTab:
         self._status_label = None
         self._detail_tabs = None
         self._stat_value_rows: dict = {}
+        self._compact_stat_value_rows: dict = {}
+        self._stats_expanded_toggle = None
         self._chests_per_minute_label = None
         self._in_game_time_label = None
         self._mob_kills_label = None
@@ -372,6 +390,8 @@ class LiveStatsTab:
         _set_text(self._status_label, status_text)
         for label in self._stat_value_rows.values():
             _set_text(label, "--")
+        for label in self._compact_stat_value_rows.values():
+            _set_text(label, "--")
         self._items_section.collapse()
         self._ensure_live_snapshot_store().reset_for_new_match()
         self._items_section.update((), items_text=items_text)
@@ -428,6 +448,9 @@ class LiveStatsTab:
             value_label = self._stat_value_rows.get(label)
             if value_label is not None:
                 _set_text(value_label, stat.display_value)
+            compact_value_label = self._compact_stat_value_rows.get(label)
+            if compact_value_label is not None:
+                _set_text(compact_value_label, stat.display_value)
         self._items_section.update(items, items_text=items_text)
         if chests_per_minute is None:
             chests_per_minute = formatting.calculate_player_chests_per_minute(stats)
@@ -601,6 +624,11 @@ class LiveStatsTab:
 
     def toggle_player_items_expanded(self) -> None:
         self._items_section.toggle_expanded()
+
+    @staticmethod
+    def _save_stats_expanded_preference(expanded: bool) -> None:
+        config.user_config[LIVE_STATS_EXPANDED_CONFIG_KEY] = bool(expanded)
+        config.save_config(config.user_config)
 
     def _update_live_chest_summary(self, chest_stats) -> None:
         labels = self._chests_card_values
@@ -871,13 +899,68 @@ class LiveStatsTab:
         self._detail_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         player_stats_tab = QWidget()
         player_stats_tab_layout = QVBoxLayout(player_stats_tab)
+        stats_view_options = QHBoxLayout()
+        stats_view_options.setContentsMargins(0, 0, 0, 0)
+        stats_view_options.addStretch(1)
+        self._stats_expanded_toggle = QCheckBox("Expanded")
+        self._stats_expanded_toggle.setObjectName("LiveStatsExpandedToggle")
+        self._stats_expanded_toggle.setChecked(
+            bool(config.user_config.get(LIVE_STATS_EXPANDED_CONFIG_KEY, False))
+        )
+        self._stats_expanded_toggle.setToolTip(
+            "Show the full stat names in detailed label/value rows"
+        )
+        stats_view_options.addWidget(self._stats_expanded_toggle)
+        player_stats_tab_layout.addLayout(stats_view_options)
         player_stats_scroll, _player_stats_scroll_content, player_stats_scroll_layout = _make_scroll_section()
         player_stats_tab_layout.addWidget(player_stats_scroll)
-        player_stats_grid = _ResponsiveCardGrid(
+
+        compact_stats_grid = _ResponsiveCardGrid(
+            minimum_card_width=160,
+            spacing=6,
+            maximum_columns=5,
+            stretch_columns=False,
+        )
+        compact_stats_grid.setProperty("viewMode", "compact")
+        for group in PLAYER_STAT_GROUPS:
+            stat_group = QFrame()
+            stat_group.setObjectName("StatCard")
+            stat_group.setFixedSize(160, 174)
+            group_layout = QVBoxLayout(stat_group)
+            group_layout.setContentsMargins(8, 7, 8, 7)
+            group_layout.setSpacing(2)
+            compact_rows = QWidget()
+            compact_rows.setObjectName("LiveStatsCompactRows")
+            compact_rows_layout = QVBoxLayout(compact_rows)
+            compact_rows_layout.setContentsMargins(0, 0, 0, 0)
+            compact_rows_layout.setSpacing(2)
+            for spec in group:
+                compact_stat = QWidget()
+                compact_stat.setObjectName("LiveStatsCompactStat")
+                compact_stat_layout = QHBoxLayout(compact_stat)
+                compact_stat_layout.setContentsMargins(0, 0, 0, 0)
+                compact_stat_layout.setSpacing(5)
+
+                name_label = QLabel(abbreviate_stat_label(spec.label))
+                name_label.setObjectName("LiveStatsCompactStatName")
+                compact_stat_layout.addWidget(name_label)
+                compact_stat_layout.addStretch(1)
+
+                value_label = QLabel("--")
+                value_label.setObjectName("LiveStatsCompactStatValue")
+                value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                compact_stat_layout.addWidget(value_label)
+                self._compact_stat_value_rows[spec.label] = value_label
+                compact_rows_layout.addWidget(compact_stat)
+            group_layout.addWidget(compact_rows)
+            compact_stats_grid.add_card(stat_group)
+
+        expanded_stats_grid = _ResponsiveCardGrid(
             minimum_card_width=300,
             spacing=8,
             maximum_columns=4,
         )
+        expanded_stats_grid.setProperty("viewMode", "expanded")
         for group in PLAYER_STAT_GROUPS:
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
@@ -886,14 +969,27 @@ class LiveStatsTab:
             group_layout.setHorizontalSpacing(6)
             group_layout.setVerticalSpacing(3)
             for spec in group:
+                name_label = QLabel(spec.label)
+                name_label.setObjectName("LiveStatsExpandedStatName")
                 value_label = QLabel("--")
+                value_label.setObjectName("LiveStatsExpandedStatValue")
                 value_label.setMinimumWidth(max(48, LIVE_STATS_VALUE_WIDTH - 16))
                 _apply_player_stat_value_baseline(value_label, spec.value_format)
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self._stat_value_rows[spec.label] = value_label
-                group_layout.addRow(spec.label, value_label)
-            player_stats_grid.add_card(stat_group)
-        player_stats_scroll_layout.addWidget(player_stats_grid)
+                group_layout.addRow(name_label, value_label)
+            expanded_stats_grid.add_card(stat_group)
+
+        compact_stats_grid.setVisible(False)
+        self._stats_expanded_toggle.toggled.connect(compact_stats_grid.setHidden)
+        self._stats_expanded_toggle.toggled.connect(expanded_stats_grid.setVisible)
+        self._stats_expanded_toggle.toggled.connect(
+            self._save_stats_expanded_preference
+        )
+        compact_stats_grid.setHidden(self._stats_expanded_toggle.isChecked())
+        expanded_stats_grid.setVisible(self._stats_expanded_toggle.isChecked())
+        player_stats_scroll_layout.addWidget(compact_stats_grid)
+        player_stats_scroll_layout.addWidget(expanded_stats_grid)
         player_stats_scroll_layout.addStretch(1)
         # The Loot tab: the chests card as it was, and the rarity card beside
         # it. Both say "Expected" and they mean different things -- key procs
