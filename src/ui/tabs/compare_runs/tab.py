@@ -1280,7 +1280,7 @@ class CompareRunsTab:
         items_toggle_btn.setVisible(False)
         items_rarity_label = QLabel("")
         items_rarity_label.setTextFormat(Qt.RichText)
-        items_rarity_label.setStyleSheet("font-size: 14px;")
+        items_rarity_label.setStyleSheet("font-size: 14px; background: transparent;")
         items_rarity_label.setVisible(False)
         items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():

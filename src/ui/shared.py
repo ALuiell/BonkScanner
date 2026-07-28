@@ -125,7 +125,12 @@ def _apply_button_icon(button: QPushButton, relative_path: str, size: int = 22) 
     button.setIcon(QIcon(icon_path))
     button.setIconSize(QSize(size, size))
 
-SUMMARY_LABEL_PADDING_STYLESHEET = "padding-left: 4px;"
+# `background: transparent` is load-bearing, not decoration: giving a QLabel
+# any per-widget stylesheet at all makes this Qt build stop inheriting the
+# app-wide `QLabel { background: transparent; }` rule for that instance, and
+# it paints an opaque box instead -- visible as a seam once a card's own
+# background differs from the app background.
+SUMMARY_LABEL_PADDING_STYLESHEET = "padding-left: 4px; background: transparent;"
 
 
 def _apply_summary_label_padding(*labels) -> None:
@@ -172,6 +177,7 @@ class CollapsibleSection(QWidget):
                 padding: 8px 10px;
                 font-weight: bold;
                 border-radius: 6px;
+                background-color: #161C24;
             }
             """
         )
@@ -179,6 +185,7 @@ class CollapsibleSection(QWidget):
         layout.addWidget(self.toggle_button)
 
         self.body = QWidget()
+        self.body.setObjectName("cardContent")
         self.body_layout = QVBoxLayout(self.body)
         self.body_layout.setContentsMargins(10, 8, 10, 10)
         self.body_layout.setSpacing(8)

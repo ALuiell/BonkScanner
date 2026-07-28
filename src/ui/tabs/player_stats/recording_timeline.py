@@ -60,11 +60,7 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider
 from app import config
 from core.game_state import RuntimeGameMode
 from ui.styles import (
-    PLAYER_STATS_ACTIVE_BUTTON_COLOR,
-    PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR,
-    PLAYER_STATS_INACTIVE_BUTTON_COLOR,
-    PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
-    _button_state_stylesheet,
+    _set_widget_style_role,
 )
 from ui.throttle import UiUpdateThrottle
 
@@ -163,22 +159,12 @@ class RecordingTimelineView:
 
         if recorder.is_recording or recording_armed:
             self._record_btn.setText("Stop Recording")
-            self._record_btn.setStyleSheet(
-                _button_state_stylesheet(
-                    PLAYER_STATS_ACTIVE_BUTTON_COLOR,
-                    PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR,
-                )
-            )
+            _set_widget_style_role(self._record_btn, "stopScanner")
         else:
             self._record_btn.setText(
                 f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})"
             )
-            self._record_btn.setStyleSheet(
-                _button_state_stylesheet(
-                    PLAYER_STATS_INACTIVE_BUTTON_COLOR,
-                    PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
-                )
-            )
+            _set_widget_style_role(self._record_btn, "primary")
 
         if recorder.is_recording and snapshot_count:
             self._slider.setEnabled(True)

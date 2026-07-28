@@ -50,7 +50,7 @@ from ui.styles import (
     _tier_color,
 )
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -227,7 +227,7 @@ class TemplateManagerDialog(QDialog):
         layout.addWidget(header)
 
         subtitle = QLabel("Select a template from the list, and its settings will appear directly below the card.")
-        subtitle.setStyleSheet("color: #AAB4C4;")
+        subtitle.setStyleSheet("color: #AAB4C4; background: transparent;")
         layout.addWidget(subtitle)
 
         self.scroll, self.scroll_content, self.scroll_layout = _make_scroll_section()
@@ -264,7 +264,7 @@ class TemplateManagerDialog(QDialog):
             if template.get("id", 100) <= 7:
                 meta_text += "  •  Built-in"
             meta_label = QLabel(meta_text)
-            meta_label.setStyleSheet("color: #C5CEDB;")
+            meta_label.setStyleSheet("color: #C5CEDB; background: transparent;")
             card_layout.addWidget(meta_label)
 
             details = QFrame()
@@ -277,7 +277,7 @@ class TemplateManagerDialog(QDialog):
             save_row = QHBoxLayout()
             save_row.addStretch(1)
             save_btn = QPushButton("Save")
-            save_btn.setObjectName("SuccessButton")
+            save_btn.setObjectName("primary")
             save_btn.clicked.connect(partial(self.save_template, template_id, form))
             save_row.addWidget(save_btn)
             details_layout.addLayout(save_row)
@@ -320,6 +320,26 @@ class TemplateManagerDialog(QDialog):
 
         self.expanded_template_id = template_id
         self._apply_card_state(template_id, expanded=True)
+        self._scroll_card_into_view(template_id)
+
+    def _scroll_card_into_view(self, template_id: int) -> None:
+        """Bring the just-expanded card to the top of the viewport.
+
+        Previously the user had to click a card *and* scroll manually to see
+        the form it just revealed. `card.y()` is stale at this point --
+        `details.setVisible(True)` above hasn't been laid out yet -- so the
+        scroll has to happen after Qt processes that pending layout, not in
+        the same call.
+        """
+        widgets = self.card_widgets.get(template_id)
+        if widgets is None:
+            return
+        card = widgets["card"]
+
+        def _scroll() -> None:
+            self.scroll.verticalScrollBar().setValue(card.y())
+
+        QTimer.singleShot(0, _scroll)
 
     def save_template(self, template_id: int, form: TemplateFormFrame):
         payload = form.get_payload()
@@ -364,7 +384,7 @@ class ScoresSettingsDialog(QDialog):
         for tier in ("Light", "Good", "Perfect", "Perfect+"):
             cb = QCheckBox(tier)
             cb.setChecked(tier in config.SCORES_SYSTEM.get("active_tiers", []))
-            cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700;")
+            cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700; background: transparent;")
             self.active_tier_checks[tier] = cb
             active_layout.addWidget(cb)
         scroll_layout.addWidget(active_group)
@@ -397,19 +417,24 @@ class ScoresSettingsDialog(QDialog):
             self.multiplier_entries[key] = entry
             multiplier_layout.addRow(f"{key} Microwave(s):", entry)
         scroll_layout.addWidget(multiplier_group)
+        scroll_layout.addStretch(1)
 
+        # Outside the scroll area, not inside it: Save/Reset used to be the
+        # last thing in `scroll_layout`, so on a dialog this content-heavy
+        # they only came into view after scrolling all the way down. A footer
+        # row on `outer` is always visible regardless of scroll position or
+        # window size.
         button_row = QHBoxLayout()
         reset_btn = QPushButton("Reset to Defaults")
-        reset_btn.setObjectName("DangerButton")
+        reset_btn.setObjectName("danger")
         reset_btn.clicked.connect(self.reset_to_defaults)
         save_btn = QPushButton("Save Settings")
-        save_btn.setObjectName("SuccessButton")
+        save_btn.setObjectName("primary")
         save_btn.clicked.connect(self.save)
         button_row.addWidget(reset_btn)
         button_row.addStretch(1)
         button_row.addWidget(save_btn)
-        scroll_layout.addLayout(button_row)
-        scroll_layout.addStretch(1)
+        outer.addLayout(button_row)
         self.toggle_thresholds_mode()
 
     def reset_to_defaults(self):
@@ -487,7 +512,7 @@ class DeleteDialog(QDialog):
         scroll_layout.addStretch(1)
         buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
         delete_btn = QPushButton("Delete Selected")
-        delete_btn.setObjectName("DangerButton")
+        delete_btn.setObjectName("danger")
         buttons.addButton(delete_btn, QDialogButtonBox.AcceptRole)
         buttons.rejected.connect(self.reject)
         delete_btn.clicked.connect(self.delete)
@@ -520,7 +545,7 @@ class ConfirmDeleteRecordingDialog(QDialog):
         buttons = QDialogButtonBox()
         cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.RejectRole)
         confirm_btn = buttons.addButton("Delete", QDialogButtonBox.AcceptRole)
-        confirm_btn.setObjectName("DangerButton")
+        confirm_btn.setObjectName("danger")
         cancel_btn.clicked.connect(self.cancel)
         confirm_btn.clicked.connect(self.confirm)
         layout.addWidget(buttons)
@@ -547,7 +572,7 @@ class CleanupRecordingsDialog(QDialog):
         buttons = QDialogButtonBox()
         cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.RejectRole)
         confirm_btn = buttons.addButton("Remove", QDialogButtonBox.AcceptRole)
-        confirm_btn.setObjectName("DangerButton")
+        confirm_btn.setObjectName("danger")
         cancel_btn.clicked.connect(self.reject)
         confirm_btn.clicked.connect(self.confirm)
         layout.addWidget(buttons)
@@ -602,7 +627,7 @@ class RerollWarningDialog(QDialog):
             "work fully automatically and do NOT require starting this loop."
         )
         switch_note.setWordWrap(True)
-        switch_note.setStyleSheet("font-size: 14px; color: #9CA3AF;")
+        switch_note.setStyleSheet("font-size: 14px; color: #9CA3AF; background: transparent;")
         layout.addWidget(switch_note)
         layout.addStretch(1)
 
@@ -610,20 +635,20 @@ class RerollWarningDialog(QDialog):
         bottom_row.setSpacing(12)
 
         self.checkbox = QCheckBox("Don't show this again")
-        self.checkbox.setStyleSheet("color: #F3F4F6; font-size: 14px;")
+        self.checkbox.setStyleSheet("color: #F3F4F6; font-size: 14px; background: transparent;")
         bottom_row.addWidget(self.checkbox)
 
         bottom_row.addStretch(1)
 
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setObjectName("DangerButton")
+        cancel_btn.setObjectName("danger")
         cancel_btn.setProperty("class", "WideDialogButton")
         cancel_btn.setMinimumHeight(32)
         cancel_btn.setMinimumWidth(100)
         cancel_btn.clicked.connect(self.cancel)
 
         confirm_btn = QPushButton("OK")
-        confirm_btn.setObjectName("SuccessButton")
+        confirm_btn.setObjectName("primary")
         confirm_btn.setProperty("class", "WideDialogButton")
         confirm_btn.setMinimumHeight(32)
         confirm_btn.setMinimumWidth(100)
@@ -675,7 +700,7 @@ class ObsRecordingReminderDialog(QDialog):
 
         note = QLabel("This reminder can be switched off at any time from Settings.")
         note.setWordWrap(True)
-        note.setStyleSheet("font-size: 14px; color: #9CA3AF;")
+        note.setStyleSheet("font-size: 14px; color: #9CA3AF; background: transparent;")
         layout.addWidget(note)
         layout.addStretch(1)
 
@@ -683,7 +708,7 @@ class ObsRecordingReminderDialog(QDialog):
         bottom_row.addStretch(1)
 
         ok_btn = QPushButton("OK")
-        ok_btn.setObjectName("SuccessButton")
+        ok_btn.setObjectName("primary")
         ok_btn.setProperty("class", "WideDialogButton")
         ok_btn.setMinimumHeight(32)
         ok_btn.setMinimumWidth(100)
@@ -729,7 +754,7 @@ class TwitchCommandsHelpDialog(QDialog):
             "<b>!bhelp</b>"
         )
         aliases.setTextFormat(Qt.RichText)
-        aliases.setStyleSheet("font-size: 15px;")
+        aliases.setStyleSheet("font-size: 15px; background: transparent;")
         card_layout.addWidget(aliases)
         layout.addWidget(card)
 
@@ -741,7 +766,7 @@ class TwitchCommandsHelpDialog(QDialog):
         bottom_row.addStretch(1)
 
         ok_btn = QPushButton("OK")
-        ok_btn.setObjectName("SuccessButton")
+        ok_btn.setObjectName("primary")
         ok_btn.setProperty("class", "WideDialogButton")
         ok_btn.setMinimumHeight(32)
         ok_btn.setMinimumWidth(100)
@@ -774,7 +799,7 @@ class HelpDialog(QDialog):
             "Practical notes for BonkScanner's main features, common workflows, and non-obvious behavior."
         )
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: #AAB4C4;")
+        subtitle.setStyleSheet("color: #AAB4C4; background: transparent;")
         layout.addWidget(subtitle)
 
         tabs = QTabWidget()
@@ -972,7 +997,7 @@ class SettingsDialog(QDialog):
         self.update_btn = QPushButton("Check for Updates")
         self.update_btn.clicked.connect(self.check_update)
         self.save_btn = QPushButton("Save")
-        self.save_btn.setObjectName("SuccessButton")
+        self.save_btn.setObjectName("primary")
         self.save_btn.clicked.connect(self.save)
         button_row.addWidget(self.update_btn)
         button_row.addWidget(self.save_btn)
@@ -1467,7 +1492,7 @@ class TwitchCommandSettingsDialog(QDialog):
             is_disabled_ingame = d_name.lower() in disabled_in_game_set
             if is_disabled_ingame:
                 cb = QCheckBox(f"🚫 {d_name}")
-                cb.setStyleSheet("color: #FB7185; font-weight: bold;")
+                cb.setStyleSheet("color: #FB7185; font-weight: bold; background: transparent;")
             else:
                 cb = QCheckBox(d_name)
             cb.setProperty("is_disabled_ingame", is_disabled_ingame)
@@ -1554,11 +1579,11 @@ class TwitchCommandSettingsDialog(QDialog):
         button_row = QHBoxLayout()
         button_row.setContentsMargins(0, 10, 0, 0)
         reset_btn = QPushButton("Reset to Defaults")
-        reset_btn.setObjectName("DangerButton")
+        reset_btn.setObjectName("danger")
         reset_btn.clicked.connect(self.reset_to_defaults)
 
         save_btn = QPushButton("Save Settings")
-        save_btn.setObjectName("SuccessButton")
+        save_btn.setObjectName("primary")
         save_btn.clicked.connect(self.save)
 
         button_row.addWidget(reset_btn)

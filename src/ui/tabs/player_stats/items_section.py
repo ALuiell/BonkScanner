@@ -49,9 +49,11 @@ sites were doing.
 
 from __future__ import annotations
 
+from PySide6.QtWidgets import QLabel
+
 from projections import formatting
 from projections.item_sort import ITEM_SORT_DEFAULT
-from ui.shared import _set_text
+from ui.shared import _clear_layout, _set_text
 
 PREVIEW_MAX_CHARS = 90
 
@@ -68,12 +70,19 @@ class ItemsSectionView:
         toggle_btn,
         sort_combo,
         initial_sort_mode=ITEM_SORT_DEFAULT,
+        chips_container=None,
     ) -> None:
         self._group = group
         self._label = label
         self._rarity_label = rarity_label
         self._toggle_btn = toggle_btn
         self._sort_combo = sort_combo
+        # Optional: a pre-built `FlowLayout` host the call site wires in
+        # instead of (or alongside) `label`. When present, `update()` renders
+        # each item as its own rarity-tagged chip widget rather than one
+        # rich-text line -- everything else about the section (title, rarity
+        # summary, toggle, sort) is unchanged and shared with the text path.
+        self._chips_container = chips_container
 
         self._sort_mode = initial_sort_mode
         self._expanded = False
@@ -92,12 +101,14 @@ class ItemsSectionView:
         self._items = tuple(items or ())
         self._items_text = items_text
 
-        if self._label is None:
+        if self._label is None and self._chips_container is None:
             return
 
         if items_text is not None:
             self._set_group_title(None)
-            _set_items_text(self._label, items_text=items_text)
+            if self._label is not None:
+                _set_items_text(self._label, items_text=items_text)
+            self._render_chips((), placeholder=items_text)
             self._set_rarity_summary(())
             if self._toggle_btn is not None:
                 self._toggle_btn.setVisible(True)
@@ -115,16 +126,19 @@ class ItemsSectionView:
         visible_items = sorted_items if self._expanded or not has_more else preview_items
         if self._sort_combo is not None:
             self._sort_combo.setEnabled(bool(items))
-        if hasattr(self._label, "setTextFormat"):
-            text = formatting.format_items_rich_text(visible_items)
-            if has_more and not self._expanded:
-                text = f'{text} <span style="color:#98A7BA;">...</span>'
-            self._label.setText(text)
-        else:
-            text = formatting.format_items(visible_items)
-            if has_more and not self._expanded:
-                text = f"{text} ..."
-            _set_text(self._label, text)
+        if self._label is not None:
+            if hasattr(self._label, "setTextFormat"):
+                text = formatting.format_items_rich_text(visible_items)
+                if has_more and not self._expanded:
+                    text = f'{text} <span style="color:#98A7BA;">...</span>'
+                self._label.setText(text)
+            else:
+                text = formatting.format_items(visible_items)
+                if has_more and not self._expanded:
+                    text = f"{text} ..."
+                _set_text(self._label, text)
+        more_count = len(sorted_items) - len(visible_items) if has_more and not self._expanded else 0
+        self._render_chips(visible_items, more_count=more_count)
 
         if self._toggle_btn is not None:
             self._toggle_btn.setVisible(True)
@@ -132,6 +146,33 @@ class ItemsSectionView:
             self._toggle_btn.setText(
                 "Show less" if self._expanded and has_more else "Show more"
             )
+
+    def _render_chips(
+        self, items, *, more_count: int = 0, placeholder: str | None = None
+    ) -> None:
+        if self._chips_container is None:
+            return
+        layout = self._chips_container.layout()
+        _clear_layout(layout)
+        if placeholder is not None:
+            note = QLabel(placeholder)
+            note.setObjectName("itemChipNote")
+            layout.addWidget(note)
+            return
+        if not items:
+            note = QLabel("--")
+            note.setObjectName("itemChipNote")
+            layout.addWidget(note)
+            return
+        for item_text in items:
+            display_text, object_name = formatting.item_chip_display(item_text)
+            chip = QLabel(display_text)
+            chip.setObjectName(object_name)
+            layout.addWidget(chip)
+        if more_count > 0:
+            more_label = QLabel(f"+{more_count} more")
+            more_label.setObjectName("itemChipNote")
+            layout.addWidget(more_label)
 
     def _set_group_title(self, total_count: int | None) -> None:
         if self._group is None or not hasattr(self._group, "setTitle"):

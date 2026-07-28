@@ -169,10 +169,10 @@ class StatCardsView:
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
         weapon_name_label = QLabel(weapon.name)
-        weapon_name_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        weapon_name_label.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent;")
         weapon_level_label = QLabel(f"Lv. {weapon.level}")
         weapon_level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        weapon_level_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        weapon_level_label.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent;")
         header_layout.addWidget(weapon_name_label, 1)
         header_layout.addWidget(weapon_level_label)
         layout.addLayout(header_layout)
@@ -262,10 +262,10 @@ class StatCardsView:
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
         tome_name_label = QLabel(tome.name)
-        tome_name_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        tome_name_label.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent;")
         tome_level_label = QLabel(f"Lv. {tome.level}")
         tome_level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        tome_level_label.setStyleSheet("font-size: 14px; font-weight: 700;")
+        tome_level_label.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent;")
         header_layout.addWidget(tome_name_label, 1)
         header_layout.addWidget(tome_level_label)
         layout.addLayout(header_layout)
@@ -369,17 +369,17 @@ class StatCardsView:
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(8)
         title_label = QLabel("Chaos Tome")
-        title_label.setStyleSheet("font-size: 13px; font-weight: 700;")
+        title_label.setStyleSheet("font-size: 13px; font-weight: 700; background: transparent;")
         level_label = QLabel(f"Lv. {int(getattr(chaos_tome, 'level', 0))}")
         level_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        level_label.setStyleSheet("font-size: 13px; font-weight: 700;")
+        level_label.setStyleSheet("font-size: 13px; font-weight: 700; background: transparent;")
         header_layout.addWidget(title_label, 1)
         header_layout.addWidget(level_label)
         layout.addLayout(header_layout)
 
         rolls = sum(int(getattr(stat, "rolls", 0) or 0) for stat in stats)
         summary = QLabel(f"Tracked rolls: {rolls} | Stats: {len(stats)}")
-        summary.setStyleSheet("color: #98A7BA;")
+        summary.setStyleSheet("color: #98A7BA; background: transparent;")
         layout.addWidget(summary)
 
         if stats:
@@ -391,7 +391,7 @@ class StatCardsView:
             top_text = "Tracking rolls..."
         top_label = QLabel(top_text)
         top_label.setWordWrap(True)
-        top_label.setStyleSheet("font-weight: 700;")
+        top_label.setStyleSheet("font-weight: 700; background: transparent;")
         layout.addWidget(top_label)
         return card
 
@@ -403,9 +403,9 @@ class StatCardsView:
         layout.setSpacing(3)
 
         name_label = QLabel(chaos_stat_label(stat))
-        name_label.setStyleSheet("font-size: 12px; font-weight: 700;")
+        name_label.setStyleSheet("font-size: 12px; font-weight: 700; background: transparent;")
         value_label = QLabel(getattr(stat, "display_delta", "--"))
-        value_label.setStyleSheet("font-size: 12px; font-weight: 700;")
+        value_label.setStyleSheet("font-size: 12px; font-weight: 700; background: transparent;")
         value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -453,11 +453,11 @@ class StatCardsView:
 
             name_label = QLabel(source.source_name or source.source_key)
             name_label.setWordWrap(True)
-            name_label.setStyleSheet("font-size: 16px; font-weight: 700;")
+            name_label.setStyleSheet("font-size: 16px; font-weight: 700; background: transparent;")
             cell_layout.addWidget(name_label, 1)
 
             dmg_label = QLabel(formatting.format_damage_source_value(source.damage))
-            dmg_label.setStyleSheet("font-size: 17px; font-weight: 700; color: #F3F4F6;")
+            dmg_label.setStyleSheet("font-size: 17px; font-weight: 700; color: #F3F4F6; background: transparent;")
             dmg_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             cell_layout.addWidget(dmg_label)
 

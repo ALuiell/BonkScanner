@@ -52,7 +52,7 @@ from gui_run_control import RunControl
 from infra.memory.game_data_client import GameDataClient
 from ui.shared import _apply_button_icon, _make_scroll_section, _set_text
 from core.item_metadata import COLOR_MAP
-from ui.styles import _button_state_stylesheet, _session_stats_label_stylesheet
+from ui.styles import _session_stats_label_stylesheet, _set_widget_style_role
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.run_control import RunControlError
 from core.runtime_stats import adapt_map_stats
@@ -223,6 +223,8 @@ class Scanner:
         if self._is_shutting_down():
             return
 
+        elapsed = 0
+        rpm = 0.0
         if self.is_scanning() and self.session_start_time:
             elapsed = int(time.time() - self.session_start_time)
             td = datetime.timedelta(seconds=elapsed)
@@ -230,6 +232,15 @@ class Scanner:
             if elapsed > 0 and self.session_rerolls > 0:
                 rpm = (self.session_rerolls / elapsed) * 60
                 self.stats_rpm_label.setText(f"Rerolls per Minute (RPM): {rpm:.1f}")
+
+        status_label = self._status_label()
+        session_meta = getattr(status_label, "_session_meta_label", None)
+        if session_meta is not None:
+            hours, remainder = divmod(max(0, elapsed), 3600)
+            minutes, seconds = divmod(remainder, 60)
+            session_meta.setText(
+                f"Session {hours:02d}:{minutes:02d}:{seconds:02d} · RPM {rpm:.1f}"
+            )
 
         if self._is_recording():
             self._refresh_timeline()
@@ -246,18 +257,30 @@ class Scanner:
 
         if self.is_scanning():
             if self.is_running:
-                status_html = 'Status: <span style="color:#4fd67a;">RUNNING</span>'
+                status_text = "RUNNING"
             elif self.is_ready_to_start:
-                status_html = 'Status: <span style="color:#4fd67a;">ARMED</span>'
+                status_text = "ARMED"
             else:
-                status_html = 'Status: <span style="color:#ffd23f;">WAITING FOR GAME</span>'
-            status_label.setText(status_html)
-            toggle_btn.setText("Stop")
-            toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
+                status_text = "WAITING FOR GAME"
+            status_label.setText(status_text)
+            _set_widget_style_role(status_label, "statusText", state="running")
+            _set_widget_style_role(
+                getattr(status_label, "_status_dot", None),
+                "statusDot",
+                state="running",
+            )
+            toggle_btn.setText("Stop Scanner")
+            _set_widget_style_role(toggle_btn, "stopScanner")
         else:
-            status_label.setText('Status: <span style="color:#9CA3AF;">IDLE</span>')
-            toggle_btn.setText("Start")
-            toggle_btn.setStyleSheet("")
+            status_label.setText("IDLE")
+            _set_widget_style_role(status_label, "statusText", state="idle")
+            _set_widget_style_role(
+                getattr(status_label, "_status_dot", None),
+                "statusDot",
+                state="idle",
+            )
+            toggle_btn.setText("Start Scanner")
+            _set_widget_style_role(toggle_btn, "primary")
 
     def _append_log(self, message, tag=None):
         log_box = self._log_box()
@@ -422,7 +445,7 @@ class Scanner:
                 self.stats_avg_layout.addWidget(label)
                 self.stats_avg_labels[name] = label
             label.setText(f"{name}: {avg_text}")
-            label.setStyleSheet(f"color: {hex_color}; font-size: 16px; font-weight: 600;")
+            label.setStyleSheet(f"color: {hex_color}; font-size: 16px; font-weight: 600; background: transparent;")
 
         stale_names = [name for name in self.stats_avg_labels if name not in active_names]
         for name in stale_names:
@@ -744,7 +767,7 @@ class Scanner:
         self.stats_tracked_items_label.setWordWrap(True)
         self.stats_tracked_items_label.setStyleSheet(_session_stats_label_stylesheet())
         self.stats_tracked_items_settings_btn = QPushButton("")
-        self.stats_tracked_items_settings_btn.setObjectName("SettingsButton")
+        self.stats_tracked_items_settings_btn.setObjectName("iconBtn")
         self.stats_tracked_items_settings_btn.setToolTip("Tracked item settings")
         self.stats_tracked_items_settings_btn.setFixedSize(34, 30)
         _apply_button_icon(self.stats_tracked_items_settings_btn, "media/settings_icon.png", 18)
@@ -759,6 +782,7 @@ class Scanner:
         average_layout.setContentsMargins(12, 12, 12, 12)
         average_layout.setSpacing(8)
         self.stats_avg_frame = QWidget()
+        self.stats_avg_frame.setObjectName("cardContent")
         self.stats_avg_layout = QVBoxLayout(self.stats_avg_frame)
         self.stats_avg_layout.setContentsMargins(0, 0, 0, 0)
         self.stats_avg_layout.setSpacing(6)

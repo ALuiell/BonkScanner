@@ -1,0 +1,466 @@
+/* ============================================================================
+   BonkScanner — Redesign QSS (v3, full)
+   Полный стиль под PySide6/Qt. Классы применяются через objectName в Python:
+   widget.setObjectName("primary")  /  для состояния: setProperty + polish.
+
+   ПАЛИТРА
+     bg (окно)        #0E1217
+     panel            #101419
+     card             #0B0F14
+     card inner       #141A22
+     border           #1B222B  (тонкая) / #2A3542 (контрол) / #2E3A48 (актив)
+     text primary     #EDF1F5
+     text head        #B9C2CE
+     text secondary   #8A94A3
+     text muted       #5C6675
+     accent           #2F6FB0  (border #3E82C6, hover #3781CE, press #276099)
+     info/slider      #38BDF8
+     ok / running     #22C55E / #6EE7A0 / #7DE68C
+     danger           #B91C1C (fill) / #F0787E (muted) / #F87171 (status)
+     rarity           Common #4ADE80 · Uncommon #60A5FA · Rare #E879F9
+                      Epic #C084FC · Legendary #FACC15
+   ШРИФТЫ  Inter (UI) · JetBrains Mono (числа/логи/таймкоды)
+
+   СОГЛАШЕНИЕ ПО objectName
+     Кнопки:   primary · danger · ghost · stopScanner · iconBtn · railToggle
+     Статус:   statusDot (+ prop state=running|idle|rec) · statusText · recText
+     Лого:     appLogo · appTitle
+     Карты:    panel · card · cardInner · groupTitle · sectionEyebrow
+     Строки:   rowLabel · rowValue · kpiLabel · kpiValue
+     Табы:     mainTabs · subTabs (pill)
+     Теги:     tagCommon · tagUncommon · tagRare · tagEpic · tagLegendary
+     Моно:     mono · logView · sessionMeta · timecode
+============================================================================ */
+
+/* ---------------------------------------------------------------- base ---- */
+QWidget {
+    background-color: #0E1217;
+    color: #EDF1F5;
+    font-family: "Inter", "Segoe UI", sans-serif;
+    font-size: 13px;
+}
+QMainWindow, QWidget#centralWidget { background-color: #0E1217; }
+QWidget#mainTabPage { background-color: transparent; }
+QWidget#templateListSurface { background-color: #101419; }
+QToolTip {
+    background-color: #141A22;
+    color: #EDF1F5;
+    border: 1px solid #2A3542;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+}
+
+/* ------------------------------------------------------------- header ---- */
+/* строка: [лого][title]  |  [статус·точка]  ...gap...  [session mono] [Help][Settings][Start/Stop] */
+QLabel#appLogo {                 /* контейнер под 28–32px иконку логотипа */
+    min-width: 30px; min-height: 30px;
+}
+QLabel#appTitle {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    color: #EDF1F5;
+}
+QFrame#headerDivider {           /* вертикальный разделитель 1x18 */
+    background-color: #232B36;
+    max-width: 1px; min-width: 1px;
+}
+
+/* статус-индикатор возле лого. Цвет точки — по property state, ставится в коде:
+     dot.setProperty("state","running"); dot.style().polish(dot)          */
+QLabel#statusDot {
+    min-width: 8px; max-width: 8px; min-height: 8px; max-height: 8px;
+    border-radius: 4px;
+    background-color: #5C6675;   /* дефолт = idle */
+}
+QLabel#statusDot[state="running"] { background-color: #22C55E; }
+QLabel#statusDot[state="idle"]    { background-color: #5C6675; }
+QLabel#statusDot[state="rec"]     { background-color: #F87171; }
+
+QLabel#statusText { font-weight: 600; font-size: 12px; color: #8A94A3; }
+QLabel#statusText[state="running"] { color: #7DE68C; }
+QLabel#statusText[state="idle"]    { color: #8A94A3; }
+
+QLabel#recText { color: #F87171; font-weight: 700; font-size: 12px; }
+
+QLabel#sessionMeta {
+    color: #8A94A3;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 12px;
+}
+
+QLabel#templateSectionTitle {
+    background: transparent;
+    color: #5C6675;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    padding: 8px 2px 4px 2px;
+}
+
+/* -------------------------------------------------------- panels/cards ---- */
+QFrame#panel {
+    background-color: #101419;
+    border: 1px solid #1B222B;
+    border-radius: 16px;
+}
+QFrame#card {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+}
+QFrame#cardInner {
+    background-color: #141A22;
+    border: 1px solid #2A3542;
+    border-radius: 10px;
+}
+/* A plain layout host placed inside a card/panel (a flow-layout wrapper for
+   chips, a VBox holding rows) is not a surface of its own -- it exists only
+   to lay children out. `QWidget`'s blanket background paints it anyway, so
+   without this it shows up as a seam of the wrong shade sitting on top of
+   whatever card it's inside. */
+QWidget#cardContent {
+    background: transparent;
+}
+
+/* QGroupBox — стандартная карта-контейнер (Run Summary, Stage Summary, …) */
+QGroupBox {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+    margin-top: 10px;
+    padding: 14px 14px 12px 14px;
+    font-weight: 700;
+    font-size: 11px;
+    color: #B9C2CE;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 14px; top: 2px;
+    padding: 0 2px;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: #B9C2CE;
+}
+
+/* шаблоны в левой панели */
+QFrame#templateRowActive {
+    background-color: #141A22;
+    border: 1px solid #2E3A48;
+    border-radius: 10px;
+}
+QFrame#templateRowInactive {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+}
+QFrame#templateRowInactive, QFrame#templateRowInactive QLabel { color: #8A94A3; }
+
+/* -------------------------------------------------------------- text ---- */
+QLabel#sectionEyebrow {
+    color: #5C6675; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.6px; text-transform: uppercase;
+}
+QLabel#groupTitle {
+    color: #B9C2CE; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.4px; text-transform: uppercase;
+}
+QLabel#kpiLabel {
+    color: #5C6675; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.4px; text-transform: uppercase;
+}
+QLabel#kpiValue      { font-size: 24px; font-weight: 800; color: #EDF1F5; }
+QLabel#kpiValueHero  { font-size: 30px; font-weight: 800; color: #EDF1F5; letter-spacing: -0.5px; }
+QLabel#rowLabel      { color: #8A94A3; font-size: 12px; }
+QLabel#rowValue      { color: #EDF1F5; font-size: 12px; font-weight: 700; }
+QLabel#rowValueMuted { color: #8A94A3; font-size: 12px; font-weight: 700; }
+QLabel#tableHead     { color: #B9C2CE; font-size: 12px; font-weight: 700; }
+QLabel#timecode {
+    color: #5C6675; font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px;
+}
+/* дельты (Compare / Chaos) */
+QLabel#deltaUp   { color: #4ADE80; font-weight: 700; }
+QLabel#deltaDown { color: #F87171; font-weight: 700; }
+
+/* --------------------------------------------------- main tab bar (top) ---- */
+QTabWidget::pane { border: none; }
+
+QTabBar { background: transparent; }
+QWidget#mainTabs QTabBar,
+QTabBar#mainTabs {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+}
+QTabBar::tab {
+    background: transparent;
+    color: #5C6675;
+    font-weight: 700;
+    font-size: 12.5px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    margin: 5px 2px;
+}
+QTabBar::tab:selected {
+    background-color: #2F6FB0;
+    color: #ffffff;
+    font-weight: 800;
+}
+QTabBar::tab:hover:!selected { color: #B9C2CE; }
+
+/* sub-tabs (Stats/Loot/Weapons/Tomes/Chaos/Damage) — компактнее */
+QWidget#subTabs QTabBar,
+QTabBar#subTabs {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 11px;
+}
+QTabBar#subTabs::tab {
+    padding: 6px 13px;
+    font-size: 12px;
+    margin: 4px 2px;
+}
+QTabBar#subTabs::tab:selected { background-color: #2F6FB0; }
+
+/* ----------------------------------------------------------- buttons ---- */
+/* secondary (по умолчанию) */
+QPushButton {
+    background-color: #161C24;
+    border: 1px solid #2A3542;
+    border-radius: 9px;
+    color: #EDF1F5;
+    font-weight: 700;
+    font-size: 12.5px;
+    padding: 9px 14px;
+}
+QPushButton:hover    { background-color: #1B222D; border-color: #37424F; }
+QPushButton:pressed  { background-color: #0B0F14; }
+QPushButton:disabled { background-color: #12161C; border-color: #1B222B; color: #4A5462; }
+
+/* primary — единственное главное действие экрана (Save, Add, Rename) */
+QPushButton#primary {
+    background-color: #2F6FB0; border: 1px solid #3E82C6; color: #ffffff;
+}
+QPushButton#primary:hover   { background-color: #3781CE; border-color: #4E93D7; }
+QPushButton#primary:pressed { background-color: #276099; }
+
+/* ghost — мелкие/встроенные (Show more, Set Compare Start) */
+QPushButton#ghost {
+    background: transparent; border: 1px solid transparent;
+    color: #9AA4B2; font-weight: 600; padding: 6px 12px; border-radius: 8px;
+}
+QPushButton#ghost:hover { background-color: #141A22; color: #EDF1F5; }
+
+/* danger — приглушён, заливается на hover (Delete, Disconnect, ✕) */
+QPushButton#danger {
+    background: transparent; border: 1px solid #4A2226; color: #F0787E;
+}
+QPushButton#danger:hover {
+    background-color: #B91C1C; border-color: #B91C1C; color: #ffffff;
+}
+
+/* stopScanner / stopServer / stopBot — яркое главное деструктивное действие */
+QPushButton#stopScanner {
+    background-color: #B91C1C; border: 1px solid #C8302F; color: #ffffff;
+    font-weight: 800; font-size: 13px; letter-spacing: 0.3px;
+    padding: 11px 16px; border-radius: 11px;
+}
+QPushButton#stopScanner:hover { background-color: #CC2626; }
+
+/* icon-only (Settings ⚙, Help ?) — квадрат 36x36, светлее фон */
+QPushButton#iconBtn {
+    background-color: #1C2530; border: 1px solid #33414F; color: #DCE3EC;
+    border-radius: 9px; padding: 0; min-width: 36px; min-height: 36px;
+}
+QPushButton#iconBtn:hover { background-color: #243040; border-color: #3E82C6; color: #ffffff; }
+
+/* сворачивание левой панели « / » */
+QPushButton#railToggle {
+    background-color: #161C24; border: 1px solid #232B36; color: #C6CDD8;
+    border-radius: 9px; padding: 0; min-width: 34px; min-height: 34px; font-size: 15px;
+}
+QPushButton#railToggle:hover { background-color: #1B222D; color: #EDF1F5; }
+
+/* маленькая ghost-кнопка (Items → Show more) */
+QPushButton#smallGhost {
+    background: transparent; border: 1px solid #2A3542; color: #C6CDD8;
+    border-radius: 7px; padding: 5px 10px; font-size: 11.5px; font-weight: 600;
+}
+QPushButton#smallGhost:hover { background-color: #141A22; color: #EDF1F5; }
+
+/* ------------------------------------------------------------ inputs ---- */
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    background-color: #0E1217;
+    border: 1px solid #2A3542;
+    border-radius: 7px;
+    padding: 6px 8px;
+    color: #EDF1F5;
+    selection-background-color: #2F6FB0;
+    selection-color: #ffffff;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+    border-color: #38BDF8;
+}
+QLineEdit:disabled, QComboBox:disabled { color: #5C6675; border-color: #1B222B; }
+
+QComboBox::drop-down {
+    border: none; width: 20px;
+    subcontrol-origin: padding; subcontrol-position: center right;
+}
+QComboBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #8A94A3;
+    margin-right: 8px;
+}
+QComboBox QAbstractItemView {
+    background-color: #101419;
+    border: 1px solid #2A3542;
+    border-radius: 8px;
+    color: #EDF1F5;
+    selection-background-color: #2F6FB0;
+    selection-color: #ffffff;
+    outline: none;
+    padding: 4px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border; subcontrol-position: top right;
+    background: #161C24; border: none; border-top-right-radius: 7px;
+    width: 18px;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border; subcontrol-position: bottom right;
+    background: #161C24; border: none; border-bottom-right-radius: 7px;
+    width: 18px;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background: #1B222D;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    width: 0; height: 0;
+    border-left: 3px solid transparent; border-right: 3px solid transparent;
+    border-bottom: 4px solid #8A94A3;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    width: 0; height: 0;
+    border-left: 3px solid transparent; border-right: 3px solid transparent;
+    border-top: 4px solid #8A94A3;
+}
+
+/* checkbox / radio */
+QCheckBox, QRadioButton { spacing: 8px; color: #EDF1F5; }
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 16px; height: 16px; border: 1px solid #2A3542; background: #0E1217;
+}
+QCheckBox::indicator { border-radius: 4px; }
+QRadioButton::indicator { border-radius: 8px; }
+QCheckBox::indicator:hover, QRadioButton::indicator:hover { border-color: #38495E; }
+QCheckBox::indicator:checked {
+    background-color: #2F6FB0; border-color: #3E82C6;
+    image: none;
+}
+QRadioButton::indicator:checked {
+    background-color: #2F6FB0; border: 4px solid #0E1217;
+}
+
+/* ----------------------------------------------------- slider (timeline) ---- */
+QSlider::groove:horizontal { height: 4px; background: #1B222B; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #38BDF8; border-radius: 2px; }
+QSlider::add-page:horizontal { background: #1B222B; border-radius: 2px; }
+QSlider::handle:horizontal {
+    width: 14px; height: 14px; margin: -5px 0; background: #EDF1F5; border-radius: 7px;
+}
+QSlider::handle:horizontal:hover { background: #ffffff; }
+
+/* ------------------------------------------- progress / proportion bars ---- */
+QProgressBar {
+    background-color: #141A22; border: none; border-radius: 4px;
+    max-height: 6px; text-align: center; color: transparent;
+}
+QProgressBar::chunk { border-radius: 4px; background-color: #38BDF8; }
+/* по источнику урона можно задать цвет через objectName:
+   pb.setObjectName("barFire") и т.д. */
+QProgressBar#barFire::chunk   { background-color: #F97316; }
+QProgressBar#barKatana::chunk { background-color: #38BDF8; }
+QProgressBar#barDice::chunk   { background-color: #A78BFA; }
+QProgressBar#barThorns::chunk { background-color: #4ADE80; }
+
+/* --------------------------------------------------------- tables ---- */
+QTableWidget, QTableView {
+    background-color: #0B0F14;
+    alternate-background-color: #101419;
+    gridline-color: #1B222B;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+    color: #EDF1F5;
+    selection-background-color: #17324F;
+    selection-color: #EDF1F5;
+    outline: none;
+}
+QHeaderView::section {
+    background-color: #0B0F14;
+    color: #B9C2CE;
+    border: none;
+    border-bottom: 1px solid #1B222B;
+    padding: 8px 10px;
+    font-weight: 700;
+    font-size: 12px;
+}
+QTableView::item { padding: 6px 10px; }
+
+/* ------------------------------------------------ rarity chips (QLabel) ---- */
+QLabel#tagCommon    { background:#12261A; color:#4ADE80; border:1px solid #1F4A2E; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#tagUncommon  { background:#101E30; color:#60A5FA; border:1px solid #1E3A5C; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#tagRare      { background:#2A1730; color:#E879F9; border:1px solid #4A2A57; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#tagEpic      { background:#241633; color:#C084FC; border:1px solid #3D2A57; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#tagLegendary { background:#2E2708; color:#FACC15; border:1px solid #57481A; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#tagNeutral   { background:#161C24; color:#C6CDD8; border:1px solid #2A3542; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#itemChipNote { background:transparent; color:#5C6675; font-size:12px; padding:4px 2px; }
+
+/* точка редкости (Stage Summary Items col): 7x7, цвет через objectName */
+QLabel#dotCommon    { background:#4ADE80; border-radius:4px; min-width:7px; max-width:7px; min-height:7px; max-height:7px; }
+QLabel#dotUncommon  { background:#60A5FA; border-radius:4px; min-width:7px; max-width:7px; min-height:7px; max-height:7px; }
+QLabel#dotRare      { background:#E879F9; border-radius:4px; min-width:7px; max-width:7px; min-height:7px; max-height:7px; }
+QLabel#dotEpic      { background:#C084FC; border-radius:4px; min-width:7px; max-width:7px; min-height:7px; max-height:7px; }
+QLabel#dotLegendary { background:#FACC15; border-radius:4px; min-width:7px; max-width:7px; min-height:7px; max-height:7px; }
+
+/* --------------------------------------------------------- scrollbars ---- */
+QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
+QScrollBar::handle:vertical { background: #2A3542; border-radius: 5px; min-height: 24px; }
+QScrollBar::handle:vertical:hover { background: #38495E; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 0; }
+QScrollBar::handle:horizontal { background: #2A3542; border-radius: 5px; min-width: 24px; }
+QScrollBar::handle:horizontal:hover { background: #38495E; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+QScrollArea { border: none; background: transparent; }
+
+/* ------------------------------------------------- mono (logs / numeric) ---- */
+QLabel#mono, QPlainTextEdit#logView, QTextEdit#logView {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 12px;
+    color: #5C6675;
+    background: transparent;
+    border: none;
+}
+QPlainTextEdit#logView, QTextEdit#logView {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+    padding: 8px;
+}
+
+/* ------------------------------------------------------- menu / footer ---- */
+QMenu {
+    background-color: #101419; border: 1px solid #2A3542; border-radius: 8px; padding: 4px;
+}
+QMenu::item { padding: 6px 20px; border-radius: 6px; color: #EDF1F5; }
+QMenu::item:selected { background-color: #17324F; }
+QLabel#footerMeta {
+    color: #5C6675; font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px;
+}

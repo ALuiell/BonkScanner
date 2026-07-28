@@ -52,6 +52,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -130,21 +131,28 @@ class TemplatesPanel:
     def _build_templates_tab(self) -> None:
         self._tab_templates = QWidget()
         templates_layout = QVBoxLayout(self._tab_templates)
-        self._scrollable_templates, _content, self._template_layout = _make_scroll_section()
+        self._scrollable_templates, content, self._template_layout = _make_scroll_section()
+        content.setObjectName("templateListSurface")
+        self._scrollable_templates.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         templates_layout.addWidget(self._scrollable_templates, 1)
 
         buttons = QHBoxLayout()
-        self.add_btn = QPushButton("+ Add")
+        self.add_btn = QPushButton("Add")
+        self.add_btn.setObjectName("primary")
+        _apply_button_icon(self.add_btn, "media/add_icon.svg", 18)
         self.add_btn.clicked.connect(self.add_template_dialog)
         self.edit_btn = QPushButton("Edit")
+        _apply_button_icon(self.edit_btn, "media/edit_icon.svg", 18)
         self.edit_btn.clicked.connect(self.edit_template_dialog)
-        self.del_btn = QPushButton("Delete")
-        self.del_btn.setObjectName("DangerButton")
+        self.del_btn = QPushButton("")
+        self.del_btn.setObjectName("danger")
+        self.del_btn.setToolTip("Delete")
+        _apply_button_icon(self.del_btn, "media/delete_icon.svg", 18)
         self.del_btn.clicked.connect(self.del_template_dialog)
-        buttons.addWidget(self.add_btn)
-        buttons.addWidget(self.edit_btn)
+        buttons.addWidget(self.add_btn, 1)
+        buttons.addWidget(self.edit_btn, 1)
+        self.del_btn.setFixedWidth(44)
         buttons.addWidget(self.del_btn)
-        buttons.addStretch(1)
         templates_layout.addLayout(buttons)
         self._left_tabview.addTab(self._tab_templates, "Templates")
 
@@ -159,11 +167,10 @@ class TemplatesPanel:
         scores_layout.addWidget(self._scores_desc_label, 1)
 
         buttons = QHBoxLayout()
-        self.edit_scores_btn = QPushButton("Edit Settings")
-        _apply_button_icon(self.edit_scores_btn, "media/settings_icon.png", 18)
+        self.edit_scores_btn = QPushButton("Edit")
+        _apply_button_icon(self.edit_scores_btn, "media/edit_icon.svg", 18)
         self.edit_scores_btn.clicked.connect(self.open_scores_settings_dialog)
-        buttons.addWidget(self.edit_scores_btn)
-        buttons.addStretch(1)
+        buttons.addWidget(self.edit_scores_btn, 1)
         scores_layout.addLayout(buttons)
         self._left_tabview.addTab(self._tab_scores, "Scores")
 
@@ -178,11 +185,12 @@ class TemplatesPanel:
     def refresh_templates(self) -> None:
         _clear_layout(self._template_layout)
         self._checkboxes.clear()
+        active_names = set(config.ACTIVE_TEMPLATES)
         for template in config.TEMPLATES:
             color_tag = template.get("color", "LIGHTBLUE_EX").upper()
             color_hex = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
             cb = QCheckBox(_format_template_checkbox_text(template))
-            cb.setChecked(template["name"] in config.ACTIVE_TEMPLATES)
+            cb.setChecked(template["name"] in active_names)
             cb.toggled.connect(self.save_checkbox_state)
             cb.setStyleSheet(_template_checkbox_stylesheet(color_hex))
             self._template_layout.addWidget(cb)
@@ -253,7 +261,7 @@ class TemplatesPanel:
         for tier in TIERS:
             cb = QCheckBox(tier)
             cb.setChecked(tier in config.SCORES_SYSTEM.get("active_tiers", []))
-            cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700;")
+            cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700; background: transparent;")
             cb.toggled.connect(self.refresh_scores_ui)
             self._scores_templates_layout.addWidget(cb)
             self._scores_checkboxes[tier] = cb
@@ -291,7 +299,7 @@ def _format_template_checkbox_text(template: dict) -> str:
         .replace("Micro:", "Mic")
         .replace("Boss:", "Boss")
     )
-    return f"{template['name']} ({compact_conditions})"
+    return f"{template['name']}\n{compact_conditions}"
 
 
 def _score_system_lines() -> list[str]:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 # COLOR_MAP now belongs to core/item_metadata.py, whose lowest consumer it is;
 # the Qt helpers below still build stylesheets out of it, which is a legal
 # downward import.
@@ -10,11 +12,12 @@ from projections.item_sort import (
     ITEM_SORT_RARITY_ASC,
     ITEM_SORT_RARITY_DESC,
 )
+from ui.shared import resource_path
 
-PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#b30000"
-PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#800000"
-PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#1f538d"
-PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#14375e"
+PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#B91C1C"
+PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#CC2626"
+PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#2F6FB0"
+PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#3781CE"
 PLAYER_STATS_VALUE_WIDTH = 72
 ITEM_SORT_LABELS = {
     ITEM_SORT_DEFAULT: "Default",
@@ -23,23 +26,32 @@ ITEM_SORT_LABELS = {
 }
 
 def _template_checkbox_stylesheet(color_hex: str) -> str:
+    # `color_hex` shapes the row only -- the left accent bar and the label
+    # colour when checked, which is what tells templates apart at a glance.
+    # The checkbox glyph itself is deliberately left undefined here: it falls
+    # through to the app-wide indicator rule (`build_qt_app_stylesheet`), so
+    # every checkbox in the app, not just this row, looks the same one way.
     return f"""
     QCheckBox {{
-        color: {color_hex};
-        background: #121A27;
-        border: 1px solid #2B3648;
+        color: #8A94A3;
+        background: #0B0F14;
+        border: 1px solid #1B222B;
         border-left: 4px solid {color_hex};
-        border-radius: 8px;
-        padding: 8px 8px;
+        border-radius: 10px;
+        padding: 10px 12px;
+        min-height: 38px;
+        font-weight: 600;
+    }}
+    QCheckBox:checked {{
+        color: {color_hex};
+        background: #141A22;
+        border-color: #2E3A48;
+        border-left-color: {color_hex};
         font-weight: 700;
     }}
     QCheckBox:hover {{
-        background: #162133;
-        border-color: {color_hex};
-    }}
-    QCheckBox::indicator {{
-        width: 16px;
-        height: 16px;
+        background: #141A22;
+        border-color: #38495E;
     }}
     """
 
@@ -91,10 +103,37 @@ def _button_state_stylesheet(background: str, hover: str) -> str:
     }}
     """
 
+
+def _set_widget_style_role(widget, object_name: str, *, state: str | None = None) -> None:
+    """Switch a live widget to a QSS role and force Qt to re-evaluate it."""
+    if widget is None:
+        return
+    set_stylesheet = getattr(widget, "setStyleSheet", None)
+    if callable(set_stylesheet):
+        set_stylesheet("")
+    set_object_name = getattr(widget, "setObjectName", None)
+    if callable(set_object_name):
+        set_object_name(object_name)
+    set_property = getattr(widget, "setProperty", None)
+    if callable(set_property) and state is not None:
+        set_property("state", state)
+    style_getter = getattr(widget, "style", None)
+    if not callable(style_getter):
+        return
+    style = style_getter()
+    if style is None:
+        return
+    unpolish = getattr(style, "unpolish", None)
+    polish = getattr(style, "polish", None)
+    if callable(unpolish):
+        unpolish(widget)
+    if callable(polish):
+        polish(widget)
+
 def _session_stats_label_stylesheet(accent: bool = False) -> str:
     color = "#F3F4F6" if accent else "#D7DEE8"
     weight = "700" if accent else "600"
-    return f"color: {color}; font-size: 17px; font-weight: {weight};"
+    return f"color: {color}; font-size: 17px; font-weight: {weight}; background: transparent;"
 
 def _tier_color(tier: str) -> str:
     return {
@@ -106,7 +145,7 @@ def _tier_color(tier: str) -> str:
 
 
 def build_qt_app_stylesheet(checkmark_path: str) -> str:
-    return (
+    legacy_stylesheet = (
 """
                 QWidget {
                     background: #10141B;
@@ -452,4 +491,299 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                 }
                 """
                 .replace("__CHECKMARK_ICON__", checkmark_path)
+    )
+
+    redesign_path = Path(resource_path("redisign_ui/bonkscanner_redesign.qss"))
+    try:
+        redesign_stylesheet = redesign_path.read_text(encoding="utf-8")
+    except OSError:
+        # Keep source runs and partially upgraded installations usable even if
+        # the optional redesign asset was not copied alongside the executable.
+        redesign_stylesheet = ""
+
+    compatibility_stylesheet = """
+        /* Existing BonkScanner widgets mapped onto the redesign system. */
+        QMainWindow, QDialog, QWidget {
+            background-color: #0E1217;
+        }
+        QFrame#headerBar {
+            background-color: #0E1217;
+            border: none;
+            border-bottom: 1px solid #1B222B;
+        }
+        QLabel, QCheckBox, QRadioButton {
+            background: transparent;
+        }
+        QToolTip {
+            background-color: #161C24;
+            color: #EDF1F5;
+            border: 1px solid #38495E;
+            padding: 5px 7px;
+        }
+        QGroupBox {
+            background-color: #101419;
+            border: 1px solid #1B222B;
+            border-radius: 12px;
+            margin-top: 10px;
+            padding-top: 12px;
+        }
+        QGroupBox::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            left: 12px;
+            padding: 0 5px;
+            color: #B9C2CE;
+            font-weight: 700;
+        }
+        QFrame#StatCard {
+            background-color: #0B0F14;
+            border: 1px solid #1B222B;
+            border-radius: 12px;
+            padding: 8px;
+        }
+        QFrame#StatCardInner {
+            background-color: #0B0F14;
+            border: none;
+        }
+        QTextEdit, QPlainTextEdit, QListWidget, QTreeWidget, QTableWidget {
+            background-color: #0E1217;
+            border: 1px solid #2A3542;
+            border-radius: 7px;
+            color: #EDF1F5;
+            selection-background-color: #1B62A8;
+            selection-color: #FFFFFF;
+        }
+        QComboBox QAbstractItemView {
+            background-color: #101419;
+            color: #EDF1F5;
+            border: 1px solid #2A3542;
+            selection-background-color: #1B62A8;
+        }
+        QTextEdit#logView, QPlainTextEdit#logView {
+            font-family: "JetBrains Mono", Consolas, monospace;
+            font-size: 12px;
+            color: #8A94A3;
+        }
+        QPushButton:disabled {
+            background-color: #101419;
+            border-color: #1B222B;
+            color: #5C6675;
+        }
+        QPushButton#DangerButton {
+            background-color: transparent;
+            border: 1px solid #4A2226;
+            color: #F0787E;
+        }
+        QPushButton#DangerButton:hover {
+            background-color: #B91C1C;
+            border-color: #B91C1C;
+            color: #FFFFFF;
+        }
+        QPushButton#SuccessButton {
+            background-color: #166534;
+            border: 1px solid #238B49;
+            color: #FFFFFF;
+        }
+        QPushButton#SuccessButton:hover {
+            background-color: #1D7A3E;
+        }
+        QPushButton#ToggleButton {
+            min-width: 138px;
+            background-color: #1B62A8;
+            border: 1px solid #2472C4;
+            color: #FFFFFF;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+        QPushButton#ToggleButton:hover {
+            background-color: #2472C4;
+            border-color: #3585D2;
+        }
+        QPushButton#SettingsButton, QPushButton#HelpButton {
+            min-width: 40px;
+            max-width: 40px;
+            min-height: 36px;
+            max-height: 36px;
+            padding: 0;
+            background-color: #161C24;
+            border: 1px solid #2A3542;
+            border-radius: 9px;
+        }
+        QPushButton#SettingsButton:hover, QPushButton#HelpButton:hover {
+            background-color: #1B222B;
+            border-color: #38495E;
+        }
+        QPushButton[class="SupportPlatformButton"] {
+            min-height: 26px;
+            max-height: 26px;
+            padding: 2px 8px;
+            font-size: 12px;
+        }
+        QPushButton[class="SmallGhostButton"] {
+            background-color: transparent;
+            color: #9AA4B2;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            min-height: 22px;
+            max-height: 22px;
+            padding: 3px 8px;
+        }
+        QPushButton[class="SmallGhostButton"]:hover {
+            background-color: #141A22;
+            border-color: transparent;
+            color: #EDF1F5;
+        }
+        QPushButton[class="CompareRunsGhostButton"] {
+            background-color: transparent;
+            color: #9AA4B2;
+            border: 1px solid #2A3542;
+            border-radius: 8px;
+            min-height: 26px;
+            max-height: 26px;
+            padding: 5px 12px;
+        }
+        QPushButton[class="CompareRunsGhostButton"]:hover {
+            background-color: #161C24;
+            border-color: #38495E;
+            color: #EDF1F5;
+        }
+        QTabWidget::pane {
+            border: none;
+            background: transparent;
+            top: 0;
+        }
+        QTabWidget#mainTabs::pane {
+            background-color: #101419;
+            border: 1px solid #1B222B;
+            border-radius: 16px;
+            top: 8px;
+            padding: 8px;
+        }
+        QTabBar {
+            background-color: #0B0F14;
+            border: 1px solid #1B222B;
+            border-radius: 12px;
+        }
+        QTabBar::tab {
+            background: transparent;
+            color: #6F7A89;
+            font-weight: 700;
+            font-size: 12px;
+            padding: 8px 13px;
+            border-radius: 8px;
+            margin: 4px 2px;
+            min-width: 0;
+        }
+        QTabBar::tab:selected {
+            background-color: #1B62A8;
+            color: #FFFFFF;
+            font-weight: 800;
+        }
+        QTabBar::tab:hover:!selected {
+            background-color: #141A22;
+            color: #B9C2CE;
+        }
+        QLabel#SectionHeader {
+            color: #EDF1F5;
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+        }
+        QLabel#StatusLabel, QLabel#statusText {
+            color: #8A94A3;
+            font-family: "JetBrains Mono", Consolas, monospace;
+            font-size: 12px;
+            font-weight: 600;
+            padding-left: 10px;
+        }
+        QCheckBox::indicator:checked {
+            image: url(__CHECKMARK_ICON__);
+        }
+        QSplitter::handle {
+            background: #1B222B;
+            margin: 0 6px;
+            border-radius: 2px;
+        }
+    """.replace("__CHECKMARK_ICON__", checkmark_path)
+
+    base_stylesheet = redesign_stylesheet or legacy_stylesheet
+
+    # One indicator rule, applied last so it beats both the legacy sheet and
+    # the redesign asset's `image: none` -- every checkbox in the app, in
+    # every tab and dialog, ends up the same colour with the same visible
+    # checkmark instead of each screen inheriting whatever the two base
+    # sheets happened to leave unset for this selector.
+    checkbox_uniform_stylesheet = f"""
+        QCheckBox::indicator {{
+            width: 16px; height: 16px;
+            border: 1px solid #2A3542;
+            border-radius: 4px;
+            background-color: #0E1217;
+        }}
+        QCheckBox::indicator:hover {{
+            border-color: #38495E;
+        }}
+        QCheckBox::indicator:checked {{
+            background-color: #2F6FB0;
+            border-color: #3E82C6;
+            image: url({checkmark_path});
+        }}
+        QCheckBox::indicator:checked:hover {{
+            background-color: #3781CE;
+        }}
+    """
+
+    # The border-drawn triangle Qt stylesheets normally use for spin-box and
+    # combo-box arrows (border-left/right transparent, border-top/bottom
+    # solid) does not render as a triangle under this Qt build -- it paints
+    # as a flat grey block instead, which is the "arrows are broken" the
+    # redesign QSS shipped with. Real icons sidestep the quirk entirely.
+    spin_up_path = resource_path("media/spin_up.svg").replace("\\", "/")
+    spin_down_path = resource_path("media/spin_down.svg").replace("\\", "/")
+    spinner_uniform_stylesheet = f"""
+        QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+            width: 12px; height: 8px;
+            border: none;
+            image: url({spin_up_path});
+        }}
+        QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+            width: 12px; height: 8px;
+            border: none;
+            image: url({spin_down_path});
+        }}
+        QComboBox::down-arrow {{
+            width: 12px; height: 8px;
+            border: none;
+            image: url({spin_down_path});
+        }}
+    """
+
+    # `compatibility_stylesheet` declares `QLabel, QCheckBox, QRadioButton
+    # { background: transparent; }` near its top, but Qt's cascade treats
+    # every bare type selector as equal specificity and lets *declaration
+    # order* break the tie -- so the redesign sheet's later, unrelated
+    # `QWidget { background-color: ...; }` silently wins for every QLabel in
+    # the app, transparent-by-design or not. That was the real "seam" bug:
+    # not individual widgets missing a local override, but this rule losing
+    # the cascade for all of them at once. Restating it last, after both base
+    # sheets, is what makes it actually win.
+    transparency_stylesheet = """
+        QLabel, QCheckBox, QRadioButton {
+            background: transparent;
+        }
+    """
+
+    # Compatibility fills selectors that the existing widgets still need;
+    # the design asset comes last so every v3 rule remains authoritative,
+    # and the uniform checkbox/spinner/transparency rules come last of all
+    # so nothing upstream of them can leave a tab's controls looking
+    # different from the rest.
+    return "\n".join(
+        (
+            compatibility_stylesheet,
+            base_stylesheet,
+            checkbox_uniform_stylesheet,
+            spinner_uniform_stylesheet,
+            transparency_stylesheet,
+        )
     )

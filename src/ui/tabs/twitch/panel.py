@@ -56,7 +56,7 @@ from PySide6.QtWidgets import (
 
 from app import config
 from ui.shared import _make_scroll_section
-from ui.styles import _button_state_stylesheet
+from ui.styles import _set_widget_style_role
 
 _NOT_CONNECTED = "<span style='color: #f08b72; font-weight: bold;'>Not connected</span>"
 _WAITING = "<span style='color: #ffd23f; font-weight: bold;'>Waiting for authorization...</span>"
@@ -189,11 +189,11 @@ class TwitchTab:
         self._auth_buttons_layout = QHBoxLayout()
         self._auth_buttons_layout.setContentsMargins(0, 0, 0, 0)
         self._connect_btn = QPushButton("Connect to Twitch")
-        self._connect_btn.setObjectName("TwitchConnectButton")
+        self._connect_btn.setObjectName("primary")
         self._auth_buttons_layout.addWidget(self._connect_btn)
 
         self._disconnect_btn = QPushButton("Disconnect")
-        self._disconnect_btn.setObjectName("DangerButton")
+        self._disconnect_btn.setObjectName("danger")
         self._disconnect_btn.setVisible(False)
         self._auth_buttons_layout.addWidget(self._disconnect_btn)
         auth_layout.addLayout(self._auth_buttons_layout)
@@ -240,7 +240,7 @@ class TwitchTab:
         control_layout.addWidget(self._auto_connect_cb)
 
         self._bot_toggle_btn = QPushButton("Start Bot")
-        self._bot_toggle_btn.setObjectName("SuccessButton")
+        self._bot_toggle_btn.setObjectName("primary")
         self._bot_toggle_btn.setMinimumHeight(36)
         btn_font = self._bot_toggle_btn.font()
         btn_font.setBold(True)
@@ -287,7 +287,7 @@ class TwitchTab:
         commands_header_layout = QHBoxLayout()
         commands_header_layout.setContentsMargins(4, 0, 0, 0)
         commands_header_lbl = QLabel("Active Chat Commands:")
-        commands_header_lbl.setStyleSheet("font-weight: bold;")
+        commands_header_lbl.setStyleSheet("font-weight: bold; background: transparent;")
         self._command_settings_btn = QPushButton("Command Settings")
         commands_header_layout.addWidget(commands_header_lbl)
         commands_header_layout.addStretch(1)
@@ -323,7 +323,9 @@ class TwitchTab:
         ann_layout.setSpacing(6)
 
         ann_title = QLabel("Announcements:")
-        ann_title.setStyleSheet("font-weight: bold; margin-top: 6px; margin-bottom: 4px;")
+        ann_title.setStyleSheet(
+            "font-weight: bold; margin-top: 6px; margin-bottom: 4px; background: transparent;"
+        )
         ann_layout.addWidget(ann_title)
 
         self._stage_announcements_cb = QCheckBox("Announce Stage Transitions")
@@ -448,8 +450,8 @@ class TwitchTab:
 
     def show_bot_running(self) -> None:
         self._bot_toggle_btn.setText("Stop Bot")
-        self._bot_toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
+        _set_widget_style_role(self._bot_toggle_btn, "stopScanner")
 
     def show_bot_stopped(self) -> None:
         self._bot_toggle_btn.setText("Start Bot")
-        self._bot_toggle_btn.setStyleSheet("")
+        _set_widget_style_role(self._bot_toggle_btn, "primary")

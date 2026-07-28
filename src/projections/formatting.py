@@ -1639,6 +1639,31 @@ def _format_single_item_rich_text(item_text: str) -> str:
     return f"{escaped_name}{escaped_suffix}"
 
 
+_ITEM_CHIP_OBJECT_NAME_BY_RARITY = {
+    "COMMON": "tagCommon",
+    "UNCOMMON": "tagUncommon",
+    "RARE": "tagRare",
+    "LEGENDARY": "tagLegendary",
+}
+
+
+def item_chip_display(item_text: str) -> tuple[str, str]:
+    """`(label text incl. stack suffix, chip objectName)` for one item.
+
+    The counterpart to `_format_single_item_rich_text` for chip-widget
+    rendering rather than a single rich-text line: same name/suffix/rarity
+    lookup, but it hands back a QSS objectName (`tagCommon` and friends,
+    already styled in the redesign sheet) instead of a colour baked into an
+    HTML span, since a chip is a real widget rather than markup.
+    """
+    item_name, suffix = _split_item_stack_suffix(item_text)
+    display_name = _normalize_item_name_for_display(item_name)
+    rarity_name = _normalize_item_name_for_rarity(display_name)
+    rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
+    object_name = _ITEM_CHIP_OBJECT_NAME_BY_RARITY.get(rarity, "tagNeutral")
+    return f"{display_name}{suffix}", object_name
+
+
 def _split_item_stack_suffix(item_text: str) -> tuple[str, str]:
     if not item_text:
         return "", ""

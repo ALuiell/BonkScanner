@@ -69,7 +69,7 @@ from PySide6.QtWidgets import (
 from math import isfinite
 
 from core.stats.types import PLAYER_STAT_GROUPS
-from ui.shared import _apply_summary_label_padding, _make_scroll_section, _set_text
+from ui.shared import FlowLayout, _apply_summary_label_padding, _make_scroll_section, _set_text
 from ui.styles import ITEM_SORT_LABELS
 from ui.tabs.player_stats.items_section import ItemsSectionView
 from ui.tabs.player_stats.metrics import (
@@ -599,10 +599,15 @@ class LiveStatsTab:
         self._recording_timeline.install(player_content_layout)
         items_group = QGroupBox("Items")
         items_layout = QVBoxLayout(items_group)
-        items_label = QLabel("--")
-        items_label.setTextFormat(Qt.RichText)
-        items_label.setWordWrap(True)
-        items_layout.addWidget(items_label)
+        # Chips, not a comma-joined text line: each item gets its own
+        # rarity-tagged pill in a wrapping `FlowLayout`, matching the redesign
+        # mockup. `ItemsSectionView` still owns what goes in it -- this call
+        # site only builds the empty flow-layout host, same division of
+        # labour as the label/toggle/sort widgets below it.
+        items_chips_container = QWidget()
+        items_chips_container.setObjectName("cardContent")
+        FlowLayout(items_chips_container, margin=0, spacing=8)
+        items_layout.addWidget(items_chips_container)
         items_toggle_btn = QPushButton("Show more")
         items_toggle_btn.clicked.connect(self.toggle_player_items_expanded)
         items_toggle_btn.setProperty("class", "SmallGhostButton")
@@ -611,17 +616,18 @@ class LiveStatsTab:
         items_actions = QHBoxLayout()
         items_rarity_label = QLabel("")
         items_rarity_label.setTextFormat(Qt.RichText)
-        items_rarity_label.setStyleSheet("font-size: 14px;")
+        items_rarity_label.setStyleSheet("font-size: 14px; background: transparent;")
         items_rarity_label.setVisible(False)
         items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             items_sort_combo.addItem(label, mode)
         self._items_section = ItemsSectionView(
             group=items_group,
-            label=items_label,
+            label=None,
             rarity_label=items_rarity_label,
             toggle_btn=items_toggle_btn,
             sort_combo=items_sort_combo,
+            chips_container=items_chips_container,
         )
         items_sort_combo.currentIndexChanged.connect(
             lambda _index: self._items_section.on_sort_changed()
@@ -671,7 +677,7 @@ class LiveStatsTab:
         live_stage_summary_layout.setVerticalSpacing(4)
         for column, header in enumerate(("Stage", "Time", "Kills", "Items")):
             label = QLabel(header)
-            label.setStyleSheet("font-weight: 700; color: #F3F4F6;")
+            label.setStyleSheet("font-weight: 700; color: #F3F4F6; background: transparent;")
             label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             live_stage_summary_layout.addWidget(label, 0, column)
         self._stage_summary_labels = []
@@ -728,6 +734,7 @@ class LiveStatsTab:
             live_summary_grid.setColumnStretch(column, 1)
         player_content_layout.addLayout(live_summary_grid)
         self._detail_tabs = QTabWidget()
+        self._detail_tabs.setObjectName("subTabs")
         player_stats_tab = QWidget()
         player_stats_tab_layout = QVBoxLayout(player_stats_tab)
         player_stats_scroll, _player_stats_scroll_content, player_stats_scroll_layout = _make_scroll_section()

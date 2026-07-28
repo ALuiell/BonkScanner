@@ -739,7 +739,7 @@ class RecordingsTab:
         self._cleanup_btn = QPushButton("Clean Short")
         self._cleanup_btn.clicked.connect(self.cleanup_recordings_by_snapshot_count)
         self._delete_btn = QPushButton("Delete")
-        self._delete_btn.setObjectName("DangerButton")
+        self._delete_btn.setObjectName("danger")
         self._delete_btn.clicked.connect(self.delete_selected_vod)
         name_row.addWidget(self._name_entry, 1)
         name_row.addWidget(self._rename_btn)
@@ -778,7 +778,7 @@ class RecordingsTab:
         vod_items_actions = QHBoxLayout()
         vods_items_rarity_label = QLabel("")
         vods_items_rarity_label.setTextFormat(Qt.RichText)
-        vods_items_rarity_label.setStyleSheet("font-size: 14px;")
+        vods_items_rarity_label.setStyleSheet("font-size: 14px; background: transparent;")
         vods_items_rarity_label.setVisible(False)
         vods_items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
@@ -838,7 +838,7 @@ class RecordingsTab:
         vod_stage_summary_layout.setVerticalSpacing(4)
         for column, header in enumerate(("Stage", "Time", "Kills", "Items")):
             label = QLabel(header)
-            label.setStyleSheet("font-weight: 700; color: #F3F4F6;")
+            label.setStyleSheet("font-weight: 700; color: #F3F4F6; background: transparent;")
             label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             vod_stage_summary_layout.addWidget(label, 0, column)
         for index in range(4):
@@ -918,6 +918,7 @@ class RecordingsTab:
         self._compare_details_group.setVisible(False)
         vods_detail_layout.addWidget(self._compare_details_group)
         self._detail_tabs = QTabWidget()
+        self._detail_tabs.setObjectName("subTabs")
         vod_stats_tab = QWidget()
         vod_stats_tab_layout = QVBoxLayout(vod_stats_tab)
         vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()

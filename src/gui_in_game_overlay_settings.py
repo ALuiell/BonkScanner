@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 from app import config
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
 from ui.shared import _make_scroll_section
-from ui.styles import _button_state_stylesheet
+from ui.styles import _set_widget_style_role
 
 
 class InGameWidgetSettingsDialog(QDialog):
@@ -288,7 +288,7 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
     general_layout.addWidget(parent_mixin.igo_auto_start_cb)
 
     parent_mixin.igo_toggle_btn = QPushButton("Start Overlay")
-    parent_mixin.igo_toggle_btn.setObjectName("SuccessButton")
+    parent_mixin.igo_toggle_btn.setObjectName("primary")
     parent_mixin.igo_toggle_btn.setMinimumHeight(36)
     btn_font = parent_mixin.igo_toggle_btn.font()
     btn_font.setBold(True)
@@ -309,7 +309,7 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
     widgets_header_layout = QHBoxLayout()
     widgets_header_layout.setContentsMargins(4, 0, 0, 0)
     widgets_header_lbl = QLabel("Active Overlay Widgets:")
-    widgets_header_lbl.setStyleSheet("font-weight: bold;")
+    widgets_header_lbl.setStyleSheet("font-weight: bold; background: transparent;")
 
     parent_mixin.igo_widget_settings_btn = QPushButton("Widget Settings")
     parent_mixin.igo_widget_settings_btn.clicked.connect(parent_mixin._open_igo_widget_settings_dialog)
@@ -423,20 +423,13 @@ def update_in_game_overlay_status_ui(parent_mixin: Any) -> None:
             "<span style='color: #4fd67a; font-weight: bold;'>Running</span>"
         )
         parent_mixin.igo_toggle_btn.setText("Stop Overlay")
-        parent_mixin.igo_toggle_btn.setObjectName("DangerButton")
-        parent_mixin.igo_toggle_btn.setStyleSheet(
-            _button_state_stylesheet("#B91C1C", "#DC2626")
-        )
+        _set_widget_style_role(parent_mixin.igo_toggle_btn, "stopScanner")
     else:
         parent_mixin.igo_status_label.setText(
             "<span style='color: #f08b72; font-weight: bold;'>Stopped</span>"
         )
         parent_mixin.igo_toggle_btn.setText("Start Overlay")
-        parent_mixin.igo_toggle_btn.setObjectName("SuccessButton")
-        parent_mixin.igo_toggle_btn.setStyleSheet("")
-
-    parent_mixin.igo_toggle_btn.style().unpolish(parent_mixin.igo_toggle_btn)
-    parent_mixin.igo_toggle_btn.style().polish(parent_mixin.igo_toggle_btn)
+        _set_widget_style_role(parent_mixin.igo_toggle_btn, "primary")
 
 
 def _add_scale_group(layout, *, title: str, attr_name: str, widget_id: str, parent: Any) -> None:

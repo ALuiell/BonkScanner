@@ -18,12 +18,14 @@ import os
 
 from ui.shared import (
     _apply_button_icon,
+    _clear_layout,
     resource_path,
 )
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -34,6 +36,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from core.item_metadata import COLOR_MAP
 
 from ui.dialogs import (
     DeleteDialog,
@@ -236,10 +240,11 @@ def build_layout(app):
     """
     app._tab_router = _build_tab_router(app)
     central = QWidget()
+    central.setObjectName("centralWidget")
     app.window.setCentralWidget(central)
     root_layout = QVBoxLayout(central)
-    root_layout.setContentsMargins(10, 10, 10, 10)
-    root_layout.setSpacing(10)
+    root_layout.setContentsMargins(16, 16, 16, 16)
+    root_layout.setSpacing(14)
 
     _build_header(app, root_layout)
 
@@ -267,36 +272,64 @@ def build_layout(app):
     # builder list it belongs in, in the position that keeps the tab bar's
     # order identical.
     app.tabview.addTab(app._in_game_overlay.build(), "In-Game Overlay")
-    _build_footer_controls(app, right_layout)
+    for index in range(app.tabview.count()):
+        app.tabview.widget(index).setObjectName("mainTabPage")
 
 
 def _build_header(app, root_layout):
-    header_wrap = QWidget()
-    header = QVBoxLayout(header_wrap)
-    header.setContentsMargins(0, 4, 0, 8)
-    header.setSpacing(6)
-    header.setAlignment(Qt.AlignHCenter)
-
-    title = QLabel("BonkScanner")
-    title.setObjectName("SectionHeader")
-    title.setAlignment(Qt.AlignHCenter)
-    header.addWidget(title, 0, Qt.AlignHCenter)
+    header_wrap = QFrame()
+    header_wrap.setObjectName("headerBar")
+    header = QHBoxLayout(header_wrap)
+    header.setContentsMargins(4, 2, 4, 9)
+    header.setSpacing(12)
 
     logo_label = QLabel()
     app.logo_label = logo_label
-    logo_label.setAlignment(Qt.AlignHCenter)
+    logo_label.setObjectName("appLogo")
+    logo_label.setAlignment(Qt.AlignCenter)
     logo_path = resource_path("media/bonkscanner_icon2.png")
     if os.path.exists(logo_path):
         pixmap = QPixmap(logo_path)
         if not pixmap.isNull():
             logo_label.setPixmap(
-                pixmap.scaled(72, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pixmap.scaled(34, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
         else:
             logo_label.setText("BONK")
     else:
         logo_label.setText("BONK")
-    header.addWidget(logo_label, 0, Qt.AlignHCenter)
+    header.addWidget(logo_label, 0, Qt.AlignVCenter)
+
+    title = QLabel("BonkScanner")
+    title.setObjectName("appTitle")
+    header.addWidget(title, 0, Qt.AlignVCenter)
+
+    divider = QFrame()
+    divider.setObjectName("headerDivider")
+    header.addWidget(divider, 0, Qt.AlignVCenter)
+
+    app.status_dot = QLabel()
+    app.status_dot.setObjectName("statusDot")
+    app.status_dot.setProperty("state", "idle")
+    header.addWidget(app.status_dot, 0, Qt.AlignVCenter)
+
+    app.status_label = QLabel("IDLE")
+    app.status_label.setObjectName("statusText")
+    app.status_label.setProperty("state", "idle")
+    header.addWidget(app.status_label, 0, Qt.AlignVCenter)
+
+    header.addStretch(1)
+
+    app.session_meta_label = QLabel("Session 00:00:00 · RPM 0.0")
+    app.session_meta_label.setObjectName("sessionMeta")
+    header.addWidget(app.session_meta_label, 0, Qt.AlignVCenter)
+
+    # Scanner owns the status updates; these private widget references keep its
+    # existing two-port surface while letting it update the new header peers.
+    app.status_label._status_dot = app.status_dot
+    app.status_label._session_meta_label = app.session_meta_label
+
+    _build_header_controls(app, header)
     root_layout.addWidget(header_wrap)
 
 
@@ -304,11 +337,39 @@ def _build_left_tabs(app, splitter):
     left_panel = QWidget()
     left_layout = QVBoxLayout(left_panel)
     left_layout.setContentsMargins(0, 0, 0, 0)
+    left_layout.setSpacing(0)
     splitter.addWidget(left_panel)
 
+    # The left column has two states the mockup calls for -- the full 280px
+    # Templates/Scores panel, and a 52px icon rail. Both live in `left_panel`;
+    # `_LeftRail` swaps which one is visible and clamps the splitter width.
+    expanded = QWidget()
+    expanded_layout = QVBoxLayout(expanded)
+    expanded_layout.setContentsMargins(0, 0, 0, 0)
+
     app.left_tabview = QTabWidget()
+    app.left_tabview.setObjectName("mainTabs")
+    app.left_tabview.tabBar().setExpanding(True)
+    app.left_tabview.tabBar().setUsesScrollButtons(False)
     app.left_tabview.currentChanged.connect(app._tab_router.on_left_tab_changed)
-    left_layout.addWidget(app.left_tabview)
+
+    # The `«` collapse control rides in the tab bar's corner, next to the
+    # Templates/Scores pills, exactly where the mockup places it.
+    collapse_btn = QPushButton("«")
+    collapse_btn.setObjectName("railToggle")
+    collapse_btn.setToolTip("Collapse")
+    collapse_btn.setFixedSize(30, 30)
+    app.left_tabview.setCornerWidget(collapse_btn, Qt.TopRightCorner)
+    expanded_layout.addWidget(app.left_tabview)
+
+    collapsed = _build_collapsed_rail(app)
+
+    left_layout.addWidget(expanded)
+    left_layout.addWidget(collapsed)
+
+    app._left_rail = _LeftRail(splitter, left_panel, expanded, collapsed)
+    collapse_btn.clicked.connect(app._left_rail.collapse)
+    collapsed._expand_btn.clicked.connect(app._left_rail.expand)
 
     # The ~34 lines that built both left tabs are `TemplatesPanel.build()`'s
     # now (step 22c). Which tab opens stays here: that is a router question,
@@ -317,6 +378,168 @@ def _build_left_tabs(app, splitter):
     # router's first left-bar slot, one line after the connect above.
     app._templates_panel = _build_templates_panel(app)
     app.left_tabview.setCurrentIndex(1 if config.EVALUATION_MODE == "scores" else 0)
+
+    # The rail's `+` opens the same Add dialog as the expanded panel; it can
+    # only be wired once that panel exists.
+    collapsed._add_btn.clicked.connect(app._templates_panel.add_template_dialog)
+
+
+class _VerticalRailLabel(QLabel):
+    """A `QLabel` that paints its text rotated to read bottom-to-top.
+
+    The collapsed rail's "TEMPLATES" eyebrow is vertical in the mockup, which
+    Qt style sheets cannot express; a ten-line `paintEvent` is the whole cost
+    of matching it.
+    """
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setPen(QColor("#5C6675"))
+        painter.setFont(self.font())
+        painter.translate(0, self.height())
+        painter.rotate(-90)
+        painter.drawText(0, 0, self.height(), self.width(), Qt.AlignCenter, self.text())
+        painter.end()
+
+    def sizeHint(self) -> QSize:
+        metrics = self.fontMetrics()
+        return QSize(metrics.height() + 2, metrics.horizontalAdvance(self.text()) + 10)
+
+
+def _template_rail_entries() -> list[tuple[str, str, bool]]:
+    """`(name, colour, is_active)` for every template, actives first.
+
+    Read fresh each time the rail is shown so it reflects adds, edits and
+    activation toggles made while the panel was expanded.
+    """
+    active_names = list(config.ACTIVE_TEMPLATES)
+    active_set = set(active_names)
+    entries = []
+    for is_active in (True, False):
+        for template in config.TEMPLATES:
+            in_active = template["name"] in active_set
+            if in_active != is_active:
+                continue
+            color_tag = template.get("color", "LIGHTBLUE_EX").upper()
+            color_hex = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
+            entries.append((template["name"], color_hex, in_active))
+    return entries
+
+
+def _build_collapsed_rail(app):
+    rail = QWidget()
+    rail.setObjectName("leftRailCollapsed")
+    rail_layout = QVBoxLayout(rail)
+    rail_layout.setContentsMargins(0, 0, 0, 0)
+    rail_layout.setSpacing(10)
+
+    expand_btn = QPushButton("»")
+    expand_btn.setObjectName("railToggle")
+    expand_btn.setToolTip("Expand")
+    expand_btn.setFixedSize(44, 30)
+    rail_layout.addWidget(expand_btn, 0, Qt.AlignHCenter)
+
+    panel = QFrame()
+    panel.setObjectName("panel")
+    panel_layout = QVBoxLayout(panel)
+    panel_layout.setContentsMargins(6, 12, 6, 12)
+    panel_layout.setSpacing(10)
+
+    eyebrow = _VerticalRailLabel("TEMPLATES")
+    eyebrow_font = eyebrow.font()
+    eyebrow_font.setPointSize(8)
+    eyebrow_font.setBold(True)
+    eyebrow.setFont(eyebrow_font)
+    panel_layout.addWidget(eyebrow, 0, Qt.AlignHCenter)
+
+    dots_holder = QWidget()
+    dots_holder.setObjectName("cardContent")
+    dots_layout = QVBoxLayout(dots_holder)
+    dots_layout.setContentsMargins(0, 0, 0, 0)
+    dots_layout.setSpacing(10)
+    panel_layout.addWidget(dots_holder, 0, Qt.AlignHCenter)
+    panel_layout.addStretch(1)
+
+    add_btn = QPushButton("+")
+    add_btn.setObjectName("primary")
+    add_btn.setToolTip("Add template")
+    add_btn.setFixedSize(34, 34)
+    panel_layout.addWidget(add_btn, 0, Qt.AlignHCenter)
+
+    rail_layout.addWidget(panel, 1)
+
+    rail._expand_btn = expand_btn
+    rail._add_btn = add_btn
+    rail._dots_layout = dots_layout
+    return rail
+
+
+def _rebuild_rail_dots(rail) -> None:
+    _clear_layout(rail._dots_layout)
+    for name, color_hex, is_active in _template_rail_entries():
+        tile = QFrame()
+        tile.setFixedSize(34, 34)
+        tile.setToolTip(name)
+        if is_active:
+            tile.setStyleSheet(
+                "QFrame{background:#141A22;border:1px solid #2E3A48;border-radius:9px;}"
+            )
+        else:
+            tile.setStyleSheet(
+                "QFrame{background:#0B0F14;border:1px solid #1B222B;border-radius:9px;}"
+            )
+        tile_layout = QHBoxLayout(tile)
+        tile_layout.setContentsMargins(0, 0, 0, 0)
+        tile_layout.setAlignment(Qt.AlignCenter)
+        dot = QLabel()
+        dot.setFixedSize(9, 9)
+        dot.setStyleSheet(f"background:{color_hex};border-radius:4px;")
+        tile_layout.addWidget(dot)
+        rail._dots_layout.addWidget(tile, 0, Qt.AlignHCenter)
+
+
+class _LeftRail:
+    """Swap the left column between its full panel and its 52px icon rail.
+
+    Collapsing clamps `left_panel` to a fixed width and remembers the
+    splitter's proportions so expanding restores them; the icon dots are
+    rebuilt on each collapse so they mirror the current template selection.
+    """
+
+    _COLLAPSED_WIDTH = 58
+
+    def __init__(self, splitter, left_panel, expanded, collapsed) -> None:
+        self._splitter = splitter
+        self._left_panel = left_panel
+        self._expanded = expanded
+        self._collapsed = collapsed
+        self._expanded_sizes = None
+        self.collapsed = False
+        collapsed.hide()
+
+    def toggle(self) -> None:
+        self.expand() if self.collapsed else self.collapse()
+
+    def collapse(self) -> None:
+        if self.collapsed:
+            return
+        self._expanded_sizes = self._splitter.sizes()
+        _rebuild_rail_dots(self._collapsed)
+        self._expanded.hide()
+        self._collapsed.show()
+        self._left_panel.setFixedWidth(self._COLLAPSED_WIDTH)
+        self.collapsed = True
+
+    def expand(self) -> None:
+        if not self.collapsed:
+            return
+        self._left_panel.setMinimumWidth(0)
+        self._left_panel.setMaximumWidth(16777215)
+        self._collapsed.hide()
+        self._expanded.show()
+        if self._expanded_sizes:
+            self._splitter.setSizes(self._expanded_sizes)
+        self.collapsed = False
 
 
 def _build_right_panel(app, splitter):
@@ -327,6 +550,9 @@ def _build_right_panel(app, splitter):
     splitter.setSizes([290, 970])
 
     app.tabview = QTabWidget()
+    app.tabview.setObjectName("mainTabs")
+    app.tabview.tabBar().setExpanding(True)
+    app.tabview.tabBar().setUsesScrollButtons(False)
     # Connected before a single `addTab` runs, and deliberately left that way:
     # see `TabRouter`'s header. Every `addTab` in `build_layout` fires this.
     app.tabview.currentChanged.connect(app._tab_router.on_right_tab_changed)
@@ -339,6 +565,7 @@ def _build_logs_tab(app):
     app.tab_logs = QWidget()
     logs_layout = QVBoxLayout(app.tab_logs)
     app.log_box = QTextEdit()
+    app.log_box.setObjectName("logView")
     app.log_box.setReadOnly(True)
     app.log_box.setFont(QFont("Consolas", 11))
     logs_layout.addWidget(app.log_box)
@@ -350,35 +577,26 @@ def _build_logs_tab(app):
 
 
 
-def _build_footer_controls(app, right_layout):
-    controls = QHBoxLayout()
+def _build_header_controls(app, controls):
+    app.toggle_btn = QPushButton("Start Scanner")
+    app.toggle_btn.setObjectName("primary")
+    app.toggle_btn.clicked.connect(app._scanner.toggle_main_loop)
+    controls.addWidget(app.toggle_btn)
+
     app.settings_btn = QPushButton("")
-    app.settings_btn.setObjectName("SettingsButton")
+    app.settings_btn.setObjectName("iconBtn")
     _apply_button_icon(app.settings_btn, "media/settings_icon.png", 20)
     app.settings_btn.setToolTip("Settings")
     app.settings_btn.clicked.connect(app.open_settings_dialog)
+
     app.help_btn = QPushButton("")
-    app.help_btn.setObjectName("HelpButton")
+    app.help_btn.setObjectName("iconBtn")
     _apply_button_icon(app.help_btn, "media/help_icon.svg", 20)
     app.help_btn.setToolTip("Help")
     app.help_btn.clicked.connect(app.open_help_dialog)
-    app.status_label = QLabel("Status: <span style='color:#9CA3AF;'>IDLE</span>")
-    app.status_label.setTextFormat(Qt.RichText)
-    app.status_label.setObjectName("StatusLabel")
-    app.toggle_btn = QPushButton("Start")
-    app.toggle_btn.setObjectName("ToggleButton")
-    # The scan component, not `app.toggle_main_loop`. The application carried
-    # that delegator only because this line ran with the app as `self`; 26c
-    # deletes it. `open_settings_dialog` and `open_help_dialog` above stay on
-    # the app for the opposite reason -- `SettingsDialog(window, master=self)`
-    # has to mean the application, and `gui_app` records what breaks if the
-    # `master` reads go quietly false.
-    app.toggle_btn.clicked.connect(app._scanner.toggle_main_loop)
-    controls.addWidget(app.settings_btn)
+
     controls.addWidget(app.help_btn)
-    controls.addWidget(app.status_label, 1)
-    controls.addWidget(app.toggle_btn)
-    right_layout.addLayout(controls)
+    controls.addWidget(app.settings_btn)
 
 
 def _build_tab_router(app):

@@ -116,7 +116,7 @@ def _build_chests_stats_card():
 
     status_label = QLabel("")
     status_label.setWordWrap(True)
-    status_label.setStyleSheet("color: #98A7BA;")
+    status_label.setStyleSheet("color: #98A7BA; background: transparent;")
     status_label.setVisible(False)
     outer.addWidget(status_label)
     values["status"] = status_label
@@ -148,7 +148,7 @@ def _build_loot_rarity_card():
     for row, rarity in enumerate(LUCK_RARITY_ORDER):
         name_label = QLabel(GAME_RARITY_NAMES[rarity])
         name_label.setStyleSheet(
-            f"color: {ITEM_RARITY_COLOR_MAP.get(rarity, '#E5E7EB')}; font-weight: 700;"
+            f"color: {ITEM_RARITY_COLOR_MAP.get(rarity, '#E5E7EB')}; font-weight: 700; background: transparent;"
         )
         chance_label = QLabel("--")
         chance_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
@@ -165,7 +165,7 @@ def _build_loot_rarity_card():
 
     status_label = QLabel("")
     status_label.setWordWrap(True)
-    status_label.setStyleSheet("color: #98A7BA;")
+    status_label.setStyleSheet("color: #98A7BA; background: transparent;")
     status_label.setVisible(False)
     layout.addWidget(status_label)
     values["status"] = status_label

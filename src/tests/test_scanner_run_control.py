@@ -862,12 +862,12 @@ class SessionStatsTests(unittest.TestCase):
         scanner.update_status_ui()
         running = status.text()
 
-        self.assertEqual(idle[1], "Start")
+        self.assertEqual(idle[1], "Start Scanner")
         self.assertIn("IDLE", idle[0])
         self.assertIn("WAITING FOR GAME", waiting)
         self.assertIn("ARMED", armed)
         self.assertIn("RUNNING", running)
-        self.assertEqual(toggle.text(), "Stop")
+        self.assertEqual(toggle.text(), "Stop Scanner")
 
     def test_the_log_is_silent_without_an_invoker(self) -> None:
         """Step 19's failure shape, pinned rather than fixed.

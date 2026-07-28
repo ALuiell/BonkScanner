@@ -35,7 +35,7 @@ from ui.shared import (
     _set_text,
     _set_text_input,
 )
-from ui.styles import _button_state_stylesheet
+from ui.styles import _set_widget_style_role
 from projections.tracked_items import (
     available_tracked_item_names,
     dedupe_item_names,
@@ -213,7 +213,7 @@ class Overlay:
         server_layout.addLayout(settings_row)
 
         self.overlay_server_toggle_btn = QPushButton("Start Server")
-        self.overlay_server_toggle_btn.setObjectName("SuccessButton")
+        self.overlay_server_toggle_btn.setObjectName("primary")
         self.overlay_server_toggle_btn.setMinimumHeight(36)
         btn_font = self.overlay_server_toggle_btn.font()
         btn_font.setBold(True)
@@ -261,7 +261,7 @@ class Overlay:
         widgets_header_layout = QHBoxLayout()
         widgets_header_layout.setContentsMargins(4, 0, 0, 0)
         widgets_header_lbl = QLabel("Active Overlay Widgets:")
-        widgets_header_lbl.setStyleSheet("font-weight: bold;")
+        widgets_header_lbl.setStyleSheet("font-weight: bold; background: transparent;")
         self.overlay_widget_settings_btn = QPushButton("Widget Settings")
         self.overlay_widget_settings_btn.clicked.connect(self.open_overlay_widget_settings_dialog)
         widgets_header_layout.addWidget(widgets_header_lbl)
@@ -359,6 +359,7 @@ class Overlay:
         dialog_layout = QVBoxLayout(dialog)
 
         settings_tabs = QTabWidget()
+        settings_tabs.setObjectName("subTabs")
         dialog_layout.addWidget(settings_tabs, 1)
 
         basic_tab = QWidget()
@@ -816,10 +817,10 @@ class Overlay:
             _set_text(self.overlay_status_label, status)
         if getattr(self, "overlay_server_toggle_btn", None) is not None:
             self.overlay_server_toggle_btn.setText("Stop Server" if running else "Start Server")
-            if running:
-                self.overlay_server_toggle_btn.setStyleSheet(_button_state_stylesheet("#B91C1C", "#DC2626"))
-            else:
-                self.overlay_server_toggle_btn.setStyleSheet("")
+            _set_widget_style_role(
+                self.overlay_server_toggle_btn,
+                "stopScanner" if running else "primary",
+            )
 
     def refresh_overlay_item_selector(self) -> None:
         selector = getattr(self, "overlay_item_selector", None)
