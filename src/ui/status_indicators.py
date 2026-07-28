@@ -37,9 +37,10 @@ from PySide6.QtCore import Property, QEasingCurve, QEvent, QPropertyAnimation, Q
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-#: Which states are alive. `rec` pulses for the same reason `running` does --
-#: something is happening that the user cannot see from the numbers alone.
-PULSING_STATES = ("running", "rec")
+#: Which states are alive. Only the scanner's: recording is a thing the user
+#: switched on themselves and can see in the Live Stats tab, so the REC flag
+#: reports it rather than calling attention to it.
+PULSING_STATES = ("running",)
 
 DOT_DIAMETER = 8
 WIDGET_SIZE = 18
@@ -100,11 +101,11 @@ class PulsingDot(QLabel):
         return super().event(event)
 
     def _sync_animation(self) -> None:
-        # `isVisible` is half the condition, not a nicety. `RecordingFlag`
-        # builds its dot with `state="rec"` and *then* hides itself, so a
-        # state-only check leaves a repaint loop running behind a flag the user
-        # never sees -- for the whole session, since nothing hides a widget
-        # that was never shown and `hideEvent` therefore never fires.
+        # `isVisible` is half the condition, not a nicety: a dot whose state is
+        # set before anything shows it -- during `_build_header`, or on a panel
+        # the user has not opened -- would otherwise start a repaint loop with
+        # nothing on screen to give it away. `hideEvent` cannot catch that one,
+        # because nothing hides a widget that was never shown.
         should_pulse = (
             str(self.property("state") or "") in PULSING_STATES and self.isVisible()
         )
@@ -115,7 +116,8 @@ class PulsingDot(QLabel):
             self._set_pulse(0.0)
 
     def hideEvent(self, event) -> None:
-        # A hidden REC flag must not keep a repaint loop alive behind it.
+        # Nothing off screen should be asking for repaints -- a collapsed panel
+        # or a minimised window is as good a reason to stop as a state change.
         self._animation.stop()
         super().hideEvent(event)
 
@@ -153,12 +155,16 @@ class PulsingDot(QLabel):
 
 
 class RecordingFlag(QWidget):
-    """`● REC`, shown only while a recording is running.
+    """`● REC` -- always on the line, lit only while a recording is running.
 
-    Its own widget rather than two loose header children, so the scanner can
-    show and hide the pair with one call and the dot's animation follows the
-    visibility -- `PulsingDot.hideEvent` is what stops the loop when the flag
-    goes away.
+    Deliberately not hidden when idle. The question it answers is "is a
+    recording running", and a widget that is absent when the answer is no
+    cannot be told apart from one that is broken, missing or on a tab the user
+    is not looking at -- which is how it read the first time. A camera's REC
+    lamp is the same shape: always there, dark until it isn't.
+
+    Its own widget rather than two loose header children so the pair moves and
+    switches together.
     """
 
     def __init__(self, parent=None) -> None:
@@ -168,20 +174,43 @@ class RecordingFlag(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
+        # A `PulsingDot` for the painting and the per-state colour, not for the
+        # animation: `rec` is not in `PULSING_STATES`, so this one is drawn
+        # static. Recording is something the user switched on and can already
+        # see in the Live Stats tab; the flag reports it rather than nagging.
         self._dot = PulsingDot()
         self._dot.setObjectName("statusDot")
-        self._dot.setProperty("state", "rec")
         layout.addWidget(self._dot, 0, Qt.AlignVCenter)
 
         self._text = QLabel("REC")
         self._text.setObjectName("recText")
         layout.addWidget(self._text, 0, Qt.AlignVCenter)
 
-        self.setVisible(False)
+        self.set_recording(False)
 
     def set_recording(self, recording: bool) -> None:
-        """Show or hide the flag. Called once a second by `update_timer`."""
-        self.setVisible(bool(recording))
+        """Light or dim the flag. Called once a second by `update_timer`."""
+        self._recording = bool(recording)
+        _set_state(self._dot, "rec" if self._recording else "idle")
+        _set_state(self._text, "on" if self._recording else "off")
 
-    def is_pulsing(self) -> bool:
-        return self._dot.is_pulsing()
+    def is_recording(self) -> bool:
+        return self._recording
+
+
+def _set_state(widget, state: str) -> None:
+    """Assign `state` and make Qt re-match the stylesheet against it.
+
+    The same two steps `_set_widget_style_role` takes, minus the objectName --
+    these two widgets keep theirs, and importing `ui.styles` from here would
+    put a cycle between the widget module and the stylesheet module.
+    """
+    if widget.property("state") == state:
+        return
+    widget.setProperty("state", state)
+    style = widget.style()
+    if style is None:
+        return
+    style.unpolish(widget)
+    style.polish(widget)
+    widget.update()

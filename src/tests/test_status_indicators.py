@@ -87,22 +87,63 @@ class StatusIndicatorTests(unittest.TestCase):
             """
         )
 
-    def test_a_hidden_dot_does_not_keep_a_repaint_loop_alive(self) -> None:
+    def test_a_dot_that_is_not_on_screen_does_not_pulse(self) -> None:
+        # The header sets `state` while it is still being built, before
+        # anything is shown. A state-only condition would start a repaint loop
+        # there and never stop it: `hideEvent` cannot fire for a widget that
+        # was never shown.
         self._run(
             """
-            # The flag builds its dot in the `rec` state and hides itself.
-            flag = RecordingFlag()
-            assert not flag.isVisible()
-            assert not flag.is_pulsing()
+            dot = PulsingDot()
+            dot.setObjectName("statusDot")
+            dot.setProperty("state", "running")
+            app.processEvents()
+            assert not dot.is_pulsing(), "pulsing before ever being shown"
 
-            flag.show()
+            dot.show()
+            app.processEvents()
+            assert dot.is_pulsing()
+
+            dot.hide()
+            app.processEvents()
+            assert not dot.is_pulsing()
+            """
+        )
+
+    def test_the_rec_flag_stays_on_the_line_and_lights_up(self) -> None:
+        # It reports whether a recording is running, so it is always there --
+        # an indicator that vanishes when the answer is no cannot be told apart
+        # from one that is broken or missing. And it does not pulse: recording
+        # is something the user switched on themselves.
+        self._run(
+            """
+            # Shown through a parent, never with `flag.show()` -- calling that
+            # would un-hide a flag that hid itself and prove nothing about
+            # whether it stays on the line. This is what the header does.
+            from PySide6.QtWidgets import QHBoxLayout, QWidget
+            host = QWidget()
+            QHBoxLayout(host).addWidget(RecordingFlag())
+            host.show()
+            app.processEvents()
+
+            flag = host.findChild(RecordingFlag)
+            assert flag.isVisible(), "the flag hid itself when idle"
+            assert not flag.is_recording()
+            dim = flag.findChild(PulsingDot)
+            assert not dim.is_pulsing()
+            off_colour = pixel(dim, 0)
+
             flag.set_recording(True)
             app.processEvents()
-            assert flag.isVisible() and flag.is_pulsing()
+            assert flag.isVisible() and flag.is_recording()
+            assert not dim.is_pulsing(), "REC must not animate"
+            assert pixel(dim, 0) == "#f87171", pixel(dim, 0)
 
             flag.set_recording(False)
             app.processEvents()
-            assert not flag.isVisible() and not flag.is_pulsing()
+            assert flag.isVisible() and not flag.is_recording()
+            assert pixel(dim, 0) == off_colour
+            assert off_colour != "#f87171"
             """
         )
 

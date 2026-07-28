@@ -89,7 +89,11 @@ QLabel#statusText { font-weight: 600; font-size: 12px; color: #8A94A3; }
 QLabel#statusText[state="running"] { color: #7DE68C; }
 QLabel#statusText[state="idle"]    { color: #8A94A3; }
 
+/* REC — всегда на линии, гаснет вместо того чтобы исчезать: отсутствующий
+   индикатор не отличить от сломанного. */
 QLabel#recText { color: #F87171; font-weight: 700; font-size: 12px; }
+QLabel#recText[state="on"]  { color: #F87171; }
+QLabel#recText[state="off"] { color: #5C6675; }
 
 QLabel#sessionMeta {
     color: #8A94A3;
