@@ -18,6 +18,7 @@ import os
 from functools import partial
 
 from ui.scanner_toggle import ScannerToggle
+from ui.status_indicators import PulsingDot, RecordingFlag
 from ui.shared import (
     _apply_button_icon,
     _clear_layout,
@@ -313,7 +314,10 @@ def _build_header(app, root_layout):
     # Status reads next to the logo: the dot for the colour, the text for which
     # of the four states it is. The scanner's switch stays at the far end of
     # the header, where `_build_header_controls` puts it.
-    app.status_dot = QLabel()
+    # `PulsingDot` rather than a plain label: the colour still comes from the
+    # stylesheet per `state`, but the widget has room around the dot to draw a
+    # ring into, so a live scanner reads as live rather than as a green pixel.
+    app.status_dot = PulsingDot()
     app.status_dot.setObjectName("statusDot")
     app.status_dot.setProperty("state", "idle")
     header.addWidget(app.status_dot, 0, Qt.AlignVCenter)
@@ -325,6 +329,12 @@ def _build_header(app, root_layout):
 
     header.addStretch(1)
 
+    # Whether a recording is running was readable only from the Live Stats tab.
+    # It belongs on the header line for the same reason the scanner's status
+    # does: it is a thing the app is doing that nothing else on screen shows.
+    app.rec_flag = RecordingFlag()
+    header.addWidget(app.rec_flag, 0, Qt.AlignVCenter)
+
     app.session_meta_label = QLabel("Session 00:00:00 · RPM 0.0")
     app.session_meta_label.setObjectName("sessionMeta")
     header.addWidget(app.session_meta_label, 0, Qt.AlignVCenter)
@@ -333,6 +343,7 @@ def _build_header(app, root_layout):
     # existing two-port surface while letting it update the new header peers.
     app.status_label._status_dot = app.status_dot
     app.status_label._session_meta_label = app.session_meta_label
+    app.status_label._rec_flag = app.rec_flag
 
     _build_header_controls(app, header)
     root_layout.addWidget(header_wrap)

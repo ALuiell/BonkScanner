@@ -242,7 +242,15 @@ class Scanner:
                 f"Session {hours:02d}:{minutes:02d}:{seconds:02d} · RPM {rpm:.1f}"
             )
 
-        if self._is_recording():
+        recording = self._is_recording()
+        # The header's REC flag, driven from the port that already answers this
+        # question -- rather than a second reader of the recorder that could
+        # disagree with the timeline strip below it.
+        rec_flag = getattr(status_label, "_rec_flag", None)
+        if rec_flag is not None:
+            rec_flag.set_recording(recording)
+
+        if recording:
             self._refresh_timeline()
 
         self._flush_total_rerolls()

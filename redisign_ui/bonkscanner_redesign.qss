@@ -69,16 +69,21 @@ QFrame#headerDivider {           /* вертикальный разделите�
     max-width: 1px; min-width: 1px;
 }
 
-/* статус-индикатор возле лого. Цвет точки — по property state, ставится в коде:
+/* статус-индикатор возле лого — виджет `PulsingDot`: сам рисует точку 8px и
+   расходящееся кольцо, пока состояние живое. Поэтому фон здесь прозрачный, а
+   размер 18px — это место под кольцо, не размер самой точки.
+   Цвет по-прежнему задаётся здесь, через qproperty вместо background-color:
      dot.setProperty("state","running"); dot.style().polish(dot)          */
 QLabel#statusDot {
-    min-width: 8px; max-width: 8px; min-height: 8px; max-height: 8px;
-    border-radius: 4px;
-    background-color: #5C6675;   /* дефолт = idle */
+    min-width: 18px; max-width: 18px; min-height: 18px; max-height: 18px;
+    background: transparent;
+    qproperty-dotColor: #5C6675;   /* дефолт = idle */
 }
-QLabel#statusDot[state="running"] { background-color: #22C55E; }
-QLabel#statusDot[state="idle"]    { background-color: #5C6675; }
-QLabel#statusDot[state="rec"]     { background-color: #F87171; }
+QLabel#statusDot[state="running"] { qproperty-dotColor: #22C55E; }
+QLabel#statusDot[state="idle"]    { qproperty-dotColor: #5C6675; }
+QLabel#statusDot[state="rec"]     { qproperty-dotColor: #F87171; }
+
+QWidget#recFlag { background: transparent; }
 
 QLabel#statusText { font-weight: 600; font-size: 12px; color: #8A94A3; }
 QLabel#statusText[state="running"] { color: #7DE68C; }
