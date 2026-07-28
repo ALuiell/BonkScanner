@@ -15,6 +15,7 @@ reasons still applies.
 from __future__ import annotations
 
 import os
+from functools import partial
 
 from ui.shared import (
     _apply_button_icon,
@@ -23,7 +24,7 @@ from ui.shared import (
 )
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -308,6 +309,9 @@ def _build_header(app, root_layout):
     divider.setObjectName("headerDivider")
     header.addWidget(divider, 0, Qt.AlignVCenter)
 
+    # Status reads next to the logo: the dot for the colour, the text for which
+    # of the four states it is. The scanner's switch stays at the far end of
+    # the header, where `_build_header_controls` puts it.
     app.status_dot = QLabel()
     app.status_dot.setObjectName("statusDot")
     app.status_dot.setProperty("state", "idle")
@@ -367,7 +371,13 @@ def _build_left_tabs(app, splitter):
     left_layout.addWidget(expanded)
     left_layout.addWidget(collapsed)
 
-    app._left_rail = _LeftRail(splitter, left_panel, expanded, collapsed)
+    app._left_rail = _LeftRail(
+        splitter,
+        left_panel,
+        expanded,
+        collapsed,
+        refresh=lambda: _rebuild_rail_dots(collapsed, app),
+    )
     collapse_btn.clicked.connect(app._left_rail.collapse)
     collapsed._expand_btn.clicked.connect(app._left_rail.expand)
 
@@ -376,12 +386,22 @@ def _build_left_tabs(app, splitter):
     # and the router is an object as of step 26 -- but *which index the bar
     # opens on* is the layout's, and `setCurrentIndex` is what fires the
     # router's first left-bar slot, one line after the connect above.
+    #
+    # Read *before* the tabs exist, and that is the whole point of the line.
+    # `addTab` fires `currentChanged`, so adding the Templates tab makes index
+    # 0 current and the router writes `EVALUATION_MODE = "templates"` -- and
+    # saves it. Reading config after the build therefore never returned
+    # "scores": the preference had already been overwritten by the act of
+    # building the bar, so Scores mode could not survive a restart and the
+    # saved value was destroyed on disk every launch.
+    saved_evaluation_mode = config.EVALUATION_MODE
     app._templates_panel = _build_templates_panel(app)
-    app.left_tabview.setCurrentIndex(1 if config.EVALUATION_MODE == "scores" else 0)
+    app.left_tabview.setCurrentIndex(1 if saved_evaluation_mode == "scores" else 0)
 
-    # The rail's `+` opens the same Add dialog as the expanded panel; it can
-    # only be wired once that panel exists.
-    collapsed._add_btn.clicked.connect(app._templates_panel.add_template_dialog)
+    # The rail's bottom button follows the collapsed mode -- Add in Templates,
+    # Edit in Scores -- so it is wired to the dispatcher rather than to either
+    # dialog. It can only be wired once the panel it dispatches to exists.
+    collapsed._add_btn.clicked.connect(lambda: _on_rail_action(app, collapsed))
 
 
 class _VerticalRailLabel(QLabel):
@@ -404,6 +424,20 @@ class _VerticalRailLabel(QLabel):
     def sizeHint(self) -> QSize:
         metrics = self.fontMetrics()
         return QSize(metrics.height() + 2, metrics.horizontalAdvance(self.text()) + 10)
+
+
+def _rail_mode(app) -> tuple[str, list[tuple[str, str, bool]], bool]:
+    """The eyebrow, the tiles and the mode the rail is collapsing over.
+
+    `EVALUATION_MODE` is the router's own record of which left tab is open --
+    `TabRouter.on_left_tab_changed` writes it -- so the rail reads that rather
+    than re-deriving the selection from the tab bar. It is read once per
+    collapse and not watched: the tab bar is hidden while the rail is up, so
+    the mode cannot change underneath it.
+    """
+    if config.EVALUATION_MODE == "scores":
+        return "SCORES", app._templates_panel.rail_tier_entries(), True
+    return "TEMPLATES", _template_rail_entries(), False
 
 
 def _template_rail_entries() -> list[tuple[str, str, bool]]:
@@ -470,32 +504,149 @@ def _build_collapsed_rail(app):
 
     rail._expand_btn = expand_btn
     rail._add_btn = add_btn
+    rail._eyebrow = eyebrow
     rail._dots_layout = dots_layout
     return rail
 
 
-def _rebuild_rail_dots(rail) -> None:
+def _rail_tile_stylesheet(color_hex: str, active: bool) -> str:
+    """An active tile is outlined in its own colour; an inactive one is not.
+
+    The pre-toggle rail separated the two states by background alone (`#141A22`
+    against `#0B0F14`), which is a difference of about three percent lightness
+    and reads as nothing at 34px. Now that the tiles are the control rather
+    than a legend, the border carries the state and the fill only supports it.
+    """
+    if active:
+        return (
+            "QPushButton#railTile{background:#141A22;border:1px solid "
+            + color_hex
+            + ";border-radius:9px;}"
+            "QPushButton#railTile:hover{background:#1B2430;}"
+        )
+    return (
+        "QPushButton#railTile{background:#0B0F14;border:1px solid #1B222B;"
+        "border-radius:9px;}"
+        "QPushButton#railTile:hover{background:#141A22;border-color:#2E3A48;}"
+    )
+
+
+def _rail_dot_stylesheet(color_hex: str, active: bool) -> str:
+    """The dot at full strength when active, faded when not.
+
+    Percentage alpha rather than a pre-mixed hex: the tile fill differs between
+    the two states, so a colour mixed against one of them would band on the
+    other.
+    """
+    if not active:
+        colour = QColor(color_hex)
+        return (
+            "background:rgba("
+            f"{colour.red()},{colour.green()},{colour.blue()},35%);"
+            "border-radius:4px;"
+        )
+    return f"background:{color_hex};border-radius:4px;"
+
+
+def _on_rail_tile_toggled(panel, tile, dot, name, color_hex, is_scores, checked) -> None:
+    """Mirror a tile's click onto the panel's checkbox, then restyle in place.
+
+    Restyled rather than rebuilt, and this is the whole reason the rail does
+    not simply call `_rebuild_rail_dots` here: `_template_rail_entries` groups
+    the active templates first, so rebuilding on toggle would slide the tile
+    out from under the cursor as it is clicked and shift every neighbour with
+    it. The order the rail collapsed with is the order it keeps until it is
+    expanded again.
+
+    Persistence is the checkbox's, not ours -- `set_template_active` fires
+    `save_checkbox_state`, `set_tier_active` fires `refresh_scores_ui`.
+    """
+    if is_scores:
+        panel.set_tier_active(name, checked)
+    else:
+        panel.set_template_active(name, checked)
+    tile.setStyleSheet(_rail_tile_stylesheet(color_hex, checked))
+    dot.setStyleSheet(_rail_dot_stylesheet(color_hex, checked))
+
+
+def _on_rail_action(app, rail) -> None:
+    """The rail's bottom button: Add template, or Edit in Scores mode.
+
+    Scores has nothing to add -- its expanded tab offers only Edit -- so the
+    one button follows the mode. Both dialogs rebuild the panel's checkbox
+    dicts, so the tiles are rebuilt after either returns; without that the rail
+    would keep showing the pre-dialog set, missing a template that was just
+    added.
+    """
+    if config.EVALUATION_MODE == "scores":
+        app._templates_panel.open_scores_settings_dialog()
+    else:
+        app._templates_panel.add_template_dialog()
+    _rebuild_rail_dots(rail, app)
+
+
+def _rebuild_rail_dots(rail, app) -> None:
+    """Repaint the rail for the mode it is showing, tiles and eyebrow both.
+
+    The tiles are checkable buttons rather than the frames they were: the rail
+    is a control now, and a template can be armed or disarmed without expanding
+    the panel to reach its checkbox.
+    """
+    eyebrow_text, entries, is_scores = _rail_mode(app)
+    rail._eyebrow.setText(eyebrow_text)
+    # The eyebrow paints rotated, so its *height* is the text's width --
+    # `sizeHint` recomputes from the new string only if geometry is invalidated.
+    rail._eyebrow.updateGeometry()
+
+    if is_scores:
+        rail._add_btn.setText("")
+        _apply_button_icon(rail._add_btn, "media/edit_icon.svg", 18)
+        rail._add_btn.setToolTip("Edit score system")
+    else:
+        rail._add_btn.setIcon(QIcon())
+        rail._add_btn.setText("+")
+        rail._add_btn.setToolTip("Add template")
+
     _clear_layout(rail._dots_layout)
-    for name, color_hex, is_active in _template_rail_entries():
-        tile = QFrame()
+    panel = app._templates_panel
+    for name, color_hex, is_active in entries:
+        tile = QPushButton()
+        tile.setObjectName("railTile")
+        tile.setCheckable(True)
+        tile.setChecked(is_active)
+        tile.setCursor(Qt.PointingHandCursor)
         tile.setFixedSize(34, 34)
         tile.setToolTip(name)
-        if is_active:
-            tile.setStyleSheet(
-                "QFrame{background:#141A22;border:1px solid #2E3A48;border-radius:9px;}"
-            )
-        else:
-            tile.setStyleSheet(
-                "QFrame{background:#0B0F14;border:1px solid #1B222B;border-radius:9px;}"
-            )
+        tile.setStyleSheet(_rail_tile_stylesheet(color_hex, is_active))
+
         tile_layout = QHBoxLayout(tile)
         tile_layout.setContentsMargins(0, 0, 0, 0)
         tile_layout.setAlignment(Qt.AlignCenter)
         dot = QLabel()
         dot.setFixedSize(9, 9)
-        dot.setStyleSheet(f"background:{color_hex};border-radius:4px;")
+        # Without this the dot swallows the press and the tile never toggles:
+        # it is a child widget sitting over the button's whole hit area.
+        dot.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        dot.setStyleSheet(_rail_dot_stylesheet(color_hex, is_active))
         tile_layout.addWidget(dot)
+
+        # `partial`, not a closure: every tile in this loop would otherwise
+        # share the last `name` and `tile` the loop bound.
+        tile.toggled.connect(
+            partial(_on_rail_tile_toggled, panel, tile, dot, name, color_hex, is_scores)
+        )
         rail._dots_layout.addWidget(tile, 0, Qt.AlignHCenter)
+
+
+def _save_rail_collapsed(collapsed: bool) -> None:
+    """Persist which of its two states the left column is in.
+
+    Same three lines as `TemplatesPanel.save_checkbox_state`: the live module
+    attribute, the dict that gets written, and the write.
+    """
+    config.LEFT_RAIL_COLLAPSED = collapsed
+    config.user_config["LEFT_RAIL_COLLAPSED"] = collapsed
+    config.save_config(config.user_config)
 
 
 class _LeftRail:
@@ -508,11 +659,15 @@ class _LeftRail:
 
     _COLLAPSED_WIDTH = 58
 
-    def __init__(self, splitter, left_panel, expanded, collapsed) -> None:
+    def __init__(self, splitter, left_panel, expanded, collapsed, refresh) -> None:
         self._splitter = splitter
         self._left_panel = left_panel
         self._expanded = expanded
         self._collapsed = collapsed
+        # A callable rather than the app: the rail swaps two widgets and knows
+        # nothing else, and taking `app` here to reach one panel would give it
+        # the whole window to reach anything.
+        self._refresh = refresh
         self._expanded_sizes = None
         self.collapsed = False
         collapsed.hide()
@@ -520,15 +675,26 @@ class _LeftRail:
     def toggle(self) -> None:
         self.expand() if self.collapsed else self.collapse()
 
-    def collapse(self) -> None:
+    def collapse(self, *, restoring: bool = False) -> None:
+        """Swap to the icon rail. `restoring` replays the saved state at startup.
+
+        A restore differs from a click in both directions. It must not record
+        `_expanded_sizes`, because the window has not been shown yet and the
+        splitter would hand back provisional sizeHint widths that expanding
+        would then impose as if the user had chosen them. And it must not save,
+        because it is reproducing what was already saved.
+        """
         if self.collapsed:
             return
-        self._expanded_sizes = self._splitter.sizes()
-        _rebuild_rail_dots(self._collapsed)
+        if not restoring:
+            self._expanded_sizes = self._splitter.sizes()
+        self._refresh()
         self._expanded.hide()
         self._collapsed.show()
         self._left_panel.setFixedWidth(self._COLLAPSED_WIDTH)
         self.collapsed = True
+        if not restoring:
+            _save_rail_collapsed(True)
 
     def expand(self) -> None:
         if not self.collapsed:
@@ -540,6 +706,7 @@ class _LeftRail:
         if self._expanded_sizes:
             self._splitter.setSizes(self._expanded_sizes)
         self.collapsed = False
+        _save_rail_collapsed(False)
 
 
 def _build_right_panel(app, splitter):
@@ -580,6 +747,15 @@ def _build_logs_tab(app):
 def _build_header_controls(app, controls):
     app.toggle_btn = QPushButton("Start Scanner")
     app.toggle_btn.setObjectName("primary")
+    # Both floors sit above what either state asks for on its own, measured:
+    # `Start Scanner` wants 199x34 and `Stop Scanner` 194x37 -- the `stopScanner`
+    # role is a size larger (13px/800 against 12.5px/700, and 11px padding
+    # against 9px). Left to themselves the two would disagree by 5px across and
+    # 3px down, so the button would twitch and drag the help and settings icons
+    # with it every time the scanner started or stopped. Clamped, the header
+    # holds still and the button reads wider than the old one either way.
+    app.toggle_btn.setMinimumWidth(210)
+    app.toggle_btn.setMinimumHeight(38)
     app.toggle_btn.clicked.connect(app._scanner.toggle_main_loop)
     controls.addWidget(app.toggle_btn)
 

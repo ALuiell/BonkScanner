@@ -297,6 +297,12 @@ class MegabonkApp:
         self._templates_panel.refresh_templates()
         self._templates_panel.refresh_scores_templates_list()
         self._templates_panel.refresh_scores_ui()
+        # After the three refreshes above, never before them: collapsing builds
+        # the rail's tiles from the panel's checkbox dicts, and those are empty
+        # until `refresh_templates`/`refresh_scores_templates_list` fill them.
+        # Restoring any earlier would come up with a rail of zero tiles.
+        if config.LEFT_RAIL_COLLAPSED:
+            self._left_rail.collapse(restoring=True)
         self.setup_hotkeys()
         self.update_timer()
         self.coordinator.start_refresh_loop(

@@ -180,6 +180,44 @@ class TemplatesPanel:
         """The checked templates. `TemplateRuntimeFilters`' one question."""
         return [name for name, cb in self._checkboxes.items() if _read_bool(cb)]
 
+    # -- what the collapsed rail asks --------------------------------------
+    #
+    # The rail is a remote control for the two checkbox dicts below, not a
+    # second copy of them. Flipping the box here is what re-runs the existing
+    # persistence path -- `save_checkbox_state` for templates,
+    # `refresh_scores_ui` for tiers -- so the rail cannot drift out of sync
+    # with the expanded panel, and neither one owns state the other has to be
+    # told about.
+
+    def rail_tier_entries(self) -> list[tuple[str, str, bool]]:
+        """`(tier, colour, is_active)` in `TIERS` order, for the rail.
+
+        Tiers keep their declared order rather than sorting the active ones
+        first the way templates do: Light -> Perfect+ is a progression, and
+        scrambling it would cost more than the grouping buys across four rows.
+        """
+        return [
+            (tier, _tier_color(tier), cb.isChecked())
+            for tier, cb in self._scores_checkboxes.items()
+        ]
+
+    def set_template_active(self, name: str, active: bool) -> None:
+        """Check or uncheck one template's box by name.
+
+        Looked up by name on every call, never held: `refresh_templates`
+        rebuilds the dict wholesale, so a cached widget would outlive the box
+        it points at.
+        """
+        cb = self._checkboxes.get(name)
+        if cb is not None:
+            cb.setChecked(active)
+
+    def set_tier_active(self, tier: str, active: bool) -> None:
+        """Check or uncheck one score tier's box by name."""
+        cb = self._scores_checkboxes.get(tier)
+        if cb is not None:
+            cb.setChecked(active)
+
     # -- templates tab ------------------------------------------------------
 
     def refresh_templates(self) -> None:
@@ -189,7 +227,7 @@ class TemplatesPanel:
         for template in config.TEMPLATES:
             color_tag = template.get("color", "LIGHTBLUE_EX").upper()
             color_hex = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
-            cb = QCheckBox(_format_template_checkbox_text(template))
+            cb = _CardCheckBox(_format_template_checkbox_text(template))
             cb.setChecked(template["name"] in active_names)
             cb.toggled.connect(self.save_checkbox_state)
             cb.setStyleSheet(_template_checkbox_stylesheet(color_hex))
@@ -289,6 +327,23 @@ class TemplatesPanel:
 # -- module-level, for the reason `ui/tabs/compare_runs/tab.py` states: a free
 # function has no class to be orphaned from when its class moves, which is the
 # failure mode step 14b hit and step 19 retired rather than relocated.
+
+
+class _CardCheckBox(QCheckBox):
+    """A checkbox whose whole row is clickable, not just its glyph and text.
+
+    These rows are painted as full-width cards by
+    `_template_checkbox_stylesheet`, but `QAbstractButton.hitButton` only
+    accepts presses that land on the indicator or the label. Everything to the
+    right of the two text lines -- most of the card, and the obvious place to
+    aim -- swallowed the click and toggled nothing.
+
+    Overriding `hitButton` is the whole fix: it makes the clickable region
+    match the region the row draws, which is what the card shape promises.
+    """
+
+    def hitButton(self, pos) -> bool:
+        return self.rect().contains(pos)
 
 
 def _format_template_checkbox_text(template: dict) -> str:
