@@ -14,9 +14,9 @@ Replaces the single header button that swapped its own caption between
   segments show both: the live one is the action available now, the dim one is
   the state's other half.
 
-The lit segment is always the enabled one, so "press the lit one" is the whole
-interaction; the dim segment is disabled and cannot fire a start on an already
-running scanner.
+Everything above is `SegmentedToggle`'s now; the recording strip wanted the
+same control and got it. What is left here is the one thing that is about
+scanners: where the state comes from.
 
 How the scanner drives it
 =========================
@@ -25,24 +25,25 @@ Through ``setText``, unchanged. ``gui_scanner.update_status_ui`` writes
 ``"Stop Scanner"`` while scanning and ``"Start Scanner"`` otherwise, and that
 call is this widget's only state channel -- the port hands it a "toggle_btn"
 and knows nothing else about it. ``setText`` therefore reads the caption back
-into a boolean rather than painting it anywhere; ``test_scanner_toggle`` pins
+into a state rather than painting it anywhere; ``test_scanner_toggle`` pins
 that coupling so it cannot rot into a silent no-op.
 
 ``update_status_ui`` also calls ``_set_widget_style_role(toggle_btn, ...)``,
 which assigns ``objectName`` -- so this frame's name flips between ``primary``
 and ``stopScanner`` at runtime and cannot be used to style it. That is why the
-container is selected by a *property* (``[scannerToggle="true"]``) in the QSS:
-the role swap leaves properties alone, so the frame keeps its background
+container is selected by a *property* (``[segmentedToggle="true"]``) in the
+QSS: the role swap leaves properties alone, so the frame keeps its background
 through both states without needing the scanner to know it changed shape.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QPushButton
+from PySide6.QtCore import Signal
+
+from ui.segmented_toggle import ROLE_GO, ROLE_HALT, SegmentedToggle
 
 
-class ScannerToggle(QFrame):
+class ScannerToggle(SegmentedToggle):
     """Two segments -- Start and Stop -- of which exactly one is live."""
 
     #: Emitted when the user presses the live segment. The header connects it
@@ -56,63 +57,28 @@ class ScannerToggle(QFrame):
     STOP_TEXT = "Stop Scanner"
 
     def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self.setObjectName("scannerToggle")
-        # Selected by the QSS instead of the objectName -- see the module
-        # docstring for why the name cannot be relied on here.
-        self.setProperty("scannerToggle", "true")
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(3, 3, 3, 3)
-        layout.setSpacing(3)
-
-        self._start_btn = QPushButton("▶  Start")
-        self._start_btn.setProperty("segment", "start")
-        self._stop_btn = QPushButton("■  Stop")
-        self._stop_btn.setProperty("segment", "stop")
-        for button in (self._start_btn, self._stop_btn):
-            button.setObjectName("scannerSegment")
-            button.setMinimumWidth(96)
-            button.setMinimumHeight(30)
-            button.setCursor(Qt.PointingHandCursor)
-            button.clicked.connect(self.toggle_requested)
-            layout.addWidget(button)
-
+        super().__init__(
+            (
+                ("start", "▶  Start", ROLE_GO),
+                ("stop", "■  Stop", ROLE_HALT),
+            ),
+            parent,
+        )
+        self.activated.connect(lambda _key: self.toggle_requested.emit())
         self._text = self.START_TEXT
-        self._apply(running=False)
+        self.set_active("start")
 
     # -- the scanner's port ---------------------------------------------------
 
     def setText(self, text) -> None:
         """Adopt the state `text` names. The port's only state channel."""
         self._text = str(text)
-        self._apply(running=self._text.strip() == self.STOP_TEXT)
+        running = self._text.strip() == self.STOP_TEXT
+        self.set_active("stop" if running else "start")
 
     def text(self) -> str:
         return self._text
 
-    # -- state ----------------------------------------------------------------
-
     def is_running(self) -> bool:
         """Which segment is live. For tests and for callers that need to ask."""
-        return self._stop_btn.isEnabled()
-
-    def _apply(self, *, running: bool) -> None:
-        for button, live in ((self._start_btn, not running), (self._stop_btn, running)):
-            button.setEnabled(live)
-            button.setProperty("active", "true" if live else "false")
-            _repolish(button)
-
-
-def _repolish(widget) -> None:
-    """Make Qt re-evaluate a widget's QSS after a property changed.
-
-    Property-driven selectors are not re-matched on assignment; without this
-    the segments would keep whichever colours they were built with.
-    """
-    style = widget.style()
-    if style is None:
-        return
-    style.unpolish(widget)
-    style.polish(widget)
-    widget.update()
+        return self.active_key() == "stop"

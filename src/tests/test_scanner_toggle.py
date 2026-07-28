@@ -32,8 +32,13 @@ class ScannerToggleTests(unittest.TestCase):
             import src
             from PySide6.QtWidgets import QApplication, QPushButton
             from ui.scanner_toggle import ScannerToggle
+            from ui.styles import build_qt_app_stylesheet
 
             app = QApplication([])
+            # The stylesheet is not decoration here: the width case below is
+            # about QSS metrics, and without this it measured a widget nothing
+            # had styled and passed while the real control wobbled by 3px.
+            app.setStyleSheet(build_qt_app_stylesheet(""))
             toggle = ScannerToggle()
             segments = {
                 button.property("segment"): button
@@ -109,6 +114,11 @@ class ScannerToggleTests(unittest.TestCase):
         # The whole reason the segments replaced a caption-swapping button:
         # `_build_header_controls` had to pin minimum sizes over a control that
         # measured 199x34 in one state and 194x37 in the other.
+        #
+        # Fixed captions are only half of it. The QSS must not change their
+        # *typography* with state either -- the halt segment used to go 800/
+        # 0.3px when lit, which re-measured the caption and moved the whole
+        # control by 3px. This case is why the stylesheet is applied above.
         self._run(
             """
             toggle.show()
@@ -116,6 +126,7 @@ class ScannerToggleTests(unittest.TestCase):
             idle_size = toggle.sizeHint()
 
             toggle.setText(ScannerToggle.STOP_TEXT)
+            toggle.ensurePolished()
             app.processEvents()
             running_size = toggle.sizeHint()
 

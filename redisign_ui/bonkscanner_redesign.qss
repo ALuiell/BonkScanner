@@ -23,8 +23,8 @@
 
    СОГЛАШЕНИЕ ПО objectName
      Кнопки:   primary · danger · ghost · stopScanner · iconBtn · railToggle
-     Сканер:   [scannerToggle="true"] (рамка) · scannerSegment
-               (+ prop segment=start|stop, active=true|false)
+     Сегменты: [segmentedToggle="true"] (рамка) · segment
+               (+ prop role=go|halt, active=true|false, variant=armed)
      Статус:   statusDot (+ prop state=running|idle|rec) · statusText · recText
      Лого:     appLogo · appTitle
      Карты:    panel · card · cardInner · groupTitle · sectionEyebrow
@@ -321,16 +321,18 @@ QPushButton#stopScanner {
 }
 QPushButton#stopScanner:hover { background-color: #CC2626; }
 
-/* ------------------------------------- scanner Start/Stop (сегменты) ---- */
-/* Контейнер выбирается по СВОЙСТВУ, а не по objectName: `update_status_ui`
-   зовёт `_set_widget_style_role` на этом же виджете и переименовывает его в
-   `primary` / `stopScanner`, так что имя здесь ненадёжно. */
-QFrame[scannerToggle="true"] {
+/* ------------------------------------------ сегментные переключатели ---- */
+/* `SegmentedToggle`: Start/Stop в шапке и Rec/Stop в полосе записи.
+   Рамка выбирается по СВОЙСТВУ, а не по objectName: `update_status_ui` зовёт
+   `_set_widget_style_role` на этом же виджете и переименовывает его в
+   `primary` / `stopScanner`, так что имя здесь ненадёжно.
+   Цвет сегмента задают три свойства: role (go|halt), active, variant. */
+QFrame[segmentedToggle="true"] {
     background-color: #0B0F14;
     border: 1px solid #1B222B;
     border-radius: 10px;
 }
-QPushButton#scannerSegment {
+QPushButton#segment {
     background: transparent;
     border: 1px solid transparent;
     border-radius: 8px;
@@ -340,28 +342,44 @@ QPushButton#scannerSegment {
     padding: 7px 18px;
 }
 /* Погашенный сегмент — это состояние, а не поломка: он выключен, чтобы по нему
-   нельзя было запустить уже запущенный сканер, но красится не как :disabled. */
-QPushButton#scannerSegment:disabled {
+   нельзя было запустить уже запущенное, но красится не как :disabled. */
+QPushButton#segment:disabled {
     background: transparent; border-color: transparent; color: #5C6675;
 }
-QPushButton#scannerSegment[active="true"][segment="start"] {
+QPushButton#segment[active="true"][role="go"] {
     background-color: #2F6FB0; border-color: #3E82C6; color: #ffffff;
 }
-QPushButton#scannerSegment[active="true"][segment="start"]:hover {
+QPushButton#segment[active="true"][role="go"]:hover {
     background-color: #3781CE; border-color: #4E93D7;
 }
-QPushButton#scannerSegment[active="true"][segment="start"]:pressed {
-    background-color: #276099;
-}
-QPushButton#scannerSegment[active="true"][segment="stop"] {
+QPushButton#segment[active="true"][role="go"]:pressed { background-color: #276099; }
+/* ТОЛЬКО цвета. Вес и трекинг живут в базовом правиле #segment и не зависят
+   от состояния: подпись, которая при подсветке набирается жирнее, меряется
+   иначе, сегмент едет по ширине, и весь переключатель прыгает — то самое, ради
+   чего у него вообще фиксированные подписи. Шапка гуляла так на 3px. */
+QPushButton#segment[active="true"][role="halt"] {
     background-color: #B91C1C; border-color: #C8302F; color: #ffffff;
-    font-weight: 800; letter-spacing: 0.3px;
 }
-QPushButton#scannerSegment[active="true"][segment="stop"]:hover {
-    background-color: #CC2626;
+QPushButton#segment[active="true"][role="halt"]:hover { background-color: #CC2626; }
+QPushButton#segment[active="true"][role="halt"]:pressed { background-color: #9F1616; }
+
+/* armed — запись взведена, но ещё не идёт. Тот же сегмент Stop (нажатие
+   отменяет взвод), но контуром и янтарным вместо красной заливки: красный
+   означал бы «пишется», а не пишется пока ничего. */
+QPushButton#segment[active="true"][role="halt"][variant="armed"] {
+    background: transparent; border-color: #5A4A12; color: #FACC15;
 }
-QPushButton#scannerSegment[active="true"][segment="stop"]:pressed {
-    background-color: #9F1616;
+QPushButton#segment[active="true"][role="halt"][variant="armed"]:hover {
+    background-color: rgba(250, 204, 21, 0.10); border-color: #7A6520;
+}
+QPushButton#segment[active="true"][role="halt"][variant="armed"]:pressed {
+    background-color: rgba(250, 204, 21, 0.18);
+}
+
+/* подсказка горячей клавиши рядом с сегментами */
+QLabel#hotkeyHint {
+    color: #5C6675; font-size: 10.5px; font-weight: 700;
+    border: 1px solid #2A3542; border-radius: 5px; padding: 1px 5px;
 }
 
 /* icon-only (Settings ⚙, Help ?) — квадрат 36x36, светлее фон */
