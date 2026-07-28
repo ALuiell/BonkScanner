@@ -57,20 +57,134 @@ dropping them, because "this looks unreachable" is exactly the reasoning step
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from collections.abc import Callable
+
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
+    QSizePolicy,
     QVBoxLayout,
+    QWidget,
 )
 
 from core.stats.types import TomeSnapshot, WeaponSnapshot
-from core.tracker.chaos import CHAOS_TOME_GAME_STAT_ORDER
+from core.tracker.chaos import CHAOS_FINGERPRINTS, CHAOS_TOME_GAME_STAT_ORDER
 from projections import formatting
 from ui.shared import _clear_layout, _set_text
+
+
+def chaos_card_column_count(
+    width: int,
+    *,
+    minimum_card_width: int = 160,
+    spacing: int = 6,
+) -> int:
+    """Use five Chaos cards only when all five fit at their intended width."""
+    five_column_width = minimum_card_width * 5 + max(0, spacing) * 4
+    return 5 if max(0, int(width)) >= five_column_width else 4
+
+
+def damage_source_column_count(
+    width: int,
+    *,
+    minimum_card_width: int = 290,
+    spacing: int = 8,
+) -> int:
+    """Use three damage cards when they fit; otherwise keep a readable pair."""
+    three_column_width = minimum_card_width * 3 + max(0, spacing) * 2
+    return 3 if max(0, int(width)) >= three_column_width else 2
+
+
+def damage_source_share_text(damage: float, total_damage: float) -> str:
+    """Format one source's share without rounding a real contribution to zero."""
+    damage = max(0.0, float(damage))
+    total_damage = max(0.0, float(total_damage))
+    if total_damage <= 0.0 or damage <= 0.0:
+        return "0%"
+    percentage = min(100.0, damage / total_damage * 100.0)
+    if percentage < 0.1:
+        return "<0.1%"
+    if percentage >= 99.95:
+        return "100%"
+    return f"{percentage:.1f}%"
+
+
+class _ResponsiveStatCardGrid(QWidget):
+    """Reflow one stat-card collection when its scroll viewport resizes."""
+
+    def __init__(
+        self,
+        *,
+        object_name: str,
+        column_count: Callable[[int], int],
+        minimum_card_width: int,
+        spacing: int,
+        maximum_columns: int,
+    ) -> None:
+        super().__init__()
+        self.setObjectName(object_name)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._column_count = column_count
+        self._minimum_card_width = minimum_card_width
+        self._spacing = spacing
+        self._maximum_columns = maximum_columns
+        self._columns = 0
+        self._cards: list[QWidget] = []
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(spacing)
+        self._grid.setVerticalSpacing(spacing)
+
+    def add_card(self, card: QWidget) -> None:
+        card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._cards.append(card)
+        self._reflow(self.width())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._reflow(event.size().width())
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        columns = self._column_count(width)
+        row_heights: list[int] = []
+        for index, card in enumerate(self._cards):
+            row = index // columns
+            if row == len(row_heights):
+                row_heights.append(0)
+            row_heights[row] = max(row_heights[row], card.sizeHint().height())
+        return sum(row_heights) + self._spacing * max(0, len(row_heights) - 1)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(self._minimum_card_width, self.heightForWidth(self._minimum_card_width))
+
+    def sizeHint(self) -> QSize:
+        # The scroll viewport decides the useful width; never request five
+        # columns from the parent and thereby create a horizontal scrollbar.
+        return self.minimumSizeHint()
+
+    def _reflow(self, width: int) -> None:
+        columns = self._column_count(width)
+        required_height = self.heightForWidth(width)
+        if self.minimumHeight() != required_height:
+            self.setMinimumHeight(required_height)
+        if columns == self._columns and self._grid.count() == len(self._cards):
+            return
+        while self._grid.count():
+            self._grid.takeAt(0)
+        for index, card in enumerate(self._cards):
+            self._grid.addWidget(card, index // columns, index % columns)
+        for column in range(self._maximum_columns):
+            self._grid.setColumnStretch(column, 1 if column < columns else 0)
+        self._columns = columns
+        self.updateGeometry()
 
 
 class StatCardsView:
@@ -315,7 +429,7 @@ class StatCardsView:
         if chaos_tome is None:
             return
 
-        stats = chaos_stats_in_game_order(chaos_tome)
+        stats = chaos_stats_by_roll_count(chaos_tome)
         summary_card = self._build_chaos_summary_card(chaos_tome)
         layout.addWidget(summary_card)
 
@@ -323,15 +437,16 @@ class StatCardsView:
             layout.addStretch(1)
             return
 
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(6)
-        for index, stat in enumerate(stats):
-            grid.addWidget(self._build_chaos_stat_card(stat), index // 4, index % 4)
-        for column in range(4):
-            grid.setColumnStretch(column, 1)
-        layout.addLayout(grid)
+        grid = _ResponsiveStatCardGrid(
+            object_name="ChaosCardGrid",
+            column_count=chaos_card_column_count,
+            minimum_card_width=160,
+            spacing=6,
+            maximum_columns=5,
+        )
+        for stat in stats:
+            grid.add_card(self._build_chaos_stat_card(stat))
+        layout.addWidget(grid)
         layout.addStretch(1)
 
     @staticmethod
@@ -381,18 +496,6 @@ class StatCardsView:
         summary = QLabel(f"Tracked rolls: {rolls} | Stats: {len(stats)}")
         summary.setStyleSheet("color: #98A7BA; background: transparent;")
         layout.addWidget(summary)
-
-        if stats:
-            top_text = " | ".join(
-                f"{chaos_stat_label(stat)} {getattr(stat, 'display_delta', '--')}"
-                for stat in stats[:3]
-            )
-        else:
-            top_text = "Tracking rolls..."
-        top_label = QLabel(top_text)
-        top_label.setWordWrap(True)
-        top_label.setStyleSheet("font-weight: 700; background: transparent;")
-        layout.addWidget(top_label)
         return card
 
     def _build_chaos_stat_card(self, stat) -> QFrame:
@@ -413,6 +516,21 @@ class StatCardsView:
         row.addWidget(name_label, 1)
         row.addWidget(value_label)
         layout.addLayout(row)
+
+        rolls = max(0, int(getattr(stat, "rolls", 0) or 0))
+        quality = chaos_average_roll_quality(stat)
+        quality_color = chaos_roll_quality_color(quality)
+        rolls_word = "roll" if rolls == 1 else "rolls"
+        rolls_label = QLabel(f"● {rolls} {rolls_word}")
+        rolls_label.setStyleSheet(
+            f"font-size: 11px; font-weight: 700; color: {quality_color}; "
+            "background: transparent;"
+        )
+        if quality is not None:
+            rolls_label.setToolTip(
+                f"Average roll quality: {round(quality * 100)}% of this stat's range"
+            )
+        layout.addWidget(rolls_label)
         return card
 
     # -- damage sources -------------------------------------------------------
@@ -423,7 +541,18 @@ class StatCardsView:
         if layout is None or status_label is None:
             return
 
-        damage_sources = tuple(damage_sources or ())
+        damage_sources = tuple(
+            sorted(
+                tuple(damage_sources or ()),
+                key=lambda source: (
+                    -max(0.0, float(getattr(source, "damage", 0.0) or 0.0)),
+                    str(
+                        getattr(source, "source_name", "")
+                        or getattr(source, "source_key", "")
+                    ).casefold(),
+                ),
+            )
+        )
         signature = self._damage_source_signature_for(damage_sources)
         if self._damage_source_signature == signature and status_text is None:
             return
@@ -439,33 +568,141 @@ class StatCardsView:
         if not damage_sources:
             return
 
-        grid = QGridLayout()
-        grid.setContentsMargins(8, 8, 8, 8)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(10)
+        total_damage = sum(
+            max(0.0, float(getattr(source, "damage", 0.0) or 0.0))
+            for source in damage_sources
+        )
+        layout.addWidget(
+            self._build_damage_sources_summary(
+                total_damage=total_damage,
+                source_count=len(damage_sources),
+            )
+        )
+
+        grid = _ResponsiveStatCardGrid(
+            object_name="DamageSourcesCardGrid",
+            column_count=damage_source_column_count,
+            minimum_card_width=290,
+            spacing=8,
+            maximum_columns=3,
+        )
         for index, source in enumerate(damage_sources):
-            cell = QFrame()
-            cell.setObjectName("StatCard")
-            cell.setMinimumHeight(54)
-            cell_layout = QHBoxLayout(cell)
-            cell_layout.setContentsMargins(12, 8, 12, 8)
-            cell_layout.setSpacing(10)
-
-            name_label = QLabel(source.source_name or source.source_key)
-            name_label.setWordWrap(True)
-            name_label.setStyleSheet("font-size: 16px; font-weight: 700; background: transparent;")
-            cell_layout.addWidget(name_label, 1)
-
-            dmg_label = QLabel(formatting.format_damage_source_value(source.damage))
-            dmg_label.setStyleSheet("font-size: 17px; font-weight: 700; color: #F3F4F6; background: transparent;")
-            dmg_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            cell_layout.addWidget(dmg_label)
-
-            grid.addWidget(cell, index // 4, index % 4)
-        for column in range(4):
-            grid.setColumnStretch(column, 1)
-        layout.addLayout(grid)
+            grid.add_card(
+                self._build_damage_source_card(
+                    source,
+                    rank=index + 1,
+                    total_damage=total_damage,
+                )
+            )
+        layout.addWidget(grid)
         layout.addStretch(1)
+
+    @staticmethod
+    def _build_damage_sources_summary(*, total_damage: float, source_count: int) -> QFrame:
+        card = QFrame()
+        card.setObjectName("StatCard")
+        summary_layout = QHBoxLayout(card)
+        summary_layout.setContentsMargins(10, 8, 10, 8)
+        summary_layout.setSpacing(8)
+
+        title_label = QLabel("Total Damage")
+        title_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; font-weight: 700; background: transparent;"
+        )
+        summary_layout.addWidget(title_label)
+
+        value_label = QLabel(formatting.format_damage_source_value(total_damage))
+        value_label.setObjectName("DamageSourcesSummaryValue")
+        value_label.setStyleSheet(
+            "font-size: 15px; color: #F3F4F6; font-weight: 800; background: transparent;"
+        )
+        summary_layout.addWidget(value_label)
+        summary_layout.addStretch(1)
+
+        count_label = QLabel(f"{source_count} {'source' if source_count == 1 else 'sources'}")
+        count_label.setObjectName("DamageSourcesSummaryCount")
+        count_label.setStyleSheet(
+            "font-size: 11px; color: #98A7BA; font-weight: 600; background: transparent;"
+        )
+        summary_layout.addWidget(count_label)
+        return card
+
+    @staticmethod
+    def _build_damage_source_card(source, *, rank: int, total_damage: float) -> QFrame:
+        damage = max(0.0, float(getattr(source, "damage", 0.0) or 0.0))
+        source_name = str(
+            getattr(source, "source_name", "")
+            or getattr(source, "source_key", "")
+            or "Unknown source"
+        )
+        percentage = damage / total_damage if total_damage > 0.0 else 0.0
+        text_color = "#F3F4F6" if damage > 0.0 else "#98A7BA"
+
+        card = QFrame()
+        card.setObjectName("StatCard")
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(10, 9, 10, 9)
+        card_layout.setSpacing(7)
+
+        top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(7)
+
+        rank_label = QLabel(f"#{rank}")
+        rank_label.setObjectName("DamageSourceRank")
+        rank_label.setStyleSheet(
+            "font-size: 11px; color: #65758B; font-weight: 700; background: transparent;"
+        )
+        top_layout.addWidget(rank_label)
+
+        name_label = QLabel(source_name)
+        name_label.setObjectName("DamageSourceName")
+        name_label.setWordWrap(True)
+        name_label.setToolTip(source_name)
+        name_label.setStyleSheet(
+            f"font-size: 13px; color: {text_color};"
+            " font-weight: 700; background: transparent;"
+        )
+        top_layout.addWidget(name_label, 1)
+
+        damage_label = QLabel(formatting.format_damage_source_value(damage))
+        damage_label.setObjectName("DamageSourceValue")
+        damage_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        damage_label.setStyleSheet(
+            f"font-size: 15px; color: {text_color};"
+            " font-weight: 800; background: transparent;"
+        )
+        top_layout.addWidget(damage_label)
+
+        percentage_label = QLabel(damage_source_share_text(damage, total_damage))
+        percentage_label.setObjectName("DamageSourcePercent")
+        percentage_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        percentage_label.setStyleSheet(
+            "font-size: 11px; color: #98A7BA; font-weight: 600; background: transparent;"
+        )
+        top_layout.addWidget(percentage_label)
+        card_layout.addLayout(top_layout)
+
+        bar = QProgressBar()
+        bar.setObjectName("DamageSourceBar")
+        bar.setRange(0, 1000)
+        bar.setValue(round(min(1.0, max(0.0, percentage)) * 1000))
+        bar.setTextVisible(False)
+        bar.setFixedHeight(6)
+        bar.setToolTip(f"{damage_source_share_text(damage, total_damage)} of total damage")
+        bar.setStyleSheet(
+            "QProgressBar {"
+            " background: #111923;"
+            " border: 0;"
+            " border-radius: 3px;"
+            "}"
+            "QProgressBar::chunk {"
+            " background: #60A5FA;"
+            " border-radius: 3px;"
+            "}"
+        )
+        card_layout.addWidget(bar)
+        return card
 
     @staticmethod
     def _damage_source_signature_for(damage_sources) -> tuple:
@@ -496,6 +733,54 @@ def chaos_stats_in_game_order(chaos_tome) -> tuple:
             ),
         )
     )
+
+
+def chaos_stats_by_roll_count(chaos_tome) -> tuple:
+    """Chaos Tome stats ordered by roll count, with a stable game-order tie-break."""
+    return tuple(
+        sorted(
+            tuple(getattr(chaos_tome, "stats", ()) or ()),
+            key=lambda stat: (
+                -max(0, int(getattr(stat, "rolls", 0) or 0)),
+                CHAOS_TOME_GAME_STAT_ORDER.get(int(getattr(stat, "stat_id", -1)), 999),
+                str(getattr(stat, "label", "")).casefold(),
+            ),
+        )
+    )
+
+
+def chaos_average_roll_quality(stat) -> float | None:
+    """Return the average roll's position in this stat's possible value range."""
+    rolls = max(0, int(getattr(stat, "rolls", 0) or 0))
+    if rolls <= 0:
+        return None
+    try:
+        total = abs(float(getattr(stat, "value", None)))
+    except (TypeError, ValueError):
+        return None
+    fingerprints = tuple(
+        abs(float(value))
+        for value in CHAOS_FINGERPRINTS.get(int(getattr(stat, "stat_id", -1)), ())
+    )
+    if not fingerprints:
+        return None
+    minimum = min(fingerprints)
+    maximum = max(fingerprints)
+    if maximum <= minimum:
+        return 1.0
+    average = total / rolls
+    return max(0.0, min(1.0, (average - minimum) / (maximum - minimum)))
+
+
+def chaos_roll_quality_color(quality: float | None) -> str:
+    """Map normalized roll quality to the four visual tiers used by the card."""
+    if quality is None or quality < 0.34:
+        return "#98A7BA"
+    if quality < 0.67:
+        return "#60A5FA"
+    if quality < 0.90:
+        return "#C084FC"
+    return "#FACC15"
 
 
 def chaos_stat_label(stat) -> str:

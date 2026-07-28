@@ -49,6 +49,7 @@ sites were doing.
 
 from __future__ import annotations
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QLabel
 
 from projections import formatting
@@ -71,6 +72,8 @@ class ItemsSectionView:
         sort_combo,
         initial_sort_mode=ITEM_SORT_DEFAULT,
         chips_container=None,
+        always_expanded: bool = False,
+        scroll_area=None,
     ) -> None:
         self._group = group
         self._label = label
@@ -83,11 +86,14 @@ class ItemsSectionView:
         # rich-text line -- everything else about the section (title, rarity
         # summary, toggle, sort) is unchanged and shared with the text path.
         self._chips_container = chips_container
+        self._always_expanded = bool(always_expanded)
+        self._scroll_area = scroll_area
 
         self._sort_mode = initial_sort_mode
-        self._expanded = False
+        self._expanded = self._always_expanded
         self._items: tuple[str, ...] = ()
         self._items_text: str | None = None
+        self._render_signature: tuple | None = None
 
     # -- rendering ------------------------------------------------------------
 
@@ -103,6 +109,14 @@ class ItemsSectionView:
 
         if self._label is None and self._chips_container is None:
             return
+        render_signature = (
+            self._items,
+            self._items_text,
+            self._sort_mode,
+            self._expanded,
+        )
+        if render_signature == self._render_signature:
+            return
 
         if items_text is not None:
             self._set_group_title(None)
@@ -116,6 +130,7 @@ class ItemsSectionView:
                 self._toggle_btn.setText("Show more")
             if self._sort_combo is not None:
                 self._sort_combo.setEnabled(False)
+            self._render_signature = render_signature
             return
 
         items = self._items
@@ -146,6 +161,7 @@ class ItemsSectionView:
             self._toggle_btn.setText(
                 "Show less" if self._expanded and has_more else "Show more"
             )
+        self._render_signature = render_signature
 
     def _render_chips(
         self, items, *, more_count: int = 0, placeholder: str | None = None
@@ -153,26 +169,44 @@ class ItemsSectionView:
         if self._chips_container is None:
             return
         layout = self._chips_container.layout()
-        _clear_layout(layout)
-        if placeholder is not None:
-            note = QLabel(placeholder)
-            note.setObjectName("itemChipNote")
-            layout.addWidget(note)
-            return
-        if not items:
-            note = QLabel("--")
-            note.setObjectName("itemChipNote")
-            layout.addWidget(note)
-            return
-        for item_text in items:
-            display_text, object_name = formatting.item_chip_display(item_text)
-            chip = QLabel(display_text)
-            chip.setObjectName(object_name)
-            layout.addWidget(chip)
-        if more_count > 0:
-            more_label = QLabel(f"+{more_count} more")
-            more_label.setObjectName("itemChipNote")
-            layout.addWidget(more_label)
+        scrollbar = (
+            self._scroll_area.verticalScrollBar()
+            if self._scroll_area is not None
+            else None
+        )
+        scroll_position = scrollbar.value() if scrollbar is not None else None
+        self._chips_container.setUpdatesEnabled(False)
+        try:
+            _clear_layout(layout)
+            if placeholder is not None:
+                note = QLabel(placeholder)
+                note.setObjectName("itemChipNote")
+                layout.addWidget(note)
+                return
+            if not items:
+                note = QLabel("--")
+                note.setObjectName("itemChipNote")
+                layout.addWidget(note)
+                return
+            for item_text in items:
+                display_text, object_name = formatting.item_chip_display(item_text)
+                chip = QLabel(display_text)
+                chip.setObjectName(object_name)
+                layout.addWidget(chip)
+            if more_count > 0:
+                more_label = QLabel(f"+{more_count} more")
+                more_label.setObjectName("itemChipNote")
+                layout.addWidget(more_label)
+        finally:
+            self._chips_container.setUpdatesEnabled(True)
+            self._chips_container.updateGeometry()
+            self._chips_container.update()
+            if scrollbar is not None and scroll_position is not None:
+                restore = lambda: scrollbar.setValue(
+                    min(scroll_position, scrollbar.maximum())
+                )
+                restore()
+                QTimer.singleShot(0, restore)
 
     def _set_group_title(self, total_count: int | None) -> None:
         if self._group is None or not hasattr(self._group, "setTitle"):
@@ -191,6 +225,8 @@ class ItemsSectionView:
     # -- commands -------------------------------------------------------------
 
     def toggle_expanded(self) -> None:
+        if self._always_expanded:
+            return
         self._expanded = not self._expanded
         self._rerender()
 
@@ -202,7 +238,7 @@ class ItemsSectionView:
         paths, which sit several statements above the `update()` that actually
         repaints; rendering here would add a paint those paths never did.
         """
-        self._expanded = False
+        self._expanded = self._always_expanded
 
     def on_sort_changed(self) -> None:
         mode = ITEM_SORT_DEFAULT

@@ -514,6 +514,37 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         QLabel, QCheckBox, QRadioButton {
             background: transparent;
         }
+        QWidget#LiveStatsPage,
+        QWidget#LiveStatsMain,
+        QWidget#LiveStatsCardGrid {
+            background: transparent;
+        }
+        QWidget#LiveStatsBanishes {
+            background-color: rgba(127, 29, 29, 0.16);
+            border: 1px solid rgba(248, 113, 113, 0.28);
+            border-radius: 7px;
+        }
+        QScrollArea#LiveStatsItemsScroll {
+            background: transparent;
+            border: none;
+        }
+        QScrollArea#LiveStatsItemsScroll > QWidget > QWidget {
+            background: transparent;
+        }
+        QFrame#LiveStatsItemsDivider {
+            background-color: #1B222B;
+            border: none;
+            min-height: 1px;
+            max-height: 1px;
+        }
+        QLabel#LiveStatsBanishesTitle {
+            color: #FCA5A5;
+            font-size: 10px;
+            font-weight: 700;
+        }
+        QLabel#LiveStatsBanishesText {
+            color: #FECACA;
+        }
         QToolTip {
             background-color: #161C24;
             color: #EDF1F5;
