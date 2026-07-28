@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 from functools import partial
 
+from ui.scanner_toggle import ScannerToggle
 from ui.shared import (
     _apply_button_icon,
     _clear_layout,
@@ -277,38 +278,6 @@ def build_layout(app):
         app.tabview.widget(index).setObjectName("mainTabPage")
 
 
-#: The two captions `gui_scanner.update_status_ui` writes onto the header
-#: button. Named here because `_pin_width_across_captions` measures them: it is
-#: the caller's job to know which strings the widget will be asked to show, and
-#: `update_status_ui` is the only writer.
-SCANNER_TOGGLE_CAPTIONS = ("Start Scanner", "Stop Scanner")
-
-
-def _pin_width_across_captions(button, captions):
-    """Hold `button` at the width of its widest caption.
-
-    A button that swaps its own caption changes width with it, and this one now
-    sits at the *left* of the header, so the 9px between `Start Scanner` and
-    `Stop Scanner` would shove the status dot and its text sideways on every
-    start and stop. The old `setMinimumWidth(210)` was the same fix with a
-    hand-measured number in it, and it drifts the moment a caption, the font or
-    the padding changes; this measures the real thing instead.
-
-    Safe to call here because the app stylesheet is applied in
-    `MegabonkApp._ensure_qt_application`, before `setup_ui` builds the header --
-    so `sizeHint` already reflects the QSS padding. `ensurePolished` is what
-    makes that true for a widget that has never been shown.
-    """
-    button.ensurePolished()
-    original = button.text()
-    widest = 0
-    for caption in captions:
-        button.setText(caption)
-        widest = max(widest, button.sizeHint().width())
-    button.setText(original)
-    button.setMinimumWidth(widest)
-
-
 def _build_header(app, root_layout):
     header_wrap = QFrame()
     header_wrap.setObjectName("headerBar")
@@ -341,26 +310,9 @@ def _build_header(app, root_layout):
     divider.setObjectName("headerDivider")
     header.addWidget(divider, 0, Qt.AlignVCenter)
 
-    # The scanner's switch sits here, next to the status it changes, rather
-    # than at the far end of the header: cause and effect were a window's width
-    # apart, and the right edge was carrying the button, the session counters
-    # and both icons at once.
-    #
-    # `headerAction` rather than the objectName, because `update_status_ui`
-    # owns that: it swaps this button between the `primary` and `stopScanner`
-    # roles, so a name set here would not survive the first start. The property
-    # does, which is what scopes the header's metrics to this one button
-    # without touching the two roles that four other buttons share.
-    app.toggle_btn = QPushButton("Start Scanner")
-    app.toggle_btn.setObjectName("primary")
-    app.toggle_btn.setProperty("headerAction", "true")
-    app.toggle_btn.clicked.connect(app._scanner.toggle_main_loop)
-    _pin_width_across_captions(app.toggle_btn, SCANNER_TOGGLE_CAPTIONS)
-    header.addWidget(app.toggle_btn, 0, Qt.AlignVCenter)
-
-    # The dot for the colour, the text for which of the four states it is --
-    # `IDLE`, `WAITING FOR GAME`, `ARMED`, `RUNNING`. The button expresses two
-    # of the four, so the pair stays; it reads as what the button just did.
+    # Status reads next to the logo: the dot for the colour, the text for which
+    # of the four states it is. The scanner's switch stays at the far end of
+    # the header, where `_build_header_controls` puts it.
     app.status_dot = QLabel()
     app.status_dot.setObjectName("statusDot")
     app.status_dot.setProperty("state", "idle")
@@ -794,8 +746,16 @@ def _build_logs_tab(app):
 
 
 def _build_header_controls(app, controls):
-    # The scanner's switch is not here any more -- `_build_header` puts it next
-    # to the status it changes. What is left at this end is the two icons.
+    # Two segments rather than one caption-swapping button. The size floors
+    # this line used to carry -- `setMinimumWidth(210)` / `setMinimumHeight(38)`
+    # over a button that measured 199x34 as `Start Scanner` and 194x37 as
+    # `Stop Scanner` -- are gone with the disagreement that needed them: the
+    # segments keep their own captions, so the control is one width in both
+    # states and the header no longer twitches on start and stop.
+    app.toggle_btn = ScannerToggle()
+    app.toggle_btn.toggle_requested.connect(app._scanner.toggle_main_loop)
+    controls.addWidget(app.toggle_btn)
+
     app.settings_btn = QPushButton("")
     app.settings_btn.setObjectName("iconBtn")
     _apply_button_icon(app.settings_btn, "media/settings_icon.png", 20)

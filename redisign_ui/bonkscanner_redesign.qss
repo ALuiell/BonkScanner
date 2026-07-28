@@ -306,46 +306,7 @@ QPushButton#stopScanner {
 }
 QPushButton#stopScanner:hover { background-color: #CC2626; }
 
-/* ------------------------------ действие сканера в шапке, слева ---------- */
-/* Одна компактная кнопка рядом со статусом. Выбирается по СВОЙСТВУ, потому что
-   objectName принадлежит `update_status_ui`: он переключает эту же кнопку между
-   ролями primary и stopScanner. Метрики в обоих состояниях заданы одинаково --
-   иначе кнопка меряется 199x34 в одном и 194x37 в другом, и шапка дёргается на
-   каждый старт (ровно то, что раньше затыкали setMinimumWidth/Height). */
-QPushButton[headerAction="true"] {
-    font-weight: 700;
-    font-size: 12.5px;
-    letter-spacing: 0;
-    padding: 8px 15px;
-    border-radius: 9px;
-}
-QPushButton[headerAction="true"]#primary {
-    background-color: #141A22; border: 1px solid #2E3A48; color: #EDF1F5;
-}
-QPushButton[headerAction="true"]#primary:hover {
-    background-color: #1B2430; border-color: #3E82C6;
-}
-QPushButton[headerAction="true"]#primary:pressed { background-color: #101720; }
-QPushButton[headerAction="true"]#stopScanner {
-    background-color: rgba(185, 28, 28, 0.16);
-    border: 1px solid #4A2226;
-    color: #F0787E;
-    font-weight: 700;
-    font-size: 12.5px;
-    letter-spacing: 0;
-    padding: 8px 15px;
-    border-radius: 9px;
-}
-QPushButton[headerAction="true"]#stopScanner:hover {
-    background-color: rgba(185, 28, 28, 0.30); color: #F8A2A6;
-}
-QPushButton[headerAction="true"]#stopScanner:pressed {
-    background-color: rgba(185, 28, 28, 0.42);
-}
-
 /* ------------------------------------- scanner Start/Stop (сегменты) ---- */
-/* Не подключено: `ScannerToggle` из варианта 3 остался в дереве на случай
-   отката. Правила ниже оживают вместе с ним. */
 /* Контейнер выбирается по СВОЙСТВУ, а не по objectName: `update_status_ui`
    зовёт `_set_widget_style_role` на этом же виджете и переименовывает его в
    `primary` / `stopScanner`, так что имя здесь ненадёжно. */
