@@ -348,7 +348,7 @@ def _build_header(app, root_layout):
     app.rec_flag = RecordingFlag()
     header.addWidget(app.rec_flag, 0, Qt.AlignVCenter)
 
-    app.session_meta_label = QLabel("Session 00:00:00 · RPM 0.0")
+    app.session_meta_label = QLabel("Session 00:00:00")
     app.session_meta_label.setObjectName("sessionMeta")
     header.addWidget(app.session_meta_label, 0, Qt.AlignVCenter)
 

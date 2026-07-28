@@ -238,8 +238,12 @@ class Scanner:
         if session_meta is not None:
             hours, remainder = divmod(max(0, elapsed), 3600)
             minutes, seconds = divmod(remainder, 60)
+            # Session clock only. RPM was here too and is not any more: it has
+            # a full-width line of its own in Session Overview
+            # (`stats_rpm_label`), where it is labelled rather than abbreviated,
+            # and the header is where the states live rather than the numbers.
             session_meta.setText(
-                f"Session {hours:02d}:{minutes:02d}:{seconds:02d} · RPM {rpm:.1f}"
+                f"Session {hours:02d}:{minutes:02d}:{seconds:02d}"
             )
 
         recording = self._is_recording()
