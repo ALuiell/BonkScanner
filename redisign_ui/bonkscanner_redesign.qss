@@ -82,14 +82,15 @@ QLabel#statusDot                  { qproperty-dotColor: #5C6675; }  /* дефо�
 QLabel#statusDot[state="running"] { qproperty-dotColor: #22C55E; }
 QLabel#statusDot[state="idle"]    { qproperty-dotColor: #5C6675; }
 
-/* REC — то же соглашение, что у статуса OBS Overlay: зелёный = идёт,
-   красный = выключено. Не лампочка камеры (там наоборот), а индикатор
-   «работает / не работает», как `Live` / `Stopped` на вкладке оверлея. */
-QLabel#recDot              { qproperty-dotColor: #F87171; }
+/* REC — зелёный, пока пишется, как `Live` у статуса OBS Overlay (не лампочка
+   камеры, там наоборот). Выключено — серый, тот же, что у idle: красный читался
+   как ошибка, а не как «записи нет». Пульсирует, пока идёт: `on` входит в
+   `PULSING_STATES`. */
+QLabel#recDot              { qproperty-dotColor: #5C6675; }
 QLabel#recDot[state="on"]  { qproperty-dotColor: #22C55E; }
-QLabel#recDot[state="off"] { qproperty-dotColor: #F87171; }
+QLabel#recDot[state="off"] { qproperty-dotColor: #5C6675; }
 
-QWidget#recFlag { background: transparent; }
+QWidget#recFlag, QWidget#statusPair { background: transparent; }
 
 QLabel#statusText { font-weight: 600; font-size: 12px; color: #8A94A3; }
 QLabel#statusText[state="running"] { color: #7DE68C; }

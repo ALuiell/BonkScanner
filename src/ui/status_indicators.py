@@ -37,13 +37,20 @@ from PySide6.QtCore import Property, QEasingCurve, QEvent, QPropertyAnimation, Q
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-#: Which states are alive. Only the scanner's: recording is a thing the user
-#: switched on themselves and can see in the Live Stats tab, so the REC flag
-#: reports it rather than calling attention to it.
-PULSING_STATES = ("running",)
+#: Which states are alive: the scanner running, and a recording in progress.
+#: Both are things that keep happening while the user looks elsewhere, which
+#: is what the ring is for. The off states -- `idle`, `off` -- sit still.
+PULSING_STATES = ("running", "on")
 
 DOT_DIAMETER = 8
+#: The widget is wider than the dot because the ring needs somewhere to go, so
+#: ~5px of it is transparent on each side. Anything placing a caption next to
+#: one of these has to take that off its own spacing or the pair reads as two
+#: unrelated things -- see `LABEL_SPACING`.
 WIDGET_SIZE = 18
+#: Gap between a dot and its caption, chosen against the padding above: 3 here
+#: is about 8px of visible space.
+LABEL_SPACING = 3
 #: How far the ring travels past the dot's edge, and how solid it starts.
 RING_TRAVEL = 5.0
 RING_ALPHA = 170
@@ -162,18 +169,22 @@ class RecordingFlag(QWidget):
     cannot be told apart from one that is broken, missing or on a tab the user
     is not looking at -- which is how it read the first time.
 
-    Green for on and red for off, which is `gui_overlay`'s convention for the
-    OBS server's `Live` / `Stopped` line rather than a camera's REC lamp, where
-    red means recording. The app already had one of these, so the flag matches
-    it; being wrong the same way everywhere beats being right in one place.
-    The colours are the redesign's tokens, not the older inline hexes.
+    Green while recording -- `gui_overlay`'s convention for the OBS server's
+    `Live` line, rather than a camera's REC lamp where red means recording. The
+    app already had one of these, so the flag matches it. It pulses for the
+    same reason the scanner's dot does: a recording keeps running while the
+    user is looking at something else.
 
-    The dot carries the state and the caption does not: a red word "REC" reads
-    as an error rather than as "no recording", so the text stays level and the
-    circle says which it is.
+    Grey when it is not. Red was tried and read as a fault rather than as "no
+    recording" -- an idle state should be quiet, and the header already spells
+    "nothing is happening" in `#5C6675` next to the scanner's own dot.
+
+    The dot carries the state and the caption does not, for the same reason:
+    a coloured word "REC" is an alarm, a coloured circle is a lamp.
 
     Its own widget rather than two loose header children so the pair moves and
-    switches together.
+    switches together, and so the caption sits against the dot rather than a
+    dot's width away from it.
     """
 
     def __init__(self, parent=None) -> None:
@@ -181,14 +192,8 @@ class RecordingFlag(QWidget):
         self.setObjectName("recFlag")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(LABEL_SPACING)
 
-        # A `PulsingDot` for the painting and the per-state colour, not for the
-        # animation: neither `on` nor `off` is in `PULSING_STATES`, so this one
-        # is drawn static. Recording is something the user switched on and can
-        # already see in the Live Stats tab; the flag reports it rather than
-        # nagging.
-        #
         # `recDot`, not `statusDot`: the two answer different questions and
         # their states do not line up -- this one is on/off, the scanner's is
         # idle/running -- so they get their own colour rules.

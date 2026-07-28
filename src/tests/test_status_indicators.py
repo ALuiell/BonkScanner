@@ -113,13 +113,13 @@ class StatusIndicatorTests(unittest.TestCase):
     def test_the_rec_flag_stays_on_the_line_and_lights_up(self) -> None:
         # It reports whether a recording is running, so it is always there --
         # an indicator that vanishes when the answer is no cannot be told apart
-        # from one that is broken or missing. And it does not pulse: recording
-        # is something the user switched on themselves.
+        # from one that is broken or missing.
         #
-        # Green on, red off: `gui_overlay`'s `Live` / `Stopped` convention, and
-        # the inverse of a camera's REC lamp. The literal colours are asserted
-        # because getting them backwards is the whole risk here, and both
-        # readings look deliberate on screen.
+        # Green while recording, after `gui_overlay`'s `Live`, and the inverse
+        # of a camera's REC lamp; grey when not, because red read as a fault
+        # rather than as "no recording". The literal colours are asserted
+        # because getting them backwards is the whole risk here, and every
+        # reading of them looks deliberate on screen.
         self._run(
             """
             # Shown through a parent, never with `flag.show()` -- calling that
@@ -135,19 +135,20 @@ class StatusIndicatorTests(unittest.TestCase):
             assert flag.isVisible(), "the flag hid itself when idle"
             assert not flag.is_recording()
             dot = flag.findChild(PulsingDot)
-            assert not dot.is_pulsing()
-            assert pixel(dot, 0) == "#f87171", ("off should be red", pixel(dot, 0))
+            assert not dot.is_pulsing(), "an idle flag must sit still"
+            assert pixel(dot, 0) == "#5c6675", ("off should be grey", pixel(dot, 0))
 
             flag.set_recording(True)
             app.processEvents()
             assert flag.isVisible() and flag.is_recording()
-            assert not dot.is_pulsing(), "REC must not animate"
             assert pixel(dot, 0) == "#22c55e", ("on should be green", pixel(dot, 0))
+            assert dot.is_pulsing(), "a running recording should pulse"
 
             flag.set_recording(False)
             app.processEvents()
             assert flag.isVisible() and not flag.is_recording()
-            assert pixel(dot, 0) == "#f87171", pixel(dot, 0)
+            assert pixel(dot, 0) == "#5c6675", pixel(dot, 0)
+            assert not dot.is_pulsing()
             """
         )
 

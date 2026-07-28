@@ -18,7 +18,7 @@ import os
 from functools import partial
 
 from ui.scanner_toggle import ScannerToggle
-from ui.status_indicators import PulsingDot, RecordingFlag
+from ui.status_indicators import LABEL_SPACING, PulsingDot, RecordingFlag
 from ui.shared import (
     _apply_button_icon,
     _clear_layout,
@@ -314,18 +314,31 @@ def _build_header(app, root_layout):
     # Status reads next to the logo: the dot for the colour, the text for which
     # of the four states it is. The scanner's switch stays at the far end of
     # the header, where `_build_header_controls` puts it.
+    # The dot and its word go in together, on their own spacing. The header's
+    # is 12px, and `PulsingDot` carries ~5px of transparent padding around the
+    # circle so the ring has somewhere to expand, so side by side in the header
+    # they sat 17px apart and read as two unrelated things.
+    #
     # `PulsingDot` rather than a plain label: the colour still comes from the
     # stylesheet per `state`, but the widget has room around the dot to draw a
     # ring into, so a live scanner reads as live rather than as a green pixel.
+    status_pair = QWidget()
+    status_pair.setObjectName("statusPair")
+    status_pair_layout = QHBoxLayout(status_pair)
+    status_pair_layout.setContentsMargins(0, 0, 0, 0)
+    status_pair_layout.setSpacing(LABEL_SPACING)
+
     app.status_dot = PulsingDot()
     app.status_dot.setObjectName("statusDot")
     app.status_dot.setProperty("state", "idle")
-    header.addWidget(app.status_dot, 0, Qt.AlignVCenter)
+    status_pair_layout.addWidget(app.status_dot, 0, Qt.AlignVCenter)
 
     app.status_label = QLabel("IDLE")
     app.status_label.setObjectName("statusText")
     app.status_label.setProperty("state", "idle")
-    header.addWidget(app.status_label, 0, Qt.AlignVCenter)
+    status_pair_layout.addWidget(app.status_label, 0, Qt.AlignVCenter)
+
+    header.addWidget(status_pair, 0, Qt.AlignVCenter)
 
     header.addStretch(1)
 
