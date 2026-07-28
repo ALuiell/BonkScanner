@@ -41,7 +41,12 @@ class SessionStatsTests(unittest.TestCase):
     def test_session_rows_are_calculated_without_presentation_concerns(self) -> None:
         tracker = SimpleNamespace(
             tracked_item_rows_for_rules=lambda _rules: [
-                {"label": "Kevin", "count": 1, "mode": "map_1_only"}
+                {
+                    "label": "Kevin",
+                    "item_names": ("Kevin",),
+                    "count": 1,
+                    "mode": "map_1_only",
+                }
             ]
         )
         stats = SessionStats(
@@ -58,7 +63,22 @@ class SessionStatsTests(unittest.TestCase):
         ):
             rows = stats.session_tracked_item_stat_rows()
 
-        self.assertEqual(rows, [{"label": "Kevin T1", "count": 1, "percent": 50.0}])
+        # `item_names` and `mode` ride along: the Session Stats tab renders a
+        # rule as its items and its condition, and this rebuild used to keep
+        # only the label -- where the condition was a `T1` suffix and the items
+        # were gone.
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "label": "Kevin T1",
+                    "item_names": ("Kevin",),
+                    "mode": "map_1_only",
+                    "count": 1,
+                    "percent": 50.0,
+                }
+            ],
+        )
 
 
 if __name__ == "__main__":

@@ -307,7 +307,9 @@ class FakeOverlayServer:
         self.is_running = False
 
 
-def build_overlay_test_component(*, template_stats=None, session_rerolls: int = 0):
+def build_overlay_test_component(
+    *, template_stats=None, session_rerolls: int = 0, tracked_rows_sink=None
+):
     tracker = LiveRunTracker()
     server = FakeOverlayServer()
     state_store = SimpleNamespace(set_state=MagicMock())
@@ -327,7 +329,9 @@ def build_overlay_test_component(*, template_stats=None, session_rerolls: int = 
         coordinator,
         session_stats=session_stats,
         stats_tab=lambda: None,
-        stats_tracked_items_label=lambda: None,
+        set_tracked_item_rows=(
+            tracked_rows_sink if tracked_rows_sink is not None else (lambda _rows: None)
+        ),
         overlay_tab_active=lambda: True,
         server_rebuilt=lambda _server: None,
     )
@@ -5070,16 +5074,29 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(chests_and_keys_args, [(12, 50, 1)])
 
-    def test_session_tracked_items_stats_tab_includes_seed_percent(self) -> None:
-        component = build_overlay_test_component(template_stats={
-            "template_a": {"history": [1, 2]},
-            "template_b": {"history": [3, 4]},
-        })
+    def test_session_tracked_items_reach_the_stats_tab_with_their_seed_percent(self) -> None:
+        """The rows go to the tab whole, rather than pre-joined into a string.
+
+        This used to assert `format_tracked_item_rows_for_stats_tab`'s output,
+        `"Kevin + Electric Plug T1: 2 (50.00%)"`. The tab renders the rule as
+        its items and its condition now, so the join is not on this path -- and
+        what matters is that the fields it needs arrive: the item names, the
+        mode, the count and the percent over found seeds.
+        """
+        delivered: list = []
+        component = build_overlay_test_component(
+            template_stats={
+                "template_a": {"history": [1, 2]},
+                "template_b": {"history": [3, 4]},
+            },
+            tracked_rows_sink=delivered.append,
+        )
         tracker = SimpleNamespace(
             tracked_item_rows_for_rules=lambda _rules: [
                 {
                     "id": "kevin_plug",
                     "label": "Kevin + Electric Plug",
+                    "item_names": ("Kevin", "Electric Plug"),
                     "count": 2,
                     "mode": "map_1_only",
                 }
@@ -5088,11 +5105,15 @@ class GuiRunControlTests(unittest.TestCase):
         component.live_run_tracker = tracker
         component.session_stats._tracker = tracker
 
-        text = gui_overlay.format_tracked_item_rows_for_stats_tab(
-            component.session_stats.session_tracked_item_stat_rows()
-        )
+        component.refresh_session_tracked_item_stats_ui()
 
-        self.assertEqual(text, "Kevin + Electric Plug T1: 2 (50.00%)")
+        self.assertEqual(len(delivered), 1)
+        (row,) = delivered[0]
+        self.assertEqual(row["item_names"], ("Kevin", "Electric Plug"))
+        self.assertEqual(row["mode"], "map_1_only")
+        self.assertEqual(row["count"], 2)
+        # Four seeds found across the two templates, two of them matched.
+        self.assertAlmostEqual(row["percent"], 50.0)
 
     def test_apply_in_game_overlay_settings_stops_without_restarting_overlay(self) -> None:
         overlay = build_in_game_overlay_test_component()

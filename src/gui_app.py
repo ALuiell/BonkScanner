@@ -113,7 +113,7 @@ class MegabonkApp:
         # made `Scanner` an object that builds its own tab. Eleven slots left
         # here, and the measurement that allowed it is the same one steps
         # 21c/21d/23b ran: of the eleven, exactly two had a production reader
-        # outside `gui_scanner` -- `tab_stats` and `stats_tracked_items_label`,
+        # outside `gui_scanner` -- `tab_stats` and the tracked-item rows,
         # both already reached by `gui_overlay` through named ports rather than
         # by attribute, so both ports simply changed which object they name.
         # The other nine were mentioned only by these `= None` lines.

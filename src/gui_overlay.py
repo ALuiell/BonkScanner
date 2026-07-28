@@ -53,7 +53,6 @@ from projections.tracked_items import (
 from core.tracker.live_run import TrackedItemRule
 from app.coordinator import AppCoordinator
 from projections.obs import build_overlay_state
-from projections.session_stats import format_tracked_item_rows_for_stats_tab
 from core.stats.types import PLAYER_STAT_GROUPS
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
 from session_stats import SessionStats
@@ -85,7 +84,7 @@ class Overlay:
         *,
         session_stats: SessionStats,
         stats_tab: Callable[[], QWidget | None],
-        stats_tracked_items_label: Callable[[], Any],
+        set_tracked_item_rows: Callable[[Any], None],
         overlay_tab_active: Callable[[], bool],
         server_rebuilt: Callable[[Any], None],
         log: Callable[..., None] | None = None,
@@ -93,7 +92,7 @@ class Overlay:
         self.coordinator = coordinator
         self.session_stats = session_stats
         self._stats_tab = stats_tab
-        self._stats_tracked_items_label = stats_tracked_items_label
+        self._set_tracked_item_rows = set_tracked_item_rows
         self._overlay_tab_active = overlay_tab_active
         self._server_rebuilt = server_rebuilt
         # Optional on purpose: the suite builds this object without an app, and
@@ -152,9 +151,6 @@ class Overlay:
     def tab_stats(self):
         return self._stats_tab()
 
-    @property
-    def stats_tracked_items_label(self):
-        return self._stats_tracked_items_label()
 
     def _is_overlay_tab_active(self) -> bool:
         return self._overlay_tab_active()
@@ -1137,16 +1133,20 @@ class Overlay:
             layout.addWidget(tag)
 
     def refresh_session_tracked_item_stats_ui(self) -> None:
-        label = getattr(self, "stats_tracked_items_label", None)
-        if label is None or self.live_run_tracker is None:
+        """Hand the tracked-item rules to the Session Stats tab.
+
+        It used to join them into one string here -- `label: count (pct%) | ...`
+        -- and write it into a label the scanner owned. The rows carry the items
+        the rule matches and the condition it matches them under, and the join
+        kept neither: the condition survived only as the `T1` suffix
+        `tracked_item_command_label` adds for one of the two modes. The tab
+        renders the rows now, so this hands them over whole.
+        """
+        if self.live_run_tracker is None:
             return
-        text = format_tracked_item_rows_for_stats_tab(
+        self._set_tracked_item_rows(
             self.session_stats.session_tracked_item_stat_rows()
         )
-        if not text:
-            _set_text(label, "No tracked items configured")
-            return
-        _set_text(label, text)
 
     def add_session_tracked_item(self) -> None:
         item_names = self._selected_session_item_names()
@@ -1416,7 +1416,7 @@ def build_overlay(app: Any, coordinator: AppCoordinator, session_stats: SessionS
         # the two widgets outside `gui_scanner`, so only the object they name
         # changed.
         stats_tab=lambda: app._scanner.tab_stats,
-        stats_tracked_items_label=lambda: app._scanner.stats_tracked_items_label,
+        set_tracked_item_rows=lambda rows: app._scanner.set_tracked_item_rows(rows),
         overlay_tab_active=lambda: app._is_overlay_tab_active(),
         server_rebuilt=lambda server: setattr(app, "overlay_server", server),
         log=lambda message, tag=None: app.log(message, tag=tag),

@@ -62,6 +62,29 @@ def active_templates_require_bald_heads(active_templates) -> bool:
     )
 
 
+def map_highlight_rows(stats: dict, active_templates) -> tuple[list[tuple[str, int]], float]:
+    """The same numbers `format_stats` renders, as rows and a score.
+
+    Session Stats shows Best and Worst side by side, and a reader compares them
+    row by row -- which a single comma-joined sentence per map does not let you
+    do. Same source, same order, same bald-heads branch; the only difference is
+    that the caller gets the parts instead of the prose.
+
+    `format_stats` stays as it is: it has three other callers that log the line
+    into the Logs panel, where one line is the right shape.
+    """
+    rows = [
+        ("Shady Guy", int(stats.get("Shady Guy", 0) or 0)),
+        ("Moais", int(stats.get("Moais", 0) or 0)),
+        ("Microwaves", int(logic.template_microwaves(stats) or 0)),
+        ("Boss Curses", int(stats.get("Boss Curses", 0) or 0)),
+        ("Magnet Shrines", int(stats.get("Magnet Shrines", 0) or 0)),
+    ]
+    if active_templates_require_bald_heads(active_templates):
+        rows.append(("Bald Heads", int(stats.get("Bald Heads", 0) or 0)))
+    return rows, float(logic.calculate_score(stats, config.SCORES_SYSTEM))
+
+
 def format_stats(stats: dict, active_templates) -> str:
     """The one-line stat summary the scanner logs and the stats tab shows."""
     shady = stats.get("Shady Guy", 0)

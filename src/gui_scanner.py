@@ -35,10 +35,9 @@ import threading
 import time
 from typing import Any, Callable
 
-from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
-
 from app import config
 from app.map_scoring import calculate_map_score, evaluate_candidate, format_stats
+from ui.tabs.session_stats import SessionStatsTab
 from app.player_stats_view import player_stats_view
 from app.template_filters import TemplateRuntimeFilters
 # Top-level, not deferred into the builder. `gui_dialogs` imports nothing from
@@ -48,9 +47,8 @@ from app.template_filters import TemplateRuntimeFilters
 from ui.dialogs import ObsRecordingReminderDialog, RerollWarningDialog
 from gui_run_control import RunControl
 from infra.memory.game_data_client import GameDataClient
-from ui.shared import _apply_button_icon, _make_scroll_section, _set_text
 from core.item_metadata import COLOR_MAP
-from ui.styles import _session_stats_label_stylesheet, _set_widget_style_role
+from ui.styles import _set_widget_style_role
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.run_control import RunControlError
 from core.runtime_stats import adapt_map_stats
@@ -124,16 +122,13 @@ class Scanner:
         # builds the tab well after the component is constructed, and the
         # overlay reads two of them through ports that must tolerate that.
         self.tab_stats = None
-        self.stats_time_label = None
-        self.stats_rerolls_label = None
-        self.stats_rpm_label = None
-        self.stats_best_label = None
-        self.stats_worst_label = None
-        self.stats_tracked_items_label = None
-        self.stats_tracked_items_settings_btn = None
-        self.stats_avg_frame = None
+        # The tab is a view object now (`ui/tabs/session_stats.py`); the eleven
+        # widget slots that were here are its. `stats_avg_layout` survives as a
+        # plain flag because two callers outside this file -- `gui_app`'s
+        # `refresh_stats` port and `tests/support/template_filters` -- use it to
+        # ask "has the tab been built yet", and that question is still real.
+        self._stats_view = None
         self.stats_avg_layout = None
-        self.stats_avg_labels: dict[str, Any] = {}
 
     # The scan client is `AppCoordinator`'s (step 12b) and `MegabonkApp`
     # exposes the same one (step 25a). This reads and writes the same field on
@@ -226,10 +221,10 @@ class Scanner:
         if self.is_scanning() and self.session_start_time:
             elapsed = int(time.time() - self.session_start_time)
             td = datetime.timedelta(seconds=elapsed)
-            self.stats_time_label.setText(f"Session Time: {td}")
             if elapsed > 0 and self.session_rerolls > 0:
                 rpm = (self.session_rerolls / elapsed) * 60
-                self.stats_rpm_label.setText(f"Rerolls per Minute (RPM): {rpm:.1f}")
+            if self._stats_view is not None:
+                self._stats_view.set_session_clock(elapsed_text=str(td), rpm=rpm)
 
         status_label = self._status_label()
         session_meta = getattr(status_label, "_session_meta_label", None)
@@ -414,22 +409,48 @@ class Scanner:
         # already answers "no owner" internally on the app side, which is where
         # that decision belongs.
         self._refresh_session_stats_snapshot()
-        _set_text(self.stats_rerolls_label, f"Session Rerolls: {self.session_rerolls}")
+        view = self._stats_view
+        if view is None:
+            return
+        view.set_counters(
+            rerolls=self.session_rerolls,
+            seeds_found=self._session_seed_count(),
+            all_time_rerolls=config.TOTAL_REROLLS,
+        )
         self._refresh_session_tracked_item_stats_ui()
+        view.set_map_highlights(
+            best_stats=self.best_map_stats,
+            worst_stats=self.worst_map_stats,
+            active_templates=self.active_templates,
+        )
+        view.set_average_rows(self._average_reroll_rows())
 
-        if self.best_map_stats:
-            _set_text(self.stats_best_label, f"Best Map Found: {format_stats(self.best_map_stats, self.active_templates)}")
-        else:
-            _set_text(self.stats_best_label, "Best Map Found: None")
+    def _session_seed_count(self) -> int:
+        """How many seeds the session has found.
 
-        if self.worst_map_stats:
-            _set_text(self.stats_worst_label, f"Worst Map Found: {format_stats(self.worst_map_stats, self.active_templates)}")
-        else:
-            _set_text(self.stats_worst_label, "Worst Map Found: None")
+        Read off `template_stats` the same way `SessionStats.found_seed_count`
+        does, rather than through that object: the scanner owns this dict and
+        already holds it, and the KPI must not depend on whether the session
+        stats snapshot has been refreshed yet this tick.
+        """
+        total = 0
+        for data in self.template_stats.values():
+            if not isinstance(data, dict):
+                continue
+            history = data.get("history")
+            if isinstance(history, (list, tuple)):
+                total += len(history)
+        return total
 
-        active_names = set()
+    def _average_reroll_rows(self) -> list[tuple]:
+        """`(name, colour, average, found)` per active target, ready to render.
+
+        The colour rule is the one the old labels used: a template's own colour
+        in templates mode, the tier's colour in scores mode. It stays here
+        because both sources are `config`, which the view does not read.
+        """
+        rows = []
         for name, data in self.template_stats.items():
-            active_names.add(name)
             color_tag = "BLUE"
             if config.EVALUATION_MODE == "templates":
                 for template in config.TEMPLATES:
@@ -438,24 +459,17 @@ class Scanner:
                         break
             else:
                 color_tag = self._score_tier_color_tag(name)
-            hex_color = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
-            history = data["history"]
-            avg_text = f"{sum(history) / len(history):.1f} ({len(history)} found)" if history else "N/A"
-
-            label = self.stats_avg_labels.get(name)
-            if label is None:
-                label = QLabel()
-                label.setWordWrap(True)
-                self.stats_avg_layout.addWidget(label)
-                self.stats_avg_labels[name] = label
-            label.setText(f"{name}: {avg_text}")
-            label.setStyleSheet(f"color: {hex_color}; font-size: 16px; font-weight: 600; background: transparent;")
-
-        stale_names = [name for name in self.stats_avg_labels if name not in active_names]
-        for name in stale_names:
-            label = self.stats_avg_labels.pop(name)
-            self.stats_avg_layout.removeWidget(label)
-            label.deleteLater()
+            history = data.get("history") or ()
+            average = (sum(history) / len(history)) if history else 0.0
+            rows.append(
+                (
+                    name,
+                    COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"]),
+                    average,
+                    len(history),
+                )
+            )
+        return rows
 
     def log_reroll_stats(self):
         self.session_rerolls += 1
@@ -723,77 +737,32 @@ class Scanner:
     # lifecycle, which is what step 26 says `MegabonkApp` is for.
 
     def build_session_stats_tab(self):
-        self.tab_stats = QWidget()
-        stats_layout = QVBoxLayout(self.tab_stats)
-        stats_scroll, _stats_content, stats_content_layout = _make_scroll_section()
-        stats_layout.addWidget(stats_scroll)
-        self.stats_time_label = QLabel("Session Time: 00:00:00")
-        self.stats_rerolls_label = QLabel("Session Rerolls: 0")
-        self.stats_rpm_label = QLabel("Rerolls per Minute (RPM): 0.0")
-        self.stats_best_label = QLabel("Best Map Found: None")
-        self.stats_worst_label = QLabel("Worst Map Found: None")
+        """Construct the Session Stats view and hand it to the tab bar.
 
-        overview_group = QGroupBox("Session Overview")
-        overview_layout = QVBoxLayout(overview_group)
-        overview_layout.setContentsMargins(12, 12, 12, 12)
-        overview_layout.setSpacing(8)
-        for widget in (
-            self.stats_time_label,
-            self.stats_rerolls_label,
-            self.stats_rpm_label,
-        ):
-            widget.setWordWrap(True)
-            widget.setStyleSheet(_session_stats_label_stylesheet(accent=True))
-            overview_layout.addWidget(widget)
-        stats_content_layout.addWidget(overview_group)
-
-        maps_group = QGroupBox("Map Highlights")
-        maps_layout = QVBoxLayout(maps_group)
-        maps_layout.setContentsMargins(12, 12, 12, 12)
-        maps_layout.setSpacing(10)
-        for widget in (
-            self.stats_best_label,
-            self.stats_worst_label,
-        ):
-            widget.setWordWrap(True)
-            widget.setStyleSheet(_session_stats_label_stylesheet())
-            maps_layout.addWidget(widget)
-        stats_content_layout.addWidget(maps_group)
-
-        tracked_items_group = QGroupBox("Tracked Items")
-        tracked_items_layout = QVBoxLayout(tracked_items_group)
-        tracked_items_layout.setContentsMargins(12, 12, 12, 12)
-        tracked_items_layout.setSpacing(0)
-        tracked_items_row = QHBoxLayout()
-        tracked_items_row.setContentsMargins(0, 0, 0, 0)
-        tracked_items_row.setSpacing(8)
-        self.stats_tracked_items_label = QLabel("Anvils Map 1: 0")
-        self.stats_tracked_items_label.setWordWrap(True)
-        self.stats_tracked_items_label.setStyleSheet(_session_stats_label_stylesheet())
-        self.stats_tracked_items_settings_btn = QPushButton("")
-        self.stats_tracked_items_settings_btn.setObjectName("iconBtn")
-        self.stats_tracked_items_settings_btn.setToolTip("Tracked item settings")
-        self.stats_tracked_items_settings_btn.setFixedSize(34, 30)
-        _apply_button_icon(self.stats_tracked_items_settings_btn, "media/settings_icon.png", 18)
-        self.stats_tracked_items_settings_btn.clicked.connect(self._open_tracked_item_settings_dialog)
-        tracked_items_row.addWidget(self.stats_tracked_items_label, 1)
-        tracked_items_row.addWidget(self.stats_tracked_items_settings_btn)
-        tracked_items_layout.addLayout(tracked_items_row)
-        stats_content_layout.addWidget(tracked_items_group)
-
-        average_group = QGroupBox("Average Rerolls per Target")
-        average_layout = QVBoxLayout(average_group)
-        average_layout.setContentsMargins(12, 12, 12, 12)
-        average_layout.setSpacing(8)
-        self.stats_avg_frame = QWidget()
-        self.stats_avg_frame.setObjectName("cardContent")
-        self.stats_avg_layout = QVBoxLayout(self.stats_avg_frame)
-        self.stats_avg_layout.setContentsMargins(0, 0, 0, 0)
-        self.stats_avg_layout.setSpacing(6)
-        average_layout.addWidget(self.stats_avg_frame)
-        stats_content_layout.addWidget(average_group)
-        stats_content_layout.addStretch(1)
+        The 80 lines of `QGroupBox` and `QLabel` this replaces are
+        `ui/tabs/session_stats.py`'s; what stays here is the numbers and the
+        one config-reading decision the view must not make (which colour a
+        target gets, which depends on `EVALUATION_MODE`).
+        """
+        self._stats_view = SessionStatsTab(
+            on_open_tracked_item_settings=self._open_tracked_item_settings_dialog,
+        )
+        self.tab_stats = self._stats_view.build()
+        # See the slot's comment: two callers outside this file read it as
+        # "the tab exists".
+        self.stats_avg_layout = self._stats_view
+        self.refresh_stats_ui()
         self._add_tab(self.tab_stats, "Session Stats")
+
+    def set_tracked_item_rows(self, rows) -> None:
+        """Render the tracked-item rules. Called by the overlay component.
+
+        It owns `refresh_session_tracked_item_stats_ui` and used to format the
+        rows into one string and write it into a label here. The rows carry
+        their items and their condition; flattening them was what lost both.
+        """
+        if self._stats_view is not None:
+            self._stats_view.set_tracked_rows(rows)
 
 
 def build_scanner(
