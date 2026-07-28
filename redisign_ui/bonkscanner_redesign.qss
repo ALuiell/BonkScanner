@@ -554,6 +554,46 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
 QScrollArea { border: none; background: transparent; }
 
 /* ------------------------------------------------- mono (logs / numeric) ---- */
+/* ------------------------------------------------------- панель логов ---- */
+QWidget#logPanel { background: transparent; }
+QWidget#logChips {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 9px;
+}
+QPushButton#logChip {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    color: #5C6675;
+    font-weight: 700;
+    font-size: 11.5px;
+    padding: 5px 11px;
+}
+QPushButton#logChip:hover { color: #EDF1F5; }
+QPushButton#logChip:checked { background-color: #161C24; color: #EDF1F5; }
+/* Точка уровня — тем же цветом, каким этот уровень рисуется в самом логе.
+   Значения продублированы из `ui/log_view.SEVERITY_DOT`: QSS не достаёт до
+   rich-text внутри QTextEdit, поэтому там они живут в Python. */
+QPushButton#logChip[severity="info"]:checked    { border-color: #2A3B52; color: #93C5FD; }
+QPushButton#logChip[severity="success"]:checked { border-color: #1F4A2E; color: #86EFAC; }
+QPushButton#logChip[severity="warning"]:checked { border-color: #57481A; color: #FDE68A; }
+QPushButton#logChip[severity="error"]:checked   { border-color: #4A2226; color: #FCA5A5; }
+
+QLineEdit#logSearch {
+    background-color: #0B0F14;
+    border: 1px solid #2A3542;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+QLabel#logFooter {
+    color: #5C6675;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 11px;
+    background: transparent;
+}
+
 QLabel#mono, QPlainTextEdit#logView, QTextEdit#logView {
     font-family: "JetBrains Mono", Consolas, monospace;
     font-size: 12px;

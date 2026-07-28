@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 from functools import partial
 
+from ui.log_view import LogView
 from ui.scanner_toggle import ScannerToggle
 from ui.status_indicators import LABEL_SPACING, PulsingDot, RecordingFlag
 from ui.shared import (
@@ -26,7 +27,7 @@ from ui.shared import (
 )
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -35,7 +36,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -756,10 +756,12 @@ def _build_right_panel(app, splitter):
 def _build_logs_tab(app):
     app.tab_logs = QWidget()
     logs_layout = QVBoxLayout(app.tab_logs)
-    app.log_box = QTextEdit()
-    app.log_box.setObjectName("logView")
-    app.log_box.setReadOnly(True)
-    app.log_box.setFont(QFont("Consolas", 11))
+    logs_layout.setContentsMargins(0, 0, 0, 0)
+    # `app.log_box` still names whatever the scanner's `log_box` port returns,
+    # and the scanner still calls one method on it -- but that method is
+    # `append_log` now rather than `insertHtml`, because the panel owns records
+    # and derives the document from them. See `ui/log_view.py` for why.
+    app.log_box = LogView()
     logs_layout.addWidget(app.log_box)
     app.tabview.addTab(app.tab_logs, "Logs")
 

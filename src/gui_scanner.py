@@ -31,12 +31,10 @@ which is the property a join would have been buying.
 from __future__ import annotations
 
 import datetime
-import html
 import threading
 import time
 from typing import Any, Callable
 
-from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app import config
@@ -295,26 +293,20 @@ class Scanner:
             _set_widget_style_role(toggle_btn, "primary")
 
     def _append_log(self, message, tag=None):
+        """Hand the line to the Logs panel, message and tag unchanged.
+
+        The colour resolution that used to live here is gone, and with it the
+        bug it carried: it looked a scalar tag up in `COLOR_MAP`, which is a
+        palette with no `WARNING`, `SUCCESS` or `ERROR` key, so every tagged
+        line in the app rendered in the same default grey. Deciding what a tag
+        means is the view's now -- see `ui/log_view.parse_log_entry`, which
+        keeps the scalar (severity) and list (per-part palette colour) forms
+        apart instead of resolving both through one lookup.
+        """
         log_box = self._log_box()
         if log_box is None:
             return
-
-        def colored_html(part: str, color_tag: str | None) -> str:
-            if color_tag:
-                color = COLOR_MAP.get(str(color_tag).upper(), COLOR_MAP["DEFAULT"])
-                return f'<span style="color:{color}">{html.escape(str(part))}</span>'
-            return html.escape(str(part))
-
-        if isinstance(tag, list):
-            line = "".join(colored_html(part, sub_tag) for part, sub_tag in zip(message, tag))
-        elif tag:
-            line = colored_html(message, tag)
-        else:
-            line = html.escape(str(message))
-
-        log_box.moveCursor(QTextCursor.End)
-        log_box.insertHtml(line + "<br>")
-        log_box.moveCursor(QTextCursor.End)
+        log_box.append_log(message, tag)
 
     # Fire-and-forget by design, and silent when it cannot post. The guard used
     # to read `hasattr(self, "_invoker")` on the shared namespace; it is a port
