@@ -115,6 +115,11 @@ class StatusIndicatorTests(unittest.TestCase):
         # an indicator that vanishes when the answer is no cannot be told apart
         # from one that is broken or missing. And it does not pulse: recording
         # is something the user switched on themselves.
+        #
+        # Green on, red off: `gui_overlay`'s `Live` / `Stopped` convention, and
+        # the inverse of a camera's REC lamp. The literal colours are asserted
+        # because getting them backwards is the whole risk here, and both
+        # readings look deliberate on screen.
         self._run(
             """
             # Shown through a parent, never with `flag.show()` -- calling that
@@ -129,21 +134,20 @@ class StatusIndicatorTests(unittest.TestCase):
             flag = host.findChild(RecordingFlag)
             assert flag.isVisible(), "the flag hid itself when idle"
             assert not flag.is_recording()
-            dim = flag.findChild(PulsingDot)
-            assert not dim.is_pulsing()
-            off_colour = pixel(dim, 0)
+            dot = flag.findChild(PulsingDot)
+            assert not dot.is_pulsing()
+            assert pixel(dot, 0) == "#f87171", ("off should be red", pixel(dot, 0))
 
             flag.set_recording(True)
             app.processEvents()
             assert flag.isVisible() and flag.is_recording()
-            assert not dim.is_pulsing(), "REC must not animate"
-            assert pixel(dim, 0) == "#f87171", pixel(dim, 0)
+            assert not dot.is_pulsing(), "REC must not animate"
+            assert pixel(dot, 0) == "#22c55e", ("on should be green", pixel(dot, 0))
 
             flag.set_recording(False)
             app.processEvents()
             assert flag.isVisible() and not flag.is_recording()
-            assert pixel(dim, 0) == off_colour
-            assert off_colour != "#f87171"
+            assert pixel(dot, 0) == "#f87171", pixel(dot, 0)
             """
         )
 
@@ -160,9 +164,9 @@ class StatusIndicatorTests(unittest.TestCase):
             app.processEvents()
             assert pixel(dot, 0) == "#22c55e", pixel(dot, 0)
 
-            _set_widget_style_role(dot, "statusDot", state="rec")
+            _set_widget_style_role(dot, "statusDot", state="idle")
             app.processEvents()
-            assert pixel(dot, 0) == "#f87171", pixel(dot, 0)
+            assert pixel(dot, 0) == "#5c6675", pixel(dot, 0)
             """
         )
 

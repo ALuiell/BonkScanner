@@ -160,8 +160,17 @@ class RecordingFlag(QWidget):
     Deliberately not hidden when idle. The question it answers is "is a
     recording running", and a widget that is absent when the answer is no
     cannot be told apart from one that is broken, missing or on a tab the user
-    is not looking at -- which is how it read the first time. A camera's REC
-    lamp is the same shape: always there, dark until it isn't.
+    is not looking at -- which is how it read the first time.
+
+    Green for on and red for off, which is `gui_overlay`'s convention for the
+    OBS server's `Live` / `Stopped` line rather than a camera's REC lamp, where
+    red means recording. The app already had one of these, so the flag matches
+    it; being wrong the same way everywhere beats being right in one place.
+    The colours are the redesign's tokens, not the older inline hexes.
+
+    The dot carries the state and the caption does not: a red word "REC" reads
+    as an error rather than as "no recording", so the text stays level and the
+    circle says which it is.
 
     Its own widget rather than two loose header children so the pair moves and
     switches together.
@@ -175,11 +184,16 @@ class RecordingFlag(QWidget):
         layout.setSpacing(6)
 
         # A `PulsingDot` for the painting and the per-state colour, not for the
-        # animation: `rec` is not in `PULSING_STATES`, so this one is drawn
-        # static. Recording is something the user switched on and can already
-        # see in the Live Stats tab; the flag reports it rather than nagging.
+        # animation: neither `on` nor `off` is in `PULSING_STATES`, so this one
+        # is drawn static. Recording is something the user switched on and can
+        # already see in the Live Stats tab; the flag reports it rather than
+        # nagging.
+        #
+        # `recDot`, not `statusDot`: the two answer different questions and
+        # their states do not line up -- this one is on/off, the scanner's is
+        # idle/running -- so they get their own colour rules.
         self._dot = PulsingDot()
-        self._dot.setObjectName("statusDot")
+        self._dot.setObjectName("recDot")
         layout.addWidget(self._dot, 0, Qt.AlignVCenter)
 
         self._text = QLabel("REC")
@@ -191,8 +205,7 @@ class RecordingFlag(QWidget):
     def set_recording(self, recording: bool) -> None:
         """Light or dim the flag. Called once a second by `update_timer`."""
         self._recording = bool(recording)
-        _set_state(self._dot, "rec" if self._recording else "idle")
-        _set_state(self._text, "on" if self._recording else "off")
+        _set_state(self._dot, "on" if self._recording else "off")
 
     def is_recording(self) -> bool:
         return self._recording

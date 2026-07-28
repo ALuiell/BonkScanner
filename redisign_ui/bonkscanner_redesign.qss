@@ -74,14 +74,20 @@ QFrame#headerDivider {           /* вертикальный разделите�
    размер 18px — это место под кольцо, не размер самой точки.
    Цвет по-прежнему задаётся здесь, через qproperty вместо background-color:
      dot.setProperty("state","running"); dot.style().polish(dot)          */
-QLabel#statusDot {
+QLabel#statusDot, QLabel#recDot {
     min-width: 18px; max-width: 18px; min-height: 18px; max-height: 18px;
     background: transparent;
-    qproperty-dotColor: #5C6675;   /* дефолт = idle */
 }
+QLabel#statusDot                  { qproperty-dotColor: #5C6675; }  /* дефолт = idle */
 QLabel#statusDot[state="running"] { qproperty-dotColor: #22C55E; }
 QLabel#statusDot[state="idle"]    { qproperty-dotColor: #5C6675; }
-QLabel#statusDot[state="rec"]     { qproperty-dotColor: #F87171; }
+
+/* REC — то же соглашение, что у статуса OBS Overlay: зелёный = идёт,
+   красный = выключено. Не лампочка камеры (там наоборот), а индикатор
+   «работает / не работает», как `Live` / `Stopped` на вкладке оверлея. */
+QLabel#recDot              { qproperty-dotColor: #F87171; }
+QLabel#recDot[state="on"]  { qproperty-dotColor: #22C55E; }
+QLabel#recDot[state="off"] { qproperty-dotColor: #F87171; }
 
 QWidget#recFlag { background: transparent; }
 
@@ -89,11 +95,10 @@ QLabel#statusText { font-weight: 600; font-size: 12px; color: #8A94A3; }
 QLabel#statusText[state="running"] { color: #7DE68C; }
 QLabel#statusText[state="idle"]    { color: #8A94A3; }
 
-/* REC — всегда на линии, гаснет вместо того чтобы исчезать: отсутствующий
-   индикатор не отличить от сломанного. */
-QLabel#recText { color: #F87171; font-weight: 700; font-size: 12px; }
-QLabel#recText[state="on"]  { color: #F87171; }
-QLabel#recText[state="off"] { color: #5C6675; }
+/* REC — всегда на линии: отсутствующий индикатор не отличить от сломанного.
+   Состояние несёт кружок, подпись остаётся ровной — красное слово «REC»
+   читалось бы как ошибка, а не как «запись не идёт». */
+QLabel#recText { color: #8A94A3; font-weight: 700; font-size: 12px; }
 
 QLabel#sessionMeta {
     color: #8A94A3;
