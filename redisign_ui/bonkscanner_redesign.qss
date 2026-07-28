@@ -23,6 +23,8 @@
 
    СОГЛАШЕНИЕ ПО objectName
      Кнопки:   primary · danger · ghost · stopScanner · iconBtn · railToggle
+     Сканер:   [scannerToggle="true"] (рамка) · scannerSegment
+               (+ prop segment=start|stop, active=true|false)
      Статус:   statusDot (+ prop state=running|idle|rec) · statusText · recText
      Лого:     appLogo · appTitle
      Карты:    panel · card · cardInner · groupTitle · sectionEyebrow
@@ -303,6 +305,49 @@ QPushButton#stopScanner {
     padding: 11px 16px; border-radius: 11px;
 }
 QPushButton#stopScanner:hover { background-color: #CC2626; }
+
+/* ------------------------------------- scanner Start/Stop (сегменты) ---- */
+/* Контейнер выбирается по СВОЙСТВУ, а не по objectName: `update_status_ui`
+   зовёт `_set_widget_style_role` на этом же виджете и переименовывает его в
+   `primary` / `stopScanner`, так что имя здесь ненадёжно. */
+QFrame[scannerToggle="true"] {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+}
+QPushButton#scannerSegment {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: #5C6675;
+    font-weight: 700;
+    font-size: 12.5px;
+    padding: 7px 18px;
+}
+/* Погашенный сегмент — это состояние, а не поломка: он выключен, чтобы по нему
+   нельзя было запустить уже запущенный сканер, но красится не как :disabled. */
+QPushButton#scannerSegment:disabled {
+    background: transparent; border-color: transparent; color: #5C6675;
+}
+QPushButton#scannerSegment[active="true"][segment="start"] {
+    background-color: #2F6FB0; border-color: #3E82C6; color: #ffffff;
+}
+QPushButton#scannerSegment[active="true"][segment="start"]:hover {
+    background-color: #3781CE; border-color: #4E93D7;
+}
+QPushButton#scannerSegment[active="true"][segment="start"]:pressed {
+    background-color: #276099;
+}
+QPushButton#scannerSegment[active="true"][segment="stop"] {
+    background-color: #B91C1C; border-color: #C8302F; color: #ffffff;
+    font-weight: 800; letter-spacing: 0.3px;
+}
+QPushButton#scannerSegment[active="true"][segment="stop"]:hover {
+    background-color: #CC2626;
+}
+QPushButton#scannerSegment[active="true"][segment="stop"]:pressed {
+    background-color: #9F1616;
+}
 
 /* icon-only (Settings ⚙, Help ?) — квадрат 36x36, светлее фон */
 QPushButton#iconBtn {

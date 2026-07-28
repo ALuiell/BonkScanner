@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 from functools import partial
 
+from ui.scanner_toggle import ScannerToggle
 from ui.shared import (
     _apply_button_icon,
     _clear_layout,
@@ -745,18 +746,14 @@ def _build_logs_tab(app):
 
 
 def _build_header_controls(app, controls):
-    app.toggle_btn = QPushButton("Start Scanner")
-    app.toggle_btn.setObjectName("primary")
-    # Both floors sit above what either state asks for on its own, measured:
-    # `Start Scanner` wants 199x34 and `Stop Scanner` 194x37 -- the `stopScanner`
-    # role is a size larger (13px/800 against 12.5px/700, and 11px padding
-    # against 9px). Left to themselves the two would disagree by 5px across and
-    # 3px down, so the button would twitch and drag the help and settings icons
-    # with it every time the scanner started or stopped. Clamped, the header
-    # holds still and the button reads wider than the old one either way.
-    app.toggle_btn.setMinimumWidth(210)
-    app.toggle_btn.setMinimumHeight(38)
-    app.toggle_btn.clicked.connect(app._scanner.toggle_main_loop)
+    # Two segments rather than one caption-swapping button. The size floors
+    # this line used to carry -- `setMinimumWidth(210)` / `setMinimumHeight(38)`
+    # over a button that measured 199x34 as `Start Scanner` and 194x37 as
+    # `Stop Scanner` -- are gone with the disagreement that needed them: the
+    # segments keep their own captions, so the control is one width in both
+    # states and the header no longer twitches on start and stop.
+    app.toggle_btn = ScannerToggle()
+    app.toggle_btn.toggle_requested.connect(app._scanner.toggle_main_loop)
     controls.addWidget(app.toggle_btn)
 
     app.settings_btn = QPushButton("")
