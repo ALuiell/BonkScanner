@@ -71,11 +71,34 @@ class RecordingsLayoutTests(unittest.TestCase):
                 for group in page.findChildren(QGroupBox)
                 if group.objectName().startswith("LiveStats")
             } == {
-                "LiveStatsRunSummary",
-                "LiveStatsStageSummary",
-                "LiveStatsPowerups",
                 "LiveStatsItems",
             }
+
+            # "Segment Compare" is gone: its height followed its own contents,
+            # so every scrub frame resized it and shoved the stage cards
+            # around. Its gains preview lives in Compare Details, which is
+            # hidden until a compare pin exists.
+            compare_details = view._compare_details_group
+            assert compare_details is not None
+            assert not compare_details.isVisibleTo(view._tab)
+            assert view._new_items_label.parent() is compare_details
+
+            # The Stage Summary table became four cards. They keep the table's
+            # label dicts, so `set_stage_summary_labels` still writes them --
+            # which is what makes this a layout change and not a data one.
+            cards = page.findChildren(QFrame, "StageChapterCard")
+            assert len(cards) == 4, len(cards)
+            assert [card.stage_number for card in cards] == [1, 2, 3, 4]
+            assert len(view._stage_summary_labels) == 4
+            assert set(view._stage_summary_labels[0]) == {
+                "stage",
+                "time",
+                "kills",
+                "items",
+            }
+            # Nothing is loaded, so every stage is dimmed and none is current.
+            assert all(card.property("hasData") is False for card in cards)
+            assert all(card.property("current") is False for card in cards)
 
             tabview.resize(900, 600)
             tabview.show()
@@ -109,6 +132,70 @@ class RecordingsLayoutTests(unittest.TestCase):
             }
             assert "Chests (Expected = key procs)" in loot_groups
             assert "Item Rarity (Expected = items by tier)" in loot_groups
+            # The chest-rate estimate moved here out of the deleted
+            # "Run Summary" card: it predicts a rate from two stats and counts
+            # no chests, so it belongs beside the counters, not beside the
+            # measured run totals.
+            assert view._chests_per_minute_label.parent().findChild(
+                QLabel, "RecordingsChestRateEstimate"
+            ) is not None
+            assert loot_page.findChild(QLabel, "RecordingsChestRateEstimate") is not None
+
+            # The library panel: search, the auto-filter footer, and the
+            # button that used to sit between the name field and Delete. It
+            # acts on the whole library, so its home is the footer.
+            from PySide6.QtWidgets import QFrame, QLineEdit, QSpinBox
+            chooser = view._chooser_group
+            assert chooser is not None
+            assert chooser.findChild(QLineEdit, "RecordingsSearch") is not None
+            footer = chooser.findChild(QFrame, "RecordingsLibraryFooter")
+            assert footer is not None
+            assert footer.findChild(QSpinBox, "RecordingsMinimumSnapshots") is not None
+            assert view._cleanup_btn.parent() is footer
+            # Filled at build time, not on the first refresh: the panel starts
+            # collapsed, so a footer that waits would read "0 recordings".
+            assert view._library_summary_label.text() != "--"
+
+            # The record plaque. The name is a heading; the field that used to
+            # occupy the row full-time appears only during a rename, and Delete
+            # is behind the menu button rather than one mis-click from it.
+            plaque = view._tab.findChild(QFrame, "RecordingPlaque")
+            assert plaque is not None
+            assert view._title_label.parent() is plaque
+            assert view._status_label.parent() is plaque
+            assert not view._name_entry.isVisibleTo(plaque)
+            assert view._menu_btn.menu() is not None
+            assert [
+                action.text()
+                for action in view._menu_btn.menu().actions()
+                if action.text()
+            ] == ["Rename", "Delete"]
+            # Nothing is loaded, so neither affordance is live.
+            assert not view._rename_btn.isEnabled()
+            assert not view._menu_btn.isEnabled()
+
+            # Escape abandons a rename. Asserted here rather than in
+            # `test_recording_plaque.py` because it needs a real QKeyEvent,
+            # which is fatal to build once the suite has mock installed.
+            from PySide6.QtCore import QEvent, Qt
+            from PySide6.QtGui import QKeyEvent
+            from ui.tabs.player_stats.recordings import _NameEdit
+
+            field = _NameEdit()
+            field.setText("950k")
+            cancels = []
+            field.cancelled.connect(lambda: cancels.append(True))
+            field.keyPressEvent(
+                QKeyEvent(QEvent.KeyPress, Qt.Key_Escape, Qt.NoModifier)
+            )
+            assert cancels == [True]
+            assert field.text() == "950k"
+
+            # "Expanded" is a corner widget of the detail tab bar now, not a
+            # full-width row above the stat grid.
+            assert view._detail_tabs.cornerWidget() is view._stats_expanded_toggle
+            stats_page = view._detail_tabs.widget(0)
+            assert view._stats_expanded_toggle.parent() is not stats_page
             """
         )
         env = os.environ.copy()

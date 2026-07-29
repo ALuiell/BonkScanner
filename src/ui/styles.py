@@ -618,6 +618,150 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             background-color: #0B0F14;
             border: none;
         }
+        /* Stage chapters: the four cards that replaced the Stage Summary
+           table. `hasData=false` is a stage this run never reached -- dimmed
+           rather than hidden, so the run's shape stays readable at a glance;
+           `current=true` is the stage the playhead is inside. */
+        QFrame#StageChapterCard {
+            background-color: #0B0F14;
+            border: 1px solid #1B222B;
+            border-radius: 11px;
+        }
+        QFrame#StageChapterCard:hover {
+            border-color: #2E3A48;
+        }
+        QFrame#StageChapterCard[current="true"] {
+            border-color: #3E82C6;
+            background-color: #10161F;
+        }
+        QFrame#StageChapterCard[hasData="false"] {
+            border-color: #151B23;
+        }
+        QFrame#StageChapterCard QLabel {
+            background: transparent;
+            border: none;
+        }
+        QLabel#StageChapterTitle {
+            color: #EDF1F5;
+            font-weight: 800;
+            font-size: 12px;
+        }
+        QLabel#StageChapterTime {
+            color: #5C6675;
+            font-weight: 700;
+            font-size: 11px;
+        }
+        QLabel#StageChapterKills {
+            color: #B9C2CE;
+            font-size: 12px;
+        }
+        QLabel#StageChapterItems {
+            font-size: 11px;
+        }
+        QFrame#StageChapterCard[hasData="false"] QLabel {
+            color: #3D4756;
+        }
+        QLabel#RecordingScrubberPosition {
+            color: #EDF1F5;
+            font-weight: 700;
+            background-color: #141A22;
+            border: 1px solid #2E3A48;
+            border-radius: 9px;
+            padding: 4px 11px;
+        }
+        QLabel#RecordingScrubberLegend, QLabel#RecordingScrubberCompareHint {
+            background: transparent;
+        }
+        /* The recordings library: search, rows, and the auto-filter footer. */
+        QListWidget#RecordingsList::item {
+            border-bottom: 1px solid #1B222B;
+            padding: 0;
+        }
+        QListWidget#RecordingsList::item:selected {
+            background-color: rgba(47, 111, 176, 0.18);
+            border-left: 2px solid #3E82C6;
+        }
+        QWidget#RecordingRow {
+            background: transparent;
+        }
+        QLabel#RecordingRowName {
+            color: #EDF1F5;
+            font-size: 12.5px;
+            font-weight: 700;
+            background: transparent;
+        }
+        QLabel#RecordingRowMeta {
+            color: #5C6675;
+            font-size: 11px;
+            background: transparent;
+        }
+        QProgressBar#RecordingRowBar {
+            background: #151B23;
+            border: 0;
+            border-radius: 2px;
+        }
+        QProgressBar#RecordingRowBar::chunk {
+            background: #2E3A48;
+            border-radius: 2px;
+        }
+        QFrame#RecordingsLibraryFooter {
+            border-top: 1px solid #1B222B;
+        }
+        QFrame#RecordingsLibraryFooter QLabel {
+            background: transparent;
+            color: #8A94A3;
+            font-size: 11.5px;
+        }
+        QLabel#RecordingsLibrarySummary {
+            color: #EDF1F5;
+            font-weight: 700;
+        }
+        QLabel#RecordingsLibraryHint {
+            color: #5C6675;
+            font-size: 11px;
+        }
+        QFrame#RecordingPlaque {
+            background: transparent;
+        }
+        QLabel#RecordingPlaqueTitle {
+            color: #EDF1F5;
+            font-size: 16px;
+            font-weight: 700;
+            background: transparent;
+        }
+        QLabel#RecordingPlaqueStatus {
+            color: #5C6675;
+            font-size: 11.5px;
+            background: transparent;
+        }
+        QLineEdit#RecordingPlaqueNameEdit {
+            font-size: 15px;
+            font-weight: 700;
+            padding: 2px 7px;
+        }
+        /* Both plaque buttons are glyph-only and sit next to a heading, so they
+           carry no fill until the pointer is on them: at rest the row should
+           read as a title, not as a toolbar. */
+        QPushButton#RecordingPlaqueRename, QPushButton#RecordingPlaqueMenu {
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            color: #5C6675;
+            font-size: 13px;
+            padding: 0;
+        }
+        QPushButton#RecordingPlaqueRename:hover, QPushButton#RecordingPlaqueMenu:hover {
+            background: #1A222C;
+            border: 1px solid #2E3A48;
+            color: #EDF1F5;
+        }
+        QPushButton#RecordingPlaqueRename:disabled, QPushButton#RecordingPlaqueMenu:disabled {
+            color: #2A323D;
+        }
+        QPushButton#RecordingPlaqueMenu::menu-indicator {
+            width: 0;
+            height: 0;
+        }
         QTextEdit, QPlainTextEdit, QListWidget, QTreeWidget, QTableWidget {
             background-color: #0E1217;
             border: 1px solid #2A3542;

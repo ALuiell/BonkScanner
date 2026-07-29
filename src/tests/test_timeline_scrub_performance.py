@@ -562,7 +562,8 @@ class RecordingsScrubTests(unittest.TestCase):
         tab._loaded_vod = fake_vod("Run", (0.0, 10.0, 20.0, 30.0))
         tab._snapshot_index = 0
         tab._requested_snapshot_index = 0
-        tab._slider_time_label = FakeLabel()
+        tab._position_label = FakeLabel()
+        tab._legend_label = FakeLabel()
         tab.display_loaded_vod_snapshot = MagicMock()
         return tab
 
@@ -570,22 +571,28 @@ class RecordingsScrubTests(unittest.TestCase):
         throttle, _scheduler = paused_throttle()
         tab = self._tab(throttle)
 
-        tab.on_vods_slider_changed(2)
+        tab.on_scrub_index_changed(2)
 
         tab.display_loaded_vod_snapshot.assert_called_once_with(2)
 
-    def test_a_drag_updates_the_caption_but_renders_once(self) -> None:
+    def test_a_drag_updates_the_readout_but_renders_once(self) -> None:
+        """The cheap half of a drag frame is the readout, and only that.
+
+        The scrubber repaints itself from state it already holds; what the
+        *tab* must do on every pointer move is write the position line, and
+        defer the ~40-widget snapshot render to the throttle.
+        """
         throttle, scheduler = paused_throttle()
         tab = self._tab(throttle)
 
         for value in (1, 2, 3):
-            tab.on_vods_slider_changed(value)
+            tab.on_scrub_index_changed(value)
 
         self.assertEqual(
-            ["Timeline: 00s - 30s | Selected: 10s",
-             "Timeline: 00s - 30s | Selected: 20s",
-             "Timeline: 00s - 30s | Selected: 30s"],
-            tab._slider_time_label.writes,
+            ["2 / 4  ·  10s  ·  in-game 00:10",
+             "3 / 4  ·  20s  ·  in-game 00:20",
+             "4 / 4  ·  30s  ·  in-game 00:30"],
+            tab._position_label.writes,
         )
         self.assertEqual([((1,), {})], [
             (call.args, call.kwargs) for call in tab.display_loaded_vod_snapshot.call_args_list
@@ -603,10 +610,10 @@ class RecordingsScrubTests(unittest.TestCase):
         """
         throttle, scheduler = paused_throttle()
         tab = self._tab(throttle)
-        tab.on_vods_slider_changed(1)  # renders immediately, index 1
+        tab.on_scrub_index_changed(1)  # renders immediately, index 1
         tab._snapshot_index = 1
-        tab.on_vods_slider_changed(3)  # queued
-        tab.on_vods_slider_changed(1)  # back to the rendered snapshot
+        tab.on_scrub_index_changed(3)  # queued
+        tab.on_scrub_index_changed(1)  # back to the rendered snapshot
 
         scheduler.fire()
 
@@ -616,10 +623,10 @@ class RecordingsScrubTests(unittest.TestCase):
         throttle, scheduler = paused_throttle()
         tab = self._tab(throttle)
 
-        tab.on_vods_slider_changed(0)
+        tab.on_scrub_index_changed(0)
 
         tab.display_loaded_vod_snapshot.assert_not_called()
-        self.assertEqual([], tab._slider_time_label.writes)
+        self.assertEqual([], tab._position_label.writes)
         self.assertEqual([], scheduler.queued)
 
     def test_loading_another_recording_drops_the_queued_frame(self) -> None:
@@ -631,8 +638,8 @@ class RecordingsScrubTests(unittest.TestCase):
         # which needs the tab's widgets; the cancel under test is the one in
         # `load_selected_vod`'s prologue, before any of that.
         tab._clear_loaded_vod_selection = MagicMock()
-        tab.on_vods_slider_changed(1)
-        tab.on_vods_slider_changed(3)  # queued
+        tab.on_scrub_index_changed(1)
+        tab.on_scrub_index_changed(3)  # queued
         rendered_before = tab.display_loaded_vod_snapshot.call_count
 
         tab.load_selected_vod("does-not-exist.json")

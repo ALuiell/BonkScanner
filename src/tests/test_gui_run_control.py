@@ -1181,10 +1181,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._name_entry.setEnabled = lambda enabled: setattr(app._name_entry, "enabled", bool(enabled))
         app._rename_btn = FakeControl()
         app._cleanup_btn = FakeControl()
-        app._delete_btn = FakeControl()
-        app._slider = FakeControl()
-        app._compare_set_btn = FakeControl()
-        app._compare_clear_btn = FakeControl()
+        app._menu_btn = FakeControl()
+        app._scrubber = FakeControl()
         app._status_label = FakeLabel()
         app.refresh_loaded_vod_ui = lambda: None
         app.refresh_vods_list = lambda: None
@@ -1203,11 +1201,12 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertIsNone(app._loaded_vod)
                 self.assertFalse(app._name_entry.enabled)
                 self.assertFalse(app._rename_btn.isEnabled())
-                self.assertFalse(app._cleanup_btn.isEnabled())
-                self.assertFalse(app._delete_btn.isEnabled())
-                self.assertFalse(app._slider.isEnabled())
-                self.assertFalse(app._compare_set_btn.isEnabled())
-                self.assertFalse(app._compare_clear_btn.isEnabled())
+                self.assertFalse(app._menu_btn.isEnabled())
+                # "Delete short" is not in this list any more: it acts on the
+                # whole library, so a recording being mid-load says nothing
+                # about whether it should be available.
+                self.assertTrue(app._cleanup_btn.isEnabled())
+                self.assertFalse(app._scrubber.isEnabled())
 
                 with patch_everywhere("rename_vod") as rename_vod:
                     app.rename_selected_vod()
@@ -1218,11 +1217,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIs(app._loaded_vod, loaded_vod)
         self.assertTrue(app._name_entry.enabled)
         self.assertTrue(app._rename_btn.isEnabled())
-        self.assertTrue(app._cleanup_btn.isEnabled())
-        self.assertTrue(app._delete_btn.isEnabled())
-        self.assertTrue(app._slider.isEnabled())
-        self.assertTrue(app._compare_set_btn.isEnabled())
-        self.assertFalse(app._compare_clear_btn.isEnabled())
+        self.assertTrue(app._menu_btn.isEnabled())
+        self.assertTrue(app._scrubber.isEnabled())
 
     def test_load_selected_vod_clears_old_ui_when_load_fails(self) -> None:
         app = build_recordings_tab()
@@ -1233,10 +1229,8 @@ class GuiRunControlTests(unittest.TestCase):
         app._name_entry.setEnabled = lambda enabled: setattr(app._name_entry, "enabled", bool(enabled))
         app._rename_btn = FakeControl()
         app._cleanup_btn = FakeControl()
-        app._delete_btn = FakeControl()
-        app._slider = FakeControl()
-        app._compare_set_btn = FakeControl()
-        app._compare_clear_btn = FakeControl()
+        app._menu_btn = FakeControl()
+        app._scrubber = FakeControl()
         app._status_label = FakeLabel()
         app._clear_loaded_vod_selection = MagicMock()
 
@@ -1248,9 +1242,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app._status_label.text(), "Could not load recording: broken file")
         self.assertFalse(app._name_entry.enabled)
         self.assertFalse(app._rename_btn.isEnabled())
-        self.assertTrue(app._cleanup_btn.isEnabled())
-        self.assertFalse(app._delete_btn.isEnabled())
-        self.assertFalse(app._slider.isEnabled())
+        self.assertFalse(app._menu_btn.isEnabled())
+        self.assertFalse(app._scrubber.isEnabled())
 
     def test_template_manager_dialog_expands_selected_template(self) -> None:
         MegabonkApp._ensure_qt_application()
@@ -3980,13 +3973,10 @@ class GuiRunControlTests(unittest.TestCase):
     def test_display_loaded_vod_snapshot_shows_legacy_in_game_fallback(self) -> None:
         app = build_recordings_tab()
         app._status_label = FakeLabel()
-        app._slider_time_label = FakeLabel()
+        app._position_label = FakeLabel()
+        app._legend_label = FakeLabel()
         app.vods_items_label = FakeLabel()
-        app._in_game_time_label = FakeLabel()
         app._chests_per_minute_label = FakeLabel()
-        app._mob_kills_label = FakeLabel()
-        app._kps_averages_label = FakeLabel()
-        app._level_label = FakeLabel()
         app._new_items_label = FakeLabel()
         app._banishes_label = FakeLabel()
         app._stage_summary_labels = []
@@ -4010,11 +4000,18 @@ class GuiRunControlTests(unittest.TestCase):
 
         app.display_loaded_vod_snapshot(0)
 
-        self.assertEqual(app._status_label.text(), "Legacy run | 1/1 at 00:00 | In-Game Time: --")
-        self.assertEqual(app._in_game_time_label.text(), "In-Game Time: --")
-        self.assertEqual(app._mob_kills_label.text(), "Mob Kills: --")
-        self.assertEqual(app._kps_averages_label.text(), "KPS: 60s -- | 5m --")
-        self.assertEqual(app._level_label.text(), "Level: --")
+        # The plaque's status line is not written per snapshot any more: it
+        # restated the position pill below, which is where these three numbers
+        # sit next to the playhead they describe.
+        self.assertEqual(app._status_label.text(), "")
+        # The "Run Summary" card is gone; the same four values are the
+        # scrubber's readout now. Mob Kills appears because no slot is
+        # plotting it -- there is no scrubber on this harness at all.
+        self.assertEqual(app._position_label.text(), "1 / 1  ·  00:00  ·  in-game --")
+        legend = app._legend_label.text()
+        self.assertIn("Mob Kills: --", legend)
+        self.assertIn("KPS: 60s -- | 5m --", legend)
+        self.assertIn("Level: --", legend)
         self.assertEqual(app._new_items_label.text(), "No previous snapshot")
         self.assertEqual(app._banishes_label.text(), "No banishes yet")
         self.assertEqual(app.vods_items_label.text(), "Wrench x1")
@@ -4022,13 +4019,10 @@ class GuiRunControlTests(unittest.TestCase):
     def test_display_loaded_vod_snapshot_updates_damage_sources_tab(self) -> None:
         app = build_recordings_tab()
         app._status_label = FakeLabel()
-        app._slider_time_label = FakeLabel()
+        app._position_label = FakeLabel()
+        app._legend_label = FakeLabel()
         app.vods_items_label = FakeLabel()
-        app._in_game_time_label = FakeLabel()
         app._chests_per_minute_label = FakeLabel()
-        app._mob_kills_label = FakeLabel()
-        app._kps_averages_label = FakeLabel()
-        app._level_label = FakeLabel()
         app._new_items_label = FakeLabel()
         app._banishes_label = FakeLabel()
         app._stage_summary_labels = []
@@ -4069,8 +4063,9 @@ class GuiRunControlTests(unittest.TestCase):
         sources, status_text = app._stat_cards.damage_sources[0]
         self.assertIsNone(status_text)
         self.assertEqual(sources[0].source_name, "Katana")
-        self.assertEqual(app._mob_kills_label.text(), "Mob Kills: 10 (150/s)")
-        self.assertEqual(app._kps_averages_label.text(), "KPS: 60s 243/s | 5m 221/s")
+        legend = app._legend_label.text()
+        self.assertIn("Mob Kills: 10 (150/s)", legend)
+        self.assertIn("KPS: 60s 243/s | 5m 221/s", legend)
 
     def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
         self.assertEqual(formatting.format_in_game_time(None), "In-Game Time: --")
