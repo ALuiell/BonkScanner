@@ -988,8 +988,8 @@ class Overlay:
         """
         dialog = QDialog(self.tab_stats)
         dialog.setWindowTitle("Session Tracked Items")
-        dialog.resize(860, 620)
-        dialog.setMinimumSize(760, 520)
+        dialog.resize(930, 660)
+        dialog.setMinimumSize(720, 520)
         dialog_layout = QVBoxLayout(dialog)
         dialog_layout.setContentsMargins(14, 14, 14, 14)
         dialog_layout.setSpacing(12)

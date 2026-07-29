@@ -527,7 +527,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         QLabel#LiveStatsCompactStatName {
             color: #D7DEE8;
             font-size: 14px;
-            font-weight: 700;
+            font-weight: 400;
         }
         QLabel#LiveStatsCompactStatValue {
             color: #F3F4F6;
