@@ -50,8 +50,27 @@ class SegmentedToggle(QFrame):
     #: it: the others are disabled, so the click never lands.
     activated = Signal(str)
 
-    def __init__(self, segments: Sequence[tuple[str, str, str]], parent=None) -> None:
+    def __init__(
+        self,
+        segments: Sequence[tuple[str, str, str]],
+        parent=None,
+        *,
+        disable_inactive: bool = True,
+    ) -> None:
+        """`disable_inactive` is what the segments *mean*.
+
+        Default: the lit segment is the action available now and the others are
+        disabled, so a click cannot ask for a transition that is not on offer --
+        the scanner's Start/Stop and the recording strip's Rec/Stop.
+
+        `False`: the segments are choices and the lit one is the current one, so
+        every segment stays clickable. The tracked-item picker's Map 1 / Whole
+        run is that, and shipping it on the default made "Whole run"
+        unselectable -- the segment was disabled, so the rule could not be made
+        at all.
+        """
         super().__init__(parent)
+        self._disable_inactive = bool(disable_inactive)
         self.setObjectName("segmentedToggle")
         # Selected by property rather than objectName in the QSS, because
         # `_set_widget_style_role` renames whatever it is handed and the
@@ -96,7 +115,7 @@ class SegmentedToggle(QFrame):
         self._variant = variant
         for button_key, button in self._buttons.items():
             live = button_key == key
-            button.setEnabled(live)
+            button.setEnabled(live or not self._disable_inactive)
             _set_properties(
                 button,
                 active="true" if live else "false",

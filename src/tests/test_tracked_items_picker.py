@@ -228,15 +228,75 @@ class TrackedItemPickerWidgetTests(unittest.TestCase):
         )
 
     def test_the_condition_is_a_choice_and_it_reaches_the_rule(self) -> None:
+        """Driven by clicking the segment, which is the part that was broken.
+
+        The first version of this case called `picker._on_mode("all_run")`
+        directly and passed while the window could not do it at all: segments
+        default to disabling whatever is not lit -- right when they are an
+        action and its undo, wrong when they are two choices -- so "Whole run"
+        was unclickable and an `all_run` rule could not be made.
+        """
         self._run(
             """
             assert picker.mode == "map_1_only"
-            picker._on_mode("all_run")
+            segments = picker._mode_toggle
+            assert segments.segment("all_run").isEnabled(), "the other choice is dead"
+            assert segments.segment("map_1_only").isEnabled()
+
+            segments.segment("all_run").click()
+            settle()
+            assert picker.mode == "all_run"
+
             picker.pick("Clover")
             settle()
             add_button().click()
             settle()
             assert store["rules"][0]["mode"] == "all_run", store["rules"]
+
+            # ...and back, so neither choice is a one-way door.
+            segments.segment("map_1_only").click()
+            settle()
+            assert picker.mode == "map_1_only"
+            """
+        )
+
+    def test_the_remove_button_actually_draws_its_glyph(self) -> None:
+        """It rendered as an empty rounded box, which reads as a checkbox.
+
+        `#chipRemove` set no padding, so it inherited the base `QPushButton`
+        rule's `9px 14px`; in a 20x20 button that leaves negative room for the
+        text and Qt clipped the glyph away entirely. Nothing raised -- the
+        button worked, it just had nothing on it.
+        """
+        self._run(
+            """
+            from PySide6.QtGui import QPixmap
+
+            picker.pick("Clover")
+            settle()
+            add_button().click()
+            settle()
+
+            buttons = [
+                b for b in picker.findChildren(QPushButton)
+                if b.objectName() == "chipRemove"
+            ]
+            assert len(buttons) == 1, buttons
+            button = buttons[0]
+            pixmap = QPixmap(button.size())
+            pixmap.fill()
+            button.render(pixmap)
+            image = pixmap.toImage()
+
+            # Ink anywhere inside the border, where the glyph belongs.
+            inset = 4
+            ink = sum(
+                1
+                for x in range(inset, button.width() - inset)
+                for y in range(inset, button.height() - inset)
+                if image.pixelColor(x, y).value() < 200
+            )
+            assert ink > 8, f"the glyph is missing: {ink} ink pixels"
             """
         )
 

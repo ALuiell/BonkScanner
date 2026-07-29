@@ -56,7 +56,7 @@ from projections.tracked_items import (
     tracked_item_color,
     tracked_item_display_name,
 )
-from ui.segmented_toggle import ROLE_GO, ROLE_HALT, SegmentedToggle
+from ui.segmented_toggle import ROLE_GO, SegmentedToggle
 from ui.shared import FlowLayout, _clear_layout
 
 #: The two conditions, and the captions the picker shows for them. The tracker
@@ -209,14 +209,16 @@ class TrackedItemPicker(QWidget):
         actions = QHBoxLayout()
         actions.setContentsMargins(0, 0, 0, 0)
         actions.setSpacing(10)
+        # Both segments are choices, not an action and its undo -- so the
+        # inactive one stays clickable. On the default it is disabled, which
+        # made "Whole run" unselectable and that rule impossible to create.
         self._mode_toggle = SegmentedToggle(
             (
                 (MODE_MAP_ONE, MODE_CAPTIONS[MODE_MAP_ONE], ROLE_GO),
-                (MODE_ALL_RUN, MODE_CAPTIONS[MODE_ALL_RUN], ROLE_HALT),
-            )
+                (MODE_ALL_RUN, MODE_CAPTIONS[MODE_ALL_RUN], ROLE_GO),
+            ),
+            disable_inactive=False,
         )
-        # Both segments are real choices here, not an action and its undo, so
-        # pressing either one selects it rather than firing a transition.
         self._mode = MODE_MAP_ONE
         self._mode_toggle.set_active(MODE_MAP_ONE)
         self._mode_toggle.activated.connect(self._on_mode)
