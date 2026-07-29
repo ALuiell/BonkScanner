@@ -77,6 +77,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QDoubleSpinBox,
 )
+from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT
 from core.item_metadata import preferred_item_display_name
 from core.stats.types import PLAYER_STAT_GROUPS
 from projections.tracked_items import (
@@ -560,14 +561,25 @@ class ConfirmDeleteRecordingDialog(QDialog):
 
 
 class CleanupRecordingsDialog(QDialog):
-    def __init__(self, parent):
+    """Confirm deleting every recording shorter than the auto-filter's threshold.
+
+    The threshold is pre-filled from the library's "don't keep runs shorter
+    than N" setting rather than defaulting to a hard-coded ``2``. They were two
+    numbers for one question, and the pair disagreed by construction: the
+    recorder discarded at one threshold while this dialog proposed another.
+    Editable still, because "clean up harder than I record" is a real one-off.
+    """
+
+    def __init__(self, parent, *, default_threshold: int | None = None):
         super().__init__(parent)
         self.threshold: int | None = None
         self.setWindowTitle("Clean Recordings")
         self.setModal(True)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Remove all recordings where snapshot count is less than:"))
-        self.threshold_entry = QLineEdit("2")
+        if default_threshold is None:
+            default_threshold = DEFAULT_MINIMUM_SNAPSHOT_COUNT
+        self.threshold_entry = QLineEdit(str(max(0, int(default_threshold))))
         layout.addWidget(self.threshold_entry)
         buttons = QDialogButtonBox()
         cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.RejectRole)

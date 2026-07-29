@@ -67,6 +67,8 @@ window) is a fact about the caller rather than a ``getattr`` that quietly went
 from __future__ import annotations
 
 import threading
+
+from infra import vod_storage
 from typing import Callable, Sequence
 
 from infra.vod_storage import (
@@ -74,6 +76,7 @@ from infra.vod_storage import (
     delete_vods_below_snapshot_count,
     load_cached_vods,
     load_vod,
+    minimum_snapshot_count,
     refresh_vod_metadata_index,
     rename_vod,
 )
@@ -84,9 +87,27 @@ __all__ = [
     "delete_vods_below_snapshot_count",
     "load_cached_vods",
     "load_vod",
+    "minimum_snapshot_count",
     "refresh_vod_metadata_index",
     "rename_vod",
+    "set_minimum_snapshot_count",
 ]
+
+
+def set_minimum_snapshot_count(value: int) -> None:
+    """Persist the auto-filter threshold through the recording settings.
+
+    Here rather than in ``infra.vod_storage`` beside its reader, because the
+    layering table forbids ``ui/ -> infra/`` and this seam is what the
+    Recordings tab is allowed to call. The reader is re-exported above for the
+    same reason.
+    """
+    settings = vod_storage._settings
+    if settings is None:
+        return
+    writer = getattr(settings, "write_minimum_snapshot_count", None)
+    if callable(writer):
+        writer(max(0, int(value)))
 
 
 class VodLibrary:

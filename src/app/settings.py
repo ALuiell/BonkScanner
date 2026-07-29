@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from app import config
+from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT
 
 
 class ConfigOverlaySettings:
@@ -33,4 +34,22 @@ class ConfigRecordingSettings:
 
     def write_metadata_index(self, payload: dict[str, Any]) -> None:
         config.user_config[self._INDEX_KEY] = payload
+        config.save_config(config.user_config)
+
+    #: Unlike `_INDEX_KEY` this one is new, so it gets an ordinary name.
+    _MINIMUM_SNAPSHOT_COUNT_KEY = "recordings_minimum_snapshot_count"
+
+    def read_minimum_snapshot_count(self) -> int:
+        stored = config.user_config.get(self._MINIMUM_SNAPSHOT_COUNT_KEY)
+        try:
+            value = int(stored)
+        except (TypeError, ValueError):
+            return DEFAULT_MINIMUM_SNAPSHOT_COUNT
+        # Zero means "keep everything, even a run with no snapshots at all",
+        # which is a choice the user is allowed to make; negative is not a
+        # choice, it is a corrupt config.
+        return max(0, value)
+
+    def write_minimum_snapshot_count(self, value: int) -> None:
+        config.user_config[self._MINIMUM_SNAPSHOT_COUNT_KEY] = max(0, int(value))
         config.save_config(config.user_config)

@@ -23,12 +23,33 @@ class OverlaySettings(Protocol):
         """
 
 
+#: Recordings shorter than this are discarded when the recorder stops.
+#:
+#: ``1`` is the historical behaviour spelled as a threshold: the rule used to
+#: be ``snapshot_count == 0``, which is exactly ``< 1``. Keeping it as the
+#: default means turning the setting into a knob changes nothing for anyone who
+#: never touches it.
+DEFAULT_MINIMUM_SNAPSHOT_COUNT = 1
+
+
 class RecordingSettings(Protocol):
     def read_metadata_index(self) -> dict[str, Any]:
         """The stored VOD metadata index, or an empty mapping."""
 
     def write_metadata_index(self, payload: dict[str, Any]) -> None:
         """Persist the VOD metadata index."""
+
+    def read_minimum_snapshot_count(self) -> int:
+        """Shortest run worth keeping, in snapshots.
+
+        Read by the recorder when it stops, and by the cleanup dialog as its
+        suggested threshold -- one number rather than the two that used to
+        disagree: a hard-coded discard rule in ``VodRecorder.stop`` and a
+        free-text field in ``CleanupRecordingsDialog``.
+        """
+
+    def write_minimum_snapshot_count(self, value: int) -> None:
+        """Persist the shortest run worth keeping."""
 
 
 class NullOverlaySettings:

@@ -11,7 +11,7 @@ from typing import Any
 
 from infra import paths
 
-from core.settings import RecordingSettings
+from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT, RecordingSettings
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
@@ -159,6 +159,25 @@ def _metadata_from_index_record(record: dict[str, Any]) -> tuple[Path, int, int,
     return path, int(record.get("mtime_ns") or 0), int(record.get("size") or 0), metadata
 
 
+def minimum_snapshot_count() -> int:
+    """Shortest run the recorder keeps, in snapshots.
+
+    Falls back to the default when there is no settings store, which is what a
+    test or a bare `VodRecorder` has: the alternative -- keeping everything --
+    would silently disable the discard rule in exactly the configuration that
+    is hardest to notice it in.
+    """
+    if _settings is None:
+        return DEFAULT_MINIMUM_SNAPSHOT_COUNT
+    reader = getattr(_settings, "read_minimum_snapshot_count", None)
+    if not callable(reader):
+        return DEFAULT_MINIMUM_SNAPSHOT_COUNT
+    try:
+        return max(0, int(reader()))
+    except (TypeError, ValueError):
+        return DEFAULT_MINIMUM_SNAPSHOT_COUNT
+
+
 def _load_index_records() -> list[dict[str, Any]]:
     if _settings is None:
         return []
@@ -282,10 +301,15 @@ class VodRecorder:
             self._file.flush()
             self._file.close()
             self._file = None
-        if self.path is not None and self.snapshot_count == 0:
+        threshold = minimum_snapshot_count()
+        if self.path is not None and self.snapshot_count < threshold:
             self.path.unlink(missing_ok=True)
             clear_vod_metadata_cache()
-            status = "deleted_empty"
+            # Two statuses rather than one, because the caller logs them and
+            # "we threw away a run you played" deserves different words from
+            # "the file was empty". `deleted_empty` keeps its exact old meaning
+            # so the existing log line and its test stay true.
+            status = "deleted_empty" if self.snapshot_count == 0 else "deleted_short"
         return status
 
     def close(self) -> None:
