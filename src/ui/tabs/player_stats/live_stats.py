@@ -54,6 +54,7 @@ from typing import Callable, Sequence
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -74,7 +75,6 @@ from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS
 from ui.shared import (
     FlowLayout,
-    StartupSafeComboBox,
     _apply_summary_label_padding,
     _make_scroll_section,
     _set_text,
@@ -768,7 +768,7 @@ class LiveStatsTab:
         items_sort_row.setContentsMargins(0, 0, 0, 0)
         items_sort_row.addStretch(1)
         items_sort_row.addWidget(QLabel("Sort:"))
-        items_sort_combo = StartupSafeComboBox()
+        items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             items_sort_combo.addItem(label, mode)
         items_sort_row.addWidget(items_sort_combo)
@@ -991,10 +991,18 @@ class LiveStatsTab:
         self._stats_expanded_toggle.toggled.connect(
             self._save_stats_expanded_preference
         )
-        compact_stats_grid.setHidden(self._stats_expanded_toggle.isChecked())
-        expanded_stats_grid.setVisible(self._stats_expanded_toggle.isChecked())
+        # Both grids join the layout **before** either is made visible, and that
+        # order is the whole point. `_ResponsiveCardGrid` is built parentless, so
+        # showing one here -- which `setHidden(False)` does whenever the toggle
+        # is off -- gave it a real top-level window, titled with the application
+        # name because the widget has none of its own. `addWidget` reparented it
+        # ~20 ms later and the window died. That is the blank `BonkScanner`
+        # window that flashed before the real one at every start; Recordings had
+        # its own copy of these lines and its own flash.
         player_stats_scroll_layout.addWidget(compact_stats_grid)
         player_stats_scroll_layout.addWidget(expanded_stats_grid)
+        compact_stats_grid.setHidden(self._stats_expanded_toggle.isChecked())
+        expanded_stats_grid.setVisible(self._stats_expanded_toggle.isChecked())
         player_stats_scroll_layout.addStretch(1)
         # The Loot tab: the chests card as it was, and the rarity card beside
         # it. Both say "Expected" and they mean different things -- key procs

@@ -39,6 +39,7 @@ from typing import Callable
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QFormLayout,
     QFrame,
@@ -78,7 +79,6 @@ from ui.tabs.player_stats.metrics import (
 )
 from ui.shared import (
     FlowLayout,
-    StartupSafeComboBox,
     _apply_summary_label_padding,
     _clear_text_input,
     _make_scroll_section,
@@ -863,7 +863,7 @@ class RecordingsTab:
         vod_items_sort_row.setContentsMargins(0, 0, 0, 0)
         vod_items_sort_row.addStretch(1)
         vod_items_sort_row.addWidget(QLabel("Sort:"))
-        vods_items_sort_combo = StartupSafeComboBox()
+        vods_items_sort_combo = QComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             vods_items_sort_combo.addItem(label, mode)
         vod_items_sort_row.addWidget(vods_items_sort_combo)
@@ -1113,10 +1113,12 @@ class RecordingsTab:
         self._stats_expanded_toggle.toggled.connect(
             self._save_stats_expanded_preference
         )
-        compact_stats_grid.setHidden(self._stats_expanded_toggle.isChecked())
-        expanded_stats_grid.setVisible(self._stats_expanded_toggle.isChecked())
+        # Parented before shown -- see the note on the same four lines in
+        # `live_stats.py`. This copy was the second blank window.
         vods_scroll_layout.addWidget(compact_stats_grid)
         vods_scroll_layout.addWidget(expanded_stats_grid)
+        compact_stats_grid.setHidden(self._stats_expanded_toggle.isChecked())
+        expanded_stats_grid.setVisible(self._stats_expanded_toggle.isChecked())
         vods_scroll_layout.addStretch(1)
 
         vod_loot_tab = QWidget()

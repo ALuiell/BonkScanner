@@ -32,7 +32,6 @@ from ui.shared import (
     CollapsibleSection,
     CollapsibleSectionGroup,
     FlowLayout,
-    StartupSafeComboBox,
     TrackedRuleTagWidget,
     _make_scroll_section,
     _set_text,
@@ -302,7 +301,7 @@ class Overlay:
 
         # Widget selector
         urls_layout.addWidget(QLabel("Select Widget:"), 1, 0)
-        self.overlay_widget_url_combo = StartupSafeComboBox()
+        self.overlay_widget_url_combo = QComboBox()
         for widget_id, label in OVERLAY_WIDGET_LABELS.items():
             self.overlay_widget_url_combo.addItem(label, widget_id)
         self.overlay_widget_url_combo.addItem("Layout Editor Mode", "editor")

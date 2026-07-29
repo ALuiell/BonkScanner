@@ -806,24 +806,20 @@ class MegabonkApp:
             self._close_protocol_handler = callback
 
     def mainloop(self) -> int:
-        self._show_main_window_ready()
-        return self.qt_app.exec()
-
-    def _show_main_window_ready(self) -> None:
-        """Map the native window only after Qt has painted its complete first frame."""
-        qt_app = self.qt_app
-        self.window.setWindowOpacity(0.0)
-        self.window.setUpdatesEnabled(False)
+        # A plain `show()`, and the opacity dance that stood here is deleted
+        # rather than kept. It was written against a wrong diagnosis: the two
+        # blank windows that flashed before this one were parentless stat grids
+        # made visible before a layout adopted them (see `live_stats.build`),
+        # not this window painting late. Measured on the real desktop, the
+        # dance changed nothing -- `show()` to first paint is ~80 ms with it and
+        # without it, and it was ~80 ms before the visual redesign too.
+        #
+        # That window is real and can be closed by doing the first polish and
+        # layout pass under `Qt.WA_DontShowOnScreen` before mapping anything.
+        # It is not worth a hack that only looks like it does that: kept, these
+        # lines would read as load-bearing to whoever finds them next.
         self.window.show()
-        qt_app.processEvents()
-
-        # Windows can display the native frame immediately after show(), one
-        # paint cycle before Qt fills the central widget. Paint that cycle while
-        # the window is transparent, then reveal the already-complete frame.
-        self.window.setUpdatesEnabled(True)
-        self.window.update()
-        qt_app.processEvents()
-        self.window.setWindowOpacity(1.0)
+        return self.qt_app.exec()
 
     def destroy(self):
         self._close_in_progress = True
