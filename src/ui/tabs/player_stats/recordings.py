@@ -1279,10 +1279,15 @@ class RecordingsTab:
         self._title_label = QLabel("No recording selected")
         self._title_label.setObjectName("RecordingPlaqueTitle")
         title_row.addWidget(self._title_label)
-        self._rename_btn = QPushButton("✎")
+        # A labelled button, not a bare glyph. The pencil on its own was a dim
+        # 24px outline beside a 16px heading: at rest it read as decoration on
+        # the title rather than as something you could press, and it never said
+        # what pressing it would do.
+        self._rename_btn = QPushButton("✎  Rename")
         self._rename_btn.setObjectName("RecordingPlaqueRename")
+        self._rename_btn.setProperty("class", "SmallGhostButton")
         self._rename_btn.setToolTip("Rename this recording")
-        self._rename_btn.setFixedSize(24, 24)
+        self._rename_btn.setCursor(Qt.PointingHandCursor)
         self._rename_btn.setEnabled(False)
         self._rename_btn.clicked.connect(self.begin_rename)
         title_row.addWidget(self._rename_btn)
@@ -1607,7 +1612,12 @@ class RecordingsTab:
         vods_items_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         vods_items_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         vods_items_scroll.setWidget(vods_items_chips_container)
-        vod_items_layout.addWidget(vods_items_scroll, 1)
+        # A floor under the list. Banishes below it grows with its own contents
+        # and has no ceiling, so on a 1280x800 window a long run squeezed the
+        # item chips to a 203 px viewport over 1058 px of content -- a fifth of
+        # the panel showing a twentieth of the list.
+        vods_items_scroll.setMinimumHeight(220)
+        vod_items_layout.addWidget(vods_items_scroll, 3)
 
         self._items_section = ItemsSectionView(
             group=vod_items_group,

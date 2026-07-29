@@ -91,6 +91,18 @@ class RecordingsLayoutTests(unittest.TestCase):
             ], [chip.text() for chip in chips]
             sort_combo = items.findChild(QComboBox, "ItemsSortCombo")
             assert sort_combo is not None
+
+            # A floor under the chip list. Banishes below it grows with its own
+            # contents and has no ceiling, so a long run squeezed the list to a
+            # fifth of the panel over twenty times its own height of content.
+            from PySide6.QtCore import Qt as _Qt
+            from PySide6.QtWidgets import QScrollArea
+            items_scroll = items.findChild(QScrollArea, "LiveStatsItemsScroll")
+            assert items_scroll is not None
+            assert items_scroll.minimumHeight() >= 220, items_scroll.minimumHeight()
+            assert (
+                items_scroll.verticalScrollBarPolicy() == _Qt.ScrollBarAsNeeded
+            )
             assert {
                 group.objectName()
                 for group in page.findChildren(QGroupBox)
@@ -225,6 +237,9 @@ class RecordingsLayoutTests(unittest.TestCase):
                 for action in view._menu_btn.menu().actions()
                 if action.text()
             ] == ["Rename", "Delete"]
+            # Rename says what it does. A bare pencil beside the heading read
+            # as decoration on the title rather than as a control.
+            assert "Rename" in view._rename_btn.text(), view._rename_btn.text()
             # Nothing is loaded, so neither affordance is live.
             assert not view._rename_btn.isEnabled()
             assert not view._menu_btn.isEnabled()

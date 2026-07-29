@@ -767,6 +767,24 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         QPushButton#ItemsRarityFilterChip[rarity="COMMON"]:checked {
             background: #12261A;
         }
+        /* The items list is the one place a scrollbar has to announce itself:
+           it holds ~40 chips in a viewport that shows five or six, so whether
+           it scrolls is the first question you have. The global handle is
+           #2A3542 on a transparent track, which against this background is
+           near-invisible -- readable as "the list is cut off". */
+        QScrollArea#LiveStatsItemsScroll QScrollBar:vertical {
+            background: #0B0F14;
+            width: 10px;
+            border-radius: 5px;
+        }
+        QScrollArea#LiveStatsItemsScroll QScrollBar::handle:vertical {
+            background: #46586F;
+            border-radius: 5px;
+            min-height: 28px;
+        }
+        QScrollArea#LiveStatsItemsScroll QScrollBar::handle:vertical:hover {
+            background: #5E7490;
+        }
         QWidget#CompareDetailsChips {
             background: transparent;
         }
@@ -800,24 +818,45 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             font-weight: 700;
             padding: 2px 7px;
         }
-        /* Both plaque buttons are glyph-only and sit next to a heading, so they
-           carry no fill until the pointer is on them: at rest the row should
-           read as a title, not as a toolbar. */
-        QPushButton#RecordingPlaqueRename, QPushButton#RecordingPlaqueMenu {
-            background: transparent;
-            border: 1px solid transparent;
+        /* Rename is spelled out in full here rather than leaning on
+           `class="SmallGhostButton"`. It matched that rule and still drew with
+           no chrome at all: an ID rule that sets only box-model properties is
+           not a reliable way to inherit a fill from an attribute rule. The
+           menu beside it stays glyph-only -- it opens a list rather than doing
+           something, and two filled buttons flanking the title made the row
+           read as a toolbar. */
+        QPushButton#RecordingPlaqueRename {
+            background: #18212E;
+            border: 1px solid #2B3648;
             border-radius: 6px;
-            color: #5C6675;
+            color: #BBD0E5;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 6px;
+            padding: 3px 10px;
+        }
+        QPushButton#RecordingPlaqueRename:hover {
+            background: #1E2A39;
+            border-color: #3A4D66;
+            color: #E5E7EB;
+        }
+        QPushButton#RecordingPlaqueMenu {
+            background: transparent;
+            border: 1px solid #2A3542;
+            border-radius: 6px;
+            color: #8A94A3;
             font-size: 13px;
             padding: 0;
         }
-        QPushButton#RecordingPlaqueRename:hover, QPushButton#RecordingPlaqueMenu:hover {
+        QPushButton#RecordingPlaqueMenu:hover {
             background: #1A222C;
-            border: 1px solid #2E3A48;
+            border-color: #3A4D66;
             color: #EDF1F5;
         }
         QPushButton#RecordingPlaqueRename:disabled, QPushButton#RecordingPlaqueMenu:disabled {
             color: #2A323D;
+            border-color: #1B222B;
+            background: transparent;
         }
         QPushButton#RecordingPlaqueMenu::menu-indicator {
             width: 0;
