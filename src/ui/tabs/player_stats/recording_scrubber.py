@@ -16,9 +16,9 @@ the fault ``ui/metric_table.py`` was written to fix elsewhere in this tab.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QRectF, Qt, Signal
+from PySide6.QtCore import QEvent, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
 from projections import scrubber as model_module
 
@@ -53,6 +53,13 @@ _MARKER_BIN_WIDTH = 8.0
 #: Which event wins its bin. A banish outranks a pickup because it is the rarer
 #: decision, and a legendary outranks a rare for the obvious reason.
 _MARKER_RANK = {"rare": 1, "legendary": 2, "banish": 3}
+#: Vertical slack around the marker strip for hover. The strip is 11 px tall,
+#: which is a hard target for a pointer; the band above it is empty anyway.
+_MARKER_HOVER_SLACK = 5.0
+#: Lines before the tooltip stops listing and starts counting. A bin can hold a
+#: whole level-up's worth of pickups, and a tooltip taller than the widget it
+#: describes is worse than a summary.
+_MARKER_TOOLTIP_MAX_LINES = 8
 
 
 class RecordingScrubber(QWidget):
@@ -170,6 +177,47 @@ class RecordingScrubber(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         self._dragging = False
         super().mouseReleaseEvent(event)
+
+    def event(self, event) -> bool:
+        """Answer a tooltip request over the marker strip with its events.
+
+        `QEvent.ToolTip` rather than mouse tracking: Qt asks only when the
+        pointer has settled, so hovering costs nothing while the pointer is
+        moving -- and nothing at all during a drag, which is the path this
+        widget is built to keep short.
+
+        Falling through to `super()` when the pointer is not over a marker is
+        what lets the widget's own tooltip -- the keyboard and shift-click
+        help -- still appear everywhere else.
+        """
+        if event.type() == QEvent.ToolTip:
+            text = self._marker_tooltip_at(event.pos())
+            if text:
+                QToolTip.showText(event.globalPos(), text, self)
+                return True
+        return super().event(event)
+
+    def _marker_tooltip_at(self, point) -> str:
+        """Every event binned to the glyph under `point`, or ``""``."""
+        if self._model.count <= 0 or not self._model.markers:
+            return ""
+        track = self._track_rect()
+        strip_top = track.bottom() - _MARKER_STRIP_HEIGHT - _MARKER_HOVER_SLACK
+        y = float(point.y())
+        if not (strip_top <= y <= track.bottom()):
+            return ""
+        key = int(float(point.x()) // _MARKER_BIN_WIDTH)
+        texts = [
+            marker.text
+            for marker in self._model.markers
+            if int(self._x_of(marker.index) // _MARKER_BIN_WIDTH) == key
+        ]
+        if not texts:
+            return ""
+        if len(texts) > _MARKER_TOOLTIP_MAX_LINES:
+            hidden = len(texts) - _MARKER_TOOLTIP_MAX_LINES
+            texts = texts[:_MARKER_TOOLTIP_MAX_LINES] + [f"+{hidden} more"]
+        return "\n".join(texts)
 
     def keyPressEvent(self, event) -> None:
         if self._model.count <= 0:
