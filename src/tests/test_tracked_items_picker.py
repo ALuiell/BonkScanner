@@ -259,6 +259,43 @@ class TrackedItemPickerWidgetTests(unittest.TestCase):
             """
         )
 
+    def test_each_item_keeps_its_own_rarity_colour(self) -> None:
+        """Sampled from the rendered widget, because nothing else catches it.
+
+        The chips are styled per item with a hex the projection supplies, and
+        the first version tinted it by appending alpha -- `#FACC15` + `44`. Qt
+        reads eight-digit hex as `#AARRGGBB`, so that came out as
+        `rgb(204, 21, 68)` and every rarity in the picker rendered as a shade
+        of crimson: legendary yellow, uncommon blue and common green all
+        shifted by one byte. Nothing raised and no assertion here failed; it
+        was visible only on screen.
+        """
+        self._run(
+            """
+            from PySide6.QtGui import QPixmap
+            from projections.tracked_items import tracked_item_color
+
+            def rendered_colour(item_name):
+                button = picker._picks[item_name]
+                pixmap = QPixmap(button.size())
+                pixmap.fill()
+                button.render(pixmap)
+                image = pixmap.toImage()
+                best, best_saturation = None, -1
+                for x in range(button.width()):
+                    for y in range(button.height()):
+                        colour = image.pixelColor(x, y)
+                        if colour.value() > 60 and colour.saturation() > best_saturation:
+                            best, best_saturation = colour, colour.saturation()
+                return best.name().lower()
+
+            for item in ("Anvil", "Kevin", "Electric Plug", "Clover"):
+                expected = tracked_item_color(item).lower()
+                actual = rendered_colour(item)
+                assert actual == expected, (item, expected, actual)
+            """
+        )
+
     def test_removing_a_rule_takes_only_that_one(self) -> None:
         self._run(
             """

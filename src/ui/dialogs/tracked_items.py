@@ -38,6 +38,7 @@ from __future__ import annotations
 from typing import Callable, Sequence
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -462,18 +463,32 @@ def _item_chip(item_name: str) -> QLabel:
     return chip
 
 
+def _rgba(colour: str, alpha: float) -> str:
+    """`colour` at `alpha`, as `rgba()` rather than an eight-digit hex.
+
+    Qt reads `#RRGGBBAA` as **`#AARRGGBB`** -- the leading pair is alpha, not
+    red. So `#FACC15` + `44` came out as `rgb(204, 21, 68)`, and every rarity in
+    the picker rendered as some shade of crimson: legendary yellow, uncommon
+    blue and common green all shifted by one byte. `rgba()` has one reading.
+    """
+    tint = QColor(str(colour))
+    if not tint.isValid():
+        tint = QColor("#E5E7EB")
+    return f"rgba({tint.red()}, {tint.green()}, {tint.blue()}, {alpha:.2f})"
+
+
 def _pick_stylesheet(colour: str) -> str:
     return (
         "QPushButton#pickChip {"
         f"  color: {colour};"
-        f"  border: 1px solid {colour}44;"
+        f"  border: 1px solid {_rgba(colour, 0.27)};"
         "   background: transparent;"
         "   border-radius: 7px; padding: 3px 9px;"
         "   font-size: 11.5px; font-weight: 600;"
         "}"
-        f"QPushButton#pickChip:hover {{ background-color: {colour}18; }}"
+        f"QPushButton#pickChip:hover {{ background-color: {_rgba(colour, 0.09)}; }}"
         "QPushButton#pickChip:checked {"
-        f"  background-color: {colour}2E;"
+        f"  background-color: {_rgba(colour, 0.18)};"
         f"  border-color: {colour};"
         "}"
     )
@@ -483,8 +498,8 @@ def _chip_stylesheet(colour: str) -> str:
     return (
         "QLabel#pickedChip {"
         f"  color: {colour};"
-        f"  background-color: {colour}2E;"
-        f"  border: 1px solid {colour}66;"
+        f"  background-color: {_rgba(colour, 0.18)};"
+        f"  border: 1px solid {_rgba(colour, 0.40)};"
         "   border-radius: 7px; padding: 3px 8px;"
         "   font-size: 11.5px; font-weight: 600;"
         "}"
