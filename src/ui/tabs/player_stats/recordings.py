@@ -1039,6 +1039,11 @@ class RecordingsTab:
         self._stat_cards.display_tomes((), status_text="Select a recording")
         self._stat_cards.display_chaos_tome(None, status_text="Select a recording")
         self._stat_cards.display_damage_sources((), status_text="Select a recording")
+        # Same state the router opens the library for, reached from a different
+        # direction: deleting the selected run, cleaning up, or a load that
+        # failed. Without this the tab is left showing a screen of "--" with
+        # the one control that could fix it collapsed behind a button.
+        self.ensure_recordings_chooser_for_empty_selection()
     def cleanup_recordings_by_snapshot_count(self):
         dialog = CleanupRecordingsDialog(
             self._window(),
