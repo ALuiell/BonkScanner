@@ -85,6 +85,7 @@ from ui.tabs.player_stats.metrics import (
 from ui.shared import (
     FlowLayout,
     _apply_summary_label_padding,
+    _clear_layout,
     _clear_text_input,
     _make_scroll_section,
     _read_text,
@@ -113,6 +114,11 @@ from projections import formatting, scrubber as scrubber_model
 #: to re-pick it every time a different recording loads would make the fourth
 #: slot useless for the comparison it exists to support.
 SCRUBBER_SLOTS_CONFIG_KEY = "recordings_scrubber_slots"
+
+
+#: Chips per row in Compare Details. Four is what fits the card at its
+#: narrowest without a chip name wrapping.
+COMPARE_DETAIL_COLUMNS = 4
 
 
 def _load_scrubber_slots() -> tuple[tuple[str, ...], ...]:
@@ -433,7 +439,7 @@ class RecordingsTab:
         self._banishes_label = None
         self._compare_details_group = None
         self._compare_details_summary_label = None
-        self._compare_details_items_label = None
+        self._compare_details_items = None
         self._detail_tabs = None
         self._stats_expanded_toggle = None
         self._stat_cards = None
@@ -968,7 +974,7 @@ class RecordingsTab:
             group.setVisible(pinned and base_snapshot is not None and snapshot is not None)
         if base_snapshot is None or snapshot is None:
             _set_text(self._compare_details_summary_label, "--")
-            _set_text(self._compare_details_items_label, "--")
+            self._render_compare_detail_chips(())
             return
 
         compare_index = self._compare_start_index
@@ -981,10 +987,53 @@ class RecordingsTab:
             segment_snapshots=segment_snapshots,
         )
         _set_text(self._compare_details_summary_label, summary)
-        _set_text(
-            self._compare_details_items_label,
-            formatting.format_snapshot_item_changes_details(base_snapshot, snapshot, segment_snapshots=segment_snapshots),
+        self._render_compare_detail_chips(
+            formatting.compare_detail_chips(
+                base_snapshot, snapshot, segment_snapshots=segment_snapshots
+            )
         )
+
+    def _render_compare_detail_chips(self, sections) -> None:
+        """Rebuild the Gained/Broken/Lost chip rows.
+
+        Rebuilt rather than updated in place, unlike the Items panel: this card
+        is visible only while a compare pin is set, and its contents change
+        shape entirely between segments rather than gaining and losing a chip
+        at a time.
+        """
+        container = self._compare_details_items
+        if container is None:
+            return
+        layout = container.layout()
+        container.setUpdatesEnabled(False)
+        try:
+            _clear_layout(layout)
+            if not sections:
+                note = QLabel("No item changes in this segment")
+                note.setObjectName("itemChipNote")
+                layout.addWidget(note, 0, 0, 1, COMPARE_DETAIL_COLUMNS)
+                return
+            row = 0
+            for title, chips in sections:
+                heading = QLabel(title)
+                heading.setObjectName("CompareDetailsSection")
+                layout.addWidget(heading, row, 0, 1, COMPARE_DETAIL_COLUMNS)
+                row += 1
+                for position, (text, tag) in enumerate(chips):
+                    chip = QLabel(text)
+                    chip.setObjectName(tag)
+                    # Left-aligned so a chip is its own width. Without this the
+                    # column stretch inflates every chip to the column, and a
+                    # two-word item ends up in a bar as wide as the longest.
+                    layout.addWidget(
+                        chip, row + position // COMPARE_DETAIL_COLUMNS,
+                        position % COMPARE_DETAIL_COLUMNS,
+                        Qt.AlignLeft | Qt.AlignVCenter,
+                    )
+                row += (len(chips) + COMPARE_DETAIL_COLUMNS - 1) // COMPARE_DETAIL_COLUMNS
+        finally:
+            container.setUpdatesEnabled(True)
+            container.updateGeometry()
     def rename_selected_vod(self):
         if self._loaded_vod is None or self._name_entry is None:
             return
@@ -1631,19 +1680,32 @@ class RecordingsTab:
         vod_compare_details_layout.addWidget(self._new_items_label)
         self._compare_details_summary_label = QLabel("--")
         self._compare_details_summary_label.setWordWrap(True)
-        self._compare_details_items_label = QLabel("--")
-        self._compare_details_items_label.setTextFormat(Qt.RichText)
-        self._compare_details_items_label.setWordWrap(True)
-        _apply_summary_label_padding(
-            self._compare_details_summary_label,
-            self._compare_details_items_label,
-        )
+        _apply_summary_label_padding(self._compare_details_summary_label)
         vod_compare_details_layout.addWidget(self._compare_details_summary_label)
+        # Chips, not the rich-text block this replaces. That block put the
+        # rarity colour on a bullet at the start of each row and then joined
+        # the row's items with " | ", so everything after the first item was an
+        # unmarked name in a pipe-separated run. A chip carries its own rarity,
+        # and it is the shape the Items panel next to it already uses.
         vod_compare_scroll, _vod_compare_scroll_content, vod_compare_scroll_layout = _make_scroll_section()
         vod_compare_scroll.setMinimumHeight(120)
         vod_compare_scroll.setMaximumHeight(220)
         vod_compare_scroll_layout.setContentsMargins(0, 0, 0, 0)
-        vod_compare_scroll_layout.addWidget(self._compare_details_items_label)
+        self._compare_details_items = QWidget()
+        self._compare_details_items.setObjectName("CompareDetailsChips")
+        # A grid, not a `FlowLayout`. Flow was the obvious choice -- it is what
+        # the Items panel uses -- but a flow's height depends on its width, and
+        # nested inside this column it reported a collapsed hint and drew every
+        # chip row on top of the one above it. A fixed four columns has a real
+        # size hint, and is what the mockup asked for anyway.
+        compare_items_layout = QGridLayout(self._compare_details_items)
+        compare_items_layout.setContentsMargins(0, 0, 0, 0)
+        compare_items_layout.setHorizontalSpacing(4)
+        compare_items_layout.setVerticalSpacing(4)
+        for column in range(COMPARE_DETAIL_COLUMNS):
+            compare_items_layout.setColumnStretch(column, 1)
+        self._render_compare_detail_chips(())
+        vod_compare_scroll_layout.addWidget(self._compare_details_items)
         vod_compare_scroll_layout.addStretch(1)
         vod_compare_details_layout.addWidget(vod_compare_scroll)
         self._compare_details_group.setVisible(False)

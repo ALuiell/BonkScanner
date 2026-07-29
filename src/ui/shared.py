@@ -90,11 +90,20 @@ def _safe_float(value: str, default: float = 0.0) -> float:
         return default
 
 def _clear_layout(layout) -> None:
+    """Empty `layout`, and take its widgets off the screen while doing it.
+
+    `setParent(None)` before `deleteLater`, because `deleteLater` only
+    *schedules* the destruction: until the event loop runs, the widget is out
+    of the layout but still parented and still painted. Anything that clears
+    and refills between paints -- the compare card's chips, the items panel --
+    drew the new contents over the old ones without it.
+    """
     while layout.count():
         item = layout.takeAt(0)
         widget = item.widget()
         child_layout = item.layout()
         if widget is not None:
+            widget.setParent(None)
             widget.deleteLater()
         elif child_layout is not None:
             _clear_layout(child_layout)

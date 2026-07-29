@@ -1391,6 +1391,45 @@ def format_snapshot_item_changes_details(previous_snapshot, snapshot, *, segment
     return "<br>".join(sections)
 
 
+#: Section order for the compare card, and the sign each one carries.
+_COMPARE_SECTIONS = (("gained", "Gained", "+"), ("broken", "Broken", "-"), ("lost", "Lost", "-"))
+
+
+def compare_detail_chips(
+    previous_snapshot, snapshot, *, segment_snapshots=()
+) -> tuple[tuple[str, tuple[tuple[str, str], ...]], ...]:
+    """The segment's item changes as chips: `(section, ((text, tag), ...))`.
+
+    The widget counterpart to `format_snapshot_item_changes_details`, which
+    renders the same data as one rich-text block with the items inside a
+    section joined by `" | "`. That block is unreadable past about six items:
+    the rarity is a coloured bullet at the *start of the row*, so every item
+    after the first is an unmarked name in a pipe-separated run.
+
+    A chip carries its own rarity, so it stays legible however many there are
+    -- and it is the shape the Items panel beside it already uses.
+
+    Pure and here rather than in the tab: the grouping is a projection
+    decision, and this way it is testable without a widget.
+    """
+    changes = summarize_item_segment_changes(
+        segment_snapshots or (previous_snapshot, snapshot)
+    )
+    sections: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+    for key, title, sign in _COMPARE_SECTIONS:
+        entries = changes.get(key) or ()
+        if not entries:
+            continue
+        chips: list[tuple[str, str]] = []
+        for name, count in entries:
+            display_name = _normalize_item_name_for_display(name)
+            rarity = _item_rarity_name(display_name)
+            tag = _ITEM_CHIP_OBJECT_NAME_BY_RARITY.get(rarity, "tagNeutral")
+            chips.append((f"{display_name} {sign}{format_count(count)}", tag))
+        sections.append((title, tuple(chips)))
+    return tuple(sections)
+
+
 def format_item_gains_by_rarity(
     gains: tuple[tuple[str, int], ...],
     *,

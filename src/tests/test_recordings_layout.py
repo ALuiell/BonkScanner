@@ -108,6 +108,36 @@ class RecordingsLayoutTests(unittest.TestCase):
             assert not compare_details.isVisibleTo(view._tab)
             assert view._new_items_label.parent() is compare_details
 
+            # Item changes are chips now, not one rich-text block with the
+            # items in a row joined by " | ". Nothing is pinned, so the card
+            # says so rather than showing an empty "Gained" heading.
+            chips_host = compare_details.findChild(QWidget, "CompareDetailsChips")
+            assert chips_host is not None
+            assert not hasattr(view, "_compare_details_items_label")
+            notes = chips_host.findChildren(QLabel, "itemChipNote")
+            assert [note.text() for note in notes] == [
+                "No item changes in this segment"
+            ], [note.text() for note in notes]
+
+            # A pinned segment fills it with one chip per item, each tagged
+            # with its own rarity -- which is the whole point of the change.
+            from types import SimpleNamespace
+            base = SimpleNamespace(items=("Key x1",))
+            current = SimpleNamespace(items=("Key x1", "Bonker x1"))
+            view._compare_start_index = 0
+            view._refresh_vod_compare_details(base, current, index=1)
+            tags = [
+                (chip.text(), chip.objectName())
+                for chip in chips_host.findChildren(QLabel)
+                if chip.objectName().startswith("tag")
+            ]
+            assert tags == [("Big Bonk +1", "tagLegendary")], tags
+            headings = [
+                label.text()
+                for label in chips_host.findChildren(QLabel, "CompareDetailsSection")
+            ]
+            assert headings == ["Gained"], headings
+
             # The Stage Summary table became four cards. They keep the table's
             # label dicts, so `set_stage_summary_labels` still writes them --
             # which is what makes this a layout change and not a data one.
