@@ -596,6 +596,35 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
 QScrollArea { border: none; background: transparent; }
 
 /* ------------------------------------------------- mono (logs / numeric) ---- */
+/* ------------------------------------- окно Tracked Items (picker) ------- */
+QWidget#trackedPicker { background: transparent; }
+QLabel#dialogHint { color: #8A94A3; font-size: 12px; background: transparent; }
+QLabel#pickerCount { color: #5C6675; font-size: 11px; font-weight: 700; background: transparent; }
+/* Заголовок группы по редкости. Список и раньше был отсортирован по ней —
+   просто молча. */
+QLabel#pickerGroup {
+    color: #5C6675; font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+    background: transparent; padding: 6px 0 2px 0;
+}
+QScrollArea#pickerScroll { background: transparent; border: none; }
+QScrollArea#pickerScroll > QWidget > QWidget { background: transparent; }
+
+/* Собираемое правило: пунктир — это место, которое ждёт содержимого. */
+QWidget#rulePreview {
+    background-color: #141A22;
+    border: 1px dashed #2E3A48;
+    border-radius: 9px;
+}
+QLabel#previewEmpty { color: #5C6675; font-size: 12px; background: transparent; }
+/* Причина, по которой кнопка выключена. Раньше обе такие причины были
+   молчаливым бездействием. */
+QLabel#addNote { color: #FACC15; font-size: 11.5px; background: transparent; }
+QPushButton#chipRemove {
+    background: transparent; border: 1px solid #2A3542; border-radius: 6px;
+    color: #5C6675; font-size: 11px; font-weight: 700;
+}
+QPushButton#chipRemove:hover { border-color: #4A2226; color: #F0787E; }
+
 /* ---------------------------------------------------- Session Stats ------ */
 QLabel#chipValue { font-size: 15px; font-weight: 800; color: #EDF1F5; background: transparent; }
 QLabel#tableEmpty { color: #5C6675; font-size: 12px; background: transparent; }
