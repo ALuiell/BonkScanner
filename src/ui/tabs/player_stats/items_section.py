@@ -58,6 +58,10 @@ from ui.shared import _clear_layout, _set_text
 
 PREVIEW_MAX_CHARS = 90
 
+#: Shown when the rarity filter, rather than the recording, is why the list is
+#: empty. "--" would read as "this run picked up nothing".
+FILTERED_EMPTY_NOTE = "No items of the selected rarity"
+
 
 class ItemsSectionView:
     """One scope's Items group: title, list, rarity summary, toggle and sort."""
@@ -74,6 +78,8 @@ class ItemsSectionView:
         chips_container=None,
         always_expanded: bool = False,
         scroll_area=None,
+        rarity_chips_container=None,
+        rarity_chip_factory=None,
     ) -> None:
         self._group = group
         self._label = label
@@ -88,12 +94,28 @@ class ItemsSectionView:
         self._chips_container = chips_container
         self._always_expanded = bool(always_expanded)
         self._scroll_area = scroll_area
+        # Optional, and only the Recordings tab passes them: a host for four
+        # rarity chips that both *count* and *filter*, replacing `rarity_label`
+        # -- four coloured dots with numbers and no legend, which said what
+        # you had but not what any of the colours meant. The other three scopes
+        # keep the dots; nothing about them wanted a filter.
+        self._rarity_chips_container = rarity_chips_container
+        self._rarity_chip_factory = rarity_chip_factory
+        self._rarity_chips: dict[str, object] = {}
 
         self._sort_mode = initial_sort_mode
         self._expanded = self._always_expanded
         self._items: tuple[str, ...] = ()
         self._items_text: str | None = None
+        #: Empty means "no filter", not "hide everything" -- the ordinary
+        #: filter-chip idiom, and what makes an "All" chip unnecessary.
+        self._rarity_filter: frozenset[str] = frozenset()
         self._render_signature: tuple | None = None
+
+        # Built now, not on the first `update()`: the header is part of the
+        # panel's shape, and four chips appearing when a recording loads would
+        # jump the layout of everything under them.
+        self._render_rarity_chips(())
 
     # -- rendering ------------------------------------------------------------
 
@@ -107,13 +129,18 @@ class ItemsSectionView:
         self._items = tuple(items or ())
         self._items_text = items_text
 
-        if self._label is None and self._chips_container is None:
+        if (
+            self._label is None
+            and self._chips_container is None
+            and self._rarity_chips_container is None
+        ):
             return
         render_signature = (
             self._items,
             self._items_text,
             self._sort_mode,
             self._expanded,
+            self._rarity_filter,
         )
         if render_signature == self._render_signature:
             return
@@ -124,6 +151,7 @@ class ItemsSectionView:
                 _set_items_text(self._label, items_text=items_text)
             self._render_chips((), placeholder=items_text)
             self._set_rarity_summary(())
+            self._render_rarity_chips(())
             if self._toggle_btn is not None:
                 self._toggle_btn.setVisible(True)
                 self._toggle_btn.setEnabled(False)
@@ -136,7 +164,11 @@ class ItemsSectionView:
         items = self._items
         self._set_group_title(formatting._item_total_count(items))
         self._set_rarity_summary(items)
+        # Counted before the filter, on purpose: the chips have to keep saying
+        # how many you would get back by turning one on.
+        self._render_rarity_chips(items)
         sorted_items = formatting.sort_items_for_display(items, self._sort_mode)
+        sorted_items = self._apply_rarity_filter(sorted_items)
         preview_items, has_more = items_preview(sorted_items)
         visible_items = sorted_items if self._expanded or not has_more else preview_items
         if self._sort_combo is not None:
@@ -153,7 +185,12 @@ class ItemsSectionView:
                     text = f"{text} ..."
                 _set_text(self._label, text)
         more_count = len(sorted_items) - len(visible_items) if has_more and not self._expanded else 0
-        self._render_chips(visible_items, more_count=more_count)
+        if items and not sorted_items:
+            # The filter, not the run, is why the list is empty. "--" would
+            # read as "this recording has no items".
+            self._render_chips((), placeholder=FILTERED_EMPTY_NOTE)
+        else:
+            self._render_chips(visible_items, more_count=more_count)
 
         if self._toggle_btn is not None:
             self._toggle_btn.setVisible(True)
@@ -208,6 +245,38 @@ class ItemsSectionView:
                 restore()
                 QTimer.singleShot(0, restore)
 
+    def _apply_rarity_filter(self, items) -> tuple[str, ...]:
+        if not self._rarity_filter:
+            return tuple(items)
+        return tuple(
+            item for item in items if formatting.item_rarity(item) in self._rarity_filter
+        )
+
+    def _render_rarity_chips(self, items) -> None:
+        """Fill the four chips with counts, and light the active ones.
+
+        Chips are made once and updated in place. Rebuilding them per snapshot
+        would drop the widget the pointer is over mid-click, and this runs on
+        every scrub frame that changes the item list.
+        """
+        if self._rarity_chips_container is None or self._rarity_chip_factory is None:
+            return
+        totals = formatting.item_rarity_totals(items)
+        for rarity in formatting.ITEM_RARITY_ORDER:
+            chip = self._rarity_chips.get(rarity)
+            if chip is None:
+                chip = self._rarity_chip_factory(rarity)
+                self._rarity_chips[rarity] = chip
+            total = int(totals.get(rarity, 0))
+            chip.setText(f"{rarity.title()} {total}")
+            chip.setEnabled(total > 0)
+            if chip.isChecked() != (rarity in self._rarity_filter):
+                # Set without re-entering the toggle handler: this is the view
+                # telling the chip what is true, not the user pressing it.
+                chip.blockSignals(True)
+                chip.setChecked(rarity in self._rarity_filter)
+                chip.blockSignals(False)
+
     def _set_group_title(self, total_count: int | None) -> None:
         if self._group is None or not hasattr(self._group, "setTitle"):
             return
@@ -239,6 +308,24 @@ class ItemsSectionView:
         repaints; rendering here would add a paint those paths never did.
         """
         self._expanded = self._always_expanded
+
+    def rarity_filter(self) -> frozenset[str]:
+        return self._rarity_filter
+
+    def toggle_rarity(self, rarity: str) -> None:
+        """Turn one rarity's chip on or off. Empty again means "show all"."""
+        rarity = str(rarity)
+        if rarity in self._rarity_filter:
+            self._rarity_filter = self._rarity_filter - {rarity}
+        else:
+            self._rarity_filter = self._rarity_filter | {rarity}
+        self._rerender()
+
+    def clear_rarity_filter(self) -> None:
+        if not self._rarity_filter:
+            return
+        self._rarity_filter = frozenset()
+        self._rerender()
 
     def on_sort_changed(self) -> None:
         mode = ITEM_SORT_DEFAULT

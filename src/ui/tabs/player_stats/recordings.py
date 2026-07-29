@@ -1272,6 +1272,24 @@ class RecordingsTab:
         row.addWidget(self._menu_btn, 0, Qt.AlignTop)
         return frame
 
+    def _make_rarity_filter_chip(self, rarity: str, layout) -> QPushButton:
+        """One rarity chip: it counts, and pressing it filters.
+
+        `ItemsSectionView` asks for these lazily and then updates them in
+        place, so this runs four times per tab and never on a scrub frame.
+        """
+        chip = QPushButton()
+        chip.setObjectName("ItemsRarityFilterChip")
+        chip.setProperty("rarity", rarity)
+        chip.setCheckable(True)
+        chip.setCursor(Qt.PointingHandCursor)
+        chip.setToolTip(f"Show only {rarity.title()} items")
+        chip.clicked.connect(
+            lambda _checked=False, name=rarity: self._items_section.toggle_rarity(name)
+        )
+        layout.addWidget(chip)
+        return chip
+
     def _on_detail_tab_changed(self) -> None:
         """Draw what just became visible, and show only what applies to it."""
         self._stat_cards.flush_pending()
@@ -1506,17 +1524,28 @@ class RecordingsTab:
         vod_items_layout.setContentsMargins(11, 11, 11, 11)
         vod_items_layout.setSpacing(8)
 
-        vod_items_meta = QHBoxLayout()
-        vod_items_meta.setContentsMargins(0, 0, 0, 0)
-        vods_items_rarity_label = QLabel("")
-        vods_items_rarity_label.setTextFormat(Qt.RichText)
-        vods_items_rarity_label.setStyleSheet(
-            "font-size: 12px; background: transparent;"
-        )
-        vods_items_rarity_label.setVisible(False)
-        vod_items_meta.addWidget(vods_items_rarity_label, 0, Qt.AlignLeft)
-        vod_items_meta.addStretch(1)
-        vod_items_layout.addLayout(vod_items_meta)
+        # The panel header: rarity filter chips on the left, sort on the right.
+        # The dots this replaces were four coloured circles with numbers and no
+        # legend -- they said how many of each you had while leaving which
+        # colour meant what to be learnt elsewhere. A chip says its own name,
+        # and since it now has a label it can also be a control.
+        vod_items_header = QHBoxLayout()
+        vod_items_header.setContentsMargins(0, 0, 0, 0)
+        vod_items_header.setSpacing(6)
+        vods_items_rarity_chips = QWidget()
+        vods_items_rarity_chips.setObjectName("ItemsRarityFilters")
+        vods_items_rarity_chips_layout = QHBoxLayout(vods_items_rarity_chips)
+        vods_items_rarity_chips_layout.setContentsMargins(0, 0, 0, 0)
+        vods_items_rarity_chips_layout.setSpacing(4)
+        vod_items_header.addWidget(vods_items_rarity_chips, 0, Qt.AlignLeft)
+        vod_items_header.addStretch(1)
+        vods_items_sort_combo = QComboBox()
+        vods_items_sort_combo.setObjectName("ItemsSortCombo")
+        vods_items_sort_combo.setToolTip("Sort items")
+        for mode, label in ITEM_SORT_LABELS.items():
+            vods_items_sort_combo.addItem(label, mode)
+        vod_items_header.addWidget(vods_items_sort_combo, 0, Qt.AlignRight)
+        vod_items_layout.addLayout(vod_items_header)
 
         vods_items_chips_container = QWidget()
         vods_items_chips_container.setObjectName("cardContent")
@@ -1531,25 +1560,19 @@ class RecordingsTab:
         vods_items_scroll.setWidget(vods_items_chips_container)
         vod_items_layout.addWidget(vods_items_scroll, 1)
 
-        vod_items_sort_row = QHBoxLayout()
-        vod_items_sort_row.setContentsMargins(0, 0, 0, 0)
-        vod_items_sort_row.addStretch(1)
-        vod_items_sort_row.addWidget(QLabel("Sort:"))
-        vods_items_sort_combo = QComboBox()
-        for mode, label in ITEM_SORT_LABELS.items():
-            vods_items_sort_combo.addItem(label, mode)
-        vod_items_sort_row.addWidget(vods_items_sort_combo)
-        vod_items_layout.addLayout(vod_items_sort_row)
-
         self._items_section = ItemsSectionView(
             group=vod_items_group,
             label=None,
-            rarity_label=vods_items_rarity_label,
+            rarity_label=None,
             toggle_btn=None,
             sort_combo=vods_items_sort_combo,
             chips_container=vods_items_chips_container,
             always_expanded=True,
             scroll_area=vods_items_scroll,
+            rarity_chips_container=vods_items_rarity_chips,
+            rarity_chip_factory=lambda rarity: self._make_rarity_filter_chip(
+                rarity, vods_items_rarity_chips_layout
+            ),
         )
         vods_items_sort_combo.currentIndexChanged.connect(
             lambda _index: self._items_section.on_sort_changed()

@@ -21,6 +21,7 @@ class RecordingsLayoutTests(unittest.TestCase):
             import src
             from PySide6.QtWidgets import (
                 QApplication,
+                QComboBox,
                 QFrame,
                 QGroupBox,
                 QLabel,
@@ -66,6 +67,30 @@ class RecordingsLayoutTests(unittest.TestCase):
                 for button in items.findChildren(QPushButton)
             )
             assert items.findChild(QWidget, "cardContent") is not None
+
+            # The Items header: four rarity chips that count and filter, and
+            # the sort combo that used to sit in a row of its own at the very
+            # bottom of the panel. The dots the chips replace carried a colour
+            # and a number and no name.
+            filters = items.findChild(QWidget, "ItemsRarityFilters")
+            assert filters is not None
+            chips = filters.findChildren(QPushButton, "ItemsRarityFilterChip")
+            assert [chip.property("rarity") for chip in chips] == [
+                "LEGENDARY",
+                "RARE",
+                "UNCOMMON",
+                "COMMON",
+            ], [chip.property("rarity") for chip in chips]
+            assert all(chip.isCheckable() for chip in chips)
+            # Nothing is loaded, so every count is zero and none is pressable.
+            assert [chip.text() for chip in chips] == [
+                "Legendary 0",
+                "Rare 0",
+                "Uncommon 0",
+                "Common 0",
+            ], [chip.text() for chip in chips]
+            sort_combo = items.findChild(QComboBox, "ItemsSortCombo")
+            assert sort_combo is not None
             assert {
                 group.objectName()
                 for group in page.findChildren(QGroupBox)

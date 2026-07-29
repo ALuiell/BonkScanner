@@ -720,6 +720,67 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             color: #5C6675;
             font-size: 11px;
         }
+        /* Rarity filter chips. Unchecked they are outline-only in their own
+           colour, so the row still reads as a legend when no filter is on;
+           checked they fill, which is the only state that changes the list. */
+        QWidget#ItemsRarityFilters {
+            background: transparent;
+        }
+        QPushButton#ItemsRarityFilterChip {
+            background: transparent;
+            border: 1px solid #2A3542;
+            border-radius: 7px;
+            color: #5C6675;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 3px 7px;
+        }
+        QPushButton#ItemsRarityFilterChip:disabled {
+            color: #2A323D;
+            border-color: #1B222B;
+        }
+        QPushButton#ItemsRarityFilterChip[rarity="LEGENDARY"] {
+            color: #FACC15;
+            border-color: #57481A;
+        }
+        QPushButton#ItemsRarityFilterChip[rarity="RARE"] {
+            color: #E879F9;
+            border-color: #4A2A57;
+        }
+        QPushButton#ItemsRarityFilterChip[rarity="UNCOMMON"] {
+            color: #60A5FA;
+            border-color: #1E3A5C;
+        }
+        QPushButton#ItemsRarityFilterChip[rarity="COMMON"] {
+            color: #4ADE80;
+            border-color: #1F4A2E;
+        }
+        QPushButton#ItemsRarityFilterChip[rarity="LEGENDARY"]:checked {
+            background: #2E2708;
+        }
+        QPushButton#ItemsRarityFilterChip[rarity="RARE"]:checked {
+            background: #2A1730;
+        }
+        QPushButton#ItemsRarityFilterChip[rarity="UNCOMMON"]:checked {
+            background: #101E30;
+        }
+        QPushButton#ItemsRarityFilterChip[rarity="COMMON"]:checked {
+            background: #12261A;
+        }
+        QWidget#CompareDetailsChips {
+            background: transparent;
+        }
+        QLabel#CompareDetailsSection {
+            background: transparent;
+            color: #98A7BA;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+        }
+        QComboBox#ItemsSortCombo {
+            font-size: 11px;
+            padding: 2px 6px;
+        }
         QFrame#RecordingPlaque {
             background: transparent;
         }

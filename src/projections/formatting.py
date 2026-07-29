@@ -1647,6 +1647,26 @@ _ITEM_CHIP_OBJECT_NAME_BY_RARITY = {
 }
 
 
+#: The four rarities the item panel groups by, strongest first. Anything whose
+#: rarity is unknown is deliberately absent: it is shown, never filtered on.
+ITEM_RARITY_ORDER = ("LEGENDARY", "RARE", "UNCOMMON", "COMMON")
+
+
+def item_rarity(item_text: str) -> str | None:
+    """The rarity of one item as it appears in a snapshot's item list.
+
+    Takes the display text -- stack suffix and all -- because that is the form
+    the item panel holds. ``None`` for anything the rarity table does not know.
+    """
+    item_name, _suffix = _split_item_stack_suffix(item_text)
+    return _item_rarity_name(item_name)
+
+
+def item_rarity_totals(items) -> dict[str, int]:
+    """Per-rarity counts, the same ones the rarity summary prints."""
+    return _item_rarity_totals(items)
+
+
 def item_chip_display(item_text: str) -> tuple[str, str]:
     """`(label text incl. stack suffix, chip objectName)` for one item.
 
