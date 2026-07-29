@@ -88,7 +88,7 @@ from ui.tabs.player_stats.metrics import (
     _build_loot_rarity_card,
 )
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
-from ui.tabs.player_stats.stat_cards import StatCardsView
+from ui.tabs.player_stats.stat_cards import StatCardsView, section_visibility_over
 from ui.tabs.player_stats.summary_cards import (
     set_chests_card_values,
     set_loot_rarity_card_values,
@@ -1083,6 +1083,13 @@ class LiveStatsTab:
             chaos_status_label=chaos_status_label,
             damage_sources_layout=player_damage_sources_scroll_layout,
             damage_sources_status_label=damage_sources_status_label,
+            # Same waste as the Recordings tab, on a one-second refresh instead
+            # of a scrub: four panels rebuilt every tick while at most one of
+            # them is on screen, and the tab opens on Stats where none is.
+            section_visible=section_visibility_over(lambda: self._detail_tabs),
+        )
+        self._detail_tabs.currentChanged.connect(
+            lambda _index: self._stat_cards.flush_pending()
         )
         self._detail_tabs.addTab(player_stats_tab, "Stats")
         self._detail_tabs.addTab(loot_tab, "Loot")

@@ -114,6 +114,188 @@ def damage_source_share_text(damage: float, total_damage: float) -> str:
     return f"{percentage:.1f}%"
 
 
+class _DamageSourceCard(QFrame):
+    """One damage source, built once and rewritten in place afterwards.
+
+    The panel is the most expensive of the four -- 48 ms of a scrub frame with
+    twenty-odd sources on screen -- and almost all of it was construction:
+    every render tore the whole grid down and built a fresh `QFrame`, four
+    `QLabel`s and a `QProgressBar` per source. Nothing about a source changes
+    which *widgets* it needs, only what they say, so the cards outlive the
+    render now and `update` writes them.
+
+    Style sheets are set once in `__init__` for the same reason: re-applying
+    one forces Qt to re-parse it and re-polish the widget, which is a large
+    part of what made the rebuild expensive. The two that genuinely vary --
+    the name and value colours, which grey out at zero damage -- are the only
+    ones `update` touches, and only when they actually change.
+    """
+
+    _ACTIVE_COLOR = "#F3F4F6"
+    _IDLE_COLOR = "#98A7BA"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("StatCard")
+        card_layout = QVBoxLayout(self)
+        card_layout.setContentsMargins(10, 9, 10, 9)
+        card_layout.setSpacing(7)
+
+        top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(7)
+
+        self._rank_label = QLabel()
+        self._rank_label.setObjectName("DamageSourceRank")
+        self._rank_label.setStyleSheet(
+            "font-size: 12px; color: #65758B; font-weight: 700; background: transparent;"
+        )
+        top_layout.addWidget(self._rank_label)
+
+        self._name_label = QLabel()
+        self._name_label.setObjectName("DamageSourceName")
+        self._name_label.setWordWrap(True)
+        top_layout.addWidget(self._name_label, 1)
+
+        self._damage_label = QLabel()
+        self._damage_label.setObjectName("DamageSourceValue")
+        self._damage_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        top_layout.addWidget(self._damage_label)
+
+        self._percentage_label = QLabel()
+        self._percentage_label.setObjectName("DamageSourcePercent")
+        self._percentage_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._percentage_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; font-weight: 600; background: transparent;"
+        )
+        top_layout.addWidget(self._percentage_label)
+        card_layout.addLayout(top_layout)
+
+        self._bar = QProgressBar()
+        self._bar.setObjectName("DamageSourceBar")
+        self._bar.setRange(0, 1000)
+        self._bar.setTextVisible(False)
+        self._bar.setFixedHeight(6)
+        self._bar.setStyleSheet(
+            "QProgressBar {"
+            " background: #111923;"
+            " border: 0;"
+            " border-radius: 3px;"
+            "}"
+            "QProgressBar::chunk {"
+            " background: #60A5FA;"
+            " border-radius: 3px;"
+            "}"
+        )
+        card_layout.addWidget(self._bar)
+        self._text_color: str | None = None
+
+    def update_source(self, source, *, rank: int, total_damage: float) -> None:
+        damage = max(0.0, float(getattr(source, "damage", 0.0) or 0.0))
+        source_name = str(
+            getattr(source, "source_name", "")
+            or getattr(source, "source_key", "")
+            or "Unknown source"
+        )
+        percentage = damage / total_damage if total_damage > 0.0 else 0.0
+        share_text = damage_source_share_text(damage, total_damage)
+
+        _set_text(self._rank_label, f"#{rank}")
+        _set_text(self._name_label, source_name)
+        self._name_label.setToolTip(source_name)
+        _set_text(self._damage_label, formatting.format_damage_source_value(damage))
+        _set_text(self._percentage_label, share_text)
+        self._bar.setValue(round(min(1.0, max(0.0, percentage)) * 1000))
+        self._bar.setToolTip(f"{share_text} of total damage")
+
+        text_color = self._ACTIVE_COLOR if damage > 0.0 else self._IDLE_COLOR
+        if text_color != self._text_color:
+            self._text_color = text_color
+            self._name_label.setStyleSheet(
+                f"font-size: 14px; color: {text_color};"
+                " font-weight: 700; background: transparent;"
+            )
+            self._damage_label.setStyleSheet(
+                f"font-size: 15px; color: {text_color};"
+                " font-weight: 800; background: transparent;"
+            )
+
+
+class _DamageSourcesSummaryCard(QFrame):
+    """The panel's total line, rewritten in place for the same reason."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("StatCard")
+        summary_layout = QHBoxLayout(self)
+        summary_layout.setContentsMargins(10, 8, 10, 8)
+        summary_layout.setSpacing(8)
+
+        title_label = QLabel("Total Damage")
+        title_label.setStyleSheet(
+            "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
+        )
+        summary_layout.addWidget(title_label)
+
+        self._value_label = QLabel()
+        self._value_label.setObjectName("DamageSourcesSummaryValue")
+        self._value_label.setStyleSheet(
+            "font-size: 15px; color: #F3F4F6; font-weight: 800; background: transparent;"
+        )
+        summary_layout.addWidget(self._value_label)
+        summary_layout.addStretch(1)
+
+        self._count_label = QLabel()
+        self._count_label.setObjectName("DamageSourcesSummaryCount")
+        self._count_label.setStyleSheet(
+            "font-size: 12px; color: #98A7BA; font-weight: 600; background: transparent;"
+        )
+        summary_layout.addWidget(self._count_label)
+
+    def update_totals(self, *, total_damage: float, source_count: int) -> None:
+        _set_text(self._value_label, formatting.format_damage_source_value(total_damage))
+        _set_text(
+            self._count_label,
+            f"{source_count} {'source' if source_count == 1 else 'sources'}",
+        )
+
+
+#: Which detail tab each deferrable panel lives on, by that tab's title. Only
+#: these four are deferred; Stats and Loot are label writes and cost nothing.
+#:
+#: Matched on the tab's *text* rather than its index: both tabs add their six
+#: a hundred lines away from here, and an index would silently point at the
+#: wrong panel the first time somebody reorders them.
+DEFERRABLE_SECTION_TAB_TITLES = {
+    "weapons": "Weapons",
+    "tomes": "Tomes",
+    "chaos": "Chaos",
+    "damage_sources": "Damage Sources",
+}
+
+
+def section_visibility_over(detail_tabs: Callable[[], object]) -> Callable[[str], bool]:
+    """A `section_visible` port reading whichever detail tab is on screen.
+
+    Takes a supplier rather than the widget: both tabs build their
+    `QTabWidget` and their `StatCardsView` in the same method, and a test
+    harness may never build either. A supplier that returns `None` answers
+    "visible", so an unbuilt tab renders everything rather than deferring a
+    render the test is asserting on.
+    """
+
+    def visible(section: str) -> bool:
+        tabs = detail_tabs()
+        if tabs is None:
+            return True
+        wanted = DEFERRABLE_SECTION_TAB_TITLES.get(section)
+        if wanted is None:
+            return True
+        return tabs.tabText(tabs.currentIndex()) == wanted
+
+    return visible
+
+
 class _ResponsiveStatCardGrid(QWidget):
     """Reflow one stat-card collection when its scroll viewport resizes."""
 
@@ -143,6 +325,27 @@ class _ResponsiveStatCardGrid(QWidget):
     def add_card(self, card: QWidget) -> None:
         card.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self._cards.append(card)
+        self._reflow(self.width())
+
+    def trim_to(self, count: int) -> None:
+        """Drop trailing cards so the grid holds at most `count`.
+
+        Paired with `add_card` by panels that reuse their cards across renders
+        rather than rebuilding them: growing is `add_card`, shrinking is this,
+        and neither destroys the cards in between.
+        """
+        count = max(0, int(count))
+        if count >= len(self._cards):
+            return
+        for card in self._cards[count:]:
+            self._grid.removeWidget(card)
+            card.setParent(None)
+            card.deleteLater()
+        del self._cards[count:]
+        # `_reflow` returns early when the column count and the child count
+        # both look unchanged; the removals above already changed the latter,
+        # so force the relayout rather than relying on that comparison.
+        self._columns = 0
         self._reflow(self.width())
 
     def resizeEvent(self, event) -> None:
@@ -201,7 +404,19 @@ class StatCardsView:
         chaos_status_label,
         damage_sources_layout,
         damage_sources_status_label,
+        section_visible: Callable[[str], bool] | None = None,
     ) -> None:
+        # Rebuilding a panel nobody is looking at is the whole cost of a scrub
+        # frame: measured on a 713-snapshot recording, the four panels here
+        # were 95 ms of a 103 ms frame, and the tab defaults to *Stats*, where
+        # none of them is on screen. `section_visible` lets the owner say which
+        # panel is showing; the rest record their last call and render it when
+        # they are next shown.
+        #
+        # Optional, and `None` means "always render": Live Stats and Compare
+        # Runs construct this view too, and neither asked for the change.
+        self._section_visible = section_visible
+        self._pending: dict[str, tuple[tuple, dict]] = {}
         self._weapons_layout = weapons_layout
         self._weapons_status_label = weapons_status_label
         self._tomes_layout = tomes_layout
@@ -217,6 +432,40 @@ class StatCardsView:
         self._damage_source_signature = None
         self._weapon_cards: list = []
         self._tome_cards: list = []
+        # Reused across renders rather than rebuilt. `None` means "not built
+        # yet, or torn down because the panel went empty".
+        self._damage_sources_grid = None
+        self._damage_sources_summary = None
+        self._damage_source_cards: list = []
+
+    # -- deferred rendering ---------------------------------------------------
+
+    def _defer(self, section: str, args: tuple, kwargs: dict) -> bool:
+        """Record the call and return ``True`` when the panel is not showing.
+
+        The signature caches below are deliberately *not* updated on a deferred
+        call: the panel still holds whatever it drew last, so the render that
+        eventually happens must not be suppressed as a repeat.
+        """
+        visible = self._section_visible
+        if visible is None or visible(section):
+            return False
+        self._pending[section] = (args, dict(kwargs))
+        return True
+
+    def flush_pending(self) -> None:
+        """Draw whatever the now-visible panels missed while hidden.
+
+        Called by the owner when its detail tab changes. Panels still hidden
+        keep their recorded call rather than losing it, so switching between
+        two hidden panels does not drop the one you skipped over.
+        """
+        visible = self._section_visible
+        for section in tuple(self._pending):
+            if visible is not None and not visible(section):
+                continue
+            args, kwargs = self._pending.pop(section)
+            _SECTION_RENDERERS[section](self, *args, **kwargs)
 
     # -- cache control --------------------------------------------------------
 
@@ -238,6 +487,8 @@ class StatCardsView:
         layout = self._weapons_layout
         status_label = self._weapons_status_label
         if layout is None or status_label is None:
+            return
+        if self._defer("weapons", (weapons,), {"status_text": status_text}):
             return
 
         weapons = tuple(weapons or ())
@@ -341,6 +592,8 @@ class StatCardsView:
         status_label = self._tomes_status_label
         if layout is None or status_label is None:
             return
+        if self._defer("tomes", (tomes,), {"status_text": status_text}):
+            return
 
         tomes = tuple(tomes or ())
         signature = self._tome_signature_for(tomes)
@@ -430,6 +683,8 @@ class StatCardsView:
         layout = self._chaos_layout
         status_label = self._chaos_status_label
         if layout is None or status_label is None:
+            return
+        if self._defer("chaos", (chaos_tome,), {"status_text": status_text}):
             return
 
         signature = self._chaos_tome_signature_for(chaos_tome)
@@ -566,6 +821,10 @@ class StatCardsView:
         status_label = self._damage_sources_status_label
         if layout is None or status_label is None:
             return
+        # Deferred before the sort: it is the most expensive of the four to
+        # rebuild, and the sort is not free either.
+        if self._defer("damage_sources", (damage_sources,), {"status_text": status_text}):
+            return
 
         damage_sources = tuple(
             sorted(
@@ -584,7 +843,6 @@ class StatCardsView:
             return
 
         self._damage_source_signature = signature
-        _clear_layout(layout)
 
         if status_text is not None:
             _set_text(status_label, status_text)
@@ -592,143 +850,54 @@ class StatCardsView:
             _set_text(status_label, "" if damage_sources else "No damage source data yet")
 
         if not damage_sources:
+            _clear_layout(layout)
+            self._damage_sources_grid = None
+            self._damage_sources_summary = None
+            self._damage_source_cards = []
             return
 
         total_damage = sum(
             max(0.0, float(getattr(source, "damage", 0.0) or 0.0))
             for source in damage_sources
         )
-        layout.addWidget(
-            self._build_damage_sources_summary(
-                total_damage=total_damage,
-                source_count=len(damage_sources),
+
+        # Built on the first render and kept. The tear-down-and-rebuild this
+        # replaced was 48 ms of a scrub frame with twenty sources; the widgets
+        # a source needs never change, only their text.
+        if self._damage_sources_grid is None:
+            _clear_layout(layout)
+            self._damage_sources_summary = _DamageSourcesSummaryCard()
+            layout.addWidget(self._damage_sources_summary)
+            self._damage_sources_grid = _ResponsiveStatCardGrid(
+                object_name="DamageSourcesCardGrid",
+                column_count=damage_source_column_count,
+                minimum_card_width=290,
+                spacing=8,
+                maximum_columns=3,
             )
+            self._damage_source_cards = []
+            layout.addWidget(self._damage_sources_grid)
+            layout.addStretch(1)
+
+        self._damage_sources_summary.update_totals(
+            total_damage=total_damage,
+            source_count=len(damage_sources),
         )
 
-        grid = _ResponsiveStatCardGrid(
-            object_name="DamageSourcesCardGrid",
-            column_count=damage_source_column_count,
-            minimum_card_width=290,
-            spacing=8,
-            maximum_columns=3,
-        )
+        while len(self._damage_source_cards) < len(damage_sources):
+            card = _DamageSourceCard()
+            self._damage_source_cards.append(card)
+            self._damage_sources_grid.add_card(card)
+        if len(self._damage_source_cards) > len(damage_sources):
+            self._damage_sources_grid.trim_to(len(damage_sources))
+            del self._damage_source_cards[len(damage_sources):]
+
         for index, source in enumerate(damage_sources):
-            grid.add_card(
-                self._build_damage_source_card(
-                    source,
-                    rank=index + 1,
-                    total_damage=total_damage,
-                )
+            self._damage_source_cards[index].update_source(
+                source,
+                rank=index + 1,
+                total_damage=total_damage,
             )
-        layout.addWidget(grid)
-        layout.addStretch(1)
-
-    @staticmethod
-    def _build_damage_sources_summary(*, total_damage: float, source_count: int) -> QFrame:
-        card = QFrame()
-        card.setObjectName("StatCard")
-        summary_layout = QHBoxLayout(card)
-        summary_layout.setContentsMargins(10, 8, 10, 8)
-        summary_layout.setSpacing(8)
-
-        title_label = QLabel("Total Damage")
-        title_label.setStyleSheet(
-            "font-size: 13px; color: #D7DEE8; font-weight: 700; background: transparent;"
-        )
-        summary_layout.addWidget(title_label)
-
-        value_label = QLabel(formatting.format_damage_source_value(total_damage))
-        value_label.setObjectName("DamageSourcesSummaryValue")
-        value_label.setStyleSheet(
-            "font-size: 15px; color: #F3F4F6; font-weight: 800; background: transparent;"
-        )
-        summary_layout.addWidget(value_label)
-        summary_layout.addStretch(1)
-
-        count_label = QLabel(f"{source_count} {'source' if source_count == 1 else 'sources'}")
-        count_label.setObjectName("DamageSourcesSummaryCount")
-        count_label.setStyleSheet(
-            "font-size: 12px; color: #98A7BA; font-weight: 600; background: transparent;"
-        )
-        summary_layout.addWidget(count_label)
-        return card
-
-    @staticmethod
-    def _build_damage_source_card(source, *, rank: int, total_damage: float) -> QFrame:
-        damage = max(0.0, float(getattr(source, "damage", 0.0) or 0.0))
-        source_name = str(
-            getattr(source, "source_name", "")
-            or getattr(source, "source_key", "")
-            or "Unknown source"
-        )
-        percentage = damage / total_damage if total_damage > 0.0 else 0.0
-        text_color = "#F3F4F6" if damage > 0.0 else "#98A7BA"
-
-        card = QFrame()
-        card.setObjectName("StatCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(10, 9, 10, 9)
-        card_layout.setSpacing(7)
-
-        top_layout = QHBoxLayout()
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        top_layout.setSpacing(7)
-
-        rank_label = QLabel(f"#{rank}")
-        rank_label.setObjectName("DamageSourceRank")
-        rank_label.setStyleSheet(
-            "font-size: 12px; color: #65758B; font-weight: 700; background: transparent;"
-        )
-        top_layout.addWidget(rank_label)
-
-        name_label = QLabel(source_name)
-        name_label.setObjectName("DamageSourceName")
-        name_label.setWordWrap(True)
-        name_label.setToolTip(source_name)
-        name_label.setStyleSheet(
-            f"font-size: 14px; color: {text_color};"
-            " font-weight: 700; background: transparent;"
-        )
-        top_layout.addWidget(name_label, 1)
-
-        damage_label = QLabel(formatting.format_damage_source_value(damage))
-        damage_label.setObjectName("DamageSourceValue")
-        damage_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        damage_label.setStyleSheet(
-            f"font-size: 15px; color: {text_color};"
-            " font-weight: 800; background: transparent;"
-        )
-        top_layout.addWidget(damage_label)
-
-        percentage_label = QLabel(damage_source_share_text(damage, total_damage))
-        percentage_label.setObjectName("DamageSourcePercent")
-        percentage_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        percentage_label.setStyleSheet(
-            "font-size: 12px; color: #98A7BA; font-weight: 600; background: transparent;"
-        )
-        top_layout.addWidget(percentage_label)
-        card_layout.addLayout(top_layout)
-
-        bar = QProgressBar()
-        bar.setObjectName("DamageSourceBar")
-        bar.setRange(0, 1000)
-        bar.setValue(round(min(1.0, max(0.0, percentage)) * 1000))
-        bar.setTextVisible(False)
-        bar.setFixedHeight(6)
-        bar.setToolTip(f"{damage_source_share_text(damage, total_damage)} of total damage")
-        bar.setStyleSheet(
-            "QProgressBar {"
-            " background: #111923;"
-            " border: 0;"
-            " border-radius: 3px;"
-            "}"
-            "QProgressBar::chunk {"
-            " background: #60A5FA;"
-            " border-radius: 3px;"
-            "}"
-        )
-        card_layout.addWidget(bar)
-        return card
 
     @staticmethod
     def _damage_source_signature_for(damage_sources) -> tuple:
@@ -812,3 +981,14 @@ def chaos_roll_quality_color(quality: float | None) -> str:
 def chaos_stat_label(stat) -> str:
     label = str(getattr(stat, "label", ""))
     return label or f"Stat {getattr(stat, 'stat_id', '?')}"
+
+
+#: Which method redraws each deferrable panel. Spelled out rather than derived
+#: from the section name, so renaming one fails here loudly instead of silently
+#: leaving that panel stale forever.
+_SECTION_RENDERERS = {
+    "weapons": StatCardsView.display_weapons,
+    "tomes": StatCardsView.display_tomes,
+    "chaos": StatCardsView.display_chaos_tome,
+    "damage_sources": StatCardsView.display_damage_sources,
+}
