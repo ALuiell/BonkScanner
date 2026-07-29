@@ -43,7 +43,6 @@ from typing import Callable
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -61,7 +60,12 @@ from app.vod_library import load_vod
 from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
 from ui.metric_table import MetricTableView
-from ui.shared import _apply_summary_label_padding, _make_scroll_section, _set_text
+from ui.shared import (
+    StartupSafeComboBox,
+    _apply_summary_label_padding,
+    _make_scroll_section,
+    _set_text,
+)
 from ui.styles import ITEM_SORT_LABELS
 from ui.throttle import UiUpdateThrottle, batched_updates
 from ui.tabs.player_stats.items_section import ItemsSectionView
@@ -1282,7 +1286,7 @@ class CompareRunsTab:
         items_rarity_label.setTextFormat(Qt.RichText)
         items_rarity_label.setStyleSheet("font-size: 14px; background: transparent;")
         items_rarity_label.setVisible(False)
-        items_sort_combo = QComboBox()
+        items_sort_combo = StartupSafeComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             items_sort_combo.addItem(label, mode)
         rarity_desc_index = items_sort_combo.findData("rarity_desc")

@@ -54,7 +54,6 @@ from typing import Callable, Sequence
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -73,7 +72,13 @@ from math import isfinite
 from app import config
 from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS
-from ui.shared import FlowLayout, _apply_summary_label_padding, _make_scroll_section, _set_text
+from ui.shared import (
+    FlowLayout,
+    StartupSafeComboBox,
+    _apply_summary_label_padding,
+    _make_scroll_section,
+    _set_text,
+)
 from ui.styles import ITEM_SORT_LABELS
 from ui.tabs.player_stats.items_section import ItemsSectionView
 from ui.tabs.player_stats.metrics import (
@@ -763,7 +768,7 @@ class LiveStatsTab:
         items_sort_row.setContentsMargins(0, 0, 0, 0)
         items_sort_row.addStretch(1)
         items_sort_row.addWidget(QLabel("Sort:"))
-        items_sort_combo = QComboBox()
+        items_sort_combo = StartupSafeComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             items_sort_combo.addItem(label, mode)
         items_sort_row.addWidget(items_sort_combo)

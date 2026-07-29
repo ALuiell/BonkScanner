@@ -1,30 +1,11 @@
 from __future__ import annotations
 
-import ctypes
 import os
 import sys
 
-def enable_windows_dpi_awareness() -> None:
-    if os.name != "nt":
-        return
-
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
-        return
-    except Exception:
-        pass
-
-    try:
-        ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
-
-
-enable_windows_dpi_awareness()
-
 from PySide6.QtCore import QObject, QPoint, QRect, QSize, Qt, QTimer, Signal, Slot
-from PySide6.QtGui import QCloseEvent, QIcon
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLayout, QMainWindow, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import QCloseEvent, QIcon, QPainter
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QMainWindow, QPushButton, QScrollArea, QSizePolicy, QStyle, QStyleOptionComboBox, QVBoxLayout, QWidget
 
 TRACKED_ITEM_LIST_HEIGHT = 96
 
@@ -331,6 +312,185 @@ class _AppWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.owner._handle_window_close(event)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.owner._handle_window_shown()
+
+
+class StartupSafeComboBox(QWidget):
+    """Create the real QComboBox only after this control is on screen.
+
+    On Windows, parenting even an empty ``QComboBox`` eagerly creates a
+    top-level ``QComboBoxPrivateContainer`` with the ``Qt.Popup`` window type.
+    Building the whole hidden main window therefore created six native popup
+    windows before the real application window. Packaged builds could let DWM
+    paint those helpers for a frame, which looked like a row of tiny dialogs.
+
+    This proxy preserves the small QComboBox API used by the startup views,
+    paints a combo-shaped placeholder for the first frame, then creates the
+    real control from a zero-delay callback. By then the main window has mapped,
+    so its popup can no longer precede the application window.
+    """
+
+    currentIndexChanged = Signal(int)
+    currentTextChanged = Signal(str)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self._startup_items: list[tuple[str, object]] = []
+        self._startup_current_index: int | None = None
+        self._startup_combo: QComboBox | None = None
+        self._startup_materialize_scheduled = False
+        self._startup_layout = QHBoxLayout(self)
+        self._startup_layout.setContentsMargins(0, 0, 0, 0)
+        self._startup_layout.setSpacing(0)
+        self.setMinimumHeight(28)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def addItem(self, text: str, userData=None) -> None:
+        combo = self._startup_combo
+        if combo is not None:
+            combo.addItem(text, userData)
+            return
+        self._startup_items.append((str(text), userData))
+        self.updateGeometry()
+        self.update()
+
+    def addItems(self, texts) -> None:
+        combo = self._startup_combo
+        if combo is not None:
+            combo.addItems(texts)
+            return
+        self._startup_items.extend((str(text), None) for text in texts)
+        self.updateGeometry()
+        self.update()
+
+    def count(self) -> int:
+        if self._startup_combo is not None:
+            return self._startup_combo.count()
+        return len(self._startup_items)
+
+    def itemText(self, index: int) -> str:
+        if self._startup_combo is not None:
+            return self._startup_combo.itemText(index)
+        if 0 <= index < len(self._startup_items):
+            return self._startup_items[index][0]
+        return ""
+
+    def itemData(self, index: int, role=Qt.UserRole):
+        if self._startup_combo is not None:
+            return self._startup_combo.itemData(index, role)
+        if role == Qt.UserRole and 0 <= index < len(self._startup_items):
+            return self._startup_items[index][1]
+        return None
+
+    def findData(self, data, role=Qt.UserRole, flags=Qt.MatchExactly | Qt.MatchCaseSensitive) -> int:
+        if self._startup_combo is not None:
+            return self._startup_combo.findData(data, role, flags)
+        if role == Qt.UserRole:
+            for index, (_text, item_data) in enumerate(self._startup_items):
+                if item_data == data:
+                    return index
+        return -1
+
+    def findText(self, text: str, flags=Qt.MatchExactly | Qt.MatchCaseSensitive) -> int:
+        if self._startup_combo is not None:
+            return self._startup_combo.findText(text, flags)
+        for index, (item_text, _data) in enumerate(self._startup_items):
+            if item_text == text:
+                return index
+        return -1
+
+    def setCurrentIndex(self, index: int) -> None:
+        combo = self._startup_combo
+        if combo is not None:
+            combo.setCurrentIndex(index)
+            return
+        self._startup_current_index = int(index)
+        self.update()
+
+    def setCurrentText(self, text: str) -> None:
+        combo = self._startup_combo
+        if combo is not None:
+            combo.setCurrentText(text)
+            return
+        index = self.findText(text)
+        if index >= 0:
+            self._startup_current_index = index
+            self.update()
+
+    def currentIndex(self) -> int:
+        if self._startup_combo is not None:
+            return self._startup_combo.currentIndex()
+        if not self._startup_items:
+            return -1
+        if self._startup_current_index is None:
+            return 0
+        return min(max(self._startup_current_index, 0), len(self._startup_items) - 1)
+
+    def currentText(self) -> str:
+        if self._startup_combo is not None:
+            return self._startup_combo.currentText()
+        return self.itemText(self.currentIndex())
+
+    def currentData(self, role=Qt.UserRole):
+        if self._startup_combo is not None:
+            return self._startup_combo.currentData(role)
+        return self.itemData(self.currentIndex(), role)
+
+    def sizeHint(self) -> QSize:
+        combo = self._startup_combo
+        if combo is not None:
+            return combo.sizeHint()
+        widest = max(
+            (self.fontMetrics().horizontalAdvance(text) for text, _data in self._startup_items),
+            default=72,
+        )
+        return QSize(max(96, widest + 34), max(28, self.fontMetrics().height() + 12))
+
+    def paintEvent(self, event) -> None:
+        if self._startup_combo is not None:
+            return
+        option = QStyleOptionComboBox()
+        option.initFrom(self)
+        option.currentText = self.currentText()
+        option.editable = False
+        option.frame = True
+        painter = QPainter(self)
+        self.style().drawComplexControl(QStyle.CC_ComboBox, option, painter, self)
+        self.style().drawControl(QStyle.CE_ComboBoxLabel, option, painter, self)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._startup_combo is None and not self._startup_materialize_scheduled:
+            self._startup_materialize_scheduled = True
+            QTimer.singleShot(0, self._materialize_startup_items)
+
+    def _materialize_startup_items(self) -> None:
+        if self._startup_combo is not None:
+            return
+        items = tuple(self._startup_items)
+        current_index = self.currentIndex()
+        self._startup_materialize_scheduled = False
+        combo = QComboBox(self)
+        combo.setEnabled(self.isEnabled())
+        combo.setToolTip(self.toolTip())
+        combo.blockSignals(True)
+        try:
+            for text, user_data in items:
+                combo.addItem(text, user_data)
+            if current_index >= 0:
+                combo.setCurrentIndex(current_index)
+        finally:
+            combo.blockSignals(False)
+        combo.currentIndexChanged.connect(self.currentIndexChanged.emit)
+        combo.currentTextChanged.connect(self.currentTextChanged.emit)
+        self._startup_combo = combo
+        self._startup_layout.addWidget(combo)
+        self.setFocusProxy(combo)
+        self.updateGeometry()
+
 
 class FlowLayout(QLayout):
     def __init__(self, parent=None, margin=0, spacing=-1):

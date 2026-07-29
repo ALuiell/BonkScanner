@@ -33,11 +33,12 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox,
+    QCheckBox,
     QDialog,
     QFormLayout,
     QFrame,
@@ -49,32 +50,35 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QSlider,
+    QSizePolicy,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from app import config
 from app.vod_library import (
     delete_vod,
     delete_vods_below_snapshot_count,
     load_vod,
     rename_vod,
 )
+from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS
 from ui.dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from ui.tabs.player_stats.metrics import (
     LIVE_STATS_VALUE_WIDTH,
     RECORDINGS_LIST_MAX_WIDTH,
     RECORDINGS_LIST_MIN_WIDTH,
-    RECORDINGS_STATS_CARD_COLUMNS,
     _apply_player_stat_value_baseline,
-    _apply_run_summary_baselines,
-    _apply_stage_summary_column_baseline,
     _build_chests_stats_card,
-    _retain_hidden_widget_size,
+    _build_loot_rarity_card,
 )
 from ui.shared import (
+    FlowLayout,
+    StartupSafeComboBox,
     _apply_summary_label_padding,
     _clear_text_input,
     _make_scroll_section,
@@ -85,9 +89,14 @@ from ui.shared import (
 from ui.styles import ITEM_SORT_LABELS
 from ui.throttle import UiUpdateThrottle, batched_updates
 from ui.tabs.player_stats.items_section import ItemsSectionView
+from ui.tabs.player_stats.live_stats import (
+    LIVE_STATS_EXPANDED_CONFIG_KEY,
+    _ResponsiveCardGrid,
+)
 from ui.tabs.player_stats.stat_cards import StatCardsView
 from ui.tabs.player_stats.summary_cards import (
     set_chests_card_values,
+    set_loot_rarity_card_values,
     set_stage_summary_labels,
 )
 from projections import formatting
@@ -161,6 +170,7 @@ class RecordingsTab:
         self._load_in_progress = False
 
         self._rows = {}
+        self._compact_rows = {}
         self._stage_summary_labels = []
 
         # Every widget `build()` creates, named here as `None`. They were
@@ -193,10 +203,12 @@ class RecordingsTab:
         self._compare_details_summary_label = None
         self._compare_details_items_label = None
         self._detail_tabs = None
+        self._stats_expanded_toggle = None
         self._stat_cards = None
         self._chooser_group = None
         self._list_frame = None
         self._chests_card_values = None
+        self._loot_rarity_card_values = None
 
     def refresh_vods_list(self):
         if self._list_frame is None:
@@ -369,6 +381,8 @@ class RecordingsTab:
             self._slider.setValue(0)
             for label in self._rows.values():
                 _set_text(label, "--")
+            for label in self._compact_rows.values():
+                _set_text(label, "--")
             _set_text(self._slider_time_label, "Timeline: --")
             self._items_section.collapse()
             self._items_section.update((), items_text="--")
@@ -381,6 +395,7 @@ class RecordingsTab:
                 self._chests_card_values,
                 None,
             )
+            set_loot_rarity_card_values(self._loot_rarity_card_values, None, None)
             _set_text(self._new_items_label, "No previous snapshot")
             self._refresh_vod_compare_controls()
             self._refresh_vod_compare_details(None, None, index=None)
@@ -421,6 +436,13 @@ class RecordingsTab:
                 if value_label is not None:
                     stat = snapshot.stats.get(spec.label)
                     _set_text(value_label, stat.display_value if stat is not None else "--")
+                compact_value_label = self._compact_rows.get(spec.label)
+                if compact_value_label is not None:
+                    stat = snapshot.stats.get(spec.label)
+                    _set_text(
+                        compact_value_label,
+                        stat.display_value if stat is not None else "--",
+                    )
         self._items_section.update(snapshot.items)
         _set_text(
             self._chests_per_minute_label,
@@ -449,6 +471,7 @@ class RecordingsTab:
             formatting.format_player_level(getattr(snapshot, "player_level", None)),
         )
         self._update_recorded_chest_summary(snapshot)
+        self._update_recorded_loot_rarity_summary(snapshot)
         set_stage_summary_labels(
             self._stage_summary_labels,
             formatting.build_stage_summary(self._loaded_vod.snapshots[: index + 1]),
@@ -621,6 +644,8 @@ class RecordingsTab:
         _set_text(self._slider_time_label, "Timeline: --")
         for label in self._rows.values():
             _set_text(label, "--")
+        for label in self._compact_rows.values():
+            _set_text(label, "--")
         self._items_section.collapse()
         self._items_section.update((), items_text="--")
         _set_text(self._chests_per_minute_label, "Average chests/min: --")
@@ -632,6 +657,7 @@ class RecordingsTab:
             self._chests_card_values,
             None,
         )
+        set_loot_rarity_card_values(self._loot_rarity_card_values, None, None)
         _set_text(self._new_items_label, "No previous snapshot")
         self._refresh_vod_compare_controls()
         self._refresh_vod_compare_details(None, None, index=None)
@@ -709,6 +735,29 @@ class RecordingsTab:
                     False,
                 ),
             )
+
+    def _update_recorded_loot_rarity_summary(self, snapshot) -> None:
+        labels = self._loot_rarity_card_values
+        if not labels:
+            return
+        actual = getattr(snapshot, "loot_actual", None)
+        expected = getattr(snapshot, "loot_expected", None)
+        luck_stat = snapshot.stats.get("Luck") if isinstance(snapshot.stats, dict) else None
+        set_loot_rarity_card_values(
+            labels,
+            getattr(luck_stat, "value", None),
+            SimpleNamespace(
+                available=actual is not None and expected is not None,
+                actual=actual or {},
+                expected=expected or {},
+            ),
+        )
+
+    @staticmethod
+    def _save_stats_expanded_preference(expanded: bool) -> None:
+        config.user_config[LIVE_STATS_EXPANDED_CONFIG_KEY] = bool(expanded)
+        config.save_config(config.user_config)
+
     def build(self):
         """Create the tab's widgets and add it to the tab bar.
 
@@ -764,47 +813,105 @@ class RecordingsTab:
         vod_compare_actions.addWidget(self._compare_clear_btn)
         vod_compare_actions.addStretch(1)
         vods_detail_layout.addLayout(vod_compare_actions)
+        recordings_page = QWidget()
+        recordings_page.setObjectName("LiveStatsPage")
+        recordings_page_layout = QGridLayout(recordings_page)
+        recordings_page_layout.setContentsMargins(0, 0, 0, 0)
+        recordings_page_layout.setHorizontalSpacing(10)
+        recordings_page_layout.setVerticalSpacing(0)
+
+        recordings_main = QWidget()
+        recordings_main.setObjectName("LiveStatsMain")
+        recordings_main_layout = QVBoxLayout(recordings_main)
+        recordings_main_layout.setContentsMargins(0, 0, 0, 0)
+        recordings_main_layout.setSpacing(14)
+
         vod_items_group = QGroupBox("Items")
+        vod_items_group.setObjectName("LiveStatsItems")
+        vod_items_group.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+        vod_items_group.setMinimumWidth(220)
         vod_items_layout = QVBoxLayout(vod_items_group)
-        vods_items_label = QLabel("--")
-        vods_items_label.setTextFormat(Qt.RichText)
-        vods_items_label.setWordWrap(True)
-        vod_items_layout.addWidget(vods_items_label)
-        vods_items_toggle_btn = QPushButton("Show more")
-        vods_items_toggle_btn.clicked.connect(self.toggle_vod_items_expanded)
-        vods_items_toggle_btn.setProperty("class", "SmallGhostButton")
-        _retain_hidden_widget_size(vods_items_toggle_btn)
-        vods_items_toggle_btn.setEnabled(False)
-        vod_items_actions = QHBoxLayout()
+        vod_items_layout.setContentsMargins(11, 11, 11, 11)
+        vod_items_layout.setSpacing(8)
+
+        vod_items_meta = QHBoxLayout()
+        vod_items_meta.setContentsMargins(0, 0, 0, 0)
         vods_items_rarity_label = QLabel("")
         vods_items_rarity_label.setTextFormat(Qt.RichText)
-        vods_items_rarity_label.setStyleSheet("font-size: 14px; background: transparent;")
+        vods_items_rarity_label.setStyleSheet(
+            "font-size: 12px; background: transparent;"
+        )
         vods_items_rarity_label.setVisible(False)
-        vods_items_sort_combo = QComboBox()
+        vod_items_meta.addWidget(vods_items_rarity_label, 0, Qt.AlignLeft)
+        vod_items_meta.addStretch(1)
+        vod_items_layout.addLayout(vod_items_meta)
+
+        vods_items_chips_container = QWidget()
+        vods_items_chips_container.setObjectName("cardContent")
+        FlowLayout(vods_items_chips_container, margin=0, spacing=6)
+        vods_items_scroll = QScrollArea()
+        vods_items_scroll.setObjectName("LiveStatsItemsScroll")
+        vods_items_scroll.setWidgetResizable(True)
+        vods_items_scroll.setFrameShape(QFrame.NoFrame)
+        vods_items_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        vods_items_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        vods_items_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        vods_items_scroll.setWidget(vods_items_chips_container)
+        vod_items_layout.addWidget(vods_items_scroll, 1)
+
+        vod_items_sort_row = QHBoxLayout()
+        vod_items_sort_row.setContentsMargins(0, 0, 0, 0)
+        vod_items_sort_row.addStretch(1)
+        vod_items_sort_row.addWidget(QLabel("Sort:"))
+        vods_items_sort_combo = StartupSafeComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             vods_items_sort_combo.addItem(label, mode)
+        vod_items_sort_row.addWidget(vods_items_sort_combo)
+        vod_items_layout.addLayout(vod_items_sort_row)
+
         self._items_section = ItemsSectionView(
             group=vod_items_group,
-            label=vods_items_label,
+            label=None,
             rarity_label=vods_items_rarity_label,
-            toggle_btn=vods_items_toggle_btn,
+            toggle_btn=None,
             sort_combo=vods_items_sort_combo,
+            chips_container=vods_items_chips_container,
+            always_expanded=True,
+            scroll_area=vods_items_scroll,
         )
         vods_items_sort_combo.currentIndexChanged.connect(
             lambda _index: self._items_section.on_sort_changed()
         )
-        vod_items_actions.addWidget(vods_items_toggle_btn, 0, Qt.AlignLeft)
-        vod_items_actions.addWidget(vods_items_rarity_label, 0, Qt.AlignLeft)
-        vod_items_actions.addStretch(1)
-        vod_items_actions.addWidget(QLabel("Sort:"))
-        vod_items_actions.addWidget(vods_items_sort_combo)
-        vod_items_layout.addLayout(vod_items_actions)
-        vods_detail_layout.addWidget(vod_items_group)
+
+        vod_items_divider = QFrame()
+        vod_items_divider.setObjectName("LiveStatsItemsDivider")
+        vod_items_divider.setFrameShape(QFrame.HLine)
+        vod_items_layout.addWidget(vod_items_divider)
+
+        vod_banishes_section = QWidget()
+        vod_banishes_section.setObjectName("LiveStatsBanishes")
+        vod_banishes_layout = QVBoxLayout(vod_banishes_section)
+        vod_banishes_layout.setContentsMargins(8, 7, 8, 7)
+        vod_banishes_layout.setSpacing(4)
+        vod_banishes_title = QLabel("BANISHES")
+        vod_banishes_title.setObjectName("LiveStatsBanishesTitle")
+        vod_banishes_layout.addWidget(vod_banishes_title)
+        self._banishes_label = QLabel("No banishes yet")
+        self._banishes_label.setObjectName("LiveStatsBanishesText")
+        self._banishes_label.setTextFormat(Qt.RichText)
+        self._banishes_label.setWordWrap(True)
+        vod_banishes_layout.addWidget(self._banishes_label)
+        vod_items_layout.addWidget(vod_banishes_section)
+
         vod_summary_grid = QGridLayout()
         vod_summary_grid.setContentsMargins(0, 0, 0, 0)
         vod_summary_grid.setHorizontalSpacing(8)
         vod_summary_grid.setVerticalSpacing(8)
         vod_chest_rate_group = QGroupBox("Run Summary")
+        vod_chest_rate_group.setObjectName("LiveStatsRunSummary")
+        vod_chest_rate_group.setSizePolicy(
+            QSizePolicy.Ignored, QSizePolicy.Preferred
+        )
         vod_chest_rate_layout = QVBoxLayout(vod_chest_rate_group)
         self._chests_per_minute_label = QLabel("Average chests/min: --")
         vod_chest_rate_layout.addWidget(self._chests_per_minute_label)
@@ -816,14 +923,15 @@ class RecordingsTab:
         vod_chest_rate_layout.addWidget(self._kps_averages_label)
         self._level_label = QLabel("Level: --")
         vod_chest_rate_layout.addWidget(self._level_label)
-        _apply_summary_label_padding(
+        for label in (
             self._chests_per_minute_label,
             self._in_game_time_label,
             self._mob_kills_label,
             self._kps_averages_label,
             self._level_label,
-        )
-        _apply_run_summary_baselines(
+        ):
+            label.setWordWrap(True)
+        _apply_summary_label_padding(
             self._chests_per_minute_label,
             self._in_game_time_label,
             self._mob_kills_label,
@@ -832,6 +940,10 @@ class RecordingsTab:
         )
         vod_summary_grid.addWidget(vod_chest_rate_group, 0, 0)
         vod_stage_summary_group = QGroupBox("Stage Summary")
+        vod_stage_summary_group.setObjectName("LiveStatsStageSummary")
+        vod_stage_summary_group.setSizePolicy(
+            QSizePolicy.Ignored, QSizePolicy.Preferred
+        )
         vod_stage_summary_layout = QGridLayout(vod_stage_summary_group)
         vod_stage_summary_layout.setContentsMargins(10, 10, 10, 10)
         vod_stage_summary_layout.setHorizontalSpacing(10)
@@ -863,16 +975,16 @@ class RecordingsTab:
                     "items": items_label,
                 }
             )
-        _apply_stage_summary_column_baseline(
-            vod_stage_summary_layout,
-            self._stage_summary_labels,
-        )
         vod_stage_summary_layout.setColumnStretch(0, 1)
         vod_stage_summary_layout.setColumnStretch(1, 2)
         vod_stage_summary_layout.setColumnStretch(2, 1)
         vod_stage_summary_layout.setColumnStretch(3, 1)
         vod_summary_grid.addWidget(vod_stage_summary_group, 0, 1)
         vod_new_items_group = QGroupBox("Segment Compare")
+        vod_new_items_group.setObjectName("LiveStatsPowerups")
+        vod_new_items_group.setSizePolicy(
+            QSizePolicy.Ignored, QSizePolicy.Preferred
+        )
         vod_new_items_layout = QVBoxLayout(vod_new_items_group)
         self._new_items_label = QLabel("No previous snapshot")
         self._new_items_label.setTextFormat(Qt.RichText)
@@ -885,17 +997,9 @@ class RecordingsTab:
         self._compare_details_btn.setVisible(False)
         vod_new_items_layout.addWidget(self._compare_details_btn, 0, Qt.AlignLeft)
         vod_summary_grid.addWidget(vod_new_items_group, 0, 2)
-        vod_banishes_group = QGroupBox("Banishes")
-        vod_banishes_layout = QVBoxLayout(vod_banishes_group)
-        self._banishes_label = QLabel("No banishes yet")
-        self._banishes_label.setTextFormat(Qt.RichText)
-        self._banishes_label.setWordWrap(True)
-        _apply_summary_label_padding(self._banishes_label)
-        vod_banishes_layout.addWidget(self._banishes_label)
-        vod_summary_grid.addWidget(vod_banishes_group, 0, 3)
-        for column in range(4):
+        for column in range(3):
             vod_summary_grid.setColumnStretch(column, 1)
-        vods_detail_layout.addLayout(vod_summary_grid)
+        recordings_main_layout.addLayout(vod_summary_grid)
         self._compare_details_group = QGroupBox("Compare Details")
         vod_compare_details_layout = QVBoxLayout(self._compare_details_group)
         self._compare_details_summary_label = QLabel("--")
@@ -916,47 +1020,134 @@ class RecordingsTab:
         vod_compare_scroll_layout.addStretch(1)
         vod_compare_details_layout.addWidget(vod_compare_scroll)
         self._compare_details_group.setVisible(False)
-        vods_detail_layout.addWidget(self._compare_details_group)
+        recordings_main_layout.addWidget(self._compare_details_group)
         self._detail_tabs = QTabWidget()
         self._detail_tabs.setObjectName("subTabs")
+        self._detail_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         vod_stats_tab = QWidget()
         vod_stats_tab_layout = QVBoxLayout(vod_stats_tab)
+        stats_view_options = QHBoxLayout()
+        stats_view_options.setContentsMargins(0, 0, 0, 0)
+        stats_view_options.addStretch(1)
+        self._stats_expanded_toggle = QCheckBox("Expanded")
+        self._stats_expanded_toggle.setObjectName("LiveStatsExpandedToggle")
+        self._stats_expanded_toggle.setChecked(
+            bool(config.user_config.get(LIVE_STATS_EXPANDED_CONFIG_KEY, False))
+        )
+        self._stats_expanded_toggle.setToolTip(
+            "Show the full stat names in detailed label/value rows"
+        )
+        stats_view_options.addWidget(self._stats_expanded_toggle)
+        vod_stats_tab_layout.addLayout(stats_view_options)
         vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()
         vod_stats_tab_layout.addWidget(vods_scroll)
-        vods_stats_grid = QGridLayout()
-        vods_stats_grid.setContentsMargins(0, 0, 0, 0)
-        vods_stats_grid.setHorizontalSpacing(8)
-        vods_stats_grid.setVerticalSpacing(8)
-        for index, group in enumerate(PLAYER_STAT_GROUPS):
+
+        compact_stats_grid = _ResponsiveCardGrid(
+            minimum_card_width=160,
+            spacing=6,
+            maximum_columns=5,
+            stretch_columns=False,
+        )
+        compact_stats_grid.setProperty("viewMode", "compact")
+        for group in PLAYER_STAT_GROUPS:
+            stat_group = QFrame()
+            stat_group.setObjectName("StatCard")
+            stat_group.setFixedSize(160, 174)
+            group_layout = QVBoxLayout(stat_group)
+            group_layout.setContentsMargins(8, 7, 8, 7)
+            group_layout.setSpacing(2)
+            compact_rows = QWidget()
+            compact_rows.setObjectName("LiveStatsCompactRows")
+            compact_rows_layout = QVBoxLayout(compact_rows)
+            compact_rows_layout.setContentsMargins(0, 0, 0, 0)
+            compact_rows_layout.setSpacing(2)
+            for spec in group:
+                compact_stat = QWidget()
+                compact_stat.setObjectName("LiveStatsCompactStat")
+                compact_stat_layout = QHBoxLayout(compact_stat)
+                compact_stat_layout.setContentsMargins(0, 0, 0, 0)
+                compact_stat_layout.setSpacing(5)
+
+                name_label = QLabel(abbreviate_stat_label(spec.label))
+                name_label.setObjectName("LiveStatsCompactStatName")
+                compact_stat_layout.addWidget(name_label)
+                compact_stat_layout.addStretch(1)
+
+                value_label = QLabel("--")
+                value_label.setObjectName("LiveStatsCompactStatValue")
+                value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                compact_stat_layout.addWidget(value_label)
+                self._compact_rows[spec.label] = value_label
+                compact_rows_layout.addWidget(compact_stat)
+            group_layout.addWidget(compact_rows)
+            compact_stats_grid.add_card(stat_group)
+
+        expanded_stats_grid = _ResponsiveCardGrid(
+            minimum_card_width=300,
+            spacing=8,
+            maximum_columns=4,
+        )
+        expanded_stats_grid.setProperty("viewMode", "expanded")
+        for group in PLAYER_STAT_GROUPS:
             stat_group = QFrame()
             stat_group.setObjectName("StatCard")
             group_layout = QFormLayout(stat_group)
-            group_layout.setContentsMargins(8, 8, 8, 8)
+            group_layout.setContentsMargins(6, 6, 6, 6)
             group_layout.setHorizontalSpacing(6)
-            group_layout.setVerticalSpacing(4)
+            group_layout.setVerticalSpacing(3)
             for spec in group:
+                name_label = QLabel(spec.label)
+                name_label.setObjectName("LiveStatsExpandedStatName")
                 value_label = QLabel("--")
-                value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
+                value_label.setObjectName("LiveStatsExpandedStatValue")
+                value_label.setMinimumWidth(max(48, LIVE_STATS_VALUE_WIDTH - 16))
                 _apply_player_stat_value_baseline(value_label, spec.value_format)
                 value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 self._rows[spec.label] = value_label
-                group_layout.addRow(spec.label, value_label)
-            vods_stats_grid.addWidget(
-                stat_group,
-                index // RECORDINGS_STATS_CARD_COLUMNS,
-                index % RECORDINGS_STATS_CARD_COLUMNS,
-            )
-        placeholder_index = len(PLAYER_STAT_GROUPS)
-        placeholder_group, self._chests_card_values = _build_chests_stats_card()
-        vods_stats_grid.addWidget(
-            placeholder_group,
-            placeholder_index // RECORDINGS_STATS_CARD_COLUMNS,
-            placeholder_index % RECORDINGS_STATS_CARD_COLUMNS,
+                group_layout.addRow(name_label, value_label)
+            expanded_stats_grid.add_card(stat_group)
+
+        compact_stats_grid.setVisible(False)
+        self._stats_expanded_toggle.toggled.connect(compact_stats_grid.setHidden)
+        self._stats_expanded_toggle.toggled.connect(expanded_stats_grid.setVisible)
+        self._stats_expanded_toggle.toggled.connect(
+            self._save_stats_expanded_preference
         )
-        for column in range(RECORDINGS_STATS_CARD_COLUMNS):
-            vods_stats_grid.setColumnStretch(column, 1)
-        vods_scroll_layout.addLayout(vods_stats_grid)
+        compact_stats_grid.setHidden(self._stats_expanded_toggle.isChecked())
+        expanded_stats_grid.setVisible(self._stats_expanded_toggle.isChecked())
+        vods_scroll_layout.addWidget(compact_stats_grid)
+        vods_scroll_layout.addWidget(expanded_stats_grid)
         vods_scroll_layout.addStretch(1)
+
+        vod_loot_tab = QWidget()
+        vod_loot_tab_layout = QVBoxLayout(vod_loot_tab)
+        vod_loot_scroll, _vod_loot_scroll_content, vod_loot_scroll_layout = (
+            _make_scroll_section()
+        )
+        vod_loot_tab_layout.addWidget(vod_loot_scroll)
+        vod_loot_grid = QGridLayout()
+        vod_loot_grid.setContentsMargins(0, 0, 0, 0)
+        vod_loot_grid.setHorizontalSpacing(8)
+        vod_loot_grid.setVerticalSpacing(8)
+
+        vod_chests_group = QGroupBox("Chests (Expected = key procs)")
+        vod_chests_group_layout = QVBoxLayout(vod_chests_group)
+        vod_chests_card, self._chests_card_values = _build_chests_stats_card()
+        vod_chests_card.setObjectName("StatCardInner")
+        vod_chests_group_layout.addWidget(vod_chests_card)
+        vod_loot_grid.addWidget(vod_chests_group, 0, 0)
+
+        vod_rarity_group = QGroupBox("Item Rarity (Expected = items by tier)")
+        vod_rarity_group_layout = QVBoxLayout(vod_rarity_group)
+        vod_rarity_card, self._loot_rarity_card_values = _build_loot_rarity_card()
+        vod_rarity_card.setObjectName("StatCardInner")
+        vod_rarity_group_layout.addWidget(vod_rarity_card)
+        vod_loot_grid.addWidget(vod_rarity_group, 0, 1)
+
+        for column in range(2):
+            vod_loot_grid.setColumnStretch(column, 1)
+        vod_loot_scroll_layout.addLayout(vod_loot_grid)
+        vod_loot_scroll_layout.addStretch(1)
         vod_weapons_tab = QWidget()
         vod_weapons_tab_layout = QVBoxLayout(vod_weapons_tab)
         vods_weapons_status_label = QLabel("Select a recording")
@@ -1004,16 +1195,26 @@ class RecordingsTab:
             damage_sources_status_label=vods_damage_sources_status_label,
         )
         self._detail_tabs.addTab(vod_stats_tab, "Stats")
+        self._detail_tabs.addTab(vod_loot_tab, "Loot")
         self._detail_tabs.addTab(vod_weapons_tab, "Weapons")
         self._detail_tabs.addTab(vod_tomes_tab, "Tomes")
         self._detail_tabs.addTab(vod_chaos_tab, "Chaos")
         self._detail_tabs.addTab(vod_damage_sources_tab, "Damage Sources")
+        self._detail_tabs.setMinimumHeight(self._detail_tabs.sizeHint().height())
+        recordings_main_layout.addWidget(self._detail_tabs)
         vod_stats_tab_layout.setContentsMargins(0, 0, 0, 0)
+        vod_loot_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_weapons_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_tomes_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_chaos_tab_layout.setContentsMargins(0, 0, 0, 0)
         vod_damage_sources_tab_layout.setContentsMargins(0, 0, 0, 0)
-        vods_detail_layout.addWidget(self._detail_tabs, 1)
+
+        recordings_page_layout.addWidget(recordings_main, 0, 0)
+        recordings_page_layout.addWidget(vod_items_group, 0, 1)
+        recordings_page_layout.setColumnStretch(0, 3)
+        recordings_page_layout.setColumnStretch(1, 1)
+        recordings_page_layout.setRowStretch(0, 1)
+        vods_detail_layout.addWidget(recordings_page, 1)
         self._chooser_group = QGroupBox("Select Recordings")
         self._chooser_group.setVisible(False)
         self._chooser_group.setMinimumWidth(RECORDINGS_LIST_MIN_WIDTH)

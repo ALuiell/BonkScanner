@@ -59,6 +59,8 @@ class MegabonkApp:
     def __init__(self):
         self._ensure_qt_application()
         self.window = _AppWindow(self)
+        self._window_shown = False
+        self._after_window_shown_callbacks = []
         self._invoker = UiInvoker()
         self._close_protocol_handler = None
         self._is_shutting_down = False
@@ -256,7 +258,7 @@ class MegabonkApp:
         # split created, alongside `_recordings_list_view` in `_build_tab_router`.
         self._overlay_view = self._overlay
         self._in_game_overlay = build_in_game_overlay(self)
-        self._in_game_overlay.start_runtime()
+        self.run_after_window_shown(self._in_game_overlay.start_runtime)
         self.player_stats_last_run_id = None
         self.player_stats_disabled_items_cache = None
         self.player_stats_disabled_items_refresh_pending = False
@@ -804,8 +806,24 @@ class MegabonkApp:
             self._close_protocol_handler = callback
 
     def mainloop(self) -> int:
-        self.window.show()
+        self._show_main_window_ready()
         return self.qt_app.exec()
+
+    def _show_main_window_ready(self) -> None:
+        """Map the native window only after Qt has painted its complete first frame."""
+        qt_app = self.qt_app
+        self.window.setWindowOpacity(0.0)
+        self.window.setUpdatesEnabled(False)
+        self.window.show()
+        qt_app.processEvents()
+
+        # Windows can display the native frame immediately after show(), one
+        # paint cycle before Qt fills the central widget. Paint that cycle while
+        # the window is transparent, then reveal the already-complete frame.
+        self.window.setUpdatesEnabled(True)
+        self.window.update()
+        qt_app.processEvents()
+        self.window.setWindowOpacity(1.0)
 
     def destroy(self):
         self._close_in_progress = True
@@ -829,6 +847,22 @@ class MegabonkApp:
     def after_idle(self, callback):
         self._invoker.call_now.emit(callback)
         return None
+
+    def run_after_window_shown(self, callback) -> None:
+        """Run native auxiliary-window setup only after the main window maps."""
+        if self._window_shown:
+            self.after(0, callback)
+            return
+        self._after_window_shown_callbacks.append(callback)
+
+    def _handle_window_shown(self) -> None:
+        if self._window_shown:
+            return
+        self._window_shown = True
+        callbacks = tuple(self._after_window_shown_callbacks)
+        self._after_window_shown_callbacks.clear()
+        for callback in callbacks:
+            self.after(0, callback)
 
     def winfo_exists(self) -> bool:
         return not self._is_shutting_down

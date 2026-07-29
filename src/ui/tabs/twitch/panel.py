@@ -39,7 +39,6 @@ from typing import Callable
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -55,7 +54,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
-from ui.shared import _make_scroll_section
+from ui.shared import StartupSafeComboBox, _make_scroll_section
 from ui.styles import _set_widget_style_role
 
 _NOT_CONNECTED = "<span style='color: #f08b72; font-weight: bold;'>Not connected</span>"
@@ -258,7 +257,7 @@ class TwitchTab:
         form_layout = QFormLayout()
         form_layout.setContentsMargins(0, 0, 0, 0)
 
-        self._tier_combo = QComboBox()
+        self._tier_combo = StartupSafeComboBox()
         self._tier_combo.addItems(["Everyone", "Mods & VIPs", "Subs & Mods"])
         self._tier_combo.setCurrentText(config.TWITCH_BOT.get("access_tier", "Everyone"))
         form_layout.addRow("Access Tier:", self._tier_combo)
