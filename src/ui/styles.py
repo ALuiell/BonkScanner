@@ -1171,15 +1171,26 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             min-height: 22px;
             max-width: 22px;
             max-height: 22px;
+            font-size: 13px;
             font-weight: 800;
         }
         QLabel#CompareRunsComparisonCardTitle {
             color: #EDF1F5;
             background: transparent;
+            font-size: 15px;
             font-weight: 800;
         }
-        QLabel#CompareRunsComparisonCardMeta,
-        QLabel#CompareRunsMetricLabel,
+        QLabel#CompareRunsComparisonCardMeta {
+            color: #8A94A3;
+            background: transparent;
+            font-size: 12px;
+        }
+        QLabel#CompareRunsMetricLabel {
+            color: #8A94A3;
+            background: transparent;
+            font-size: 13px;
+            font-weight: 700;
+        }
         QLabel#CompareRunsCompactMetricEmpty {
             color: #8A94A3;
             background: transparent;
@@ -1197,20 +1208,27 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             background-color: #0B0F14;
             border: none;
         }
+        QLabel#CompareRunsMetricRunLabel {
+            background: transparent;
+            font-size: 12px;
+            font-weight: 900;
+        }
         QLabel#CompareRunsMetricRunLabel[side="A"] {
             color: #38BDF8;
-            background: transparent;
-            font-weight: 900;
         }
         QLabel#CompareRunsMetricRunLabel[side="B"] {
             color: #C084FC;
-            background: transparent;
-            font-weight: 900;
         }
-        QLabel#CompareRunsMetricValue,
+        QLabel#CompareRunsMetricValue {
+            color: #EDF1F5;
+            background: transparent;
+            font-size: 15px;
+        }
         QLabel#CompareRunsMetricDelta {
             color: #EDF1F5;
             background: transparent;
+            font-size: 13px;
+            font-weight: 800;
         }
     """
 

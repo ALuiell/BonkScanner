@@ -870,18 +870,19 @@ QLabel#CompareRunsComparisonCardBadge {
     min-height: 22px;
     max-width: 22px;
     max-height: 22px;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 800;
 }
 QLabel#CompareRunsComparisonCardTitle {
     color: #EDF1F5;
     background: transparent;
+    font-size: 15px;
     font-weight: 800;
 }
 QLabel#CompareRunsComparisonCardMeta {
     color: #5C6675;
     background: transparent;
-    font-size: 10px;
+    font-size: 12px;
 }
 QWidget#CompareRunsComparisonMetrics {
     background-color: #1B222B;
@@ -895,12 +896,12 @@ QFrame#CompareRunsMetricCell {
 QLabel#CompareRunsMetricLabel {
     color: #8A94A3;
     background: transparent;
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 700;
 }
 QLabel#CompareRunsMetricRunLabel {
     background: transparent;
-    font-size: 9px;
+    font-size: 12px;
     font-weight: 900;
 }
 QLabel#CompareRunsMetricRunLabel[side="A"] { color: #38BDF8; }
@@ -908,10 +909,11 @@ QLabel#CompareRunsMetricRunLabel[side="B"] { color: #C084FC; }
 QLabel#CompareRunsMetricValue {
     color: #EDF1F5;
     background: transparent;
+    font-size: 15px;
 }
 QLabel#CompareRunsMetricDelta {
     background: transparent;
-    font-size: 10px;
+    font-size: 13px;
     font-weight: 800;
 }
 QLabel#CompareRunsCompactMetricEmpty {
