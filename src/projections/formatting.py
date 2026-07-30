@@ -374,6 +374,7 @@ def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTab
             stage = getattr(snapshot, "stage_index", None)
             if stage is not None:
                 grouped.setdefault(int(stage), []).append(snapshot)
+        stage_summary_rows = build_stage_summary(snapshots)
         result = {}
         for stage, stage_snapshots in grouped.items():
             first = stage_snapshots[0]
@@ -388,19 +389,22 @@ def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTab
             )
             opened = getattr(last, "chests_opened_by_stage", None)
             chests = opened.get(stage) if isinstance(opened, dict) else None
-            damage_first = sum(
-                float(getattr(source, "damage", 0.0) or 0.0)
-                for source in (getattr(first, "damage_sources", ()) or ())
+            summary_row = (
+                stage_summary_rows[stage]
+                if 0 <= stage < len(stage_summary_rows)
+                else {}
             )
-            damage_last = sum(
-                float(getattr(source, "damage", 0.0) or 0.0)
-                for source in (getattr(last, "damage_sources", ()) or ())
+            rarity_counts = summary_row.get("item_rarities")
+            items = (
+                sum(max(0, int(count)) for count in rarity_counts.values())
+                if isinstance(rarity_counts, dict)
+                else None
             )
             result[stage] = {
                 "time": None if elapsed is None else float(elapsed),
                 "kills": kills,
                 "chests": chests,
-                "damage": max(0.0, damage_last - damage_first),
+                "items": items,
             }
         return result
 
@@ -415,7 +419,7 @@ def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTab
             ("Time", "time", lambda value: format_elapsed_time(value)),
             ("Kills", "kills", lambda value: format_count(value)),
             ("Chests", "chests", lambda value: format_count(value)),
-            ("Damage", "damage", lambda value: format_count(value)),
+            ("Items", "items", lambda value: format_count(value)),
         ):
             value_a = a.get(key)
             value_b = b.get(key)

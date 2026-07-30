@@ -105,8 +105,24 @@ def test_structured_stats_are_flat_and_stage_table_has_required_metrics() -> Non
         "Time",
         "Kills",
         "Chests",
-        "Damage",
+        "Items",
     ]
+
+    first = _snapshot(0.0, stage=0)
+    second = _snapshot(10.0, stage=0)
+    second.items = ("Wrench x1",)
+    item_vod = SimpleNamespace(snapshots=(first, second))
+    item_stages = formatting.build_compare_runs_stages_table(
+        item_vod,
+        1,
+        item_vod,
+        1,
+    )
+    items_row = next(
+        row for row in item_stages.sections[0].rows if row.label == "Items"
+    )
+    assert items_row.value_a == "1"
+    assert items_row.delta == "+0"
 
 
 def test_playhead_updates_do_not_rebuild_static_timeline() -> None:
