@@ -98,6 +98,15 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
             ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Damage Sources"]
             assert view._banishes_label.parent().objectName() == "LiveStatsBanishes"
             assert view._banishes_label.objectName() == "LiveStatsBanishesText"
+            assert view._banishes_chips_container.objectName() == "BanishesChips"
+            # Inside a bounded viewport, as in Recordings: the chips' flow layout
+            # grows its container's `minimumHeight` per wrapped row, and that
+            # minimum is taken out of the item list's share of the panel.
+            chips_scroll = view._banishes_chips_container.parentWidget().parentWidget()
+            assert chips_scroll.objectName() == "BanishesChipsScroll", (
+                chips_scroll.objectName()
+            )
+            assert chips_scroll.parent().objectName() == "LiveStatsBanishes"
             view.set_items(tuple(f"Item {index}" for index in range(12)))
             assert not any(
                 button.text() == "Show more"
@@ -129,8 +138,17 @@ class LiveStatsResponsiveLayoutTests(unittest.TestCase):
             expanded_grid = next(
                 grid for grid in stats_grids if grid.property("viewMode") == "expanded"
             )
-            expanded_toggle = stats_page.findChild(QWidget, "LiveStatsExpandedToggle")
+            expanded_toggle = view._detail_tabs.headerControl()
             assert expanded_toggle is not None
+            assert expanded_toggle.objectName() == "LiveStatsExpandedToggle"
+            corner = view._detail_tabs.cornerWidget()
+            corner_center = corner.mapTo(
+                view._detail_tabs, corner.rect().center()
+            ).y()
+            tab_center = view._detail_tabs.tabBar().geometry().center().y()
+            assert abs(corner_center - tab_center) <= 1
+            assert view._detail_tabs._header_frame.width() == view._detail_tabs.width()
+            assert view._detail_tabs._header_frame.height() == view._detail_tabs.tabBar().height()
             assert not expanded_toggle.isChecked()
             assert compact_grid.isVisible()
             assert not expanded_grid.isVisible()

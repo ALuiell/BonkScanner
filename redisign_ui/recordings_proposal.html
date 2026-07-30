@@ -16,8 +16,25 @@
   }
   *{box-sizing:border-box}
   body{margin:0;background:#05070A;font-family:Inter,'Segoe UI',Arial,sans-serif;padding:24px 24px 80px;color:var(--tx)}
-  .wrap{width:1360px;margin:0 auto}
+  .wrap{width:min(1360px,100%);margin:0 auto}
   .mono{font-family:'JetBrains Mono',Consolas,monospace;font-variant-numeric:tabular-nums}
+
+  .audit{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  .audit-card{padding:14px 16px;background:var(--card);border:1px solid var(--bd);border-radius:12px}
+  .audit-card.plus{border-top:2px solid var(--ok)}
+  .audit-card.minus{border-top:2px solid var(--danger)}
+  .audit-card h3{font-size:12px;letter-spacing:.7px;text-transform:uppercase;margin:0 0 9px}
+  .audit-card.plus h3{color:var(--okt)}
+  .audit-card.minus h3{color:var(--danger)}
+  .audit-card ul{margin:0;padding-left:18px;color:var(--head);font-size:12.5px;line-height:1.55}
+  .audit-card li+li{margin-top:5px}
+
+  @media (max-width:1080px){
+    body{padding:16px 12px 56px}
+    .cols{flex-direction:column}
+    .side{width:auto;flex-basis:auto}
+    .audit{grid-template-columns:1fr}
+  }
 
   h1{font-size:19px;font-weight:800;margin:0 0 6px}
   h2{font-size:14px;font-weight:800;margin:34px 0 4px}
@@ -35,22 +52,23 @@
   .card{background:var(--card);border:1px solid var(--bd);border-radius:12px}
 
   /* ---------- плашка записи ---------- */
-  .plaque{display:flex;align-items:center;gap:12px;padding:11px 12px}
+  .plaque{display:flex;align-items:center;gap:10px;padding:9px 11px}
   .libbtn{display:inline-flex;align-items:center;gap:8px;background:var(--inner);
-          border:1px solid var(--bd3);border-radius:9px;color:var(--head);
-          font-size:12.5px;font-weight:700;padding:9px 13px;white-space:nowrap;cursor:pointer}
+          border:1px solid var(--bd3);border-radius:7px;color:var(--head);
+          font-size:12px;font-weight:700;padding:5px 9px;white-space:nowrap;cursor:pointer}
   .libbtn .burger{display:flex;flex-direction:column;gap:2.5px}
   .libbtn .burger i{width:11px;height:1.6px;background:currentColor;border-radius:1px}
   .libbtn .cnt{color:var(--mut);font-weight:700}
   .plaque .id{min-width:0;flex:1}
   .plaque .nm{display:flex;align-items:center;gap:8px}
   .plaque .nm b{font-size:17px;font-weight:800;letter-spacing:.2px}
-  .pen{color:var(--mut);font-size:12px;cursor:pointer;border:1px solid transparent;border-radius:6px;padding:2px 5px}
-  .pen:hover{color:var(--head);border-color:var(--bd2)}
+  .recact{color:var(--head);font:inherit;font-size:11.5px;font-weight:700;cursor:pointer;
+          background:var(--inner);border:1px solid var(--bd2);border-radius:6px;padding:4px 9px}
+  .recact:hover{color:var(--tx);border-color:var(--bd3)}
+  .recact.delete{color:var(--danger);background:transparent;border-color:#4A2226}
+  .recact.delete:hover{color:#fff;background:var(--stop);border-color:var(--stop)}
   .plaque .meta{color:var(--sec);font-size:11.5px;margin-top:3px;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
   .plaque .meta s{color:var(--mut);text-decoration:none}
-  .kebab{width:34px;height:34px;border-radius:9px;border:1px solid var(--bd2);background:transparent;
-         color:var(--head);font-size:15px;font-weight:800;line-height:1;cursor:pointer}
 
   /* ---------- таймлайн ---------- */
   .tl{padding:11px 13px 11px}
@@ -267,13 +285,12 @@
       <div class="card plaque">
         <div class="libbtn"><span class="burger"><i></i><i></i><i></i></span>Recordings <span class="cnt">28</span></div>
         <div class="id">
-          <div class="nm"><b>950k</b><span class="pen">✎</span></div>
+          <div class="nm"><b>950k</b><button class="recact">✎ Rename</button><button class="recact delete">Delete</button></div>
           <div class="meta">
             <span>12 Jul 2026, 09:14</span><s>·</s><span>713 snapshots</span><s>·</s>
             <span>02:37:47</span><s>·</s><span>3 stages</span>
           </div>
         </div>
-        <button class="kebab">⋯</button>
       </div>
 
       <!-- таймлайн -->
@@ -682,8 +699,8 @@
           <td><b>«☰ Записи 28»</b> слева от имени, как хлебная крошка</td></tr>
       <tr><td class="was">Имя в постоянно активном QLineEdit</td>
           <td>Заголовок с <b>✎</b>; поле появляется по клику на карандаш</td></tr>
-      <tr><td class="was">Rename / Delete кнопками в ряд с полем</td>
-          <td>Меню <b>⋯</b> справа в плашке<span class="tag new">безопаснее</span></td></tr>
+      <tr><td class="was">Rename / Delete дублируются в меню «⋯»</td>
+          <td><b>Rename</b> и <b>Delete</b> один раз рядом с названием записи<span class="tag new">явно</span></td></tr>
       <tr><td class="was">Clean Short рядом с Rename</td>
           <td>Подвал библиотеки, вместе с автофильтром<span class="tag new">по смыслу</span></td></tr>
       <tr><td class="was">QSlider + «Timeline: … | Selected: …»</td>
@@ -752,6 +769,37 @@
   Чипы сегмента переиспользуют рендер из <code>ItemsSectionView</code>. Свой
   <code>paintEvent</code> нужен только скрабберу.
 </p>
+
+<h2><span class="n">6</span>Визуальная оценка макета</h2>
+<p class="why">
+  Макет сильнее текущего экрана прежде всего иерархией: сначала пользователь выбирает ран и
+  перемещается по нему, затем читает состояние в точке, и только потом уходит в подробности.
+  Ниже — не список функций, а именно визуальные плюсы и риски предложенной композиции.
+</p>
+<div class="audit">
+  <section class="audit-card plus">
+    <h3>Плюсы</h3>
+    <ul>
+      <li>Скраббер стал главным объектом и сразу объясняет, что Recordings — это просмотр рана во времени.</li>
+      <li>Плашка записи компактно собирает выбор, имя, дату, длительность и файловые действия.</li>
+      <li>Стадии, пин A и цветные серии дают пространственные ориентиры вместо набора разрозненных чисел.</li>
+      <li>Панель Items остаётся постоянно видимой, но визуально уступает таймлайну и не перетягивает фокус.</li>
+      <li>Пустое состояние подсказывает следующий шаг, а не имитирует сломанный экран из прочерков.</li>
+      <li>Опасные библиотечные действия отделены от действий над выбранной записью.</li>
+    </ul>
+  </section>
+  <section class="audit-card minus">
+    <h3>Минусы и риски</h3>
+    <ul>
+      <li>Четыре кривые, события и границы стадий одновременно создают высокую визуальную плотность.</li>
+      <li>Цвет — основной способ различать серии; без маркеров и доступной палитры часть линий будет трудно читать.</li>
+      <li>Сокращения PM, PDC, Diff и KPS требуют подсказок даже от опытного пользователя.</li>
+      <li>Явный Delete заметнее и быстрее, но находится близко к Rename; подтверждение удаления остаётся обязательным.</li>
+      <li>Правая колонка Items на узком окне съест ширину графика, поэтому нужен переход в нижний блок.</li>
+      <li>Полноценный графический скраббер — самый дорогой и рискованный элемент реализации и тестирования.</li>
+    </ul>
+  </section>
+</div>
 
 </div>
 </body>

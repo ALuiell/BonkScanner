@@ -38,8 +38,6 @@ from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
     QDialog,
     QFormLayout,
     QFrame,
@@ -56,7 +54,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -84,6 +81,9 @@ from ui.tabs.player_stats.metrics import (
 )
 from ui.shared import (
     FlowLayout,
+    FullWidthTabWidget,
+    LabeledSwitch,
+    _apply_button_icon,
     _apply_summary_label_padding,
     _clear_layout,
     _clear_text_input,
@@ -94,7 +94,14 @@ from ui.shared import (
 )
 from ui.styles import ITEM_SORT_LABELS
 from ui.throttle import UiUpdateThrottle, batched_updates
-from ui.tabs.player_stats.items_section import ItemsSectionView
+from ui.tabs.player_stats.items_section import (
+    BANISHES_CHIPS_MAX_HEIGHT,
+    BANISHES_SECTION_MARGINS,
+    BanishesSectionView,
+    CompactItemsSortComboBox,
+    ItemsSectionView,
+    update_banishes_section,
+)
 from ui.tabs.player_stats.live_stats import (
     LIVE_STATS_EXPANDED_CONFIG_KEY,
     _ResponsiveCardGrid,
@@ -116,9 +123,35 @@ from projections import formatting, scrubber as scrubber_model
 SCRUBBER_SLOTS_CONFIG_KEY = "recordings_scrubber_slots"
 
 
-#: Chips per row in Compare Details. Four is what fits the card at its
-#: narrowest without a chip name wrapping.
-COMPARE_DETAIL_COLUMNS = 4
+#: Width of the label column in Compare Details. Measured, not guessed: bold
+#: `Broken` is the widest of the labels at 72px, and a four-digit rarity total
+#: is the same, so both kinds of row start their items in the same place.
+COMPARE_ROW_LABEL_WIDTH = 74
+
+
+def _build_compare_rarity_row(badge_html: str, items_html: str) -> QWidget:
+    """One row's label beside its items, as two labels.
+
+    Two rather than one so the wrapped lines of a long run stay clear of the
+    label column: a single label would wrap the second line back under the dot.
+    """
+    row = QWidget()
+    row.setObjectName("CompareRarityRow")
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+    badge = QLabel(badge_html)
+    badge.setObjectName("CompareRarityBadge")
+    badge.setTextFormat(Qt.RichText)
+    badge.setFixedWidth(COMPARE_ROW_LABEL_WIDTH)
+    layout.addWidget(badge, 0, Qt.AlignTop)
+    items = QLabel(items_html)
+    items.setObjectName("CompareRarityItems")
+    items.setTextFormat(Qt.RichText)
+    items.setWordWrap(True)
+    layout.addWidget(items, 1, Qt.AlignTop)
+    _apply_summary_label_padding(badge, items)
+    return row
 
 
 def _load_scrubber_slots() -> tuple[tuple[str, ...], ...]:
@@ -277,13 +310,17 @@ class _StageChapterCard(QFrame):
     one the playhead is inside.
     """
 
-    clicked = Signal(int)
+    clicked = Signal(int, bool)
 
     def __init__(self, stage_number: int, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.stage_number = int(stage_number)
         self.setObjectName("StageChapterCard")
         self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(
+            "Click to jump and set the range anchor\n"
+            "Shift+click another stage to compare the full stage range"
+        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(11, 9, 11, 10)
         layout.setSpacing(3)
@@ -321,19 +358,31 @@ class _StageChapterCard(QFrame):
             "items": items_label,
         }
         self.value_labels["stage"].setVisible(False)
-        self.set_state(has_data=False, is_current=False)
+        self.set_state(has_data=False, is_current=False, is_anchor=False)
 
-    def set_state(self, *, has_data: bool, is_current: bool) -> None:
+    def set_state(
+        self, *, has_data: bool, is_current: bool, is_anchor: bool
+    ) -> None:
         self.setProperty("hasData", bool(has_data))
         self.setProperty("current", bool(is_current))
+        self.setProperty("rangeAnchor", bool(is_anchor))
         self.setEnabled(bool(has_data))
-        # Qt does not restyle on a property change on its own.
+        # Qt does not restyle on a property change on its own. The dimmed
+        # `hasData=false` selector targets the labels through this frame, so
+        # repolishing only the frame leaves every child stuck in its initial
+        # muted colour even after real stage data arrives.
         self.style().unpolish(self)
         self.style().polish(self)
+        for label in self.findChildren(QLabel):
+            label.style().unpolish(label)
+            label.style().polish(label)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.LeftButton and self.isEnabled():
-            self.clicked.emit(self.stage_number)
+            self.clicked.emit(
+                self.stage_number,
+                bool(event.modifiers() & Qt.ShiftModifier),
+            )
             return
         super().mousePressEvent(event)
 
@@ -398,6 +447,8 @@ class RecordingsTab:
         # coalescing with a fake clock instead of a real event loop.
         self._snapshot_throttle = snapshot_throttle or UiUpdateThrottle()
         self._compare_start_index = None
+        self._stage_range_anchor_index = None
+        self._stage_range_anchor_number = None
         self._chooser_expanded = False
         self._guided_selection_active = False
         self._list_signature = None
@@ -422,7 +473,7 @@ class RecordingsTab:
         self._name_entry = None
         self._rename_btn = None
         self._cleanup_btn = None
-        self._menu_btn = None
+        self._delete_btn = None
         # The scrubber replaces four widgets: the `QSlider`, the
         # "Timeline: … | Selected: …" caption, and the two compare buttons.
         # The compare anchor is a pin on the track now, so "set" and "clear"
@@ -431,13 +482,14 @@ class RecordingsTab:
         self._position_label = None
         self._compare_hint_label = None
         self._legend_label = None
+        self._legend_meta_label = None
         self._slot_buttons = []
         self._slots = _load_scrubber_slots()
         self._items_section = None
         self._chests_per_minute_label = None
-        self._new_items_label = None
         self._banishes_label = None
         self._compare_details_group = None
+        self._compare_clear_button = None
         self._compare_details_summary_label = None
         self._compare_details_items = None
         self._detail_tabs = None
@@ -512,6 +564,7 @@ class RecordingsTab:
             short = short_recording_count(vods, self._minimum_snapshot_count())
             self._cleanup_btn.setText(f"Delete short  ·  {short}")
             self._cleanup_btn.setEnabled(short > 0)
+        self._refresh_recordings_chooser()
 
     def _minimum_snapshot_count(self) -> int:
         """The threshold as the *spinner* has it, falling back to the store."""
@@ -564,7 +617,12 @@ class RecordingsTab:
         if chooser is not None:
             chooser.setVisible(expanded)
         if button is not None:
-            button.setText("Hide Recordings" if expanded else "Select Recordings")
+            count = len(getattr(self._library, "index", ()) or ())
+            button.setText(f"Recordings ({count})")
+            button.setChecked(expanded)
+            button.setToolTip(
+                "Hide recordings library" if expanded else "Choose a recording"
+            )
     def _on_vod_selection_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None):
         if current is None:
             return
@@ -578,7 +636,7 @@ class RecordingsTab:
         for widget, enabled in (
             (self._name_entry, has_recording),
             (self._rename_btn, has_recording),
-            (self._menu_btn, has_recording),
+            (self._delete_btn, has_recording),
             (self._scrubber, has_snapshots),
         ):
             if widget is not None:
@@ -600,6 +658,8 @@ class RecordingsTab:
         self._snapshot_throttle.cancel()
         self._requested_snapshot_index = None
         self._compare_start_index = None
+        self._stage_range_anchor_index = None
+        self._stage_range_anchor_number = None
         self._set_vod_loading_state(True)
         _set_text(self._status_label, "Loading recording…")
 
@@ -615,6 +675,8 @@ class RecordingsTab:
             self._snapshot_index = 0 if loaded_vod.snapshots else None
             self._requested_snapshot_index = self._snapshot_index
             self._compare_start_index = None
+            self._stage_range_anchor_index = None
+            self._stage_range_anchor_number = None
             _clear_text_input(self._name_entry)
             _set_text_input(self._name_entry, loaded_vod.metadata.name)
             self.refresh_loaded_vod_ui()
@@ -683,6 +745,7 @@ class RecordingsTab:
             for label in self._compact_rows.values():
                 _set_text(label, "--")
             _set_text(self._legend_label, "--")
+            _set_text(self._legend_meta_label, "")
             self._items_section.collapse()
             self._items_section.update((), items_text="--")
             _set_text(self._chests_per_minute_label, "Average chests/min: --")
@@ -691,10 +754,11 @@ class RecordingsTab:
                 None,
             )
             set_loot_rarity_card_values(self._loot_rarity_card_values, None, None)
-            _set_text(self._new_items_label, "No previous snapshot")
             self._refresh_vod_compare_controls()
             self._refresh_vod_compare_details(None, None, index=None)
-            _set_text(self._banishes_label, "No banishes yet")
+            update_banishes_section(
+                getattr(self, "_banishes_view", None), self._banishes_label, ()
+            )
             set_stage_summary_labels(self._stage_summary_labels, None)
             self._refresh_stage_cards()
             self._stat_cards.invalidate()
@@ -757,15 +821,12 @@ class RecordingsTab:
         self._refresh_stage_cards()
         previous_snapshot = self._resolve_vod_compare_base_snapshot(index)
         segment_snapshots = self._vod_compare_segment_snapshots(index)
-        _set_text(
-            self._new_items_label,
-            formatting.format_snapshot_item_gains_preview(previous_snapshot, snapshot, segment_snapshots=segment_snapshots),
-        )
         self._refresh_vod_compare_controls()
         self._refresh_vod_compare_details(previous_snapshot, snapshot, index=index, segment_snapshots=segment_snapshots)
-        _set_text(
+        update_banishes_section(
+            getattr(self, "_banishes_view", None),
             self._banishes_label,
-            formatting.format_banishes_rich_text(getattr(snapshot, "banishes", ())),
+            getattr(snapshot, "banishes", ()),
         )
         self._stat_cards.display_weapons(getattr(snapshot, "weapons", ()))
         self._stat_cards.display_tomes(getattr(snapshot, "tomes", ()))
@@ -815,7 +876,15 @@ class RecordingsTab:
         `on_scrub_index_changed` exists to keep clear.
         """
         _set_text(self._position_label, self._position_text(index))
-        _set_text(self._legend_label, self._legend_text(index))
+        if self._legend_meta_label is None:
+            # Lightweight test/adapter views own only the historical single
+            # label. The real tab renders series and run metadata at opposite
+            # ends of one row.
+            _set_text(self._legend_label, self._legend_text(index))
+        else:
+            series, meta = self._legend_parts(index)
+            _set_text(self._legend_label, series)
+            _set_text(self._legend_meta_label, meta)
         self._refresh_compare_hint()
 
     def _position_text(self, index: int) -> str:
@@ -831,7 +900,7 @@ class RecordingsTab:
             f"  ·  in-game {in_game}"
         )
 
-    def _legend_text(self, index: int) -> str:
+    def _legend_parts(self, index: int) -> tuple[str, str]:
         """The series values at the playhead, plus what is not a series.
 
         This *is* the run-summary readout: Kills and Items are already slots,
@@ -839,7 +908,7 @@ class RecordingsTab:
         agreeing about one number.
         """
         if self._loaded_vod is None or not self._loaded_vod.snapshots:
-            return "--"
+            return "--", ""
         snapshots = self._loaded_vod.snapshots
         index = min(max(int(index), 0), len(snapshots) - 1)
         # The series half needs the scrubber's model; the tail below does not,
@@ -881,7 +950,12 @@ class RecordingsTab:
                 ),
             )
         tail = f'<span style="color:#5C6675;">{" · ".join(tail_parts)}</span>'
-        return "&nbsp;&nbsp;&nbsp;".join(parts + [tail]) if parts else tail
+        return "&nbsp;&nbsp;&nbsp;".join(parts), tail
+
+    def _legend_text(self, index: int) -> str:
+        """Combined fallback for views that have only one legend label."""
+        series, meta = self._legend_parts(index)
+        return "&nbsp;&nbsp;&nbsp;".join(part for part in (series, meta) if part)
 
     @staticmethod
     def _series_display(key: str, snapshot) -> str:
@@ -974,31 +1048,27 @@ class RecordingsTab:
             group.setVisible(pinned and base_snapshot is not None and snapshot is not None)
         if base_snapshot is None or snapshot is None:
             _set_text(self._compare_details_summary_label, "--")
-            self._render_compare_detail_chips(())
+            self._render_compare_detail_rows(())
             return
 
-        compare_index = self._compare_start_index
-        base_index = compare_index if compare_index is not None else (index - 1 if index is not None else None)
-        summary = formatting.format_snapshot_compare_summary(
-            base_snapshot,
-            snapshot,
-            base_index=base_index,
-            current_index=index,
-            segment_snapshots=segment_snapshots,
+        _set_text(
+            self._compare_details_summary_label,
+            formatting.format_segment_headline(
+                base_snapshot, snapshot, segment_snapshots=segment_snapshots
+            ),
         )
-        _set_text(self._compare_details_summary_label, summary)
-        self._render_compare_detail_chips(
-            formatting.compare_detail_chips(
+        self._render_compare_detail_rows(
+            formatting.compare_detail_rarity_rows(
                 base_snapshot, snapshot, segment_snapshots=segment_snapshots
             )
         )
 
-    def _render_compare_detail_chips(self, sections) -> None:
-        """Rebuild the Gained/Broken/Lost chip rows.
+    def _render_compare_detail_rows(self, rows) -> None:
+        """Rebuild the gained-by-rarity rows, and the broken/lost ones below.
 
         Rebuilt rather than updated in place, unlike the Items panel: this card
         is visible only while a compare pin is set, and its contents change
-        shape entirely between segments rather than gaining and losing a chip
+        shape entirely between segments rather than gaining and losing an item
         at a time.
         """
         container = self._compare_details_items
@@ -1008,29 +1078,13 @@ class RecordingsTab:
         container.setUpdatesEnabled(False)
         try:
             _clear_layout(layout)
-            if not sections:
+            if not rows:
                 note = QLabel("No item changes in this segment")
                 note.setObjectName("itemChipNote")
-                layout.addWidget(note, 0, 0, 1, COMPARE_DETAIL_COLUMNS)
+                layout.addWidget(note)
                 return
-            row = 0
-            for title, chips in sections:
-                heading = QLabel(title)
-                heading.setObjectName("CompareDetailsSection")
-                layout.addWidget(heading, row, 0, 1, COMPARE_DETAIL_COLUMNS)
-                row += 1
-                for position, (text, tag) in enumerate(chips):
-                    chip = QLabel(text)
-                    chip.setObjectName(tag)
-                    # Left-aligned so a chip is its own width. Without this the
-                    # column stretch inflates every chip to the column, and a
-                    # two-word item ends up in a bar as wide as the longest.
-                    layout.addWidget(
-                        chip, row + position // COMPARE_DETAIL_COLUMNS,
-                        position % COMPARE_DETAIL_COLUMNS,
-                        Qt.AlignLeft | Qt.AlignVCenter,
-                    )
-                row += (len(chips) + COMPARE_DETAIL_COLUMNS - 1) // COMPARE_DETAIL_COLUMNS
+            for badge_html, items_html in rows:
+                layout.addWidget(_build_compare_rarity_row(badge_html, items_html))
         finally:
             container.setUpdatesEnabled(True)
             container.updateGeometry()
@@ -1056,6 +1110,8 @@ class RecordingsTab:
         self._snapshot_throttle.cancel()
         self._requested_snapshot_index = None
         self._compare_start_index = None
+        self._stage_range_anchor_index = None
+        self._stage_range_anchor_number = None
         _clear_text_input(self._name_entry)
         self._set_renaming(False)
         _set_text(self._title_label, "No recording selected")
@@ -1065,6 +1121,7 @@ class RecordingsTab:
         self._scrubber.set_model(scrubber_model.ScrubberModel(count=0))
         _set_text(self._position_label, "--")
         _set_text(self._legend_label, "--")
+        _set_text(self._legend_meta_label, "")
         for label in self._rows.values():
             _set_text(label, "--")
         for label in self._compact_rows.values():
@@ -1077,10 +1134,11 @@ class RecordingsTab:
             None,
         )
         set_loot_rarity_card_values(self._loot_rarity_card_values, None, None)
-        _set_text(self._new_items_label, "No previous snapshot")
         self._refresh_vod_compare_controls()
         self._refresh_vod_compare_details(None, None, index=None)
-        _set_text(self._banishes_label, "No banishes yet")
+        update_banishes_section(
+            getattr(self, "_banishes_view", None), self._banishes_label, ()
+        )
         set_stage_summary_labels(self._stage_summary_labels, None)
         self._refresh_stage_cards()
         self._stat_cards.invalidate()
@@ -1203,7 +1261,7 @@ class RecordingsTab:
         self._stage_cards = []
         for stage_number in range(1, 5):
             card = _StageChapterCard(stage_number)
-            card.clicked.connect(self.jump_to_stage)
+            card.clicked.connect(self.on_stage_card_clicked)
             layout.addWidget(card, 1)
             self._stage_cards.append(card)
             self._stage_summary_labels.append(card.value_labels)
@@ -1216,14 +1274,54 @@ class RecordingsTab:
         snapshots: the bands are already grouped there, and a second grouping
         here could disagree with the one drawn on the track.
         """
-        if self._scrubber is None or self._loaded_vod is None:
+        band = self._stage_band(stage_number)
+        if band is None:
             return
+        self._stage_range_anchor_index = int(band.start)
+        self._stage_range_anchor_number = int(stage_number)
+        # A plain stage click starts a new range-selection gesture. Keeping an
+        # older manual pin here would show Compare Details before the Shift
+        # endpoint exists and make the newly highlighted anchor lie.
+        self._compare_start_index = None
+        self._scrubber.set_pin(None)
+        self.display_loaded_vod_snapshot(band.start)
+        self._refresh_stage_cards()
+
+    def on_stage_card_clicked(
+        self, stage_number: int, shift_pressed: bool = False
+    ) -> None:
+        """Jump normally; Shift extends the last stage click into a full range."""
+        if not shift_pressed or self._stage_range_anchor_number is None:
+            self.jump_to_stage(stage_number)
+            return
+
+        anchor_band = self._stage_band(self._stage_range_anchor_number)
+        target_band = self._stage_band(stage_number)
+        if anchor_band is None or target_band is None:
+            return
+
+        if int(anchor_band.stage_index) == int(target_band.stage_index):
+            start, end = int(anchor_band.start), int(anchor_band.end)
+        elif int(anchor_band.stage_index) < int(target_band.stage_index):
+            start = int(anchor_band.start)
+            end = max(start, int(target_band.start) - 1)
+        else:
+            start = int(target_band.start)
+            end = max(start, int(anchor_band.start) - 1)
+
+        self.set_vod_compare_start(start)
+        self.display_loaded_vod_snapshot(end)
+        self._refresh_stage_cards()
+
+    def _stage_band(self, stage_number: int):
+        if self._scrubber is None or self._loaded_vod is None:
+            return None
         for band in self._scrubber.model.stages:
             if band.stage_index is None:
                 continue
             if int(band.stage_index) + 1 == int(stage_number):
-                self.display_loaded_vod_snapshot(band.start)
-                return
+                return band
+        return None
 
     def _refresh_stage_cards(self) -> None:
         """Dim the stages this recording never reached, and light the current.
@@ -1243,18 +1341,21 @@ class RecordingsTab:
                     break
         for card in self._stage_cards:
             has_data = _read_text(card.value_labels["time"]) not in ("--", "")
-            card.set_state(has_data=has_data, is_current=card.stage_number == current_stage)
+            card.set_state(
+                has_data=has_data,
+                is_current=card.stage_number == current_stage,
+                is_anchor=card.stage_number == self._stage_range_anchor_number,
+            )
 
     # -- scrubber -----------------------------------------------------------
 
     def _build_record_plaque(self) -> QWidget:
         """Which recording is open, and the two things you can do to it.
 
-        This replaces a row that spent its full width on an always-editable
-        name field flanked by `Rename` and `Delete`: three controls, in the
-        most prominent place on the tab, for the two operations you perform
-        least often -- with the destructive one a mis-click away from the field
-        you type in. The name is a heading now, editable on demand.
+        The recording library is opened from this context row instead of
+        consuming a separate full-width strip above it. Actions for the current
+        recording sit beside its name, so there is one obvious place to look
+        and no duplicate overflow menu.
 
         The status line above it is gone rather than moved. It read
         `950k | 601/713 at 02:14:38 | In-Game Time: 01:43:22`, rewritten on
@@ -1276,21 +1377,32 @@ class RecordingsTab:
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(6)
+        self._select_btn = QPushButton("Recordings (0)")
+        self._select_btn.setObjectName("RecordingPlaqueLibrary")
+        self._select_btn.setCheckable(True)
+        self._select_btn.setCursor(Qt.PointingHandCursor)
+        self._select_btn.setToolTip("Choose a recording")
+        self._select_btn.clicked.connect(self.toggle_recordings_chooser)
         self._title_label = QLabel("No recording selected")
         self._title_label.setObjectName("RecordingPlaqueTitle")
         title_row.addWidget(self._title_label)
-        # A labelled button, not a bare glyph. The pencil on its own was a dim
-        # 24px outline beside a 16px heading: at rest it read as decoration on
-        # the title rather than as something you could press, and it never said
-        # what pressing it would do.
-        self._rename_btn = QPushButton("✎  Rename")
+        # Same secondary action as Edit in Templates: a real shared icon and
+        # explicit label, rather than a font glyph whose shape varies by OS.
+        self._rename_btn = QPushButton("Rename")
         self._rename_btn.setObjectName("RecordingPlaqueRename")
-        self._rename_btn.setProperty("class", "SmallGhostButton")
+        _apply_button_icon(self._rename_btn, "media/edit_icon.svg", 18)
         self._rename_btn.setToolTip("Rename this recording")
         self._rename_btn.setCursor(Qt.PointingHandCursor)
         self._rename_btn.setEnabled(False)
         self._rename_btn.clicked.connect(self.begin_rename)
         title_row.addWidget(self._rename_btn)
+        self._delete_btn = QPushButton("Delete")
+        self._delete_btn.setObjectName("RecordingPlaqueDelete")
+        self._delete_btn.setToolTip("Delete this recording")
+        self._delete_btn.setCursor(Qt.PointingHandCursor)
+        self._delete_btn.setEnabled(False)
+        self._delete_btn.clicked.connect(self.delete_selected_vod)
+        title_row.addWidget(self._delete_btn)
         self._name_entry = _NameEdit()
         self._name_entry.setObjectName("RecordingPlaqueNameEdit")
         self._name_entry.setVisible(False)
@@ -1301,6 +1413,7 @@ class RecordingsTab:
         self._name_entry.cancelled.connect(self.cancel_rename)
         title_row.addWidget(self._name_entry, 1)
         title_row.addStretch(1)
+        title_row.addWidget(self._select_btn)
         text_column.addLayout(title_row)
 
         self._status_label = QLabel("Select a recording")
@@ -1308,41 +1421,7 @@ class RecordingsTab:
         self._status_label.setWordWrap(True)
         text_column.addWidget(self._status_label)
         row.addLayout(text_column, 1)
-
-        self._menu_btn = QPushButton("⋯")
-        self._menu_btn.setObjectName("RecordingPlaqueMenu")
-        self._menu_btn.setToolTip("Recording actions")
-        self._menu_btn.setFixedSize(28, 24)
-        self._menu_btn.setEnabled(False)
-        menu = QMenu(self._menu_btn)
-        menu.addAction("Rename").triggered.connect(
-            lambda _checked=False: self.begin_rename()
-        )
-        menu.addSeparator()
-        menu.addAction("Delete").triggered.connect(
-            lambda _checked=False: self.delete_selected_vod()
-        )
-        self._menu_btn.setMenu(menu)
-        row.addWidget(self._menu_btn, 0, Qt.AlignTop)
         return frame
-
-    def _make_rarity_filter_chip(self, rarity: str, layout) -> QPushButton:
-        """One rarity chip: it counts, and pressing it filters.
-
-        `ItemsSectionView` asks for these lazily and then updates them in
-        place, so this runs four times per tab and never on a scrub frame.
-        """
-        chip = QPushButton()
-        chip.setObjectName("ItemsRarityFilterChip")
-        chip.setProperty("rarity", rarity)
-        chip.setCheckable(True)
-        chip.setCursor(Qt.PointingHandCursor)
-        chip.setToolTip(f"Show only {rarity.title()} items")
-        chip.clicked.connect(
-            lambda _checked=False, name=rarity: self._items_section.toggle_rarity(name)
-        )
-        layout.addWidget(chip)
-        return chip
 
     def _on_detail_tab_changed(self) -> None:
         """Draw what just became visible, and show only what applies to it."""
@@ -1369,6 +1448,7 @@ class RecordingsTab:
             (self._name_entry, renaming),
             (self._title_label, not renaming),
             (self._rename_btn, not renaming),
+            (self._delete_btn, not renaming),
         ):
             if widget is not None and hasattr(widget, "setVisible"):
                 widget.setVisible(visible)
@@ -1429,7 +1509,9 @@ class RecordingsTab:
             f'<b style="color:#38BDF8;">A</b> '
             f'<span style="color:#8A94A3;">{snapshots[anchor].time_label}</span> '
             f'<span style="color:#5C6675;">&rarr;</span> '
-            f'<b style="color:#EDF1F5;">B</b> '
+            # Both ends accented, as in the compare card's header: A and B name
+            # one selection, and colouring only A read as "A is the live one".
+            f'<b style="color:#38BDF8;">B</b> '
             f'<span style="color:#8A94A3;">{snapshots[current].time_label}</span>'
             f'<span style="color:#5C6675;">&nbsp;&nbsp;·&nbsp;&nbsp;Esc clears'
             f'</span>&nbsp;&nbsp;·&nbsp;&nbsp;',
@@ -1530,17 +1612,14 @@ class RecordingsTab:
         """
         self._tab = QWidget()
         vods_layout = QVBoxLayout(self._tab)
-        selected_row = QHBoxLayout()
-        self._select_btn = QPushButton("Select Recordings")
-        self._select_btn.setProperty("class", "CompareRunsGhostButton")
-        self._select_btn.clicked.connect(self.toggle_recordings_chooser)
-        selected_row.addStretch(1)
-        selected_row.addWidget(self._select_btn)
-        vods_layout.addLayout(selected_row)
 
         vods_body_layout = QHBoxLayout()
         vods_detail = QWidget()
         vods_detail_layout = QVBoxLayout(vods_detail)
+        # `vods_layout` already supplies the tab's outer inset. Keeping Qt's
+        # default 9 px margin here added a second empty strip above the
+        # recording/title row and made it look detached from the timeline.
+        vods_detail_layout.setContentsMargins(0, 0, 0, 0)
         vods_detail_layout.addWidget(self._build_record_plaque())
         vods_detail_layout.addLayout(self._build_scrubber_header())
         self._scrubber = RecordingScrubber()
@@ -1552,11 +1631,20 @@ class RecordingsTab:
         self._scrubber.indexChanged.connect(self.on_scrub_index_changed)
         self._scrubber.pinChanged.connect(self.on_scrub_pin_changed)
         vods_detail_layout.addWidget(self._scrubber)
+        legend_row = QHBoxLayout()
+        legend_row.setContentsMargins(0, 0, 0, 0)
+        legend_row.setSpacing(8)
         self._legend_label = QLabel("--")
         self._legend_label.setObjectName("RecordingScrubberLegend")
         self._legend_label.setTextFormat(Qt.RichText)
-        self._legend_label.setWordWrap(True)
-        vods_detail_layout.addWidget(self._legend_label)
+        legend_row.addWidget(self._legend_label)
+        legend_row.addStretch(1)
+        self._legend_meta_label = QLabel("")
+        self._legend_meta_label.setObjectName("RecordingScrubberMeta")
+        self._legend_meta_label.setTextFormat(Qt.RichText)
+        self._legend_meta_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        legend_row.addWidget(self._legend_meta_label)
+        vods_detail_layout.addLayout(legend_row)
         recordings_page = QWidget()
         recordings_page.setObjectName("LiveStatsPage")
         recordings_page_layout = QGridLayout(recordings_page)
@@ -1578,28 +1666,24 @@ class RecordingsTab:
         vod_items_layout.setContentsMargins(11, 11, 11, 11)
         vod_items_layout.setSpacing(8)
 
-        # The panel header: rarity filter chips on the left, sort on the right.
-        # The dots this replaces were four coloured circles with numbers and no
-        # legend -- they said how many of each you had while leaving which
-        # colour meant what to be learnt elsewhere. A chip says its own name,
-        # and since it now has a label it can also be a control.
-        vod_items_header = QHBoxLayout()
-        vod_items_header.setContentsMargins(0, 0, 0, 0)
-        vod_items_header.setSpacing(6)
-        vods_items_rarity_chips = QWidget()
-        vods_items_rarity_chips.setObjectName("ItemsRarityFilters")
-        vods_items_rarity_chips_layout = QHBoxLayout(vods_items_rarity_chips)
-        vods_items_rarity_chips_layout.setContentsMargins(0, 0, 0, 0)
-        vods_items_rarity_chips_layout.setSpacing(4)
-        vod_items_header.addWidget(vods_items_rarity_chips, 0, Qt.AlignLeft)
-        vod_items_header.addStretch(1)
-        vods_items_sort_combo = QComboBox()
-        vods_items_sort_combo.setObjectName("ItemsSortCombo")
-        vods_items_sort_combo.setToolTip("Sort items")
+        # Match Live Stats: an empty inventory has no rarity furniture at all;
+        # once items exist, a compact row of coloured dots and counts appears.
+        vod_items_meta = QHBoxLayout()
+        vod_items_meta.setContentsMargins(0, 0, 0, 0)
+        vods_items_rarity_label = QLabel("")
+        vods_items_rarity_label.setObjectName("ItemsRaritySummary")
+        vods_items_rarity_label.setTextFormat(Qt.RichText)
+        vods_items_rarity_label.setVisible(False)
+        vod_items_meta.addWidget(vods_items_rarity_label, 0, Qt.AlignLeft)
+        vod_items_meta.addStretch(1)
+        vods_items_sort_combo = CompactItemsSortComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             vods_items_sort_combo.addItem(label, mode)
-        vod_items_header.addWidget(vods_items_sort_combo, 0, Qt.AlignRight)
-        vod_items_layout.addLayout(vod_items_header)
+        vods_items_sort_combo.setVisible(False)
+        vod_items_meta.addWidget(
+            vods_items_sort_combo, 0, Qt.AlignRight | Qt.AlignVCenter
+        )
+        vod_items_layout.addLayout(vod_items_meta)
 
         vods_items_chips_container = QWidget()
         vods_items_chips_container.setObjectName("cardContent")
@@ -1612,26 +1696,24 @@ class RecordingsTab:
         vods_items_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         vods_items_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         vods_items_scroll.setWidget(vods_items_chips_container)
-        # A floor under the list. Banishes below it grows with its own contents
-        # and has no ceiling, so on a 1280x800 window a long run squeezed the
-        # item chips to a 203 px viewport over 1058 px of content -- a fifth of
-        # the panel showing a twentieth of the list.
-        vods_items_scroll.setMinimumHeight(220)
+        # No `setMinimumHeight` floor here, though the list does need the room:
+        # a hard minimum cannot yield, and a QVBoxLayout that cannot compress a
+        # child still *positions* the ones after it as if it had -- so on a
+        # short panel the divider and Banishes landed inside this scroll's rect
+        # and the item chips drew over them. The list wins the space by stretch
+        # instead, and Banishes below is bounded so its minimum cannot grow
+        # into it (which is what the floor was defending against).
         vod_items_layout.addWidget(vods_items_scroll, 3)
 
         self._items_section = ItemsSectionView(
             group=vod_items_group,
             label=None,
-            rarity_label=None,
+            rarity_label=vods_items_rarity_label,
             toggle_btn=None,
             sort_combo=vods_items_sort_combo,
             chips_container=vods_items_chips_container,
             always_expanded=True,
             scroll_area=vods_items_scroll,
-            rarity_chips_container=vods_items_rarity_chips,
-            rarity_chip_factory=lambda rarity: self._make_rarity_filter_chip(
-                rarity, vods_items_rarity_chips_layout
-            ),
         )
         vods_items_sort_combo.currentIndexChanged.connect(
             lambda _index: self._items_section.on_sort_changed()
@@ -1645,7 +1727,7 @@ class RecordingsTab:
         vod_banishes_section = QWidget()
         vod_banishes_section.setObjectName("LiveStatsBanishes")
         vod_banishes_layout = QVBoxLayout(vod_banishes_section)
-        vod_banishes_layout.setContentsMargins(8, 7, 8, 7)
+        vod_banishes_layout.setContentsMargins(*BANISHES_SECTION_MARGINS)
         vod_banishes_layout.setSpacing(4)
         vod_banishes_title = QLabel("BANISHES")
         vod_banishes_title.setObjectName("LiveStatsBanishesTitle")
@@ -1655,6 +1737,30 @@ class RecordingsTab:
         self._banishes_label.setTextFormat(Qt.RichText)
         self._banishes_label.setWordWrap(True)
         vod_banishes_layout.addWidget(self._banishes_label)
+        self._banishes_chips_container = QWidget()
+        self._banishes_chips_container.setObjectName("BanishesChips")
+        FlowLayout(self._banishes_chips_container, margin=0, spacing=5)
+        self._banishes_chips_container.setVisible(False)
+        # The chips scroll inside a bounded viewport rather than growing the
+        # section. Their flow layout pushes a `minimumHeight` onto its container
+        # for every row it wraps, and a minimum is what a QVBoxLayout cannot
+        # compress -- see the item scroll below for what that did.
+        vod_banishes_chips_scroll = QScrollArea()
+        vod_banishes_chips_scroll.setObjectName("BanishesChipsScroll")
+        vod_banishes_chips_scroll.setWidgetResizable(True)
+        vod_banishes_chips_scroll.setFrameShape(QFrame.NoFrame)
+        vod_banishes_chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        vod_banishes_chips_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        vod_banishes_chips_scroll.setMinimumHeight(BANISHES_CHIPS_MAX_HEIGHT)
+        vod_banishes_chips_scroll.setMaximumHeight(BANISHES_CHIPS_MAX_HEIGHT)
+        vod_banishes_chips_scroll.setWidget(self._banishes_chips_container)
+        vod_banishes_chips_scroll.setVisible(False)
+        vod_banishes_layout.addWidget(vod_banishes_chips_scroll)
+        self._banishes_view = BanishesSectionView(
+            label=self._banishes_label,
+            chips_container=self._banishes_chips_container,
+            chips_scroll=vod_banishes_chips_scroll,
+        )
         vod_items_layout.addWidget(vod_banishes_section)
 
         vod_summary_grid = QGridLayout()
@@ -1683,44 +1789,55 @@ class RecordingsTab:
         # snapshot, a ten-second delta nobody asked for.
         self._compare_details_group = QGroupBox("Compare Details")
         vod_compare_details_layout = QVBoxLayout(self._compare_details_group)
-        self._new_items_label = QLabel("No previous snapshot")
-        self._new_items_label.setTextFormat(Qt.RichText)
-        self._new_items_label.setWordWrap(True)
-        _apply_summary_label_padding(self._new_items_label)
-        vod_compare_details_layout.addWidget(self._new_items_label)
+        # One header row, as in the mockup: the A -> B span and the segment's
+        # totals on the left, the control that drops the anchor's counterpart
+        # on the right. It replaces two stacked labels -- a rarity-dot gains
+        # preview and a "Snapshot 305 -> 1 | 51:02 -> 00:00 | +154 items" line
+        # -- which said the item total twice above the rows that answer it.
+        compare_header = QWidget()
+        compare_header.setObjectName("CompareSegmentHeader")
+        compare_header_layout = QHBoxLayout(compare_header)
+        compare_header_layout.setContentsMargins(0, 0, 0, 0)
+        compare_header_layout.setSpacing(8)
         self._compare_details_summary_label = QLabel("--")
+        self._compare_details_summary_label.setObjectName("CompareSegmentHeadline")
+        self._compare_details_summary_label.setTextFormat(Qt.RichText)
         self._compare_details_summary_label.setWordWrap(True)
         _apply_summary_label_padding(self._compare_details_summary_label)
-        vod_compare_details_layout.addWidget(self._compare_details_summary_label)
-        # Chips, not the rich-text block this replaces. That block put the
-        # rarity colour on a bullet at the start of each row and then joined
-        # the row's items with " | ", so everything after the first item was an
-        # unmarked name in a pipe-separated run. A chip carries its own rarity,
-        # and it is the shape the Items panel next to it already uses.
+        compare_header_layout.addWidget(self._compare_details_summary_label, 1)
+        # Esc clears the pin too -- the scrubber's hint says so -- but that is
+        # only discoverable once the hint has been read, and the card is where
+        # the user is looking when they are done with the segment.
+        # Its own rule rather than `SmallGhostButton`: the ghost palette is for
+        # controls that should stay quiet, and this one is the way out of a mode.
+        self._compare_clear_button = QPushButton("Clear A")
+        self._compare_clear_button.setObjectName("CompareSegmentClear")
+        self._compare_clear_button.clicked.connect(self.clear_vod_compare_start)
+        compare_header_layout.addWidget(
+            self._compare_clear_button, 0, Qt.AlignRight | Qt.AlignTop
+        )
+        vod_compare_details_layout.addWidget(compare_header)
+        # A row per rarity, not a four-column chip grid. Four columns wide
+        # enough for a two-word item name need most of the tab; this card gets
+        # a third of it, so a thirty-item segment came out as a tall block of
+        # half-empty columns. A wrapping row keeps the rarity marking the grid
+        # was for -- the colour is on the dot *and* on every name.
         vod_compare_scroll, _vod_compare_scroll_content, vod_compare_scroll_layout = _make_scroll_section()
-        vod_compare_scroll.setMinimumHeight(120)
+        vod_compare_scroll.setMinimumHeight(96)
         vod_compare_scroll.setMaximumHeight(220)
         vod_compare_scroll_layout.setContentsMargins(0, 0, 0, 0)
         self._compare_details_items = QWidget()
-        self._compare_details_items.setObjectName("CompareDetailsChips")
-        # A grid, not a `FlowLayout`. Flow was the obvious choice -- it is what
-        # the Items panel uses -- but a flow's height depends on its width, and
-        # nested inside this column it reported a collapsed hint and drew every
-        # chip row on top of the one above it. A fixed four columns has a real
-        # size hint, and is what the mockup asked for anyway.
-        compare_items_layout = QGridLayout(self._compare_details_items)
+        self._compare_details_items.setObjectName("CompareDetailsRows")
+        compare_items_layout = QVBoxLayout(self._compare_details_items)
         compare_items_layout.setContentsMargins(0, 0, 0, 0)
-        compare_items_layout.setHorizontalSpacing(4)
-        compare_items_layout.setVerticalSpacing(4)
-        for column in range(COMPARE_DETAIL_COLUMNS):
-            compare_items_layout.setColumnStretch(column, 1)
-        self._render_compare_detail_chips(())
+        compare_items_layout.setSpacing(4)
+        self._render_compare_detail_rows(())
         vod_compare_scroll_layout.addWidget(self._compare_details_items)
         vod_compare_scroll_layout.addStretch(1)
         vod_compare_details_layout.addWidget(vod_compare_scroll)
         self._compare_details_group.setVisible(False)
         recordings_main_layout.addWidget(self._compare_details_group)
-        self._detail_tabs = QTabWidget()
+        self._detail_tabs = FullWidthTabWidget()
         self._detail_tabs.setObjectName("subTabs")
         self._detail_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         vod_stats_tab = QWidget()
@@ -1730,7 +1847,7 @@ class RecordingsTab:
         # a tab where vertical space is what the stat cards are competing for.
         # It only means anything on Stats, so it is hidden on the other five --
         # a control that stays visible while doing nothing reads as broken.
-        self._stats_expanded_toggle = QCheckBox("Expanded")
+        self._stats_expanded_toggle = LabeledSwitch("Expanded")
         self._stats_expanded_toggle.setObjectName("LiveStatsExpandedToggle")
         self._stats_expanded_toggle.setChecked(
             bool(config.user_config.get(LIVE_STATS_EXPANDED_CONFIG_KEY, False))
@@ -1738,7 +1855,7 @@ class RecordingsTab:
         self._stats_expanded_toggle.setToolTip(
             "Show the full stat names in detailed label/value rows"
         )
-        self._detail_tabs.setCornerWidget(self._stats_expanded_toggle, Qt.TopRightCorner)
+        self._detail_tabs.setHeaderControl(self._stats_expanded_toggle)
         vods_scroll, _vods_scroll_content, vods_scroll_layout = _make_scroll_section()
         vod_stats_tab_layout.addWidget(vods_scroll)
 
@@ -1962,6 +2079,7 @@ class RecordingsTab:
         self._list_frame.setObjectName("RecordingsList")
         self._list_frame.setMinimumWidth(RECORDINGS_LIST_MIN_WIDTH)
         self._list_frame.setMaximumWidth(RECORDINGS_LIST_MAX_WIDTH)
+        self._list_frame.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._list_frame.currentItemChanged.connect(self._on_vod_selection_changed)
         chooser_layout.addWidget(self._list_frame, 1)
 

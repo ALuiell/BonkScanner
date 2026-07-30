@@ -20,6 +20,8 @@ from PySide6.QtCore import QEvent, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
+from core.stats.formats import PlayerStatFormat
+from core.stats.formatters import format_player_stat_value
 from projections import scrubber as model_module
 
 
@@ -39,7 +41,6 @@ _PIN = QColor("#38BDF8")
 _PIN_TEXT = QColor("#06202B")
 _PLAYHEAD = QColor("#EDF1F5")
 _PLAYHEAD_SHADOW = QColor(0, 0, 0, 140)
-_OVER_CAP = QColor(240, 120, 126, 16)
 
 #: Height of the strip along the top that carries stage captions.
 _BAND_LABEL_HEIGHT = 15
@@ -87,7 +88,7 @@ class RecordingScrubber(QWidget):
         self._cache_key: tuple | None = None
         self._cached_paths: list[tuple[QPainterPath, QColor]] = []
         self._cached_markers: list[tuple[float, str, QColor]] = []
-        self._cached_caps: list[tuple[float, float, float, QColor, float | None]] = []
+        self._cached_caps: list[tuple[float, float, float, QColor, str | None]] = []
         self._model_token = 0
         self.setMinimumHeight(150)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -284,6 +285,7 @@ class RecordingScrubber(QWidget):
         self._paint_stage_bands(painter, track)
         self._paint_caps(painter)
         self._paint_series(painter)
+        self._paint_cap_labels(painter)
         self._paint_no_series_hint(painter)
         self._paint_segment(painter, track)
         self._paint_markers(painter, track)
@@ -390,31 +392,31 @@ class RecordingScrubber(QWidget):
 
     def _build_cap_geometry(
         self, plot: QRectF
-    ) -> list[tuple[float, float, float, QColor, float | None]]:
-        """``(x0, x1, y, colour, over_cap_from_x)`` per cap step."""
-        geometry: list[tuple[float, float, float, QColor, float | None]] = []
+    ) -> list[tuple[float, float, float, QColor, str | None]]:
+        """``(x0, x1, y, colour, label)`` per cap step."""
+        geometry: list[tuple[float, float, float, QColor, str | None]] = []
         for key in self.series_keys:
             steps = self._model.caps(key)
             series = self._model.series(key)
             if not steps or series is None or not series.available:
                 continue
             colour = QColor(series.color)
-            over_cap_from: float | None = None
             for step in steps:
                 ratio = min(max(step.value / series.scale, 0.0), 1.0)
                 y = plot.bottom() - ratio * plot.height()
-                crossed = None
-                if over_cap_from is None:
-                    crossed = self._first_index_over(series, step)
-                    if crossed is not None:
-                        over_cap_from = self._x_of(crossed)
                 geometry.append(
                     (
                         self._x_of(step.start),
                         self._x_of(step.end),
                         y,
                         colour,
-                        over_cap_from if crossed is not None else None,
+                        (
+                            format_player_stat_value(
+                                step.value, PlayerStatFormat.PERCENT
+                            )
+                            if key == "Difficulty"
+                            else None
+                        ),
                     )
                 )
         return geometry
@@ -435,23 +437,42 @@ class RecordingScrubber(QWidget):
         painter.drawText(self._plot_rect(), Qt.AlignCenter, "NO SERIES SELECTED")
 
     def _paint_caps(self, painter: QPainter) -> None:
-        plot = self._plot_rect()
-        for x0, x1, y, colour, over_cap_from in self._cached_caps:
+        for x0, x1, y, colour, _label in self._cached_caps:
             painter.setPen(QPen(colour, 1.0, Qt.DashLine))
             painter.drawLine(x0, y, x1, y)
-            if over_cap_from is not None:
-                painter.fillRect(
-                    QRectF(over_cap_from, plot.top(), plot.right() - over_cap_from, plot.height()),
-                    _OVER_CAP,
-                )
 
-    @staticmethod
-    def _first_index_over(series: model_module.Series, step: model_module.CapStep) -> int | None:
-        for index in range(step.start, step.end + 1):
-            value = series.values[index]
-            if value is not None and value >= step.value:
-                return index
-        return None
+    def _paint_cap_labels(self, painter: QPainter) -> None:
+        """Put Difficulty's percent on top of both its cap and its curve."""
+        plot = self._plot_rect()
+        for x0, x1, y, colour, label in self._cached_caps:
+            if not label:
+                continue
+
+            painter.save()
+            painter.setFont(self._small_font())
+            metrics = painter.fontMetrics()
+            label_width = metrics.horizontalAdvance(label) + 8.0
+            label_height = metrics.height() + 2.0
+            # A cap that lasts only a few snapshots has no honest place for a
+            # caption. Drawing it over the neighbouring step makes both values
+            # ambiguous, so keep the line and wait for the next readable run.
+            if x1 - x0 < label_width + 8.0:
+                painter.restore()
+                continue
+
+            right = x1 - 4.0
+            left = max(x0 + 4.0, right - label_width)
+            top = y - label_height - 2.0
+            if top < plot.top() + _BAND_LABEL_HEIGHT:
+                top = y + 2.0
+            label_rect = QRectF(left, top, label_width, label_height)
+
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(11, 15, 20, 215))
+            painter.drawRoundedRect(label_rect, 3.0, 3.0)
+            painter.setPen(colour.lighter(115))
+            painter.drawText(label_rect, Qt.AlignCenter, label)
+            painter.restore()
 
     def _paint_series(self, painter: QPainter) -> None:
         painter.setBrush(Qt.NoBrush)

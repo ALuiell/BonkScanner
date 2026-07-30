@@ -53,8 +53,6 @@ from typing import Callable, Sequence
 
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -63,7 +61,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QScrollArea,
     QSizePolicy,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -75,12 +72,21 @@ from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS
 from ui.shared import (
     FlowLayout,
+    FullWidthTabWidget,
+    LabeledSwitch,
     _apply_summary_label_padding,
     _make_scroll_section,
     _set_text,
 )
 from ui.styles import ITEM_SORT_LABELS
-from ui.tabs.player_stats.items_section import ItemsSectionView
+from ui.tabs.player_stats.items_section import (
+    BANISHES_CHIPS_MAX_HEIGHT,
+    BANISHES_SECTION_MARGINS,
+    BanishesSectionView,
+    CompactItemsSortComboBox,
+    ItemsSectionView,
+    update_banishes_section,
+)
 from ui.tabs.player_stats.metrics import (
     LIVE_STATS_VALUE_WIDTH,
     _apply_player_stat_value_baseline,
@@ -412,7 +418,9 @@ class LiveStatsTab:
         )
         set_loot_rarity_card_values(self._loot_rarity_card_values, None, None)
         _set_text(self._new_items_label, "Live snapshot")
-        _set_text(self._banishes_label, "No banishes yet")
+        update_banishes_section(
+            getattr(self, "_banishes_view", None), self._banishes_label, ()
+        )
         set_stage_summary_labels(self._stage_summary_labels, None)
         self._stat_cards.invalidate()
         self._stat_cards.display_weapons((), status_text="Waiting for weapon data...")
@@ -493,7 +501,9 @@ class LiveStatsTab:
             _set_text(self._new_items_label, new_items_text)
         else:
             _set_text(self._new_items_label, "Live snapshot")
-        _set_text(self._banishes_label, formatting.format_banishes_rich_text(banishes))
+        update_banishes_section(
+            getattr(self, "_banishes_view", None), self._banishes_label, banishes
+        )
         set_stage_summary_labels(self._stage_summary_labels, stage_summary_rows)
         self._stat_cards.display_weapons(
             weapons if weapons_available else (),
@@ -745,10 +755,16 @@ class LiveStatsTab:
         items_meta.setContentsMargins(0, 0, 0, 0)
         items_rarity_label = QLabel("")
         items_rarity_label.setTextFormat(Qt.RichText)
+        items_rarity_label.setObjectName("ItemsRaritySummary")
         items_rarity_label.setStyleSheet("font-size: 12px; background: transparent;")
         items_rarity_label.setVisible(False)
         items_meta.addWidget(items_rarity_label, 0, Qt.AlignLeft)
         items_meta.addStretch(1)
+        items_sort_combo = CompactItemsSortComboBox()
+        for mode, label in ITEM_SORT_LABELS.items():
+            items_sort_combo.addItem(label, mode)
+        items_sort_combo.setVisible(False)
+        items_meta.addWidget(items_sort_combo, 0, Qt.AlignRight | Qt.AlignVCenter)
         items_layout.addLayout(items_meta)
 
         items_chips_container = QWidget()
@@ -762,17 +778,7 @@ class LiveStatsTab:
         items_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         items_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         items_scroll.setWidget(items_chips_container)
-        items_layout.addWidget(items_scroll, 1)
-
-        items_sort_row = QHBoxLayout()
-        items_sort_row.setContentsMargins(0, 0, 0, 0)
-        items_sort_row.addStretch(1)
-        items_sort_row.addWidget(QLabel("Sort:"))
-        items_sort_combo = QComboBox()
-        for mode, label in ITEM_SORT_LABELS.items():
-            items_sort_combo.addItem(label, mode)
-        items_sort_row.addWidget(items_sort_combo)
-        items_layout.addLayout(items_sort_row)
+        items_layout.addWidget(items_scroll, 3)
 
         self._items_section = ItemsSectionView(
             group=items_group,
@@ -796,7 +802,7 @@ class LiveStatsTab:
         banishes_section = QWidget()
         banishes_section.setObjectName("LiveStatsBanishes")
         banishes_layout = QVBoxLayout(banishes_section)
-        banishes_layout.setContentsMargins(8, 7, 8, 7)
+        banishes_layout.setContentsMargins(*BANISHES_SECTION_MARGINS)
         banishes_layout.setSpacing(4)
         banishes_title = QLabel("BANISHES")
         banishes_title.setObjectName("LiveStatsBanishesTitle")
@@ -806,6 +812,29 @@ class LiveStatsTab:
         self._banishes_label.setTextFormat(Qt.RichText)
         self._banishes_label.setWordWrap(True)
         banishes_layout.addWidget(self._banishes_label)
+        self._banishes_chips_container = QWidget()
+        self._banishes_chips_container.setObjectName("BanishesChips")
+        FlowLayout(self._banishes_chips_container, margin=0, spacing=5)
+        self._banishes_chips_container.setVisible(False)
+        # Bounded, as in Recordings: the flow layout pushes a `minimumHeight`
+        # onto its container per wrapped row, and that minimum comes straight
+        # out of the item list's share of a panel of fixed height.
+        banishes_chips_scroll = QScrollArea()
+        banishes_chips_scroll.setObjectName("BanishesChipsScroll")
+        banishes_chips_scroll.setWidgetResizable(True)
+        banishes_chips_scroll.setFrameShape(QFrame.NoFrame)
+        banishes_chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        banishes_chips_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        banishes_chips_scroll.setMinimumHeight(BANISHES_CHIPS_MAX_HEIGHT)
+        banishes_chips_scroll.setMaximumHeight(BANISHES_CHIPS_MAX_HEIGHT)
+        banishes_chips_scroll.setWidget(self._banishes_chips_container)
+        banishes_chips_scroll.setVisible(False)
+        banishes_layout.addWidget(banishes_chips_scroll)
+        self._banishes_view = BanishesSectionView(
+            label=self._banishes_label,
+            chips_container=self._banishes_chips_container,
+            chips_scroll=banishes_chips_scroll,
+        )
         items_layout.addWidget(banishes_section)
 
         live_summary_grid = QGridLayout()
@@ -897,17 +926,14 @@ class LiveStatsTab:
         for column in range(3):
             live_summary_grid.setColumnStretch(column, 1)
         live_main_layout.addLayout(live_summary_grid)
-        self._detail_tabs = QTabWidget()
+        self._detail_tabs = FullWidthTabWidget()
         self._detail_tabs.setObjectName("subTabs")
         # The detail pages scroll their own contents. Their card grids must not
         # enlarge the whole Live Stats page and create a second outer scrollbar.
         self._detail_tabs.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         player_stats_tab = QWidget()
         player_stats_tab_layout = QVBoxLayout(player_stats_tab)
-        stats_view_options = QHBoxLayout()
-        stats_view_options.setContentsMargins(0, 0, 0, 0)
-        stats_view_options.addStretch(1)
-        self._stats_expanded_toggle = QCheckBox("Expanded")
+        self._stats_expanded_toggle = LabeledSwitch("Expanded")
         self._stats_expanded_toggle.setObjectName("LiveStatsExpandedToggle")
         self._stats_expanded_toggle.setChecked(
             bool(config.user_config.get(LIVE_STATS_EXPANDED_CONFIG_KEY, False))
@@ -915,8 +941,7 @@ class LiveStatsTab:
         self._stats_expanded_toggle.setToolTip(
             "Show the full stat names in detailed label/value rows"
         )
-        stats_view_options.addWidget(self._stats_expanded_toggle)
-        player_stats_tab_layout.addLayout(stats_view_options)
+        self._detail_tabs.setHeaderControl(self._stats_expanded_toggle)
         player_stats_scroll, _player_stats_scroll_content, player_stats_scroll_layout = _make_scroll_section()
         player_stats_tab_layout.addWidget(player_stats_scroll)
 
@@ -1089,7 +1114,12 @@ class LiveStatsTab:
             section_visible=section_visibility_over(lambda: self._detail_tabs),
         )
         self._detail_tabs.currentChanged.connect(
-            lambda _index: self._stat_cards.flush_pending()
+            lambda _index: (
+                self._stat_cards.flush_pending(),
+                self._stats_expanded_toggle.setVisible(
+                    self._detail_tabs.currentIndex() == 0
+                ),
+            )
         )
         self._detail_tabs.addTab(player_stats_tab, "Stats")
         self._detail_tabs.addTab(loot_tab, "Loot")

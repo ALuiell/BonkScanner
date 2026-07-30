@@ -20,9 +20,9 @@ PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#2F6FB0"
 PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#3781CE"
 PLAYER_STATS_VALUE_WIDTH = 72
 ITEM_SORT_LABELS = {
-    ITEM_SORT_DEFAULT: "Default",
-    ITEM_SORT_RARITY_DESC: "Rarity ↓",
-    ITEM_SORT_RARITY_ASC: "Rarity ↑",
+    ITEM_SORT_DEFAULT: "Default item order",
+    ITEM_SORT_RARITY_DESC: "Rarity — highest first",
+    ITEM_SORT_RARITY_ASC: "Rarity — lowest first",
 }
 
 def _template_checkbox_stylesheet(color_hex: str) -> str:
@@ -562,8 +562,8 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             font-size: 14px;
         }
         QWidget#LiveStatsBanishes {
-            background-color: rgba(127, 29, 29, 0.16);
-            border: 1px solid rgba(248, 113, 113, 0.28);
+            background: transparent;
+            border: 1px solid rgba(248, 113, 113, 0.42);
             border-radius: 7px;
         }
         QScrollArea#LiveStatsItemsScroll {
@@ -585,7 +585,10 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             font-weight: 700;
         }
         QLabel#LiveStatsBanishesText {
-            color: #FECACA;
+            color: #98A7BA;
+        }
+        QWidget#BanishesChips {
+            background: transparent;
         }
         QToolTip {
             background-color: #161C24;
@@ -634,6 +637,10 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             border-color: #3E82C6;
             background-color: #10161F;
         }
+        QFrame#StageChapterCard[rangeAnchor="true"] {
+            border-color: #FACC15;
+            background-color: #17160B;
+        }
         QFrame#StageChapterCard[hasData="false"] {
             border-color: #151B23;
         }
@@ -652,11 +659,11 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             font-size: 11px;
         }
         QLabel#StageChapterKills {
-            color: #B9C2CE;
+            color: #F8FAFC;
             font-size: 12px;
         }
         QLabel#StageChapterItems {
-            font-size: 11px;
+            font-size: 12px;
         }
         QFrame#StageChapterCard[hasData="false"] QLabel {
             color: #3D4756;
@@ -669,8 +676,14 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             border-radius: 9px;
             padding: 4px 11px;
         }
-        QLabel#RecordingScrubberLegend, QLabel#RecordingScrubberCompareHint {
+        QLabel#RecordingScrubberLegend,
+        QLabel#RecordingScrubberMeta,
+        QLabel#RecordingScrubberCompareHint {
             background: transparent;
+        }
+        QLabel#RecordingScrubberMeta {
+            color: #5C6675;
+            font-size: 11.5px;
         }
         /* The recordings library: search, rows, and the auto-filter footer. */
         QListWidget#RecordingsList::item {
@@ -720,52 +733,10 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             color: #5C6675;
             font-size: 11px;
         }
-        /* Rarity filter chips. Unchecked they are outline-only in their own
-           colour, so the row still reads as a legend when no filter is on;
-           checked they fill, which is the only state that changes the list. */
-        QWidget#ItemsRarityFilters {
+        QLabel#ItemsRaritySummary {
+            color: #E5E7EB;
+            font-size: 12px;
             background: transparent;
-        }
-        QPushButton#ItemsRarityFilterChip {
-            background: transparent;
-            border: 1px solid #2A3542;
-            border-radius: 7px;
-            color: #5C6675;
-            font-size: 11px;
-            font-weight: 600;
-            padding: 3px 7px;
-        }
-        QPushButton#ItemsRarityFilterChip:disabled {
-            color: #2A323D;
-            border-color: #1B222B;
-        }
-        QPushButton#ItemsRarityFilterChip[rarity="LEGENDARY"] {
-            color: #FACC15;
-            border-color: #57481A;
-        }
-        QPushButton#ItemsRarityFilterChip[rarity="RARE"] {
-            color: #E879F9;
-            border-color: #4A2A57;
-        }
-        QPushButton#ItemsRarityFilterChip[rarity="UNCOMMON"] {
-            color: #60A5FA;
-            border-color: #1E3A5C;
-        }
-        QPushButton#ItemsRarityFilterChip[rarity="COMMON"] {
-            color: #4ADE80;
-            border-color: #1F4A2E;
-        }
-        QPushButton#ItemsRarityFilterChip[rarity="LEGENDARY"]:checked {
-            background: #2E2708;
-        }
-        QPushButton#ItemsRarityFilterChip[rarity="RARE"]:checked {
-            background: #2A1730;
-        }
-        QPushButton#ItemsRarityFilterChip[rarity="UNCOMMON"]:checked {
-            background: #101E30;
-        }
-        QPushButton#ItemsRarityFilterChip[rarity="COMMON"]:checked {
-            background: #12261A;
         }
         /* The items list is the one place a scrollbar has to announce itself:
            it holds ~40 chips in a viewport that shows five or six, so whether
@@ -785,19 +756,92 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         QScrollArea#LiveStatsItemsScroll QScrollBar::handle:vertical:hover {
             background: #5E7490;
         }
-        QWidget#CompareDetailsChips {
+        QWidget#CompareDetailsRows,
+        QWidget#CompareRarityRow,
+        QWidget#CompareSegmentHeader {
             background: transparent;
         }
-        QLabel#CompareDetailsSection {
-            background: transparent;
-            color: #98A7BA;
-            font-size: 11px;
+        QLabel#CompareSegmentHeadline {
+            font-size: 12.5px;
+        }
+        /* On the `#38BDF8` accent the A/B letters wear rather than the muted
+           ghost palette: this button exists only while a pin is down, and it
+           is the only way out of the segment that does not need the Esc key.
+           Same pair as `#RecordingPlaqueLibrary:checked`, which is the sheet's
+           other "this is switched on" control. */
+        QPushButton#CompareSegmentClear {
+            background: #173352;
+            border: 1px solid #3E82C6;
+            border-radius: 7px;
+            color: #DDEEFF;
+            font-size: 12px;
             font-weight: 700;
-            letter-spacing: 0.4px;
+            padding: 4px 11px;
         }
+        QPushButton#CompareSegmentClear:hover {
+            background: #1E4368;
+            border-color: #5B9BDD;
+            color: #FFFFFF;
+        }
+        QPushButton#CompareSegmentClear:pressed {
+            background: #12283F;
+        }
+        /* One size below the headline: the item runs are a list to scan, not
+           the line that says what the segment is. */
+        QLabel#CompareRarityBadge,
+        QLabel#CompareRarityItems {
+            font-size: 12px;
+        }
+        /* The icon-only sort control, on the `#iconBtn` palette rather than a
+           blue one. `#3E82C6` means *primary* in this design -- it is the
+           active `go` segment and the pressed `primary` button -- and sorting
+           is the least consequential thing on the panel. Idle it out-shouted
+           `Rec`, which is the one control on the strip that actually does
+           something. Accent now appears on hover and while the menu is open,
+           which is where `#iconBtn` puts it too.
+
+           Geometry stays 38x22 (set in `CompactItemsSortComboBox`): `#iconBtn`
+           is 36x36 for the 40px header bar, and a square that tall would not
+           fit a panel header sized to a 12px label. Radius joins the 8px
+           control tier. */
+        /* The glyph is painted, so it arrives by property, not by `color`. */
         QComboBox#ItemsSortCombo {
-            font-size: 11px;
-            padding: 2px 6px;
+            qproperty-glyphColor: #EDF1F5;
+            qproperty-glyphActiveColor: #FACC15;
+            background-color: #1C2530;
+            border: 1px solid #33414F;
+            border-radius: 8px;
+            padding: 0;
+        }
+        QComboBox#ItemsSortCombo:hover {
+            background-color: #243040;
+            border-color: #3E82C6;
+        }
+        QComboBox#ItemsSortCombo:on {
+            background-color: #243040;
+            border-color: #4E93D7;
+        }
+        QComboBox#ItemsSortCombo:disabled {
+            background-color: #12161C;
+            border-color: #1B222B;
+        }
+        QComboBox#ItemsSortCombo::drop-down {
+            width: 0;
+            border: none;
+        }
+        QComboBox#ItemsSortCombo::down-arrow {
+            image: none;
+            width: 0;
+            height: 0;
+        }
+        QComboBox#ItemsSortCombo QAbstractItemView {
+            min-width: 190px;
+            background-color: #141A22;
+            border: 1px solid #38495E;
+            color: #D7DEE8;
+            padding: 4px;
+            selection-background-color: #1F4E79;
+            selection-color: #FFFFFF;
         }
         QFrame#RecordingPlaque {
             background: transparent;
@@ -818,49 +862,64 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             font-weight: 700;
             padding: 2px 7px;
         }
-        /* Rename is spelled out in full here rather than leaning on
-           `class="SmallGhostButton"`. It matched that rule and still drew with
-           no chrome at all: an ID rule that sets only box-model properties is
-           not a reliable way to inherit a fill from an attribute rule. The
-           menu beside it stays glyph-only -- it opens a list rather than doing
-           something, and two filled buttons flanking the title made the row
-           read as a toolbar. */
-        QPushButton#RecordingPlaqueRename {
-            background: #18212E;
-            border: 1px solid #2B3648;
-            border-radius: 6px;
-            color: #BBD0E5;
-            font-size: 12px;
-            font-weight: 600;
-            margin-left: 6px;
-            padding: 3px 10px;
-        }
-        QPushButton#RecordingPlaqueRename:hover {
-            background: #1E2A39;
-            border-color: #3A4D66;
-            color: #E5E7EB;
-        }
-        QPushButton#RecordingPlaqueMenu {
+        QPushButton#RecordingPlaqueLibrary {
             background: transparent;
             border: 1px solid #2A3542;
             border-radius: 6px;
-            color: #8A94A3;
-            font-size: 13px;
-            padding: 0;
+            color: #9AA4B2;
+            font-size: 14px;
+            font-weight: 700;
+            padding: 3px 9px;
         }
-        QPushButton#RecordingPlaqueMenu:hover {
-            background: #1A222C;
-            border-color: #3A4D66;
+        QPushButton#RecordingPlaqueLibrary:hover {
+            background: #161C24;
+            border-color: #38495E;
             color: #EDF1F5;
         }
-        QPushButton#RecordingPlaqueRename:disabled, QPushButton#RecordingPlaqueMenu:disabled {
+        QPushButton#RecordingPlaqueLibrary:checked {
+            background: #173352;
+            border-color: #3E82C6;
+            color: #DDEEFF;
+        }
+        QPushButton#RecordingPlaqueRename {
+            background-color: #161C24;
+            border: 1px solid #2A3542;
+            border-radius: 9px;
+            color: #EDF1F5;
+            font-size: 12.5px;
+            font-weight: 700;
+            padding: 6px 12px;
+        }
+        QPushButton#RecordingPlaqueRename:hover {
+            background-color: #1B222D;
+            border-color: #37424F;
+        }
+        QPushButton#RecordingPlaqueRename:pressed {
+            background-color: #0B0F14;
+        }
+        QPushButton#RecordingPlaqueDelete {
+            background: transparent;
+            border: 1px solid #4A2226;
+            border-radius: 6px;
+            color: #F0787E;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 3px 10px;
+        }
+        QPushButton#RecordingPlaqueDelete:hover {
+            background: #8F1D22;
+            border-color: #B91C1C;
+            color: #FFFFFF;
+        }
+        QPushButton#RecordingPlaqueRename:disabled {
+            background-color: #12161C;
+            border-color: #1B222B;
+            color: #4A5462;
+        }
+        QPushButton#RecordingPlaqueDelete:disabled {
             color: #2A323D;
             border-color: #1B222B;
             background: transparent;
-        }
-        QPushButton#RecordingPlaqueMenu::menu-indicator {
-            width: 0;
-            height: 0;
         }
         QTextEdit, QPlainTextEdit, QListWidget, QTreeWidget, QTableWidget {
             background-color: #0E1217;
@@ -924,7 +983,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             padding: 0;
             background-color: #161C24;
             border: 1px solid #2A3542;
-            border-radius: 9px;
+            border-radius: 8px;
         }
         QPushButton#SettingsButton:hover, QPushButton#HelpButton:hover {
             background-color: #1B222B;

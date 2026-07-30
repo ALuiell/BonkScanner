@@ -55,7 +55,7 @@ class PlaqueRenameTests(unittest.TestCase):
         self.tab._name_entry = _NameEdit(self.host)
         self.tab._name_entry.setVisible(False)
         self.tab._rename_btn = QPushButton("edit", self.host)
-        self.tab._menu_btn = QPushButton("menu", self.host)
+        self.tab._delete_btn = QPushButton("delete", self.host)
         self.tab._loaded_vod = _vod()
 
     def _editing(self) -> bool:
@@ -74,6 +74,7 @@ class PlaqueRenameTests(unittest.TestCase):
         self.assertTrue(self._editing())
         self.assertFalse(self._showing_heading())
         self.assertFalse(self.tab._rename_btn.isVisibleTo(self.host))
+        self.assertFalse(self.tab._delete_btn.isVisibleTo(self.host))
 
     def test_the_field_is_prefilled_with_the_current_name(self) -> None:
         self.tab.begin_rename()

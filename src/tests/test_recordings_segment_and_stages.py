@@ -134,7 +134,6 @@ def _tab_with_stage_cards(snapshots=SNAPSHOTS):
     tab._rows = {}
     tab._compact_rows = {}
     tab._banishes_label = FakeLabel()
-    tab._new_items_label = FakeLabel()
     tab._chests_per_minute_label = FakeLabel()
     tab._chests_card_values = {}
     tab._loot_rarity_card_values = {}
@@ -184,13 +183,65 @@ class StageCardTests(unittest.TestCase):
         self.assertEqual(tab._stage_summary_labels[3]["kills"].text(), "--")
 
 
+class StageRangeSelectionTests(unittest.TestCase):
+    def _tab(self):
+        tab = _tab_with_stage_cards()
+        tab._compare_details_group = FakeGroup()
+        tab._compare_details_summary_label = FakeLabel()
+        tab._compare_details_items_label = FakeLabel()
+        tab.refresh_loaded_vod_ui()
+        return tab
+
+    def test_click_then_shift_click_compares_the_complete_first_stage(self) -> None:
+        tab = self._tab()
+
+        tab.on_stage_card_clicked(1)
+        self.assertEqual(tab._snapshot_index, 0)
+        self.assertEqual(tab._stage_range_anchor_number, 1)
+        self.assertIsNone(tab._compare_start_index)
+
+        tab.on_stage_card_clicked(2, shift_pressed=True)
+
+        self.assertEqual(tab._compare_start_index, 0)
+        self.assertEqual(tab._scrubber.pin, 0)
+        self.assertEqual(tab._snapshot_index, 2)
+        self.assertTrue(tab._compare_details_group.visible)
+
+    def test_shift_clicking_the_anchor_again_compares_the_whole_stage(self) -> None:
+        tab = self._tab()
+
+        tab.on_stage_card_clicked(2)
+        tab.on_stage_card_clicked(2, shift_pressed=True)
+
+        self.assertEqual(tab._compare_start_index, 3)
+        self.assertEqual(tab._snapshot_index, 4)
+
+    def test_a_shift_click_without_an_anchor_behaves_like_a_normal_jump(self) -> None:
+        tab = self._tab()
+
+        tab.on_stage_card_clicked(2, shift_pressed=True)
+
+        self.assertEqual(tab._snapshot_index, 3)
+        self.assertEqual(tab._stage_range_anchor_number, 2)
+        self.assertIsNone(tab._compare_start_index)
+
+    def test_a_new_plain_stage_click_clears_an_older_manual_pin(self) -> None:
+        tab = self._tab()
+        tab.set_vod_compare_start(1)
+
+        tab.on_stage_card_clicked(2)
+
+        self.assertIsNone(tab._compare_start_index)
+        self.assertIsNone(tab._scrubber.pin)
+        self.assertFalse(tab._compare_details_group.visible)
+
+
 class CompareDetailsVisibilityTests(unittest.TestCase):
     def _tab(self):
         tab = _tab_with_stage_cards()
         tab._compare_details_group = FakeGroup()
         tab._compare_details_summary_label = FakeLabel()
         tab._compare_details_items_label = FakeLabel()
-        tab._new_items_label = FakeLabel()
         return tab
 
     def test_hidden_while_no_compare_pin_is_set(self) -> None:
@@ -223,6 +274,21 @@ class CompareDetailsVisibilityTests(unittest.TestCase):
 
         self.assertFalse(tab._compare_details_group.visible)
         self.assertIsNone(tab._scrubber.pin)
+
+    def test_the_timeline_accents_both_segment_ends(self) -> None:
+        """Same pairing as the card's header line.
+
+        A and B name one selection; accenting only A read as "A is the live
+        one", which is the opposite of what the pin means.
+        """
+        tab = self._tab()
+        tab.display_loaded_vod_snapshot(3)
+
+        tab.set_vod_compare_start(1)
+
+        hint = tab._compare_hint_label.text()
+        self.assertIn('<b style="color:#38BDF8;">A</b>', hint)
+        self.assertIn('<b style="color:#38BDF8;">B</b>', hint)
 
     def test_the_pin_drives_the_compare_baseline(self) -> None:
         tab = self._tab()

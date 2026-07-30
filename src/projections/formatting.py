@@ -1395,19 +1395,40 @@ def format_snapshot_item_changes_details(previous_snapshot, snapshot, *, segment
 _COMPARE_SECTIONS = (("gained", "Gained", "+"), ("broken", "Broken", "-"), ("lost", "Lost", "-"))
 
 
-def compare_detail_chips(
+#: Rarity rows for the compare card, brightest first. `UNKNOWN` collects
+#: anything the item table has no rarity for, so a new item still shows up.
+_COMPARE_RARITY_ROW_ORDER = ("LEGENDARY", "RARE", "UNCOMMON", "COMMON", "UNKNOWN")
+
+#: The muted grey the rest of the redesign uses for spent/absent text.
+_COMPARE_MUTED_COLOR = "#5C6675"
+
+#: `--danger` from the mockup, for the two rows that report items going away.
+_COMPARE_DANGER_COLOR = "#F0787E"
+
+#: `--info`. Both segment ends wear it: A and B name one selection, and
+#: colouring only A read as "A is the live one".
+_COMPARE_SEGMENT_END_COLOR = "#38BDF8"
+
+
+def compare_detail_rarity_rows(
     previous_snapshot, snapshot, *, segment_snapshots=()
-) -> tuple[tuple[str, tuple[tuple[str, str], ...]], ...]:
-    """The segment's item changes as chips: `(section, ((text, tag), ...))`.
+) -> tuple[tuple[str, str], ...]:
+    """The segment's item changes as `((label html, items html), ...)`.
 
-    The widget counterpart to `format_snapshot_item_changes_details`, which
-    renders the same data as one rich-text block with the items inside a
-    section joined by `" | "`. That block is unreadable past about six items:
-    the rarity is a coloured bullet at the *start of the row*, so every item
-    after the first is an unmarked name in a pipe-separated run.
+    One row per rarity for the gains, then one for broken and one for lost.
+    Every row has the same shape -- a label column and a wrapping run of items
+    -- so the rows line up whatever the segment did.
 
-    A chip carries its own rarity, so it stays legible however many there are
-    -- and it is the shape the Items panel beside it already uses.
+    This replaces the four-column chip grid. The grid fixed what the
+    pipe-joined block before it got wrong -- rarity on every item rather than
+    on a bullet at the start of the row -- but four columns wide enough for a
+    two-word item name need most of the tab, and this card gets a third of it,
+    so a thirty-item segment came out as a tall block of half-empty columns.
+
+    A row per rarity is the shape the Items panel's preview already uses, and
+    it keeps the rarity marking the grid was for: the colour is on the leading
+    dot *and* on every name, so the grouping survives wrapping. The sort is
+    unchanged -- rarity, then count -- only the line breaks move.
 
     Pure and here rather than in the tab: the grouping is a projection
     decision, and this way it is testable without a widget.
@@ -1415,19 +1436,156 @@ def compare_detail_chips(
     changes = summarize_item_segment_changes(
         segment_snapshots or (previous_snapshot, snapshot)
     )
-    sections: list[tuple[str, tuple[tuple[str, str], ...]]] = []
-    for key, title, sign in _COMPARE_SECTIONS:
+    rows: list[tuple[str, str]] = list(
+        _compare_gain_rarity_rows(changes.get("gained") or ())
+    )
+    # Broken and lost stay ungrouped, and on one line each: they are a handful
+    # of items at most, and what matters about them is that they are gone, not
+    # how rare they were. Their own label rather than a heading above them --
+    # a heading cost a line to say what four characters say in the column the
+    # rarity dots already occupy.
+    for key, title, sign in _COMPARE_SECTIONS[1:]:
         entries = changes.get(key) or ()
         if not entries:
             continue
-        chips: list[tuple[str, str]] = []
-        for name, count in entries:
-            display_name = _normalize_item_name_for_display(name)
-            rarity = _item_rarity_name(display_name)
-            tag = _ITEM_CHIP_OBJECT_NAME_BY_RARITY.get(rarity, "tagNeutral")
-            chips.append((f"{display_name} {sign}{format_count(count)}", tag))
-        sections.append((title, tuple(chips)))
-    return tuple(sections)
+        names = " · ".join(
+            f"{html.escape(_normalize_item_name_for_display(name))} "
+            f"{sign}{format_count(count)}"
+            for name, count in entries
+        )
+        rows.append(
+            (
+                f'<span style="color:{_COMPARE_DANGER_COLOR}; font-weight:700;">'
+                f"{title}</span>",
+                f'<span style="color:#8A94A3;">{names}</span>',
+            )
+        )
+    return tuple(rows)
+
+
+def _compare_gain_rarity_rows(entries) -> tuple[tuple[str, str], ...]:
+    grouped: dict[str, list[tuple[str, int]]] = {}
+    for name, count in entries:
+        display_name = _normalize_item_name_for_display(name)
+        rarity = _item_rarity_name(display_name) or "UNKNOWN"
+        if rarity not in _COMPARE_RARITY_ROW_ORDER:
+            rarity = "UNKNOWN"
+        grouped.setdefault(rarity, []).append((display_name, int(count)))
+
+    rows: list[tuple[str, str]] = []
+    for rarity in _COMPARE_RARITY_ROW_ORDER:
+        items = grouped.get(rarity)
+        if not items:
+            continue
+        total = sum(count for _name, count in items)
+        color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
+        badge = (
+            f'<span style="color:{color}; font-weight:800;">&#9679;</span> '
+            f'<span style="color:#8A94A3; font-weight:700;">{format_count(total)}</span>'
+        )
+        names = f'<span style="color:{_COMPARE_MUTED_COLOR};"> · </span>'.join(
+            _compare_gain_item_html(display_name, count, color)
+            for display_name, count in items
+        )
+        rows.append((badge, names))
+    return tuple(rows)
+
+
+def _compare_gain_item_html(display_name: str, count: int, rarity_color: str) -> str:
+    """One gained item: its name in the row's rarity colour, count beside it.
+
+    Not `_format_item_change_text`, which passes a flat `#E5E7EB` fallback to
+    `item_display_color` -- and that table only special-cases a couple of items,
+    so every other name came out the same light grey and the rarity lived on the
+    leading dot alone. `item_display_color` still wins where it has an entry:
+    The One Ring is orange on purpose.
+
+    The count stays grey. It is the second thing you read on the row, after
+    which items are in it, and in the rarity colour it competed with the name.
+    """
+    color = item_display_color(display_name, rarity_color)
+    return (
+        f'<span style="color:{color}; font-weight:700;">'
+        f"{html.escape(display_name)}</span> "
+        f'<span style="color:#8A94A3;">+{format_count(int(count))}</span>'
+    )
+
+
+def format_segment_headline(base_snapshot, snapshot, *, segment_snapshots=()) -> str:
+    """The compare card's header line: `Segment A 12:40 -> B 52:10 · totals`.
+
+    One line where there used to be two -- a rarity-dot gains preview and a
+    `Snapshot 305 -> 1 | 51:02 -> 00:00 | +154 items` line -- which between
+    them said the segment's item total twice and led with a snapshot index,
+    the one number about a segment nobody reads. The A/B letters match the
+    scrubber's pin and playhead, so the header names the same two points the
+    timeline above it does.
+    """
+    if base_snapshot is None or snapshot is None:
+        return "--"
+    pieces = [
+        '<span style="color:#8A94A3;">Segment</span> '
+        f'<b style="color:{_COMPARE_SEGMENT_END_COLOR};">A</b> '
+        f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(base_snapshot))}</span> '
+        f'<span style="color:{_COMPARE_MUTED_COLOR};">&rarr;</span> '
+        f'<b style="color:{_COMPARE_SEGMENT_END_COLOR};">B</b> '
+        f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(snapshot))}</span>'
+    ]
+    span = tuple(segment_snapshots or (base_snapshot, snapshot))
+    changes = summarize_item_segment_changes(span)
+    # Levels, items, kills -- the mockup's order, and the order they grow in.
+    level_delta = _segment_counter_delta(span, "player_level")
+    if level_delta:
+        pieces.append(_segment_headline_total(level_delta, "levels"))
+    pieces.append(
+        _segment_headline_total(sum(gain for _name, gain in changes["gained"]), "items")
+    )
+    kill_delta = _segment_counter_delta(span, "mob_kills")
+    if kill_delta:
+        pieces.append(_segment_headline_total(kill_delta, "kills"))
+    separator = f'<span style="color:{_COMPARE_MUTED_COLOR};"> · </span>'
+    return separator.join(pieces)
+
+
+def _segment_counter_delta(snapshots, attr_name: str) -> int | None:
+    """How far a monotonic counter moved across the segment.
+
+    Read off the segment rather than off the A/B pair, for two reasons the old
+    `base -> snapshot` subtraction got wrong and which is why the header used
+    to say only `+N items`:
+
+    * Direction. The pin can sit *after* the playhead -- shift-clicking back
+      down the timeline does exactly that -- and the item totals do not care,
+      because the segment is always walked low index to high. Subtracting the
+      pair in the order the caller happened to pass them gave a negative, and
+      a clamped negative is a zero, and a zero is dropped from the header.
+    * Gaps. `player_level` and `mob_kills` are optional per snapshot: an older
+      recording, or one where the read failed for a frame. If either end of the
+      segment was one of those frames the whole total vanished, so scanning
+      inwards for the nearest snapshot that has the value keeps it.
+    """
+    values = [
+        int(value)
+        for value in (getattr(item, attr_name, None) for item in snapshots)
+        if value is not None
+    ]
+    if not values:
+        return None
+    return max(0, max(values[0], values[-1]) - min(values[0], values[-1]))
+
+
+def _segment_headline_total(delta: int, noun: str) -> str:
+    return (
+        f'<b style="color:#EDF1F5;">+{format_count(int(delta))}</b> '
+        f'<span style="color:#8A94A3;">{noun}</span>'
+    )
+
+
+def _segment_time_label(snapshot) -> str:
+    seconds = getattr(snapshot, "game_time_seconds", None)
+    if seconds is not None:
+        return format_elapsed_time(seconds)
+    return str(getattr(snapshot, "time_label", None) or "--")
 
 
 def format_item_gains_by_rarity(
@@ -1567,39 +1725,6 @@ def format_item_gain_rarity_totals(gains: tuple[tuple[str, int], ...]) -> str:
     return " ".join(parts) if parts else '<span style="color:#98A7BA;">--</span>'
 
 
-def format_snapshot_compare_summary(
-    base_snapshot,
-    snapshot,
-    *,
-    base_index: int | None,
-    current_index: int | None,
-    segment_snapshots=(),
-) -> str:
-    pieces: list[str] = []
-    if base_index is not None and current_index is not None:
-        pieces.append(f"Snapshot {int(base_index) + 1} -> {int(current_index) + 1}")
-    base_time = getattr(base_snapshot, "game_time_seconds", None)
-    current_time = getattr(snapshot, "game_time_seconds", None)
-    if base_time is not None and current_time is not None:
-        pieces.append(f"{format_elapsed_time(base_time)} -> {format_elapsed_time(current_time)}")
-    kill_delta = _snapshot_int_delta(base_snapshot, snapshot, "mob_kills")
-    if kill_delta is not None and kill_delta > 0:
-        pieces.append(f"+{format_count(kill_delta)} kills")
-    level_delta = _snapshot_int_delta(base_snapshot, snapshot, "player_level")
-    if level_delta is not None and level_delta > 0:
-        pieces.append(f"+{format_count(level_delta)} levels")
-    changes = summarize_item_segment_changes(segment_snapshots or (base_snapshot, snapshot))
-    item_total = sum(gain for _name, gain in changes["gained"])
-    pieces.append(f"+{format_count(item_total)} items")
-    broken_total = sum(count for _name, count in changes["broken"])
-    if broken_total:
-        pieces.append(f"{format_count(broken_total)} broken")
-    lost_total = sum(count for _name, count in changes["lost"])
-    if lost_total:
-        pieces.append(f"-{format_count(lost_total)} lost")
-    return " | ".join(pieces)
-
-
 def _snapshot_int_delta(base_snapshot, snapshot, attr_name: str) -> int | None:
     base_value = getattr(base_snapshot, attr_name, None)
     current_value = getattr(snapshot, attr_name, None)
@@ -1684,26 +1809,6 @@ _ITEM_CHIP_OBJECT_NAME_BY_RARITY = {
     "RARE": "tagRare",
     "LEGENDARY": "tagLegendary",
 }
-
-
-#: The four rarities the item panel groups by, strongest first. Anything whose
-#: rarity is unknown is deliberately absent: it is shown, never filtered on.
-ITEM_RARITY_ORDER = ("LEGENDARY", "RARE", "UNCOMMON", "COMMON")
-
-
-def item_rarity(item_text: str) -> str | None:
-    """The rarity of one item as it appears in a snapshot's item list.
-
-    Takes the display text -- stack suffix and all -- because that is the form
-    the item panel holds. ``None`` for anything the rarity table does not know.
-    """
-    item_name, _suffix = _split_item_stack_suffix(item_text)
-    return _item_rarity_name(item_name)
-
-
-def item_rarity_totals(items) -> dict[str, int]:
-    """Per-rarity counts, the same ones the rarity summary prints."""
-    return _item_rarity_totals(items)
 
 
 def item_chip_display(item_text: str) -> tuple[str, str]:

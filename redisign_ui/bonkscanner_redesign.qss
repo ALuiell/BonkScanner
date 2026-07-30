@@ -21,6 +21,15 @@
                       Epic #C084FC · Legendary #FACC15
    ШРИФТЫ  Inter (UI) · JetBrains Mono (числа/логи/таймкоды)
 
+   РАДИУСЫ  Один ярус — одно значение. Новое число здесь означает новый ярус,
+            а не «примерно как рядом», иначе они расползаются: до этой правки
+            на одной полосе записи жили 5 / 7 / 8 / 9 / 10 / 11.
+     индикатор   4  (checkbox)
+     бейдж       5  (hotkeyHint, tagLevel — мелкая подпись в рамке)
+     контрол     8  (кнопки, инпуты, сегменты, табы — всё нажимаемое)
+     группа      11 (рамка сегментов, шапка сабтабов — оболочка вокруг контролов)
+     карта       12 · панель 16 (в этой правке не менялись)
+
    СОГЛАШЕНИЕ ПО objectName
      Кнопки:   primary · danger · ghost · stopScanner · iconBtn · railToggle
      Сегменты: [segmentedToggle="true"] (рамка) · segment
@@ -188,8 +197,8 @@ QGroupBox#LiveStatsStageSummary QLabel {
     font-size: 14px;
 }
 QWidget#LiveStatsBanishes {
-    background-color: rgba(127, 29, 29, 0.16);
-    border: 1px solid rgba(248, 113, 113, 0.28);
+    background: transparent;
+    border: 1px solid rgba(248, 113, 113, 0.42);
     border-radius: 7px;
 }
 QGroupBox#LiveStatsItems {
@@ -215,7 +224,10 @@ QLabel#LiveStatsBanishesTitle {
     letter-spacing: 0.4px;
 }
 QLabel#LiveStatsBanishesText {
-    color: #FECACA;
+    color: #98A7BA;
+}
+QWidget#BanishesChips {
+    background: transparent;
 }
 
 /* QGroupBox — стандартная карта-контейнер (Run Summary, Stage Summary, …) */
@@ -318,12 +330,26 @@ QTabBar#subTabs::tab {
 }
 QTabBar#subTabs::tab:selected { background-color: #2F6FB0; }
 
+/* One shared shell behind the tabs and their right-corner controls. */
+QFrame#SubTabsHeader {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 11px;
+}
+QTabWidget#subTabs QTabBar {
+    background: transparent;
+    border: none;
+}
+QWidget#SubTabsCorner {
+    background: transparent;
+}
+
 /* ----------------------------------------------------------- buttons ---- */
 /* secondary (по умолчанию) */
 QPushButton {
     background-color: #161C24;
     border: 1px solid #2A3542;
-    border-radius: 9px;
+    border-radius: 8px;
     color: #EDF1F5;
     font-weight: 700;
     font-size: 12.5px;
@@ -369,10 +395,15 @@ QPushButton#stopScanner:hover { background-color: #CC2626; }
    `_set_widget_style_role` на этом же виджете и переименовывает его в
    `primary` / `stopScanner`, так что имя здесь ненадёжно.
    Цвет сегмента задают три свойства: role (go|halt), active, variant. */
+/* 11, а не 10, по ярусу «группа» — и это ещё выравнивает две копии одного
+   контрола между собой. `#stopScanner` ниже задаёт 11 и попадает на эту же
+   рамку, когда `_set_widget_style_role` переименовывает её в шапке; селектор по
+   objectName специфичнее селектора по свойству, так что шапка уже рисовалась
+   с 11, а полоса записи — с 10. Один и тот же переключатель, два радиуса. */
 QFrame[segmentedToggle="true"] {
     background-color: #0B0F14;
     border: 1px solid #1B222B;
-    border-radius: 10px;
+    border-radius: 11px;
 }
 QPushButton#segment {
     background: transparent;
@@ -427,21 +458,21 @@ QLabel#hotkeyHint {
 /* icon-only (Settings ⚙, Help ?) — квадрат 36x36, светлее фон */
 QPushButton#iconBtn {
     background-color: #1C2530; border: 1px solid #33414F; color: #DCE3EC;
-    border-radius: 9px; padding: 0; min-width: 36px; min-height: 36px;
+    border-radius: 8px; padding: 0; min-width: 36px; min-height: 36px;
 }
 QPushButton#iconBtn:hover { background-color: #243040; border-color: #3E82C6; color: #ffffff; }
 
 /* сворачивание левой панели « / » */
 QPushButton#railToggle {
     background-color: #161C24; border: 1px solid #232B36; color: #C6CDD8;
-    border-radius: 9px; padding: 0; min-width: 34px; min-height: 34px; font-size: 15px;
+    border-radius: 8px; padding: 0; min-width: 34px; min-height: 34px; font-size: 15px;
 }
 QPushButton#railToggle:hover { background-color: #1B222D; color: #EDF1F5; }
 
 /* маленькая ghost-кнопка (Items → Show more) */
 QPushButton#smallGhost {
     background: transparent; border: 1px solid #2A3542; color: #C6CDD8;
-    border-radius: 7px; padding: 5px 10px; font-size: 11.5px; font-weight: 600;
+    border-radius: 8px; padding: 5px 10px; font-size: 11.5px; font-weight: 600;
 }
 QPushButton#smallGhost:hover { background-color: #141A22; color: #EDF1F5; }
 
@@ -449,7 +480,7 @@ QPushButton#smallGhost:hover { background-color: #141A22; color: #EDF1F5; }
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
     background-color: #0E1217;
     border: 1px solid #2A3542;
-    border-radius: 7px;
+    border-radius: 8px;
     padding: 6px 8px;
     color: #EDF1F5;
     selection-background-color: #2F6FB0;
@@ -483,12 +514,12 @@ QComboBox QAbstractItemView {
 }
 QSpinBox::up-button, QDoubleSpinBox::up-button {
     subcontrol-origin: border; subcontrol-position: top right;
-    background: #161C24; border: none; border-top-right-radius: 7px;
+    background: #161C24; border: none; border-top-right-radius: 8px;
     width: 18px;
 }
 QSpinBox::down-button, QDoubleSpinBox::down-button {
     subcontrol-origin: border; subcontrol-position: bottom right;
-    background: #161C24; border: none; border-bottom-right-radius: 7px;
+    background: #161C24; border: none; border-bottom-right-radius: 8px;
     width: 18px;
 }
 QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
@@ -520,6 +551,24 @@ QCheckBox::indicator:checked {
 }
 QRadioButton::indicator:checked {
     background-color: #2F6FB0; border: 4px solid #0E1217;
+}
+
+/* `LabeledSwitch` (Expanded в углу сабтабов) — рисуется своим `paintEvent`,
+   поэтому обычные правила фона/рамки до него не доходят: он берёт цвета отсюда
+   через `qproperty-`. Ярлык скрыт, но менять палитру надо здесь, а не в
+   `ui/shared.py`, иначе он снова разъедется с сегментами и активным сабтабом.
+   Правил для ::indicator тут нет намеренно: `paintEvent` не зовёт базовый, так
+   что квадратик чекбокса не рисуется вообще и гасить его нечем. */
+QCheckBox[labeledSwitch="true"] {
+    qproperty-labelColor: #8A94A3;
+    qproperty-labelDisabledColor: #5C6675;
+    qproperty-trackOnColor: #2F6FB0;
+    qproperty-trackOnBorderColor: #3E82C6;
+    qproperty-knobOnColor: #EDF1F5;
+    qproperty-trackOffColor: #141A22;
+    qproperty-trackOffBorderColor: #2E3A48;
+    qproperty-trackHoverBorderColor: #38495E;
+    qproperty-knobOffColor: #5C6675;
 }
 
 /* ----------------------------------------------------- slider (timeline) ---- */

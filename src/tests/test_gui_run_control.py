@@ -1181,7 +1181,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._name_entry.setEnabled = lambda enabled: setattr(app._name_entry, "enabled", bool(enabled))
         app._rename_btn = FakeControl()
         app._cleanup_btn = FakeControl()
-        app._menu_btn = FakeControl()
+        app._delete_btn = FakeControl()
         app._scrubber = FakeControl()
         app._status_label = FakeLabel()
         app.refresh_loaded_vod_ui = lambda: None
@@ -1201,7 +1201,7 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertIsNone(app._loaded_vod)
                 self.assertFalse(app._name_entry.enabled)
                 self.assertFalse(app._rename_btn.isEnabled())
-                self.assertFalse(app._menu_btn.isEnabled())
+                self.assertFalse(app._delete_btn.isEnabled())
                 # "Delete short" is not in this list any more: it acts on the
                 # whole library, so a recording being mid-load says nothing
                 # about whether it should be available.
@@ -1217,7 +1217,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIs(app._loaded_vod, loaded_vod)
         self.assertTrue(app._name_entry.enabled)
         self.assertTrue(app._rename_btn.isEnabled())
-        self.assertTrue(app._menu_btn.isEnabled())
+        self.assertTrue(app._delete_btn.isEnabled())
         self.assertTrue(app._scrubber.isEnabled())
 
     def test_load_selected_vod_clears_old_ui_when_load_fails(self) -> None:
@@ -1229,7 +1229,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._name_entry.setEnabled = lambda enabled: setattr(app._name_entry, "enabled", bool(enabled))
         app._rename_btn = FakeControl()
         app._cleanup_btn = FakeControl()
-        app._menu_btn = FakeControl()
+        app._delete_btn = FakeControl()
         app._scrubber = FakeControl()
         app._status_label = FakeLabel()
         app._clear_loaded_vod_selection = MagicMock()
@@ -1242,7 +1242,7 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app._status_label.text(), "Could not load recording: broken file")
         self.assertFalse(app._name_entry.enabled)
         self.assertFalse(app._rename_btn.isEnabled())
-        self.assertFalse(app._menu_btn.isEnabled())
+        self.assertFalse(app._delete_btn.isEnabled())
         self.assertFalse(app._scrubber.isEnabled())
 
     def test_template_manager_dialog_expands_selected_template(self) -> None:
@@ -3977,7 +3977,6 @@ class GuiRunControlTests(unittest.TestCase):
         app._legend_label = FakeLabel()
         app.vods_items_label = FakeLabel()
         app._chests_per_minute_label = FakeLabel()
-        app._new_items_label = FakeLabel()
         app._banishes_label = FakeLabel()
         app._stage_summary_labels = []
         app._rows = {"Damage": FakeLabel()}
@@ -4012,7 +4011,6 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("Mob Kills: --", legend)
         self.assertIn("KPS: 60s -- | 5m --", legend)
         self.assertIn("Level: --", legend)
-        self.assertEqual(app._new_items_label.text(), "No previous snapshot")
         self.assertEqual(app._banishes_label.text(), "No banishes yet")
         self.assertEqual(app.vods_items_label.text(), "Wrench x1")
 
@@ -4023,7 +4021,6 @@ class GuiRunControlTests(unittest.TestCase):
         app._legend_label = FakeLabel()
         app.vods_items_label = FakeLabel()
         app._chests_per_minute_label = FakeLabel()
-        app._new_items_label = FakeLabel()
         app._banishes_label = FakeLabel()
         app._stage_summary_labels = []
         app._rows = {}
@@ -4745,26 +4742,10 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("Lost", result)
         self.assertIn("Key -2", result)
 
-    def test_format_snapshot_compare_summary_includes_segment_deltas(self) -> None:
-        base = SimpleNamespace(
-            game_time_seconds=120.0,
-            mob_kills=100,
-            player_level=4,
-            items=("Wrench x1",),
-        )
-        current = SimpleNamespace(
-            game_time_seconds=270.0,
-            mob_kills=420,
-            player_level=9,
-            items=("Wrench x3", "Za Warudo x1"),
-        )
-
-        result = formatting.format_snapshot_compare_summary(base, current, base_index=3, current_index=8)
-
-        self.assertEqual(
-            result,
-            "Snapshot 4 -> 9 | 02:00 -> 04:30 | +320 kills | +5 levels | +3 items",
-        )
+    # `format_snapshot_compare_summary` is gone with the pipe-joined line it
+    # wrote -- it led with a snapshot index and restated the item total the
+    # label above it already carried. `format_segment_headline` replaces it,
+    # and is covered in `test_compare_detail_rows.py`.
 
     def test_format_snapshot_new_items_handles_first_snapshot_and_no_changes(self) -> None:
         snapshot = SimpleNamespace(items=("Wrench x1",))
