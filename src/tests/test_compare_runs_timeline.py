@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import src  # noqa: F401
 
-from PySide6.QtWidgets import QApplication, QTabWidget
+from PySide6.QtWidgets import QApplication, QSizePolicy, QTabWidget
 
 from projections import scrubber
 from projections import formatting
@@ -288,4 +288,47 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
     compare._detail_tabs.setCurrentIndex(4)
     app.processEvents()
     compare._diff_weapons_table.set_table.assert_called_once_with(table)
+    tabs.close()
+
+
+def test_recording_chooser_replaces_workspace_and_uses_available_height() -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class Library:
+        index = ()
+
+        def ensure_refresh(self):
+            return None
+
+    tabs = QTabWidget()
+    compare = CompareRunsTab(
+        tabview=tabs,
+        vod_library=Library(),
+        is_active=lambda: True,
+    )
+    compare.build()
+    tabs.resize(1400, 900)
+    tabs.show()
+    app.processEvents()
+
+    assert compare._workspace_stack.currentWidget() is compare._workspace_page
+
+    compare.set_compare_runs_chooser_expanded(True, guided=False)
+    app.processEvents()
+
+    assert compare._workspace_stack.currentWidget() is compare._chooser_page
+    assert compare._chooser_group.isVisible()
+    assert compare._run_a_list_frame.height() > 280
+    assert (
+        compare._run_a_list_frame.sizePolicy().verticalPolicy()
+        == QSizePolicy.Policy.Expanding
+    )
+    assert (
+        compare._run_b_list_frame.sizePolicy().verticalPolicy()
+        == QSizePolicy.Policy.Expanding
+    )
+
+    compare._select_btn.click()
+    app.processEvents()
+    assert compare._workspace_stack.currentWidget() is compare._workspace_page
     tabs.close()

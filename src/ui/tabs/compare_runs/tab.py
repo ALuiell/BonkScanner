@@ -58,6 +58,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSlider,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -447,6 +448,9 @@ class CompareRunsTab:
         self._stats_source_table = EMPTY_METRIC_TABLE
         self._run_a_search = None
         self._run_b_search = None
+        self._workspace_stack = None
+        self._workspace_page = None
+        self._chooser_page = None
 
     def refresh_compare_runs_list(self):
         list_a = self._run_a_list_frame
@@ -1330,6 +1334,13 @@ class CompareRunsTab:
         swap_btn = self._swap_btn
         if chooser is not None:
             chooser.setVisible(expanded)
+        stack = self._workspace_stack
+        workspace_page = self._workspace_page
+        chooser_page = self._chooser_page
+        if stack is not None and workspace_page is not None and chooser_page is not None:
+            target = chooser_page if expanded else workspace_page
+            if stack.currentWidget() is not target:
+                stack.setCurrentWidget(target)
         if button is not None:
             button.setText("Done")
         if swap_btn is not None:
@@ -1718,8 +1729,15 @@ class CompareRunsTab:
         header.addWidget(plaque_b, 1)
         compare_layout.addLayout(header)
 
-        self._build_chooser(compare_layout)
-        self._build_stats_selector(compare_layout)
+        self._workspace_stack = QStackedWidget()
+        self._workspace_stack.setObjectName("CompareRunsWorkspaceStack")
+
+        self._workspace_page = QWidget()
+        self._workspace_page.setObjectName("CompareRunsWorkspacePage")
+        workspace_layout = QVBoxLayout(self._workspace_page)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(10)
+        self._build_stats_selector(workspace_layout)
 
         timeline_card = QFrame()
         timeline_card.setObjectName("CompareRunsTimelineCard")
@@ -1769,7 +1787,7 @@ class CompareRunsTab:
         self._timeline = CompareRunsTimeline()
         self._timeline.positionChanged.connect(self.on_compare_timeline_position_changed)
         timeline_layout.addWidget(self._timeline)
-        compare_layout.addWidget(timeline_card)
+        workspace_layout.addWidget(timeline_card)
 
         self._detail_tabs = FullWidthTabWidget()
         self._detail_tabs.setObjectName("CompareRunsTabs")
@@ -1782,7 +1800,19 @@ class CompareRunsTab:
         self._build_table_page("Tomes", "_diff_tomes_group", "_diff_tomes_table")
         self._build_table_page("Chaos", "_diff_chaos_group", "_diff_chaos_table")
         self._detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
-        compare_layout.addWidget(self._detail_tabs, 1)
+        workspace_layout.addWidget(self._detail_tabs, 1)
+
+        self._chooser_page = QWidget()
+        self._chooser_page.setObjectName("CompareRunsChooserPage")
+        chooser_page_layout = QVBoxLayout(self._chooser_page)
+        chooser_page_layout.setContentsMargins(0, 0, 0, 0)
+        chooser_page_layout.setSpacing(0)
+        self._build_chooser(chooser_page_layout)
+
+        self._workspace_stack.addWidget(self._workspace_page)
+        self._workspace_stack.addWidget(self._chooser_page)
+        self._workspace_stack.setCurrentWidget(self._workspace_page)
+        compare_layout.addWidget(self._workspace_stack, 1)
 
         self._run_a_slider = None
         self._run_b_slider = None
@@ -1842,8 +1872,8 @@ class CompareRunsTab:
             list_frame = QListWidget()
             list_frame.setObjectName("CompareRunsRecordingList")
             list_frame.setProperty("side", side.upper())
-            list_frame.setMinimumHeight(180)
-            list_frame.setMaximumHeight(280)
+            list_frame.setMinimumHeight(320)
+            list_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             setattr(self, f"_run_{side}_list_frame", list_frame)
             search.textChanged.connect(lambda _text, run_side=side: self._filter_compare_run_list(run_side))
             list_frame.currentItemChanged.connect(
@@ -1854,13 +1884,14 @@ class CompareRunsTab:
             chooser_layout.addWidget(search, 1, column)
             chooser_layout.addWidget(list_frame, 2, column)
             chooser_layout.setColumnStretch(column, 1)
+        chooser_layout.setRowStretch(2, 1)
         close = QPushButton("Done")
         close.setObjectName("CompareRunsChooserDone")
         close.clicked.connect(
             lambda: self.set_compare_runs_chooser_expanded(False, guided=False)
         )
         chooser_layout.addWidget(close, 3, 1, 1, 1, Qt.AlignRight)
-        parent_layout.addWidget(self._chooser_group)
+        parent_layout.addWidget(self._chooser_group, 1)
         # Compatibility alias for the old single chooser button.
         self._select_btn = close
 

@@ -1109,6 +1109,8 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
     # unavailable; visual changes belong in bonkscanner_redesign.qss first.
     compare_runs_compatibility_stylesheet = """
         QWidget#CompareRunsPage, QWidget#CompareRunsTabPage,
+        QWidget#CompareRunsWorkspacePage, QWidget#CompareRunsChooserPage,
+        QStackedWidget#CompareRunsWorkspaceStack,
         QScrollArea#CompareRunsPageScroll,
         QScrollArea#CompareRunsPageScroll > QWidget > QWidget {
             background: transparent;

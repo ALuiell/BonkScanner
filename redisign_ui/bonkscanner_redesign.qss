@@ -780,6 +780,9 @@ QLabel#footerMeta {
    A #38BDF8, B #C084FC, surface #0E1217/#0B0F14, borders #1B222B/#2A3542. */
 QWidget#CompareRunsPage,
 QWidget#CompareRunsTabPage,
+QWidget#CompareRunsWorkspacePage,
+QWidget#CompareRunsChooserPage,
+QStackedWidget#CompareRunsWorkspaceStack,
 QScrollArea#CompareRunsPageScroll,
 QScrollArea#CompareRunsPageScroll > QWidget > QWidget {
     background: transparent;
