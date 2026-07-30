@@ -42,15 +42,21 @@ from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -62,6 +68,7 @@ from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
 from ui.metric_table import MetricTableView
 from ui.shared import (
+    FullWidthTabWidget,
     _apply_summary_label_padding,
     _make_scroll_section,
     _set_text,
@@ -70,13 +77,21 @@ from ui.styles import ITEM_SORT_LABELS
 from ui.throttle import UiUpdateThrottle, batched_updates
 from ui.tabs.player_stats.items_section import ItemsSectionView
 from projections import formatting
+from projections import scrubber as scrubber_model
 from projections.formatting import COMPARE_RUN_STAT_LABELS
-from projections.metric_table import EMPTY_METRIC_TABLE, MetricTable
+from projections.metric_table import EMPTY_METRIC_TABLE, MetricSection, MetricTable
+from ui.tabs.compare_runs.timeline import (
+    AXIS_PROGRESS,
+    AXIS_TIME,
+    CompareRunsTimeline,
+)
 
 
 COMPARE_RUN_STAT_CONFIG_KEY = "COMPARE_RUN_STAT_LABELS"
 
 COMPARE_RUN_SECTIONS_CONFIG_KEY = "COMPARE_RUN_SECTIONS"
+COMPARE_RUN_AXIS_MODE_CONFIG_KEY = "COMPARE_RUN_AXIS_MODE"
+COMPARE_RUN_SERIES_SLOTS_CONFIG_KEY = "COMPARE_RUN_SERIES_SLOTS"
 
 #: How many rendered diffs to keep. A diff is four short HTML strings and three
 #: `MetricTable`s, and scrubbing back and forth over the same stretch of two
@@ -135,6 +150,65 @@ def configured_compare_run_sections() -> dict[str, bool]:
             if key in saved_sections:
                 sections[key] = bool(saved_sections[key])
     return sections
+
+
+def configured_compare_run_axis_mode() -> str:
+    mode = str(config.user_config.get(COMPARE_RUN_AXIS_MODE_CONFIG_KEY, AXIS_TIME))
+    return mode if mode in {AXIS_TIME, AXIS_PROGRESS} else AXIS_TIME
+
+
+def configured_compare_run_series_slots() -> tuple[tuple[str, ...], ...]:
+    allowed = set(scrubber_model.available_series_keys())
+    saved = config.user_config.get(COMPARE_RUN_SERIES_SLOTS_CONFIG_KEY)
+    if isinstance(saved, list) and len(saved) == 4:
+        slots = []
+        for slot in saved:
+            values = slot if isinstance(slot, list) else []
+            slots.append(tuple(str(key) for key in values if str(key) in allowed))
+        return tuple(slots)
+    return scrubber_model.DEFAULT_SLOTS
+
+
+def _filter_metric_table(
+    table: MetricTable,
+    query: str,
+    *,
+    only_differences: bool,
+) -> MetricTable:
+    def is_difference(delta: str) -> bool:
+        text = str(delta or "").strip()
+        if text in {"", "--"}:
+            return False
+        numeric = text.replace(",", "").replace("%", "")
+        if numeric.endswith("s"):
+            numeric = numeric[:-1]
+        try:
+            return abs(float(numeric)) > 1e-12
+        except ValueError:
+            return True
+
+    needle = str(query or "").strip().casefold()
+    sections = []
+    for section in table.sections:
+        rows = tuple(
+            row
+            for row in section.rows
+            if (not needle or needle in row.label.casefold())
+            and (not only_differences or is_difference(row.delta))
+        )
+        if rows:
+            sections.append(
+                MetricSection(
+                    headers=section.headers,
+                    rows=rows,
+                    title=section.title,
+                    subtitle=section.subtitle,
+                )
+            )
+    return MetricTable(
+        sections=tuple(sections),
+        empty_text="No matching stats" if table.sections else table.empty_text,
+    )
 
 
 def _set_visible(widget, visible: bool) -> None:
@@ -292,14 +366,21 @@ class CompareRunsTab:
         self._item_details_expanded = False
         self._syncing = False
         self._load_generations = {}
+        self._axis_mode = configured_compare_run_axis_mode()
+        self._series_slots = configured_compare_run_series_slots()
+        self._pending_diff_payload = None
+        self._active_diff_page = 0
+        self._stats_query = ""
+        self._stats_only_differences = False
 
+        # The legacy visibility config is deliberately retained on disk for
+        # compatibility, but it no longer controls redesigned full-width tabs.
         self._sections = configured_compare_run_sections()
-        sections = self._sections
-        self._items_enabled = sections["items"]
-        self._stage_summary_enabled = sections["stage_summary"]
-        self._weapons_enabled = sections["weapons"]
-        self._tomes_enabled = sections["tomes"]
-        self._chaos_enabled = sections["chaos"]
+        self._items_enabled = True
+        self._stage_summary_enabled = True
+        self._weapons_enabled = True
+        self._tomes_enabled = True
+        self._chaos_enabled = True
 
         # Every widget `build()` creates. `MegabonkApp.__init__` declared these
         # as 34 `= None` lines; they are declared here for the same reason
@@ -328,6 +409,7 @@ class CompareRunsTab:
         self._diff_items_table = None
         self._diff_stage_summary_group = None
         self._diff_stage_summary_label = None
+        self._diff_stages_table = None
         self._diff_weapons_group = None
         self._diff_weapons_table = None
         self._diff_tomes_group = None
@@ -353,6 +435,18 @@ class CompareRunsTab:
         self._run_b_timeline_label = None
         self._run_b_summary_label = None
         self._run_b_items_view = None
+        self._timeline = None
+        self._timeline_position_label = None
+        self._axis_time_btn = None
+        self._axis_progress_btn = None
+        self._series_slot_buttons = []
+        self._detail_tabs = None
+        self._stats_search = None
+        self._stats_only_diff_checkbox = None
+        self._stats_table = None
+        self._stats_source_table = EMPTY_METRIC_TABLE
+        self._run_a_search = None
+        self._run_b_search = None
 
     def refresh_compare_runs_list(self):
         list_a = self._run_a_list_frame
@@ -386,6 +480,8 @@ class CompareRunsTab:
 
         self._populate_compare_run_list(list_a, vods, selected_a)
         self._populate_compare_run_list(list_b, vods, selected_b)
+        self._filter_compare_run_list("a")
+        self._filter_compare_run_list("b")
         self._list_signature = signature
         self._refresh_compare_runs_selected_labels()
 
@@ -429,6 +525,16 @@ class CompareRunsTab:
         if selected_row is not None:
             list_frame.setCurrentRow(selected_row)
         list_frame.blockSignals(False)
+
+    def _filter_compare_run_list(self, side: str) -> None:
+        list_frame = self._compare_run_widget(side, "list_frame")
+        search = getattr(self, f"_run_{side}_search", None)
+        if list_frame is None:
+            return
+        needle = search.text().strip().casefold() if search is not None else ""
+        for row in range(list_frame.count()):
+            item = list_frame.item(row)
+            item.setHidden(bool(needle and needle not in item.text().casefold()))
 
     def _on_compare_run_selection_changed(self, side: str, current: QListWidgetItem | None):
         if current is None:
@@ -568,7 +674,153 @@ class CompareRunsTab:
         self._invalidate_compare_runs_diff_cache()
         self._list_signature = None
         self.refresh_compare_runs_list()
+        self._refresh_compare_runs_timeline_model()
         self.refresh_compare_runs_ui(changed_side="a")
+
+    def on_compare_timeline_position_changed(self, position: float) -> None:
+        """Immediate playhead/index update; content follows through coalescing."""
+        timeline = self._timeline
+        if timeline is None:
+            return
+        if self._axis_mode == AXIS_TIME:
+            target_time = float(position) * timeline.common_duration
+            index_a = (
+                self._compare_run_time_index("a").nearest(target_time)
+                if self._vod_a is not None and self._vod_a.snapshots
+                else None
+            )
+            index_b = (
+                self._compare_run_time_index("b").nearest(target_time)
+                if self._vod_b is not None and self._vod_b.snapshots
+                else None
+            )
+        else:
+            index_a, index_b = timeline.nearest_indices(position)
+        self._set_compare_run_index("a", index_a)
+        self._set_compare_run_index("b", index_b)
+        self._refresh_compare_timeline_position_label()
+        self._diff_throttle.request(self.refresh_compare_runs_ui)
+
+    def _refresh_compare_timeline_position_label(self) -> None:
+        values = []
+        for side, color in (("a", "#38BDF8"), ("b", "#C084FC")):
+            snapshot = self._compare_run_snapshot(side)
+            label = getattr(snapshot, "time_label", "--") if snapshot is not None else "--"
+            values.append(f'<span style="color:{color}; font-weight:700;">{side.upper()}</span> {label}')
+        _set_text(self._timeline_position_label, " &nbsp;·&nbsp; ".join(values))
+
+    def _refresh_compare_runs_timeline_model(self) -> None:
+        if self._timeline is None:
+            return
+        keys = tuple(key for slot in self._series_slots for key in slot)
+        self._timeline.set_runs(self._vod_a, self._vod_b, series_keys=keys)
+        self._timeline.set_axis_mode(self._axis_mode)
+        self._refresh_series_slot_buttons()
+
+    def _set_axis_mode(self, mode: str) -> None:
+        mode = mode if mode in {AXIS_TIME, AXIS_PROGRESS} else AXIS_TIME
+        if mode == self._axis_mode:
+            return
+        self._axis_mode = mode
+        config.user_config[COMPARE_RUN_AXIS_MODE_CONFIG_KEY] = mode
+        config.save_config(config.user_config)
+        if self._timeline is not None:
+            self._timeline.set_axis_mode(mode)
+        self._refresh_axis_buttons()
+
+    def _refresh_axis_buttons(self) -> None:
+        if self._axis_time_btn is not None:
+            self._axis_time_btn.setChecked(self._axis_mode == AXIS_TIME)
+        if self._axis_progress_btn is not None:
+            self._axis_progress_btn.setChecked(self._axis_mode == AXIS_PROGRESS)
+
+    def _set_series_slot(self, slot_index: int, keys) -> None:
+        slots = list(self._series_slots)
+        slots[slot_index] = tuple(keys)
+        self._series_slots = tuple(slots)
+        config.user_config[COMPARE_RUN_SERIES_SLOTS_CONFIG_KEY] = [
+            list(slot) for slot in self._series_slots
+        ]
+        config.save_config(config.user_config)
+        self._refresh_compare_runs_timeline_model()
+
+    def _refresh_series_slot_buttons(self) -> None:
+        for index, button in enumerate(self._series_slot_buttons):
+            keys = self._series_slots[index]
+            if not keys:
+                text = f"Series {index + 1}: None"
+            else:
+                labels = " + ".join(scrubber_model.series_label(key) for key in keys)
+                text = f"Series {index + 1}: {labels}"
+            button.setText(text)
+
+    def _open_series_slot_menu(self, slot_index: int) -> None:
+        button = self._series_slot_buttons[slot_index]
+        menu = QMenu(button)
+        none_action = menu.addAction("None")
+        none_action.triggered.connect(lambda: self._set_series_slot(slot_index, ()))
+        menu.addSeparator()
+        groups = {
+            "Dmg": (
+                "Damage",
+                "Crit Chance",
+                "Crit Damage",
+                "Attack Speed",
+                "Projectile Count",
+                "Projectile Bounces",
+            ),
+            "Effects": (
+                "Size",
+                "Projectile Speed",
+                "Duration",
+                "Damage to Elites",
+                "Knockback",
+            ),
+            "Run": (
+                "Max HP",
+                "HP Regen",
+                "Overheal",
+                "Shield",
+                "Armor",
+                "Evasion",
+                "Lifesteal",
+                "Thorns",
+                "Extra Jumps",
+                "Jump Height",
+                "Movement Speed",
+            ),
+            "Rewards & spawns": (
+                "Luck",
+                "Difficulty",
+                "Pickup Range",
+                "XP Gain",
+                "Gold Gain",
+                "Elite Spawn Increase",
+                "Powerup Multiplier",
+                "Powerup Drop Chance",
+            ),
+        }
+        allowed = set(scrubber_model.available_series_keys())
+        for title, labels in groups.items():
+            submenu = menu.addMenu(title)
+            for key in labels:
+                if key not in allowed:
+                    continue
+                action = submenu.addAction(key)
+                action.triggered.connect(
+                    lambda _checked=False, selected=key: self._set_series_slot(
+                        slot_index, (selected,)
+                    )
+                )
+        menu.addSeparator()
+        for key in (scrubber_model.KILLS_SERIES, scrubber_model.ITEMS_SERIES):
+            action = menu.addAction(scrubber_model.series_label(key))
+            action.triggered.connect(
+                lambda _checked=False, selected=key: self._set_series_slot(
+                    slot_index, (selected,)
+                )
+            )
+        menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
 
     def on_compare_run_slider_changed(self, side: str, value):
         vod = self._compare_run_vod(side)
@@ -686,7 +938,10 @@ class CompareRunsTab:
             _set_text(status_label, "Select a recording")
             _set_text(timeline_label, "Timeline: --")
             _set_text(summary_label, "--")
-            self._compare_run_items_view(side).update((), items_text="--")
+            if self._timeline is None:
+                view = self._compare_run_items_view(side)
+                if view is not None:
+                    view.update((), items_text="--")
             if slider is not None:
                 slider.setEnabled(False)
                 slider.setMaximum(1)
@@ -698,7 +953,6 @@ class CompareRunsTab:
             _set_text(status_label, f"{vod.metadata.name} | no snapshots")
             _set_text(timeline_label, "Timeline: --")
             _set_text(summary_label, "No snapshots")
-            self._compare_run_items_view(side).update((), items_text="--")
             if slider is not None:
                 slider.setEnabled(False)
                 slider.setMaximum(1)
@@ -718,10 +972,16 @@ class CompareRunsTab:
                 slider.blockSignals(True)
                 slider.setValue(index)
                 slider.blockSignals(False)
-        _set_text(status_label, f"{vod.metadata.name} | {index + 1}/{snapshot_count}")
+        if self._timeline is None:
+            _set_text(status_label, f"{vod.metadata.name} | {index + 1}/{snapshot_count}")
+        else:
+            _set_text(status_label, f"{vod.metadata.name} · {snapshot_count} snapshots")
         _set_text(timeline_label, self._compare_run_timeline_text(side))
         _set_text(summary_label, formatting.format_compare_run_snapshot_summary(vod, snapshot, index))
-        self._compare_run_items_view(side).update(getattr(snapshot, "items", ()))
+        if self._detail_tabs is not None and self._detail_tabs.currentIndex() == 3:
+            view = self._compare_run_items_view(side)
+            if view is not None:
+                view.update(getattr(snapshot, "items", ()))
 
     def _refresh_compare_runs_diff(self) -> None:
         vod_a = self._vod_a
@@ -771,6 +1031,11 @@ class CompareRunsTab:
                     snapshot_b,
                     stat_labels=stat_labels,
                 ),
+                formatting.build_compare_runs_stats_table(
+                    snapshot_a,
+                    snapshot_b,
+                    stat_labels=stat_labels,
+                ),
                 (
                     formatting.build_compare_runs_items_summary(
                         snapshot_a,
@@ -800,6 +1065,16 @@ class CompareRunsTab:
                     else "--"
                 ),
                 (
+                    formatting.build_compare_runs_stages_table(
+                        vod_a,
+                        self._compare_run_index("a"),
+                        vod_b,
+                        self._compare_run_index("b"),
+                    )
+                    if show_stage_summary
+                    else EMPTY_METRIC_TABLE
+                ),
+                (
                     formatting.build_compare_runs_weapons_table(snapshot_a, snapshot_b)
                     if show_weapons
                     else EMPTY_METRIC_TABLE
@@ -822,15 +1097,16 @@ class CompareRunsTab:
         (
             overview_text,
             stats_text,
+            stats_table,
             items_text,
             items_table,
             stage_summary_text,
+            stages_table,
             weapons_table,
             tomes_table,
             chaos_table,
         ) = cached
-        self._set_compare_runs_diff_cards(
-            overview_text,
+        card_kwargs = dict(
             stats_text=stats_text,
             items_text=items_text,
             items_table=items_table,
@@ -844,6 +1120,10 @@ class CompareRunsTab:
             show_tomes=show_tomes,
             show_chaos=show_chaos,
         )
+        if self._detail_tabs is not None:
+            card_kwargs["stats_table"] = stats_table
+            card_kwargs["stages_table"] = stages_table
+        self._set_compare_runs_diff_cards(overview_text, **card_kwargs)
         self._refresh_compare_runs_item_details_button(show_items)
 
     def _store_compare_runs_diff(self, key, payload) -> None:
@@ -890,9 +1170,11 @@ class CompareRunsTab:
         overview_text: str,
         *,
         stats_text: str = "--",
+        stats_table: MetricTable = EMPTY_METRIC_TABLE,
         items_text: str = "--",
         items_table: MetricTable = EMPTY_METRIC_TABLE,
         stage_summary_text: str = "--",
+        stages_table: MetricTable = EMPTY_METRIC_TABLE,
         weapons_table: MetricTable = EMPTY_METRIC_TABLE,
         tomes_table: MetricTable = EMPTY_METRIC_TABLE,
         chaos_table: MetricTable = EMPTY_METRIC_TABLE,
@@ -911,9 +1193,11 @@ class CompareRunsTab:
         payload = (
             overview_text,
             stats_text,
+            stats_table,
             items_text,
             items_table,
             stage_summary_text,
+            stages_table,
             weapons_table,
             tomes_table,
             chaos_table,
@@ -923,25 +1207,121 @@ class CompareRunsTab:
             show_tomes,
             show_chaos,
         )
-        if self._rendered_diff_cards == payload:
-            return
-        self._rendered_diff_cards = payload
+        self._pending_diff_payload = payload
+        self._render_active_diff_page()
 
-        _set_text(self._diff_overview_label, overview_text)
-        _set_text(self._diff_stats_label, stats_text)
-        _set_text(self._diff_items_label, items_text)
-        _set_metric_table(self._diff_items_table, items_table)
-        _set_text(self._diff_stage_summary_label, stage_summary_text)
-        _set_metric_table(self._diff_weapons_table, weapons_table)
-        _set_metric_table(self._diff_tomes_table, tomes_table)
-        _set_metric_table(self._diff_chaos_table, chaos_table)
-        _set_visible(self._diff_overview_group, True)
-        _set_visible(self._diff_stats_group, bool(stats_text and stats_text != "--"))
-        _set_visible(self._diff_items_group, show_items)
-        _set_visible(self._diff_stage_summary_group, show_stage_summary)
-        _set_visible(self._diff_weapons_group, show_weapons)
-        _set_visible(self._diff_tomes_group, show_tomes)
-        _set_visible(self._diff_chaos_group, show_chaos)
+    def _render_active_diff_page(self) -> None:
+        payload = self._pending_diff_payload
+        if payload is None:
+            return
+        if self._detail_tabs is None:
+            # Compatibility for headless collaborators and old unit doubles.
+            # The built redesign always has `_detail_tabs` and therefore takes
+            # the lazy branch below.
+            (
+                overview_text,
+                stats_text,
+                _stats_table,
+                items_text,
+                items_table,
+                stage_summary_text,
+                _stages_table,
+                weapons_table,
+                tomes_table,
+                chaos_table,
+                show_items,
+                show_stage_summary,
+                show_weapons,
+                show_tomes,
+                show_chaos,
+            ) = payload
+            eager_payload = payload
+            if self._rendered_diff_cards == eager_payload:
+                return
+            _set_text(self._diff_overview_label, overview_text)
+            _set_text(self._diff_stats_label, stats_text)
+            _set_text(self._diff_items_label, items_text)
+            _set_metric_table(self._diff_items_table, items_table)
+            _set_text(self._diff_stage_summary_label, stage_summary_text)
+            _set_metric_table(self._diff_weapons_table, weapons_table)
+            _set_metric_table(self._diff_tomes_table, tomes_table)
+            _set_metric_table(self._diff_chaos_table, chaos_table)
+            _set_visible(self._diff_overview_group, True)
+            _set_visible(self._diff_stats_group, bool(stats_text and stats_text != "--"))
+            _set_visible(self._diff_items_group, show_items)
+            _set_visible(self._diff_stage_summary_group, show_stage_summary)
+            _set_visible(self._diff_weapons_group, show_weapons)
+            _set_visible(self._diff_tomes_group, show_tomes)
+            _set_visible(self._diff_chaos_group, show_chaos)
+            self._rendered_diff_cards = eager_payload
+            return
+        page = self._detail_tabs.currentIndex() if self._detail_tabs is not None else 0
+        previous = self._rendered_diff_cards
+        if previous is not None and previous[0] == page and previous[1] == payload:
+            return
+        (
+            overview_text,
+            stats_text,
+            stats_table,
+            items_text,
+            items_table,
+            stage_summary_text,
+            stages_table,
+            weapons_table,
+            tomes_table,
+            chaos_table,
+            _show_items,
+            _show_stage_summary,
+            _show_weapons,
+            _show_tomes,
+            _show_chaos,
+        ) = payload
+        if page == 0:
+            _set_text(self._diff_overview_label, overview_text)
+        elif page == 1:
+            self._stats_source_table = stats_table
+            self._render_filtered_stats()
+        elif page == 2:
+            _set_metric_table(self._diff_stages_table, stages_table)
+        elif page == 3:
+            _set_text(self._diff_items_label, items_text)
+            _set_metric_table(self._diff_items_table, items_table)
+            for side in ("a", "b"):
+                snapshot = self._compare_run_snapshot(side)
+                view = self._compare_run_items_view(side)
+                if view is not None:
+                    view.update(getattr(snapshot, "items", ()) if snapshot is not None else ())
+        elif page == 4:
+            _set_metric_table(self._diff_weapons_table, weapons_table)
+        elif page == 5:
+            _set_metric_table(self._diff_tomes_table, tomes_table)
+        elif page == 6:
+            _set_metric_table(self._diff_chaos_table, chaos_table)
+        self._rendered_diff_cards = (page, payload)
+
+    def _render_filtered_stats(self) -> None:
+        if self._stats_table is None:
+            return
+        table = _filter_metric_table(
+            self._stats_source_table,
+            self._stats_query,
+            only_differences=self._stats_only_differences,
+        )
+        self._stats_table.set_table(table)
+
+    def _on_stats_filter_changed(self) -> None:
+        self._stats_query = self._stats_search.text() if self._stats_search is not None else ""
+        self._stats_only_differences = bool(
+            self._stats_only_diff_checkbox is not None
+            and self._stats_only_diff_checkbox.isChecked()
+        )
+        self._rendered_diff_cards = None
+        self._render_filtered_stats()
+
+    def _on_detail_tab_changed(self, index: int) -> None:
+        self._active_diff_page = int(index)
+        self._rendered_diff_cards = None
+        self._render_active_diff_page()
 
     def _refresh_compare_runs_chooser(self) -> None:
         expanded = bool(self._chooser_expanded)
@@ -951,7 +1331,7 @@ class CompareRunsTab:
         if chooser is not None:
             chooser.setVisible(expanded)
         if button is not None:
-            button.setText("Hide Runs" if expanded else "Select Runs")
+            button.setText("Done")
         if swap_btn is not None:
             swap_btn.setEnabled(self._vod_a is not None or self._vod_b is not None)
 
@@ -962,16 +1342,16 @@ class CompareRunsTab:
         if group is not None:
             group.setVisible(expanded)
         if button is not None:
-            button.setText("Hide Settings" if expanded else "Compare Settings")
+            button.setText("Hide stats" if expanded else "Choose stats")
 
     def _refresh_compare_runs_selected_labels(self) -> None:
         _set_text(
             self._run_a_selected_label,
-            f"Run A: {self._compare_run_selected_text('a')}",
+            self._compare_run_selected_text("a"),
         )
         _set_text(
             self._run_b_selected_label,
-            f"Run B: {self._compare_run_selected_text('b')}",
+            self._compare_run_selected_text("b"),
         )
 
     def _compare_run_selected_text(self, side: str) -> str:
@@ -979,8 +1359,7 @@ class CompareRunsTab:
         if vod is None:
             return "--"
         snapshot_count = len(vod.snapshots)
-        duration = formatting.format_duration(vod.metadata.duration_seconds)
-        return f"{vod.metadata.name} ({snapshot_count} snapshots | {duration})"
+        return f"{vod.metadata.name} · {snapshot_count} snapshots"
 
     def _save_compare_run_stat_selection(self) -> None:
         config.user_config[COMPARE_RUN_STAT_CONFIG_KEY] = list(self._compare_run_checked_stat_labels())
@@ -1022,6 +1401,7 @@ class CompareRunsTab:
             self._vod_a = vod
         else:
             self._vod_b = vod
+        self._refresh_compare_runs_timeline_model()
 
     def _compare_run_index(self, side: str) -> int | None:
         return self._index_a if side == "a" else self._index_b
@@ -1047,7 +1427,7 @@ class CompareRunsTab:
     def _compare_run_slider(self, side: str):
         return self._compare_run_widget(side, "slider")
 
-    def build(self):
+    def _build_legacy(self):
         """Create the tab's widgets and add it to the tab bar.
 
         Moved here from `gui_layout` by step 21d. `gui_layout` was building
@@ -1317,3 +1697,344 @@ class CompareRunsTab:
         layout.addWidget(items_group)
         layout.addStretch(1)
         return group, status_label, slider, timeline_label, summary_label
+
+    def build(self):
+        """Build the redesigned, timeline-first Compare Runs workspace."""
+        self._tab = QWidget()
+        self._tab.setObjectName("CompareRunsPage")
+        compare_layout = QVBoxLayout(self._tab)
+        compare_layout.setContentsMargins(8, 8, 8, 8)
+        compare_layout.setSpacing(10)
+
+        header = QHBoxLayout()
+        header.setSpacing(8)
+        plaque_a, self._run_a_status_label = self._build_run_plaque("a")
+        plaque_b, self._run_b_status_label = self._build_run_plaque("b")
+        self._swap_btn = QPushButton("Swap")
+        self._swap_btn.setObjectName("CompareRunsSwapButton")
+        self._swap_btn.clicked.connect(self.swap_compare_runs)
+        header.addWidget(plaque_a, 1)
+        header.addWidget(self._swap_btn, 0, Qt.AlignVCenter)
+        header.addWidget(plaque_b, 1)
+        compare_layout.addLayout(header)
+
+        self._build_chooser(compare_layout)
+        self._build_stats_selector(compare_layout)
+
+        timeline_card = QFrame()
+        timeline_card.setObjectName("CompareRunsTimelineCard")
+        timeline_layout = QVBoxLayout(timeline_card)
+        timeline_layout.setContentsMargins(10, 9, 10, 10)
+        timeline_layout.setSpacing(7)
+
+        timeline_toolbar = QHBoxLayout()
+        timeline_toolbar.setSpacing(6)
+        for index in range(4):
+            button = QPushButton()
+            button.setObjectName("CompareRunsSeriesSlot")
+            button.setProperty("slotIndex", index)
+            button.clicked.connect(
+                lambda _checked=False, slot=index: self._open_series_slot_menu(slot)
+            )
+            self._series_slot_buttons.append(button)
+            timeline_toolbar.addWidget(button)
+        timeline_toolbar.addStretch(1)
+
+        self._axis_time_btn = QPushButton("In-game time")
+        self._axis_progress_btn = QPushButton("Progress %")
+        for button in (self._axis_time_btn, self._axis_progress_btn):
+            button.setObjectName("CompareRunsAxisMode")
+            button.setCheckable(True)
+        axis_group = QButtonGroup(self._tab)
+        axis_group.setExclusive(True)
+        axis_group.addButton(self._axis_time_btn)
+        axis_group.addButton(self._axis_progress_btn)
+        self._axis_time_btn.clicked.connect(lambda: self._set_axis_mode(AXIS_TIME))
+        self._axis_progress_btn.clicked.connect(lambda: self._set_axis_mode(AXIS_PROGRESS))
+        timeline_toolbar.addWidget(self._axis_time_btn)
+        timeline_toolbar.addWidget(self._axis_progress_btn)
+        timeline_layout.addLayout(timeline_toolbar)
+
+        timeline_meta = QHBoxLayout()
+        timeline_title = QLabel("TIMELINE")
+        timeline_title.setObjectName("CompareRunsTimelineTitle")
+        timeline_meta.addWidget(timeline_title)
+        timeline_meta.addStretch(1)
+        self._timeline_position_label = QLabel("A -- · B --")
+        self._timeline_position_label.setObjectName("CompareRunsTimelinePosition")
+        self._timeline_position_label.setTextFormat(Qt.RichText)
+        timeline_meta.addWidget(self._timeline_position_label)
+        timeline_layout.addLayout(timeline_meta)
+
+        self._timeline = CompareRunsTimeline()
+        self._timeline.positionChanged.connect(self.on_compare_timeline_position_changed)
+        timeline_layout.addWidget(self._timeline)
+        compare_layout.addWidget(timeline_card)
+
+        self._detail_tabs = FullWidthTabWidget()
+        self._detail_tabs.setObjectName("CompareRunsTabs")
+        self._detail_tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._build_overview_page()
+        self._build_stats_page()
+        self._build_stages_page()
+        self._build_items_page()
+        self._build_table_page("Weapons", "_diff_weapons_group", "_diff_weapons_table")
+        self._build_table_page("Tomes", "_diff_tomes_group", "_diff_tomes_table")
+        self._build_table_page("Chaos", "_diff_chaos_group", "_diff_chaos_table")
+        self._detail_tabs.currentChanged.connect(self._on_detail_tab_changed)
+        compare_layout.addWidget(self._detail_tabs, 1)
+
+        self._run_a_slider = None
+        self._run_b_slider = None
+        self._run_a_timeline_label = None
+        self._run_b_timeline_label = None
+        self._run_a_selected_label = self._run_a_status_label
+        self._run_b_selected_label = self._run_b_status_label
+        self._rendered_diff_cards = None
+        self._refresh_series_slot_buttons()
+        self._refresh_axis_buttons()
+        self._refresh_compare_runs_timeline_model()
+        self._tabview.addTab(self._tab, "Compare Runs")
+
+    def _build_run_plaque(self, side: str):
+        plaque = QFrame()
+        plaque.setObjectName("CompareRunsRunPlaque")
+        plaque.setProperty("side", side.upper())
+        layout = QHBoxLayout(plaque)
+        layout.setContentsMargins(11, 8, 9, 8)
+        layout.setSpacing(8)
+        badge = QLabel(side.upper())
+        badge.setObjectName("CompareRunsRunBadge")
+        badge.setProperty("side", side.upper())
+        label = QLabel("Select a recording")
+        label.setObjectName("CompareRunsRunName")
+        label.setTextFormat(Qt.RichText)
+        change = QPushButton("Change")
+        change.setObjectName("CompareRunsChangeButton")
+        change.setProperty("side", side.upper())
+        change.clicked.connect(
+            lambda: (
+                self.set_compare_runs_chooser_expanded(True, guided=False),
+                self.refresh_compare_runs_list(),
+            )
+        )
+        layout.addWidget(badge)
+        layout.addWidget(label, 1)
+        layout.addWidget(change)
+        return plaque, label
+
+    def _build_chooser(self, parent_layout: QVBoxLayout) -> None:
+        self._chooser_group = QGroupBox("Recording library")
+        self._chooser_group.setObjectName("CompareRunsChooser")
+        self._chooser_group.setVisible(False)
+        chooser_layout = QGridLayout(self._chooser_group)
+        chooser_layout.setContentsMargins(10, 12, 10, 10)
+        chooser_layout.setHorizontalSpacing(10)
+        chooser_layout.setVerticalSpacing(7)
+        for column, side in enumerate(("a", "b")):
+            title = QLabel(f"Run {side.upper()}")
+            title.setObjectName("CompareRunsChooserTitle")
+            title.setProperty("side", side.upper())
+            search = QLineEdit()
+            search.setObjectName("CompareRunsChooserSearch")
+            search.setPlaceholderText("Search recordings…")
+            setattr(self, f"_run_{side}_search", search)
+            list_frame = QListWidget()
+            list_frame.setObjectName("CompareRunsRecordingList")
+            list_frame.setProperty("side", side.upper())
+            list_frame.setMinimumHeight(180)
+            list_frame.setMaximumHeight(280)
+            setattr(self, f"_run_{side}_list_frame", list_frame)
+            search.textChanged.connect(lambda _text, run_side=side: self._filter_compare_run_list(run_side))
+            list_frame.currentItemChanged.connect(
+                lambda current, _previous, run_side=side:
+                self._on_compare_run_selection_changed(run_side, current)
+            )
+            chooser_layout.addWidget(title, 0, column)
+            chooser_layout.addWidget(search, 1, column)
+            chooser_layout.addWidget(list_frame, 2, column)
+            chooser_layout.setColumnStretch(column, 1)
+        close = QPushButton("Done")
+        close.setObjectName("CompareRunsChooserDone")
+        close.clicked.connect(
+            lambda: self.set_compare_runs_chooser_expanded(False, guided=False)
+        )
+        chooser_layout.addWidget(close, 3, 1, 1, 1, Qt.AlignRight)
+        parent_layout.addWidget(self._chooser_group)
+        # Compatibility alias for the old single chooser button.
+        self._select_btn = close
+
+    def _build_stats_selector(self, parent_layout: QVBoxLayout) -> None:
+        self._stats_config_group = QGroupBox("Choose Stats")
+        self._stats_config_group.setObjectName("CompareRunsStatsSelector")
+        self._stats_config_group.setVisible(False)
+        layout = QGridLayout(self._stats_config_group)
+        layout.setContentsMargins(10, 10, 10, 10)
+        self._stat_checkboxes = {}
+        specs = [spec for group in PLAYER_STAT_GROUPS for spec in group]
+        selected = set(configured_compare_run_stat_labels())
+        for index, spec in enumerate(specs):
+            checkbox = QCheckBox(spec.label)
+            checkbox.setChecked(spec.label in selected)
+            checkbox.stateChanged.connect(
+                lambda _state: self.on_compare_run_stat_selection_changed()
+            )
+            self._stat_checkboxes[spec.label] = checkbox
+            layout.addWidget(checkbox, index // 4, index % 4)
+        parent_layout.addWidget(self._stats_config_group)
+
+    def _new_scroll_page(self):
+        page = QWidget()
+        page.setObjectName("CompareRunsTabPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 8, 0, 0)
+        scroll, content, content_layout = _make_scroll_section()
+        scroll.setObjectName("CompareRunsPageScroll")
+        layout.addWidget(scroll)
+        return page, content, content_layout
+
+    def _build_overview_page(self) -> None:
+        page, _content, layout = self._new_scroll_page()
+        self._diff_overview_group, self._diff_overview_label = self._build_diff_card(
+            "Current verdict", "Select two recordings"
+        )
+        self._diff_overview_group.setObjectName("CompareRunsOverviewCard")
+        layout.addWidget(self._diff_overview_group)
+        snapshots = QGroupBox("Snapshot comparison")
+        snapshots.setObjectName("CompareRunsOverviewCard")
+        snapshots_layout = QHBoxLayout(snapshots)
+        self._run_a_summary_label = QLabel("--")
+        self._run_b_summary_label = QLabel("--")
+        for side, label in (("A", self._run_a_summary_label), ("B", self._run_b_summary_label)):
+            label.setObjectName("CompareRunsSnapshotSummary")
+            label.setProperty("side", side)
+            label.setTextFormat(Qt.RichText)
+            label.setWordWrap(True)
+            snapshots_layout.addWidget(label, 1)
+        layout.addWidget(snapshots)
+        hint = QLabel(
+            "Stage Summary and build differences stay in their dedicated tabs "
+            "so this page remains readable at narrow widths."
+        )
+        hint.setObjectName("CompareRunsOverviewHint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        layout.addStretch(1)
+        self._detail_tabs.addTab(page, "Overview")
+
+    def _build_stats_page(self) -> None:
+        page = QWidget()
+        page.setObjectName("CompareRunsTabPage")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 8, 0, 0)
+        toolbar = QHBoxLayout()
+        self._stats_search = QLineEdit()
+        self._stats_search.setObjectName("CompareRunsStatsSearch")
+        self._stats_search.setPlaceholderText("Search stats…")
+        self._stats_only_diff_checkbox = QCheckBox("Only differences")
+        self._stats_only_diff_checkbox.setObjectName("CompareRunsOnlyDifferences")
+        choose = QPushButton("Choose stats")
+        choose.setObjectName("CompareRunsChooseStats")
+        choose.clicked.connect(self.toggle_compare_runs_stats_config)
+        self._stats_search.textChanged.connect(lambda _text: self._on_stats_filter_changed())
+        self._stats_only_diff_checkbox.stateChanged.connect(
+            lambda _state: self._on_stats_filter_changed()
+        )
+        toolbar.addWidget(self._stats_search, 1)
+        toolbar.addWidget(self._stats_only_diff_checkbox)
+        toolbar.addWidget(choose)
+        layout.addLayout(toolbar)
+        scroll, _content, content_layout = _make_scroll_section()
+        self._stats_table = MetricTableView()
+        self._stats_table.setObjectName("CompareRunsStatsTable")
+        content_layout.addWidget(self._stats_table)
+        content_layout.addStretch(1)
+        layout.addWidget(scroll)
+        # Compatibility attributes now point at the structured renderer.
+        self._diff_stats_group = page
+        self._diff_stats_label = None
+        self._stats_config_btn = choose
+        self._detail_tabs.addTab(page, "Stats")
+
+    def _build_stages_page(self) -> None:
+        page, _content, layout = self._new_scroll_page()
+        self._diff_stage_summary_group, self._diff_stages_table = self._build_diff_table_card(
+            "Stage comparison"
+        )
+        self._diff_stage_summary_label = None
+        self._diff_stage_summary_group.setObjectName("CompareRunsStageTable")
+        layout.addWidget(self._diff_stage_summary_group)
+        layout.addStretch(1)
+        self._detail_tabs.addTab(page, "Stages")
+
+    def _build_items_page(self) -> None:
+        page, _content, layout = self._new_scroll_page()
+        self._diff_items_group, self._diff_items_label = self._build_diff_card(
+            "Item differences", "--"
+        )
+        self._diff_items_group.setObjectName("CompareRunsItemsDiff")
+        self._diff_items_table = MetricTableView()
+        self._diff_items_table.setObjectName("CompareRunsItemsTable")
+        self._diff_items_group.layout().addWidget(self._diff_items_table)
+        self._item_details_btn = QPushButton("Show Item Details")
+        self._item_details_btn.setObjectName("CompareRunsItemDetails")
+        self._item_details_btn.clicked.connect(self.toggle_compare_runs_item_details)
+        self._diff_items_group.layout().addWidget(self._item_details_btn, 0, Qt.AlignLeft)
+        layout.addWidget(self._diff_items_group)
+        inventories = QHBoxLayout()
+        for side in ("a", "b"):
+            group, view = self._build_inventory_panel(side)
+            setattr(self, f"_run_{side}_items_view", view)
+            inventories.addWidget(group, 1)
+        layout.addLayout(inventories)
+        layout.addStretch(1)
+        self._detail_tabs.addTab(page, "Items")
+
+    def _build_inventory_panel(self, side: str):
+        group = QGroupBox(f"Run {side.upper()} inventory")
+        group.setObjectName("CompareRunsInventory")
+        group.setProperty("side", side.upper())
+        layout = QVBoxLayout(group)
+        label = QLabel("--")
+        label.setTextFormat(Qt.RichText)
+        label.setWordWrap(True)
+        rarity = QLabel("")
+        rarity.setTextFormat(Qt.RichText)
+        toggle = QPushButton("Show all")
+        toggle.setObjectName("CompareRunsInventoryToggle")
+        sort = QComboBox()
+        sort.setObjectName("CompareRunsItemsSort")
+        for mode, text in ITEM_SORT_LABELS.items():
+            sort.addItem(text, mode)
+        rarity_index = sort.findData(ITEM_SORT_RARITY_DESC)
+        if rarity_index >= 0:
+            sort.setCurrentIndex(rarity_index)
+        view = ItemsSectionView(
+            group=group,
+            label=label,
+            rarity_label=rarity,
+            toggle_btn=toggle,
+            sort_combo=sort,
+            initial_sort_mode=ITEM_SORT_RARITY_DESC,
+        )
+        toggle.clicked.connect(lambda _checked=False, run_side=side: self.toggle_compare_run_items_expanded(run_side))
+        sort.currentIndexChanged.connect(lambda _index, item_view=view: item_view.on_sort_changed())
+        layout.addWidget(label)
+        actions = QHBoxLayout()
+        actions.addWidget(toggle)
+        actions.addWidget(rarity)
+        actions.addStretch(1)
+        actions.addWidget(sort)
+        layout.addLayout(actions)
+        return group, view
+
+    def _build_table_page(self, title: str, group_attr: str, table_attr: str) -> None:
+        page, _content, layout = self._new_scroll_page()
+        group, table = self._build_diff_table_card(title)
+        group.setObjectName(f"CompareRuns{title}Table")
+        table.setObjectName("CompareRunsMetricTable")
+        setattr(self, group_attr, group)
+        setattr(self, table_attr, table)
+        layout.addWidget(group)
+        layout.addStretch(1)
+        self._detail_tabs.addTab(page, title)

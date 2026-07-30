@@ -1556,7 +1556,7 @@ class RecordingsTab:
             _set_text(
                 label,
                 '<span style="color:#5C6675;">Shift+click sets compare point '
-                '<b style="color:#38BDF8;">B</b></span>&nbsp;&nbsp;·&nbsp;&nbsp;',
+                '<b style="color:#C084FC;">B</b></span>&nbsp;&nbsp;·&nbsp;&nbsp;',
             )
             return
         snapshots = self._loaded_vod.snapshots
@@ -1567,7 +1567,7 @@ class RecordingsTab:
             f'<b style="color:#38BDF8;">A</b> '
             f'<span style="color:#8A94A3;">{snapshots[current].time_label}</span> '
             f'<span style="color:#5C6675;">&rarr;</span> '
-            f'<b style="color:#38BDF8;">B</b> '
+            f'<b style="color:#C084FC;">B</b> '
             f'<span style="color:#8A94A3;">{snapshots[anchor].time_label}</span>'
             f'<span style="color:#5C6675;">&nbsp;&nbsp;·&nbsp;&nbsp;Esc clears B'
             f'</span>&nbsp;&nbsp;·&nbsp;&nbsp;',

@@ -332,22 +332,6 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
                     border-color: #3A4D66;
                     color: #E5E7EB;
                 }
-                QPushButton[class="CompareRunsGhostButton"] {
-                    background: #21364D;
-                    color: #F4F8FC;
-                    font-size: 13px;
-                    font-weight: 700;
-                    padding: 5px 12px;
-                    border: 1px solid #3F6487;
-                    border-radius: 7px;
-                    min-height: 26px;
-                    max-height: 26px;
-                }
-                QPushButton[class="CompareRunsGhostButton"]:hover {
-                    background: #2A4664;
-                    border-color: #5B86AF;
-                    color: #FFFFFF;
-                }
                 QPushButton[class="WideDialogButton"] {
                     min-height: 34px;
                     font-size: 14px;
@@ -1009,20 +993,6 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             border-color: transparent;
             color: #EDF1F5;
         }
-        QPushButton[class="CompareRunsGhostButton"] {
-            background-color: transparent;
-            color: #9AA4B2;
-            border: 1px solid #2A3542;
-            border-radius: 8px;
-            min-height: 26px;
-            max-height: 26px;
-            padding: 5px 12px;
-        }
-        QPushButton[class="CompareRunsGhostButton"]:hover {
-            background-color: #161C24;
-            border-color: #38495E;
-            color: #EDF1F5;
-        }
         QTabWidget::pane {
             border: none;
             background: transparent;
@@ -1134,6 +1104,56 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         }}
     """
 
+    # Minimal mirror of the canonical Compare Runs rules above. This is only
+    # the source-run/partial-install fallback when the external QSS asset is
+    # unavailable; visual changes belong in bonkscanner_redesign.qss first.
+    compare_runs_compatibility_stylesheet = """
+        QWidget#CompareRunsPage, QWidget#CompareRunsTabPage,
+        QScrollArea#CompareRunsPageScroll,
+        QScrollArea#CompareRunsPageScroll > QWidget > QWidget {
+            background: transparent;
+            border: none;
+        }
+        QFrame#CompareRunsRunPlaque, QFrame#CompareRunsTimelineCard {
+            background-color: #0B0F14;
+            border: 1px solid #1B222B;
+            border-radius: 11px;
+        }
+        QFrame#CompareRunsRunPlaque[side="A"] { border-left: 3px solid #38BDF8; }
+        QFrame#CompareRunsRunPlaque[side="B"] { border-left: 3px solid #C084FC; }
+        QLabel#CompareRunsRunBadge[side="A"],
+        QLabel#CompareRunsChooserTitle[side="A"] { color: #38BDF8; font-weight: 800; }
+        QLabel#CompareRunsRunBadge[side="B"],
+        QLabel#CompareRunsChooserTitle[side="B"] { color: #C084FC; font-weight: 800; }
+        QPushButton#CompareRunsChangeButton,
+        QPushButton#CompareRunsSwapButton,
+        QPushButton#CompareRunsChooserDone,
+        QPushButton#CompareRunsChooseStats,
+        QPushButton#CompareRunsItemDetails,
+        QPushButton#CompareRunsInventoryToggle,
+        QPushButton#CompareRunsSeriesSlot,
+        QPushButton#CompareRunsAxisMode {
+            background-color: #141A22;
+            color: #B9C2CE;
+            border: 1px solid #2A3542;
+            border-radius: 7px;
+            padding: 5px 9px;
+        }
+        QPushButton#CompareRunsAxisMode:checked {
+            color: #FFFFFF;
+            background-color: #2F6FB0;
+            border-color: #3E82C6;
+        }
+        QListWidget#CompareRunsRecordingList[side="A"]::item:selected {
+            background-color: rgba(56, 189, 248, 0.12);
+            border-left: 2px solid #38BDF8;
+        }
+        QListWidget#CompareRunsRecordingList[side="B"]::item:selected {
+            background-color: rgba(192, 132, 252, 0.12);
+            border-left: 2px solid #C084FC;
+        }
+    """
+
     # `compatibility_stylesheet` declares `QLabel, QCheckBox, QRadioButton
     # { background: transparent; }` near its top, but Qt's cascade treats
     # every bare type selector as equal specificity and lets *declaration
@@ -1160,6 +1180,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             base_stylesheet,
             checkbox_uniform_stylesheet,
             spinner_uniform_stylesheet,
+            compare_runs_compatibility_stylesheet,
             transparency_stylesheet,
         )
     )

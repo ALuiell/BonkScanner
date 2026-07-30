@@ -10,7 +10,7 @@
     --tx:#EDF1F5; --head:#B9C2CE; --sec:#8A94A3; --mut:#5C6675;
     --acc:#2F6FB0; --accbd:#3E82C6; --info:#38BDF8;
     --ok:#22C55E; --okt:#7DE68C; --stop:#B91C1C; --stopbd:#C8302F; --danger:#F0787E;
-    --amber:#FACC15;
+    --amber:#FACC15; --compareB:#C084FC;
     --leg:#FACC15; --epi:#C084FC; --rar:#60A5FA; --com:#4ADE80;
     --sKills:#38BDF8; --sPM:#FACC15; --sPDC:#F59E0B; --sItems:#4ADE80; --sDiff:#F0787E;
   }
@@ -120,9 +120,9 @@
   .head{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx);box-shadow:0 0 0 1px rgba(0,0,0,.55)}
   .head:after{content:'';position:absolute;left:-5px;top:-1px;width:12px;height:12px;border-radius:50%;
         background:var(--tx);box-shadow:0 0 0 2px rgba(0,0,0,.5)}
-  .pin{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--info)}
-  .pin:after{content:'A';position:absolute;left:-8px;top:-3px;width:18px;height:15px;border-radius:4px;
-        background:var(--info);color:#06202b;font-size:10px;font-weight:900;text-align:center;line-height:15px}
+  .pin{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--compareB)}
+  .pin:after{content:'B';position:absolute;left:-8px;top:-3px;width:18px;height:15px;border-radius:4px;
+        background:var(--compareB);color:#17101f;font-size:10px;font-weight:900;text-align:center;line-height:15px}
 
   .tlfoot{display:flex;align-items:center;justify-content:space-between;margin-top:8px;color:var(--mut);font-size:11.5px}
   .tlfoot .now{margin:0 auto;background:var(--inner);border:1px solid var(--bd3);border-radius:999px;

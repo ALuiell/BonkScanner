@@ -200,7 +200,7 @@ class SegmentHeadlineTests(unittest.TestCase):
         )
 
         self.assertIn('<b style="color:#38BDF8;">A</b>', headline)
-        self.assertIn('<b style="color:#38BDF8;">B</b>', headline)
+        self.assertIn('<b style="color:#C084FC;">B</b>', headline)
 
     def test_totals_read_levels_items_kills(self) -> None:
         headline = formatting.format_segment_headline(

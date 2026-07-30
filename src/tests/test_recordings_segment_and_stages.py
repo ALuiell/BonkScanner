@@ -295,7 +295,7 @@ class CompareDetailsVisibilityTests(unittest.TestCase):
 
         hint = tab._compare_hint_label.text()
         self.assertIn('<b style="color:#38BDF8;">A</b>', hint)
-        self.assertIn('<b style="color:#38BDF8;">B</b>', hint)
+        self.assertIn('<b style="color:#C084FC;">B</b>', hint)
         self.assertLess(hint.index(SNAPSHOTS[3].time_label), hint.index(SNAPSHOTS[1].time_label))
 
     def test_the_pin_drives_the_compare_baseline(self) -> None:

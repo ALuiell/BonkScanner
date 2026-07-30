@@ -281,6 +281,60 @@ def format_compare_runs_stats_diff(snapshot_a, snapshot_b, *, stat_labels: tuple
     return "<br>".join(stat_rows) if stat_rows else "--"
 
 
+def build_compare_runs_stats_table(
+    snapshot_a,
+    snapshot_b,
+    *,
+    stat_labels: tuple[str, ...] | None = None,
+) -> MetricTable:
+    """Flat, widget-rendered Stats payload for the redesigned Compare Runs.
+
+    The grouping used by the Recordings series picker is intentionally absent:
+    this is one searchable comparison table, not a copy of that navigation.
+    """
+    rows: list[MetricRow] = []
+    for label in stat_labels or COMPARE_RUN_STAT_LABELS:
+        stat_a = getattr(snapshot_a, "stats", {}).get(label)
+        stat_b = getattr(snapshot_b, "stats", {}).get(label)
+        if stat_a is None and stat_b is None:
+            continue
+        value_a = getattr(stat_a, "display_value", "--") if stat_a is not None else "--"
+        value_b = getattr(stat_b, "display_value", "--") if stat_b is not None else "--"
+        delta = "--"
+        if (
+            stat_a is not None
+            and stat_b is not None
+            and stat_a.value is not None
+            and stat_b.value is not None
+        ):
+            delta = _format_compare_run_stat_delta(stat_a, stat_b)
+            if delta and not delta.startswith(("+", "-")):
+                try:
+                    numeric_delta = float(stat_b.value) - float(stat_a.value)
+                    delta = f"{numeric_delta:+g}"
+                except (TypeError, ValueError):
+                    pass
+        rows.append(
+            MetricRow(
+                label=str(label),
+                value_a=str(value_a),
+                value_b=str(value_b),
+                delta=str(delta),
+            )
+        )
+    if not rows:
+        return MetricTable(empty_text="No stats available")
+    return MetricTable(
+        sections=(
+            MetricSection(
+                headers=("Stat", "Run A", "Run B", "Delta"),
+                rows=tuple(rows),
+            ),
+        ),
+        empty_text="No stats available",
+    )
+
+
 def format_compare_runs_items_diff(snapshot_a, snapshot_b, *, details_expanded: bool = False) -> str:
     item_rows = _format_compare_run_item_deltas(
         snapshot_a,
@@ -305,6 +359,88 @@ def format_compare_runs_stage_summary_diff(vod_a, index_a, vod_b, index_b) -> st
             "</div>"
         )
     return "".join(blocks) if blocks else "--"
+
+
+def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTable:
+    """Structured stage rows up to the active playhead on both recordings."""
+
+    def stage_values(vod, index):
+        snapshots = tuple(getattr(vod, "snapshots", ()) or ())
+        if not snapshots or index is None:
+            return {}
+        snapshots = snapshots[: min(max(int(index), 0), len(snapshots) - 1) + 1]
+        grouped: dict[int, list] = {}
+        for snapshot in snapshots:
+            stage = getattr(snapshot, "stage_index", None)
+            if stage is not None:
+                grouped.setdefault(int(stage), []).append(snapshot)
+        result = {}
+        for stage, stage_snapshots in grouped.items():
+            first = stage_snapshots[0]
+            last = stage_snapshots[-1]
+            elapsed = getattr(last, "stage_time_seconds", None)
+            kills_first = getattr(first, "mob_kills", None)
+            kills_last = getattr(last, "mob_kills", None)
+            kills = (
+                None
+                if kills_first is None or kills_last is None
+                else max(0, int(kills_last) - int(kills_first))
+            )
+            opened = getattr(last, "chests_opened_by_stage", None)
+            chests = opened.get(stage) if isinstance(opened, dict) else None
+            damage_first = sum(
+                float(getattr(source, "damage", 0.0) or 0.0)
+                for source in (getattr(first, "damage_sources", ()) or ())
+            )
+            damage_last = sum(
+                float(getattr(source, "damage", 0.0) or 0.0)
+                for source in (getattr(last, "damage_sources", ()) or ())
+            )
+            result[stage] = {
+                "time": None if elapsed is None else float(elapsed),
+                "kills": kills,
+                "chests": chests,
+                "damage": max(0.0, damage_last - damage_first),
+            }
+        return result
+
+    values_a = stage_values(vod_a, index_a)
+    values_b = stage_values(vod_b, index_b)
+    sections = []
+    for stage in sorted(set(values_a) | set(values_b)):
+        a = values_a.get(stage, {})
+        b = values_b.get(stage, {})
+        rows = []
+        for label, key, formatter in (
+            ("Time", "time", lambda value: format_elapsed_time(value)),
+            ("Kills", "kills", lambda value: format_count(value)),
+            ("Chests", "chests", lambda value: format_count(value)),
+            ("Damage", "damage", lambda value: format_count(value)),
+        ):
+            value_a = a.get(key)
+            value_b = b.get(key)
+            display_a = "--" if value_a is None else formatter(value_a)
+            display_b = "--" if value_b is None else formatter(value_b)
+            delta = "--"
+            if value_a is not None and value_b is not None:
+                difference = float(value_b) - float(value_a)
+                delta = (
+                    f"{difference:+.0f}s"
+                    if key == "time"
+                    else f"{difference:+,.0f}"
+                )
+            rows.append(MetricRow(label, display_a, display_b, delta))
+        sections.append(
+            MetricSection(
+                headers=("Metric", "Run A", "Run B", "Delta"),
+                rows=tuple(rows),
+                title=f"Stage {stage + 1}",
+            )
+        )
+    return MetricTable(
+        sections=tuple(sections),
+        empty_text="No stage data",
+    )
 
 
 #: Shown in place of the sections when a card has nothing to compare. One
@@ -1407,7 +1543,8 @@ _COMPARE_DANGER_COLOR = "#F0787E"
 
 #: `--info`. Both segment ends wear it: A and B name one selection, and
 #: colouring only A read as "A is the live one".
-_COMPARE_SEGMENT_END_COLOR = "#38BDF8"
+_COMPARE_POINT_A_COLOR = "#38BDF8"
+_COMPARE_POINT_B_COLOR = "#C084FC"
 
 
 def compare_detail_rarity_rows(
@@ -1525,10 +1662,10 @@ def format_segment_headline(base_snapshot, snapshot, *, segment_snapshots=()) ->
         return "--"
     pieces = [
         '<span style="color:#8A94A3;">Segment</span> '
-        f'<b style="color:{_COMPARE_SEGMENT_END_COLOR};">A</b> '
+        f'<b style="color:{_COMPARE_POINT_A_COLOR};">A</b> '
         f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(snapshot))}</span> '
         f'<span style="color:{_COMPARE_MUTED_COLOR};">&rarr;</span> '
-        f'<b style="color:{_COMPARE_SEGMENT_END_COLOR};">B</b> '
+        f'<b style="color:{_COMPARE_POINT_B_COLOR};">B</b> '
         f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(base_snapshot))}</span>'
     ]
     span = tuple(segment_snapshots or (base_snapshot, snapshot))
