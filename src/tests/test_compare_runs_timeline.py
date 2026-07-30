@@ -23,14 +23,23 @@ from ui.tabs.compare_runs.timeline import (
 )
 
 
-def _snapshot(at: float, *, stage: int = 0, damage: float = 0.0):
+def _snapshot(
+    at: float,
+    *,
+    stage: int = 0,
+    damage: float = 0.0,
+    stage_time: float | None = None,
+    stage_ptr: int = 1,
+):
     stat = SimpleNamespace(value=damage, display_value=str(damage))
     return SimpleNamespace(
         elapsed_seconds=at,
         game_time_seconds=at,
         time_label=f"{at:.0f}s",
         stage_index=stage,
-        stage_time_seconds=at,
+        stage_time_seconds=at if stage_time is None else stage_time,
+        stage_ptr=stage_ptr,
+        map_seed=1234,
         stats={
             "Damage": stat,
             "Luck": SimpleNamespace(value=damage / 10.0, display_value=str(damage / 10.0)),
@@ -123,6 +132,26 @@ def test_structured_stats_are_flat_and_stage_table_has_required_metrics() -> Non
     )
     assert items_row.value_a == "1"
     assert items_row.delta == "+0"
+
+
+def test_stage_table_keeps_boss_room_as_stage_four() -> None:
+    snapshots = (
+        _snapshot(0.0, stage=2, stage_time=300.0, stage_ptr=7),
+        _snapshot(30.0, stage=2, stage_time=400.0, stage_ptr=7),
+        _snapshot(60.0, stage=2, stage_time=1.0, stage_ptr=7),
+        _snapshot(90.0, stage=2, stage_time=40.0, stage_ptr=7),
+    )
+    for snapshot in snapshots:
+        snapshot.chests_opened_by_stage = {3: 18, 4: 2}
+    vod = SimpleNamespace(snapshots=snapshots)
+
+    table = formatting.build_compare_runs_stages_table(vod, 3, vod, 3)
+
+    assert [section.title for section in table.sections] == ["Stage 3", "Stage 4"]
+    stage_four_chests = next(
+        row for row in table.sections[1].rows if row.label == "Chests"
+    )
+    assert stage_four_chests.value_a == "2"
 
 
 def test_playhead_updates_do_not_rebuild_static_timeline() -> None:

@@ -369,29 +369,47 @@ def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTab
         if not snapshots or index is None:
             return {}
         snapshots = snapshots[: min(max(int(index), 0), len(snapshots) - 1) + 1]
+
+        def parsed_count(value) -> int | None:
+            text = str(value or "").strip()
+            if text == "--":
+                return None
+            try:
+                return max(0, int(text.replace(",", "")))
+            except ValueError:
+                return None
+
+        def parsed_elapsed(value) -> float | None:
+            text = str(value or "").strip()
+            if text == "--":
+                return None
+            try:
+                parts = [int(part) for part in text.split(":")]
+            except ValueError:
+                return None
+            if len(parts) == 2:
+                return float(parts[0] * 60 + parts[1])
+            if len(parts) == 3:
+                return float(parts[0] * 3600 + parts[1] * 60 + parts[2])
+            return None
+
+        # Raw `stage_index` remains 2 through the boss room. The shared run
+        # summary projection resolves the actual human stages 1..4 from stage
+        # pointer/timer transitions, so Compare Runs must group by that same
+        # sequence or Stage 4 is silently folded into Stage 3.
+        stage_numbers = run_summary.stage_number_sequence(snapshots)
         grouped: dict[int, list] = {}
-        for snapshot in snapshots:
-            stage = getattr(snapshot, "stage_index", None)
-            if stage is not None:
-                grouped.setdefault(int(stage), []).append(snapshot)
+        for snapshot, stage_number in zip(snapshots, stage_numbers):
+            grouped.setdefault(int(stage_number), []).append(snapshot)
         stage_summary_rows = build_stage_summary(snapshots)
         result = {}
-        for stage, stage_snapshots in grouped.items():
-            first = stage_snapshots[0]
+        for stage_number, stage_snapshots in grouped.items():
             last = stage_snapshots[-1]
-            elapsed = getattr(last, "stage_time_seconds", None)
-            kills_first = getattr(first, "mob_kills", None)
-            kills_last = getattr(last, "mob_kills", None)
-            kills = (
-                None
-                if kills_first is None or kills_last is None
-                else max(0, int(kills_last) - int(kills_first))
-            )
             opened = getattr(last, "chests_opened_by_stage", None)
-            chests = opened.get(stage) if isinstance(opened, dict) else None
+            chests = opened.get(stage_number) if isinstance(opened, dict) else None
             summary_row = (
-                stage_summary_rows[stage]
-                if 0 <= stage < len(stage_summary_rows)
+                stage_summary_rows[stage_number - 1]
+                if 1 <= stage_number <= len(stage_summary_rows)
                 else {}
             )
             rarity_counts = summary_row.get("item_rarities")
@@ -400,9 +418,9 @@ def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTab
                 if isinstance(rarity_counts, dict)
                 else None
             )
-            result[stage] = {
-                "time": None if elapsed is None else float(elapsed),
-                "kills": kills,
+            result[stage_number] = {
+                "time": parsed_elapsed(summary_row.get("time")),
+                "kills": parsed_count(summary_row.get("kills")),
                 "chests": chests,
                 "items": items,
             }
@@ -438,7 +456,7 @@ def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTab
             MetricSection(
                 headers=("Metric", "Run A", "Run B", "Delta"),
                 rows=tuple(rows),
-                title=f"Stage {stage + 1}",
+                title=f"Stage {stage}",
             )
         )
     return MetricTable(
