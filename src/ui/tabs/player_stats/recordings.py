@@ -69,7 +69,7 @@ from app.vod_library import (
 )
 from core.run_summary import item_counts
 from core.stat_labels import abbreviate_stat_label
-from core.stats.types import PLAYER_STAT_GROUPS
+from core.stats.types import PLAYER_STAT_GROUPS, PLAYER_STAT_SPEC_BY_LABEL
 from ui.dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from ui.tabs.player_stats.metrics import (
     LIVE_STATS_VALUE_WIDTH,
@@ -121,6 +121,60 @@ from projections import formatting, scrubber as scrubber_model
 #: to re-pick it every time a different recording loads would make the fourth
 #: slot useless for the comparison it exists to support.
 SCRUBBER_SLOTS_CONFIG_KEY = "recordings_scrubber_slots"
+
+
+#: The graph menu's own grouping. It starts from the same stat set as the cards,
+#: but is arranged by how the series are read together on a timeline.
+SCRUBBER_STAT_GROUPS = (
+    (
+        "Survivability",
+        (
+            "Max HP",
+            "HP Regen",
+            "Overheal",
+            "Shield",
+            "Armor",
+            "Evasion",
+            "Lifesteal",
+            "Thorns",
+        ),
+    ),
+    (
+        "Dmg",
+        (
+            "Damage",
+            "Crit Chance",
+            "Crit Damage",
+            "Attack Speed",
+            "Projectile Count",
+            "Projectile Bounces",
+        ),
+    ),
+    (
+        "Effects",
+        (
+            "Size",
+            "Projectile Speed",
+            "Duration",
+            "Damage to Elites",
+            "Knockback",
+        ),
+    ),
+    ("Mobility", ("Extra Jumps", "Jump Height", "Movement Speed")),
+    (
+        "Rewards & Spawns",
+        (
+            "Luck",
+            "Difficulty",
+            "Pickup Range",
+            "XP Gain",
+            "Gold Gain",
+            "Elite Spawn Increase",
+            "Powerup Multiplier",
+            "Powerup Drop Chance",
+        ),
+    ),
+)
 
 
 #: Width of the label column in Compare Details. Measured, not guessed: bold
@@ -1544,9 +1598,10 @@ class RecordingsTab:
             lambda _checked=False, index=slot_index: self._set_slot(index, pair)
         )
         menu.addSeparator()
-        for group in PLAYER_STAT_GROUPS:
-            submenu = menu.addMenu(abbreviate_stat_label(group[0].label))
-            for spec in group:
+        for group_label, stat_labels in SCRUBBER_STAT_GROUPS:
+            submenu = menu.addMenu(group_label)
+            for stat_label in stat_labels:
+                spec = PLAYER_STAT_SPEC_BY_LABEL[stat_label]
                 action = submenu.addAction(spec.label)
                 action.triggered.connect(
                     lambda _checked=False, index=slot_index, series=spec.label: self._set_slot(

@@ -238,6 +238,14 @@ class MarkerTests(unittest.TestCase):
         markers = scrubber.build_markers(snapshots)
         self.assertEqual([(marker.index, marker.kind) for marker in markers], [(1, "legendary")])
 
+    def test_a_rare_gain_uses_the_purple_timeline_marker(self) -> None:
+        snapshots = [_snapshot(items=()), _snapshot(items=("Kevin x1",))]
+        markers = scrubber.build_markers(snapshots)
+        self.assertEqual(
+            [(marker.kind, marker.color) for marker in markers],
+            [("rare", "#A78BFA")],
+        )
+
     def test_common_items_are_not_marked(self) -> None:
         """At ~900 snapshots a marker per common pickup is a solid bar."""
         snapshots = [_snapshot(items=()), _snapshot(items=("Moldy Cheese x1",))]
