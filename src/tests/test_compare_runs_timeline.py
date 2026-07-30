@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import src  # noqa: F401
 
+from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import (
     QApplication,
     QLabel,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
 from projections import scrubber
 from projections import formatting
 from projections.metric_table import MetricRow, MetricSection, MetricTable
+from projections.timeline_axis import build_axis_projection
 from ui.metric_table import CompactMetricCardGridView
 from ui.tabs.compare_runs.tab import CompareRunsTab
 from ui.tabs.compare_runs.timeline import (
@@ -81,6 +83,58 @@ def test_progress_axis_normalizes_each_recording_independently() -> None:
         _vod((0.0, 10.0, 20.0)).snapshots,
         mode=AXIS_PROGRESS,
     ) == (0.0, 0.5, 1.0)
+
+
+def test_time_projection_is_monotonic_and_uses_index_fallback() -> None:
+    snapshots = (
+        SimpleNamespace(game_time_seconds=0.0),
+        SimpleNamespace(game_time_seconds=20.0),
+        SimpleNamespace(game_time_seconds=10.0),
+        SimpleNamespace(),
+    )
+    projection = build_axis_projection(snapshots, mode=AXIS_TIME)
+
+    assert projection.times == (0.0, 20.0, 20.0, 20.0)
+    assert projection.positions == (0.0, 1.0, 1.0, 1.0)
+
+
+def test_time_projection_rejects_non_finite_times() -> None:
+    snapshots = (
+        SimpleNamespace(game_time_seconds=float("nan"), elapsed_seconds=None),
+        SimpleNamespace(game_time_seconds=float("inf"), elapsed_seconds=None),
+    )
+    projection = build_axis_projection(snapshots, mode=AXIS_TIME)
+
+    assert projection.times == (0.0, 1.0)
+    assert projection.positions == (0.0, 1.0)
+
+
+def test_time_projection_nearest_tie_keeps_the_lower_original_index() -> None:
+    projection = build_axis_projection(
+        _vod((0.0, 10.0, 20.0)).snapshots,
+        mode=AXIS_TIME,
+    )
+
+    assert projection.nearest_index(0.25) == 0
+
+
+def test_time_projection_duplicate_plateau_keeps_the_first_snapshot() -> None:
+    projection = build_axis_projection(
+        _vod((0.0, 10.0, 10.0, 10.0, 20.0)).snapshots,
+        mode=AXIS_TIME,
+    )
+
+    assert projection.nearest_index(0.6) == 1
+
+
+def test_single_snapshot_projection_does_not_divide_by_zero() -> None:
+    projection = build_axis_projection(
+        _vod((0.0,)).snapshots,
+        mode=AXIS_TIME,
+    )
+
+    assert projection.positions == (0.0,)
+    assert projection.nearest_index(1.0) == 0
 
 
 def test_shared_scale_is_the_maximum_of_both_runs() -> None:
@@ -266,6 +320,9 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
         is_active=lambda: True,
     )
     compare.build()
+    tabs.resize(1400, 900)
+    tabs.show()
+    app.processEvents()
     assert [compare._detail_tabs.tabText(index) for index in range(7)] == [
         "Overview",
         "Stats",
@@ -276,6 +333,36 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
         "Chaos",
     ]
     assert compare._timeline.objectName() == "CompareRunsTimeline"
+    assert all(
+        button.property("timelineSlot") is True
+        and not button.text().startswith("Series ")
+        for button in compare._series_slot_buttons
+    )
+    assert [
+        action.text()
+        for action in compare._series_slot_buttons[0].menu().actions()
+        if action.menu() is not None
+    ] == ["Dmg", "Effects", "Run", "Rewards & spawns"]
+    assert compare._axis_time_btn.property("timelineAxisMode") is True
+    assert compare._timeline_position_label.property("timelinePosition") is True
+    timeline_card = compare._timeline.parentWidget()
+    slot_center_y = compare._series_slot_buttons[0].mapTo(
+        timeline_card, QPoint(0, compare._series_slot_buttons[0].height() // 2)
+    ).y()
+    position_center_y = compare._timeline_position_label.mapTo(
+        timeline_card, QPoint(0, compare._timeline_position_label.height() // 2)
+    ).y()
+    axis_center_y = compare._axis_time_btn.mapTo(
+        timeline_card, QPoint(0, compare._axis_time_btn.height() // 2)
+    ).y()
+    timeline_top = compare._timeline.mapTo(timeline_card, QPoint()).y()
+    assert position_center_y < slot_center_y < timeline_top
+    assert abs(slot_center_y - axis_center_y) <= 2
+    slot_bottom = compare._series_slot_buttons[0].mapTo(
+        timeline_card, QPoint(0, compare._series_slot_buttons[0].height())
+    ).y()
+    painted_track_top = timeline_top + int(compare._timeline._track_rect().top())
+    assert painted_track_top - slot_bottom <= 10
     assert isinstance(compare._diff_stages_table, CompactMetricCardGridView)
     assert len(compare._diff_stages_table._cards) == 4
 
@@ -294,6 +381,41 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
     compare._detail_tabs.setCurrentIndex(4)
     app.processEvents()
     compare._diff_weapons_table.set_table.assert_called_once_with(table)
+    tabs.close()
+
+
+def test_timeline_footer_shows_visible_series_a_b_and_delta() -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class Library:
+        index = ()
+
+        def ensure_refresh(self):
+            return None
+
+    tabs = QTabWidget()
+    compare = CompareRunsTab(
+        tabview=tabs,
+        vod_library=Library(),
+        is_active=lambda: True,
+    )
+    compare.build()
+    compare._vod_a = _vod((1.0,))
+    compare._vod_b = _vod((2.0,))
+    compare._index_a = 0
+    compare._index_b = 0
+    compare._series_slots = (("Damage",), (), (), ())
+
+    compare._refresh_compare_timeline_legend()
+    app.processEvents()
+
+    assert compare._timeline_legend.keys == ("Damage",)
+    item = compare._timeline_legend._items[0]
+    assert item._name.text() == "DMG"
+    assert item._value_a.text() == "A 10.0"
+    assert item._arrow.text() == "→"
+    assert item._value_b.text() == "B 20.0"
+    assert item._delta.text() == "Δ +10"
     tabs.close()
 
 

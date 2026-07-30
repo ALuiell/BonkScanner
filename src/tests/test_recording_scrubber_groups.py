@@ -10,15 +10,17 @@ def test_graph_menu_uses_the_requested_stat_groups() -> None:
     groups = dict(SCRUBBER_STAT_GROUPS)
 
     assert tuple(groups) == (
-        "Survivability",
         "Dmg",
         "Effects",
-        "Mobility",
-        "Rewards & Spawns",
+        "Run",
+        "Rewards & spawns",
     )
-    assert groups["Mobility"] == ("Extra Jumps", "Jump Height", "Movement Speed")
+    assert "Movement Speed" in groups["Run"]
+    assert "Max HP" in groups["Run"]
     assert "Movement Speed" not in groups["Effects"]
-    assert {"Luck", "Difficulty"} <= set(groups["Rewards & Spawns"])
+    assert {"Luck", "Difficulty", "Pickup Range"} <= set(
+        groups["Rewards & spawns"]
+    )
 
 
 def test_graph_menu_contains_every_player_stat_once() -> None:

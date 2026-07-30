@@ -12,6 +12,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from projections.scrubber import CapStep, ScrubberModel, Series
+from projections.timeline_axis import AXIS_TIME, TimelineAxisProjection
 from ui.tabs.player_stats.recording_scrubber import RecordingScrubber
 
 
@@ -102,3 +103,30 @@ def test_shift_drag_moves_compare_point_b_until_release() -> None:
     assert moved_pin > first_pin
     assert widget.pin() == moved_pin
     assert widget.index() == 2
+
+
+def test_playhead_updates_do_not_rebuild_recording_static_layer() -> None:
+    app = QApplication.instance() or QApplication([])
+    widget = RecordingScrubber()
+    widget.resize(900, 150)
+    count = 700
+    positions = tuple(index / (count - 1) for index in range(count))
+    widget.set_model(
+        ScrubberModel(count=count),
+        projection=TimelineAxisProjection(
+            tuple(float(index) for index in range(count)),
+            positions,
+            float(count - 1),
+            AXIS_TIME,
+        ),
+    )
+    widget.show()
+    app.processEvents()
+    rebuilds = widget.static_rebuilds
+
+    for index in range(0, count, 7):
+        widget.set_index(index)
+        widget.repaint()
+
+    assert widget.static_rebuilds == rebuilds
+    widget.close()

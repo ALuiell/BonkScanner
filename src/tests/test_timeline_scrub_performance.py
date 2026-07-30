@@ -130,14 +130,14 @@ class SnapshotTimeIndexTests(unittest.TestCase):
         self.assertEqual(1, SnapshotTimeIndex.build(snapshots).nearest(9.2))
         self._assert_parity(snapshots, [8.0, 9.0, 9.2])
 
-    def test_untimed_snapshots_are_skipped_like_the_scan_skipped_them(self) -> None:
+    def test_untimed_snapshots_use_the_shared_projection_fallback(self) -> None:
         snapshots = (
             SimpleNamespace(game_time_seconds=None, elapsed_seconds=None),
             snapshot("b", 40.0),
         )
 
         self.assertEqual(1, SnapshotTimeIndex.build(snapshots).nearest(43.0))
-        self._assert_parity(snapshots, [0.0, 43.0])
+        self.assertEqual(0, SnapshotTimeIndex.build(snapshots).nearest(0.0))
 
     def test_an_empty_recording_answers_zero(self) -> None:
         self.assertEqual(0, SnapshotTimeIndex.build(()).nearest(12.0))

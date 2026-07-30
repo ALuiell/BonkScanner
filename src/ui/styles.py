@@ -652,13 +652,13 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         QFrame#StageChapterCard[hasData="false"] QLabel {
             color: #3D4756;
         }
-        QLabel#RecordingScrubberPosition {
+        QLabel[timelinePosition="true"] {
             color: #EDF1F5;
             font-weight: 700;
             background-color: #141A22;
-            border: 1px solid #2E3A48;
-            border-radius: 9px;
-            padding: 4px 11px;
+            border: 1px solid #2A3542;
+            border-radius: 8px;
+            padding: 3px 9px;
         }
         QLabel#RecordingScrubberLegend,
         QLabel#RecordingScrubberMeta,
@@ -1123,27 +1123,90 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         }
         QFrame#CompareRunsRunPlaque[side="A"] { border-left: 3px solid #38BDF8; }
         QFrame#CompareRunsRunPlaque[side="B"] { border-left: 3px solid #C084FC; }
-        QLabel#CompareRunsRunBadge[side="A"],
-        QLabel#CompareRunsChooserTitle[side="A"] { color: #38BDF8; font-weight: 800; }
-        QLabel#CompareRunsRunBadge[side="B"],
-        QLabel#CompareRunsChooserTitle[side="B"] { color: #C084FC; font-weight: 800; }
+        QLabel#CompareRunsRunBadge[side="A"] { color: #38BDF8; font-weight: 800; }
+        QLabel#CompareRunsRunBadge[side="B"] { color: #C084FC; font-weight: 800; }
+        QLabel#CompareRunsChooserTitle { color: #EDF1F5; font-weight: 800; }
         QPushButton#CompareRunsChangeButton,
         QPushButton#CompareRunsSwapButton,
         QPushButton#CompareRunsChooseStats,
         QPushButton#CompareRunsItemDetails,
-        QPushButton#CompareRunsInventoryToggle,
-        QPushButton#CompareRunsSeriesSlot,
-        QPushButton#CompareRunsAxisMode {
+        QPushButton#CompareRunsInventoryToggle {
             background-color: #141A22;
             color: #B9C2CE;
             border: 1px solid #2A3542;
             border-radius: 7px;
             padding: 5px 9px;
         }
-        QPushButton#CompareRunsAxisMode:checked {
+        QPushButton[timelineSlot="true"],
+        QPushButton[timelineAxisMode="true"] {
+            background-color: #141A22;
+            color: #8A94A3;
+            border: 1px solid #2A3542;
+            border-radius: 7px;
+            padding: 5px 9px;
+            font-size: 11.5px;
+            font-weight: 700;
+        }
+        QPushButton[timelineSlot="true"]:hover,
+        QPushButton[timelineAxisMode="true"]:hover {
+            color: #EDF1F5;
+            border-color: #38495E;
+        }
+        QPushButton[timelineAxisMode="true"]:checked {
             color: #FFFFFF;
             background-color: #2F6FB0;
             border-color: #3E82C6;
+        }
+        QPushButton[timelineSlot="true"][accentRole="blue"] { border-left: 3px solid #38BDF8; }
+        QPushButton[timelineSlot="true"][accentRole="green"] { border-left: 3px solid #4ADE80; }
+        QPushButton[timelineSlot="true"][accentRole="yellow"] { border-left: 3px solid #FACC15; }
+        QPushButton[timelineSlot="true"][accentRole="orange"] { border-left: 3px solid #F59E0B; }
+        QPushButton[timelineSlot="true"][accentRole="red"] { border-left: 3px solid #F0787E; }
+        QPushButton[timelineSlot="true"][accentRole="purple"] { border-left: 3px solid #C084FC; }
+        QPushButton[timelineSlot="true"][accentRole="sky"] { border-left: 3px solid #60A5FA; }
+        QPushButton[timelineSlot="true"][accentRole="neutral"] { border-left: 3px solid #94A3B8; }
+        QWidget#CompareRunsTimelineLegend {
+            background: transparent;
+            border: none;
+        }
+        QFrame#CompareRunsTimelineLegendItem {
+            background-color: #0E1217;
+            border: 1px solid #1B222B;
+            border-radius: 7px;
+        }
+        QLabel#CompareRunsTimelineLegendDot {
+            background: transparent;
+            font-size: 11px;
+        }
+        QLabel#CompareRunsTimelineLegendDot[accentRole="blue"] { color: #38BDF8; }
+        QLabel#CompareRunsTimelineLegendDot[accentRole="green"] { color: #4ADE80; }
+        QLabel#CompareRunsTimelineLegendDot[accentRole="yellow"] { color: #FACC15; }
+        QLabel#CompareRunsTimelineLegendDot[accentRole="orange"] { color: #F59E0B; }
+        QLabel#CompareRunsTimelineLegendDot[accentRole="red"] { color: #F0787E; }
+        QLabel#CompareRunsTimelineLegendDot[accentRole="purple"] { color: #C084FC; }
+        QLabel#CompareRunsTimelineLegendDot[accentRole="sky"] { color: #60A5FA; }
+        QLabel#CompareRunsTimelineLegendDot[accentRole="neutral"] { color: #94A3B8; }
+        QLabel#CompareRunsTimelineLegendName,
+        QLabel#CompareRunsTimelineLegendEmpty {
+            color: #8A94A3;
+            background: transparent;
+            font-size: 11.5px;
+        }
+        QLabel#CompareRunsTimelineLegendName { font-weight: 700; }
+        QLabel#CompareRunsTimelineLegendValue,
+        QLabel#CompareRunsTimelineLegendDelta {
+            color: #B9C2CE;
+            background: transparent;
+            font-size: 11.5px;
+            font-weight: 700;
+        }
+        QLabel#CompareRunsTimelineLegendValue[side="A"] { color: #38BDF8; }
+        QLabel#CompareRunsTimelineLegendValue[side="B"] { color: #C084FC; }
+        QLabel#CompareRunsTimelineLegendDelta { color: #FACC15; }
+        QLabel#CompareRunsTimelineLegendArrow,
+        QLabel#CompareRunsTimelineLegendSeparator {
+            color: #3D4756;
+            background: transparent;
         }
         QListWidget#CompareRunsRecordingList[side="A"]::item:selected {
             background-color: rgba(56, 189, 248, 0.12);

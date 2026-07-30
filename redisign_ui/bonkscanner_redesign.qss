@@ -775,9 +775,10 @@ QLabel#footerMeta {
     color: #5C6675; font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px;
 }
 
-/* ------------------------------------------------------- Compare Runs ----
-   Painter tokens mirrored by ui/tabs/compare_runs/timeline.py:
-   A #38BDF8, B #C084FC, surface #0E1217/#0B0F14, borders #1B222B/#2A3542. */
+/* ----------------------------------------------- Shared timeline controls ----
+   QPainter tokens live in ui/timeline_visuals.py:
+   A #38BDF8 / rgba(56,189,248,20), B #C084FC / rgba(192,132,252,20),
+   track #141A22, border #2A3542. */
 QWidget#CompareRunsPage,
 QWidget#CompareRunsTabPage,
 QWidget#CompareRunsWorkspacePage,
@@ -921,8 +922,10 @@ QLabel#CompareRunsCompactMetricEmpty {
     color: #5C6675;
     background: transparent;
 }
-QLabel#CompareRunsChooserTitle[side="A"] { color: #38BDF8; font-weight: 800; }
-QLabel#CompareRunsChooserTitle[side="B"] { color: #C084FC; font-weight: 800; }
+QLabel#CompareRunsChooserTitle {
+    color: #EDF1F5;
+    font-weight: 800;
+}
 QLineEdit#CompareRunsChooserSearch,
 QLineEdit#CompareRunsStatsSearch {
     background-color: #0E1217;
@@ -978,8 +981,8 @@ QProgressBar#RecordingRowBar::chunk {
     background: #2E3A48;
     border-radius: 2px;
 }
-QPushButton#CompareRunsSeriesSlot,
-QPushButton#CompareRunsAxisMode {
+QPushButton[timelineSlot="true"],
+QPushButton[timelineAxisMode="true"] {
     background-color: #141A22;
     color: #8A94A3;
     border: 1px solid #2A3542;
@@ -988,15 +991,66 @@ QPushButton#CompareRunsAxisMode {
     font-size: 11.5px;
     font-weight: 700;
 }
-QPushButton#CompareRunsSeriesSlot:hover,
-QPushButton#CompareRunsAxisMode:hover {
+QPushButton[timelineSlot="true"]:hover,
+QPushButton[timelineAxisMode="true"]:hover {
     color: #EDF1F5;
     border-color: #38495E;
 }
-QPushButton#CompareRunsAxisMode:checked {
+QPushButton[timelineAxisMode="true"]:checked {
     color: #FFFFFF;
     background-color: #2F6FB0;
     border-color: #3E82C6;
+}
+QPushButton[timelineSlot="true"][accentRole="blue"] { border-left: 3px solid #38BDF8; }
+QPushButton[timelineSlot="true"][accentRole="green"] { border-left: 3px solid #4ADE80; }
+QPushButton[timelineSlot="true"][accentRole="yellow"] { border-left: 3px solid #FACC15; }
+QPushButton[timelineSlot="true"][accentRole="orange"] { border-left: 3px solid #F59E0B; }
+QPushButton[timelineSlot="true"][accentRole="red"] { border-left: 3px solid #F0787E; }
+QPushButton[timelineSlot="true"][accentRole="purple"] { border-left: 3px solid #C084FC; }
+QPushButton[timelineSlot="true"][accentRole="sky"] { border-left: 3px solid #60A5FA; }
+QPushButton[timelineSlot="true"][accentRole="neutral"] { border-left: 3px solid #94A3B8; }
+QWidget#CompareRunsTimelineLegend {
+    background: transparent;
+    border: none;
+}
+QFrame#CompareRunsTimelineLegendItem {
+    background-color: #0E1217;
+    border: 1px solid #1B222B;
+    border-radius: 7px;
+}
+QLabel#CompareRunsTimelineLegendDot {
+    background: transparent;
+    font-size: 11px;
+}
+QLabel#CompareRunsTimelineLegendDot[accentRole="blue"] { color: #38BDF8; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="green"] { color: #4ADE80; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="yellow"] { color: #FACC15; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="orange"] { color: #F59E0B; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="red"] { color: #F0787E; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="purple"] { color: #C084FC; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="sky"] { color: #60A5FA; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="neutral"] { color: #94A3B8; }
+QLabel#CompareRunsTimelineLegendName,
+QLabel#CompareRunsTimelineLegendEmpty {
+    color: #8A94A3;
+    background: transparent;
+    font-size: 11.5px;
+}
+QLabel#CompareRunsTimelineLegendName { font-weight: 700; }
+QLabel#CompareRunsTimelineLegendValue,
+QLabel#CompareRunsTimelineLegendDelta {
+    color: #B9C2CE;
+    background: transparent;
+    font-size: 11.5px;
+    font-weight: 700;
+}
+QLabel#CompareRunsTimelineLegendValue[side="A"] { color: #38BDF8; }
+QLabel#CompareRunsTimelineLegendValue[side="B"] { color: #C084FC; }
+QLabel#CompareRunsTimelineLegendDelta { color: #FACC15; }
+QLabel#CompareRunsTimelineLegendArrow,
+QLabel#CompareRunsTimelineLegendSeparator {
+    color: #3D4756;
+    background: transparent;
 }
 QLabel#CompareRunsTimelineTitle {
     color: #8A94A3;
@@ -1004,8 +1058,9 @@ QLabel#CompareRunsTimelineTitle {
     font-weight: 800;
     letter-spacing: 1px;
 }
-QLabel#CompareRunsTimelinePosition {
+QLabel[timelinePosition="true"] {
     color: #EDF1F5;
+    font-weight: 700;
     background-color: #141A22;
     border: 1px solid #2A3542;
     border-radius: 8px;

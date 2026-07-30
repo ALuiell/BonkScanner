@@ -37,6 +37,7 @@ from __future__ import annotations
 import bisect
 import threading
 from collections import OrderedDict
+from math import isfinite
 from pathlib import Path
 from typing import Callable
 
@@ -53,7 +54,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -65,8 +65,12 @@ from PySide6.QtWidgets import (
 
 from app import config
 from app.vod_library import load_vod
+from core.run_summary import item_counts
+from core.stats.formats import PlayerStatFormat
+from core.stats.formatters import format_player_stat_delta
 from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
+from projections.timeline_axis import snapshot_times as projected_snapshot_times
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
 from ui.recording_library import RecordingLibraryRow, recording_search_text
 from ui.shared import (
@@ -86,6 +90,11 @@ from ui.tabs.compare_runs.timeline import (
     AXIS_PROGRESS,
     AXIS_TIME,
     CompareRunsTimeline,
+)
+from ui.tabs.compare_runs.timeline_legend import CompareRunsTimelineLegend
+from ui.timeline_controls import (
+    build_timeline_series_menu,
+    refresh_timeline_slot_button,
 )
 
 
@@ -109,6 +118,57 @@ COMPARE_RUN_SECTION_DEFAULTS = {
     "tomes": False,
     "chaos": False,
 }
+
+
+def _timeline_series_numeric_value(key: str, snapshot) -> float | None:
+    if snapshot is None:
+        return None
+    if key == scrubber_model.KILLS_SERIES:
+        value = getattr(snapshot, "mob_kills", None)
+    elif key == scrubber_model.ITEMS_SERIES:
+        return float(sum(item_counts(getattr(snapshot, "items", ())).values()))
+    else:
+        stats = getattr(snapshot, "stats", None)
+        stat = stats.get(key) if isinstance(stats, dict) else None
+        value = getattr(stat, "value", None)
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if isfinite(number) else None
+
+
+def _timeline_series_display_value(key: str, snapshot) -> str:
+    value = _timeline_series_numeric_value(key, snapshot)
+    if value is None:
+        return "--"
+    if key in {scrubber_model.KILLS_SERIES, scrubber_model.ITEMS_SERIES}:
+        return formatting.format_count(value)
+    stats = getattr(snapshot, "stats", None)
+    stat = stats.get(key) if isinstance(stats, dict) else None
+    return str(getattr(stat, "display_value", "--") or "--")
+
+
+def _timeline_series_delta_value(key: str, snapshot_a, snapshot_b) -> str:
+    value_a = _timeline_series_numeric_value(key, snapshot_a)
+    value_b = _timeline_series_numeric_value(key, snapshot_b)
+    if value_a is None or value_b is None:
+        return "--"
+    delta = value_b - value_a
+    if key in {scrubber_model.KILLS_SERIES, scrubber_model.ITEMS_SERIES}:
+        sign = "+" if delta >= 0 else "-"
+        return f"{sign}{formatting.format_count(abs(delta))}"
+
+    stats_a = getattr(snapshot_a, "stats", None)
+    stats_b = getattr(snapshot_b, "stats", None)
+    stat_a = stats_a.get(key) if isinstance(stats_a, dict) else None
+    stat_b = stats_b.get(key) if isinstance(stats_b, dict) else None
+    spec = getattr(stat_b, "spec", None) or getattr(stat_a, "spec", None)
+    display_scale = float(getattr(spec, "display_scale", 1.0) or 1.0)
+    value_format = getattr(spec, "value_format", PlayerStatFormat.FLAT)
+    if not isinstance(value_format, PlayerStatFormat):
+        value_format = PlayerStatFormat.FLAT
+    return format_player_stat_delta(delta * display_scale, value_format)
 
 
 # --------------------------------------------------------------------------
@@ -259,16 +319,8 @@ class SnapshotTimeIndex:
 
     @classmethod
     def build(cls, snapshots) -> "SnapshotTimeIndex":
-        entries = []
-        for index, snapshot in enumerate(snapshots):
-            snapshot_time = formatting._snapshot_compare_time(snapshot)
-            if snapshot_time is None:
-                continue
-            try:
-                entries.append((float(snapshot_time), index))
-            except (TypeError, ValueError):
-                continue
-        entries.sort()
+        entries = list(enumerate(projected_snapshot_times(snapshots)))
+        entries = [(time_value, index) for index, time_value in entries]
         return cls(
             tuple(entry[0] for entry in entries),
             tuple(entry[1] for entry in entries),
@@ -442,6 +494,7 @@ class CompareRunsTab:
         self._run_b_items_view = None
         self._timeline = None
         self._timeline_position_label = None
+        self._timeline_legend = None
         self._axis_time_btn = None
         self._axis_progress_btn = None
         self._series_slot_buttons = []
@@ -698,24 +751,15 @@ class CompareRunsTab:
         timeline = self._timeline
         if timeline is None:
             return
-        if self._axis_mode == AXIS_TIME:
-            target_time = float(position) * timeline.common_duration
-            index_a = (
-                self._compare_run_time_index("a").nearest(target_time)
-                if self._vod_a is not None and self._vod_a.snapshots
-                else None
-            )
-            index_b = (
-                self._compare_run_time_index("b").nearest(target_time)
-                if self._vod_b is not None and self._vod_b.snapshots
-                else None
-            )
-        else:
-            index_a, index_b = timeline.nearest_indices(position)
+        index_a, index_b = timeline.nearest_indices(position)
         self._set_compare_run_index("a", index_a)
         self._set_compare_run_index("b", index_b)
-        self._refresh_compare_timeline_position_label()
+        self._refresh_compare_timeline_readout()
         self._diff_throttle.request(self.refresh_compare_runs_ui)
+
+    def _refresh_compare_timeline_readout(self) -> None:
+        self._refresh_compare_timeline_position_label()
+        self._refresh_compare_timeline_legend()
 
     def _refresh_compare_timeline_position_label(self) -> None:
         values = []
@@ -725,6 +769,26 @@ class CompareRunsTab:
             values.append(f'<span style="color:{color}; font-weight:700;">{side.upper()}</span> {label}')
         _set_text(self._timeline_position_label, " &nbsp;·&nbsp; ".join(values))
 
+    def _refresh_compare_timeline_legend(self) -> None:
+        legend = self._timeline_legend
+        if legend is None:
+            return
+        keys = tuple(dict.fromkeys(key for slot in self._series_slots for key in slot))
+        legend.set_keys(keys)
+        snapshot_a = self._compare_run_snapshot("a")
+        snapshot_b = self._compare_run_snapshot("b")
+        legend.set_values(
+            (
+                key,
+                (
+                    _timeline_series_display_value(key, snapshot_a),
+                    _timeline_series_display_value(key, snapshot_b),
+                    _timeline_series_delta_value(key, snapshot_a, snapshot_b),
+                ),
+            )
+            for key in keys
+        )
+
     def _refresh_compare_runs_timeline_model(self) -> None:
         if self._timeline is None:
             return
@@ -732,6 +796,7 @@ class CompareRunsTab:
         self._timeline.set_runs(self._vod_a, self._vod_b, series_keys=keys)
         self._timeline.set_axis_mode(self._axis_mode)
         self._refresh_series_slot_buttons()
+        self._refresh_compare_timeline_readout()
 
     def _set_axis_mode(self, mode: str) -> None:
         mode = mode if mode in {AXIS_TIME, AXIS_PROGRESS} else AXIS_TIME
@@ -762,81 +827,11 @@ class CompareRunsTab:
 
     def _refresh_series_slot_buttons(self) -> None:
         for index, button in enumerate(self._series_slot_buttons):
-            keys = self._series_slots[index]
-            if not keys:
-                text = f"Series {index + 1}: None"
-            else:
-                labels = " + ".join(scrubber_model.series_label(key) for key in keys)
-                text = f"Series {index + 1}: {labels}"
-            button.setText(text)
-
-    def _open_series_slot_menu(self, slot_index: int) -> None:
-        button = self._series_slot_buttons[slot_index]
-        menu = QMenu(button)
-        none_action = menu.addAction("None")
-        none_action.triggered.connect(lambda: self._set_series_slot(slot_index, ()))
-        menu.addSeparator()
-        groups = {
-            "Dmg": (
-                "Damage",
-                "Crit Chance",
-                "Crit Damage",
-                "Attack Speed",
-                "Projectile Count",
-                "Projectile Bounces",
-            ),
-            "Effects": (
-                "Size",
-                "Projectile Speed",
-                "Duration",
-                "Damage to Elites",
-                "Knockback",
-            ),
-            "Run": (
-                "Max HP",
-                "HP Regen",
-                "Overheal",
-                "Shield",
-                "Armor",
-                "Evasion",
-                "Lifesteal",
-                "Thorns",
-                "Extra Jumps",
-                "Jump Height",
-                "Movement Speed",
-            ),
-            "Rewards & spawns": (
-                "Luck",
-                "Difficulty",
-                "Pickup Range",
-                "XP Gain",
-                "Gold Gain",
-                "Elite Spawn Increase",
-                "Powerup Multiplier",
-                "Powerup Drop Chance",
-            ),
-        }
-        allowed = set(scrubber_model.available_series_keys())
-        for title, labels in groups.items():
-            submenu = menu.addMenu(title)
-            for key in labels:
-                if key not in allowed:
-                    continue
-                action = submenu.addAction(key)
-                action.triggered.connect(
-                    lambda _checked=False, selected=key: self._set_series_slot(
-                        slot_index, (selected,)
-                    )
-                )
-        menu.addSeparator()
-        for key in (scrubber_model.KILLS_SERIES, scrubber_model.ITEMS_SERIES):
-            action = menu.addAction(scrubber_model.series_label(key))
-            action.triggered.connect(
-                lambda _checked=False, selected=key: self._set_series_slot(
-                    slot_index, (selected,)
-                )
+            refresh_timeline_slot_button(
+                button,
+                index,
+                self._series_slots[index],
             )
-        menu.exec(button.mapToGlobal(button.rect().bottomLeft()))
 
     def on_compare_run_slider_changed(self, side: str, value):
         vod = self._compare_run_vod(side)
@@ -885,6 +880,7 @@ class CompareRunsTab:
             self._refresh_compare_runs_selected_labels()
             self._refresh_compare_runs_chooser()
             self._refresh_compare_runs_stats_config()
+            self._refresh_compare_timeline_readout()
 
     def _sync_compare_run_to_side(self, target_side: str, source_side: str) -> None:
         source_vod = self._compare_run_vod(source_side)
@@ -1658,7 +1654,7 @@ class CompareRunsTab:
         return group, label
 
     def _build_diff_table_card(self, title: str):
-        """A diff card whose body is a `MetricTableView` instead of a `QLabel`."""
+        """A diff card whose body is a restyled four-column comparison table."""
         group = QGroupBox(title)
         layout = QVBoxLayout(group)
         view = MetricTableView()
@@ -1767,25 +1763,31 @@ class CompareRunsTab:
         timeline_card.setObjectName("CompareRunsTimelineCard")
         timeline_layout = QVBoxLayout(timeline_card)
         timeline_layout.setContentsMargins(10, 9, 10, 10)
-        timeline_layout.setSpacing(7)
+        timeline_layout.setSpacing(2)
 
-        timeline_toolbar = QHBoxLayout()
-        timeline_toolbar.setSpacing(6)
+        timeline_series_row = QHBoxLayout()
+        timeline_series_row.setSpacing(6)
         for index in range(4):
             button = QPushButton()
             button.setObjectName("CompareRunsSeriesSlot")
             button.setProperty("slotIndex", index)
-            button.clicked.connect(
-                lambda _checked=False, slot=index: self._open_series_slot_menu(slot)
+            button.setProperty("timelineSlot", True)
+            button.setMenu(
+                build_timeline_series_menu(
+                    button,
+                    index,
+                    self._set_series_slot,
+                )
             )
             self._series_slot_buttons.append(button)
-            timeline_toolbar.addWidget(button)
-        timeline_toolbar.addStretch(1)
+            timeline_series_row.addWidget(button)
+        timeline_series_row.addStretch(1)
 
         self._axis_time_btn = QPushButton("In-game time")
         self._axis_progress_btn = QPushButton("Progress %")
         for button in (self._axis_time_btn, self._axis_progress_btn):
             button.setObjectName("CompareRunsAxisMode")
+            button.setProperty("timelineAxisMode", True)
             button.setCheckable(True)
         axis_group = QButtonGroup(self._tab)
         axis_group.setExclusive(True)
@@ -1793,24 +1795,27 @@ class CompareRunsTab:
         axis_group.addButton(self._axis_progress_btn)
         self._axis_time_btn.clicked.connect(lambda: self._set_axis_mode(AXIS_TIME))
         self._axis_progress_btn.clicked.connect(lambda: self._set_axis_mode(AXIS_PROGRESS))
-        timeline_toolbar.addWidget(self._axis_time_btn)
-        timeline_toolbar.addWidget(self._axis_progress_btn)
-        timeline_layout.addLayout(timeline_toolbar)
-
-        timeline_meta = QHBoxLayout()
+        timeline_header = QHBoxLayout()
+        timeline_header.setSpacing(6)
         timeline_title = QLabel("TIMELINE")
         timeline_title.setObjectName("CompareRunsTimelineTitle")
-        timeline_meta.addWidget(timeline_title)
-        timeline_meta.addStretch(1)
+        timeline_header.addWidget(timeline_title)
+        timeline_header.addStretch(1)
         self._timeline_position_label = QLabel("A -- · B --")
         self._timeline_position_label.setObjectName("CompareRunsTimelinePosition")
+        self._timeline_position_label.setProperty("timelinePosition", True)
         self._timeline_position_label.setTextFormat(Qt.RichText)
-        timeline_meta.addWidget(self._timeline_position_label)
-        timeline_layout.addLayout(timeline_meta)
+        timeline_header.addWidget(self._timeline_position_label)
+        timeline_layout.addLayout(timeline_header)
+        timeline_series_row.addWidget(self._axis_time_btn)
+        timeline_series_row.addWidget(self._axis_progress_btn)
+        timeline_layout.addLayout(timeline_series_row)
 
         self._timeline = CompareRunsTimeline()
         self._timeline.positionChanged.connect(self.on_compare_timeline_position_changed)
         timeline_layout.addWidget(self._timeline)
+        self._timeline_legend = CompareRunsTimelineLegend()
+        timeline_layout.addWidget(self._timeline_legend)
         workspace_layout.addWidget(timeline_card)
 
         self._detail_tabs = FullWidthTabWidget()

@@ -48,7 +48,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
-    QMenu,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -70,6 +69,7 @@ from core.run_summary import item_counts
 from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS, PLAYER_STAT_SPEC_BY_LABEL
 from projections.item_sort import ITEM_SORT_RARITY_DESC
+from projections.timeline_axis import AXIS_TIME, build_axis_projection
 from ui.dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from ui.recording_library import RecordingLibraryRow
 from ui.tabs.player_stats.metrics import (
@@ -115,6 +115,11 @@ from ui.tabs.player_stats.summary_cards import (
     set_stage_summary_labels,
 )
 from projections import formatting, scrubber as scrubber_model
+from ui.timeline_controls import (
+    TIMELINE_SERIES_GROUPS,
+    build_timeline_series_menu,
+    refresh_timeline_slot_button,
+)
 
 
 #: Which series each of the scrubber's four slots holds. Persisted because the
@@ -126,56 +131,8 @@ SCRUBBER_SLOTS_CONFIG_KEY = "recordings_scrubber_slots"
 
 #: The graph menu's own grouping. It starts from the same stat set as the cards,
 #: but is arranged by how the series are read together on a timeline.
-SCRUBBER_STAT_GROUPS = (
-    (
-        "Survivability",
-        (
-            "Max HP",
-            "HP Regen",
-            "Overheal",
-            "Shield",
-            "Armor",
-            "Evasion",
-            "Lifesteal",
-            "Thorns",
-        ),
-    ),
-    (
-        "Dmg",
-        (
-            "Damage",
-            "Crit Chance",
-            "Crit Damage",
-            "Attack Speed",
-            "Projectile Count",
-            "Projectile Bounces",
-        ),
-    ),
-    (
-        "Effects",
-        (
-            "Size",
-            "Projectile Speed",
-            "Duration",
-            "Damage to Elites",
-            "Knockback",
-        ),
-    ),
-    ("Mobility", ("Extra Jumps", "Jump Height", "Movement Speed")),
-    (
-        "Rewards & Spawns",
-        (
-            "Luck",
-            "Difficulty",
-            "Pickup Range",
-            "XP Gain",
-            "Gold Gain",
-            "Elite Spawn Increase",
-            "Powerup Multiplier",
-            "Powerup Drop Chance",
-        ),
-    ),
-)
+# Compatibility name for tests/extensions that imported the former local list.
+SCRUBBER_STAT_GROUPS = TIMELINE_SERIES_GROUPS
 
 
 #: Width of the label column in Compare Details. Measured, not guessed: bold
@@ -1471,10 +1428,12 @@ class RecordingsTab:
         self._slot_buttons = []
         for slot_index in range(len(self._slots)):
             button = QPushButton()
-            button.setProperty("class", "SmallGhostButton")
             button.setObjectName("RecordingScrubberSlot")
+            button.setProperty("timelineSlot", True)
             button.setEnabled(False)
-            button.setMenu(self._build_slot_menu(button, slot_index))
+            button.setMenu(
+                build_timeline_series_menu(button, slot_index, self._set_slot)
+            )
             self._slot_buttons.append(button)
             row.addWidget(button)
         row.addStretch(1)
@@ -1488,6 +1447,7 @@ class RecordingsTab:
         row.addWidget(self._compare_hint_label)
         self._position_label = QLabel("--")
         self._position_label.setObjectName("RecordingScrubberPosition")
+        self._position_label.setProperty("timelinePosition", True)
         row.addWidget(self._position_label)
         self._refresh_slot_buttons()
         self._refresh_compare_hint()
@@ -1525,44 +1485,6 @@ class RecordingsTab:
             f'</span>&nbsp;&nbsp;·&nbsp;&nbsp;',
         )
 
-    def _build_slot_menu(self, button: QPushButton, slot_index: int) -> QMenu:
-        """Every series a slot may hold, grouped the way the stat grid is.
-
-        A flat 32-entry combo was the alternative; the groups here are
-        `PLAYER_STAT_GROUPS`, which is the order the user already reads these
-        stats in eight rows below.
-        """
-        menu = QMenu(button)
-        none_action = menu.addAction("None")
-        none_action.triggered.connect(
-            lambda _checked=False, index=slot_index: self._set_slot(
-                index, scrubber_model.EMPTY_SLOT
-            )
-        )
-        menu.addSeparator()
-        for key in (scrubber_model.KILLS_SERIES, scrubber_model.ITEMS_SERIES):
-            action = menu.addAction(scrubber_model.series_label(key))
-            action.triggered.connect(
-                lambda _checked=False, index=slot_index, series=key: self._set_slot(index, (series,))
-            )
-        pair = ("Powerup Multiplier", "Powerup Drop Chance")
-        pair_action = menu.addAction("PM + PDC")
-        pair_action.triggered.connect(
-            lambda _checked=False, index=slot_index: self._set_slot(index, pair)
-        )
-        menu.addSeparator()
-        for group_label, stat_labels in SCRUBBER_STAT_GROUPS:
-            submenu = menu.addMenu(group_label)
-            for stat_label in stat_labels:
-                spec = PLAYER_STAT_SPEC_BY_LABEL[stat_label]
-                action = submenu.addAction(spec.label)
-                action.triggered.connect(
-                    lambda _checked=False, index=slot_index, series=spec.label: self._set_slot(
-                        index, (series,)
-                    )
-                )
-        return menu
-
     def _set_slot(self, slot_index: int, keys: tuple[str, ...]) -> None:
         slots = list(self._slots)
         if not 0 <= slot_index < len(slots) or slots[slot_index] == keys:
@@ -1576,19 +1498,8 @@ class RecordingsTab:
             self._refresh_scrub_readout(self._snapshot_index or 0)
 
     def _refresh_slot_buttons(self) -> None:
-        for button, slot in zip(self._slot_buttons, self._slots):
-            if not slot:
-                button.setText("None")
-                button.setStyleSheet("")
-                continue
-            button.setText(
-                " + ".join(
-                    abbreviate_stat_label(scrubber_model.series_label(key)) for key in slot
-                )
-            )
-            button.setStyleSheet(
-                f"border-left: 3px solid {scrubber_model.series_color(slot[0])};"
-            )
+        for index, (button, slot) in enumerate(zip(self._slot_buttons, self._slots)):
+            refresh_timeline_slot_button(button, index, slot)
 
     def _rebuild_scrubber_model(self) -> None:
         """Rebuild what the scrubber paints. Once per load or slot change.
@@ -1602,8 +1513,15 @@ class RecordingsTab:
         self._scrubber.set_slots(self._slots)
         snapshots = self._loaded_vod.snapshots if self._loaded_vod is not None else ()
         self._scrubber.set_model(
-            scrubber_model.build_model(snapshots, series_keys=self._scrubber.series_keys)
+            scrubber_model.build_model(
+                snapshots,
+                series_keys=self._scrubber.series_keys,
+            )
         )
+        if hasattr(self._scrubber, "set_projection"):
+            self._scrubber.set_projection(
+                build_axis_projection(snapshots, mode=AXIS_TIME)
+            )
         self._scrubber.set_pin(self._compare_start_index)
 
     @staticmethod

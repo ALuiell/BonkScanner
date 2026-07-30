@@ -17,52 +17,55 @@ the fault ``ui/metric_table.py`` was written to fix elsewhere in this tab.
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
 from core.stats.formats import PlayerStatFormat
 from core.stats.formatters import format_player_stat_value
 from projections import scrubber as model_module
+from projections.timeline_axis import AXIS_PROGRESS, TimelineAxisProjection
+from ui.timeline_visuals import (
+    MARKER_BIN_WIDTH,
+    MARKER_HOVER_SLACK,
+    MARKER_STRIP_HEIGHT,
+    MARKER_TOOLTIP_MAX_LINES,
+    RUN_A_COLOR,
+    RUN_B_COLOR,
+    STAGE_A_FILL,
+    TRACK_BORDER,
+    TRACK_SURFACE,
+    build_cap_geometry,
+    build_marker_glyphs,
+    build_series_path,
+    paint_marker_glyphs,
+    paint_playhead,
+    paint_stage_band,
+)
 
 
-# Palette, matched to `redisign_ui/bonkscanner_redesign.qss`. Local constants
-# rather than a stylesheet: `paintEvent` needs real colour values, and a QSS
-# rule cannot reach inside a custom-painted widget.
-_BG = QColor("#141A22")
-_BORDER = QColor("#2A3542")
-_BAND_TOP = QColor(47, 111, 176, 26)
-_BAND_BOTTOM = QColor(47, 111, 176, 5)
-_BAND_EDGE = QColor("#2A3542")
-_BAND_TEXT = QColor("#5C6675")
+# Shared painter tokens are defined in `ui/timeline_visuals.py` and mirrored by
+# `redisign_ui/bonkscanner_redesign.qss`; QSS cannot style custom-painted pixels.
+_BG = TRACK_SURFACE
+_BORDER = TRACK_BORDER
+_BAND_TOP = STAGE_A_FILL
+_BAND_BOTTOM = QColor(56, 189, 248, 7)
 _MUTED_TEXT = QColor("#3D4756")
 _SEGMENT_FILL = QColor(56, 189, 248, 23)
 _SEGMENT_EDGE = QColor(56, 189, 248, 140)
-_PIN = QColor("#C084FC")
-_PIN_TEXT = QColor("#06202B")
-_PLAYHEAD = QColor("#38BDF8")
-_PLAYHEAD_SHADOW = QColor(0, 0, 0, 140)
+_PIN = RUN_B_COLOR
+_PLAYHEAD = RUN_A_COLOR
 
 #: Height of the strip along the top that carries stage captions.
 _BAND_LABEL_HEIGHT = 15
 #: Height of the strip along the bottom that carries event markers.
-_MARKER_STRIP_HEIGHT = 11
+_MARKER_STRIP_HEIGHT = int(MARKER_STRIP_HEIGHT)
+_MARKER_BIN_WIDTH = MARKER_BIN_WIDTH
+_MARKER_HOVER_SLACK = MARKER_HOVER_SLACK
+_MARKER_TOOLTIP_MAX_LINES = MARKER_TOOLTIP_MAX_LINES
 #: Breathing room so a curve at full scale does not merge into the border.
 _PLOT_PADDING = 7
 #: Marker glyphs are ~5 px wide; binning at that width is the densest the strip
 #: can be while individual events still read as separate.
-_MARKER_BIN_WIDTH = 8.0
-#: Which event wins its bin. A banish outranks a pickup because it is the rarer
-#: decision, and a legendary outranks a rare for the obvious reason.
-_MARKER_RANK = {"rare": 1, "legendary": 2, "banish": 3}
-#: Vertical slack around the marker strip for hover. The strip is 11 px tall,
-#: which is a hard target for a pointer; the band above it is empty anyway.
-_MARKER_HOVER_SLACK = 5.0
-#: Lines before the tooltip stops listing and starts counting. A bin can hold a
-#: whole level-up's worth of pickups, and a tooltip taller than the widget it
-#: describes is worse than a summary.
-_MARKER_TOOLTIP_MAX_LINES = 8
-
-
 class RecordingScrubber(QWidget):
     """Scrub position and compare anchor over one loaded recording."""
 
@@ -76,6 +79,7 @@ class RecordingScrubber(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._model = model_module.ScrubberModel(count=0)
+        self._projection = TimelineAxisProjection((), (), 1.0, AXIS_PROGRESS)
         self._slots: tuple[tuple[str, ...], ...] = model_module.DEFAULT_SLOTS
         self._index = 0
         self._pin: int | None = None
@@ -88,9 +92,12 @@ class RecordingScrubber(QWidget):
         # five series; caching it is what keeps a drag ahead of the pointer.
         self._cache_key: tuple | None = None
         self._cached_paths: list[tuple[QPainterPath, QColor]] = []
-        self._cached_markers: list[tuple[float, str, QColor]] = []
+        self._cached_markers = ()
         self._cached_caps: list[tuple[float, float, float, QColor, str | None]] = []
         self._model_token = 0
+        self._static_layer: QPixmap | None = None
+        self._static_cache_key = None
+        self._static_rebuilds = 0
         self.setMinimumHeight(150)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setFocusPolicy(Qt.StrongFocus)
@@ -103,17 +110,51 @@ class RecordingScrubber(QWidget):
     def model(self) -> model_module.ScrubberModel:
         return self._model
 
-    def set_model(self, model: model_module.ScrubberModel) -> None:
+    def set_model(
+        self,
+        model: model_module.ScrubberModel,
+        *,
+        projection: TimelineAxisProjection | None = None,
+    ) -> None:
         self._model = model
+        if projection is None or len(projection.positions) != model.count:
+            denominator = max(model.count - 1, 1)
+            positions = tuple(index / denominator for index in range(model.count))
+            projection = TimelineAxisProjection(
+                tuple(float(index) for index in range(model.count)),
+                positions,
+                float(denominator),
+                AXIS_PROGRESS,
+            )
+        self._projection = projection
         self._model_token += 1
+        self._invalidate_static_layer()
         self._index = min(self._index, max(model.count - 1, 0))
         if self._pin is not None and self._pin > max(model.count - 1, 0):
             self._pin = None
         self.update()
 
     def set_slots(self, slots) -> None:
-        self._slots = tuple(tuple(slot) for slot in slots)
+        slots = tuple(tuple(slot) for slot in slots)
+        if slots == self._slots:
+            return
+        self._slots = slots
+        self._invalidate_static_layer()
         self.update()
+
+    def set_projection(self, projection: TimelineAxisProjection) -> None:
+        if len(projection.positions) != self._model.count:
+            raise ValueError("timeline projection must match the scrubber model")
+        if projection == self._projection:
+            return
+        self._projection = projection
+        self._model_token += 1
+        self._invalidate_static_layer()
+        self.update()
+
+    @property
+    def static_rebuilds(self) -> int:
+        return self._static_rebuilds
 
     @property
     def series_keys(self) -> tuple[str, ...]:
@@ -154,7 +195,8 @@ class RecordingScrubber(QWidget):
         rect = self._track_rect()
         if rect.width() <= 0:
             return 0
-        return self._model.index_at((x - rect.left()) / rect.width())
+        index = self._projection.nearest_index((x - rect.left()) / rect.width())
+        return 0 if index is None else index
 
     def mousePressEvent(self, event) -> None:
         if self._model.count <= 0 or event.button() != Qt.LeftButton:
@@ -209,25 +251,11 @@ class RecordingScrubber(QWidget):
 
     def _marker_tooltip_at(self, point) -> str:
         """Every event binned to the glyph under `point`, or ``""``."""
-        if self._model.count <= 0 or not self._model.markers:
-            return ""
-        track = self._track_rect()
-        strip_top = track.bottom() - _MARKER_STRIP_HEIGHT - _MARKER_HOVER_SLACK
-        y = float(point.y())
-        if not (strip_top <= y <= track.bottom()):
-            return ""
-        key = int(float(point.x()) // _MARKER_BIN_WIDTH)
-        texts = [
-            marker.text
-            for marker in self._model.markers
-            if int(self._x_of(marker.index) // _MARKER_BIN_WIDTH) == key
-        ]
-        if not texts:
-            return ""
-        if len(texts) > _MARKER_TOOLTIP_MAX_LINES:
-            hidden = len(texts) - _MARKER_TOOLTIP_MAX_LINES
-            texts = texts[:_MARKER_TOOLTIP_MAX_LINES] + [f"+{hidden} more"]
-        return "\n".join(texts)
+        self._ensure_static_layer()
+        for glyph in self._cached_markers:
+            if glyph.hit_rect.contains(point):
+                return glyph.tooltip
+        return ""
 
     def keyPressEvent(self, event) -> None:
         if self._model.count <= 0:
@@ -266,22 +294,43 @@ class RecordingScrubber(QWidget):
 
     def _x_of(self, index: int) -> float:
         rect = self._track_rect()
-        return rect.left() + self._model.position(index) * rect.width()
+        if not self._projection.positions:
+            return rect.left()
+        index = min(max(int(index), 0), len(self._projection.positions) - 1)
+        return rect.left() + self._projection.positions[index] * rect.width()
 
     # -- painting ---------------------------------------------------------
 
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        track = self._track_rect()
+        self._ensure_static_layer()
+        if self._static_layer is not None:
+            painter.drawPixmap(0, 0, self._static_layer)
 
+        if self._model.count <= 0:
+            painter.end()
+            return
+
+        track = self._track_rect()
+        painter.save()
+        clip = QPainterPath()
+        clip.addRoundedRect(track, 9.0, 9.0)
+        painter.setClipPath(clip)
+        self._paint_segment(painter, track)
+        painter.restore()
+        self._paint_pin(painter, track)
+        self._paint_playhead(painter, track)
+        painter.end()
+
+    def _paint_static(self, painter: QPainter) -> None:
+        track = self._track_rect()
         painter.setPen(QPen(_BORDER, 1.0))
         painter.setBrush(_BG)
         painter.drawRoundedRect(track, 9.0, 9.0)
 
         if self._model.count <= 0:
             self._paint_placeholder(painter, track)
-            painter.end()
             return
 
         self._ensure_render_cache()
@@ -296,13 +345,36 @@ class RecordingScrubber(QWidget):
         self._paint_series(painter)
         self._paint_cap_labels(painter)
         self._paint_no_series_hint(painter)
-        self._paint_segment(painter, track)
         self._paint_markers(painter, track)
         painter.restore()
 
-        self._paint_pin(painter, track)
-        self._paint_playhead(painter, track)
+    def _ensure_static_layer(self) -> None:
+        dpr = max(1.0, float(self.devicePixelRatioF()))
+        key = (self._model_token, self._slots, self.width(), self.height(), round(dpr, 2))
+        if key == self._static_cache_key and self._static_layer is not None:
+            return
+        self._static_cache_key = key
+        pixmap = QPixmap(
+            max(1, int(self.width() * dpr)),
+            max(1, int(self.height() * dpr)),
+        )
+        pixmap.setDevicePixelRatio(dpr)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        self._paint_static(painter)
         painter.end()
+        self._static_layer = pixmap
+        self._static_rebuilds += 1
+
+    def _invalidate_static_layer(self) -> None:
+        self._cache_key = None
+        self._static_cache_key = None
+        self._static_layer = None
+
+    def resizeEvent(self, event) -> None:
+        self._invalidate_static_layer()
+        super().resizeEvent(event)
 
     def _paint_placeholder(self, painter: QPainter, track: QRectF) -> None:
         painter.setPen(_MUTED_TEXT)
@@ -334,15 +406,12 @@ class RecordingScrubber(QWidget):
             left = self._x_of(band.start)
             right = self._x_of(band.end)
             area = QRectF(left, track.top(), max(right - left, 1.0), track.height())
-            gradient_top = QRectF(area)
-            painter.fillRect(gradient_top, _BAND_TOP if band.stage_index is not None else _BAND_BOTTOM)
-            painter.setPen(QPen(_BAND_EDGE, 1.0))
-            painter.drawLine(area.right(), area.top(), area.right(), area.bottom())
-            painter.setPen(_BAND_TEXT)
-            painter.drawText(
-                QRectF(area.left() + 7.0, area.top() + 2.0, max(area.width() - 10.0, 10.0), _BAND_LABEL_HEIGHT),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                f"{band.label} · {_format_span(band.elapsed_seconds)}",
+            paint_stage_band(
+                painter,
+                area,
+                fill=_BAND_TOP if band.stage_index is not None else _BAND_BOTTOM,
+                text=f"{band.label} · {_format_span(band.elapsed_seconds)}",
+                font=self._small_font(),
             )
 
     # -- render cache -----------------------------------------------------
@@ -367,35 +436,27 @@ class RecordingScrubber(QWidget):
         self._cache_key = key
         self._cached_paths = self._build_series_paths(plot)
         self._cached_caps = self._build_cap_geometry(plot)
-        self._cached_markers = self._build_marker_bins()
+        self._cached_markers = build_marker_glyphs(
+            self._model.markers,
+            self._projection.positions,
+            self._track_rect(),
+        )
 
     def _build_series_paths(self, plot: QRectF) -> list[tuple[QPainterPath, QColor]]:
         if plot.height() <= 0 or plot.width() <= 0 or self._model.count <= 0:
             return []
-        # Sampled to the widget's pixel width rather than drawn per snapshot: a
-        # 900-point path across an 800 px track spends most of its segments
-        # inside one pixel column.
-        samples = max(int(plot.width()), 2)
         built: list[tuple[QPainterPath, QColor]] = []
         for key in self.series_keys:
             series = self._model.series(key)
             if series is None or not series.available:
                 continue
-            path = QPainterPath()
-            started = False
-            for sample in range(samples + 1):
-                index = self._model.index_at(sample / samples)
-                ratio = series.normalised(index)
-                if ratio is None:
-                    continue
-                x = plot.left() + (sample / samples) * plot.width()
-                y = plot.bottom() - ratio * plot.height()
-                if started:
-                    path.lineTo(x, y)
-                else:
-                    path.moveTo(x, y)
-                    started = True
-            if started:
+            path = build_series_path(
+                series.values,
+                self._projection.positions,
+                plot,
+                series.scale,
+            )
+            if path.elementCount():
                 built.append((path, QColor(series.color)))
         return built
 
@@ -403,21 +464,25 @@ class RecordingScrubber(QWidget):
         self, plot: QRectF
     ) -> list[tuple[float, float, float, QColor, str | None]]:
         """``(x0, x1, y, colour, label)`` per cap step."""
-        geometry: list[tuple[float, float, float, QColor, str | None]] = []
+        result: list[tuple[float, float, float, QColor, str | None]] = []
         for key in self.series_keys:
             steps = self._model.caps(key)
             series = self._model.series(key)
             if not steps or series is None or not series.available:
                 continue
             colour = QColor(series.color)
-            for step in steps:
-                ratio = min(max(step.value / series.scale, 0.0), 1.0)
-                y = plot.bottom() - ratio * plot.height()
-                geometry.append(
+            geometries = build_cap_geometry(
+                steps,
+                self._projection.positions,
+                plot,
+                series.scale,
+            )
+            for step, cap in zip(steps, geometries):
+                result.append(
                     (
-                        self._x_of(step.start),
-                        self._x_of(step.end),
-                        y,
+                        cap.x0,
+                        cap.x1,
+                        cap.y,
                         colour,
                         (
                             format_player_stat_value(
@@ -428,7 +493,7 @@ class RecordingScrubber(QWidget):
                         ),
                     )
                 )
-        return geometry
+        return result
 
     def _paint_no_series_hint(self, painter: QPainter) -> None:
         """Say why the track is blank when every slot is set to None.
@@ -500,74 +565,30 @@ class RecordingScrubber(QWidget):
         painter.drawLine(right, track.top(), right, track.bottom())
 
     def _paint_markers(self, painter: QPainter, track: QRectF) -> None:
-        top = track.bottom() - _MARKER_STRIP_HEIGHT
-        painter.setPen(Qt.NoPen)
-        for x, kind, colour in self._cached_markers:
-            painter.setBrush(colour)
-            if kind == "banish":
-                painter.drawEllipse(QRectF(x - 2.5, top + 3.0, 5.0, 5.0))
-            else:
-                painter.save()
-                painter.translate(x, top + 5.0)
-                painter.rotate(45.0)
-                painter.drawRect(QRectF(-2.6, -2.6, 5.2, 5.2))
-                painter.restore()
-
-    def _build_marker_bins(self) -> list[tuple[float, str, QColor]]:
-        """One glyph per bin, so a dense run reads as events and not as a bar.
-
-        A long recording produces ~190 markers; drawn one-per-event across an
-        800 px track they merge into a solid strip that says only "items
-        happened". Binning to a glyph's own width keeps the *distribution*
-        legible, which is the only thing the strip is for -- the exact item is
-        the tooltip's job.
-
-        Binned in the widget rather than in the model because the right bin
-        size is the glyph's, and the model has no pixels. The same recording
-        binned differently in a narrow and a wide window is correct.
-        """
-        if not self._model.markers:
-            return []
-        bins: dict[int, tuple[int, str, QColor]] = {}
-        for marker in self._model.markers:
-            x = self._x_of(marker.index)
-            key = int(x // _MARKER_BIN_WIDTH)
-            rank = _MARKER_RANK.get(marker.kind, 0)
-            existing = bins.get(key)
-            if existing is None or rank > existing[0]:
-                bins[key] = (rank, marker.kind, QColor(marker.color))
-        return [
-            ((key + 0.5) * _MARKER_BIN_WIDTH, kind, colour)
-            for key, (_rank, kind, colour) in sorted(bins.items())
-        ]
+        del track
+        paint_marker_glyphs(painter, self._cached_markers)
 
     def _paint_pin(self, painter: QPainter, track: QRectF) -> None:
         if self._pin is None:
             return
-        x = self._x_of(self._pin)
-        painter.setPen(QPen(_PIN, 2.0))
-        painter.drawLine(x, track.top(), x, track.bottom())
-        badge = QRectF(x - 9.0, track.top(), 18.0, 15.0)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(_PIN)
-        painter.drawRoundedRect(badge, 4.0, 4.0)
-        painter.setPen(_PIN_TEXT)
-        painter.setFont(self._small_font())
-        painter.drawText(badge, Qt.AlignCenter, "B")
+        paint_playhead(
+            painter,
+            track,
+            self._projection.positions[self._pin],
+            color=_PIN,
+            label="B",
+            font=self._small_font(),
+        )
 
     def _paint_playhead(self, painter: QPainter, track: QRectF) -> None:
-        x = self._x_of(self._index)
-        painter.setPen(QPen(_PLAYHEAD_SHADOW, 3.0))
-        painter.drawLine(x, track.top(), x, track.bottom())
-        painter.setPen(QPen(_PLAYHEAD, 2.0))
-        painter.drawLine(x, track.top(), x, track.bottom())
-        badge = QRectF(x - 9.0, track.top(), 18.0, 15.0)
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(_PLAYHEAD)
-        painter.drawRoundedRect(badge, 4.0, 4.0)
-        painter.setPen(_PIN_TEXT)
-        painter.setFont(self._small_font())
-        painter.drawText(badge, Qt.AlignCenter, "A")
+        paint_playhead(
+            painter,
+            track,
+            self._projection.positions[self._index],
+            color=_PLAYHEAD,
+            label="A",
+            font=self._small_font(),
+        )
 
 
 def _format_span(seconds: int) -> str:

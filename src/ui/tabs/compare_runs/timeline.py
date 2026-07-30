@@ -14,78 +14,53 @@ from PySide6.QtGui import (
     QColor,
     QFont,
     QPainter,
-    QPainterPath,
     QPen,
     QPixmap,
 )
 from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
-from projections import formatting
 from projections import scrubber as scrubber_model
+from core.stats.formats import PlayerStatFormat
+from core.stats.formatters import format_player_stat_value
+from projections.timeline_axis import (
+    AXIS_MODES,
+    AXIS_PROGRESS,
+    AXIS_TIME,
+    axis_positions,
+    build_axis_projection,
+    snapshot_times,
+)
+from ui.timeline_visuals import (
+    ENDED_FILL,
+    RUN_A_COLOR,
+    RUN_B_COLOR,
+    STAGE_A_FILL,
+    STAGE_B_FILL,
+    STAGE_MUTED_TEXT,
+    TRACK_BORDER,
+    TRACK_SURFACE,
+    build_cap_geometry,
+    build_marker_glyphs,
+    build_series_path,
+    paint_marker_glyphs,
+    paint_playhead,
+    paint_stage_band,
+)
 
 
-AXIS_TIME = "time"
-AXIS_PROGRESS = "progress"
-AXIS_MODES = (AXIS_TIME, AXIS_PROGRESS)
-
-RUN_A_COLOR = QColor("#38BDF8")
-RUN_B_COLOR = QColor("#C084FC")
-BACKGROUND = QColor("#0B0F14")
-SURFACE = QColor("#0E1217")
-BORDER = QColor("#2A3542")
-MUTED = QColor("#718096")
-TEXT = QColor("#DCE6F2")
-ENDED = QColor(5, 8, 12, 172)
-STAGE_A = QColor(56, 189, 248, 20)
-STAGE_B = QColor(192, 132, 252, 20)
+BORDER = TRACK_BORDER
+MUTED = STAGE_MUTED_TEXT
+ENDED = ENDED_FILL
+STAGE_A = STAGE_A_FILL
+STAGE_B = STAGE_B_FILL
 
 _OUTER_MARGIN = 1.0
 _LABEL_WIDTH = 32.0
-_TOP_GUTTER = 20.0
+_TOP_GUTTER = 6.0
 _BOTTOM_GUTTER = 13.0
 _LANE_GAP = 8.0
 _STAGE_LABEL_HEIGHT = 17.0
-_MARKER_HEIGHT = 8.0
-_MARKER_BIN_WIDTH = 6.0
-
-
-def _safe_time(snapshot, fallback: float) -> float:
-    value = formatting._snapshot_compare_time(snapshot)
-    try:
-        value = float(value)
-    except (TypeError, ValueError):
-        return fallback
-    return value if isfinite(value) else fallback
-
-
-def snapshot_times(snapshots) -> tuple[float, ...]:
-    """Monotonic compare-times, with index progress as a stable fallback."""
-    values: list[float] = []
-    previous = 0.0
-    for index, snapshot in enumerate(snapshots or ()):
-        value = _safe_time(snapshot, float(index))
-        value = max(previous, value)
-        values.append(value)
-        previous = value
-    return tuple(values)
-
-
-def axis_positions(
-    snapshots,
-    *,
-    mode: str,
-    common_duration: float | None = None,
-) -> tuple[float, ...]:
-    """Project one recording onto the shared axis without per-frame work."""
-    snapshots = tuple(snapshots or ())
-    if not snapshots:
-        return ()
-    if mode == AXIS_PROGRESS:
-        denominator = max(len(snapshots) - 1, 1)
-        return tuple(index / denominator for index in range(len(snapshots)))
-    times = snapshot_times(snapshots)
-    duration = max(float(common_duration or 0.0), times[-1], 1.0)
-    return tuple(max(0.0, min(1.0, value / duration)) for value in times)
+_MARKER_HEIGHT = 11.0
 
 
 def shared_series_scales(
@@ -245,7 +220,10 @@ class CompareRunsTimeline(QWidget):
         import bisect
 
         at = bisect.bisect_left(lane.positions, position)
-        candidates = (max(0, at - 1), min(len(lane.positions) - 1, at))
+        candidates = {
+            bisect.bisect_left(lane.positions, lane.positions[index])
+            for index in (max(0, at - 1), min(len(lane.positions) - 1, at))
+        }
         return min(candidates, key=lambda index: (abs(lane.positions[index] - position), index))
 
     def _reproject(self) -> None:
@@ -255,25 +233,27 @@ class CompareRunsTimeline(QWidget):
             1.0,
         )
         self._common_duration = common_duration
+        projection_a = build_axis_projection(
+            self._lane_a.snapshots,
+            mode=self._axis_mode,
+            common_duration=common_duration,
+        )
+        projection_b = build_axis_projection(
+            self._lane_b.snapshots,
+            mode=self._axis_mode,
+            common_duration=common_duration,
+        )
         self._lane_a = _Lane(
             self._lane_a.snapshots,
             self._lane_a.model,
-            self._lane_a.times,
-            axis_positions(
-                self._lane_a.snapshots,
-                mode=self._axis_mode,
-                common_duration=common_duration,
-            ),
+            projection_a.times,
+            projection_a.positions,
         )
         self._lane_b = _Lane(
             self._lane_b.snapshots,
             self._lane_b.model,
-            self._lane_b.times,
-            axis_positions(
-                self._lane_b.snapshots,
-                mode=self._axis_mode,
-                common_duration=common_duration,
-            ),
+            projection_b.times,
+            projection_b.positions,
         )
         self._data_token += 1
         self._cache_key = None
@@ -359,11 +339,6 @@ class CompareRunsTimeline(QWidget):
         self._static_rebuilds += 1
 
     def _paint_static(self, painter: QPainter) -> None:
-        outer = QRectF(self.rect()).adjusted(1.0, 1.0, -1.0, -1.0)
-        painter.setPen(QPen(BORDER, 1.0))
-        painter.setBrush(BACKGROUND)
-        painter.drawRoundedRect(outer, 10.0, 10.0)
-
         lane_rects = self._lane_rects()
         hits: list[tuple[QRectF, str]] = []
         for side, lane, rect, side_color, stage_color in (
@@ -371,8 +346,8 @@ class CompareRunsTimeline(QWidget):
             ("B", self._lane_b, lane_rects[1], RUN_B_COLOR, STAGE_B),
         ):
             painter.setPen(QPen(BORDER, 1.0))
-            painter.setBrush(SURFACE)
-            painter.drawRoundedRect(rect, 6.0, 6.0)
+            painter.setBrush(TRACK_SURFACE)
+            painter.drawRoundedRect(rect, 9.0, 9.0)
             painter.setFont(self._small_font(bold=True))
             painter.setPen(side_color)
             painter.drawText(
@@ -385,6 +360,7 @@ class CompareRunsTimeline(QWidget):
                 painter.drawText(rect, Qt.AlignCenter, "Select a recording")
                 continue
             self._paint_stages(painter, lane, rect, stage_color, side)
+            self._paint_caps(painter, lane, rect)
             self._paint_series(painter, lane, rect)
             hits.extend(self._paint_markers(painter, lane, rect))
             if self._axis_mode == AXIS_TIME and lane.positions and lane.positions[-1] < 0.999:
@@ -427,20 +403,18 @@ class CompareRunsTimeline(QWidget):
             left = self._x(rect, lane.positions[start])
             right = self._x(rect, lane.positions[end])
             area = QRectF(left, rect.top(), max(right - left, 1.0), rect.height())
-            painter.fillRect(area, fill)
-            painter.setPen(QPen(BORDER, 1.0))
-            painter.drawLine(area.right(), area.top(), area.right(), area.bottom())
             text = band.label
             if side == "B" and band.stage_index is not None:
                 delta = self._stage_deltas.get(band.stage_index)
                 if delta is not None:
                     sign = "+" if delta >= 0 else "−"
-                    text += f" · {sign}{abs(delta):.0f}s"
-            painter.setPen(TEXT if area.width() >= 55.0 else MUTED)
-            painter.drawText(
-                QRectF(area.left() + 5.0, area.top(), max(area.width() - 7.0, 8.0), _STAGE_LABEL_HEIGHT),
-                Qt.AlignLeft | Qt.AlignVCenter,
-                text,
+                    text += f" · Δ{sign}{abs(delta):.0f}s"
+            paint_stage_band(
+                painter,
+                area,
+                fill=fill,
+                text=text,
+                font=self._small_font(bold=True),
             )
         if side == "B":
             stages_a = {
@@ -472,56 +446,106 @@ class CompareRunsTimeline(QWidget):
             scale = self._shared_scales.get(key, 1.0)
             if series is None or not series.available or scale <= 0.0:
                 continue
-            path = QPainterPath()
-            active = False
-            for index, value in enumerate(series.values):
-                if value is None or index >= len(lane.positions):
-                    active = False
-                    continue
-                normalized = max(0.0, min(1.0, float(value) / scale))
-                point = QPointF(
-                    self._x(plot, lane.positions[index]),
-                    plot.bottom() - normalized * plot.height(),
-                )
-                if active:
-                    path.lineTo(point)
-                else:
-                    path.moveTo(point)
-                    active = True
+            path = build_series_path(
+                series.values,
+                lane.positions,
+                plot,
+                scale,
+            )
             painter.setPen(QPen(QColor(series.color), 1.6))
             painter.setBrush(Qt.NoBrush)
             painter.drawPath(path)
 
-    def _paint_markers(self, painter: QPainter, lane: _Lane, rect: QRectF):
-        bins: dict[int, tuple[float, list]] = {}
-        for marker in lane.model.markers:
-            if not 0 <= marker.index < len(lane.positions):
+    def _paint_caps(self, painter: QPainter, lane: _Lane, rect: QRectF) -> None:
+        plot = rect.adjusted(
+            2.0,
+            _STAGE_LABEL_HEIGHT + 3.0,
+            -2.0,
+            -(_MARKER_HEIGHT + 4.0),
+        )
+        for key in self._series_keys:
+            series = lane.model.series(key)
+            scale = self._shared_scales.get(key, 1.0)
+            if series is None or not series.available or scale <= 0.0:
                 continue
-            x = self._x(rect, lane.positions[marker.index])
-            key = int(x // _MARKER_BIN_WIDTH)
-            if key not in bins:
-                bins[key] = (x, [])
-            bins[key][1].append(marker)
-        hits = []
-        for x, markers in bins.values():
-            top = rect.bottom() - _MARKER_HEIGHT - 2.0
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QColor(markers[0].color))
-            painter.drawRoundedRect(QRectF(x - 2.5, top, 5.0, _MARKER_HEIGHT), 2.0, 2.0)
-            text = "\n".join(marker.text for marker in markers[:10])
-            if len(markers) > 10:
-                text += f"\n+{len(markers) - 10} more"
-            hits.append((QRectF(x - 5.0, top - 3.0, 10.0, _MARKER_HEIGHT + 6.0), text))
-        return hits
+            color = QColor(series.color)
+            steps = lane.model.caps(key)
+            geometries = build_cap_geometry(
+                steps,
+                lane.positions,
+                plot,
+                scale,
+            )
+            for step, cap in zip(steps, geometries):
+                painter.setPen(QPen(color, 1.0, Qt.DashLine))
+                painter.drawLine(
+                    QPointF(cap.x0, cap.y),
+                    QPointF(cap.x1, cap.y),
+                )
+                if key == "Difficulty":
+                    self._paint_cap_label(
+                        painter,
+                        plot,
+                        cap.x0,
+                        cap.x1,
+                        cap.y,
+                        color,
+                        format_player_stat_value(
+                            step.value,
+                            PlayerStatFormat.PERCENT,
+                        ),
+                    )
+
+    def _paint_cap_label(
+        self,
+        painter: QPainter,
+        plot: QRectF,
+        x0: float,
+        x1: float,
+        y: float,
+        color: QColor,
+        label: str,
+    ) -> None:
+        painter.save()
+        painter.setFont(self._small_font(bold=True))
+        metrics = painter.fontMetrics()
+        width = metrics.horizontalAdvance(label) + 8.0
+        height = metrics.height() + 2.0
+        if x1 - x0 < width + 8.0:
+            painter.restore()
+            return
+        right = x1 - 4.0
+        left = max(x0 + 4.0, right - width)
+        top = y - height - 2.0
+        if top < plot.top():
+            top = y + 2.0
+        label_rect = QRectF(left, top, width, height)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(11, 15, 20, 215))
+        painter.drawRoundedRect(label_rect, 3.0, 3.0)
+        painter.setPen(color.lighter(115))
+        painter.drawText(label_rect, Qt.AlignCenter, label)
+        painter.restore()
+
+    def _paint_markers(self, painter: QPainter, lane: _Lane, rect: QRectF):
+        glyphs = build_marker_glyphs(lane.model.markers, lane.positions, rect)
+        paint_marker_glyphs(painter, glyphs)
+        return [(glyph.hit_rect, glyph.tooltip) for glyph in glyphs]
 
     def _paint_playhead(self, painter: QPainter) -> None:
-        track = self._track_rect()
-        x = self._x(track, self._position)
-        painter.setPen(QPen(QColor("#EAF2FB"), 1.4))
-        painter.drawLine(QPointF(x, track.top() - 6.0), QPointF(x, track.bottom() + 3.0))
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#EAF2FB"))
-        painter.drawEllipse(QPointF(x, track.top() - 8.0), 3.5, 3.5)
+        for side, rect, color in zip(
+            ("A", "B"),
+            self._lane_rects(),
+            (RUN_A_COLOR, RUN_B_COLOR),
+        ):
+            paint_playhead(
+                painter,
+                rect,
+                self._position,
+                color=color,
+                label=side,
+                font=self._small_font(bold=True),
+            )
 
     def _small_font(self, *, bold: bool = False) -> QFont:
         font = QFont(self.font())
