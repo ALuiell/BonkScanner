@@ -846,6 +846,78 @@ QGroupBox#CompareRunsChaosTable {
     background-color: #0B0F14;
     border-color: #1B222B;
 }
+QWidget#CompareRunsStageCards,
+QWidget#CompareRunsCompactMetricCards {
+    background: transparent;
+    border: none;
+}
+QFrame#CompareRunsComparisonCard {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+}
+QFrame#CompareRunsComparisonCardHeader {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #1B222B;
+}
+QLabel#CompareRunsComparisonCardBadge {
+    color: #A9D9FF;
+    background-color: #152231;
+    border: none;
+    border-radius: 6px;
+    min-width: 22px;
+    min-height: 22px;
+    max-width: 22px;
+    max-height: 22px;
+    font-size: 11px;
+    font-weight: 800;
+}
+QLabel#CompareRunsComparisonCardTitle {
+    color: #EDF1F5;
+    background: transparent;
+    font-weight: 800;
+}
+QLabel#CompareRunsComparisonCardMeta {
+    color: #5C6675;
+    background: transparent;
+    font-size: 10px;
+}
+QWidget#CompareRunsComparisonMetrics {
+    background-color: #1B222B;
+    border: none;
+}
+QFrame#CompareRunsMetricCell {
+    background-color: #0B0F14;
+    border: none;
+    border-radius: 0px;
+}
+QLabel#CompareRunsMetricLabel {
+    color: #8A94A3;
+    background: transparent;
+    font-size: 10px;
+    font-weight: 700;
+}
+QLabel#CompareRunsMetricRunLabel {
+    background: transparent;
+    font-size: 9px;
+    font-weight: 900;
+}
+QLabel#CompareRunsMetricRunLabel[side="A"] { color: #38BDF8; }
+QLabel#CompareRunsMetricRunLabel[side="B"] { color: #C084FC; }
+QLabel#CompareRunsMetricValue {
+    color: #EDF1F5;
+    background: transparent;
+}
+QLabel#CompareRunsMetricDelta {
+    background: transparent;
+    font-size: 10px;
+    font-weight: 800;
+}
+QLabel#CompareRunsCompactMetricEmpty {
+    color: #5C6675;
+    background: transparent;
+}
 QLabel#CompareRunsChooserTitle[side="A"] { color: #38BDF8; font-weight: 800; }
 QLabel#CompareRunsChooserTitle[side="B"] { color: #C084FC; font-weight: 800; }
 QLineEdit#CompareRunsChooserSearch,

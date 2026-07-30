@@ -1152,6 +1152,66 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             background-color: rgba(192, 132, 252, 0.12);
             border-left: 2px solid #C084FC;
         }
+        QFrame#CompareRunsComparisonCard {
+            background-color: #0B0F14;
+            border: 1px solid #1B222B;
+            border-radius: 10px;
+        }
+        QFrame#CompareRunsComparisonCardHeader {
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid #1B222B;
+        }
+        QLabel#CompareRunsComparisonCardBadge {
+            color: #A9D9FF;
+            background-color: #152231;
+            border: none;
+            border-radius: 6px;
+            min-width: 22px;
+            min-height: 22px;
+            max-width: 22px;
+            max-height: 22px;
+            font-weight: 800;
+        }
+        QLabel#CompareRunsComparisonCardTitle {
+            color: #EDF1F5;
+            background: transparent;
+            font-weight: 800;
+        }
+        QLabel#CompareRunsComparisonCardMeta,
+        QLabel#CompareRunsMetricLabel,
+        QLabel#CompareRunsCompactMetricEmpty {
+            color: #8A94A3;
+            background: transparent;
+        }
+        QWidget#CompareRunsStageCards,
+        QWidget#CompareRunsCompactMetricCards {
+            background: transparent;
+            border: none;
+        }
+        QWidget#CompareRunsComparisonMetrics {
+            background-color: #1B222B;
+            border: none;
+        }
+        QFrame#CompareRunsMetricCell {
+            background-color: #0B0F14;
+            border: none;
+        }
+        QLabel#CompareRunsMetricRunLabel[side="A"] {
+            color: #38BDF8;
+            background: transparent;
+            font-weight: 900;
+        }
+        QLabel#CompareRunsMetricRunLabel[side="B"] {
+            color: #C084FC;
+            background: transparent;
+            font-weight: 900;
+        }
+        QLabel#CompareRunsMetricValue,
+        QLabel#CompareRunsMetricDelta {
+            color: #EDF1F5;
+            background: transparent;
+        }
     """
 
     # `compatibility_stylesheet` declares `QLabel, QCheckBox, QRadioButton

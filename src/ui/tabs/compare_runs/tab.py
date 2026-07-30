@@ -66,7 +66,7 @@ from app import config
 from app.vod_library import load_vod
 from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
-from ui.metric_table import MetricTableView
+from ui.metric_table import CompactMetricCardGridView, MetricTableView
 from ui.shared import (
     FullWidthTabWidget,
     _apply_summary_label_padding,
@@ -1958,9 +1958,15 @@ class CompareRunsTab:
 
     def _build_stages_page(self) -> None:
         page, _content, layout = self._new_scroll_page()
-        self._diff_stage_summary_group, self._diff_stages_table = self._build_diff_table_card(
-            "Stage comparison"
+        self._diff_stage_summary_group = QGroupBox("Stage comparison")
+        stage_layout = QVBoxLayout(self._diff_stage_summary_group)
+        self._diff_stages_table = CompactMetricCardGridView(
+            section_capacity=4,
+            metric_capacity=4,
+            metrics_per_row=4,
         )
+        self._diff_stages_table.setObjectName("CompareRunsStageCards")
+        stage_layout.addWidget(self._diff_stages_table)
         self._diff_stage_summary_label = None
         self._diff_stage_summary_group.setObjectName("CompareRunsStageTable")
         layout.addWidget(self._diff_stage_summary_group)

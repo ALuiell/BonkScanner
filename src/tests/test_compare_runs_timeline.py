@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication, QTabWidget
 from projections import scrubber
 from projections import formatting
 from projections.metric_table import MetricRow, MetricSection, MetricTable
+from ui.metric_table import CompactMetricCardGridView
 from ui.tabs.compare_runs.tab import CompareRunsTab
 from ui.tabs.compare_runs.timeline import (
     AXIS_PROGRESS,
@@ -154,6 +155,70 @@ def test_stage_table_keeps_boss_room_as_stage_four() -> None:
     assert stage_four_chests.value_a == "2"
 
 
+def test_stage_cards_use_a_pooled_two_column_grid() -> None:
+    app = QApplication.instance() or QApplication([])
+    view = CompactMetricCardGridView(
+        section_capacity=4,
+        metric_capacity=4,
+        metrics_per_row=4,
+    )
+    view.resize(1200, 400)
+    view.show()
+    app.processEvents()
+
+    rows = (
+        MetricRow("Time", "03:41", "03:29", "-12s"),
+        MetricRow("Kills", "41,200", "42,000", "+800"),
+        MetricRow("Chests", "2", "2", "+0"),
+        MetricRow("Items", "3", "3", "+0"),
+    )
+    table = MetricTable(
+        sections=tuple(
+            MetricSection(
+                headers=("Metric", "Run A", "Run B", "Delta"),
+                rows=rows,
+                title=f"Stage {stage}",
+            )
+            for stage in range(1, 5)
+        )
+    )
+    pooled_cards = tuple(view._cards)
+    pooled_cells = tuple(tuple(card._cells) for card in pooled_cards)
+
+    view.set_table(table)
+    app.processEvents()
+
+    assert view.column_count == 2
+    assert [
+        view._grid.getItemPosition(view._grid.indexOf(card))[:2]
+        for card in view._cards
+    ] == [(0, 0), (0, 1), (1, 0), (1, 1)]
+    assert tuple(view._cards) == pooled_cards
+    assert tuple(tuple(card._cells) for card in view._cards) == pooled_cells
+    assert "#22C55E" in view._cards[0]._cells[0]._delta.styleSheet()
+
+    updated_rows = (MetricRow("Time", "03:41", "03:30", "-11s"),) + rows[1:]
+    view.set_table(
+        MetricTable(
+            sections=tuple(
+                MetricSection(
+                    headers=("Metric", "Run A", "Run B", "Delta"),
+                    rows=updated_rows,
+                    title=f"Stage {stage}",
+                )
+                for stage in range(1, 5)
+            )
+        )
+    )
+    assert tuple(view._cards) == pooled_cards
+    assert tuple(tuple(card._cells) for card in view._cards) == pooled_cells
+
+    view.resize(700, 400)
+    app.processEvents()
+    assert view.column_count == 1
+    view.close()
+
+
 def test_playhead_updates_do_not_rebuild_static_timeline() -> None:
     app = QApplication.instance() or QApplication([])
     timeline = CompareRunsTimeline()
@@ -205,6 +270,8 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
         "Chaos",
     ]
     assert compare._timeline.objectName() == "CompareRunsTimeline"
+    assert isinstance(compare._diff_stages_table, CompactMetricCardGridView)
+    assert len(compare._diff_stages_table._cards) == 4
 
     table = MetricTable(
         sections=(
