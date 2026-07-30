@@ -70,6 +70,7 @@ from math import isfinite
 from app import config
 from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS
+from projections.item_sort import ITEM_SORT_RARITY_DESC
 from ui.shared import (
     FlowLayout,
     FullWidthTabWidget,
@@ -763,6 +764,9 @@ class LiveStatsTab:
         items_sort_combo = CompactItemsSortComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             items_sort_combo.addItem(label, mode)
+        items_sort_combo.setCurrentIndex(
+            items_sort_combo.findData(ITEM_SORT_RARITY_DESC)
+        )
         items_sort_combo.setVisible(False)
         items_meta.addWidget(items_sort_combo, 0, Qt.AlignRight | Qt.AlignVCenter)
         items_layout.addLayout(items_meta)

@@ -62,7 +62,7 @@ from PySide6.QtWidgets import (
 )
 
 from projections import formatting
-from projections.item_sort import ITEM_SORT_DEFAULT
+from projections.item_sort import ITEM_SORT_DEFAULT, ITEM_SORT_RARITY_DESC
 from ui.shared import _clear_layout, _set_text
 
 PREVIEW_MAX_CHARS = 90
@@ -235,7 +235,7 @@ class ItemsSectionView:
         rarity_label,
         toggle_btn,
         sort_combo,
-        initial_sort_mode=ITEM_SORT_DEFAULT,
+        initial_sort_mode=ITEM_SORT_RARITY_DESC,
         chips_container=None,
         always_expanded: bool = False,
         scroll_area=None,

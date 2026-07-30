@@ -70,6 +70,7 @@ from app.vod_library import (
 from core.run_summary import item_counts
 from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS, PLAYER_STAT_SPEC_BY_LABEL
+from projections.item_sort import ITEM_SORT_RARITY_DESC
 from ui.dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from ui.tabs.player_stats.metrics import (
     LIVE_STATS_VALUE_WIDTH,
@@ -1735,6 +1736,9 @@ class RecordingsTab:
         vods_items_sort_combo = CompactItemsSortComboBox()
         for mode, label in ITEM_SORT_LABELS.items():
             vods_items_sort_combo.addItem(label, mode)
+        vods_items_sort_combo.setCurrentIndex(
+            vods_items_sort_combo.findData(ITEM_SORT_RARITY_DESC)
+        )
         vods_items_sort_combo.setVisible(False)
         vod_items_meta.addWidget(
             vods_items_sort_combo, 0, Qt.AlignRight | Qt.AlignVCenter

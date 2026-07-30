@@ -98,6 +98,7 @@ class RecordingsLayoutTests(unittest.TestCase):
                 "Rarity — highest first",
                 "Rarity — lowest first",
             ]
+            assert sort_combo.currentData() == "rarity_desc"
             assert sort_combo.view().minimumWidth() >= 190
             assert not sort_combo.isVisibleTo(items)
 
