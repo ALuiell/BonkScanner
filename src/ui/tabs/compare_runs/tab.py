@@ -68,6 +68,7 @@ from app.vod_library import load_vod
 from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
+from ui.recording_library import RecordingLibraryRow, recording_search_text
 from ui.shared import (
     FullWidthTabWidget,
     _apply_summary_label_padding,
@@ -93,6 +94,7 @@ COMPARE_RUN_STAT_CONFIG_KEY = "COMPARE_RUN_STAT_LABELS"
 COMPARE_RUN_SECTIONS_CONFIG_KEY = "COMPARE_RUN_SECTIONS"
 COMPARE_RUN_AXIS_MODE_CONFIG_KEY = "COMPARE_RUN_AXIS_MODE"
 COMPARE_RUN_SERIES_SLOTS_CONFIG_KEY = "COMPARE_RUN_SERIES_SLOTS"
+_RECORDING_SEARCH_ROLE = Qt.UserRole + 1
 
 #: How many rendered diffs to keep. A diff is four short HTML strings and three
 #: `MetricTable`s, and scrubbing back and forth over the same stretch of two
@@ -390,6 +392,8 @@ class CompareRunsTab:
         # `None`.
         self._tab = None
         self._select_btn = None
+        self._run_a_change_btn = None
+        self._run_b_change_btn = None
         self._swap_btn = None
         self._stats_config_btn = None
         self._chooser_group = None
@@ -519,11 +523,18 @@ class CompareRunsTab:
             return
 
         selected_row = None
+        longest_seconds = max(
+            (max(0, int(getattr(vod, "duration_seconds", 0) or 0)) for vod in vods),
+            default=0,
+        )
         for row, vod in enumerate(vods):
-            duration = formatting.format_duration(vod.duration_seconds)
-            item = QListWidgetItem(f"{vod.name}\n{vod.snapshot_count} snapshots | {duration}")
+            item = QListWidgetItem()
             item.setData(Qt.UserRole, str(vod.path))
+            item.setData(_RECORDING_SEARCH_ROLE, recording_search_text(vod))
+            widget = RecordingLibraryRow(vod, longest_seconds=longest_seconds)
+            item.setSizeHint(widget.sizeHint())
             list_frame.addItem(item)
+            list_frame.setItemWidget(item, widget)
             if selected_path == vod.path:
                 selected_row = row
         if selected_row is not None:
@@ -538,7 +549,8 @@ class CompareRunsTab:
         needle = search.text().strip().casefold() if search is not None else ""
         for row in range(list_frame.count()):
             item = list_frame.item(row)
-            item.setHidden(bool(needle and needle not in item.text().casefold()))
+            searchable = str(item.data(_RECORDING_SEARCH_ROLE) or item.text()).casefold()
+            item.setHidden(bool(needle and needle not in searchable))
 
     def _on_compare_run_selection_changed(self, side: str, current: QListWidgetItem | None):
         if current is None:
@@ -1341,8 +1353,19 @@ class CompareRunsTab:
             target = chooser_page if expanded else workspace_page
             if stack.currentWidget() is not target:
                 stack.setCurrentWidget(target)
-        if button is not None:
-            button.setText("Done")
+        change_buttons = tuple(
+            candidate
+            for candidate in (self._run_a_change_btn, self._run_b_change_btn)
+            if candidate is not None
+        )
+        if change_buttons:
+            for change_button in change_buttons:
+                change_button.setText("Done" if expanded else "Change")
+                change_button.setToolTip(
+                    "Hide recording library" if expanded else "Choose a recording"
+                )
+        elif button is not None:
+            button.setText("Done" if expanded else "Select Runs")
         if swap_btn is not None:
             swap_btn.setEnabled(self._vod_a is not None or self._vod_b is not None)
 
@@ -1721,6 +1744,7 @@ class CompareRunsTab:
         header.setSpacing(8)
         plaque_a, self._run_a_status_label = self._build_run_plaque("a")
         plaque_b, self._run_b_status_label = self._build_run_plaque("b")
+        self._select_btn = self._run_a_change_btn
         self._swap_btn = QPushButton("Swap")
         self._swap_btn.setObjectName("CompareRunsSwapButton")
         self._swap_btn.clicked.connect(self.swap_compare_runs)
@@ -1842,12 +1866,9 @@ class CompareRunsTab:
         change = QPushButton("Change")
         change.setObjectName("CompareRunsChangeButton")
         change.setProperty("side", side.upper())
-        change.clicked.connect(
-            lambda: (
-                self.set_compare_runs_chooser_expanded(True, guided=False),
-                self.refresh_compare_runs_list(),
-            )
-        )
+        change.setToolTip("Choose a recording")
+        change.clicked.connect(self.toggle_compare_runs_chooser)
+        setattr(self, f"_run_{side}_change_btn", change)
         layout.addWidget(badge)
         layout.addWidget(label, 1)
         layout.addWidget(change)
@@ -1885,15 +1906,7 @@ class CompareRunsTab:
             chooser_layout.addWidget(list_frame, 2, column)
             chooser_layout.setColumnStretch(column, 1)
         chooser_layout.setRowStretch(2, 1)
-        close = QPushButton("Done")
-        close.setObjectName("CompareRunsChooserDone")
-        close.clicked.connect(
-            lambda: self.set_compare_runs_chooser_expanded(False, guided=False)
-        )
-        chooser_layout.addWidget(close, 3, 1, 1, 1, Qt.AlignRight)
         parent_layout.addWidget(self._chooser_group, 1)
-        # Compatibility alias for the old single chooser button.
-        self._select_btn = close
 
     def _build_stats_selector(self, parent_layout: QVBoxLayout) -> None:
         self._stats_config_group = QGroupBox("Choose Stats")

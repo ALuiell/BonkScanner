@@ -1129,7 +1129,6 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         QLabel#CompareRunsChooserTitle[side="B"] { color: #C084FC; font-weight: 800; }
         QPushButton#CompareRunsChangeButton,
         QPushButton#CompareRunsSwapButton,
-        QPushButton#CompareRunsChooserDone,
         QPushButton#CompareRunsChooseStats,
         QPushButton#CompareRunsItemDetails,
         QPushButton#CompareRunsInventoryToggle,
@@ -1153,6 +1152,14 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         QListWidget#CompareRunsRecordingList[side="B"]::item:selected {
             background-color: rgba(192, 132, 252, 0.12);
             border-left: 2px solid #C084FC;
+        }
+        QListWidget#CompareRunsRecordingList::item {
+            border-bottom: 1px solid #1B222B;
+            padding: 0;
+        }
+        QListWidget#CompareRunsRecordingList::item:disabled {
+            color: #5C6675;
+            padding: 8px 9px;
         }
         QFrame#CompareRunsComparisonCard {
             background-color: #0B0F14;

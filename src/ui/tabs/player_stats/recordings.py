@@ -50,7 +50,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMenu,
     QPushButton,
-    QProgressBar,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
@@ -72,6 +71,7 @@ from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS, PLAYER_STAT_SPEC_BY_LABEL
 from projections.item_sort import ITEM_SORT_RARITY_DESC
 from ui.dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
+from ui.recording_library import RecordingLibraryRow
 from ui.tabs.player_stats.metrics import (
     LIVE_STATS_VALUE_WIDTH,
     RECORDINGS_LIST_MAX_WIDTH,
@@ -302,54 +302,6 @@ class _NameEdit(QLineEdit):
             self.cancelled.emit()
             return
         super().keyPressEvent(event)
-
-
-class _RecordingRow(QWidget):
-    """One library row: name, metadata, and a bar for the run's length.
-
-    The bar is scaled against the longest run in the library rather than any
-    absolute duration, so it answers "long or short *for me*" -- which is the
-    question you are asking while picking a run out of a list of twenty-eight.
-
-    It is not a sparkline, though the mock drew one: the metadata index carries
-    only name, created-at, snapshot count and duration. A real per-run curve
-    would mean loading every recording to paint the picker, which is the one
-    thing the cached index exists to avoid.
-    """
-
-    def __init__(self, vod, *, longest_seconds: int, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("RecordingRow")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(9, 7, 9, 7)
-        layout.setSpacing(3)
-
-        name_label = QLabel(str(vod.name))
-        name_label.setObjectName("RecordingRowName")
-        layout.addWidget(name_label)
-
-        # A recording nobody renamed is called "Run <timestamp>", so leading
-        # the metadata with the same timestamp printed it twice in a row two
-        # lines tall. Renamed runs still get their date, which is the case that
-        # needs it.
-        parts = [
-            f"{vod.snapshot_count} snapshots",
-            formatting.format_duration(vod.duration_seconds),
-        ]
-        if str(vod.created_label) not in str(vod.name):
-            parts.insert(0, str(vod.created_label))
-        meta_label = QLabel("  ·  ".join(parts))
-        meta_label.setObjectName("RecordingRowMeta")
-        layout.addWidget(meta_label)
-
-        bar = QProgressBar()
-        bar.setObjectName("RecordingRowBar")
-        bar.setRange(0, 1000)
-        bar.setTextVisible(False)
-        bar.setFixedHeight(3)
-        longest = max(1, int(longest_seconds))
-        bar.setValue(round(min(1.0, max(0.0, vod.duration_seconds / longest)) * 1000))
-        layout.addWidget(bar)
 
 
 class _StageChapterCard(QFrame):
@@ -598,7 +550,7 @@ class RecordingsTab:
         for row, vod in enumerate(matches):
             item = QListWidgetItem()
             item.setData(Qt.UserRole, str(vod.path))
-            widget = _RecordingRow(vod, longest_seconds=longest_seconds)
+            widget = RecordingLibraryRow(vod, longest_seconds=longest_seconds)
             item.setSizeHint(widget.sizeHint())
             self._list_frame.addItem(item)
             self._list_frame.setItemWidget(item, widget)

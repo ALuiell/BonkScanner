@@ -816,7 +816,6 @@ QLabel#CompareRunsRunName {
 }
 QPushButton#CompareRunsChangeButton,
 QPushButton#CompareRunsSwapButton,
-QPushButton#CompareRunsChooserDone,
 QPushButton#CompareRunsChooseStats,
 QPushButton#CompareRunsItemDetails,
 QPushButton#CompareRunsInventoryToggle {
@@ -829,7 +828,6 @@ QPushButton#CompareRunsInventoryToggle {
 }
 QPushButton#CompareRunsChangeButton:hover,
 QPushButton#CompareRunsSwapButton:hover,
-QPushButton#CompareRunsChooserDone:hover,
 QPushButton#CompareRunsChooseStats:hover,
 QPushButton#CompareRunsItemDetails:hover,
 QPushButton#CompareRunsInventoryToggle:hover {
@@ -941,6 +939,10 @@ QListWidget#CompareRunsRecordingList {
 QListWidget#CompareRunsRecordingList::item {
     color: #B9C2CE;
     border-bottom: 1px solid #1B222B;
+    padding: 0;
+}
+QListWidget#CompareRunsRecordingList::item:disabled {
+    color: #5C6675;
     padding: 8px 9px;
 }
 QListWidget#CompareRunsRecordingList[side="A"]::item:selected {
@@ -952,6 +954,29 @@ QListWidget#CompareRunsRecordingList[side="B"]::item:selected {
     color: #EDF1F5;
     background-color: rgba(192, 132, 252, 0.12);
     border-left: 2px solid #C084FC;
+}
+QWidget#RecordingRow {
+    background: transparent;
+}
+QLabel#RecordingRowName {
+    color: #EDF1F5;
+    font-size: 12.5px;
+    font-weight: 700;
+    background: transparent;
+}
+QLabel#RecordingRowMeta {
+    color: #5C6675;
+    font-size: 11px;
+    background: transparent;
+}
+QProgressBar#RecordingRowBar {
+    background: #151B23;
+    border: 0;
+    border-radius: 2px;
+}
+QProgressBar#RecordingRowBar::chunk {
+    background: #2E3A48;
+    border-radius: 2px;
 }
 QPushButton#CompareRunsSeriesSlot,
 QPushButton#CompareRunsAxisMode {

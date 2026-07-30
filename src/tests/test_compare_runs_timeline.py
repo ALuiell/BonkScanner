@@ -6,7 +6,13 @@ from unittest.mock import MagicMock
 
 import src  # noqa: F401
 
-from PySide6.QtWidgets import QApplication, QSizePolicy, QTabWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QProgressBar,
+    QSizePolicy,
+    QTabWidget,
+)
 
 from projections import scrubber
 from projections import formatting
@@ -295,7 +301,22 @@ def test_recording_chooser_replaces_workspace_and_uses_available_height() -> Non
     app = QApplication.instance() or QApplication([])
 
     class Library:
-        index = ()
+        index = (
+            SimpleNamespace(
+                path="run-a.json",
+                name="950k",
+                created_label="2026-07-14 20:58:58",
+                snapshot_count=713,
+                duration_seconds=9467,
+            ),
+            SimpleNamespace(
+                path="run-b.json",
+                name="Run 2026-07-18 16:33:12",
+                created_label="2026-07-18 16:33:12",
+                snapshot_count=141,
+                duration_seconds=1964,
+            ),
+        )
 
         def ensure_refresh(self):
             return None
@@ -313,11 +334,13 @@ def test_recording_chooser_replaces_workspace_and_uses_available_height() -> Non
 
     assert compare._workspace_stack.currentWidget() is compare._workspace_page
 
-    compare.set_compare_runs_chooser_expanded(True, guided=False)
+    compare._run_a_change_btn.click()
     app.processEvents()
 
     assert compare._workspace_stack.currentWidget() is compare._chooser_page
     assert compare._chooser_group.isVisible()
+    assert compare._run_a_change_btn.text() == "Done"
+    assert compare._run_b_change_btn.text() == "Done"
     assert compare._run_a_list_frame.height() > 280
     assert (
         compare._run_a_list_frame.sizePolicy().verticalPolicy()
@@ -327,8 +350,20 @@ def test_recording_chooser_replaces_workspace_and_uses_available_height() -> Non
         compare._run_b_list_frame.sizePolicy().verticalPolicy()
         == QSizePolicy.Policy.Expanding
     )
+    first_item = compare._run_a_list_frame.item(0)
+    first_row = compare._run_a_list_frame.itemWidget(first_item)
+    assert first_row is not None
+    assert first_row.objectName() == "RecordingRow"
+    assert first_row.findChild(QLabel, "RecordingRowName").text() == "950k"
+    assert (
+        first_row.findChild(QLabel, "RecordingRowMeta").text()
+        == "2026-07-14 20:58:58  ·  713 snapshots  ·  02:37:47"
+    )
+    assert first_row.findChild(QProgressBar, "RecordingRowBar").value() == 1000
 
-    compare._select_btn.click()
+    compare._run_a_change_btn.click()
     app.processEvents()
     assert compare._workspace_stack.currentWidget() is compare._workspace_page
+    assert compare._run_a_change_btn.text() == "Change"
+    assert compare._run_b_change_btn.text() == "Change"
     tabs.close()
