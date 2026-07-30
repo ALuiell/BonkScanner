@@ -194,6 +194,22 @@ class ChestsCardTests(unittest.TestCase):
             self.assertEqual(label.text(), empty[key], key)
             self.assertNotEqual(label.text(), "stale", key)
 
+    def test_chest_rate_is_a_compact_card_value(self) -> None:
+        values = formatting.chests_card_values(
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            chests_per_minute=1.425,
+        )
+
+        self.assertEqual(values["chests_per_minute"], "1.43")
+
     def test_no_labels_is_a_no_op(self) -> None:
         set_chests_card_values(None, {"opened": "1"})
         set_chests_card_values({}, {"opened": "1"})

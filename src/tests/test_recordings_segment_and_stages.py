@@ -202,9 +202,9 @@ class StageRangeSelectionTests(unittest.TestCase):
 
         tab.on_stage_card_clicked(2, shift_pressed=True)
 
-        self.assertEqual(tab._compare_start_index, 0)
-        self.assertEqual(tab._scrubber.pin, 0)
-        self.assertEqual(tab._snapshot_index, 2)
+        self.assertEqual(tab._snapshot_index, 0)
+        self.assertEqual(tab._compare_start_index, 2)
+        self.assertEqual(tab._scrubber.pin, 2)
         self.assertTrue(tab._compare_details_group.visible)
 
     def test_shift_clicking_the_anchor_again_compares_the_whole_stage(self) -> None:
@@ -213,8 +213,19 @@ class StageRangeSelectionTests(unittest.TestCase):
         tab.on_stage_card_clicked(2)
         tab.on_stage_card_clicked(2, shift_pressed=True)
 
-        self.assertEqual(tab._compare_start_index, 3)
-        self.assertEqual(tab._snapshot_index, 4)
+        self.assertEqual(tab._snapshot_index, 3)
+        self.assertEqual(tab._compare_start_index, 4)
+        self.assertEqual(tab._scrubber.pin, 4)
+
+    def test_shift_clicking_an_earlier_stage_keeps_a_on_the_anchor(self) -> None:
+        tab = self._tab()
+
+        tab.on_stage_card_clicked(2)
+        tab.on_stage_card_clicked(1, shift_pressed=True)
+
+        self.assertEqual(tab._snapshot_index, 3)
+        self.assertEqual(tab._compare_start_index, 0)
+        self.assertEqual(tab._scrubber.pin, 0)
 
     def test_a_shift_click_without_an_anchor_behaves_like_a_normal_jump(self) -> None:
         tab = self._tab()
@@ -276,11 +287,7 @@ class CompareDetailsVisibilityTests(unittest.TestCase):
         self.assertIsNone(tab._scrubber.pin)
 
     def test_the_timeline_accents_both_segment_ends(self) -> None:
-        """Same pairing as the card's header line.
-
-        A and B name one selection; accenting only A read as "A is the live
-        one", which is the opposite of what the pin means.
-        """
+        """Same A-playhead/B-pin pairing as the card's header line."""
         tab = self._tab()
         tab.display_loaded_vod_snapshot(3)
 
@@ -289,6 +296,7 @@ class CompareDetailsVisibilityTests(unittest.TestCase):
         hint = tab._compare_hint_label.text()
         self.assertIn('<b style="color:#38BDF8;">A</b>', hint)
         self.assertIn('<b style="color:#38BDF8;">B</b>', hint)
+        self.assertLess(hint.index(SNAPSHOTS[3].time_label), hint.index(SNAPSHOTS[1].time_label))
 
     def test_the_pin_drives_the_compare_baseline(self) -> None:
         tab = self._tab()

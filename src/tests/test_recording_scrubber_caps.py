@@ -6,6 +6,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from projections.scrubber import CapStep, ScrubberModel, Series
@@ -64,3 +67,38 @@ def test_xp_cap_keeps_its_line_without_a_difficulty_percent_caption() -> None:
 
     assert widget._cached_caps[0][4] is None
     app.processEvents()
+
+
+def test_b_key_pins_compare_point_b_at_the_current_playhead() -> None:
+    QApplication.instance() or QApplication([])
+    widget = RecordingScrubber()
+    widget.set_model(ScrubberModel(count=4))
+    widget.set_index(2)
+
+    widget.keyPressEvent(QKeyEvent(QEvent.KeyPress, Qt.Key_B, Qt.NoModifier))
+
+    assert widget.index() == 2
+    assert widget.pin() == 2
+
+
+def test_shift_drag_moves_compare_point_b_until_release() -> None:
+    app = QApplication.instance() or QApplication([])
+    widget = RecordingScrubber()
+    widget.resize(500, 150)
+    widget.set_model(ScrubberModel(count=5))
+    widget.set_index(2)
+    widget.show()
+    app.processEvents()
+
+    QTest.mousePress(widget, Qt.LeftButton, Qt.ShiftModifier, QPoint(100, 75))
+    first_pin = widget.pin()
+    QTest.mouseMove(widget, QPoint(400, 75))
+    moved_pin = widget.pin()
+    QTest.mouseRelease(widget, Qt.LeftButton, Qt.NoModifier, QPoint(400, 75))
+    QTest.mouseMove(widget, QPoint(200, 75))
+
+    assert first_pin is not None
+    assert moved_pin is not None
+    assert moved_pin > first_pin
+    assert widget.pin() == moved_pin
+    assert widget.index() == 2

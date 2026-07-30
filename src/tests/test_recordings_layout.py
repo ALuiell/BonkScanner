@@ -157,6 +157,7 @@ class RecordingsLayoutTests(unittest.TestCase):
             # anchor has a control of its own rather than only an Esc key.
             assert not hasattr(view, "_new_items_label")
             assert view._compare_clear_button.parent() is header
+            assert view._compare_clear_button.text() == "Clear B"
 
             # Item changes are one wrapping row per rarity, not a four-column
             # chip grid. Nothing is pinned, so the card says so rather than
@@ -300,14 +301,17 @@ class RecordingsLayoutTests(unittest.TestCase):
             }
             assert "Chests (Expected = key procs)" in loot_groups
             assert "Item Rarity (Expected = items by tier)" in loot_groups
-            # The chest-rate estimate moved here out of the deleted
-            # "Run Summary" card: it predicts a rate from two stats and counts
-            # no chests, so it belongs beside the counters, not beside the
-            # measured run totals.
-            assert view._chests_per_minute_label.parent().findChild(
-                QLabel, "RecordingsChestRateEstimate"
-            ) is not None
-            assert loot_page.findChild(QLabel, "RecordingsChestRateEstimate") is not None
+            # Recordings adds the rate as one more compact name/value row in
+            # the Chests card. Live Stats keeps its existing summary placement.
+            assert "chests_per_minute" in view._chests_card_values
+            assert (
+                view._chests_per_minute_label
+                is view._chests_card_values["chests_per_minute"]
+            )
+            assert view._chests_per_minute_label.objectName() == "LiveStatsLootStatValue"
+            assert "Average chests/min" in {
+                label.text() for label in loot_page.findChildren(QLabel)
+            }
 
             # The library panel: search, the auto-filter footer, and the
             # button that used to sit between the name field and Delete. It
@@ -366,6 +370,25 @@ class RecordingsLayoutTests(unittest.TestCase):
             assert legend_meta is not None
             assert legend.x() < legend_meta.x()
             assert legend_meta.geometry().right() == plaque.contentsRect().right()
+            # The compact chest rate is part of the muted run metadata at the
+            # far-right footer of the timeline.
+            view._loaded_vod = SimpleNamespace(
+                snapshots=(
+                    SimpleNamespace(
+                        stats={},
+                        chests_per_minute=1.425,
+                        player_level=None,
+                        minute_avg_kps_at_capture=None,
+                        five_minute_avg_kps_at_capture=None,
+                        mob_kills=None,
+                        kps_at_capture=None,
+                    ),
+                )
+            )
+            _, legend_meta_text = view._legend_parts(0)
+            assert "Chests/min: 1.43" in legend_meta_text
+            assert "#5C6675" in legend_meta_text
+            view._loaded_vod = None
             # Nothing is loaded, so neither recording action is live.
             assert not view._rename_btn.isEnabled()
             assert not view._delete_btn.isEnabled()

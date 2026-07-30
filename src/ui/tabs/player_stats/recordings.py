@@ -318,8 +318,8 @@ class _StageChapterCard(QFrame):
         self.setObjectName("StageChapterCard")
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(
-            "Click to jump and set the range anchor\n"
-            "Shift+click another stage to compare the full stage range"
+            "Click moves point A to this stage\n"
+            "Shift+click sets point B for the full stage range"
         )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(11, 9, 11, 10)
@@ -748,7 +748,6 @@ class RecordingsTab:
             _set_text(self._legend_meta_label, "")
             self._items_section.collapse()
             self._items_section.update((), items_text="--")
-            _set_text(self._chests_per_minute_label, "Average chests/min: --")
             set_chests_card_values(
                 self._chests_card_values,
                 None,
@@ -806,10 +805,6 @@ class RecordingsTab:
                         stat.display_value if stat is not None else "--",
                     )
         self._items_section.update(snapshot.items)
-        _set_text(
-            self._chests_per_minute_label,
-            formatting.format_chests_per_minute(formatting.resolve_snapshot_chests_per_minute(snapshot)),
-        )
         self._update_recorded_chest_summary(snapshot)
         self._update_recorded_loot_rarity_summary(snapshot)
         # Stage cards describe the whole recording and are written once at
@@ -939,6 +934,9 @@ class RecordingsTab:
             formatting.format_kps_averages(
                 getattr(snapshot, "minute_avg_kps_at_capture", None),
                 getattr(snapshot, "five_minute_avg_kps_at_capture", None),
+            ),
+            formatting.format_chests_per_minute_short(
+                formatting.resolve_snapshot_chests_per_minute(snapshot)
             ),
         ]
         if scrubber_model.KILLS_SERIES not in series_keys:
@@ -1128,7 +1126,6 @@ class RecordingsTab:
             _set_text(label, "--")
         self._items_section.collapse()
         self._items_section.update((), items_text="--")
-        _set_text(self._chests_per_minute_label, "Average chests/min: --")
         set_chests_card_values(
             self._chests_card_values,
             None,
@@ -1219,6 +1216,9 @@ class RecordingsTab:
                     getattr(snapshot, "keys_count", None),
                     getattr(snapshot, "expected_key_procs", None),
                     False,
+                    chests_per_minute=formatting.resolve_snapshot_chests_per_minute(
+                        snapshot
+                    ),
                 ),
             )
 
@@ -1300,17 +1300,20 @@ class RecordingsTab:
         if anchor_band is None or target_band is None:
             return
 
+        anchor_index = int(anchor_band.start)
         if int(anchor_band.stage_index) == int(target_band.stage_index):
-            start, end = int(anchor_band.start), int(anchor_band.end)
+            compare_index = int(anchor_band.end)
         elif int(anchor_band.stage_index) < int(target_band.stage_index):
-            start = int(anchor_band.start)
-            end = max(start, int(target_band.start) - 1)
+            compare_index = max(anchor_index, int(target_band.start) - 1)
         else:
-            start = int(target_band.start)
-            end = max(start, int(anchor_band.start) - 1)
+            compare_index = int(target_band.start)
 
-        self.set_vod_compare_start(start)
-        self.display_loaded_vod_snapshot(end)
+        # Stage navigation follows the scrubber's A/B semantics: the ordinary
+        # click owns the playhead (A), while Shift supplies only the pin (B).
+        # The old order pinned the start and moved the playhead to the end,
+        # silently restoring the pre-swap A=pin/B=playhead behaviour.
+        self.display_loaded_vod_snapshot(anchor_index)
+        self.set_vod_compare_start(compare_index)
         self._refresh_stage_cards()
 
     def _stage_band(self, stage_number: int):
@@ -1498,7 +1501,7 @@ class RecordingsTab:
             _set_text(
                 label,
                 '<span style="color:#5C6675;">Shift+click sets compare point '
-                '<b style="color:#38BDF8;">A</b></span>&nbsp;&nbsp;·&nbsp;&nbsp;',
+                '<b style="color:#38BDF8;">B</b></span>&nbsp;&nbsp;·&nbsp;&nbsp;',
             )
             return
         snapshots = self._loaded_vod.snapshots
@@ -1507,13 +1510,11 @@ class RecordingsTab:
         _set_text(
             label,
             f'<b style="color:#38BDF8;">A</b> '
-            f'<span style="color:#8A94A3;">{snapshots[anchor].time_label}</span> '
+            f'<span style="color:#8A94A3;">{snapshots[current].time_label}</span> '
             f'<span style="color:#5C6675;">&rarr;</span> '
-            # Both ends accented, as in the compare card's header: A and B name
-            # one selection, and colouring only A read as "A is the live one".
             f'<b style="color:#38BDF8;">B</b> '
-            f'<span style="color:#8A94A3;">{snapshots[current].time_label}</span>'
-            f'<span style="color:#5C6675;">&nbsp;&nbsp;·&nbsp;&nbsp;Esc clears'
+            f'<span style="color:#8A94A3;">{snapshots[anchor].time_label}</span>'
+            f'<span style="color:#5C6675;">&nbsp;&nbsp;·&nbsp;&nbsp;Esc clears B'
             f'</span>&nbsp;&nbsp;·&nbsp;&nbsp;',
         )
 
@@ -1624,8 +1625,8 @@ class RecordingsTab:
         vods_detail_layout.addLayout(self._build_scrubber_header())
         self._scrubber = RecordingScrubber()
         self._scrubber.setToolTip(
-            "Drag to scrub  ·  Shift+click sets compare point A\n"
-            "← → step (Shift × 10)  ·  Home / End  ·  A pins  ·  Esc clears"
+            "Drag to move A  ·  Shift+drag moves compare point B\n"
+            "← → step (Shift × 10)  ·  Home / End  ·  B pins  ·  Esc clears B"
         )
         self._scrubber.setEnabled(False)
         self._scrubber.indexChanged.connect(self.on_scrub_index_changed)
@@ -1810,7 +1811,7 @@ class RecordingsTab:
         # the user is looking when they are done with the segment.
         # Its own rule rather than `SmallGhostButton`: the ghost palette is for
         # controls that should stay quiet, and this one is the way out of a mode.
-        self._compare_clear_button = QPushButton("Clear A")
+        self._compare_clear_button = QPushButton("Clear B")
         self._compare_clear_button.setObjectName("CompareSegmentClear")
         self._compare_clear_button.clicked.connect(self.clear_vod_compare_start)
         compare_header_layout.addWidget(
@@ -1823,7 +1824,10 @@ class RecordingsTab:
         # half-empty columns. A wrapping row keeps the rarity marking the grid
         # was for -- the colour is on the dot *and* on every name.
         vod_compare_scroll, _vod_compare_scroll_content, vod_compare_scroll_layout = _make_scroll_section()
-        vod_compare_scroll.setMinimumHeight(96)
+        # Keep enough vertical room to see a full segment comparison at once.
+        # The previous 96px viewport clipped the lower rarity/loss rows despite
+        # the Recordings page still having useful height available.
+        vod_compare_scroll.setMinimumHeight(140)
         vod_compare_scroll.setMaximumHeight(220)
         vod_compare_scroll_layout.setContentsMargins(0, 0, 0, 0)
         self._compare_details_items = QWidget()
@@ -1951,20 +1955,12 @@ class RecordingsTab:
 
         vod_chests_group = QGroupBox("Chests (Expected = key procs)")
         vod_chests_group_layout = QVBoxLayout(vod_chests_group)
-        vod_chests_card, self._chests_card_values = _build_chests_stats_card()
+        vod_chests_card, self._chests_card_values = _build_chests_stats_card(
+            include_chests_per_minute=True
+        )
         vod_chests_card.setObjectName("StatCardInner")
         vod_chests_group_layout.addWidget(vod_chests_card)
-        # Moved out of the old "Run Summary" card and down here, under the
-        # measured chest counters, because it is *not* one of them: it is a
-        # rate predicted from Elite Spawn Increase and Powerup Drop Chance at a
-        # fixed 200 kills/s, and it counts no chests at all. Next to the
-        # counters it reads as the estimate it is; beside In-Game Time and Mob
-        # Kills it read as a reading.
-        self._chests_per_minute_label = QLabel("Average chests/min: --")
-        self._chests_per_minute_label.setObjectName("RecordingsChestRateEstimate")
-        self._chests_per_minute_label.setWordWrap(True)
-        _apply_summary_label_padding(self._chests_per_minute_label)
-        vod_chests_group_layout.addWidget(self._chests_per_minute_label)
+        self._chests_per_minute_label = self._chests_card_values["chests_per_minute"]
         vod_loot_grid.addWidget(vod_chests_group, 0, 0)
 
         vod_rarity_group = QGroupBox("Item Rarity (Expected = items by tier)")

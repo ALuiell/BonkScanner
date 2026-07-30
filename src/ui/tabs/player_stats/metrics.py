@@ -80,8 +80,14 @@ def _retain_hidden_widget_size(widget) -> None:
     widget.setSizePolicy(policy)
 
 
-def _build_chests_stats_card():
-    """Six rows, plus the same reason-when-it-can't-fill line the rarity card
+def _build_chests_stats_card(*, include_chests_per_minute: bool = False):
+    """Six core rows, plus an optional rate and the shared unavailable line.
+
+    Recordings puts the derived average rate beside the counters in Loot.
+    Live Stats already shows that rate in Run Summary, so its shared card keeps
+    the original six-row shape.
+
+    The same reason-when-it-can't-fill line the rarity card
     uses below it: `Expected` here fails apart for the same underlying
     reason -- a late attach -- so it gets the same explanation, not a
     second one invented for this card.
@@ -97,14 +103,19 @@ def _build_chests_stats_card():
     form.setHorizontalSpacing(6)
     form.setVerticalSpacing(4)
     values = {}
-    for key, title in (
+    rows = [
         ("maps", "Maps"),
         ("total", "Total"),
+    ]
+    if include_chests_per_minute:
+        rows.append(("chests_per_minute", "Average chests/min"))
+    rows.extend((
         ("paid_free", "Paid / Free"),
         ("key_procs", "Key Procs"),
         ("expected", "Expected"),
         ("keys", "Keys"),
-    ):
+    ))
+    for key, title in rows:
         name_label = QLabel(title)
         name_label.setObjectName("LiveStatsLootStatName")
         value_label = QLabel("--")

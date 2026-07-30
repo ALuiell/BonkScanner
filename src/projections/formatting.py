@@ -1518,18 +1518,18 @@ def format_segment_headline(base_snapshot, snapshot, *, segment_snapshots=()) ->
     `Snapshot 305 -> 1 | 51:02 -> 00:00 | +154 items` line -- which between
     them said the segment's item total twice and led with a snapshot index,
     the one number about a segment nobody reads. The A/B letters match the
-    scrubber's pin and playhead, so the header names the same two points the
-    timeline above it does.
+    scrubber's playhead and pin, so the header names the same two points the
+    timeline above it does: current point A, Shift-clicked point B.
     """
     if base_snapshot is None or snapshot is None:
         return "--"
     pieces = [
         '<span style="color:#8A94A3;">Segment</span> '
         f'<b style="color:{_COMPARE_SEGMENT_END_COLOR};">A</b> '
-        f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(base_snapshot))}</span> '
+        f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(snapshot))}</span> '
         f'<span style="color:{_COMPARE_MUTED_COLOR};">&rarr;</span> '
         f'<b style="color:{_COMPARE_SEGMENT_END_COLOR};">B</b> '
-        f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(snapshot))}</span>'
+        f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(base_snapshot))}</span>'
     ]
     span = tuple(segment_snapshots or (base_snapshot, snapshot))
     changes = summarize_item_segment_changes(span)
@@ -1846,9 +1846,15 @@ def _normalize_item_name_for_display(item_name: str) -> str:
 
 
 def format_chests_per_minute(value: float | None) -> str:
-    if value is None:
-        return "Average chests/min: --"
-    return f"Average chests/min: {value:.2f}"
+    return f"Average chests/min: {format_chests_per_minute_value(value)}"
+
+
+def format_chests_per_minute_value(value: float | None) -> str:
+    return "--" if value is None else f"{value:.2f}"
+
+
+def format_chests_per_minute_short(value: float | None) -> str:
+    return f"Chests/min: {format_chests_per_minute_value(value)}"
 
 
 def format_powerups_duration(stats) -> str:
@@ -1912,6 +1918,8 @@ def chests_card_values(
     keys: int | None,
     expected: float | None,
     total_is_minimum: bool = False,
+    *,
+    chests_per_minute: float | None = None,
 ) -> dict[str, str]:
     if total is None:
         return {
@@ -1921,6 +1929,7 @@ def chests_card_values(
             "key_procs": "-- (--)",
             "expected": "--",
             "keys": "-- (--)",
+            "chests_per_minute": format_chests_per_minute_value(chests_per_minute),
         }
 
     stage_parts = []
@@ -1955,6 +1964,7 @@ def chests_card_values(
         "key_procs": f"{procs_text} ({proc_rate})",
         "expected": expected_text,
         "keys": f"{keys_text} ({chance})",
+        "chests_per_minute": format_chests_per_minute_value(chests_per_minute),
     }
 
 

@@ -838,6 +838,7 @@ class GuiRunControlTests(unittest.TestCase):
                 "key_procs": "71/123 (57.7%)",
                 "expected": "75.4",
                 "keys": "17 (63.0%)",
+                "chests_per_minute": "--",
             },
         )
 
@@ -862,6 +863,7 @@ class GuiRunControlTests(unittest.TestCase):
                 "key_procs": "34/51 (66.7%)",
                 "expected": "--",
                 "keys": "0 (0.0%)",
+                "chests_per_minute": "--",
             },
         )
 

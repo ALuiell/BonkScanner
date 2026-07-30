@@ -186,18 +186,15 @@ class SegmentHeadlineTests(unittest.TestCase):
             mob_kills=kills,
         )
 
-    def test_names_the_two_ends_the_scrubber_pins(self) -> None:
+    def test_names_current_playhead_a_and_shift_clicked_pin_b(self) -> None:
         headline = formatting.format_segment_headline(
             self._snapshot(760, "Key x1"), self._snapshot(3130, "Key x2")
         )
 
-        self.assertIn(">A<", headline)
-        self.assertIn("12:40", headline)
-        self.assertIn(">B<", headline)
-        self.assertIn("52:10", headline)
+        self.assertIn("Segment A 52:10 → B 12:40", _plain(headline))
 
     def test_both_ends_are_accented_not_just_the_anchor(self) -> None:
-        """A and B name one selection; colouring only A read as "A is live"."""
+        """A and B name one selection even though A is the active playhead."""
         headline = formatting.format_segment_headline(
             self._snapshot(0, "Key x1"), self._snapshot(60, "Key x2")
         )

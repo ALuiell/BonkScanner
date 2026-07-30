@@ -3,9 +3,9 @@
 Replaces four widgets at once -- the bare ``QSlider``, the "Timeline: … |
 Selected: …" caption, and the *Set Compare Start* / *Clear Compare* buttons --
 because all four were describing one thing: where in the run you are looking,
-and from where you are comparing. The pin *is* the compare start, so setting it
-is a drag rather than a button, and the caption is the position readout the
-widget already has to paint.
+and which second point you are comparing against. The playhead is A; the pin is
+the Shift-clicked compare point B, so setting B is a gesture rather than a
+button, and the caption is the position readout the widget already has to paint.
 
 Draws only. Everything it draws is decided by ``projections/scrubber.py``,
 which is rebuilt once per loaded recording; ``paintEvent`` walks the prepared
@@ -37,9 +37,9 @@ _BAND_TEXT = QColor("#5C6675")
 _MUTED_TEXT = QColor("#3D4756")
 _SEGMENT_FILL = QColor(56, 189, 248, 23)
 _SEGMENT_EDGE = QColor(56, 189, 248, 140)
-_PIN = QColor("#38BDF8")
+_PIN = QColor("#EDF1F5")
 _PIN_TEXT = QColor("#06202B")
-_PLAYHEAD = QColor("#EDF1F5")
+_PLAYHEAD = QColor("#38BDF8")
 _PLAYHEAD_SHADOW = QColor(0, 0, 0, 140)
 
 #: Height of the strip along the top that carries stage captions.
@@ -80,6 +80,7 @@ class RecordingScrubber(QWidget):
         self._index = 0
         self._pin: int | None = None
         self._dragging = False
+        self._pin_dragging = False
         # Geometry that depends on the model, the slots and the widget size --
         # but *not* on the playhead or the pin, which are the only two things a
         # drag changes. Rebuilding the curves on every pointer move cost ~17 ms
@@ -161,15 +162,22 @@ class RecordingScrubber(QWidget):
             return
         index = self._index_at_x(event.position().x())
         if event.modifiers() & Qt.ShiftModifier:
-            # Shift-click drops the compare anchor. The button it replaces was
-            # "Set Compare Start", which could only ever anchor at the *current*
-            # playhead; here the anchor is a place you point at.
+            # Shift-drag owns compare point B until the button is released.
+            # A short press is still the old Shift-click gesture; keeping the
+            # drag active makes fine positioning continuous instead of a row
+            # of repeated clicks.
+            self._pin_dragging = True
+            self._dragging = False
             self.set_pin(index, emit=True)
             return
+        self._pin_dragging = False
         self._dragging = True
         self.set_index(index, emit=True)
 
     def mouseMoveEvent(self, event) -> None:
+        if self._pin_dragging:
+            self.set_pin(self._index_at_x(event.position().x()), emit=True)
+            return
         if not self._dragging:
             super().mouseMoveEvent(event)
             return
@@ -177,6 +185,7 @@ class RecordingScrubber(QWidget):
 
     def mouseReleaseEvent(self, event) -> None:
         self._dragging = False
+        self._pin_dragging = False
         super().mouseReleaseEvent(event)
 
     def event(self, event) -> bool:
@@ -234,7 +243,7 @@ class RecordingScrubber(QWidget):
             self.set_index(0, emit=True)
         elif key == Qt.Key_End:
             self.set_index(self._model.count - 1, emit=True)
-        elif key == Qt.Key_A:
+        elif key == Qt.Key_B:
             self.set_pin(self._index, emit=True)
         elif key == Qt.Key_Escape:
             self.set_pin(None, emit=True)
@@ -544,7 +553,7 @@ class RecordingScrubber(QWidget):
         painter.drawRoundedRect(badge, 4.0, 4.0)
         painter.setPen(_PIN_TEXT)
         painter.setFont(self._small_font())
-        painter.drawText(badge, Qt.AlignCenter, "A")
+        painter.drawText(badge, Qt.AlignCenter, "B")
 
     def _paint_playhead(self, painter: QPainter, track: QRectF) -> None:
         x = self._x_of(self._index)
@@ -552,9 +561,13 @@ class RecordingScrubber(QWidget):
         painter.drawLine(x, track.top(), x, track.bottom())
         painter.setPen(QPen(_PLAYHEAD, 2.0))
         painter.drawLine(x, track.top(), x, track.bottom())
-        painter.setPen(QPen(_PLAYHEAD_SHADOW, 1.5))
+        badge = QRectF(x - 9.0, track.top(), 18.0, 15.0)
+        painter.setPen(Qt.NoPen)
         painter.setBrush(_PLAYHEAD)
-        painter.drawEllipse(QRectF(x - 5.0, track.top() + 1.0, 10.0, 10.0))
+        painter.drawRoundedRect(badge, 4.0, 4.0)
+        painter.setPen(_PIN_TEXT)
+        painter.setFont(self._small_font())
+        painter.drawText(badge, Qt.AlignCenter, "A")
 
 
 def _format_span(seconds: int) -> str:
