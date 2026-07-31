@@ -4,6 +4,22 @@ Three tabs — **OBS Overlay**, **Twitch Bot**, **In-Game Overlay** — rebuilt 
 shared skeleton. Source mock: `redisign_ui/streaming_tools_proposal.html`.
 Palette and control geometry: `redisign_ui/bonkscanner_redesign.qss`.
 
+> **Status: implemented.** All three tabs are rebuilt. What changed *during*
+> implementation, beyond this plan:
+>
+> - `SettingsCard` became a fourth shared control — `QGroupBox` cannot carry a
+>   header with a step number, a sub-line and an action button.
+> - The in-game hero badge grew a fifth reading, `LAYOUT MODE`, once layout mode
+>   stopped having a button of its own to show it.
+> - Three real bugs were caught by existing tests rather than by review:
+>   `bind` connecting `clicked` on a `RunToggle`; `SettingsCard` showing a
+>   parentless label, which Qt turns into a top-level window (eight flashes);
+>   and `_is_in_game_overlay_tab_active` put on the layout router, which the
+>   component cannot reach.
+> - One test was written vacuous and had to be fixed: the tile's repaint case
+>   compared whole grabs, and the switch inside repaints on its own, so it
+>   passed with the repolish deleted.
+
 This document records what was **decided**, and — more importantly — where the
 mock and the code disagree. The mock was drawn as one screen with an internal
 context switcher; we keep three separate tabs. Every place the mock invented a
