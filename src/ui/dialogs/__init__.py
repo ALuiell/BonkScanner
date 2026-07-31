@@ -89,7 +89,7 @@ from projections.tracked_items import (
 from core.stat_labels import abbreviate_stat_label
 
 from app import config
-from app.player_stats_view import player_stats_view
+from app.player_stats_view import overlay_view, player_stats_view
 from app.vod_capture import vod_capture
 from ui.dialogs.update_prompt import start_update_check
 
@@ -1181,6 +1181,12 @@ class SettingsDialog(QDialog):
             if hasattr(timeline, "refresh_player_stats_timeline_ui"):
                 timeline.refresh_player_stats_timeline_ui(update_slider=False)
             self.master.update_status_ui()
+            # The OBS reminder is edited here *and* on the OBS Overlay tab. This
+            # dialog is modal and rebuilt per open, so it never shows a stale
+            # value -- but the tab's checkbox is long-lived and has no way to
+            # learn that this save happened. Unguarded and through the named
+            # port on purpose: see `OverlayView.refresh_scanner_reminder_ui`.
+            overlay_view(self.master).refresh_scanner_reminder_ui()
             if hasattr(self.master, "apply_run_control_mode"):
                 self.master.apply_run_control_mode()
             self.master.log("[*] Settings saved and applied successfully!", tag="success")

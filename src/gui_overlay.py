@@ -28,7 +28,12 @@ from PySide6.QtWidgets import (
 
 from app import config
 from ui.dialogs.tracked_items import TrackedItemPicker
+from ui.module_tile import ModuleTile
+from ui.run_toggle import OVERLAY_SERVER_CAPTIONS
+from ui.segmented_toggle import ROLE_GO, SegmentedToggle
+from ui.settings_card import SettingsCard
 from ui.shared import (
+    SCANNER_REMINDER_LABEL,
     CollapsibleSection,
     CollapsibleSectionGroup,
     FlowLayout,
@@ -38,6 +43,7 @@ from ui.shared import (
     _set_text_input,
 )
 from ui.styles import _set_widget_style_role
+from ui.tab_hero import STATE_DANGER, STATE_OFF, STATE_OK, TabHero
 from projections.tracked_items import (
     available_tracked_item_names,
     dedupe_item_names,
@@ -157,174 +163,43 @@ class Overlay:
     def _is_overlay_tab_active(self) -> bool:
         return self._overlay_tab_active()
 
+    #: The two source modes card 1 offers. The mock drew a third, `Layout
+    #: editor`, but that is the same URL with `?edit=true` on it rather than a
+    #: state this control can rest in -- a segment that opens something and has
+    #: to spring back is a button. It is the card's header action instead.
+    SOURCE_MODE_FULL = "full"
+    SOURCE_MODE_SINGLE = "single"
+
     def build(self) -> QWidget:
         self.tab_overlay = QWidget()
         tab_layout = QVBoxLayout(self.tab_overlay)
         tab_layout.setContentsMargins(0, 0, 0, 0)
         overlay_scroll, _overlay_content, layout = _make_scroll_section()
-        layout.setSpacing(10)
+        layout.setSpacing(12)
+        layout.setContentsMargins(8, 8, 8, 8)
         tab_layout.addWidget(overlay_scroll)
 
-        # Grid layout: cards are aligned initially, but AlignTop lets each grow independently
-        grid_layout = QGridLayout()
-        grid_layout.setSpacing(16)
-        grid_layout.setContentsMargins(8, 8, 8, 8)
-        layout.addLayout(grid_layout)
+        layout.addWidget(self._build_hero())
 
-        # Left column narrower, right column wider
-        grid_layout.setColumnStretch(0, 1)
-        grid_layout.setColumnStretch(1, 2)
+        workspace = QHBoxLayout()
+        workspace.setSpacing(12)
+        layout.addLayout(workspace)
 
-        # ----------------------------------------------------
-        # WIDGET DEFINITIONS
-        # ----------------------------------------------------
+        main_column = QVBoxLayout()
+        main_column.setSpacing(12)
+        workspace.addLayout(main_column, 1)
 
-        # 1. Server Control Card (Twitch Bot Style)
-        server_group = QGroupBox("Overlay Server")
-        server_layout = QVBoxLayout(server_group)
-        server_layout.setContentsMargins(16, 12, 16, 12)
-        server_layout.setSpacing(10)
+        side_column = QVBoxLayout()
+        side_column.setSpacing(12)
+        workspace.addLayout(side_column, 0)
 
-        status_row = QHBoxLayout()
-        status_row.setContentsMargins(0, 0, 0, 0)
-        status_row.addWidget(QLabel("Server Status:"))
-        self.overlay_status_label = QLabel()
-        self.overlay_status_label.setTextFormat(Qt.RichText)
-        status_row.addWidget(self.overlay_status_label)
-        status_row.addStretch(1)
-        server_layout.addLayout(status_row)
+        self._build_source_card(main_column)
+        self._build_widgets_card(main_column)
+        self._build_behaviour_card(main_column)
+        main_column.addStretch(1)
 
-        settings_row = QHBoxLayout()
-        settings_row.setContentsMargins(0, 0, 0, 0)
-        self.overlay_auto_start_cb = QCheckBox("Auto-start server")
-        self.overlay_auto_start_cb.setChecked(config.OVERLAY.get("auto_start", False))
-        self.overlay_auto_start_cb.setToolTip("Start the overlay server automatically when the application starts.")
-        self.overlay_auto_start_cb.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
-        settings_row.addWidget(self.overlay_auto_start_cb)
-        settings_row.addStretch(1)
-        port_label = QLabel("Port:")
-        self.overlay_port_entry = QLineEdit(str(config.OVERLAY.get("port", 17845)))
-        self.overlay_port_entry.setMaximumWidth(70)
-        self.overlay_port_entry.editingFinished.connect(self.save_overlay_settings_from_ui)
-        settings_row.addWidget(port_label)
-        settings_row.addWidget(self.overlay_port_entry)
-        server_layout.addLayout(settings_row)
-
-        self.overlay_server_toggle_btn = QPushButton("Start Server")
-        self.overlay_server_toggle_btn.setObjectName("primary")
-        self.overlay_server_toggle_btn.setMinimumHeight(36)
-        btn_font = self.overlay_server_toggle_btn.font()
-        btn_font.setBold(True)
-        self.overlay_server_toggle_btn.setFont(btn_font)
-        self.overlay_server_toggle_btn.clicked.connect(self.toggle_overlay_server)
-        server_layout.addWidget(self.overlay_server_toggle_btn)
-
-
-        # 3. Styled Info Card (Visual Layout Editor guidance)
-        editor_info_card = QFrame()
-        editor_info_card.setStyleSheet("""
-            QFrame {
-                background: #111A2E;
-                border: 1px solid #1D4ED8;
-                border-left: 4px solid #3B82F6;
-                border-radius: 8px;
-                margin-top: 8px;
-            }
-            QLabel {
-                background: transparent;
-                border: none;
-            }
-        """)
-        editor_info_layout = QVBoxLayout(editor_info_card)
-        editor_info_layout.setContentsMargins(12, 12, 12, 12)
-
-        intro_label = QLabel(
-            "<span style='font-size:10.5pt; font-weight:bold; color:#ffd23f;'>💡 Visual Layout Editor Mode is active!</span><br>"
-            "<span style='font-size:9.5pt; color:#ffffff;'>"
-            "Open your overlay URL in any browser with <b>?edit=true</b> to drag & drop widgets and change HUD resolution! "
-            "Set Width & Height in OBS Browser Source properties to match your custom canvas resolution (default: 1920x1080)."
-            "</span>"
-        )
-        intro_label.setTextFormat(Qt.RichText)
-        intro_label.setWordWrap(True)
-        editor_info_layout.addWidget(intro_label)
-
-        # 4. Visible Widgets Card
-        widgets_group = QGroupBox("Visible Widgets")
-        widgets_layout = QVBoxLayout(widgets_group)
-        widgets_layout.setContentsMargins(16, 12, 16, 12)
-        widgets_layout.setSpacing(10)
-
-        # Header Row (Label on the left, Button on the right)
-        widgets_header_layout = QHBoxLayout()
-        widgets_header_layout.setContentsMargins(4, 0, 0, 0)
-        widgets_header_lbl = QLabel("Active Overlay Widgets:")
-        widgets_header_lbl.setStyleSheet("font-weight: bold; background: transparent;")
-        self.overlay_widget_settings_btn = QPushButton("Widget Settings")
-        self.overlay_widget_settings_btn.clicked.connect(self.open_overlay_widget_settings_dialog)
-        widgets_header_layout.addWidget(widgets_header_lbl)
-        widgets_header_layout.addStretch(1)
-        widgets_header_layout.addWidget(self.overlay_widget_settings_btn)
-        widgets_layout.addLayout(widgets_header_layout)
-
-        # Checkboxes Grid
-        widgets_grid = QGridLayout()
-        widgets_grid.setSpacing(10)
-        self.overlay_widget_checkboxes = {}
-        widget_config = self._overlay_widget_config_by_id()
-        for index, (widget_id, label) in enumerate(OVERLAY_WIDGET_LABELS.items()):
-            checkbox = QCheckBox(label)
-            checkbox.setChecked(bool(widget_config.get(widget_id, {}).get("enabled", True)))
-            checkbox.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
-            self.overlay_widget_checkboxes[widget_id] = checkbox
-            # 2x2 layout
-            widgets_grid.addWidget(checkbox, index // 2, index % 2)
-        widgets_layout.addLayout(widgets_grid)
-
-        # 5. Browser Source URLs Card
-        urls_group = QGroupBox("Browser Source URLs")
-        urls_layout = QGridLayout(urls_group)
-        urls_group.setContentsMargins(16, 12, 16, 12)
-        urls_layout.setSpacing(10)
-
-        # Full Overlay URL
-        urls_layout.addWidget(QLabel("Full Overlay:"), 0, 0)
-        self.overlay_url_entry = QLineEdit()
-        self.overlay_url_entry.setReadOnly(True)
-        self.overlay_url_entry.setText(self._overlay_url_text())
-        urls_layout.addWidget(self.overlay_url_entry, 0, 1)
-
-        copy_full_btn = QPushButton("Copy")
-        copy_full_btn.setStyleSheet("QPushButton { padding: 5px 10px; min-width: 50px; }")
-        copy_full_btn.clicked.connect(lambda: self._copy_to_clipboard(self.overlay_url_entry.text(), copy_full_btn))
-        urls_layout.addWidget(copy_full_btn, 0, 2)
-
-        # Widget selector
-        urls_layout.addWidget(QLabel("Select Widget:"), 1, 0)
-        self.overlay_widget_url_combo = QComboBox()
-        for widget_id, label in OVERLAY_WIDGET_LABELS.items():
-            self.overlay_widget_url_combo.addItem(label, widget_id)
-        self.overlay_widget_url_combo.addItem("Layout Editor Mode", "editor")
-        self.overlay_widget_url_combo.currentIndexChanged.connect(lambda _index: self.refresh_overlay_ui())
-        urls_layout.addWidget(self.overlay_widget_url_combo, 1, 1, 1, 2)
-
-        # Widget URL
-        urls_layout.addWidget(QLabel("Widget URL:"), 2, 0)
-        self.overlay_widget_url_entry = QLineEdit()
-        self.overlay_widget_url_entry.setReadOnly(True)
-        urls_layout.addWidget(self.overlay_widget_url_entry, 2, 1)
-
-        copy_widget_btn = QPushButton("Copy")
-        copy_widget_btn.setStyleSheet("QPushButton { padding: 5px 10px; min-width: 50px; }")
-        copy_widget_btn.clicked.connect(lambda: self._copy_to_clipboard(self.overlay_widget_url_entry.text(), copy_widget_btn))
-        urls_layout.addWidget(copy_widget_btn, 2, 2)
-
-        # Place all cards in grid - AlignTop ensures no card stretches to fill its neighbour's height
-        grid_layout.addWidget(server_group,      0, 0, Qt.AlignTop)
-        grid_layout.addWidget(urls_group,        0, 1, Qt.AlignTop)
-        grid_layout.addWidget(editor_info_card,  1, 0, Qt.AlignTop)
-        grid_layout.addWidget(widgets_group,     1, 1, Qt.AlignTop)
-        grid_layout.setRowStretch(2, 1)
+        self._build_tip_card(side_column)
+        side_column.addStretch(1)
 
         self.overlay_tracked_items_label = None
 
@@ -333,6 +208,229 @@ class Overlay:
         self.refresh_overlay_tracked_items_ui()
         self.refresh_overlay_ui()
         return self.tab_overlay
+
+    def _build_hero(self) -> TabHero:
+        self.overlay_hero = TabHero(
+            title="OBS Overlay",
+            subtitle="Send live run data to OBS through a local browser source.",
+            icon_path="media/obs_icon.svg",
+            auto_text="Auto-start server",
+            run_captions=OVERLAY_SERVER_CAPTIONS,
+        )
+        # Kept under their old names because `save_overlay_settings_from_ui` and
+        # `refresh_overlay_ui` read them by name, and both still work: the auto
+        # switch is a QCheckBox, and the run toggle answers `setText`.
+        self.overlay_auto_start_cb = self.overlay_hero.auto_switch
+        self.overlay_auto_start_cb.setChecked(config.OVERLAY.get("auto_start", False))
+        self.overlay_auto_start_cb.setToolTip(
+            "Start the overlay server automatically when the application starts."
+        )
+        self.overlay_auto_start_cb.stateChanged.connect(
+            lambda _state: self.save_overlay_settings_from_ui()
+        )
+
+        self.overlay_server_toggle_btn = self.overlay_hero.run_toggle
+        self.overlay_server_toggle_btn.toggle_requested.connect(self.toggle_overlay_server)
+        return self.overlay_hero
+
+    def _build_source_card(self, column: QVBoxLayout) -> None:
+        editor_btn = QPushButton("Open layout editor")
+        editor_btn.clicked.connect(self._open_overlay_layout_editor)
+        card = SettingsCard(
+            number=1,
+            title="Browser source",
+            subtitle="Copy once, paste into OBS and keep BonkScanner running.",
+            action=editor_btn,
+        )
+
+        # `disable_inactive=False`: these are two choices, not two halves of one
+        # transition, so both stay clickable. Shipping a picker on the default
+        # made the unselected option unselectable once already -- see
+        # `SegmentedToggle.__init__`.
+        self.overlay_source_mode_toggle = SegmentedToggle(
+            (
+                (self.SOURCE_MODE_FULL, "Full overlay", ROLE_GO),
+                (self.SOURCE_MODE_SINGLE, "Single widget", ROLE_GO),
+            ),
+            disable_inactive=False,
+        )
+        self.overlay_source_mode_toggle.activated.connect(self._on_overlay_source_mode)
+        card.body.addWidget(self.overlay_source_mode_toggle)
+
+        # The widget picker the mock dropped. Without it "Single widget" names a
+        # mode but not a widget, and the field below has nothing to put in the
+        # URL. Hidden in full-overlay mode rather than disabled: it is not a
+        # choice that exists there.
+        self.overlay_widget_url_row = QWidget()
+        widget_row = QHBoxLayout(self.overlay_widget_url_row)
+        widget_row.setContentsMargins(0, 0, 0, 0)
+        widget_row.setSpacing(8)
+        widget_row.addWidget(QLabel("Widget:"))
+        self.overlay_widget_url_combo = QComboBox()
+        for widget_id, label in OVERLAY_WIDGET_LABELS.items():
+            self.overlay_widget_url_combo.addItem(label, widget_id)
+        self.overlay_widget_url_combo.currentIndexChanged.connect(
+            lambda _index: self.refresh_overlay_ui()
+        )
+        widget_row.addWidget(self.overlay_widget_url_combo, 1)
+        self.overlay_widget_url_row.setVisible(False)
+        card.body.addWidget(self.overlay_widget_url_row)
+
+        url_row = QHBoxLayout()
+        url_row.setContentsMargins(0, 0, 0, 0)
+        url_row.setSpacing(8)
+        url_row.addWidget(QLabel("URL:"))
+        # One field for both modes. The two used to be visible at once; the
+        # segmented control is what replaced that, and `refresh_overlay_ui`
+        # decides which URL belongs here.
+        self.overlay_url_entry = QLineEdit()
+        self.overlay_url_entry.setReadOnly(True)
+        url_row.addWidget(self.overlay_url_entry, 1)
+        copy_btn = QPushButton("Copy")
+        copy_btn.clicked.connect(
+            lambda: self._copy_to_clipboard(self.overlay_url_entry.text(), copy_btn)
+        )
+        url_row.addWidget(copy_btn)
+        card.body.addLayout(url_row)
+
+        port_row = QHBoxLayout()
+        port_row.setContentsMargins(0, 0, 0, 0)
+        port_row.setSpacing(8)
+        port_row.addWidget(QLabel("Port:"))
+        self.overlay_port_entry = QLineEdit(str(config.OVERLAY.get("port", 17845)))
+        self.overlay_port_entry.setMaximumWidth(90)
+        self.overlay_port_entry.editingFinished.connect(self.save_overlay_settings_from_ui)
+        port_row.addWidget(self.overlay_port_entry)
+        port_row.addWidget(QLabel("Local only"))
+        port_row.addStretch(1)
+        card.body.addLayout(port_row)
+
+        column.addWidget(card)
+
+    def _build_widgets_card(self, column: QVBoxLayout) -> None:
+        self.overlay_widget_settings_btn = QPushButton("Widget Settings")
+        self.overlay_widget_settings_btn.clicked.connect(
+            self.open_overlay_widget_settings_dialog
+        )
+        card = SettingsCard(
+            number=2,
+            title="Overlay widgets",
+            subtitle="Choose what is visible. Detailed settings stay one level deeper.",
+            action=self.overlay_widget_settings_btn,
+        )
+
+        tiles = QGridLayout()
+        tiles.setSpacing(8)
+        tiles.setContentsMargins(0, 0, 0, 0)
+        self.overlay_widget_checkboxes = {}
+        widget_config = self._overlay_widget_config_by_id()
+        for index, (widget_id, label) in enumerate(OVERLAY_WIDGET_LABELS.items()):
+            tile = ModuleTile(label)
+            tile.setChecked(bool(widget_config.get(widget_id, {}).get("enabled", True)))
+            tile.stateChanged.connect(lambda _state: self.save_overlay_settings_from_ui())
+            self.overlay_widget_checkboxes[widget_id] = tile
+            tiles.addWidget(tile, index // 3, index % 3)
+        card.body.addLayout(tiles)
+
+        column.addWidget(card)
+
+    def _build_behaviour_card(self, column: QVBoxLayout) -> None:
+        card = SettingsCard(
+            number=3,
+            title="Server & source behaviour",
+            subtitle="Secondary options, kept out of the primary action's way.",
+        )
+        # The only real option there is. The mock's other one, "Remember last
+        # canvas", describes something the browser editor already does
+        # unconditionally -- off would mean discarding the canvas on restart.
+        #
+        # This is the same flag the Settings dialog edits, deliberately: it is
+        # about OBS, and this is the OBS tab. The label is shared with the
+        # dialog so one value does not appear under two names.
+        self.overlay_scanner_reminder_cb = QCheckBox(SCANNER_REMINDER_LABEL)
+        self.overlay_scanner_reminder_cb.setChecked(
+            bool(getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False))
+        )
+        self.overlay_scanner_reminder_cb.setToolTip(
+            "Remind you to start the OBS recording when the scanner starts."
+        )
+        self.overlay_scanner_reminder_cb.stateChanged.connect(
+            self._on_overlay_scanner_reminder_toggled
+        )
+        card.body.addWidget(self.overlay_scanner_reminder_cb)
+
+        column.addWidget(card)
+
+    def _build_tip_card(self, column: QVBoxLayout) -> None:
+        tip = QFrame()
+        tip.setObjectName("tipCard")
+        tip.setProperty("tipCard", "true")
+        tip.setMaximumWidth(360)
+        tip_layout = QVBoxLayout(tip)
+        tip_layout.setContentsMargins(12, 11, 12, 11)
+        tip_layout.setSpacing(4)
+
+        title = QLabel("◎ OBS CANVAS")
+        title.setObjectName("tipCardTitle")
+        tip_layout.addWidget(title)
+
+        body = QLabel(
+            "Match the Browser Source size in OBS to the overlay canvas "
+            "(default 1920×1080). Open the layout editor only when positions or "
+            "the canvas resolution need adjusting — it saves as you drag."
+        )
+        body.setObjectName("tipCardText")
+        body.setWordWrap(True)
+        tip_layout.addWidget(body)
+
+        column.addWidget(tip)
+
+    # -- card 1 behaviour ----------------------------------------------------
+
+    def _on_overlay_source_mode(self, key: str) -> None:
+        self.overlay_source_mode_toggle.set_active(key)
+        self.overlay_widget_url_row.setVisible(key == self.SOURCE_MODE_SINGLE)
+        self.refresh_overlay_ui()
+
+    def _overlay_source_mode(self) -> str:
+        toggle = getattr(self, "overlay_source_mode_toggle", None)
+        if toggle is None:
+            return self.SOURCE_MODE_FULL
+        return toggle.active_key() or self.SOURCE_MODE_FULL
+
+    def _open_overlay_layout_editor(self) -> None:
+        """Open the editor URL in the browser. Not a mode -- a query parameter."""
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+
+        QDesktopServices.openUrl(QUrl(f"{self._overlay_url_text()}?edit=true"))
+
+    def _on_overlay_scanner_reminder_toggled(self, *_args) -> None:
+        enabled = bool(self.overlay_scanner_reminder_cb.isChecked())
+        config.SHOW_OBS_REMINDER_ON_START_SCANNER = enabled
+        config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = enabled
+        config.save_config(config.user_config)
+
+    def refresh_scanner_reminder_ui(self) -> None:
+        """Re-read the reminder flag. Called after the Settings dialog saves.
+
+        The dialog is the second editor of this one value. It is modal and built
+        fresh per open, so it always shows the current state -- but nothing tells
+        *this* checkbox that the dialog changed it, and a stale box would write
+        the old value back on its next toggle.
+        """
+        checkbox = getattr(self, "overlay_scanner_reminder_cb", None)
+        if checkbox is None:
+            return
+        enabled = bool(getattr(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False))
+        if checkbox.isChecked() == enabled:
+            return
+        # Without the block this re-entry writes the value straight back to
+        # config -- harmless today, but it turns a refresh into a save, which is
+        # not what a refresh is for.
+        checkbox.blockSignals(True)
+        checkbox.setChecked(enabled)
+        checkbox.blockSignals(False)
 
     def _copy_to_clipboard(self, text: str, button: QPushButton) -> None:
         from PySide6.QtGui import QGuiApplication
@@ -802,19 +900,23 @@ class Overlay:
         server = getattr(self, "overlay_server", None)
         running = bool(server is not None and server.is_running)
         if self.overlay_url_entry is not None:
-            _set_text_input(self.overlay_url_entry, self._overlay_url_text())
-        if getattr(self, "overlay_widget_url_entry", None) is not None:
-            _set_text_input(self.overlay_widget_url_entry, self._overlay_selected_widget_url_text())
-        if self.overlay_status_label is not None:
+            # One field, two modes. Which URL belongs in it is card 1's segmented
+            # control; the field itself does not know there is a choice.
+            _set_text_input(self.overlay_url_entry, self._overlay_visible_url_text())
+        hero = getattr(self, "overlay_hero", None)
+        if hero is not None:
             if running:
-                status = '<span style="color:#4fd67a; font-weight: bold;">Live</span>'
+                hero.set_status("LIVE", STATE_OK)
             elif server is not None and server.last_error:
-                status = f'<span style="color:#f08b72; font-weight: bold;">Port Error</span> ({server.last_error})'
+                # The badge stays a short label and the OS message goes to the
+                # subtitle: `[WinError 10048] ...` is a sentence, and a sentence
+                # in a 10.5px uppercase pill cannot be read.
+                hero.set_status("PORT ERROR", STATE_DANGER, detail=str(server.last_error))
             else:
-                status = '<span style="color:#f08b72; font-weight: bold;">Stopped</span>'
-            _set_text(self.overlay_status_label, status)
+                hero.set_status("STOPPED", STATE_OFF)
         if getattr(self, "overlay_server_toggle_btn", None) is not None:
-            self.overlay_server_toggle_btn.setText("Stop Server" if running else "Start Server")
+            start_text, stop_text = OVERLAY_SERVER_CAPTIONS
+            self.overlay_server_toggle_btn.setText(stop_text if running else start_text)
             _set_widget_style_role(
                 self.overlay_server_toggle_btn,
                 "stopScanner" if running else "primary",
@@ -1171,12 +1273,16 @@ class Overlay:
     def _overlay_url_text(self) -> str:
         return f"http://127.0.0.1:{int(config.OVERLAY.get('port', 17845))}/overlay"
 
+    def _overlay_visible_url_text(self) -> str:
+        """The URL card 1 is currently offering to copy."""
+        if self._overlay_source_mode() == self.SOURCE_MODE_SINGLE:
+            return self._overlay_selected_widget_url_text()
+        return self._overlay_url_text()
+
     def _overlay_selected_widget_url_text(self) -> str:
         widget_id = "stats"
         if getattr(self, "overlay_widget_url_combo", None) is not None:
             widget_id = str(self.overlay_widget_url_combo.currentData() or widget_id)
-        if widget_id == "editor":
-            return f"{self._overlay_url_text()}?edit=true"
         return f"{self._overlay_url_text()}/{widget_id}"
 
     @staticmethod

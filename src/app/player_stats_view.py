@@ -175,6 +175,16 @@ class OverlayView(Protocol):
     def refresh_session_tracked_item_stats_ui(self) -> None:
         """Re-render the session tracked-item panel."""
 
+    def refresh_scanner_reminder_ui(self) -> None:
+        """Re-read the OBS reminder flag after something else wrote it.
+
+        The flag has two editors -- the OBS Overlay tab's behaviour card and the
+        Settings dialog -- and only the dialog knows when it has saved. Declared
+        on the port rather than probed for with ``hasattr``: a probe that goes
+        quietly false stops refreshing with nothing raising, which is exactly
+        the failure recorded beside the timeline refresh in ``SettingsDialog``.
+        """
+
 
 @runtime_checkable
 class RecordingsListView(Protocol):

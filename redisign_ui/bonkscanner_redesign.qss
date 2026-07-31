@@ -499,6 +499,51 @@ QLabel#heroBadge[state="off"] {
     color: #5C6675;
 }
 
+/* ----------------------------------------------------- settings cards ------ */
+/* Пронумерованная карточка вкладок OBS / Twitch / In-game. Заменяет QGroupBox
+   там, где в шапке нужны номер шага, подпись и кнопка справа — заголовок
+   QGroupBox рисуется в рамке и вместить их не может. */
+QFrame[settingsCard="true"] {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+}
+/* Разделитель под шапкой — нижняя граница самой шапки, а не отдельный QFrame:
+   иначе он не попадает под скругление карточки и торчит по краям. */
+QFrame[settingsCardHead="true"] {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #1B222B;
+}
+QLabel#settingsCardNumber {
+    background-color: #141A22;
+    border: 1px solid #2A3542;
+    border-radius: 5px;
+    color: #38BDF8;
+    font-size: 10.5px;
+    font-weight: 800;
+}
+QLabel#settingsCardTitle { font-size: 13px; font-weight: 700; color: #EDF1F5; }
+QLabel#settingsCardSubtitle { color: #5C6675; font-size: 10.5px; }
+QWidget#settingsCardBody { background: transparent; }
+
+/* ---------------------------------------------------------- tip card ------- */
+/* Заменяет инфо-карточки вкладок OBS и In-game, которые раньше рисовались
+   инлайновыми стилями прямо в Python — с цветами (#111A2E, #1D4ED8, #3B82F6)
+   вне этой палитры и размерами шрифта в pt внутри HTML лейбла. */
+QFrame[tipCard="true"] {
+    background-color: #101419;
+    border: 1px solid #2A3542;
+    border-left: 3px solid #38BDF8;
+    border-radius: 8px;
+}
+QLabel#tipCardTitle {
+    color: #38BDF8;
+    font-size: 11px;
+    font-weight: 800;
+}
+QLabel#tipCardText { color: #8A94A3; font-size: 10.5px; }
+
 /* ------------------------------------------------------- module tiles ------ */
 /* Плитка-переключатель из сеток вкладок OBS / Twitch / In-game. Выбирается по
    свойству, а не по objectName, по той же причине, что и рамка сегментов:

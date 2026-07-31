@@ -34,6 +34,13 @@ from PySide6.QtWidgets import (
 TRACKED_ITEM_LIST_HEIGHT = 96
 
 
+#: One label for one flag. `SHOW_OBS_REMINDER_ON_START_SCANNER` is edited in two
+#: places -- the Settings dialog and the OBS Overlay tab -- and two hand-written
+#: captions for the same switch is how a user ends up believing they are two
+#: settings.
+SCANNER_REMINDER_LABEL = "Show OBS reminder on Start Scanner"
+
+
 class LabeledSwitch(QCheckBox):
     """A checkbox painted as the compact label-and-track control used in mocks.
 

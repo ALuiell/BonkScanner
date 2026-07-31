@@ -227,6 +227,13 @@ class FakeSettingsMaster:
     def apply_run_control_mode(self) -> None:
         self.events.append("apply_run_control_mode")
 
+    def refresh_scanner_reminder_ui(self) -> None:
+        # The OBS tab's copy of the reminder flag. Recorded rather than ignored
+        # so `test_settings_save_...` can assert the save actually reaches it --
+        # a dialog that saves without telling the tab leaves a checkbox that
+        # writes the stale value back on its next toggle.
+        self.events.append("refresh_scanner_reminder_ui")
+
     def log(self, _message: str, tag: str | None = None) -> None:
         del tag
         self.events.append("log")
@@ -991,6 +998,9 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(vod_capture(master).player_stats_auto_recording_suppressed)
         self.assertTrue(config.user_config["AUTO_START_RECORDING"])
         self.assertTrue(config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
+        # The OBS tab shows this same flag; a save that does not reach it leaves
+        # a checkbox that will write the old value back.
+        self.assertIn("refresh_scanner_reminder_ui", master.events)
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         update_game_reset_time.assert_called_once_with(0.2)
