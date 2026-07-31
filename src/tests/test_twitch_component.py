@@ -147,6 +147,9 @@ class TwitchSessionTests(unittest.TestCase):
         harness.session.open_command_settings()
 
         self.assertEqual(order, ["prime", "refresh", "dialog"])
+        # And the chat preview is redrawn *after* the dialog closes, because
+        # that dialog is where the templates it renders get edited.
+        self.assertIn(("refresh_chat_preview",), harness.tab.calls)
 
     # -- auth -------------------------------------------------------------
 
@@ -667,6 +670,33 @@ class TwitchTabTests(unittest.TestCase):
         self.assertEqual((connect[-1], disconnect[-1]), (True, False))
         self.assertEqual(painted[-1][0], "NOT CONNECTED")
         self.assertEqual(tab._account_suffix.text, "")
+
+    def test_the_chat_preview_fills_the_template_tags(self) -> None:
+        """Raw `{kps}` in the card reads as a failed render, not as a preview.
+
+        It also shows the template, which the command dialog already shows. What
+        the card is for is the *result*, so the tags carry sample values.
+        """
+        from ui.tabs.twitch.panel import _fill_sample_tags
+
+        filled = _fill_sample_tags(
+            "KPS: {kps} | 60s Avg: {minute_avg} | Run Avg: {run_avg}"
+        )
+        self.assertNotIn("{", filled)
+        self.assertIn("188", filled)
+
+    def test_an_unknown_tag_does_not_break_the_preview(self) -> None:
+        """Templates are user-editable free text.
+
+        `format_map` raises on a tag it does not know, and a preview that throws
+        on someone's typo is worse than the raw template it replaced.
+        """
+        from ui.tabs.twitch.panel import _fill_sample_tags
+
+        self.assertEqual("Seeds: …", _fill_sample_tags("Seeds: {seeds_found}"))
+        # An unbalanced brace is theirs to fix, not ours to swallow -- shown as
+        # written rather than not shown at all.
+        self.assertEqual("Broken: {oops", _fill_sample_tags("Broken: {oops"))
 
     def test_bot_status_maps_onto_badge_states(self) -> None:
         """The five branches the inline-styled label had, as badge states.

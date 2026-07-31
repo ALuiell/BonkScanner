@@ -101,7 +101,6 @@ class InGameOverlay:
         self.igo_hotkey_entry = None
         self.igo_target_window_label = None
         self.igo_tip_label = None
-        self.igo_preview = None
         self.igo_widget_settings_btn = None
         self.igo_auto_start_cb = None
         self.igo_scanner_cb = None

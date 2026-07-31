@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
 
 from app import config
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
-from ui.canvas_preview import CanvasPreview, PreviewWidget
 from ui.module_tile import ModuleTile
 from ui.run_toggle import IN_GAME_OVERLAY_CAPTIONS
 from ui.settings_card import SettingsCard
@@ -298,14 +297,24 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
     _build_igo_widgets_card(parent_mixin, main_column)
     main_column.addStretch(1)
 
-    _build_igo_preview_card(parent_mixin, side_column)
     _build_igo_tip_card(parent_mixin, side_column)
     side_column.addStretch(1)
 
     layout.addStretch(1)
     update_in_game_overlay_status_ui(parent_mixin)
     refresh_in_game_overlay_hotkey_ui(parent_mixin)
-    refresh_in_game_overlay_preview(parent_mixin)
+    refresh_in_game_overlay_target_window(parent_mixin)
+
+    # A slow poll for the one live fact this tab still shows. It used to drive
+    # the canvas preview as well; the preview is gone and the detection line is
+    # not, because whether the game is running changes without anything else in
+    # this tab ticking.
+    parent_mixin.igo_target_window_timer = QTimer(parent_mixin.tab_in_game_overlay)
+    parent_mixin.igo_target_window_timer.setInterval(1500)
+    parent_mixin.igo_target_window_timer.timeout.connect(
+        lambda: refresh_in_game_overlay_target_window(parent_mixin)
+    )
+    parent_mixin.igo_target_window_timer.start()
 
 
 def _build_igo_hero(parent_mixin: Any) -> TabHero:
@@ -409,33 +418,6 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
     column.addWidget(card)
 
 
-def _build_igo_preview_card(parent_mixin: Any, column) -> None:
-    card = SettingsCard(
-        number=None,
-        title="Game-window preview",
-        subtitle="Read-only - drag in layout mode.",
-    )
-    card.setMaximumWidth(360)
-
-    parent_mixin.igo_preview = CanvasPreview()
-    card.body.addWidget(parent_mixin.igo_preview)
-    parent_mixin.igo_preview_legend = QLabel("")
-    parent_mixin.igo_preview_legend.setObjectName("previewLegend")
-    parent_mixin.igo_preview_legend.setTextFormat(Qt.RichText)
-    card.body.addWidget(parent_mixin.igo_preview_legend)
-    column.addWidget(card)
-
-    # Its own slow poll, for the same reason the OBS preview has one: whether
-    # the game window exists is read live, and nothing else ticks while the
-    # overlay is off.
-    parent_mixin.igo_preview_timer = QTimer(parent_mixin.tab_in_game_overlay)
-    parent_mixin.igo_preview_timer.setInterval(1500)
-    parent_mixin.igo_preview_timer.timeout.connect(
-        lambda: refresh_in_game_overlay_preview(parent_mixin)
-    )
-    parent_mixin.igo_preview_timer.start()
-
-
 def _build_igo_tip_card(parent_mixin: Any, column) -> None:
     tip = QFrame()
     tip.setObjectName("tipCard")
@@ -508,65 +490,29 @@ def _save_in_game_overlay_hotkey(parent_mixin: Any) -> None:
     refresh_in_game_overlay_hotkey_ui(parent_mixin)
 
 
-def refresh_in_game_overlay_preview(parent_mixin: Any) -> None:
-    preview = getattr(parent_mixin, "igo_preview", None)
-    if preview is None:
+def refresh_in_game_overlay_target_window(parent_mixin: Any) -> None:
+    """Say whether the game window is there, in card 1.
+
+    All that is left of what used to be a canvas preview beside it. The preview
+    was removed because it answered its question badly and only when it could
+    not help: the frame of reference is the game's client rect, so with the game
+    closed -- which is when you are usually in this tab -- there was nothing to
+    scale against, and with the game open the hotkey shows the real layout over
+    the real window at full size. This line is the part that was worth keeping.
+    """
+    label = getattr(parent_mixin, "igo_target_window_label", None)
+    if label is None:
         return
     if not parent_mixin.is_in_game_overlay_tab_active():
         return
 
-    geometry = parent_mixin._in_game_overlay_target_geometry()
-    detected = geometry is not None
-    label = getattr(parent_mixin, "igo_target_window_label", None)
-    if label is not None:
-        label.setText("Detected" if detected else "Not running")
-        label.setProperty("state", STATE_OK if detected else STATE_OFF)
-        style = label.style()
-        if style is not None:
-            style.unpolish(label)
-            style.polish(label)
-
-    if geometry is not None:
-        preview.set_canvas(geometry.width(), geometry.height())
-        preview.set_placeholder("")
-    else:
-        # The overlay's own fallback, said out loud: without the game there is
-        # no client rect to scale against, so what is shown is against the
-        # screen and would otherwise look mysteriously shifted.
-        preview.set_canvas(1920, 1080)
-        preview.set_placeholder(
-            "Game window not found.\nPositions are shown against a 1920x1080 screen."
-        )
-
-    widgets = config.IN_GAME_OVERLAY.get("widgets", {})
-    # Real sizes when the overlay window exists, because the widgets are right
-    # there and know theirs. Guessing from the label instead is what made a
-    # widget at the right edge draw near the middle: the guess is in screen
-    # pixels and does not scale with the canvas.
-    window = getattr(parent_mixin, "in_game_overlay_window", None)
-    live = getattr(window, "widgets", {}) if window is not None else {}
-    blocks = []
-    for widget_id, label_text, _attribute in IN_GAME_WIDGET_TILES:
-        widget_cfg = widgets.get(widget_id, {})
-        if not widget_cfg.get("enabled"):
-            continue
-        live_widget = live.get(widget_id)
-        blocks.append(
-            PreviewWidget(
-                label=label_text,
-                x=int(widget_cfg.get("x", 0) or 0),
-                y=int(widget_cfg.get("y", 0) or 0),
-                width=int(live_widget.width()) if live_widget is not None else 0,
-                height=int(live_widget.height()) if live_widget is not None else 0,
-                # Numbered in grid order, so the legend below reads in the same
-                # order as the tiles in card 2.
-                marker=str(len(blocks) + 1),
-            )
-        )
-    preview.set_widgets(blocks)
-    legend = getattr(parent_mixin, "igo_preview_legend", None)
-    if legend is not None:
-        legend.setText(preview.legend_html())
+    detected = parent_mixin._in_game_overlay_target_geometry() is not None
+    label.setText("Detected" if detected else "Not running")
+    label.setProperty("state", STATE_OK if detected else STATE_OFF)
+    style = label.style()
+    if style is not None:
+        style.unpolish(label)
+        style.polish(label)
 
 
 def update_in_game_overlay_status_ui(parent_mixin: Any) -> None:

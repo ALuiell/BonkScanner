@@ -129,6 +129,12 @@ class FakeTab:
     def show_bot_stopped(self) -> None:
         self.calls.append(("show_bot_stopped",))
 
+    def refresh_chat_preview(self) -> None:
+        # The command dialog is where templates are edited; the preview is what
+        # they look like. Recorded so a test can assert the session redraws it
+        # after the dialog closes.
+        self.calls.append(("refresh_chat_preview",))
+
 
 class FakeAuthThread:
     def __init__(self) -> None:

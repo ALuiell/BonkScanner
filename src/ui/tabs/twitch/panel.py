@@ -97,6 +97,56 @@ _COMMAND_DEFAULTS = {
 }
 
 
+#: Which commands the chat preview shows, in order. Three, because the card is
+#: a spot-check on formatting rather than a transcript of the whole bot, and
+#: because these three between them cover the tag shapes the others reuse: a
+#: run of numbers, a counted list, and a plain list.
+_PREVIEW_COMMANDS = ("kps", "items", "weapons")
+
+#: Stand-in values for the template tags. Sample rather than live on purpose --
+#: templates get edited between runs, and a preview that only works mid-run is
+#: a preview that never works when you need it. The numbers are ordinary ones,
+#: not round, so a line's real width is visible.
+_SAMPLE_TAGS = {
+    "kps": "188",
+    "minute_avg": "172",
+    "five_minute_avg": "165",
+    "run_avg": "154",
+    "count": "12",
+    "items": "Anvil x3, Magnet x2, Lucky Clover, Boots",
+    "weapons": "Bonk Hammer Lv7, Crossbow Lv5",
+    "tomes": "Chaos Lv4, Growth Lv3",
+    "level": "4",
+    "chaos": "+18% damage, +12% area",
+    "powerups": "Rage 21s, Clock 17s",
+    "pm": "2",
+    "tiers": "Common 41%, Rare 28%, Epic 19%",
+    "stages": "1: 1204, 2: 2810, 3: 4416",
+    "commands_list": "!stats, !items, !kps",
+}
+
+
+class _SampleTags(dict):
+    """Fills any tag a custom template invented, so formatting cannot fail.
+
+    Templates are user-editable free text. `str.format_map` on one carrying an
+    unknown tag would raise, and a preview that throws on a typo is worse than
+    the raw template it replaced.
+    """
+
+    def __missing__(self, key: str) -> str:
+        return "…"
+
+
+def _fill_sample_tags(template: str) -> str:
+    try:
+        return template.format_map(_SampleTags(_SAMPLE_TAGS))
+    except (IndexError, ValueError):
+        # Unbalanced or positional braces -- someone's template, not ours to
+        # fix. Show it as written rather than showing nothing.
+        return template
+
+
 def command_checked(commands: dict, key: str) -> bool:
     """Whether a command checkbox starts checked.
 
@@ -348,26 +398,49 @@ class TwitchTab:
         self.refresh_chat_preview()
 
     def refresh_chat_preview(self) -> None:
-        """Render the preview from the *configured* template, not a mock string.
+        """Render the configured templates the way chat will see them.
 
-        The mock drew an invented response. Reading the real template is what
-        makes the card's claim -- "the message shape before it reaches Twitch" --
-        true, and it means editing a template in the command dialog shows up
-        here.
+        Two things this is not. It is not the mock's invented response -- it
+        reads the real templates, so editing one in the command dialog shows up
+        here. And it no longer prints them raw: a line reading
+        `KPS: {kps} | 60s Avg: {minute_avg}` shows the *template*, which you can
+        already see in the dialog, and reads like something failed to render.
+        Filling the tags with sample values is what makes the card's claim --
+        "the message shape before it reaches Twitch" -- worth the space.
+
+        Sample values, not live ones, and deliberately: the point is to check
+        that a template reads well, which has to work with no run in progress,
+        which is when you are editing templates.
         """
         if self._chat_preview is None:
             return
         templates = config.TWITCH_BOT.get("templates", {}) or {}
         defaults = config.DEFAULT_TWITCH_BOT.get("templates", {}) or {}
-        body = str(templates.get("kps") or defaults.get("kps") or "")
         channel = str(config.TWITCH_BOT.get("target_channel") or "").strip()
         viewer = channel or "viewer"
-        self._chat_preview.setText(
-            f"<div style='color:#8A94A3'>{viewer}:</div>"
-            f"<div style='color:#EDF1F5'>!kps</div>"
-            f"<div style='color:#38BDF8; margin-top:6px'>BonkScanner:</div>"
-            f"<div style='color:#EDF1F5'>{body}</div>"
-        )
+
+        lines = []
+        for key in _PREVIEW_COMMANDS:
+            checkbox = self._command_cbs.get(key)
+            if checkbox is not None and not checkbox.isChecked():
+                continue
+            body = str(templates.get(key) or defaults.get(key) or "")
+            if not body:
+                continue
+            lines.append(
+                f"<div style='color:#8A94A3; margin-top:8px'>{viewer}: "
+                f"<span style='color:#EDF1F5'>!{key}</span></div>"
+                f"<div style='color:#38BDF8'>BonkScanner: "
+                f"<span style='color:#EDF1F5'>{_fill_sample_tags(body)}</span></div>"
+            )
+
+        if not lines:
+            self._chat_preview.setText(
+                "<div style='color:#5C6675'>Every previewed command is switched "
+                "off.</div>"
+            )
+            return
+        self._chat_preview.setText("".join(lines))
 
     # -- wiring -----------------------------------------------------------
 
@@ -395,6 +468,13 @@ class TwitchTab:
 
         self._tier_combo.currentTextChanged.connect(on_settings_changed)
         self._target_channel_entry.editingFinished.connect(on_settings_changed)
+        # The preview names the asking viewer after the target channel and only
+        # shows commands that are on, so both have to reach it. Connected here
+        # rather than folded into the save handler: this is the view redrawing
+        # itself, and the session has no reason to know about it.
+        self._target_channel_entry.editingFinished.connect(self.refresh_chat_preview)
+        for checkbox in self._command_cbs.values():
+            checkbox.stateChanged.connect(lambda _state: self.refresh_chat_preview())
         self._global_cooldown_spin.valueChanged.connect(on_settings_changed)
         self._cooldown_spin.valueChanged.connect(on_settings_changed)
         for key, checkbox in self._command_cbs.items():
