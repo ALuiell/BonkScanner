@@ -67,13 +67,19 @@ class SettingsCard(QFrame):
         self._title = QLabel(str(title))
         self._title.setObjectName("settingsCardTitle")
         copy_column.addWidget(self._title)
-        self._subtitle = QLabel(str(subtitle))
+        # Parented to `header` at construction, which is not cosmetic: a
+        # parentless widget told to show becomes a top-level window and flashes
+        # on screen. Adding it to `copy_column` first is not enough either --
+        # that layout is not installed on a widget yet, so it has no parent to
+        # hand down. `test_startup_window_order` caught eight of these, one per
+        # card, and it caught them the second time too.
+        self._subtitle = QLabel(str(subtitle), header)
         self._subtitle.setObjectName("settingsCardSubtitle")
         self._subtitle.setWordWrap(True)
+        copy_column.addWidget(self._subtitle)
         # Hidden rather than skipped: a card that gains a sub-line later should
         # not have to grow a layout for it.
         self._subtitle.setVisible(bool(subtitle))
-        copy_column.addWidget(self._subtitle)
         header_row.addLayout(copy_column, 1)
 
         self._action = action

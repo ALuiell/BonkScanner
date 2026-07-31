@@ -544,6 +544,22 @@ QLabel#tipCardTitle {
 }
 QLabel#tipCardText { color: #8A94A3; font-size: 10.5px; }
 
+/* Короткая пометка справа от поля — «Authorized», «Detected». Одно слово: все
+   длинные состояния (авторизация, валидация, отказ) живут в бейдже шапки, где
+   у жизненного цикла есть место. */
+QLabel#fieldSuffix { color: #5C6675; font-size: 10.5px; font-weight: 700; }
+QLabel#fieldSuffix[state="ok"] { color: #22C55E; }
+
+/* Превью чата на вкладке Twitch — рендерится из настоящих шаблонов, не из
+   выдуманной строки, поэтому цвета внутри задаёт сам текст. */
+QLabel#chatPreview {
+    background-color: #101419;
+    border: 1px solid #1B222B;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 11px;
+}
+
 /* ------------------------------------------------------- module tiles ------ */
 /* Плитка-переключатель из сеток вкладок OBS / Twitch / In-game. Выбирается по
    свойству, а не по objectName, по той же причине, что и рамка сегментов:
