@@ -46,37 +46,59 @@ IN_GAME_WIDGET_TILES = (
 )
 
 
+#: Which attribute each widget's scale spin box is stored under. `_save_settings`
+#: reads all seven by name, so the table builder and the saver need one list
+#: rather than two hand-kept copies.
+_SCALE_SPIN_ATTRIBUTES = {
+    "scanner": "scanner_scale_spin",
+    "recording": "recording_scale_spin",
+    "kps": "kps_scale_spin",
+    "powerups": "powerups_scale_spin",
+    "luck_rarity": "luck_rarity_scale_spin",
+    "stats": "stats_scale_spin",
+    "event_timer": "event_timer_scale_spin",
+}
+
+
 class InGameWidgetSettingsDialog(QDialog):
     def __init__(self, parent_mixin: Any, parent: QWidget | None = None):
         super().__init__(parent)
         self.parent_mixin = parent_mixin
         self.setWindowTitle("In-Game Widgets Configuration")
-        self.resize(700, 760)
-        self.setMinimumSize(640, 680)
+        # Two thirds of the old height: seven rows need far less room than the
+        # six group boxes they replace.
+        #
+        # The minimum *width* is the table's own, measured rather than guessed.
+        # Set below it the widget table overflows by a pixel or two, a horizontal
+        # scrollbar appears, that steals height, and a vertical one appears after
+        # it -- which is exactly the pair of bars the old dialog had along its
+        # edges at its 640px minimum.
+        self.resize(720, 540)
+        self.setMinimumSize(680, 430)
 
         main_layout = QVBoxLayout(self)
-        
+
         self.tabs = QTabWidget()
         main_layout.addWidget(self.tabs, 1)
-        
-        # Basic tab
+
         self.basic_tab = QWidget()
         basic_layout = QVBoxLayout(self.basic_tab)
         basic_scroll, _basic_content, basic_scroll_layout = _make_scroll_section()
-        basic_scroll_layout.setSpacing(16)
+        basic_scroll_layout.setSpacing(12)
         basic_layout.addWidget(basic_scroll)
-        self.tabs.addTab(self.basic_tab, "Basic Settings")
-        
-        # Advanced tab
+        self.tabs.addTab(self.basic_tab, "Widgets")
+
         self.advanced_tab = QWidget()
         advanced_layout = QVBoxLayout(self.advanced_tab)
         advanced_scroll, _advanced_content, advanced_scroll_layout = _make_scroll_section()
-        advanced_scroll_layout.setSpacing(16)
+        advanced_scroll_layout.setSpacing(12)
         advanced_layout.addWidget(advanced_scroll)
-        self.tabs.addTab(self.advanced_tab, "Advanced Settings")
-        
-        self._init_basic_layout(basic_scroll_layout)
+        self.tabs.addTab(self.advanced_tab, "Stats")
+
+        # Advanced first: the widgets table's Stats row reports how many stats
+        # the picker has selected, so the picker has to exist before it asks.
         self._init_advanced_layout(advanced_scroll_layout)
+        self._init_widgets_table(basic_scroll_layout)
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch(1)
@@ -85,124 +107,177 @@ class InGameWidgetSettingsDialog(QDialog):
         btn_layout.addWidget(close_btn)
         main_layout.addLayout(btn_layout)
 
-    def _init_basic_layout(self, layout) -> None:
-        _add_scale_group(
-            layout,
-            title="Scanner Status Settings",
-            attr_name="scanner_scale_spin",
-            widget_id="scanner",
-            parent=self,
-        )
-        _add_scale_group(
-            layout,
-            title="Recording Status Settings",
-            attr_name="recording_scale_spin",
-            widget_id="recording",
-            parent=self,
-        )
+    def _init_widgets_table(self, layout) -> None:
+        """One row per widget: name, scale, its own options.
 
-        kps_group = QGroupBox("KPS Settings")
-        kps_layout = QVBoxLayout(kps_group)
-        kps_layout.setContentsMargins(16, 12, 16, 12)
-        _add_scale_row(kps_layout, self, "kps_scale_spin", "kps")
+        Replaces six group boxes each wrapping a single spin box. That shape
+        spent most of the dialog's height on frames around one number, and it
+        made two widgets with nothing but a scale look as substantial as the one
+        with four metric toggles. A row says what a widget actually has.
 
-        metrics_group = QGroupBox("Metrics Displayed")
-        metrics_layout = QHBoxLayout(metrics_group)
-        metrics_layout.setSpacing(10)
-        selected_metrics = set(config.IN_GAME_OVERLAY["widgets"]["kps"].get("metrics", ["instant"]))
+        Anything that cannot fit a row stays out of it. The stats picker is
+        fourteen checkboxes and belongs on Advanced; the row links there rather
+        than flattening it in.
+        """
+        table = QGridLayout()
+        table.setHorizontalSpacing(14)
+        table.setVerticalSpacing(6)
+        table.setColumnStretch(2, 1)
 
-        self.kps_instant_cb = _build_checkbox("KPS", "instant" in selected_metrics, self._save_settings)
-        metrics_layout.addWidget(self.kps_instant_cb)
-        self.kps_60s_cb = _build_checkbox("60s", "60s" in selected_metrics, self._save_settings)
-        metrics_layout.addWidget(self.kps_60s_cb)
-        self.kps_5m_cb = _build_checkbox("5m", "5m" in selected_metrics, self._save_settings)
-        metrics_layout.addWidget(self.kps_5m_cb)
-        self.kps_run_cb = _build_checkbox("Run", "run" in selected_metrics, self._save_settings)
-        metrics_layout.addWidget(self.kps_run_cb)
+        for column, title in enumerate(("Widget", "Scale", "Options")):
+            header = QLabel(title)
+            header.setObjectName("tableHeader")
+            table.addWidget(header, 0, column)
 
-        kps_layout.addWidget(metrics_group)
-        layout.addWidget(kps_group)
+        row = 1
+        for widget_id, label, _attribute in IN_GAME_WIDGET_TILES:
+            name = QLabel(label)
+            name.setObjectName("tableRowName")
+            table.addWidget(name, row, 0)
+            table.addWidget(self._scale_spin(widget_id), row, 1)
 
-        _add_scale_group(
-            layout,
-            title="Active Powerups Settings",
-            attr_name="powerups_scale_spin",
-            widget_id="powerups",
-            parent=self,
-        )
-        luck_rarity_group = QGroupBox("Luck Rarity Settings")
-        luck_rarity_layout = QVBoxLayout(luck_rarity_group)
-        luck_rarity_layout.setContentsMargins(16, 12, 16, 12)
-        _add_scale_row(luck_rarity_layout, self, "luck_rarity_scale_spin", "luck_rarity")
-        self.luck_rarity_show_bar_cb = _build_checkbox(
-            "Show rarity bar",
-            bool(config.IN_GAME_OVERLAY["widgets"]["luck_rarity"].get("show_bar", True)),
-            self._save_settings,
-        )
-        luck_rarity_layout.addWidget(self.luck_rarity_show_bar_cb)
+            options = self._widget_options(widget_id)
+            if options is not None:
+                table.addWidget(options, row, 2)
+            else:
+                dash = QLabel("—")
+                dash.setObjectName("tableRowEmpty")
+                table.addWidget(dash, row, 2)
+            row += 1
 
-        # Independent of the bar, not nested under it: all four combinations of
-        # the two are valid, and the block anchors to the percentage row, which
-        # is always drawn.
-        self.luck_rarity_show_expected_cb = _build_checkbox(
-            "Show expected frame",
-            bool(config.IN_GAME_OVERLAY["widgets"]["luck_rarity"].get("show_expected", False)),
-            self._save_settings,
-        )
-        self.luck_rarity_show_expected_cb.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
-        luck_rarity_layout.addWidget(self.luck_rarity_show_expected_cb)
-
-        expected_layout_row = QHBoxLayout()
-        expected_layout_row.addWidget(QLabel("Expected layout:"))
-        self.luck_rarity_expected_layout_combo = QComboBox()
-        for label, value in (("Column (2x2)", "column"), ("Row (single line)", "row")):
-            self.luck_rarity_expected_layout_combo.addItem(label, value)
-        current_layout = config.IN_GAME_OVERLAY["widgets"]["luck_rarity"].get(
-            "expected_layout", "column"
-        )
-        self.luck_rarity_expected_layout_combo.setCurrentIndex(
-            max(0, self.luck_rarity_expected_layout_combo.findData(current_layout))
-        )
-        self.luck_rarity_expected_layout_combo.currentIndexChanged.connect(self._save_settings)
-        expected_layout_row.addWidget(self.luck_rarity_expected_layout_combo)
-        expected_layout_row.addStretch(1)
-        luck_rarity_layout.addLayout(expected_layout_row)
-        layout.addWidget(luck_rarity_group)
-
-        event_timer_group = QGroupBox("Event Timer Settings")
-        event_timer_layout = QVBoxLayout(event_timer_group)
-        event_timer_layout.setContentsMargins(16, 12, 16, 12)
-        _add_scale_row(event_timer_layout, self, "event_timer_scale_spin", "event_timer")
-        
-        warn_layout = QHBoxLayout()
-        warn_layout.addWidget(QLabel("Warning threshold (seconds):"))
-        self.event_timer_warning_spin = QSpinBox()
-        self.event_timer_warning_spin.setRange(1, 300)
-        self.event_timer_warning_spin.setValue(config.IN_GAME_OVERLAY["widgets"]["event_timer"].get("warning_seconds", 15))
-        self.event_timer_warning_spin.valueChanged.connect(self._save_settings)
-        warn_layout.addWidget(self.event_timer_warning_spin)
-        warn_layout.addStretch(1)
-        event_timer_layout.addLayout(warn_layout)
-        layout.addWidget(event_timer_group)
+        layout.addLayout(table)
         layout.addStretch(1)
 
+    def _scale_spin(self, widget_id: str) -> QDoubleSpinBox:
+        """The one control every widget has. Named per widget for `_save_settings`."""
+        spin = QDoubleSpinBox()
+        spin.setRange(0.5, 3.0)
+        spin.setSingleStep(0.1)
+        spin.setMaximumWidth(88)
+        spin.setValue(config.IN_GAME_OVERLAY["widgets"][widget_id].get("scale", 1.0))
+        spin.valueChanged.connect(self._save_settings)
+        setattr(self, _SCALE_SPIN_ATTRIBUTES[widget_id], spin)
+        return spin
+
+    def _widget_options(self, widget_id: str) -> QWidget | None:
+        """Whatever else this widget has, on one line, or `None` for nothing."""
+        if widget_id == "kps":
+            holder = QWidget()
+            row = QHBoxLayout(holder)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(10)
+            selected = set(config.IN_GAME_OVERLAY["widgets"]["kps"].get("metrics", ["instant"]))
+            for attribute, caption, key in (
+                ("kps_instant_cb", "KPS", "instant"),
+                ("kps_60s_cb", "60s", "60s"),
+                ("kps_5m_cb", "5m", "5m"),
+                ("kps_run_cb", "Run", "run"),
+            ):
+                checkbox = _build_checkbox(caption, key in selected, self._save_settings)
+                setattr(self, attribute, checkbox)
+                row.addWidget(checkbox)
+            row.addStretch(1)
+            return holder
+
+        if widget_id == "luck_rarity":
+            holder = QWidget()
+            row = QHBoxLayout(holder)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(10)
+            settings = config.IN_GAME_OVERLAY["widgets"]["luck_rarity"]
+            self.luck_rarity_show_bar_cb = _build_checkbox(
+                "Bar", bool(settings.get("show_bar", True)), self._save_settings
+            )
+            row.addWidget(self.luck_rarity_show_bar_cb)
+            # Independent of the bar, not nested under it: all four combinations
+            # are valid, and the block anchors to the percentage row, which is
+            # always drawn.
+            self.luck_rarity_show_expected_cb = _build_checkbox(
+                "Expected", bool(settings.get("show_expected", False)), self._save_settings
+            )
+            self.luck_rarity_show_expected_cb.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
+            row.addWidget(self.luck_rarity_show_expected_cb)
+            self.luck_rarity_expected_layout_combo = QComboBox()
+            for caption, value in (("Column", "column"), ("Row", "row")):
+                self.luck_rarity_expected_layout_combo.addItem(caption, value)
+            self.luck_rarity_expected_layout_combo.setCurrentIndex(
+                max(0, self.luck_rarity_expected_layout_combo.findData(
+                    settings.get("expected_layout", "column")))
+            )
+            self.luck_rarity_expected_layout_combo.setMaximumWidth(110)
+            self.luck_rarity_expected_layout_combo.currentIndexChanged.connect(self._save_settings)
+            row.addWidget(self.luck_rarity_expected_layout_combo)
+            row.addStretch(1)
+            return holder
+
+        if widget_id == "event_timer":
+            holder = QWidget()
+            row = QHBoxLayout(holder)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(7)
+            row.addWidget(QLabel("Warn at"))
+            self.event_timer_warning_spin = QSpinBox()
+            self.event_timer_warning_spin.setRange(1, 300)
+            self.event_timer_warning_spin.setMaximumWidth(78)
+            self.event_timer_warning_spin.setValue(
+                config.IN_GAME_OVERLAY["widgets"]["event_timer"].get("warning_seconds", 15)
+            )
+            self.event_timer_warning_spin.setSuffix(" s")
+            self.event_timer_warning_spin.valueChanged.connect(self._save_settings)
+            row.addWidget(self.event_timer_warning_spin)
+            row.addStretch(1)
+            return holder
+
+        if widget_id == "stats":
+            holder = QWidget()
+            row = QHBoxLayout(holder)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(7)
+            self.stats_pick_btn = QPushButton("Choose stats…")
+            self.stats_pick_btn.clicked.connect(
+                lambda: self.tabs.setCurrentWidget(self.advanced_tab)
+            )
+            row.addWidget(self.stats_pick_btn)
+            self.stats_summary_label = QLabel("")
+            self.stats_summary_label.setObjectName("tableRowEmpty")
+            row.addWidget(self.stats_summary_label)
+            row.addStretch(1)
+            self._refresh_stats_summary()
+            return holder
+
+        return None
+
+    def _refresh_stats_summary(self) -> None:
+        """How many stats the picker on Advanced currently has selected.
+
+        The count is what the row can hold, and it is the part worth seeing from
+        here: "none selected" is a real state -- the widget falls back to four
+        defaults -- and it is invisible if the row only offers a button.
+        """
+        label = getattr(self, "stats_summary_label", None)
+        if label is None:
+            return
+        chosen = getattr(self, "stats_checkboxes", None)
+        if not chosen:
+            selected = config.IN_GAME_OVERLAY["widgets"]["stats"].get("selected_stats") or []
+            count = len(selected)
+        else:
+            count = sum(1 for box in chosen.values() if box.isChecked())
+        label.setText(f"{count} selected" if count else "defaults")
+
     def _init_advanced_layout(self, layout) -> None:
-        stats_group = QGroupBox("Stats Widget Settings")
+        stats_group = QGroupBox("Stats shown by the Stats widget")
         stats_layout = QVBoxLayout(stats_group)
         stats_layout.setContentsMargins(16, 12, 16, 12)
-        
-        _add_scale_row(stats_layout, self, "stats_scale_spin", "stats")
-        stats_layout.addSpacing(8)
-        
-        stats_layout.addWidget(QLabel("Select stats to display in the In-Game Stats widget:"))
-        
+
         grid_widget = QWidget()
         grid_layout = QGridLayout(grid_widget)
         grid_layout.setSpacing(10)
-        grid_layout.setContentsMargins(0, 8, 0, 8)
-        
-        selected_stats = set(config.IN_GAME_OVERLAY["widgets"]["stats"].get("selected_stats", ["Damage", "Difficulty", "XP Gain", "Luck"]))
-        
+        grid_layout.setContentsMargins(0, 4, 0, 8)
+
+        selected_stats = set(config.IN_GAME_OVERLAY["widgets"]["stats"].get(
+            "selected_stats", ["Damage", "Difficulty", "XP Gain", "Luck"]))
+
         self.stats_checkboxes = {}
         for index, label in enumerate(config.ALL_STAT_LABELS):
             cb = QCheckBox(label)
@@ -210,9 +285,8 @@ class InGameWidgetSettingsDialog(QDialog):
             cb.stateChanged.connect(self._save_settings)
             self.stats_checkboxes[label] = cb
             grid_layout.addWidget(cb, index // 4, index % 4)
-            
+
         stats_layout.addWidget(grid_widget)
-        stats_layout.addSpacing(12)
 
         reset_btn_layout = QHBoxLayout()
         self.stats_reset_btn = QPushButton("Reset to Default Stats")
@@ -253,6 +327,9 @@ class InGameWidgetSettingsDialog(QDialog):
             if label in self.stats_checkboxes and self.stats_checkboxes[label].isChecked():
                 selected_stats.append(label)
         widgets["stats"]["selected_stats"] = selected_stats or ["Damage", "Difficulty", "XP Gain", "Luck"]
+        # The Stats row on the widgets tab reports this count; without the call
+        # it keeps whatever it said when the dialog opened.
+        self._refresh_stats_summary()
 
         metrics = []
         if self.kps_instant_cb.isChecked():
@@ -540,28 +617,6 @@ def update_in_game_overlay_status_ui(parent_mixin: Any) -> None:
         start_text, stop_text = IN_GAME_OVERLAY_CAPTIONS
         toggle.setText(stop_text if wanted else start_text)
         _set_widget_style_role(toggle, "stopScanner" if wanted else "primary")
-
-
-def _add_scale_group(layout, *, title: str, attr_name: str, widget_id: str, parent: Any) -> None:
-    group = QGroupBox(title)
-    group_layout = QVBoxLayout(group)
-    group_layout.setContentsMargins(16, 12, 16, 12)
-    _add_scale_row(group_layout, parent, attr_name, widget_id)
-    layout.addWidget(group)
-
-
-def _add_scale_row(layout, parent: Any, attr_name: str, widget_id: str) -> None:
-    scale_layout = QHBoxLayout()
-    scale_layout.addWidget(QLabel("Scale:"))
-    spin = QDoubleSpinBox()
-    spin.setRange(0.5, 3.0)
-    spin.setSingleStep(0.1)
-    spin.setValue(config.IN_GAME_OVERLAY["widgets"][widget_id].get("scale", 1.0))
-    spin.valueChanged.connect(parent._save_settings)
-    scale_layout.addWidget(spin)
-    scale_layout.addStretch(1)
-    layout.addLayout(scale_layout)
-    setattr(parent, attr_name, spin)
 
 
 def _build_checkbox(label: str, checked: bool, handler) -> QCheckBox:
