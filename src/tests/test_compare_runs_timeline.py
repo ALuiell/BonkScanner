@@ -19,7 +19,7 @@ from projections import scrubber
 from projections import formatting
 from projections.metric_table import MetricRow, MetricSection, MetricTable
 from projections.timeline_axis import build_axis_projection
-from ui.metric_table import CompactMetricCardGridView
+from ui.metric_table import CompactMetricCardGridView, MetricTableView
 from ui.tabs.compare_runs.tab import CompareRunsTab
 from ui.tabs.compare_runs.timeline import (
     AXIS_PROGRESS,
@@ -195,6 +195,49 @@ def test_structured_stats_are_flat_and_stage_table_has_required_metrics() -> Non
     assert items_row.delta == "+0"
 
 
+def test_snapshot_comparison_is_an_aligned_a_b_delta_table() -> None:
+    snapshot_a = SimpleNamespace(
+        elapsed_seconds=110,
+        time_label="01:50",
+        game_time_seconds=795,
+        mob_kills=20_679,
+        player_level=274,
+        items=("Key x34",),
+    )
+    snapshot_b = SimpleNamespace(
+        elapsed_seconds=30,
+        time_label="00:30",
+        game_time_seconds=0,
+        mob_kills=None,
+        player_level=0,
+        items=(),
+    )
+    vod_a = SimpleNamespace(snapshots=(snapshot_a,) * 605)
+    vod_b = SimpleNamespace(snapshots=(snapshot_b,) * 713)
+
+    table = formatting.build_compare_runs_snapshot_table(
+        vod_a,
+        0,
+        snapshot_a,
+        vod_b,
+        0,
+        snapshot_b,
+    )
+
+    section = table.sections[0]
+    assert section.headers == ("Value", "A", "B", "Delta")
+    assert [row.label for row in section.rows] == [
+        "Snapshot",
+        "Record",
+        "In-game",
+        "Kills",
+        "Level",
+        "Items",
+    ]
+    assert section.rows[1].delta == "-01:20"
+    assert section.rows[-1].delta == "-34"
+
+
 def test_stage_table_keeps_boss_room_as_stage_four() -> None:
     snapshots = (
         _snapshot(0.0, stage=2, stage_time=300.0, stage_ptr=7),
@@ -304,6 +347,26 @@ def test_playhead_updates_do_not_rebuild_static_timeline() -> None:
     timeline.close()
 
 
+def test_compact_timeline_reduces_height_and_can_be_restored() -> None:
+    app = QApplication.instance() or QApplication([])
+    timeline = CompareRunsTimeline()
+    normal_height = timeline.height()
+
+    timeline.set_compact(True)
+    app.processEvents()
+
+    assert timeline.compact is True
+    assert timeline.height() < normal_height
+    assert timeline.minimumHeight() == timeline.maximumHeight() == timeline.height()
+
+    timeline.set_compact(False)
+    app.processEvents()
+
+    assert timeline.compact is False
+    assert timeline.height() == normal_height
+    timeline.close()
+
+
 def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
     app = QApplication.instance() or QApplication([])
 
@@ -343,8 +406,12 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
         for action in compare._series_slot_buttons[0].menu().actions()
         if action.menu() is not None
     ] == ["Dmg", "Effects", "Run", "Rewards & spawns"]
-    assert compare._axis_time_btn.property("timelineAxisMode") is True
+    assert compare._compact_timeline_btn.property("timelineCompact") is True
+    assert not hasattr(compare, "_axis_time_btn")
+    assert not hasattr(compare, "_axis_progress_btn")
+    assert compare._timeline.axis_mode == AXIS_TIME
     assert compare._timeline_position_label.property("timelinePosition") is True
+    assert isinstance(compare._snapshot_comparison_table, MetricTableView)
     timeline_card = compare._timeline.parentWidget()
     slot_center_y = compare._series_slot_buttons[0].mapTo(
         timeline_card, QPoint(0, compare._series_slot_buttons[0].height() // 2)
@@ -352,12 +419,12 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
     position_center_y = compare._timeline_position_label.mapTo(
         timeline_card, QPoint(0, compare._timeline_position_label.height() // 2)
     ).y()
-    axis_center_y = compare._axis_time_btn.mapTo(
-        timeline_card, QPoint(0, compare._axis_time_btn.height() // 2)
+    compact_center_y = compare._compact_timeline_btn.mapTo(
+        timeline_card, QPoint(0, compare._compact_timeline_btn.height() // 2)
     ).y()
     timeline_top = compare._timeline.mapTo(timeline_card, QPoint()).y()
     assert position_center_y < slot_center_y < timeline_top
-    assert abs(slot_center_y - axis_center_y) <= 2
+    assert abs(slot_center_y - compact_center_y) <= 2
     slot_bottom = compare._series_slot_buttons[0].mapTo(
         timeline_card, QPoint(0, compare._series_slot_buttons[0].height())
     ).y()
@@ -365,6 +432,9 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
     assert painted_track_top - slot_bottom <= 10
     assert isinstance(compare._diff_stages_table, CompactMetricCardGridView)
     assert len(compare._diff_stages_table._cards) == 4
+    assert isinstance(compare._stats_table, MetricTableView)
+    assert isinstance(compare._diff_items_table, MetricTableView)
+    assert isinstance(compare._diff_weapons_table, MetricTableView)
 
     table = MetricTable(
         sections=(

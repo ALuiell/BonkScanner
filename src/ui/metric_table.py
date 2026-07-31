@@ -50,14 +50,16 @@ from projections.metric_table import (
 
 #: Same palette the HTML cards used, so the change is invisible except for the
 #: alignment being real.
-CARD_BACKGROUND = QColor("#0F1722")
-CARD_BORDER = QColor("#1E2A3A")
-HEADER_RULE = QColor("#26364A")
-ROW_RULE = QColor("#1E2A3A")
-ZEBRA_BACKGROUND = QColor("#121C28")
+CARD_BACKGROUND = QColor("#0B0F14")
+CARD_BORDER = QColor("#1B222B")
+HEADER_RULE = QColor("#2A3542")
+ROW_RULE = QColor("#151B23")
+ZEBRA_BACKGROUND = QColor("#0E1217")
 
-TEXT_COLOR = "#E5E7EB"
-MUTED_COLOR = "#98A7BA"
+TEXT_COLOR = "#EDF1F5"
+MUTED_COLOR = "#8A94A3"
+RUN_A_COLOR = "#A9D9FF"
+RUN_B_COLOR = "#D8B4FE"
 DELTA_COLORS = {
     DELTA_POSITIVE: "#22C55E",
     DELTA_NEGATIVE: "#FB7185",
@@ -96,9 +98,9 @@ class MetricSectionView(QWidget):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(10, 7, 10, 7)
-        self._grid.setHorizontalSpacing(10)
-        self._grid.setVerticalSpacing(_ROW_PADDING)
+        self._grid.setContentsMargins(12, 8, 12, 8)
+        self._grid.setHorizontalSpacing(12)
+        self._grid.setVerticalSpacing(6)
         for column, stretch in enumerate(COLUMN_STRETCH):
             self._grid.setColumnStretch(column, stretch)
 
@@ -120,9 +122,10 @@ class MetricSectionView(QWidget):
         self._grid.addWidget(self._heading, 0, 0)
 
         self._header_cells: list[QLabel] = []
+        header_colors = (RUN_A_COLOR, RUN_B_COLOR, MUTED_COLOR)
         for column in range(1, len(COLUMN_STRETCH)):
             cell = QLabel()
-            cell.setStyleSheet(_cell_style(MUTED_COLOR, bold=True))
+            cell.setStyleSheet(_cell_style(header_colors[column - 1], bold=True))
             cell.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self._grid.addWidget(cell, 0, column)
             self._header_cells.append(cell)
@@ -190,7 +193,14 @@ class MetricSectionView(QWidget):
                     cell.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     # The delta column is styled on its first row write, by
                     # direction; the value columns never change colour.
-                    cell.setStyleSheet(_cell_style(TEXT_COLOR))
+                    value_color = (
+                        RUN_A_COLOR
+                        if column == 1
+                        else RUN_B_COLOR
+                        if column == 2
+                        else TEXT_COLOR
+                    )
+                    cell.setStyleSheet(_cell_style(value_color))
                 self._grid.addWidget(cell, index + 1, column)
                 cells.append(cell)
             self._rows.append(cells)

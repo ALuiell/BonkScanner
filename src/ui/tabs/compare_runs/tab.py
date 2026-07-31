@@ -43,7 +43,6 @@ from typing import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QFrame,
@@ -87,7 +86,6 @@ from projections import scrubber as scrubber_model
 from projections.formatting import COMPARE_RUN_STAT_LABELS
 from projections.metric_table import EMPTY_METRIC_TABLE, MetricSection, MetricTable
 from ui.tabs.compare_runs.timeline import (
-    AXIS_PROGRESS,
     AXIS_TIME,
     CompareRunsTimeline,
 )
@@ -101,7 +99,7 @@ from ui.timeline_controls import (
 COMPARE_RUN_STAT_CONFIG_KEY = "COMPARE_RUN_STAT_LABELS"
 
 COMPARE_RUN_SECTIONS_CONFIG_KEY = "COMPARE_RUN_SECTIONS"
-COMPARE_RUN_AXIS_MODE_CONFIG_KEY = "COMPARE_RUN_AXIS_MODE"
+COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY = "COMPARE_RUN_COMPACT_TIMELINE"
 COMPARE_RUN_SERIES_SLOTS_CONFIG_KEY = "COMPARE_RUN_SERIES_SLOTS"
 _RECORDING_SEARCH_ROLE = Qt.UserRole + 1
 
@@ -213,11 +211,6 @@ def configured_compare_run_sections() -> dict[str, bool]:
             if key in saved_sections:
                 sections[key] = bool(saved_sections[key])
     return sections
-
-
-def configured_compare_run_axis_mode() -> str:
-    mode = str(config.user_config.get(COMPARE_RUN_AXIS_MODE_CONFIG_KEY, AXIS_TIME))
-    return mode if mode in {AXIS_TIME, AXIS_PROGRESS} else AXIS_TIME
 
 
 def configured_compare_run_series_slots() -> tuple[tuple[str, ...], ...]:
@@ -421,7 +414,9 @@ class CompareRunsTab:
         self._item_details_expanded = False
         self._syncing = False
         self._load_generations = {}
-        self._axis_mode = configured_compare_run_axis_mode()
+        self._timeline_compact = bool(
+            config.user_config.get(COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY, False)
+        )
         self._series_slots = configured_compare_run_series_slots()
         self._pending_diff_payload = None
         self._active_diff_page = 0
@@ -485,6 +480,7 @@ class CompareRunsTab:
         self._run_a_slider = None
         self._run_a_timeline_label = None
         self._run_a_summary_label = None
+        self._snapshot_comparison_table = None
         self._run_a_items_view = None
         self._run_b_list_frame = None
         self._run_b_status_label = None
@@ -495,8 +491,7 @@ class CompareRunsTab:
         self._timeline = None
         self._timeline_position_label = None
         self._timeline_legend = None
-        self._axis_time_btn = None
-        self._axis_progress_btn = None
+        self._compact_timeline_btn = None
         self._series_slot_buttons = []
         self._detail_tabs = None
         self._stats_search = None
@@ -794,26 +789,22 @@ class CompareRunsTab:
             return
         keys = tuple(key for slot in self._series_slots for key in slot)
         self._timeline.set_runs(self._vod_a, self._vod_b, series_keys=keys)
-        self._timeline.set_axis_mode(self._axis_mode)
+        self._timeline.set_axis_mode(AXIS_TIME)
+        self._timeline.set_compact(self._timeline_compact)
         self._refresh_series_slot_buttons()
         self._refresh_compare_timeline_readout()
 
-    def _set_axis_mode(self, mode: str) -> None:
-        mode = mode if mode in {AXIS_TIME, AXIS_PROGRESS} else AXIS_TIME
-        if mode == self._axis_mode:
+    def _set_timeline_compact(self, compact: bool) -> None:
+        compact = bool(compact)
+        if compact == self._timeline_compact:
             return
-        self._axis_mode = mode
-        config.user_config[COMPARE_RUN_AXIS_MODE_CONFIG_KEY] = mode
+        self._timeline_compact = compact
+        config.user_config[COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY] = compact
         config.save_config(config.user_config)
         if self._timeline is not None:
-            self._timeline.set_axis_mode(mode)
-        self._refresh_axis_buttons()
-
-    def _refresh_axis_buttons(self) -> None:
-        if self._axis_time_btn is not None:
-            self._axis_time_btn.setChecked(self._axis_mode == AXIS_TIME)
-        if self._axis_progress_btn is not None:
-            self._axis_progress_btn.setChecked(self._axis_mode == AXIS_PROGRESS)
+            self._timeline.set_compact(compact)
+        if self._timeline_legend is not None:
+            self._timeline_legend.setVisible(not compact)
 
     def _set_series_slot(self, slot_index: int, keys) -> None:
         slots = list(self._series_slots)
@@ -950,6 +941,7 @@ class CompareRunsTab:
             _set_text(status_label, "Select a recording")
             _set_text(timeline_label, "Timeline: --")
             _set_text(summary_label, "--")
+            self._refresh_overview_snapshot_table()
             if self._timeline is None:
                 view = self._compare_run_items_view(side)
                 if view is not None:
@@ -965,6 +957,7 @@ class CompareRunsTab:
             _set_text(status_label, f"{vod.metadata.name} | no snapshots")
             _set_text(timeline_label, "Timeline: --")
             _set_text(summary_label, "No snapshots")
+            self._refresh_overview_snapshot_table()
             if slider is not None:
                 slider.setEnabled(False)
                 slider.setMaximum(1)
@@ -989,11 +982,35 @@ class CompareRunsTab:
         else:
             _set_text(status_label, f"{vod.metadata.name} · {snapshot_count} snapshots")
         _set_text(timeline_label, self._compare_run_timeline_text(side))
-        _set_text(summary_label, formatting.format_compare_run_snapshot_summary(vod, snapshot, index))
+        _set_text(
+            summary_label,
+            formatting.format_compare_run_snapshot_summary(vod, snapshot, index),
+        )
+        self._refresh_overview_snapshot_table()
         if self._detail_tabs is not None and self._detail_tabs.currentIndex() == 3:
             view = self._compare_run_items_view(side)
             if view is not None:
                 view.update(getattr(snapshot, "items", ()))
+
+    def _refresh_overview_snapshot_table(self) -> None:
+        table = self._snapshot_comparison_table
+        if table is None:
+            return
+        snapshot_a = self._compare_run_snapshot("a")
+        snapshot_b = self._compare_run_snapshot("b")
+        if self._vod_a is None or self._vod_b is None or snapshot_a is None or snapshot_b is None:
+            table.set_table(MetricTable(empty_text="Select two recordings"))
+            return
+        table.set_table(
+            formatting.build_compare_runs_snapshot_table(
+                self._vod_a,
+                int(self._compare_run_index("a") or 0),
+                snapshot_a,
+                self._vod_b,
+                int(self._compare_run_index("b") or 0),
+                snapshot_b,
+            )
+        )
 
     def _refresh_compare_runs_diff(self) -> None:
         vod_a = self._vod_a
@@ -1037,7 +1054,12 @@ class CompareRunsTab:
         cached = self._diff_cache.get(cache_key)
         if cached is None:
             cached = (
-                formatting.format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b),
+                formatting.format_compare_runs_overview_compact_diff(
+                    vod_a,
+                    snapshot_a,
+                    vod_b,
+                    snapshot_b,
+                ),
                 formatting.format_compare_runs_stats_diff(
                     snapshot_a,
                     snapshot_b,
@@ -1783,18 +1805,15 @@ class CompareRunsTab:
             timeline_series_row.addWidget(button)
         timeline_series_row.addStretch(1)
 
-        self._axis_time_btn = QPushButton("In-game time")
-        self._axis_progress_btn = QPushButton("Progress %")
-        for button in (self._axis_time_btn, self._axis_progress_btn):
-            button.setObjectName("CompareRunsAxisMode")
-            button.setProperty("timelineAxisMode", True)
-            button.setCheckable(True)
-        axis_group = QButtonGroup(self._tab)
-        axis_group.setExclusive(True)
-        axis_group.addButton(self._axis_time_btn)
-        axis_group.addButton(self._axis_progress_btn)
-        self._axis_time_btn.clicked.connect(lambda: self._set_axis_mode(AXIS_TIME))
-        self._axis_progress_btn.clicked.connect(lambda: self._set_axis_mode(AXIS_PROGRESS))
+        self._compact_timeline_btn = QPushButton("Compact")
+        self._compact_timeline_btn.setObjectName("CompareRunsCompactTimeline")
+        self._compact_timeline_btn.setProperty("timelineCompact", True)
+        self._compact_timeline_btn.setCheckable(True)
+        self._compact_timeline_btn.setChecked(self._timeline_compact)
+        self._compact_timeline_btn.setToolTip(
+            "Collapse the timeline into a compact overview strip"
+        )
+        self._compact_timeline_btn.toggled.connect(self._set_timeline_compact)
         timeline_header = QHBoxLayout()
         timeline_header.setSpacing(6)
         timeline_title = QLabel("TIMELINE")
@@ -1807,14 +1826,15 @@ class CompareRunsTab:
         self._timeline_position_label.setTextFormat(Qt.RichText)
         timeline_header.addWidget(self._timeline_position_label)
         timeline_layout.addLayout(timeline_header)
-        timeline_series_row.addWidget(self._axis_time_btn)
-        timeline_series_row.addWidget(self._axis_progress_btn)
+        timeline_series_row.addWidget(self._compact_timeline_btn)
         timeline_layout.addLayout(timeline_series_row)
 
         self._timeline = CompareRunsTimeline()
+        self._timeline.set_compact(self._timeline_compact)
         self._timeline.positionChanged.connect(self.on_compare_timeline_position_changed)
         timeline_layout.addWidget(self._timeline)
         self._timeline_legend = CompareRunsTimelineLegend()
+        self._timeline_legend.setVisible(not self._timeline_compact)
         timeline_layout.addWidget(self._timeline_legend)
         workspace_layout.addWidget(timeline_card)
 
@@ -1851,7 +1871,6 @@ class CompareRunsTab:
         self._run_b_selected_label = self._run_b_status_label
         self._rendered_diff_cards = None
         self._refresh_series_slot_buttons()
-        self._refresh_axis_buttons()
         self._refresh_compare_runs_timeline_model()
         self._tabview.addTab(self._tab, "Compare Runs")
 
@@ -1944,23 +1963,30 @@ class CompareRunsTab:
 
     def _build_overview_page(self) -> None:
         page, _content, layout = self._new_scroll_page()
+        overview_row = QHBoxLayout()
+        overview_row.setContentsMargins(0, 0, 0, 0)
+        overview_row.setSpacing(8)
         self._diff_overview_group, self._diff_overview_label = self._build_diff_card(
             "Current verdict", "Select two recordings"
         )
         self._diff_overview_group.setObjectName("CompareRunsOverviewCard")
-        layout.addWidget(self._diff_overview_group)
+        self._diff_overview_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         snapshots = QGroupBox("Snapshot comparison")
         snapshots.setObjectName("CompareRunsOverviewCard")
-        snapshots_layout = QHBoxLayout(snapshots)
-        self._run_a_summary_label = QLabel("--")
-        self._run_b_summary_label = QLabel("--")
-        for side, label in (("A", self._run_a_summary_label), ("B", self._run_b_summary_label)):
-            label.setObjectName("CompareRunsSnapshotSummary")
-            label.setProperty("side", side)
-            label.setTextFormat(Qt.RichText)
-            label.setWordWrap(True)
-            snapshots_layout.addWidget(label, 1)
-        layout.addWidget(snapshots)
+        snapshots_layout = QVBoxLayout(snapshots)
+        snapshots_layout.setContentsMargins(8, 9, 8, 8)
+        self._run_a_summary_label = None
+        self._run_b_summary_label = None
+        self._snapshot_comparison_table = MetricTableView()
+        self._snapshot_comparison_table.setObjectName("CompareRunsSnapshotTable")
+        self._snapshot_comparison_table.set_table(
+            MetricTable(empty_text="Select two recordings")
+        )
+        snapshots_layout.addWidget(self._snapshot_comparison_table)
+        overview_row.addWidget(self._diff_overview_group, 3)
+        overview_row.addWidget(snapshots, 5)
+        overview_row.addStretch(2)
+        layout.addLayout(overview_row)
         hint = QLabel(
             "Stage Summary and build differences stay in their dedicated tabs "
             "so this page remains readable at narrow widths."

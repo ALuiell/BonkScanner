@@ -61,6 +61,8 @@ _BOTTOM_GUTTER = 13.0
 _LANE_GAP = 8.0
 _STAGE_LABEL_HEIGHT = 17.0
 _MARKER_HEIGHT = 11.0
+_NORMAL_HEIGHT = 214
+_COMPACT_HEIGHT = 112
 
 
 def shared_series_scales(
@@ -123,7 +125,7 @@ class CompareRunsTimeline(QWidget):
         super().__init__(parent)
         self.setObjectName("CompareRunsTimeline")
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setMinimumHeight(214)
+        self.setFixedHeight(_NORMAL_HEIGHT)
         self.setMouseTracking(False)
         self.setToolTip("Drag to compare both recordings at the same position")
 
@@ -131,6 +133,7 @@ class CompareRunsTimeline(QWidget):
         self._lane_a = _Lane((), empty, (), ())
         self._lane_b = _Lane((), empty, (), ())
         self._axis_mode = AXIS_TIME
+        self._compact = False
         self._series_keys: tuple[str, ...] = ()
         self._shared_scales: dict[str, float] = {}
         self._stage_deltas: dict[int, float | None] = {}
@@ -156,6 +159,10 @@ class CompareRunsTimeline(QWidget):
         return self._common_duration
 
     @property
+    def compact(self) -> bool:
+        return self._compact
+
+    @property
     def static_rebuilds(self) -> int:
         """Instrumentation used by performance tests."""
         return self._static_rebuilds
@@ -166,6 +173,16 @@ class CompareRunsTimeline(QWidget):
             return
         self._axis_mode = mode
         self._reproject()
+
+    def set_compact(self, compact: bool) -> None:
+        compact = bool(compact)
+        if compact == self._compact:
+            return
+        self._compact = compact
+        self.setFixedHeight(_COMPACT_HEIGHT if compact else _NORMAL_HEIGHT)
+        self._cache_key = None
+        self.updateGeometry()
+        self.update()
 
     def set_runs(self, vod_a, vod_b, *, series_keys=()) -> None:
         keys = tuple(dict.fromkeys(series_keys))
@@ -260,20 +277,29 @@ class CompareRunsTimeline(QWidget):
         self.update()
 
     def _track_rect(self) -> QRectF:
+        top_gutter = 3.0 if self._compact else _TOP_GUTTER
+        bottom_gutter = 6.0 if self._compact else _BOTTOM_GUTTER
         return QRectF(self.rect()).adjusted(
             _LABEL_WIDTH,
-            _TOP_GUTTER,
+            top_gutter,
             -_OUTER_MARGIN,
-            -_BOTTOM_GUTTER,
+            -bottom_gutter,
         )
 
     def _lane_rects(self) -> tuple[QRectF, QRectF]:
         track = self._track_rect()
-        height = max(1.0, (track.height() - _LANE_GAP) / 2.0)
+        lane_gap = 4.0 if self._compact else _LANE_GAP
+        height = max(1.0, (track.height() - lane_gap) / 2.0)
         return (
             QRectF(track.left(), track.top(), track.width(), height),
-            QRectF(track.left(), track.top() + height + _LANE_GAP, track.width(), height),
+            QRectF(track.left(), track.top() + height + lane_gap, track.width(), height),
         )
+
+    def _stage_label_height(self) -> float:
+        return 12.0 if self._compact else _STAGE_LABEL_HEIGHT
+
+    def _marker_height(self) -> float:
+        return 8.0 if self._compact else _MARKER_HEIGHT
 
     def _x(self, rect: QRectF, position: float) -> float:
         return rect.left() + position * rect.width()
@@ -389,7 +415,12 @@ class CompareRunsTimeline(QWidget):
             painter.setPen(MUTED)
             painter.setFont(self._small_font())
             painter.drawText(
-                QRectF(rect.left() + 7.0, rect.top(), rect.width(), _STAGE_LABEL_HEIGHT),
+                QRectF(
+                    rect.left() + 7.0,
+                    rect.top(),
+                    rect.width(),
+                    self._stage_label_height(),
+                ),
                 Qt.AlignLeft | Qt.AlignVCenter,
                 "STAGES NOT RECORDED",
             )
@@ -404,7 +435,7 @@ class CompareRunsTimeline(QWidget):
             right = self._x(rect, lane.positions[end])
             area = QRectF(left, rect.top(), max(right - left, 1.0), rect.height())
             text = band.label
-            if side == "B" and band.stage_index is not None:
+            if not self._compact and side == "B" and band.stage_index is not None:
                 delta = self._stage_deltas.get(band.stage_index)
                 if delta is not None:
                     sign = "+" if delta >= 0 else "−"
@@ -432,13 +463,23 @@ class CompareRunsTimeline(QWidget):
                 labels = ", ".join(f"Stage {stage + 1}" for stage in missing)
                 painter.setPen(MUTED)
                 painter.drawText(
-                    QRectF(rect.left() + 6.0, rect.top(), rect.width() - 12.0, _STAGE_LABEL_HEIGHT),
+                    QRectF(
+                        rect.left() + 6.0,
+                        rect.top(),
+                        rect.width() - 12.0,
+                        self._stage_label_height(),
+                    ),
                     Qt.AlignRight | Qt.AlignVCenter,
                     f"{labels} not reached",
                 )
 
     def _paint_series(self, painter: QPainter, lane: _Lane, rect: QRectF) -> None:
-        plot = rect.adjusted(2.0, _STAGE_LABEL_HEIGHT + 3.0, -2.0, -(_MARKER_HEIGHT + 4.0))
+        plot = rect.adjusted(
+            2.0,
+            self._stage_label_height() + 3.0,
+            -2.0,
+            -(self._marker_height() + 4.0),
+        )
         if plot.width() <= 0.0 or plot.height() <= 0.0:
             return
         for key in self._series_keys:
@@ -459,9 +500,9 @@ class CompareRunsTimeline(QWidget):
     def _paint_caps(self, painter: QPainter, lane: _Lane, rect: QRectF) -> None:
         plot = rect.adjusted(
             2.0,
-            _STAGE_LABEL_HEIGHT + 3.0,
+            self._stage_label_height() + 3.0,
             -2.0,
-            -(_MARKER_HEIGHT + 4.0),
+            -(self._marker_height() + 4.0),
         )
         for key in self._series_keys:
             series = lane.model.series(key)
@@ -482,7 +523,7 @@ class CompareRunsTimeline(QWidget):
                     QPointF(cap.x0, cap.y),
                     QPointF(cap.x1, cap.y),
                 )
-                if key == "Difficulty":
+                if key == "Difficulty" and not self._compact:
                     self._paint_cap_label(
                         painter,
                         plot,

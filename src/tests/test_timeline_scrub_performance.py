@@ -256,7 +256,7 @@ def build_diffable_compare_tab():
 def patched_formatters():
     return patch.multiple(
         formatting,
-        format_compare_runs_overview_diff=MagicMock(return_value="overview"),
+        format_compare_runs_overview_compact_diff=MagicMock(return_value="overview"),
         format_compare_runs_stats_diff=MagicMock(return_value="stats"),
         build_compare_runs_items_summary=MagicMock(return_value="items"),
         build_compare_runs_items_table=MagicMock(return_value="items table"),
@@ -281,7 +281,7 @@ class CompareRunsDiffCacheTests(unittest.TestCase):
 
             self.assertEqual(
                 2,
-                formatting.format_compare_runs_overview_diff.call_count,
+                formatting.format_compare_runs_overview_compact_diff.call_count,
                 "the third refresh must come from the cache",
             )
 

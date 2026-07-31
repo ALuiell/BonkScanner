@@ -276,6 +276,130 @@ def format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b) -> s
     return "<br>".join(rows)
 
 
+def format_compare_runs_overview_compact_diff(vod_a, snapshot_a, vod_b, snapshot_b) -> str:
+    """Three-line verdict for the compact redesigned Overview row."""
+
+    time_a = _snapshot_compare_time(snapshot_a)
+    time_b = _snapshot_compare_time(snapshot_b)
+    rows = [
+        (
+            '<span style="color:#38BDF8; font-weight:800;">A</span> '
+            f'{html.escape(vod_a.metadata.name)} '
+            '<span style="color:#5C6675; font-weight:700;">→</span> '
+            '<span style="color:#C084FC; font-weight:800;">B</span> '
+            f"{html.escape(vod_b.metadata.name)}"
+        ),
+    ]
+    timing_parts = []
+    if time_a is not None and time_b is not None:
+        timing_parts.append(
+            f'<span style="color:#98A7BA;">Time</span> {_format_signed_seconds(time_b - time_a)}'
+        )
+
+    kill_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "mob_kills")
+    if kill_delta is not None:
+        timing_parts.append(
+            f'<span style="color:#98A7BA;">Kills</span> {_format_signed_count(kill_delta)}'
+        )
+    if timing_parts:
+        rows.append(" &nbsp;·&nbsp; ".join(timing_parts))
+
+    progress_parts = []
+    level_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "player_level")
+    if level_delta is not None:
+        progress_parts.append(
+            f'<span style="color:#98A7BA;">Level</span> {_format_signed_count(level_delta)}'
+        )
+
+    item_delta = _snapshot_item_total(snapshot_b) - _snapshot_item_total(snapshot_a)
+    progress_parts.append(
+        f'<span style="color:#98A7BA;">Items</span> {_format_signed_count(item_delta)}'
+    )
+    rows.append(" &nbsp;·&nbsp; ".join(progress_parts))
+    return "<br>".join(rows)
+
+
+def build_compare_runs_snapshot_table(
+    vod_a,
+    index_a: int,
+    snapshot_a,
+    vod_b,
+    index_b: int,
+    snapshot_b,
+) -> MetricTable:
+    """Compact Overview comparison with aligned A, B and delta columns."""
+
+    def count_value(snapshot, attr_name: str) -> str:
+        value = getattr(snapshot, attr_name, None)
+        return "--" if value is None else format_count(value)
+
+    def count_delta(attr_name: str) -> str:
+        value = _raw_snapshot_int_delta(snapshot_a, snapshot_b, attr_name)
+        return "--" if value is None else _format_signed_count(value)
+
+    elapsed_a = getattr(snapshot_a, "elapsed_seconds", None)
+    elapsed_b = getattr(snapshot_b, "elapsed_seconds", None)
+    game_a = getattr(snapshot_a, "game_time_seconds", None)
+    game_b = getattr(snapshot_b, "game_time_seconds", None)
+
+    rows = (
+        MetricRow(
+            "Snapshot",
+            f"{index_a + 1}/{len(vod_a.snapshots)}",
+            f"{index_b + 1}/{len(vod_b.snapshots)}",
+            _format_signed_count(index_b - index_a),
+        ),
+        MetricRow(
+            "Record",
+            str(getattr(snapshot_a, "time_label", "--") or "--"),
+            str(getattr(snapshot_b, "time_label", "--") or "--"),
+            (
+                _format_signed_seconds(float(elapsed_b) - float(elapsed_a))
+                if elapsed_a is not None and elapsed_b is not None
+                else "--"
+            ),
+        ),
+        MetricRow(
+            "In-game",
+            format_elapsed_time(game_a) if game_a is not None else "--",
+            format_elapsed_time(game_b) if game_b is not None else "--",
+            (
+                _format_signed_seconds(float(game_b) - float(game_a))
+                if game_a is not None and game_b is not None
+                else "--"
+            ),
+        ),
+        MetricRow(
+            "Kills",
+            count_value(snapshot_a, "mob_kills"),
+            count_value(snapshot_b, "mob_kills"),
+            count_delta("mob_kills"),
+        ),
+        MetricRow(
+            "Level",
+            count_value(snapshot_a, "player_level"),
+            count_value(snapshot_b, "player_level"),
+            count_delta("player_level"),
+        ),
+        MetricRow(
+            "Items",
+            format_count(_snapshot_item_total(snapshot_a)),
+            format_count(_snapshot_item_total(snapshot_b)),
+            _format_signed_count(
+                _snapshot_item_total(snapshot_b) - _snapshot_item_total(snapshot_a)
+            ),
+        ),
+    )
+    return MetricTable(
+        sections=(
+            MetricSection(
+                headers=("Value", "A", "B", "Delta"),
+                rows=rows,
+            ),
+        )
+    )
+
+
 def format_compare_runs_stats_diff(snapshot_a, snapshot_b, *, stat_labels: tuple[str, ...] | None = None) -> str:
     stat_rows = _format_compare_run_stat_deltas(snapshot_a, snapshot_b, stat_labels=stat_labels)
     return "<br>".join(stat_rows) if stat_rows else "--"

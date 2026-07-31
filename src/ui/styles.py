@@ -1138,7 +1138,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             padding: 5px 9px;
         }
         QPushButton[timelineSlot="true"],
-        QPushButton[timelineAxisMode="true"] {
+        QPushButton[timelineCompact="true"] {
             background-color: #141A22;
             color: #8A94A3;
             border: 1px solid #2A3542;
@@ -1148,11 +1148,11 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             font-weight: 700;
         }
         QPushButton[timelineSlot="true"]:hover,
-        QPushButton[timelineAxisMode="true"]:hover {
+        QPushButton[timelineCompact="true"]:hover {
             color: #EDF1F5;
             border-color: #38495E;
         }
-        QPushButton[timelineAxisMode="true"]:checked {
+        QPushButton[timelineCompact="true"]:checked {
             color: #FFFFFF;
             background-color: #2F6FB0;
             border-color: #3E82C6;
@@ -1223,6 +1223,10 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         QListWidget#CompareRunsRecordingList::item:disabled {
             color: #5C6675;
             padding: 8px 9px;
+        }
+        QWidget#CompareRunsStatsTable QLabel,
+        QWidget#CompareRunsMetricTable QLabel {
+            font-size: 16px;
         }
         QFrame#CompareRunsComparisonCard {
             background-color: #0B0F14;
