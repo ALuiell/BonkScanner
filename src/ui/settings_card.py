@@ -26,6 +26,70 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+#: How wide the working area of a streaming tab is allowed to get, and how wide
+#: its right-hand rail is.
+#:
+#: Both are ceilings rather than decoration. Measured on the shipped build at
+#: 1920: a card stretched to the full width put a tile's switch about 450px from
+#: its name, and a URL field 1450px wide held a 30-character URL. Past roughly
+#: this width a row stops being a row and becomes two things at opposite ends of
+#: the screen.
+WORKSPACE_MAX_WIDTH = 1560
+RAIL_WIDTH = 348
+
+#: The OBS rail is wider than the others, and it has to be. Its preview is
+#: locked to the canvas aspect, so the rail's width *is* the preview's height:
+#: at 348 a 16:9 canvas is 196px tall, which is the small picture it was already
+#: getting. 520 buys ~292px without pushing the preview into a full-width strip
+#: under the cards, where the tip beside it ends up stretched across a quarter
+#: of the screen to hold two lines.
+OBS_RAIL_WIDTH = 520
+
+
+def build_workspace(parent_layout: QVBoxLayout, *, rail_width: int | None = RAIL_WIDTH):
+    """A capped, centred main column with an optional fixed rail beside it.
+
+    Returns `(main_layout, rail_layout)`; `rail_layout` is `None` when
+    `rail_width` is None. The rail is a fixed width on purpose -- letting it
+    size to its contents is what collapsed the In-Game rail to 180px the moment
+    its preview was removed, leaving a paragraph wrapping every three words.
+    """
+    holder = QWidget()
+    holder.setMaximumWidth(WORKSPACE_MAX_WIDTH)
+
+    row = QHBoxLayout(holder)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(12)
+
+    main_layout = QVBoxLayout()
+    main_layout.setSpacing(12)
+    row.addLayout(main_layout, 1)
+
+    rail_layout = None
+    if rail_width:
+        rail_holder = QWidget()
+        rail_holder.setFixedWidth(int(rail_width))
+        rail_layout = QVBoxLayout(rail_holder)
+        rail_layout.setContentsMargins(0, 0, 0, 0)
+        rail_layout.setSpacing(12)
+        row.addWidget(rail_holder, 0, Qt.AlignTop)
+
+    # Centred with a spacer either side and the cap doing the limiting, *not*
+    # with `Qt.AlignHCenter`. Alignment makes a widget take its size hint rather
+    # than the space offered, which collapsed the whole working area to about a
+    # third of the window: cards came out 520px wide and the Copy button was cut
+    # in half. Here the holder takes what it is given up to `maximumWidth` and
+    # the two spacers split whatever is left, which is the same thing a max-width
+    # and auto margins do on the web.
+    centring = QHBoxLayout()
+    centring.setContentsMargins(0, 0, 0, 0)
+    centring.addStretch(1)
+    centring.addWidget(holder, 8)
+    centring.addStretch(1)
+    parent_layout.addLayout(centring)
+
+    return main_layout, rail_layout
+
 
 class SettingsCard(QFrame):
     """Header (number, title, sub-line, optional action) over a body layout."""

@@ -26,7 +26,7 @@ from app import config
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
 from ui.module_tile import ModuleTile
 from ui.run_toggle import IN_GAME_OVERLAY_CAPTIONS
-from ui.settings_card import SettingsCard
+from ui.settings_card import SettingsCard, build_workspace
 from ui.shared import _make_scroll_section
 from ui.styles import _set_widget_style_role
 from ui.tab_hero import STATE_OFF, STATE_OK, STATE_WARN, TabHero
@@ -281,17 +281,7 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
 
     layout.addWidget(_build_igo_hero(parent_mixin))
 
-    workspace = QHBoxLayout()
-    workspace.setSpacing(12)
-    layout.addLayout(workspace)
-
-    main_column = QVBoxLayout()
-    main_column.setSpacing(12)
-    workspace.addLayout(main_column, 1)
-
-    side_column = QVBoxLayout()
-    side_column.setSpacing(12)
-    workspace.addLayout(side_column, 0)
+    main_column, side_column = build_workspace(layout)
 
     _build_igo_layout_card(parent_mixin, main_column)
     _build_igo_widgets_card(parent_mixin, main_column)
@@ -422,7 +412,6 @@ def _build_igo_tip_card(parent_mixin: Any, column) -> None:
     tip = QFrame()
     tip.setObjectName("tipCard")
     tip.setProperty("tipCard", "true")
-    tip.setMaximumWidth(360)
     tip_layout = QVBoxLayout(tip)
     tip_layout.setContentsMargins(12, 11, 12, 11)
     tip_layout.setSpacing(4)

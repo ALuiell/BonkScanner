@@ -32,7 +32,7 @@ from ui.dialogs.tracked_items import TrackedItemPicker
 from ui.module_tile import ModuleTile
 from ui.run_toggle import OVERLAY_SERVER_CAPTIONS
 from ui.segmented_toggle import ROLE_GO, SegmentedToggle
-from ui.settings_card import SettingsCard
+from ui.settings_card import OBS_RAIL_WIDTH, SettingsCard, build_workspace
 from ui.shared import (
     SCANNER_REMINDER_LABEL,
     CollapsibleSection,
@@ -182,17 +182,7 @@ class Overlay:
 
         layout.addWidget(self._build_hero())
 
-        workspace = QHBoxLayout()
-        workspace.setSpacing(12)
-        layout.addLayout(workspace)
-
-        main_column = QVBoxLayout()
-        main_column.setSpacing(12)
-        workspace.addLayout(main_column, 1)
-
-        side_column = QVBoxLayout()
-        side_column.setSpacing(12)
-        workspace.addLayout(side_column, 0)
+        main_column, side_column = build_workspace(layout, rail_width=OBS_RAIL_WIDTH)
 
         self._build_source_card(main_column)
         self._build_widgets_card(main_column)
@@ -380,7 +370,6 @@ class Overlay:
             subtitle="Read-only — edit in the layout editor.",
             action=None,
         )
-        card.setMaximumWidth(360)
         # The badge is a header ornament rather than an action, so it goes in
         # the header row by hand instead of through `action`.
         card.findChild(QFrame, "settingsCardHead").layout().addWidget(
@@ -498,7 +487,6 @@ class Overlay:
         tip = QFrame()
         tip.setObjectName("tipCard")
         tip.setProperty("tipCard", "true")
-        tip.setMaximumWidth(360)
         tip_layout = QVBoxLayout(tip)
         tip_layout.setContentsMargins(12, 11, 12, 11)
         tip_layout.setSpacing(4)

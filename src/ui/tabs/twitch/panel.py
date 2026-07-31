@@ -55,7 +55,7 @@ from PySide6.QtWidgets import (
 from app import config
 from ui.module_tile import ModuleTile
 from ui.run_toggle import TWITCH_BOT_CAPTIONS
-from ui.settings_card import SettingsCard
+from ui.settings_card import SettingsCard, build_workspace
 from ui.shared import _make_scroll_section
 from ui.styles import _set_widget_style_role
 from ui.tab_hero import STATE_DANGER, STATE_OFF, STATE_OK, STATE_WARN, TabHero
@@ -214,17 +214,7 @@ class TwitchTab:
 
         twitch_layout.addWidget(self._build_hero())
 
-        workspace = QHBoxLayout()
-        workspace.setSpacing(12)
-        twitch_layout.addLayout(workspace)
-
-        main_column = QVBoxLayout()
-        main_column.setSpacing(12)
-        workspace.addLayout(main_column, 1)
-
-        side_column = QVBoxLayout()
-        side_column.setSpacing(12)
-        workspace.addLayout(side_column, 0)
+        main_column, side_column = build_workspace(twitch_layout)
 
         self._build_account_card(main_column)
         self._build_commands_card(main_column)
@@ -386,7 +376,6 @@ class TwitchTab:
             title="Chat preview",
             subtitle="The message shape before it reaches Twitch.",
         )
-        card.setMaximumWidth(360)
 
         self._chat_preview = QLabel()
         self._chat_preview.setObjectName("chatPreview")
