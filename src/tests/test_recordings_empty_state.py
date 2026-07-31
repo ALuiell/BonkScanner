@@ -95,7 +95,9 @@ class ChooserReopensTests(unittest.TestCase):
     def test_an_already_open_library_is_left_alone(self) -> None:
         """Reopening would clear the guided flag and stop the auto-collapse."""
         tab = self._tab()
-        tab.set_recordings_chooser_expanded(True, guided=False)
+        # `remember=False` so the suite does not write the drawer's open state
+        # into the real config.json on its way past.
+        tab.set_recordings_chooser_expanded(True, guided=False, remember=False)
 
         tab._clear_loaded_vod_selection()
 

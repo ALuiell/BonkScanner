@@ -53,6 +53,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -63,9 +64,13 @@ from app.vod_library import (
     delete_vods_below_snapshot_count,
     load_vod,
     minimum_snapshot_count,
+    recording_library_open,
+    recording_library_width,
     recording_sort_mode,
     rename_vod,
     set_minimum_snapshot_count,
+    set_recording_library_open,
+    set_recording_library_width,
     set_recording_sort_mode,
 )
 from core.run_summary import item_counts
@@ -127,6 +132,16 @@ from ui.timeline_controls import (
     save_timeline_caps,
     refresh_timeline_slot_button,
 )
+
+
+#: The library drawer's toggle, closed and open. Named rather than inlined so
+#: the test can assert on them without carrying the glyphs in its own source:
+#: `test_recordings_layout` runs its checks through `python -c`, and a Windows
+#: command line is encoded in the ANSI codepage -- a `»` written there arrives
+#: in the child as mojibake and the assertion fails for a reason that has
+#: nothing to do with the button.
+LIBRARY_TOGGLE_CLOSED_CHEVRON = "»"
+LIBRARY_TOGGLE_OPEN_CHEVRON = "«"
 
 
 #: Which series each of the scrubber's four slots holds. Persisted because the
@@ -422,6 +437,18 @@ class RecordingsTab:
         self._stage_range_anchor_number = None
         self._chooser_expanded = False
         self._guided_selection_active = False
+        self._body_splitter = None
+        # The drawer's width, remembered across opens and across launches. The
+        # saved value is clamped on the way in: config.json is hand-editable,
+        # and a 4000px library would leave no detail column to read.
+        self._library_width = min(
+            RECORDINGS_LIST_MAX_WIDTH + 40,
+            max(RECORDINGS_LIST_MIN_WIDTH, recording_library_width() or RECORDINGS_LIST_MAX_WIDTH),
+        )
+        # Half a second, not the render throttle's 33ms: this one guards a
+        # config.json write, and a drag that saves 30 times a second is a disk
+        # write per frame for a value only the next launch reads.
+        self._library_width_throttle = UiUpdateThrottle(500)
         self._list_signature = None
         self._load_generation = 0
         self._load_in_progress = False
@@ -597,11 +624,33 @@ class RecordingsTab:
             return
         if bool(self._chooser_expanded):
             return
-        self.set_recordings_chooser_expanded(True, guided=True)
-    def set_recordings_chooser_expanded(self, expanded: bool, *, guided: bool) -> None:
-        self._chooser_expanded = bool(expanded)
+        self.set_recordings_chooser_expanded(True, guided=True, remember=False)
+    def set_recordings_chooser_expanded(
+        self, expanded: bool, *, guided: bool, remember: bool = True
+    ) -> None:
+        """Open or close the library drawer.
+
+        ``remember`` is what separates the user's choice from the app's own
+        housekeeping, and only the first is worth persisting. Three callers
+        pass ``False``: the build-time restore (it is replaying what was
+        already saved), the guided open when nothing is selected, and the
+        auto-close that follows a guided pick. Persisting a guided open is how
+        merely *visiting* the tab with no recording loaded would teach the app
+        to open the drawer on every launch from then on.
+        """
+        expanded = bool(expanded)
+        if not expanded:
+            # Read the width back *before* the drawer goes away: a hidden
+            # splitter child reports 0, and 0 is what the next open would then
+            # restore.
+            self._remember_library_width()
+        self._chooser_expanded = expanded
         self._guided_selection_active = bool(expanded and guided)
         self._refresh_recordings_chooser()
+        if expanded:
+            self._apply_library_width()
+        if remember:
+            set_recording_library_open(expanded)
     def _refresh_recordings_chooser(self) -> None:
         expanded = bool(self._chooser_expanded)
         chooser = self._chooser_group
@@ -610,11 +659,69 @@ class RecordingsTab:
             chooser.setVisible(expanded)
         if button is not None:
             count = len(getattr(self._library, "index", ()) or ())
-            button.setText(f"Recordings ({count})")
+            # The chevron points where the drawer will go, the way the left
+            # rail's does. The word "Recordings" moved to the tooltip: it cost
+            # ~80px in the row that carries the recording's own name, and the
+            # count is the part that is worth space when the drawer is shut.
+            chevron = (
+                LIBRARY_TOGGLE_OPEN_CHEVRON if expanded else LIBRARY_TOGGLE_CLOSED_CHEVRON
+            )
+            button.setText(f"{chevron}  {count}")
             button.setChecked(expanded)
             button.setToolTip(
-                "Hide recordings library" if expanded else "Choose a recording"
+                f"Hide recordings library ({count})"
+                if expanded
+                else f"Recordings library ({count})"
             )
+
+    # -- drawer width -------------------------------------------------------
+    #
+    # Split from the open/closed state on purpose: how wide the user dragged
+    # the library is worth remembering whether or not it is open right now.
+
+    def _library_width_bounds(self) -> tuple[int, int]:
+        return RECORDINGS_LIST_MIN_WIDTH, RECORDINGS_LIST_MAX_WIDTH + 40
+
+    def _remember_library_width(self) -> None:
+        """Record the drawer's current width, if it is showing one."""
+        splitter = self._body_splitter
+        chooser = self._chooser_group
+        if splitter is None or chooser is None or not chooser.isVisible():
+            return
+        sizes = splitter.sizes()
+        if not sizes or sizes[0] <= 0:
+            return
+        low, high = self._library_width_bounds()
+        self._library_width = max(low, min(high, int(sizes[0])))
+
+    def _apply_library_width(self) -> None:
+        """Give the drawer its remembered width, leaving the rest to the detail."""
+        splitter = self._body_splitter
+        if splitter is None:
+            return
+        sizes = splitter.sizes()
+        if len(sizes) < 2:
+            return
+        low, high = self._library_width_bounds()
+        width = max(low, min(high, int(self._library_width)))
+        total = sum(sizes)
+        if total <= width:
+            # Nothing has been laid out yet (build time), so there is no total
+            # to split. Qt will honour the size hints, and the first real
+            # resize applies this.
+            return
+        splitter.setSizes([width, total - width])
+
+    def _on_library_width_dragged(self) -> None:
+        """The user moved the handle. Remember it, and persist it, coalesced.
+
+        Persisting straight from `splitterMoved` would write config.json once
+        per pixel of mouse travel.
+        """
+        self._remember_library_width()
+        self._library_width_throttle.request(
+            lambda: set_recording_library_width(int(self._library_width))
+        )
     def _on_vod_selection_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None):
         if current is None:
             return
@@ -677,7 +784,13 @@ class RecordingsTab:
             if bool(self._chooser_expanded) and bool(
                 self._guided_selection_active
             ):
-                self.set_recordings_chooser_expanded(False, guided=False)
+                # Closing the drawer the app opened for you is the other half
+                # of that gesture, not a preference -- a library you pinned
+                # open yourself never reaches here, because `guided` is only
+                # set by `ensure_recordings_chooser_for_empty_selection`.
+                self.set_recordings_chooser_expanded(
+                    False, guided=False, remember=False
+                )
 
         def load() -> None:
             try:
@@ -1372,12 +1485,18 @@ class RecordingsTab:
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(6)
-        self._select_btn = QPushButton("Recordings (0)")
+        # First in the row, not last. The drawer opens from the left edge of
+        # the tab, and the control that opens it now sits at that edge --
+        # `»  6` closed, `«  6` open, the same chevron vocabulary as the
+        # Templates rail. As a full-width `Recordings (6)` pill on the far
+        # right it was both ~80px wider and pointing away from what it moves.
+        self._select_btn = QPushButton(f"{LIBRARY_TOGGLE_CLOSED_CHEVRON}  0")
         self._select_btn.setObjectName("RecordingPlaqueLibrary")
         self._select_btn.setCheckable(True)
         self._select_btn.setCursor(Qt.PointingHandCursor)
-        self._select_btn.setToolTip("Choose a recording")
+        self._select_btn.setToolTip("Recordings library")
         self._select_btn.clicked.connect(self.toggle_recordings_chooser)
+        title_row.addWidget(self._select_btn)
         self._title_label = QLabel("No recording selected")
         self._title_label.setObjectName("RecordingPlaqueTitle")
         title_row.addWidget(self._title_label)
@@ -1408,7 +1527,6 @@ class RecordingsTab:
         self._name_entry.cancelled.connect(self.cancel_rename)
         title_row.addWidget(self._name_entry, 1)
         title_row.addStretch(1)
-        title_row.addWidget(self._select_btn)
         text_column.addLayout(title_row)
 
         self._status_label = QLabel("Select a recording")
@@ -1587,7 +1705,18 @@ class RecordingsTab:
         self._tab = QWidget()
         vods_layout = QVBoxLayout(self._tab)
 
-        vods_body_layout = QHBoxLayout()
+        # A splitter, not the QHBoxLayout this used to be: the library is a
+        # drawer now, and a drawer the user cannot resize is a fixed panel that
+        # merely hides. `setChildrenCollapsible(False)` keeps a drag from
+        # squeezing either side to nothing -- closing is the toggle's job, and
+        # a 3px-wide library nobody meant to make is not a state worth saving.
+        self._body_splitter = QSplitter(Qt.Horizontal)
+        self._body_splitter.setObjectName("RecordingsBodySplitter")
+        self._body_splitter.setChildrenCollapsible(False)
+        self._body_splitter.setHandleWidth(10)
+        self._body_splitter.splitterMoved.connect(
+            lambda _pos, _index: self._on_library_width_dragged()
+        )
         vods_detail = QWidget()
         vods_detail_layout = QVBoxLayout(vods_detail)
         # `vods_layout` already supplies the tab's outer inset. Keeping Qt's
@@ -2112,7 +2241,15 @@ class RecordingsTab:
         # populates on refresh reads as "0 recordings, 0 MB" for however long
         # it takes the first refresh to arrive.
         self._refresh_library_footer(list(self._library.index))
-        vods_body_layout.addWidget(self._chooser_group, 0)
-        vods_body_layout.addWidget(vods_detail, 1)
-        vods_layout.addLayout(vods_body_layout, 1)
+        self._body_splitter.addWidget(self._chooser_group)
+        self._body_splitter.addWidget(vods_detail)
+        self._body_splitter.setStretchFactor(0, 0)
+        self._body_splitter.setStretchFactor(1, 1)
+        vods_layout.addWidget(self._body_splitter, 1)
+        # Replay the saved drawer state. `guided=False` because this is not the
+        # app offering the library, it is the user's own last choice coming
+        # back -- so the auto-close after a pick must not fire on it.
+        self.set_recordings_chooser_expanded(
+            recording_library_open(), guided=False, remember=False
+        )
         self._tabview.addTab(self._tab, "Recordings")

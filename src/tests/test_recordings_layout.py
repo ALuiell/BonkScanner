@@ -348,14 +348,37 @@ class RecordingsLayoutTests(unittest.TestCase):
             library = view._tab.findChild(QPushButton, "RecordingPlaqueLibrary")
             assert title is not None
             assert library is not None
-            assert title.x() < library.x()
-            assert library.geometry().right() == plaque.contentsRect().right()
+            # The drawer toggle leads the row: it opens a panel on the left
+            # edge of the tab, so it sits at that edge rather than in the far
+            # corner it used to occupy.
+            assert library.x() < title.x()
+            assert library.geometry().left() == plaque.contentsRect().left()
             assert view._title_label.parent() is plaque
             assert view._status_label.parent() is plaque
             assert not view._name_entry.isVisibleTo(plaque)
             assert view._select_btn.parent() is plaque
             assert view._select_btn.isCheckable()
-            assert "Recordings" in view._select_btn.text()
+            # Chevron plus count, pointing where the drawer will go. The word
+            # is in the tooltip; the count is what earns space in this row.
+            # The glyph comes from the module rather than being written here:
+            # this script reaches the child through a Windows command line,
+            # which is not UTF-8.
+            from ui.tabs.player_stats.recordings import (
+                LIBRARY_TOGGLE_CLOSED_CHEVRON,
+                LIBRARY_TOGGLE_OPEN_CHEVRON,
+            )
+            # Stated, not assumed: the drawer's build-time state comes from the
+            # saved config, which is not this test's subject.
+            view.set_recordings_chooser_expanded(False, guided=False, remember=False)
+            assert view._select_btn.text().startswith(LIBRARY_TOGGLE_CLOSED_CHEVRON)
+            assert view._select_btn.text().rstrip().endswith("0")
+            assert "Recordings" in view._select_btn.toolTip()
+            # Opening it flips the chevron and moves the count with it.
+            view.set_recordings_chooser_expanded(True, guided=False, remember=False)
+            assert view._select_btn.text().startswith(LIBRARY_TOGGLE_OPEN_CHEVRON)
+            assert view._chooser_group.isVisibleTo(view._tab)
+            view.set_recordings_chooser_expanded(False, guided=False, remember=False)
+            assert not view._chooser_group.isVisibleTo(view._tab)
             # Rename reuses the full secondary-action treatment from Templates:
             # real edit icon, explicit label, and the same 18 px icon scale.
             assert view._rename_btn.text() == "Rename"

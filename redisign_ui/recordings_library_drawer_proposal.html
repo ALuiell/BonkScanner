@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Recordings — library drawer proposal</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#05070A; --page:#0E1217; --panel:#0B0F14; --panel2:#141A22;
+  --line:#1B222B; --line2:#2A3542;
+  --muted:#5C6675; --secondary:#8A94A3; --heading:#B9C2CE; --text:#EDF1F5;
+  --accent:#2F6FB0; --accent-border:#3E82C6;
+  --a:#38BDF8; --good:#22C55E; --bad:#FB7185; --warn:#FACC15;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:13px/1.45 Inter,'Segoe UI',Arial,sans-serif}
+button,input,select{font:inherit;color:inherit}
+h1{font-size:19px;font-weight:800;margin:0 0 4px}
+.wrap{max-width:1400px;margin:auto;padding:20px 20px 90px}
+.hint{color:var(--secondary);font-size:11.5px}
+.eyebrow{color:var(--muted);font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+
+/* ---------- prototype chrome (не часть дизайна приложения) ---------- */
+.topbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0 12px}
+.ctl{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);
+  border-radius:9px;padding:4px}
+.ctl>label{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);padding:0 6px}
+.ctl button{background:transparent;border:0;border-radius:6px;padding:5px 10px;cursor:pointer;
+  color:var(--secondary);font-weight:700;font-size:11.5px;transition:.12s}
+.ctl button:hover{color:var(--text);background:var(--panel2)}
+.ctl button.on{background:var(--accent);color:#fff}
+.note{border-left:2px solid var(--accent-border);background:rgba(47,111,176,.07);
+  border-radius:0 8px 8px 0;padding:9px 12px;margin:0 0 14px;color:var(--heading);font-size:12px}
+.note b{color:var(--text)}
+.frame{border:1px solid var(--line);border-radius:14px;background:var(--page);overflow:hidden}
+.frame-bar{display:flex;align-items:center;gap:9px;padding:7px 11px;border-bottom:1px solid var(--line);
+  background:var(--panel)}
+.frame-bar b{font-size:11.5px}
+.frame-bar span{color:var(--muted);font-size:11px}
+.frame-bar i{margin-left:auto;font-style:normal;font-size:10px;font-weight:800;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--accent-border)}
+.frame-body{overflow-x:auto;padding:12px;background:#070A0E}
+.app{width:1280px;height:648px;border:1px solid var(--line2);border-radius:10px;overflow:hidden;
+  background:var(--page);display:flex;flex-direction:column}
+
+/* ---------- шапка приложения ---------- */
+.appbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);
+  background:var(--panel);flex:0 0 auto}
+.logo{width:20px;height:20px;border-radius:6px;background:#152231;display:grid;place-items:center;
+  color:var(--a);font-size:11px;font-weight:900}
+.appbar .name{font-weight:800;font-size:13px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--good)}
+.appbar .state{color:var(--warn);font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.appbar .right{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px}
+.btn{background:var(--panel2);border:1px solid var(--line2);border-radius:7px;color:var(--heading);
+  padding:5px 9px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:#38495E;color:var(--text)}
+.btn.danger{background:#3A1620;border-color:#5C2130;color:#FFC7D1}
+.btn.primary{background:var(--accent);border-color:var(--accent-border);color:#fff}
+
+/* ---------- корпус: левая панель + контент ---------- */
+.body{flex:1;display:flex;min-height:0}
+
+/* левая панель Templates/Scores — как в приложении сегодня */
+.left{flex:0 0 280px;border-right:1px solid var(--line);background:var(--panel);display:flex;
+  flex-direction:column;transition:flex-basis .16s ease}
+.app[data-left="rail"] .left{flex-basis:52px}
+.left-tabs{display:flex;align-items:center;gap:6px;padding:8px;border-bottom:1px solid var(--line)}
+.pill{background:var(--panel2);border:1px solid var(--line2);border-radius:8px;padding:5px 12px;
+  font-size:11.5px;font-weight:700;color:var(--secondary);cursor:pointer}
+.pill.on{background:var(--accent);border-color:var(--accent-border);color:#fff}
+.left-tabs .chev{margin-left:auto;width:28px;height:28px;border-radius:7px;background:transparent;
+  border:1px solid var(--line2);color:var(--secondary);cursor:pointer;font-weight:800}
+.tpl-list{padding:8px;display:flex;flex-direction:column;gap:7px;overflow:hidden}
+.tpl{border:1px solid var(--line);border-left:3px solid var(--muted);border-radius:9px;padding:7px 9px;
+  background:var(--page)}
+.tpl b{font-size:11.5px;font-weight:800}
+.tpl span{display:block;color:var(--muted);font-size:10.5px}
+.app[data-left="rail"] .left-tabs,.app[data-left="rail"] .tpl-list{display:none}
+.rail-col{display:none;flex-direction:column;align-items:center;gap:9px;padding:9px 0}
+.app[data-left="rail"] .rail-col{display:flex}
+.rail-col .chev{width:30px;height:30px;border-radius:8px;background:var(--panel2);border:1px solid var(--line2);
+  color:var(--secondary);cursor:pointer;font-weight:800}
+.rail-col .vlabel{writing-mode:vertical-rl;transform:rotate(180deg);color:var(--muted);font-size:9.5px;
+  font-weight:800;letter-spacing:.14em;margin:2px 0 4px}
+.rail-col .rdot{width:9px;height:9px;border-radius:50%}
+
+/* ---------- контент вкладок ---------- */
+.content{flex:1;min-width:0;display:flex;flex-direction:column}
+.tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--panel);
+  flex:0 0 auto;overflow:hidden}
+.tab{padding:5px 11px;border-radius:8px;font-size:11.5px;font-weight:700;color:var(--secondary);
+  white-space:nowrap;cursor:pointer}
+.tab.on{background:var(--accent);color:#fff}
+
+/* ---------- вкладка Recordings ---------- */
+.rec{flex:1;display:flex;min-height:0}
+
+/* --- ЯЩИК БИБЛИОТЕКИ (вариант A) --- */
+.lib{flex:0 0 288px;min-width:0;border-right:1px solid var(--line);background:var(--panel);
+  display:flex;flex-direction:column;overflow:hidden;
+  transition:flex-basis .16s ease,opacity .12s ease}
+.app[data-lib="closed"] .lib{flex-basis:0;opacity:0;border-right-color:transparent}
+.app[data-variant="B"][data-lib="closed"] .lib{flex-basis:46px;opacity:1;border-right-color:var(--line)}
+.lib-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--line)}
+.lib-head b{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--heading)}
+.lib-head .x{margin-left:auto;background:transparent;border:0;color:var(--muted);cursor:pointer;
+  font-size:14px;font-weight:800;padding:0 2px}
+.lib-head .x:hover{color:var(--text)}
+/* в варианте C кнопка «» 30» стоит вплотную к краю ящика — второй такой же
+   переключатель в его шапке был бы ровно тем дублированием, за которое я
+   ругаю вариант B */
+.app[data-variant="C"] .lib-head .x{display:none}
+.lib-body{padding:9px 11px;display:flex;flex-direction:column;gap:8px;min-height:0;flex:1}
+.field{background:var(--page);border:1px solid var(--line2);border-radius:8px;padding:6px 9px;
+  color:var(--muted);font-size:11.5px}
+.row-select{display:flex;gap:7px}
+.row-select .field{flex:1}
+.lib-list{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:5px}
+.lrow{border:1px solid var(--line);border-radius:9px;padding:7px 9px;background:var(--page);cursor:pointer}
+.lrow:hover{border-color:var(--line2)}
+.lrow.on{border-color:var(--accent-border);background:#101823}
+.lrow b{display:block;font-size:11.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lrow span{color:var(--muted);font-size:10.5px;font-variant-numeric:tabular-nums}
+.lib-foot{border-top:1px solid var(--line);padding:8px 11px;display:flex;flex-direction:column;gap:6px}
+.lib-foot .sum{color:var(--secondary);font-size:11px;font-variant-numeric:tabular-nums}
+/* свёрнутая рельса варианта B */
+.lib-rail{display:none;flex-direction:column;align-items:center;gap:8px;padding:9px 0}
+.app[data-variant="B"][data-lib="closed"] .lib-rail{display:flex}
+.app[data-variant="B"][data-lib="closed"] .lib-head,
+.app[data-variant="B"][data-lib="closed"] .lib-body,
+.app[data-variant="B"][data-lib="closed"] .lib-foot{display:none}
+.lib-rail .chev{width:28px;height:28px;border-radius:8px;background:var(--panel2);border:1px solid var(--line2);
+  color:var(--secondary);cursor:pointer;font-weight:800}
+.lib-rail .vlabel{writing-mode:vertical-rl;transform:rotate(180deg);color:var(--muted);font-size:9.5px;
+  font-weight:800;letter-spacing:.14em}
+.lib-rail .cnt{color:var(--secondary);font-size:11px;font-weight:800;font-variant-numeric:tabular-nums}
+/* ручка сплиттера */
+.grip{flex:0 0 4px;background:transparent;cursor:col-resize;position:relative}
+.app[data-lib="closed"] .grip{display:none}
+.app[data-variant="B"][data-lib="closed"] .grip{display:block}
+.grip:hover:after{content:"";position:absolute;inset:0 1px;background:var(--accent-border);border-radius:2px}
+
+/* --- деталь записи --- */
+.detail{flex:1;min-width:0;display:flex;flex-direction:column;padding:10px 12px;gap:9px;overflow:hidden}
+.d-head{display:flex;align-items:center;gap:9px}
+.d-head h2{margin:0;font-size:15px;font-weight:800}
+.d-head .meta{color:var(--muted);font-size:10.5px}
+.d-head .right{margin-left:auto;display:flex;gap:7px;align-items:center}
+/* кнопка-переключатель библиотеки — широкая пилюля справа (вариант A) */
+.libtoggle{display:flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--line2);
+  border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:700;color:var(--heading);cursor:pointer}
+.libtoggle:hover{border-color:#38495E;color:var(--text)}
+.app[data-lib="open"] .libtoggle{background:var(--accent);border-color:var(--accent-border);color:#fff}
+.libtoggle .ch{font-size:10px;opacity:.85}
+.app:not([data-variant="A"]) .libtoggle{display:none}
+
+/* узкая кнопка слева от названия (вариант C) */
+.libmini{display:none;align-items:center;gap:5px;background:var(--panel2);border:1px solid var(--line2);
+  border-radius:8px;height:28px;padding:0 8px;font-size:11.5px;font-weight:800;color:var(--heading);
+  cursor:pointer;font-variant-numeric:tabular-nums;flex:0 0 auto}
+.app[data-variant="C"] .libmini{display:flex}
+.libmini:hover{border-color:#38495E;color:var(--text)}
+.libmini .ch{font-size:11px;color:var(--secondary)}
+.libmini:hover .ch{color:var(--text)}
+.app[data-variant="C"][data-lib="open"] .libmini{background:var(--accent);border-color:var(--accent-border);color:#fff}
+.app[data-variant="C"][data-lib="open"] .libmini .ch{color:#fff}
+.chips{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.chip{background:var(--panel2);border:1px solid var(--line2);border-radius:7px;padding:4px 9px;
+  font-size:11px;font-weight:700;color:var(--secondary);white-space:nowrap}
+.chip.on{border-color:var(--accent-border);color:var(--text)}
+.chips .sp{margin-left:auto;color:var(--muted);font-size:10.5px;white-space:nowrap}
+.graph{height:96px;border:1px solid var(--line);border-radius:10px;background:#0A1119;position:relative;
+  overflow:hidden;flex:0 0 auto}
+.graph svg{position:absolute;inset:0;width:100%;height:100%}
+.graph .lbl{position:absolute;left:7px;top:5px;font-size:9.5px;color:var(--a);font-weight:800}
+.markers{display:flex;gap:5px;padding:4px 6px;flex-wrap:nowrap;overflow:hidden}
+.markers i{width:6px;height:6px;border-radius:2px;transform:rotate(45deg);background:var(--warn);flex:0 0 auto}
+.markers i.p{background:#8B7BE8}
+.stages{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;flex:0 0 auto}
+.stage{border:1px solid var(--line);border-radius:9px;padding:7px 9px;background:var(--panel);min-width:0}
+.stage.on{border-color:var(--accent-border);background:#101823}
+.stage b{font-size:11.5px}.stage span{display:block;color:var(--muted);font-size:10.5px}
+.lower{flex:1;display:flex;gap:9px;min-height:0}
+.statwrap{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--panel);
+  display:flex;flex-direction:column;overflow:hidden}
+.stat-tabs{display:flex;gap:4px;padding:7px 9px;border-bottom:1px solid var(--line)}
+.stat-tabs .t{padding:4px 9px;border-radius:7px;font-size:11px;font-weight:700;color:var(--secondary)}
+.stat-tabs .t.on{background:var(--accent);color:#fff}
+.stat-grid{flex:1;display:grid;grid-template-columns:repeat(5,1fr);gap:7px;padding:9px;overflow:hidden}
+.app[data-lib="open"] .stat-grid{grid-template-columns:repeat(4,1fr)}
+.scard{border:1px solid var(--line);border-radius:9px;padding:7px 8px;background:var(--page);min-width:0}
+.scard div{display:flex;justify-content:space-between;gap:8px;font-size:11px;
+  font-variant-numeric:tabular-nums;padding:1px 0}
+.scard div em{font-style:normal;color:var(--secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.items{flex:0 0 214px;border:1px solid var(--line);border-radius:10px;background:var(--panel);
+  display:flex;flex-direction:column;overflow:hidden}
+.app[data-lib="open"] .items{flex-basis:178px}
+.items .h{padding:8px 10px;border-bottom:1px solid var(--line);font-size:11px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;color:var(--heading)}
+.items .b{padding:9px 10px;display:flex;flex-direction:column;gap:6px}
+.itag{border:1px solid #6B5A18;background:#241E08;color:#F5D67B;border-radius:6px;padding:3px 7px;
+  font-size:11px;font-weight:700;align-self:flex-start}
+
+/* подпись под кадром */
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px}
+.legend div{flex:1;min-width:250px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+  background:var(--panel);font-size:12px;color:var(--heading)}
+.legend b{color:var(--text)}
+.legend .no{color:var(--bad);font-weight:800}
+.legend .yes{color:var(--good);font-weight:800}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">Recordings</div>
+  <h1>Библиотека записей — как я бы её открывал</h1>
+  <div class="hint">Кадр 1280×648 — та же ширина, что на твоём скриншоте. Кликай по кнопке библиотеки в строке названия, по ««» у Templates и по переключателю варианта.</div>
+
+  <div class="topbar">
+    <div class="ctl">
+      <label>Вариант</label>
+      <button id="vC" class="on">C · узкая кнопка слева</button>
+      <button id="vA">A · пилюля справа</button>
+      <button id="vB">B · вторая рельса</button>
+    </div>
+    <div class="ctl">
+      <label>Templates</label>
+      <button id="lE" class="on">развёрнут</button>
+      <button id="lC">рельса</button>
+    </div>
+    <div class="ctl">
+      <label>Библиотека</label>
+      <button id="oO">открыта</button>
+      <button id="oC" class="on">закрыта</button>
+    </div>
+  </div>
+
+  <p class="note" id="note"><b>Вариант A.</b> Библиотека — выдвижной ящик внутри вкладки: ширина тянется мышкой и запоминается, закрытая она занимает <b>0px</b>. Единственный переключатель — пилюля «Recordings (6)» справа сверху, она же подсвечивается как активная. Анимация 160мс — та же, что у левой панели, поэтому жест читается как один и тот же.</p>
+
+  <div class="frame">
+    <div class="frame-bar"><b>BonkScanner v2.1.7</b><span>Recordings</span><i id="stateLbl">A · библиотека закрыта</i></div>
+    <div class="frame-body">
+      <div class="app" id="app" data-variant="C" data-left="expanded" data-lib="closed">
+
+        <div class="appbar">
+          <div class="logo">M</div><div class="name">BonkScanner</div>
+          <div class="dot"></div><div class="state">Waiting for game</div>
+          <div class="right"><span>● REC Session 00:06:17</span>
+            <button class="btn">▶ Start</button><button class="btn danger">■ Stop</button></div>
+        </div>
+
+        <div class="body">
+          <!-- левая панель -->
+          <div class="left">
+            <div class="left-tabs">
+              <div class="pill on">Templates</div><div class="pill">Scores</div>
+              <button class="chev" id="collapseLeft">«</button>
+            </div>
+            <div class="tpl-list">
+              <div class="tpl" style="border-left-color:#E7EDF5"><b>LIGHT</b><span>S+M 7, Mic:2, B:2</span></div>
+              <div class="tpl" style="border-left-color:#38BDF8"><b>MERCHANT</b><span>S+M 8, Mic:2</span></div>
+              <div class="tpl" style="border-left-color:#22C55E"><b>GOOD</b><span>S+M 9, Mic:2, Mag:1</span></div>
+              <div class="tpl" style="border-left-color:#FACC15"><b>PERFECT</b><span>S:4, M:6, Mic:2, Mag:2</span></div>
+              <div class="tpl" style="border-left-color:#FB7185"><b>PERFECT+</b><span>S+M 11, Mic:2, Mag:2</span></div>
+              <div class="tpl" style="border-left-color:#EF4444"><b>BOSS RUSH</b><span>S+M 5, Mic1, B:5</span></div>
+            </div>
+            <div class="rail-col">
+              <button class="chev" id="expandLeft">»</button>
+              <div class="vlabel">TEMPLATES</div>
+              <div class="rdot" style="background:#22C55E"></div>
+              <div class="rdot" style="background:#FACC15"></div>
+              <div class="rdot" style="background:#FB7185"></div>
+              <div class="rdot" style="background:#2A3542"></div>
+              <div class="rdot" style="background:#2A3542"></div>
+            </div>
+          </div>
+
+          <!-- контент -->
+          <div class="content">
+            <div class="tabs">
+              <div class="tab">Logs</div><div class="tab">Session Stats</div><div class="tab">Live Stats</div>
+              <div class="tab on">Recordings</div><div class="tab">Compare Runs</div><div class="tab">OBS Overlay</div>
+              <div class="tab">Twitch Bot</div><div class="tab">In-Game Overlay</div>
+            </div>
+
+            <div class="rec">
+              <!-- библиотека -->
+              <div class="lib">
+                <div class="lib-rail">
+                  <button class="chev libToggle">»</button>
+                  <div class="vlabel">RECORDINGS</div>
+                  <div class="cnt">6</div>
+                </div>
+                <div class="lib-head"><b>Recordings</b><span class="hint">6</span>
+                  <button class="x libToggle" title="Свернуть">«</button></div>
+                <div class="lib-body">
+                  <div class="field">Search by name…</div>
+                  <div class="row-select">
+                    <div class="field">Newest first ▾</div>
+                  </div>
+                  <div class="lib-list">
+                    <div class="lrow on"><b>Merged 1+2+3</b><span>603 snapshots · 01:23:23</span></div>
+                    <div class="lrow"><b>PERFECT+ run · stage 4</b><span>412 snapshots · 00:51:07</span></div>
+                    <div class="lrow"><b>2026-05-19 boss rush</b><span>287 snapshots · 00:34:52</span></div>
+                    <div class="lrow"><b>Anvil test</b><span>96 snapshots · 00:11:40</span></div>
+                    <div class="lrow"><b>graveyard timing</b><span>64 snapshots · 00:07:58</span></div>
+                    <div class="lrow"><b>short — crash</b><span>9 snapshots · 00:01:04</span></div>
+                  </div>
+                </div>
+                <div class="lib-foot">
+                  <div class="sum">6 recordings · 74.2 MB</div>
+                  <button class="btn danger" style="align-self:flex-start">Delete short</button>
+                </div>
+              </div>
+              <div class="grip"></div>
+
+              <!-- деталь -->
+              <div class="detail">
+                <div class="d-head">
+                  <button class="libmini libToggle" title="Библиотека записей"><span class="ch">»</span>30</button>
+                  <h2>Merged 1+2+3</h2>
+                  <button class="btn">✎ Rename</button>
+                  <button class="btn danger">Delete</button>
+                  <div class="right">
+                    <div class="meta">2026-05-20 09:13:53 · 603 snapshots</div>
+                    <button class="libtoggle libToggle">Recordings (6) <span class="ch">▾</span></button>
+                  </div>
+                </div>
+
+                <div class="chips">
+                  <span class="chip on">Kills ▾</span><span class="chip on">PM + PDC ▾</span>
+                  <span class="chip">None ▾</span><span class="chip">None ▾</span>
+                  <span class="chip">Difficulty cap</span><span class="chip">XP cap</span>
+                  <span class="sp">Shift+click sets compare point B · 1 / 603 · 00:00</span>
+                </div>
+
+                <div class="graph">
+                  <div class="lbl">Stage 1 · 1:23:23</div>
+                  <svg viewBox="0 0 800 96" preserveAspectRatio="none">
+                    <polyline fill="none" stroke="#FACC15" stroke-width="2"
+                      points="8,88 70,82 120,74 150,60 190,56 240,44 300,40 340,52 380,48 430,34 500,30 560,36 620,22 700,18 792,14"/>
+                  </svg>
+                </div>
+                <div class="markers">
+                  <i class="p"></i><i></i><i></i><i class="p"></i><i></i><i></i><i></i><i class="p"></i><i></i>
+                  <i></i><i></i><i class="p"></i><i></i><i></i><i></i><i></i><i class="p"></i><i></i><i></i>
+                  <i></i><i class="p"></i><i></i><i></i><i></i><i></i><i class="p"></i><i></i><i></i><i></i>
+                </div>
+
+                <div class="stages">
+                  <div class="stage on"><b>Stage 1</b><span>01:23:37</span><span style="color:#FACC15">74 ● 50 ● 28 ● 35</span></div>
+                  <div class="stage"><b>Stage 2</b><span>--</span><span>--</span></div>
+                  <div class="stage"><b>Stage 3</b><span>--</span><span>--</span></div>
+                  <div class="stage"><b>Stage 4</b><span>--</span><span>--</span></div>
+                </div>
+
+                <div class="lower">
+                  <div class="statwrap">
+                    <div class="stat-tabs">
+                      <span class="t on">Stats</span><span class="t">Loot</span><span class="t">Weapons</span>
+                      <span class="t">Tomes</span><span class="t">Chaos</span><span class="t">Damage Sources</span>
+                    </div>
+                    <div class="stat-grid">
+                      <div class="scard"><div><em>HP</em><b>100</b></div><div><em>Regen</em><b>10</b></div>
+                        <div><em>Shield</em><b>0</b></div><div><em>Armor</em><b>0%</b></div><div><em>Evasion</em><b>5.65%</b></div></div>
+                      <div class="scard"><div><em>DMG</em><b>1x</b></div><div><em>Crit</em><b>1%</b></div>
+                        <div><em>CritDMG</em><b>1x</b></div><div><em>AS</em><b>100%</b></div><div><em>Proj</em><b>0</b></div></div>
+                      <div class="scard"><div><em>Size</em><b>1x</b></div><div><em>ProjSpeed</em><b>1x</b></div>
+                        <div><em>Dur</em><b>1x</b></div><div><em>EliteDMG</em><b>1x</b></div><div><em>MS</em><b>1.04x</b></div></div>
+                      <div class="scard"><div><em>Jumps</em><b>0</b></div><div><em>JumpHeight</em><b>--</b></div>
+                        <div><em>Luck</em><b>15.4%</b></div><div><em>Diff</em><b>5%</b></div><div><em>KB</em><b>1x</b></div></div>
+                      <div class="scard"><div><em>Pickup</em><b>9</b></div><div><em>XP</em><b>1x</b></div>
+                        <div><em>Gold</em><b>1x</b></div><div><em>PM</em><b>1x</b></div><div><em>PDC</em><b>1x</b></div></div>
+                    </div>
+                  </div>
+                  <div class="items">
+                    <div class="h">Items (1)</div>
+                    <div class="b"><span class="itag">Anvil ×1</span>
+                      <div class="hint" style="margin-top:auto">Banishes: —</div></div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div><b>Ящик (варианты C и A).</b> Закрытая библиотека = 0px, вся ширина у детали (5 стат-карточек в ряд, Items 214px).
+      Открытая — 288px, тянется за <b>ручку</b> между ней и деталью, ширина и состояние пишутся в конфиг.
+      Разница только в переключателе: <span class="yes">узкая «» 30» слева</span> (C) против широкой пилюли справа (A).</div>
+    <div><b>Почему узкая слева лучше.</b> Кнопка стоит у того края, откуда панель выезжает, шеврон показывает направление
+      («» закрыта, «« открыта») — тот же словарь, что у левой панели Templates. Занимает ~52px вместо ~130px,
+      правый угол остаётся под дату и число снапшотов. Счётчик записей виден всегда, как ты и нарисовал.</div>
+    <div><b>Вариант B — вторая рельса.</b> Тот же жест, что у Templates, но в свёрнутом виде остаётся полоска 46px:
+      при развёрнутых Templates это <span class="no">280 + 46 + ~290</span> вертикальных полос на 1280px,
+      и на полоске нечего показывать, кроме счётчика — у шаблонов там цветные точки, у записей эквивалента нет.
+      Переключателей становится два (пилюля и «»»), и они делают одно и то же.</div>
+    <div><b>Что меняется в поведении.</b> Библиотека сама открывается, когда запись не выбрана, и сама закрывается
+      после выбора — это остаётся, но <b>только для авто-открытия</b> (флаг <code>guided</code> уже есть в коде).
+      Открытую руками не закрываем: раз ширина теперь запоминается, «сама схлопнулась» читалось бы как баг.</div>
+  </div>
+</div>
+
+<script>
+const app=document.getElementById('app'),lbl=document.getElementById('stateLbl'),note=document.getElementById('note');
+const NOTES={
+ C:'<b>Вариант C — твоя красная пометка, и я за него.</b> Ящик тот же, что в A, но переключатель — узкая кнопка <b>» 30</b> в одной строке с названием, у самого левого края. Она стоит ровно там, откуда ящик выезжает, шеврон разворачивается в «« при открытии, счётчик всегда на виду. Ширина ~52px вместо ~130px у пилюли, и правый угол освобождается под дату и число снапшотов.',
+ A:'<b>Вариант A.</b> Тот же ящик, но переключатель — широкая пилюля «Recordings (6)» в правом углу: далеко от края, откуда панель выезжает, и занимает место в строке, где и так лежит мета записи.',
+ B:'<b>Вариант B.</b> Один-в-один как Templates: свёрнутая библиотека оставляет рельсу 46px с вертикальной надписью и счётчиком. Разверни ещё и Templates слева — видно, ради чего я от этого отговариваю: две вертикальные полосы подряд и деталь, ужатая до ~640px.'
+};
+function sync(){
+  const v=app.dataset.variant,open=app.dataset.lib==='open';
+  lbl.textContent=v+' · библиотека '+(open?'открыта':'закрыта');
+  note.innerHTML=NOTES[v];
+  document.querySelector('.libmini .ch').textContent=open?'«':'»';
+  document.getElementById('vC').classList.toggle('on',v==='C');
+  document.getElementById('vA').classList.toggle('on',v==='A');
+  document.getElementById('vB').classList.toggle('on',v==='B');
+  document.getElementById('oO').classList.toggle('on',open);
+  document.getElementById('oC').classList.toggle('on',!open);
+  const exp=app.dataset.left==='expanded';
+  document.getElementById('lE').classList.toggle('on',exp);
+  document.getElementById('lC').classList.toggle('on',!exp);
+}
+const setLib=s=>{app.dataset.lib=s;sync()};
+document.querySelectorAll('.libToggle').forEach(b=>b.onclick=()=>setLib(app.dataset.lib==='open'?'closed':'open'));
+document.getElementById('collapseLeft').onclick=()=>{app.dataset.left='rail';sync()};
+document.getElementById('expandLeft').onclick=()=>{app.dataset.left='expanded';sync()};
+document.getElementById('vC').onclick=()=>{app.dataset.variant='C';sync()};
+document.getElementById('vA').onclick=()=>{app.dataset.variant='A';sync()};
+document.getElementById('vB').onclick=()=>{app.dataset.variant='B';sync()};
+document.getElementById('lE').onclick=()=>{app.dataset.left='expanded';sync()};
+document.getElementById('lC').onclick=()=>{app.dataset.left='rail';sync()};
+document.getElementById('oO').onclick=()=>setLib('open');
+document.getElementById('oC').onclick=()=>setLib('closed');
+document.querySelectorAll('.lrow').forEach(r=>r.onclick=()=>{
+  document.querySelectorAll('.lrow').forEach(x=>x.classList.remove('on'));r.classList.add('on');
+  document.querySelector('.detail h2').textContent=r.querySelector('b').textContent;
+});
+sync();
+</script>
+</body>
+</html>

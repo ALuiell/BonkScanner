@@ -861,14 +861,17 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             font-weight: 700;
             padding: 2px 7px;
         }
+        /* The library drawer's toggle: chevron plus count, sized to that and
+           nothing more. It leads the plaque row, so every pixel it takes is
+           one the recording's own name does not get. */
         QPushButton#RecordingPlaqueLibrary {
             background: transparent;
             border: 1px solid #2A3542;
             border-radius: 6px;
             color: #9AA4B2;
-            font-size: 14px;
-            font-weight: 700;
-            padding: 3px 9px;
+            font-size: 13px;
+            font-weight: 800;
+            padding: 3px 8px;
         }
         QPushButton#RecordingPlaqueLibrary:hover {
             background: #161C24;
@@ -1064,6 +1067,20 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             background: #1B222B;
             margin: 0 6px;
             border-radius: 2px;
+        }
+        /* The library drawer's grip. Invisible at rest -- the drawer already
+           has a border, and a permanent bar between two panels reads as a
+           third panel -- but it lights up under the cursor so the column is
+           discoverably resizable. The generic rule above would paint it at
+           all times and, at this handle width, leave nothing visible at all
+           once its 6px margins are applied. */
+        QSplitter#RecordingsBodySplitter::handle {
+            background: transparent;
+            margin: 0 3px;
+            border-radius: 2px;
+        }
+        QSplitter#RecordingsBodySplitter::handle:hover {
+            background: #2A3542;
         }
     """.replace("__CHECKMARK_ICON__", checkmark_path)
 
