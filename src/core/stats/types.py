@@ -261,11 +261,22 @@ LUCK_LABEL = "Luck"
 POWERUP_MULTIPLIER_CACHE_TTL_SECONDS = 5.0
 
 
-# Twitch !stats and the OBS Stats widget surface raw stat values straight to
-# viewers; items can push multiplier stats (Damage, XP Gain, ...) into absurd
-# numbers, so both clamp display here the same way the in-game overlay
-# already clamps XP Gain (projections/in_game_html.py's `_XP_GAIN_CAP`).
-MULTIPLIER_DISPLAY_CAP = 10.0
+# Stat 32. Named for the same reason as LUCK_LABEL above: the cap below is a
+# property of this one stat, not of a shape several stats happen to share.
+XP_GAIN_LABEL = "XP Gain"
+
+
+# 10x is where the *game* stops counting XP Gain -- past it the extra
+# multiplier does nothing -- so Twitch !stats and the OBS Stats widget show
+# "10x" rather than the raw number, matching the in-game overlay
+# (projections/in_game_html.py's `_XP_GAIN_CAP`).
+#
+# It applies to XP Gain alone. It was once keyed on `PlayerStatFormat.
+# MULTIPLIER`, which silently clamped the other twelve multiplier stats --
+# Damage, Crit Damage, Movement Speed and the rest -- whose growth is real and
+# uncapped, so a 25x Damage run was reported to viewers as 10x. Keep this
+# keyed on the label: the format is a display shape, not a game rule.
+XP_GAIN_DISPLAY_CAP = 10.0
 
 
 @dataclass(frozen=True)
@@ -285,8 +296,8 @@ class PlayerStatValue:
         value = self.value
         if value is not None and isfinite(value):
             value *= self.spec.display_scale
-            if self.spec.value_format is PlayerStatFormat.MULTIPLIER and value >= MULTIPLIER_DISPLAY_CAP:
-                return f"{int(MULTIPLIER_DISPLAY_CAP)}x"
+            if self.spec.label == XP_GAIN_LABEL and value >= XP_GAIN_DISPLAY_CAP:
+                return f"{int(XP_GAIN_DISPLAY_CAP)}x"
         return format_player_stat_value(value, self.spec.value_format)
 
 

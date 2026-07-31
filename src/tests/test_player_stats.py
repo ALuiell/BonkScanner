@@ -14,6 +14,7 @@ from core.stats.types import (
     DisabledItemsReadStatus,
     PLAYER_STAT_GROUPS,
     PLAYER_STAT_SPEC_BY_LABEL,
+    PlayerStatValue,
     calculate_chests_per_minute,
 )
 from infra.memory.player_stats_client import PlayerStatsClient
@@ -1936,6 +1937,58 @@ class PlayerStatsTimelineTests(unittest.TestCase):
 
         self.assertIs(timeline.get_snapshot(-100), first)
         self.assertIs(timeline.get_snapshot(100), first)
+
+
+class CappedDisplayValueTests(unittest.TestCase):
+    """What Twitch !stats and the OBS Stats widget show viewers.
+
+    Both read `capped_display_value` rather than `display_value`, so this is
+    the only place the 10x clamp is decided for either of them.
+    """
+
+    def _stat(self, label: str, value: float) -> PlayerStatValue:
+        return PlayerStatValue(spec=PLAYER_STAT_SPEC_BY_LABEL[label], value=value)
+
+    def test_xp_gain_is_clamped_at_the_cap(self) -> None:
+        self.assertEqual(self._stat("XP Gain", 25.0).capped_display_value, "10x")
+        self.assertEqual(self._stat("XP Gain", 10.0).capped_display_value, "10x")
+
+    def test_xp_gain_below_the_cap_is_untouched(self) -> None:
+        self.assertEqual(self._stat("XP Gain", 3.5).capped_display_value, "3.5x")
+
+    def test_no_other_multiplier_stat_is_clamped(self) -> None:
+        """The regression this class exists for.
+
+        The clamp used to key on `PlayerStatFormat.MULTIPLIER`, which caught
+        every stat below as well -- their growth is uncapped in game, so a 25x
+        Damage run was reported to viewers as 10x. Asserted over the whole set
+        rather than over Damage alone: the old condition was a property of the
+        format, so any one label could pass while the rest stayed broken.
+        """
+
+        others = [
+            spec.label
+            for group in PLAYER_STAT_GROUPS
+            for spec in group
+            if spec.value_format is PlayerStatFormat.MULTIPLIER
+            and spec.label != "XP Gain"
+        ]
+        self.assertGreater(len(others), 5, "no multiplier stats left to check")
+
+        for label in others:
+            with self.subTest(label=label):
+                stat = self._stat(label, 25.0)
+                self.assertEqual(stat.capped_display_value, stat.display_value)
+                self.assertNotEqual(stat.capped_display_value, "10x")
+
+    def test_non_multiplier_stats_pass_through(self) -> None:
+        """A percent stat at 25 is 2500%, not a number the cap may touch."""
+        stat = self._stat("Crit Chance", 25.0)
+        self.assertEqual(stat.capped_display_value, stat.display_value)
+
+    def test_an_absent_value_stays_absent(self) -> None:
+        stat = PlayerStatValue(spec=PLAYER_STAT_SPEC_BY_LABEL["XP Gain"], value=None)
+        self.assertEqual(stat.capped_display_value, stat.display_value)
 
 
 if __name__ == "__main__":
