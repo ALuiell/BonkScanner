@@ -449,6 +449,85 @@ QPushButton#segment[active="true"][role="halt"][variant="armed"]:pressed {
     background-color: rgba(250, 204, 21, 0.18);
 }
 
+/* --------------------------------------------------------- tab hero -------- */
+/* Шапка вкладок OBS / Twitch / In-game. Левая полоса цветом --info — это
+   единственное, что отличает её от обычной карточки, и она же связывает три
+   вкладки в один скелет. */
+QFrame[tabHero="true"] {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-left: 3px solid #38BDF8;
+    border-radius: 12px;
+}
+QLabel#heroIcon {
+    background-color: #141A22;
+    border: 1px solid #2A3542;
+    border-radius: 12px;
+    color: #38BDF8;
+}
+QLabel#heroTitle { font-size: 16px; font-weight: 800; color: #EDF1F5; }
+QLabel#heroSubtitle { color: #8A94A3; font-size: 12px; }
+
+/* Бейдж статуса. Четыре состояния, а не два: `off` — остановлено, `warn` —
+   переходное (connecting / validating / authorizing), `danger` — ошибка,
+   `ok` — работает. Длинный текст ошибки сюда не кладётся, он уходит в
+   подпись — см. `TabHero.set_status`. */
+QLabel#heroBadge {
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: 10.5px;
+    font-weight: 800;
+}
+QLabel#heroBadge[state="ok"] {
+    background-color: rgba(34, 197, 94, 0.10);
+    border: 1px solid rgba(34, 197, 94, 0.32);
+    color: #22C55E;
+}
+QLabel#heroBadge[state="warn"] {
+    background-color: rgba(250, 204, 21, 0.10);
+    border: 1px solid #7A6520;
+    color: #FACC15;
+}
+QLabel#heroBadge[state="danger"] {
+    background-color: rgba(248, 113, 113, 0.10);
+    border: 1px solid #4A2226;
+    color: #F87171;
+}
+QLabel#heroBadge[state="off"] {
+    background-color: #101419;
+    border: 1px solid #2A3542;
+    color: #5C6675;
+}
+
+/* ------------------------------------------------------- module tiles ------ */
+/* Плитка-переключатель из сеток вкладок OBS / Twitch / In-game. Выбирается по
+   свойству, а не по objectName, по той же причине, что и рамка сегментов:
+   `_set_widget_style_role` переименовывает всё, что ему дают, и плитка бы
+   осталась без рамки. Радиус 8 — ярус «контрол»: плитка это один контрол, а не
+   группа, хотя внутри неё лежит другой виджет. */
+QFrame[moduleTile="true"] {
+    background-color: #101419;
+    border: 1px solid #1B222B;
+    border-radius: 8px;
+}
+QFrame[moduleTile="true"]:hover { border-color: #2A3542; }
+/* Включённая плитка — заливка, а не галочка: шестнадцать команд Twitch читаются
+   блоком цвета, а не по одной. Цвет — акцент с той же прозрачностью, что в
+   макете. */
+QFrame[moduleTile="true"][on="true"] {
+    background-color: rgba(47, 111, 176, 0.12);
+    border-color: #3E82C6;
+}
+QFrame[moduleTile="true"][on="true"]:hover { border-color: #4A8FD6; }
+/* Здесь стояло вложенное правило, подсвечивавшее название на включённой плитке
+   через qproperty у painted-тумблера внутри неё. `test_painted_control_palette`
+   его завалил, и он прав: палитра этого тумблера объявляется ровно в одном
+   месте (ниже, в его собственном блоке), а вложенное правило делало второе,
+   частичное объявление — ту самую дублирующуюся палитру, ради которой тест и
+   написан. Заливки самой плитки достаточно, чтобы прочитать состояние.
+   Селектор здесь намеренно не выписан: тот тест ищет свой блок подстрокой по
+   готовому листу, и упоминание в комментарии он принимает за объявление. */
+
 /* подсказка горячей клавиши рядом с сегментами */
 QLabel#hotkeyHint {
     color: #5C6675; font-size: 10.5px; font-weight: 700;

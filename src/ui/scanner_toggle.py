@@ -15,40 +15,22 @@ Replaces the single header button that swapped its own caption between
   the state's other half.
 
 Everything above is `SegmentedToggle`'s now; the recording strip wanted the
-same control and got it. What is left here is the one thing that is about
-scanners: where the state comes from.
+same control and got it. The caption channel below it is `RunToggle`'s, because
+the three streaming tabs drive their toggles exactly this way -- see that
+module for why a caption is the state, and what that costs.
 
-How the scanner drives it
-=========================
-
-Through ``setText``, unchanged. ``gui_scanner.update_status_ui`` writes
-``"Stop Scanner"`` while scanning and ``"Start Scanner"`` otherwise, and that
-call is this widget's only state channel -- the port hands it a "toggle_btn"
-and knows nothing else about it. ``setText`` therefore reads the caption back
-into a state rather than painting it anywhere; ``test_scanner_toggle`` pins
-that coupling so it cannot rot into a silent no-op.
-
-``update_status_ui`` also calls ``_set_widget_style_role(toggle_btn, ...)``,
-which assigns ``objectName`` -- so this frame's name flips between ``primary``
-and ``stopScanner`` at runtime and cannot be used to style it. That is why the
-container is selected by a *property* (``[segmentedToggle="true"]``) in the
-QSS: the role swap leaves properties alone, so the frame keeps its background
-through both states without needing the scanner to know it changed shape.
+What is left here is the one thing that is about scanners: which two literals
+``gui_scanner.update_status_ui`` writes. ``test_scanner_toggle`` pins that
+coupling so it cannot rot into a silent no-op.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
-
-from ui.segmented_toggle import ROLE_GO, ROLE_HALT, SegmentedToggle
+from ui.run_toggle import RunToggle
 
 
-class ScannerToggle(SegmentedToggle):
-    """Two segments -- Start and Stop -- of which exactly one is live."""
-
-    #: Emitted when the user presses the live segment. The header connects it
-    #: to `Scanner.toggle_main_loop`, which is what the old `clicked` drove.
-    toggle_requested = Signal()
+class ScannerToggle(RunToggle):
+    """`RunToggle` carrying the scanner's caption pair."""
 
     #: The two captions `gui_scanner.update_status_ui` writes. Named because
     #: `setText` compares against them; a typo on either side would otherwise
@@ -57,28 +39,4 @@ class ScannerToggle(SegmentedToggle):
     STOP_TEXT = "Stop Scanner"
 
     def __init__(self, parent=None) -> None:
-        super().__init__(
-            (
-                ("start", "▶  Start", ROLE_GO),
-                ("stop", "■  Stop", ROLE_HALT),
-            ),
-            parent,
-        )
-        self.activated.connect(lambda _key: self.toggle_requested.emit())
-        self._text = self.START_TEXT
-        self.set_active("start")
-
-    # -- the scanner's port ---------------------------------------------------
-
-    def setText(self, text) -> None:
-        """Adopt the state `text` names. The port's only state channel."""
-        self._text = str(text)
-        running = self._text.strip() == self.STOP_TEXT
-        self.set_active("stop" if running else "start")
-
-    def text(self) -> str:
-        return self._text
-
-    def is_running(self) -> bool:
-        """Which segment is live. For tests and for callers that need to ask."""
-        return self.active_key() == "stop"
+        super().__init__(self.START_TEXT, self.STOP_TEXT, parent)
