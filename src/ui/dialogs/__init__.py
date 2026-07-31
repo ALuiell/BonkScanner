@@ -970,15 +970,6 @@ class SettingsDialog(QDialog):
         self.record_hotkey_entry = QLineEdit(getattr(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"))
         form_layout.addRow("Record Hotkey:", self.record_hotkey_entry)
 
-        self.min_delay_entry = QDoubleSpinBox()
-        self.min_delay_entry.setRange(0.0, 60.0)
-        self.min_delay_entry.setSingleStep(0.1)
-        self.min_delay_entry.setDecimals(2)
-        self.min_delay_entry.setValue(float(config.MIN_DELAY))
-        self.min_delay_entry.setSuffix(" s")
-        self.map_load_delay_entry = self.min_delay_entry
-        form_layout.addRow("Min Reroll Delay (s):", self.min_delay_entry)
-
         self.reset_hold_duration_entry = QDoubleSpinBox()
         self.reset_hold_duration_entry.setRange(0.01, 10.0)
         self.reset_hold_duration_entry.setSingleStep(0.05)
@@ -986,6 +977,7 @@ class SettingsDialog(QDialog):
         self.reset_hold_duration_entry.setValue(float(config.RESET_HOLD_DURATION))
         self.reset_hold_duration_entry.setSuffix(" s")
         form_layout.addRow("Reset Hold Duration (s):", self.reset_hold_duration_entry)
+        self._initial_reset_hold_duration = round(float(config.RESET_HOLD_DURATION), 2)
 
         self.record_interval_entry = QSpinBox()
         self.record_interval_entry.setRange(1, 3600)
@@ -1105,24 +1097,6 @@ class SettingsDialog(QDialog):
             getattr(self, "show_obs_reminder_on_start_scanner_var", None)
         )
 
-        config.user_config["HOTKEY"] = new_hotkey
-        config.user_config["RESET_HOTKEY"] = new_reset_hotkey
-        config.user_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
-        config.user_config["AUTO_START_RECORDING"] = auto_start_recording
-        config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = show_obs_reminder_on_start_scanner
-
-        config.HOTKEY = new_hotkey
-        config.RESET_HOTKEY = new_reset_hotkey
-        config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
-        config.AUTO_START_RECORDING = auto_start_recording
-        config.SHOW_OBS_REMINDER_ON_START_SCANNER = show_obs_reminder_on_start_scanner
-        if auto_start_recording:
-            # Was `hasattr(self.master, ...)` + a direct assignment. The service
-            # always has the flag, so the guard is gone -- and with it the
-            # step-19 failure shape where a `hasattr` goes quietly false and
-            # re-enabling auto-start silently stops clearing a suppression.
-            vod_capture(self.master).clear_auto_recording_suppression()
-
         def _read_numeric(entry) -> float:
             if entry is None:
                 return 0.0
@@ -1131,27 +1105,59 @@ class SettingsDialog(QDialog):
                 return float(val() if callable(val) else val)
             return float(_read_text(entry))
 
-        delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
         try:
-            new_delay = _read_numeric(delay_entry)
-            config.user_config["MIN_DELAY"] = new_delay
-            config.MIN_DELAY = new_delay
-            config.MAP_LOAD_DELAY = new_delay
-        except ValueError:
-            pass
+            new_duration = max(0.01, round(_read_numeric(self.reset_hold_duration_entry), 2))
+        except (TypeError, ValueError, OverflowError):
+            QMessageBox.warning(
+                self,
+                "Invalid Settings",
+                "Reset Hold Duration must be a valid number.",
+            )
+            return
 
-        try:
-            new_duration = _read_numeric(self.reset_hold_duration_entry)
-            if new_duration < 0.01:
-                new_duration = 0.01
-            config.user_config["RESET_HOLD_DURATION"] = new_duration
-            config.RESET_HOLD_DURATION = new_duration
-            game_val = round(new_duration - 0.05, 2)
-            if game_val < 0.01:
-                game_val = 0.01
-            config.update_game_reset_time(game_val)
-        except ValueError:
-            pass
+        initial_duration = round(
+            float(getattr(self, "_initial_reset_hold_duration", config.RESET_HOLD_DURATION)),
+            2,
+        )
+        if new_duration != initial_duration:
+            # The game threshold stays 0.05 s below the actual key hold. That
+            # safety margin covers input/animation timing jitter at the boundary.
+            game_val = max(0.01, round(new_duration - 0.05, 2))
+            update_result = config.update_game_reset_time(game_val)
+            if not update_result.success:
+                reason = update_result.reason or "The game config change could not be verified."
+                QMessageBox.warning(
+                    self,
+                    "Game Settings Not Applied",
+                    (
+                        "Reset Hold Duration was not saved because BonkScanner could not "
+                        "apply it to the game config.\n\n"
+                        f"Reason: {reason}\n\n"
+                        "Close the game, run BonkScanner as Administrator, and try again."
+                    ),
+                )
+                return
+
+        config.user_config["HOTKEY"] = new_hotkey
+        config.user_config["RESET_HOTKEY"] = new_reset_hotkey
+        config.user_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
+        config.user_config["AUTO_START_RECORDING"] = auto_start_recording
+        config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = show_obs_reminder_on_start_scanner
+        config.user_config["RESET_HOLD_DURATION"] = new_duration
+
+        config.HOTKEY = new_hotkey
+        config.RESET_HOTKEY = new_reset_hotkey
+        config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
+        config.AUTO_START_RECORDING = auto_start_recording
+        config.SHOW_OBS_REMINDER_ON_START_SCANNER = show_obs_reminder_on_start_scanner
+        config.RESET_HOLD_DURATION = new_duration
+        self._initial_reset_hold_duration = new_duration
+        if auto_start_recording:
+            # Was `hasattr(self.master, ...)` + a direct assignment. The service
+            # always has the flag, so the guard is gone -- and with it the
+            # step-19 failure shape where a `hasattr` goes quietly false and
+            # re-enabling auto-start silently stops clearing a suppression.
+            vod_capture(self.master).clear_auto_recording_suppression()
 
         try:
             new_interval = max(1, int(_read_numeric(self.record_interval_entry)))

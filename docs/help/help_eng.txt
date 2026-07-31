@@ -44,7 +44,7 @@ Right side:
 Reroll and Restart
 ------------------
 - Standard keyboard restart is still the default and simplest option.
-- If rerolls feel unstable, first try increasing `Min Reroll Delay (s)` or `Reset Hold Duration (s)` a little.
+- If rerolls feel unstable, first try increasing `Reset Hold Duration (s)` a little.
 - BonkScanner waits for a safe map-ready and memory-read state, so short pauses between restart and evaluation are normal.
 
 Live Stats
@@ -200,8 +200,7 @@ Main settings:
 - `Reset Hotkey` - keyboard restart hotkey.
 - `Record Hotkey` - starts or stops live stats recording.
 - `In-Game Overlay Edit Hotkey` - enters or exits overlay Layout Mode.
-- `Min Reroll Delay (s)` - minimum delay before the app evaluates the next reroll result.
-- `Reset Hold Duration (s)` - keyboard reset hold time in the app. This setting also syncs the game's `quick_reset_time` value. If you change it, restart the game so the in-game restart timing fully picks up the new value.
+- `Reset Hold Duration (s)` - keyboard reset hold time in the app. This setting also syncs and verifies the game's `quick_reset_time` value. If the game config cannot be found or updated, Settings explains the cause and keeps the dialog open so you can retry. After a successful change, restart the game so the new timing fully applies.
 - `Snapshot Interval (s)` - how often recording saves a new snapshot.
 - `Check for Updates` - checks for a newer packaged build when that updater flow is available.
 

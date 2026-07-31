@@ -568,7 +568,6 @@ Use only the checklist for the requested area, plus shared dependencies that dir
 - Scan, Reset, and Record hotkeys;
 - auto-start recording;
 - OBS reminder;
-- Min Reroll Delay;
 - Reset Hold Duration and `quick_reset_time` synchronization;
 - Snapshot Interval;
 - Check for Updates;

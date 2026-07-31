@@ -4,6 +4,7 @@ import math
 import shutil
 import colorama
 import threading
+from dataclasses import dataclass
 
 from infra import paths
 
@@ -247,6 +248,12 @@ DISCORD_SUPPORT_URL = "https://discord.gg/dYkcrMCJWM"
 # ==========================================
 # GAME CONFIG PARSER
 # ==========================================
+@dataclass(frozen=True)
+class GameConfigUpdateResult:
+    success: bool
+    reason: str = ""
+
+
 def get_game_config_path() -> str | None:
     user_profile = os.environ.get('USERPROFILE', '')
     if not user_profile:
@@ -327,17 +334,66 @@ def get_game_reset_time() -> float | None:
         pass
     return None
 
-def update_game_reset_time(game_val: float):
+def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
+    """Write and read back quick_reset_time so the UI never reports a false success."""
+    game_config_path = get_game_config_path()
+    if not game_config_path or not os.path.exists(game_config_path):
+        return GameConfigUpdateResult(
+            False,
+            "The game config file was not found. Launch the game once so it can create the file.",
+        )
+
+    data = load_game_config()
+    if data is None:
+        return GameConfigUpdateResult(
+            False,
+            "The game config file could not be read. It may be locked or contain invalid JSON.",
+        )
+
+    settings = data.get("cfGameSettings")
+    if not isinstance(settings, dict):
+        settings = {}
+        data["cfGameSettings"] = settings
+
+    expected_value = round(float(game_val), 2)
+    settings["quick_reset_time"] = expected_value
+    if not save_game_config(data):
+        return GameConfigUpdateResult(
+            False,
+            "Windows did not allow BonkScanner to write to the game config file.",
+        )
+
+    verified_data = load_game_config()
+    if verified_data is None:
+        return GameConfigUpdateResult(
+            False,
+            "The game config was written but could not be read back for verification.",
+        )
+
+    verified_settings = verified_data.get("cfGameSettings")
+    actual_value = (
+        verified_settings.get("quick_reset_time")
+        if isinstance(verified_settings, dict)
+        else None
+    )
     try:
-        data = load_game_config()
-        if data is None:
-            return
-        if "cfGameSettings" not in data:
-            data["cfGameSettings"] = {}
-        data["cfGameSettings"]["quick_reset_time"] = game_val
-        save_game_config(data)
-    except Exception:
-        pass
+        actual_value = round(float(actual_value), 2)
+    except (TypeError, ValueError, OverflowError):
+        return GameConfigUpdateResult(
+            False,
+            "The saved game config does not contain a valid quick_reset_time value.",
+        )
+
+    if actual_value != expected_value:
+        return GameConfigUpdateResult(
+            False,
+            (
+                "The game config did not keep the requested quick_reset_time value "
+                f"(expected {expected_value:.2f}, found {actual_value:.2f})."
+            ),
+        )
+
+    return GameConfigUpdateResult(True)
 
 # ==========================================
 # LOAD JSON CONFIG
@@ -789,13 +845,10 @@ def _normalize_overlay_widgets(value):
     normalized.extend(extra_widgets)
     return normalized
 
-# Migrate from MAP_LOAD_DELAY if MIN_DELAY is not found
-MIN_DELAY = user_config.get("MIN_DELAY", user_config.get("MAP_LOAD_DELAY", 0.3))
-MAP_LOAD_DELAY = MIN_DELAY
-
-# Remove MAP_LOAD_DELAY if it's still there
-if "MAP_LOAD_DELAY" in user_config:
-    del user_config["MAP_LOAD_DELAY"]
+# Min Reroll Delay was removed. Drop both its current and legacy keys from
+# existing user configs the next time the normalized config is saved.
+user_config.pop("MIN_DELAY", None)
+user_config.pop("MAP_LOAD_DELAY", None)
 
 # Load RESET_HOLD_DURATION from user_config first, fallback to game config, fallback to default 0.4
 RESET_HOLD_DURATION_USER = user_config.get("RESET_HOLD_DURATION")
@@ -895,7 +948,6 @@ def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) 
     }
 
 # Update user_config object so that mutations to it are saved properly
-user_config["MIN_DELAY"] = MIN_DELAY
 user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
 user_config["HOTKEY"] = HOTKEY
 user_config["HOTKEY_GAME_KEY_WHITELIST"] = HOTKEY_GAME_KEY_WHITELIST

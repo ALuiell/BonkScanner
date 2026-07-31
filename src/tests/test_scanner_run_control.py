@@ -564,7 +564,6 @@ class FocusWaitTests(unittest.TestCase):
                 fake_keyboard,
                 reset_hotkey="r",
                 reset_hold_duration=0.1,
-                map_load_delay=0.2,
             ),
         )
         del scanner  # the subject is run control; the pair is here for the port
@@ -739,9 +738,6 @@ class BackgroundLoopTests(unittest.TestCase):
         scanner, run_control = build_pair(
             provider=SimpleNamespace(
                 restart_run=lambda: self.fail("restart_run should not be called while paused"),
-                wait_for_next_run=lambda **_kwargs: self.fail(
-                    "wait_for_next_run should not be called while paused"
-                ),
             ),
         )
         scanner.client = None

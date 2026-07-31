@@ -937,7 +937,6 @@ class GuiRunControlTests(unittest.TestCase):
             "PLAYER_STATS_RECORD_HOTKEY": config.PLAYER_STATS_RECORD_HOTKEY,
             "AUTO_START_RECORDING": config.AUTO_START_RECORDING,
             "SHOW_OBS_REMINDER_ON_START_SCANNER": config.SHOW_OBS_REMINDER_ON_START_SCANNER,
-            "MAP_LOAD_DELAY": config.MAP_LOAD_DELAY,
             "RESET_HOLD_DURATION": config.RESET_HOLD_DURATION,
             "TOTAL_REROLLS": config.TOTAL_REROLLS,
             "ACTIVE_TEMPLATES": deepcopy(config.ACTIVE_TEMPLATES),
@@ -972,15 +971,19 @@ class GuiRunControlTests(unittest.TestCase):
             record_hotkey_entry=FakeEntry("f8"),
             auto_start_recording_var=FakeVar(True),
             show_obs_reminder_on_start_scanner_var=FakeVar(True),
-            map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
+            _initial_reset_hold_duration=config.RESET_HOLD_DURATION,
             record_interval_entry=FakeEntry("60"),
             master=master,
             destroy=lambda: destroyed.append(True),
         )
 
         with patch.object(config, "save_config") as save_config:
-            with patch.object(config, "update_game_reset_time") as update_game_reset_time:
+            with patch.object(
+                config,
+                "update_game_reset_time",
+                return_value=config.GameConfigUpdateResult(True),
+            ) as update_game_reset_time:
                 SettingsDialog.save(dialog)
 
         self.assertTrue(config.AUTO_START_RECORDING)
@@ -990,8 +993,64 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
-        self.assertTrue(update_game_reset_time.called)
+        update_game_reset_time.assert_called_once_with(0.2)
         self.assertEqual(destroyed, [True])
+
+    def test_settings_save_keeps_dialog_open_when_game_reset_time_cannot_be_applied(self) -> None:
+        original_duration = config.RESET_HOLD_DURATION
+        destroyed: list[bool] = []
+        dialog = types.SimpleNamespace(
+            hotkey_entry=FakeEntry("f7"),
+            reset_hotkey_entry=FakeEntry("r"),
+            record_hotkey_entry=FakeEntry("f8"),
+            auto_start_recording_var=FakeVar(False),
+            show_obs_reminder_on_start_scanner_var=FakeVar(False),
+            reset_hold_duration_entry=FakeEntry("0.25"),
+            _initial_reset_hold_duration=original_duration,
+            record_interval_entry=FakeEntry("60"),
+            master=FakeSettingsMaster(),
+            destroy=lambda: destroyed.append(True),
+        )
+        failure = config.GameConfigUpdateResult(
+            False,
+            "Windows did not allow BonkScanner to write to the game config file.",
+        )
+
+        with patch.object(config, "update_game_reset_time", return_value=failure):
+            with patch.object(config, "save_config") as save_config:
+                with patch.object(gui_dialogs.QMessageBox, "warning") as warning:
+                    SettingsDialog.save(dialog)
+
+        save_config.assert_not_called()
+        self.assertEqual(config.RESET_HOLD_DURATION, original_duration)
+        self.assertEqual(destroyed, [])
+        warning.assert_called_once()
+        warning_text = warning.call_args.args[2]
+        self.assertIn(failure.reason, warning_text)
+        self.assertIn("Administrator", warning_text)
+
+    def test_settings_save_does_not_touch_game_config_when_hold_duration_is_unchanged(self) -> None:
+        duration = round(float(config.RESET_HOLD_DURATION), 2)
+        dialog = types.SimpleNamespace(
+            hotkey_entry=FakeEntry(config.HOTKEY),
+            reset_hotkey_entry=FakeEntry(config.RESET_HOTKEY),
+            record_hotkey_entry=FakeEntry(config.PLAYER_STATS_RECORD_HOTKEY),
+            auto_start_recording_var=FakeVar(config.AUTO_START_RECORDING),
+            show_obs_reminder_on_start_scanner_var=FakeVar(
+                config.SHOW_OBS_REMINDER_ON_START_SCANNER
+            ),
+            reset_hold_duration_entry=FakeEntry(str(duration)),
+            _initial_reset_hold_duration=duration,
+            record_interval_entry=FakeEntry("60"),
+            master=FakeSettingsMaster(),
+            destroy=lambda: None,
+        )
+
+        with patch.object(config, "update_game_reset_time") as update_game_reset_time:
+            with patch.object(config, "save_config"):
+                SettingsDialog.save(dialog)
+
+        update_game_reset_time.assert_not_called()
 
     def test_twitch_command_settings_save_persists_commands_announcement_interval(self) -> None:
         accepted: list[bool] = []

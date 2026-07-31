@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -8,6 +9,63 @@ from unittest.mock import patch
 import src
 
 from app import config
+
+
+class GameResetTimeConfigTests(unittest.TestCase):
+    def _write_game_config(self, path: str, quick_reset_time: float = 0.05) -> None:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(
+                {"cfGameSettings": {"quick_reset_time": quick_reset_time}},
+                handle,
+            )
+
+    def test_update_game_reset_time_writes_and_verifies_requested_value(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            self._write_game_config(game_config_path)
+
+            with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                result = config.update_game_reset_time(0.2)
+
+            self.assertTrue(result.success)
+            with open(game_config_path, "r", encoding="utf-8") as handle:
+                saved = json.load(handle)
+            self.assertEqual(saved["cfGameSettings"]["quick_reset_time"], 0.2)
+
+    def test_update_game_reset_time_reports_missing_game_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_path = os.path.join(temp_dir, "missing.json")
+
+            with patch.object(config, "get_game_config_path", return_value=missing_path):
+                result = config.update_game_reset_time(0.2)
+
+            self.assertFalse(result.success)
+            self.assertIn("not found", result.reason)
+
+    def test_update_game_reset_time_reports_write_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            self._write_game_config(game_config_path)
+
+            with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                with patch.object(config, "save_game_config", return_value=False):
+                    result = config.update_game_reset_time(0.2)
+
+            self.assertFalse(result.success)
+            self.assertIn("write", result.reason)
+
+    def test_update_game_reset_time_rejects_unverified_write(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            self._write_game_config(game_config_path, quick_reset_time=0.05)
+
+            with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                with patch.object(config, "save_game_config", return_value=True):
+                    result = config.update_game_reset_time(0.2)
+
+            self.assertFalse(result.success)
+            self.assertIn("expected 0.20", result.reason)
+            self.assertIn("found 0.05", result.reason)
 
 
 class LegacyNativeHookCleanupTests(unittest.TestCase):

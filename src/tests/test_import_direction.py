@@ -404,12 +404,9 @@ class ImportDirectionTests(unittest.TestCase):
             {layer for layer, _ in layered_source_files()},
             "a layered package produced no source files",
         )
-        # core/ is exempt as of step 27d, and its exemption is the measurement.
-        # It imports nothing outside itself -- not at runtime, and since the
-        # GameDataClient annotation became core.run_control.MapStateReader, not
-        # under TYPE_CHECKING either -- so it contributes zero edges and cannot
-        # prove the walk reached it. That was the whole point of the layer, and
-        # the assertion below turns it into a ratchet instead of losing it.
+        # core/ imports nothing outside itself, so it contributes zero edges and
+        # cannot prove the walk reached it. The assertion below keeps that
+        # deliberate exemption as a ratchet.
         scanned = {edge.source_layer for edge in self.edges}
         self.assertEqual(
             set(LAYER_RULES) - {"core"},

@@ -517,32 +517,10 @@ class Scanner:
         if self._scan_abort_requested():
             return False
 
-        previous_state = None
-        previous_stats = None
-        if self.client is not None:
-            try:
-                previous_state = self.client.get_map_generation_state()
-                previous_stats = self.client.get_map_stats()
-            except MemoryReadError as exc:
-                self.log(f"[WAIT] Could not read current map state before restart: {exc}", tag="warning")
-        if self._scan_abort_requested():
-            return False
-
         try:
             self._run_control.run_control_provider.restart_run()
         except RunControlError as exc:
             self.log(f"[-] {exc}", tag="error")
-            return False
-
-        try:
-            self._run_control.run_control_provider.wait_for_next_run(
-                client=self.client,
-                previous_state=previous_state,
-                previous_stats=previous_stats,
-                warn=lambda message: self.log(f"[WAIT] {message}", tag="warning"),
-                abort_condition=self._scan_abort_requested,
-            )
-        except InterruptedError:
             return False
 
         self.log_reroll_stats()
@@ -580,7 +558,6 @@ class Scanner:
         wait_state = None
         last_state = None
         last_stats = None
-        last_reroll_time = time.monotonic()
         is_first_scan = True
 
         while not self.stop_event.is_set():
@@ -681,24 +658,13 @@ class Scanner:
                 if not self._run_control.wait_for_game_window_focus(process_name):
                     continue
 
-                elapsed = time.monotonic() - last_reroll_time
-                while elapsed < config.MIN_DELAY:
-                    if self._scan_abort_requested():
-                        break
-                    time.sleep(0.05)
-                    elapsed = time.monotonic() - last_reroll_time
-
-                if self._scan_abort_requested():
-                    continue
-
-                if self.reroll_map():
-                    last_reroll_time = time.monotonic()
+                self.reroll_map()
 
             except TimeoutError:
                 self.log("[-] Map took too long to load.", tag="warning")
                 self.log("[*] Restarting run to recover...", tag="warning")
-                if self._run_control.wait_for_game_window_focus(process_name) and self.reroll_map():
-                    last_reroll_time = time.monotonic()
+                if self._run_control.wait_for_game_window_focus(process_name):
+                    self.reroll_map()
                 last_state = None
                 last_stats = None
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
