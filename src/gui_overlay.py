@@ -389,6 +389,10 @@ class Overlay:
 
         self.overlay_preview = CanvasPreview()
         card.body.addWidget(self.overlay_preview)
+        self.overlay_preview_legend = QLabel("")
+        self.overlay_preview_legend.setObjectName("previewLegend")
+        self.overlay_preview_legend.setTextFormat(Qt.RichText)
+        card.body.addWidget(self.overlay_preview_legend)
         column.addWidget(card)
 
         # Its own slow poll, because nothing else ticks when the scanner is off:
@@ -444,10 +448,17 @@ class Overlay:
                     y=int(widget.get("y") or 0),
                     width=int(widget.get("width") or 0),
                     height=int(widget.get("height") or 0),
+                    # A block on a 1920 canvas in a 360px column is around
+                    # twenty pixels wide; a number is what fits, and the legend
+                    # below carries the names.
+                    marker=str(index),
                 )
-                for widget in placed
+                for index, widget in enumerate(placed, start=1)
             )
 
+        legend = getattr(self, "overlay_preview_legend", None)
+        if legend is not None:
+            legend.setText(preview.legend_html())
         self._refresh_overlay_preview_badge()
 
     def _refresh_overlay_preview_badge(self) -> None:

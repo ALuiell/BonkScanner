@@ -21,10 +21,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QRect, Qt
+from PySide6.QtCore import QEvent, QRect, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QSizePolicy, QToolTip, QWidget
 
+LEGEND_COLUMNS = 2
 GRID_STEP = 28
 MIN_BLOCK_WIDTH = 14
 MIN_BLOCK_HEIGHT = 8
@@ -47,6 +48,12 @@ class PreviewWidget:
     `width` and `height` are in canvas units, like `x` and `y`. Zero means "not
     known" and takes the default above -- never a size derived from the label,
     which does not scale with the canvas.
+
+    `marker` is what actually gets painted in the block. A true-size block on a
+    2560-wide canvas in a 360px column is around twenty pixels across, so a name
+    in it is either elided to "St..." or not drawn at all -- which is what the
+    first version looked like. The name goes to the legend and the tooltip
+    instead, and the block carries a number.
     """
 
     label: str
@@ -54,6 +61,7 @@ class PreviewWidget:
     y: int
     width: int = 0
     height: int = 0
+    marker: str = ""
 
 
 class CanvasPreview(QWidget):
@@ -107,6 +115,56 @@ class CanvasPreview(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.setFixedHeight(self.heightForWidth(self.width()))
+
+    # -- identifying a block --------------------------------------------------
+
+    def legend_html(self) -> str:
+        """The numbered names, as a two-column table for a `QLabel`.
+
+        The numbers are all the blocks can carry, so the mapping has to live
+        somewhere; putting it right under the canvas keeps it in one glance
+        rather than behind a hover.
+        """
+        if self._placeholder or not self._widgets:
+            return ""
+        cells = [
+            "<td style='color:#38BDF8; padding-right:4px'>{marker}</td>"
+            "<td style='color:#8A94A3; padding-right:12px'>{label}</td>".format(
+                marker=widget.marker or "•", label=widget.label
+            )
+            for widget in self._widgets
+        ]
+        rows = [
+            "<tr>" + "".join(cells[index:index + LEGEND_COLUMNS]) + "</tr>"
+            for index in range(0, len(cells), LEGEND_COLUMNS)
+        ]
+        return "<table cellspacing='0' cellpadding='0'>" + "".join(rows) + "</table>"
+
+    def widget_at(self, point) -> PreviewWidget | None:
+        """The block under `point`, latest first so the top one wins."""
+        for widget, block in reversed(list(zip(self._widgets, self.block_rects()))):
+            if block.contains(point):
+                return widget
+        return None
+
+    def event(self, event):
+        """Name the block under the cursor.
+
+        The blocks are far too small to hold a name at this scale, so hovering
+        is how you check one without counting down the legend.
+        """
+        if event.type() == QEvent.ToolTip:
+            widget = self.widget_at(event.pos())
+            if widget is None:
+                QToolTip.hideText()
+            else:
+                QToolTip.showText(
+                    event.globalPos(),
+                    f"{widget.label} — {widget.x}, {widget.y}",
+                    self,
+                )
+            return True
+        return super().event(event)
 
     # -- placement ------------------------------------------------------------
 
@@ -177,15 +235,19 @@ class CanvasPreview(QWidget):
         painter.setClipRect(frame)
 
         for widget, block in zip(self._widgets, self.block_rects()):
-            painter.fillRect(block, QColor(11, 15, 20, 217))
-            painter.setPen(QPen(QColor("#2A3542"), 1))
+            painter.fillRect(block, QColor(47, 111, 176, 150))
+            painter.setPen(QPen(QColor("#3E82C6"), 1))
             painter.drawRect(block)
+
+            marker = widget.marker or widget.label[:1]
             painter.setPen(QColor("#EDF1F5"))
-            painter.drawText(
-                block.adjusted(3, 0, -3, 0),
-                Qt.AlignVCenter | Qt.AlignLeft,
-                metrics.elidedText(widget.label, Qt.ElideRight, block.width() - 6),
-            )
+            if metrics.horizontalAdvance(marker) + 4 <= block.width():
+                painter.drawText(block, Qt.AlignCenter, marker)
+            else:
+                # Too small even for a digit. The block still says *where*, and
+                # the legend and the tooltip still say what -- better than an
+                # elided glyph that reads as a rendering fault.
+                pass
 
         painter.setClipping(False)
         painter.setPen(QColor("#5C6675"))

@@ -137,6 +137,49 @@ class CanvasPreviewTests(unittest.TestCase):
             """
         )
 
+    def test_the_legend_names_every_block_by_its_marker(self) -> None:
+        """The names have to live somewhere the blocks cannot carry them.
+
+        A true-size block on a 2560 canvas in a 360px column is around twenty
+        pixels across; the first version drew names in them and they came out as
+        "St..." or nothing at all.
+        """
+        self._run(
+            """
+            widget = preview()
+            widget.set_widgets([
+                PreviewWidget(label="Scanner status", x=10, y=10, marker="1"),
+                PreviewWidget(label="Luck rarity %", x=900, y=600, marker="2"),
+            ])
+            legend = widget.legend_html()
+            for expected in ("Scanner status", "Luck rarity %", ">1<", ">2<"):
+                assert expected in legend, (expected, legend)
+
+            widget.set_placeholder("Widgets are auto-arranged.")
+            assert widget.legend_html() == ""
+            """
+        )
+
+    def test_hovering_a_block_identifies_it(self) -> None:
+        """The other half: a name without counting down the legend."""
+        self._run(
+            """
+            widget = preview()
+            widget.set_widgets([
+                PreviewWidget(label="Scanner status", x=0, y=0, marker="1"),
+                PreviewWidget(label="Stats", x=1400, y=800, marker="2"),
+            ])
+            first, second = widget.block_rects()
+
+            assert widget.widget_at(first.center()).label == "Scanner status"
+            assert widget.widget_at(second.center()).label == "Stats"
+            # Empty canvas names nothing rather than guessing the nearest.
+            gap = second.topLeft()
+            gap.setX(second.left() - 40)
+            assert widget.widget_at(gap) is None
+            """
+        )
+
     def test_a_placeholder_draws_no_blocks_at_all(self) -> None:
         """The flow-layout case: no coordinates exist, so none are invented."""
         self._run(

@@ -419,6 +419,10 @@ def _build_igo_preview_card(parent_mixin: Any, column) -> None:
 
     parent_mixin.igo_preview = CanvasPreview()
     card.body.addWidget(parent_mixin.igo_preview)
+    parent_mixin.igo_preview_legend = QLabel("")
+    parent_mixin.igo_preview_legend.setObjectName("previewLegend")
+    parent_mixin.igo_preview_legend.setTextFormat(Qt.RichText)
+    card.body.addWidget(parent_mixin.igo_preview_legend)
     column.addWidget(card)
 
     # Its own slow poll, for the same reason the OBS preview has one: whether
@@ -554,9 +558,15 @@ def refresh_in_game_overlay_preview(parent_mixin: Any) -> None:
                 y=int(widget_cfg.get("y", 0) or 0),
                 width=int(live_widget.width()) if live_widget is not None else 0,
                 height=int(live_widget.height()) if live_widget is not None else 0,
+                # Numbered in grid order, so the legend below reads in the same
+                # order as the tiles in card 2.
+                marker=str(len(blocks) + 1),
             )
         )
     preview.set_widgets(blocks)
+    legend = getattr(parent_mixin, "igo_preview_legend", None)
+    if legend is not None:
+        legend.setText(preview.legend_html())
 
 
 def update_in_game_overlay_status_ui(parent_mixin: Any) -> None:
