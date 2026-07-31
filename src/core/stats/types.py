@@ -12,6 +12,7 @@ from enum import Enum
 from math import isfinite, pi, sqrt
 from typing import Protocol
 
+from core.stage_rules import XP_GAIN_CAP
 from core.stats.formats import (
     CRIT_DAMAGE_BASE_MULTIPLIER,
     PlayerStatFormat,
@@ -266,17 +267,19 @@ POWERUP_MULTIPLIER_CACHE_TTL_SECONDS = 5.0
 XP_GAIN_LABEL = "XP Gain"
 
 
-# 10x is where the *game* stops counting XP Gain -- past it the extra
-# multiplier does nothing -- so Twitch !stats and the OBS Stats widget show
-# "10x" rather than the raw number, matching the in-game overlay
-# (projections/in_game_html.py's `_XP_GAIN_CAP`).
+# The cap itself is `core.stage_rules.XP_GAIN_CAP`, imported above rather than
+# restated here: it is the number the *game* fixes -- past 10x the extra
+# multiplier does nothing -- and stage_rules exists precisely so a game
+# constant does not acquire a second home and drift silently, each copy still
+# working on its own. Three consumers now read the one value: the in-game
+# overlay, the Recordings scrubber's cap staircase, and `capped_display_value`
+# below for Twitch !stats and the OBS Stats widget.
 #
-# It applies to XP Gain alone. It was once keyed on `PlayerStatFormat.
-# MULTIPLIER`, which silently clamped the other twelve multiplier stats --
+# It applies to XP Gain alone. The clamp was once keyed on `PlayerStatFormat.
+# MULTIPLIER`, which silently caught the other twelve multiplier stats --
 # Damage, Crit Damage, Movement Speed and the rest -- whose growth is real and
-# uncapped, so a 25x Damage run was reported to viewers as 10x. Keep this
-# keyed on the label: the format is a display shape, not a game rule.
-XP_GAIN_DISPLAY_CAP = 10.0
+# uncapped, so a 25x Damage run was reported to viewers as 10x. Keep it keyed
+# on the label: the format is a display shape, not a game rule.
 
 
 @dataclass(frozen=True)
@@ -296,8 +299,8 @@ class PlayerStatValue:
         value = self.value
         if value is not None and isfinite(value):
             value *= self.spec.display_scale
-            if self.spec.label == XP_GAIN_LABEL and value >= XP_GAIN_DISPLAY_CAP:
-                return f"{int(XP_GAIN_DISPLAY_CAP)}x"
+            if self.spec.label == XP_GAIN_LABEL and value >= XP_GAIN_CAP:
+                return f"{int(XP_GAIN_CAP)}x"
         return format_player_stat_value(value, self.spec.value_format)
 
 

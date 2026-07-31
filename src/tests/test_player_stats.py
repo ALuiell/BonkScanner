@@ -5,6 +5,8 @@ import src
 import unittest
 from unittest.mock import patch
 
+from core import stage_rules
+from core.stats import types as types_module
 from infra.memory.reader import MemoryReadError
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.formatters import format_chaos_tome_stat_delta, format_player_stat_value, format_weapon_stat_value
@@ -1952,6 +1954,17 @@ class CappedDisplayValueTests(unittest.TestCase):
     def test_xp_gain_is_clamped_at_the_cap(self) -> None:
         self.assertEqual(self._stat("XP Gain", 25.0).capped_display_value, "10x")
         self.assertEqual(self._stat("XP Gain", 10.0).capped_display_value, "10x")
+
+    def test_the_cap_is_the_one_in_stage_rules(self) -> None:
+        """No second home for the number.
+
+        `is`, not `==`: two separate `10.0` literals compare equal and would
+        keep this green right up until one of them moved, which is the drift
+        stage_rules exists to prevent. Identity holds because `from ... import`
+        binds the same object, and fails the moment the value is restated here.
+        """
+
+        self.assertIs(types_module.XP_GAIN_CAP, stage_rules.XP_GAIN_CAP)
 
     def test_xp_gain_below_the_cap_is_untouched(self) -> None:
         self.assertEqual(self._stat("XP Gain", 3.5).capped_display_value, "3.5x")

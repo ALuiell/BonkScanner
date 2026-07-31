@@ -10,7 +10,8 @@ Named here once rather than copied: a game constant with two homes is a game
 constant that drifts, and the drift is silent because each copy keeps working
 on its own.
 
-Qt-free and I/O-free, so ``projections/`` and ``ui/`` may both import it.
+Qt-free and I/O-free, so ``projections/``, ``ui/`` and the rest of ``core/``
+may all import it.
 
 Note the two *different* stage-timing values these rules read, which are easy
 to confuse because their names differ by one word:
@@ -48,7 +49,11 @@ DIFFICULTY_CAP_BY_STAGE: dict[int, tuple[float, float]] = {
     2: (4.57, 3.81),
 }
 
-#: Flat, unlike Difficulty's staircase.
+#: Flat, unlike Difficulty's staircase. Read by three consumers, which is what
+#: the note above about second homes is guarding: the in-game overlay's cap
+#: suffix, the Recordings scrubber's cap staircase, and
+#: ``PlayerStatValue.capped_display_value`` for Twitch !stats and the OBS
+#: Stats widget.
 XP_GAIN_CAP = 10.0
 
 
