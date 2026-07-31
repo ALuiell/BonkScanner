@@ -244,32 +244,22 @@ def configured_compare_run_series_slots() -> tuple[tuple[str, ...], ...]:
     return scrubber_model.DEFAULT_SLOTS
 
 
-def _filter_metric_table(
-    table: MetricTable,
-    query: str,
-    *,
-    only_differences: bool,
-) -> MetricTable:
-    def is_difference(delta: str) -> bool:
-        text = str(delta or "").strip()
-        if text in {"", "--"}:
-            return False
-        numeric = text.replace(",", "").replace("%", "")
-        if numeric.endswith("s"):
-            numeric = numeric[:-1]
-        try:
-            return abs(float(numeric)) > 1e-12
-        except ValueError:
-            return True
+def _filter_metric_table(table: MetricTable, query: str) -> MetricTable:
+    """The table narrowed to rows whose label matches ``query``.
 
+    An `Only differences` checkbox used to sit beside the search field and drop
+    every row whose delta parsed as zero. It is gone: two runs that agree
+    exactly on a stat are rare enough that the control spent its life switched
+    off, hiding nothing while costing a slot in the toolbar and a second piece
+    of filter state to keep in sync with the search box.
+    """
     needle = str(query or "").strip().casefold()
     sections = []
     for section in table.sections:
         rows = tuple(
             row
             for row in section.rows
-            if (not needle or needle in row.label.casefold())
-            and (not only_differences or is_difference(row.delta))
+            if not needle or needle in row.label.casefold()
         )
         if rows:
             sections.append(
@@ -440,7 +430,6 @@ class CompareRunsTab:
         self._pending_diff_payload = None
         self._active_diff_page = 0
         self._stats_query = ""
-        self._stats_only_differences = False
 
         # The legacy visibility config is deliberately retained on disk for
         # compatibility, but it no longer controls redesigned full-width tabs.
@@ -519,7 +508,6 @@ class CompareRunsTab:
         self._axis_view = None
         self._hub_view = None
         self._stats_search = None
-        self._stats_only_diff_checkbox = None
         self._stats_table = None
         self._stats_source_table = EMPTY_METRIC_TABLE
         self._run_a_search = None
@@ -1471,19 +1459,11 @@ class CompareRunsTab:
     def _render_filtered_stats(self) -> None:
         if self._stats_table is None:
             return
-        table = _filter_metric_table(
-            self._stats_source_table,
-            self._stats_query,
-            only_differences=self._stats_only_differences,
-        )
+        table = _filter_metric_table(self._stats_source_table, self._stats_query)
         self._stats_table.set_table(table)
 
     def _on_stats_filter_changed(self) -> None:
         self._stats_query = self._stats_search.text() if self._stats_search is not None else ""
-        self._stats_only_differences = bool(
-            self._stats_only_diff_checkbox is not None
-            and self._stats_only_diff_checkbox.isChecked()
-        )
         self._rendered_diff_cards = None
         self._render_filtered_stats()
 
@@ -2193,17 +2173,11 @@ class CompareRunsTab:
         self._stats_search = QLineEdit()
         self._stats_search.setObjectName("CompareRunsStatsSearch")
         self._stats_search.setPlaceholderText("Search stats…")
-        self._stats_only_diff_checkbox = QCheckBox("Only differences")
-        self._stats_only_diff_checkbox.setObjectName("CompareRunsOnlyDifferences")
         choose = QPushButton("Choose stats")
         choose.setObjectName("CompareRunsChooseStats")
         choose.clicked.connect(self.toggle_compare_runs_stats_config)
         self._stats_search.textChanged.connect(lambda _text: self._on_stats_filter_changed())
-        self._stats_only_diff_checkbox.stateChanged.connect(
-            lambda _state: self._on_stats_filter_changed()
-        )
         toolbar.addWidget(self._stats_search, 1)
-        toolbar.addWidget(self._stats_only_diff_checkbox)
         toolbar.addWidget(choose)
         layout.addLayout(toolbar)
         scroll, _content, content_layout = _make_scroll_section()
