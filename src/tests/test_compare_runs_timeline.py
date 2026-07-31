@@ -16,10 +16,13 @@ from PySide6.QtWidgets import (
 )
 
 from projections import scrubber
+from projections.recording_sort import RECORDING_SORT_NEWEST, RECORDING_SORT_SNAPSHOTS
 from projections import formatting
 from projections.metric_table import MetricRow, MetricSection, MetricTable
 from projections.timeline_axis import build_axis_projection
+from ui.compare_overview import CompareRunsAxisView, CompareRunsLuckLootView
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
+from ui.shared import LabeledSwitch
 from ui.tabs.compare_runs.tab import CompareRunsTab
 from ui.tabs.compare_runs.timeline import (
     AXIS_PROGRESS,
@@ -234,8 +237,9 @@ def test_snapshot_comparison_is_an_aligned_a_b_delta_table() -> None:
         "Level",
         "Items",
     ]
-    assert section.rows[1].delta == "-01:20"
-    assert section.rows[-1].delta == "-34"
+    # `A - B`: run A recorded 80 seconds later and holds 34 more items.
+    assert section.rows[1].delta == "+01:20"
+    assert section.rows[-1].delta == "+34"
 
 
 def test_stage_table_keeps_boss_room_as_stage_four() -> None:
@@ -411,7 +415,10 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
     assert not hasattr(compare, "_axis_progress_btn")
     assert compare._timeline.axis_mode == AXIS_TIME
     assert compare._timeline_position_label.property("timelinePosition") is True
-    assert isinstance(compare._snapshot_comparison_table, MetricTableView)
+    # Overview is the axis and the loot block now; the snapshot table it used to
+    # carry said what the plaques and the legend above it already said.
+    assert isinstance(compare._axis_view, CompareRunsAxisView)
+    assert isinstance(compare._luck_loot_view, CompareRunsLuckLootView)
     timeline_card = compare._timeline.parentWidget()
     slot_center_y = compare._series_slot_buttons[0].mapTo(
         timeline_card, QPoint(0, compare._series_slot_buttons[0].height() // 2)
@@ -423,8 +430,13 @@ def test_workspace_exposes_all_full_width_tabs_and_renders_lazily() -> None:
         timeline_card, QPoint(0, compare._compact_timeline_btn.height() // 2)
     ).y()
     timeline_top = compare._timeline.mapTo(timeline_card, QPoint()).y()
-    assert position_center_y < slot_center_y < timeline_top
+    assert slot_center_y < timeline_top
+    # One control row above the track: title, series pickers, the compact
+    # switch and the readout. A second row holding only the word TIMELINE was
+    # height spent on nothing.
+    assert isinstance(compare._compact_timeline_btn, LabeledSwitch)
     assert abs(slot_center_y - compact_center_y) <= 2
+    assert abs(slot_center_y - position_center_y) <= 2
     slot_bottom = compare._series_slot_buttons[0].mapTo(
         timeline_card, QPoint(0, compare._series_slot_buttons[0].height())
     ).y()
@@ -485,7 +497,81 @@ def test_timeline_footer_shows_visible_series_a_b_and_delta() -> None:
     assert item._value_a.text() == "A 10.0"
     assert item._arrow.text() == "→"
     assert item._value_b.text() == "B 20.0"
-    assert item._delta.text() == "Δ +10"
+    # `A - B`, the same direction every card below the timeline uses.
+    assert item._delta.text() == "Δ -10"
+    tabs.close()
+
+
+def test_caps_are_drawn_without_plotting_their_curve() -> None:
+    """The whole point of the checkboxes.
+
+    A cap is a rule of the game, not a reading of the run, so asking to see the
+    Difficulty ceiling must not cost one of the four series slots. It used to:
+    `_paint_caps` iterated the *plotted* keys, so the only way to see a cap was
+    to plot its stat.
+    """
+    app = QApplication.instance() or QApplication([])
+    timeline = CompareRunsTimeline()
+    a = _vod((0.0, 60.0, 120.0), stages=(0, 1, 2))
+    b = _vod((0.0, 70.0, 140.0), stages=(0, 1, 2))
+    # A cap is only drawable where its stat was recorded, so the fixture has to
+    # carry XP Gain for the XP cap to have anywhere to sit.
+    for vod in (a, b):
+        for snapshot in vod.snapshots:
+            snapshot.stats["XP Gain"] = SimpleNamespace(value=3.0, display_value="3")
+
+    timeline.set_runs(a, b, series_keys=(), cap_keys=("Difficulty", "XP Gain"))
+
+    assert timeline._series_keys == (), "no curve was asked for"
+    assert timeline._cap_keys == ("Difficulty", "XP Gain")
+    # What the painter will iterate. Asserting `_cap_keys` alone does not catch
+    # a `_paint_caps` that has gone back to following the plotted series.
+    assert timeline.drawable_cap_keys(timeline._lane_a) == ("Difficulty", "XP Gain")
+    # The cap line needs its stat's scale to know what height to sit at, so the
+    # model has to carry the series even though nothing plots it.
+    assert timeline._shared_scales.get("Difficulty", 0.0) > 0.0
+    assert timeline._lane_a.model.caps("Difficulty")
+    assert timeline._lane_a.model.caps("XP Gain")
+
+    # Switching them off rebuilds: `_cap_keys` is the gate `_paint_caps` reads,
+    # and with nothing plotted and nothing capped there is no scale left to
+    # compute. (The model keeps its cap steps either way -- `build_model`
+    # always derives them, which costs nothing and is not what gates drawing.)
+    timeline.set_cap_keys(())
+    assert timeline._cap_keys == ()
+    assert timeline._shared_scales == {}
+    app.processEvents()
+
+
+def test_the_cap_checkboxes_drive_the_timeline() -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class Library:
+        index = ()
+
+        def ensure_refresh(self):
+            return None
+
+    tabs = QTabWidget()
+    compare = CompareRunsTab(tabview=tabs, vod_library=Library(), is_active=lambda: True)
+    compare.build()
+    compare._vod_a = _vod((0.0, 60.0), stages=(0, 1))
+    compare._vod_b = _vod((0.0, 70.0), stages=(0, 1))
+
+    compare._cap_checkboxes["Difficulty"].setChecked(True)
+    compare._cap_checkboxes["XP Gain"].setChecked(False)
+    compare._refresh_compare_runs_timeline_model()
+    app.processEvents()
+
+    assert compare._timeline._cap_keys == ("Difficulty",)
+
+    compare._cap_checkboxes["XP Gain"].setChecked(True)
+    app.processEvents()
+    assert compare._timeline._cap_keys == ("Difficulty", "XP Gain")
+
+    compare._cap_checkboxes["Difficulty"].setChecked(False)
+    compare._cap_checkboxes["XP Gain"].setChecked(False)
+    app.processEvents()
     tabs.close()
 
 
@@ -493,10 +579,15 @@ def test_recording_chooser_replaces_workspace_and_uses_available_height() -> Non
     app = QApplication.instance() or QApplication([])
 
     class Library:
+        # `created_at` is what the library sorts by and `created_label` is what
+        # the row prints; real `VodMetadata` carries both, so the double does
+        # too. Note the index is deliberately *not* in newest-first order --
+        # the chooser sorts it rather than trusting whatever order it is handed.
         index = (
             SimpleNamespace(
                 path="run-a.json",
                 name="950k",
+                created_at="2026-07-14T20:58:58",
                 created_label="2026-07-14 20:58:58",
                 snapshot_count=713,
                 duration_seconds=9467,
@@ -504,6 +595,7 @@ def test_recording_chooser_replaces_workspace_and_uses_available_height() -> Non
             SimpleNamespace(
                 path="run-b.json",
                 name="Run 2026-07-18 16:33:12",
+                created_at="2026-07-18T16:33:12",
                 created_label="2026-07-18 16:33:12",
                 snapshot_count=141,
                 duration_seconds=1964,
@@ -542,16 +634,38 @@ def test_recording_chooser_replaces_workspace_and_uses_available_height() -> Non
         compare._run_b_list_frame.sizePolicy().verticalPolicy()
         == QSizePolicy.Policy.Expanding
     )
+    # Set the order rather than trusting the saved one: the mode persists to
+    # the shared config, so a test that assumed the default would pass or fail
+    # depending on what the developer running it last clicked in the app.
+    compare._sort_combo.setCurrentIndex(
+        compare._sort_combo.findData(RECORDING_SORT_NEWEST)
+    )
+    app.processEvents()
+
+    # Newest first, so the 07-18 recording leads even though the library
+    # handed the 07-14 one over first.
     first_item = compare._run_a_list_frame.item(0)
     first_row = compare._run_a_list_frame.itemWidget(first_item)
     assert first_row is not None
     assert first_row.objectName() == "RecordingRow"
-    assert first_row.findChild(QLabel, "RecordingRowName").text() == "950k"
+    assert first_row.findChild(QLabel, "RecordingRowName").text() == "Run 2026-07-18 16:33:12"
+
+    second_row = compare._run_a_list_frame.itemWidget(compare._run_a_list_frame.item(1))
+    assert second_row.findChild(QLabel, "RecordingRowName").text() == "950k"
     assert (
-        first_row.findChild(QLabel, "RecordingRowMeta").text()
+        second_row.findChild(QLabel, "RecordingRowMeta").text()
         == "2026-07-14 20:58:58  ·  713 snapshots  ·  02:37:47"
     )
-    assert first_row.findChild(QProgressBar, "RecordingRowBar").value() == 1000
+    assert second_row.findChild(QProgressBar, "RecordingRowBar").value() == 1000
+
+    # Switching the order repaints. The list signature has to carry the mode,
+    # or this is a no-op with nothing to say why.
+    compare._sort_combo.setCurrentIndex(
+        compare._sort_combo.findData(RECORDING_SORT_SNAPSHOTS)
+    )
+    app.processEvents()
+    reordered = compare._run_a_list_frame.itemWidget(compare._run_a_list_frame.item(0))
+    assert reordered.findChild(QLabel, "RecordingRowName").text() == "950k"
 
     compare._run_a_change_btn.click()
     app.processEvents()

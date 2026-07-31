@@ -393,10 +393,33 @@ class ItemsSectionView:
 
     # -- commands -------------------------------------------------------------
 
+    @property
+    def sort_combo(self):
+        """The sort control, for a tab that has to mirror it across two panels."""
+        return self._sort_combo
+
+    def expanded(self) -> bool:
+        return bool(self._expanded)
+
     def toggle_expanded(self) -> None:
         if self._always_expanded:
             return
         self._expanded = not self._expanded
+        self._rerender()
+
+    def set_expanded(self, expanded: bool) -> None:
+        """Expand or fold and repaint, unlike `collapse`.
+
+        Compare Runs drives both inventories from one click, so it needs to
+        *set* a state rather than flip each side's own -- two `toggle_expanded`
+        calls on panels that had drifted apart would swap them, not align them.
+        """
+        if self._always_expanded:
+            return
+        expanded = bool(expanded)
+        if expanded == self._expanded:
+            return
+        self._expanded = expanded
         self._rerender()
 
     def collapse(self) -> None:

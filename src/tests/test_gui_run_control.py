@@ -4217,7 +4217,7 @@ class GuiRunControlTests(unittest.TestCase):
         # the projection directly and that is where the seam is now.
         with patch.multiple(
             formatting,
-            format_compare_runs_overview_diff=MagicMock(return_value="overview"),
+            format_compare_runs_overview_compact_diff=MagicMock(return_value="overview"),
             format_compare_runs_stats_diff=MagicMock(return_value="stats"),
             build_compare_runs_items_summary=MagicMock(return_value="items"),
             build_compare_runs_items_table=MagicMock(return_value="items table"),
@@ -4273,12 +4273,13 @@ class GuiRunControlTests(unittest.TestCase):
 
         result = formatting.format_compare_runs_diff(vod_a, snapshot_a, vod_b, snapshot_b)
 
-        self.assertIn("Mode:</span> Run B compared to Run A", result)
-        self.assertIn("Time offset:</span> +00:06", result)
-        self.assertIn("Kill Difference:</span> +500", result)
-        self.assertIn("Level Difference:</span> +2", result)
-        self.assertIn("Item Difference:</span> +1", result)
-        self.assertIn("Damage:</span> 1.25x -> 1.50x (+0.25)", result)
+        self.assertIn("Mode:</span> Run A compared to Run B", result)
+        # Every delta is A - B, so run A being the smaller side reads negative.
+        self.assertIn("Time offset:</span> -00:06", result)
+        self.assertIn("Kill Difference:</span> -500", result)
+        self.assertIn("Level Difference:</span> -2", result)
+        self.assertIn("Item Difference:</span> -1", result)
+        self.assertIn("Damage:</span> 1.25x -> 1.50x (-0.25)", result)
 
     def test_format_compare_runs_diff_uses_selected_stat_labels(self) -> None:
         snapshot_a = SimpleNamespace(
@@ -4343,7 +4344,7 @@ class GuiRunControlTests(unittest.TestCase):
             stat_labels=("Difficulty",),
         )
 
-        self.assertIn("Difficulty:</span> 100% -> 200% (+100%)", result)
+        self.assertIn("Difficulty:</span> 100% -> 200% (-100%)", result)
 
     def test_format_compare_runs_diff_can_include_item_difference_section(self) -> None:
         snapshot_a = SimpleNamespace(
@@ -4374,12 +4375,13 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         self.assertIn(">Items</span>", result)
-        self.assertIn("B has more:</span>", result)
-        self.assertIn("Lightning Orb</span> +2", result)
-        self.assertIn("Beefy Ring</span> +1", result)
+        # The `+` follows run A, the side every delta on this screen is about.
         self.assertIn("A has more:</span>", result)
-        self.assertIn("Giant Fork</span> -1", result)
-        self.assertIn("Key</span> -3", result)
+        self.assertIn("Giant Fork</span> +1", result)
+        self.assertIn("Key</span> +3", result)
+        self.assertIn("B has more:</span>", result)
+        self.assertIn("Lightning Orb</span> -2", result)
+        self.assertIn("Beefy Ring</span> -1", result)
 
     def test_format_compare_runs_diff_can_expand_item_details_by_rarity(self) -> None:
         snapshot_a = SimpleNamespace(
@@ -4416,9 +4418,9 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn(">B</td>", result)
         self.assertIn(">Diff</td>", result)
         self.assertIn("Lightning Orb</span>", result)
-        self.assertIn("+2</span>", result)
+        self.assertIn("-2</span>", result)
         self.assertIn("Key</span>", result)
-        self.assertIn("-3</span>", result)
+        self.assertIn("+3</span>", result)
         self.assertGreaterEqual(result.count("&#9679;"), 3)
 
     def test_format_compare_runs_diff_can_include_weapon_and_tome_sections(self) -> None:
@@ -4478,10 +4480,10 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn(">Diff</td>", result)
         self.assertIn(">10</td>", result)
         self.assertIn(">20</td>", result)
-        self.assertIn(">+10</span>", result)
+        self.assertIn(">-10</span>", result)
         self.assertIn(">Tomes</span>", result)
         self.assertIn("Lv. 1 -> 3", result)
-        self.assertIn(">+0.20x</span>", result)
+        self.assertIn(">-0.20x</span>", result)
 
     def test_configured_compare_run_stat_labels_reads_valid_saved_config(self) -> None:
         original_config = deepcopy(config.user_config)
@@ -4565,10 +4567,10 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("Stage 1", result)
         self.assertIn("01:00", result)
         self.assertIn("01:15", result)
-        self.assertIn("(+00:15)", result)
+        self.assertIn("(-00:15)", result)
         self.assertIn("25", result)
         self.assertIn("40", result)
-        self.assertIn("(+15)", result)
+        self.assertIn("(-15)", result)
         self.assertIn("&rarr;", result)
 
     def test_save_compare_run_stat_selection_persists_checked_labels(self) -> None:

@@ -135,6 +135,7 @@ class CompareRunsTimeline(QWidget):
         self._axis_mode = AXIS_TIME
         self._compact = False
         self._series_keys: tuple[str, ...] = ()
+        self._cap_keys: tuple[str, ...] = ()
         self._shared_scales: dict[str, float] = {}
         self._stage_deltas: dict[int, float | None] = {}
         self._position = 0.0
@@ -184,16 +185,25 @@ class CompareRunsTimeline(QWidget):
         self.updateGeometry()
         self.update()
 
-    def set_runs(self, vod_a, vod_b, *, series_keys=()) -> None:
+    def set_runs(self, vod_a, vod_b, *, series_keys=(), cap_keys=()) -> None:
         keys = tuple(dict.fromkeys(series_keys))
+        caps = tuple(dict.fromkeys(cap_keys))
+        # A cap line still needs its stat's *scale* to know what height to sit
+        # at, and that scale comes from the built series. So the models and the
+        # shared scales cover the caps too, while `_series_keys` -- what gets
+        # a curve drawn -- stays exactly what the slots asked for. Without this
+        # a cap could only be shown by also plotting its curve, which is the
+        # coupling this parameter exists to break.
+        model_keys = tuple(dict.fromkeys(keys + caps))
         snapshots_a = tuple(getattr(vod_a, "snapshots", ()) or ())
         snapshots_b = tuple(getattr(vod_b, "snapshots", ()) or ())
-        model_a = scrubber_model.build_model(snapshots_a, series_keys=keys)
-        model_b = scrubber_model.build_model(snapshots_b, series_keys=keys)
+        model_a = scrubber_model.build_model(snapshots_a, series_keys=model_keys)
+        model_b = scrubber_model.build_model(snapshots_b, series_keys=model_keys)
         self._series_keys = keys
+        self._cap_keys = caps
         self._lane_a = _Lane(snapshots_a, model_a, snapshot_times(snapshots_a), ())
         self._lane_b = _Lane(snapshots_b, model_b, snapshot_times(snapshots_b), ())
-        self._shared_scales = shared_series_scales(model_a, model_b, keys)
+        self._shared_scales = shared_series_scales(model_a, model_b, model_keys)
         self._stage_deltas = stage_start_deltas(
             model_a,
             model_b,
@@ -202,12 +212,22 @@ class CompareRunsTimeline(QWidget):
         )
         self._reproject()
 
+    def set_cap_keys(self, cap_keys) -> None:
+        """Which caps to draw, independent of which curves are plotted."""
+        caps = tuple(dict.fromkeys(cap_keys))
+        if caps == self._cap_keys:
+            return
+        self._rebuild(self._series_keys, caps)
+
     def set_series_keys(self, series_keys) -> None:
         keys = tuple(dict.fromkeys(series_keys))
         if keys == self._series_keys:
             return
-        # Models own the projections, so a slot change is the only non-recording
-        # action that intentionally rebuilds them.
+        self._rebuild(keys, self._cap_keys)
+
+    def _rebuild(self, series_keys, cap_keys) -> None:
+        # Models own the projections, so a slot or cap change is the only
+        # non-recording action that intentionally rebuilds them.
         class _Vod:
             def __init__(self, snapshots):
                 self.snapshots = snapshots
@@ -215,7 +235,8 @@ class CompareRunsTimeline(QWidget):
         self.set_runs(
             _Vod(self._lane_a.snapshots),
             _Vod(self._lane_b.snapshots),
-            series_keys=keys,
+            series_keys=series_keys,
+            cap_keys=cap_keys,
         )
 
     def set_position(self, position: float, *, emit: bool = False) -> None:
@@ -497,6 +518,23 @@ class CompareRunsTimeline(QWidget):
             painter.setBrush(Qt.NoBrush)
             painter.drawPath(path)
 
+    def drawable_cap_keys(self, lane: _Lane) -> tuple[str, ...]:
+        """The caps this lane will actually draw.
+
+        A method rather than an inline loop condition so the rule -- caps come
+        from `_cap_keys`, *not* from the plotted series -- is something a test
+        can read. Asserting on `_cap_keys` alone did not catch a `_paint_caps`
+        that had gone back to iterating `_series_keys`.
+        """
+        keys = []
+        for key in self._cap_keys:
+            series = lane.model.series(key)
+            scale = self._shared_scales.get(key, 1.0)
+            if series is None or not series.available or scale <= 0.0:
+                continue
+            keys.append(key)
+        return tuple(keys)
+
     def _paint_caps(self, painter: QPainter, lane: _Lane, rect: QRectF) -> None:
         plot = rect.adjusted(
             2.0,
@@ -504,11 +542,9 @@ class CompareRunsTimeline(QWidget):
             -2.0,
             -(self._marker_height() + 4.0),
         )
-        for key in self._series_keys:
+        for key in self.drawable_cap_keys(lane):
             series = lane.model.series(key)
             scale = self._shared_scales.get(key, 1.0)
-            if series is None or not series.available or scale <= 0.0:
-                continue
             color = QColor(series.color)
             steps = lane.model.caps(key)
             geometries = build_cap_geometry(

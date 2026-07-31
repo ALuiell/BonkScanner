@@ -71,6 +71,9 @@ import threading
 from infra import vod_storage
 from typing import Callable, Sequence
 
+from app import config
+from projections.recording_sort import normalize_recording_sort_mode
+
 from infra.vod_storage import (
     delete_vod,
     delete_vods_below_snapshot_count,
@@ -89,9 +92,27 @@ __all__ = [
     "load_vod",
     "minimum_snapshot_count",
     "refresh_vod_metadata_index",
+    "recording_sort_mode",
     "rename_vod",
     "set_minimum_snapshot_count",
+    "set_recording_sort_mode",
 ]
+
+
+#: Where the library's sort order is remembered. One key, not two: the
+#: Recordings tab and the Compare Runs chooser show the *same* library, and a
+#: list that sits third in one and seventh in the other is not flexibility.
+RECORDING_SORT_CONFIG_KEY = "RECORDING_SORT_MODE"
+
+
+def recording_sort_mode() -> str:
+    """The saved order, normalised -- an unknown value falls back to newest."""
+    return normalize_recording_sort_mode(config.user_config.get(RECORDING_SORT_CONFIG_KEY))
+
+
+def set_recording_sort_mode(mode: str) -> None:
+    config.user_config[RECORDING_SORT_CONFIG_KEY] = normalize_recording_sort_mode(mode)
+    config.save_config(config.user_config)
 
 
 def set_minimum_snapshot_count(value: int) -> None:

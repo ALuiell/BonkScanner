@@ -32,6 +32,8 @@ def test_difficulty_caps_carry_percent_labels_without_over_cap_geometry() -> Non
     widget = RecordingScrubber()
     widget.resize(500, 150)
     widget.set_slots((("Difficulty",),))
+    # Caps are opt-in now: the ceiling is asked for separately from the curve.
+    widget.set_cap_keys(("Difficulty",))
     widget.set_model(
         ScrubberModel(
             count=4,
@@ -57,6 +59,7 @@ def test_xp_cap_keeps_its_line_without_a_difficulty_percent_caption() -> None:
     widget = RecordingScrubber()
     widget.resize(500, 150)
     widget.set_slots((("XP Gain",),))
+    widget.set_cap_keys(("XP Gain",))
     widget.set_model(
         ScrubberModel(
             count=4,
@@ -130,3 +133,51 @@ def test_playhead_updates_do_not_rebuild_recording_static_layer() -> None:
 
     assert widget.static_rebuilds == rebuilds
     widget.close()
+
+
+def test_a_ceiling_is_drawn_without_plotting_its_curve() -> None:
+    """The point of the checkbox: seeing a cap must not cost a series slot.
+
+    `_build_cap_geometry` used to iterate the *selected* series, so the only
+    way to see the Difficulty ceiling was to spend one of four slots on
+    Difficulty. The two are separate questions and now have separate controls.
+    """
+    QApplication.instance() or QApplication([])
+    widget = RecordingScrubber()
+    widget.resize(500, 150)
+    widget.set_slots(((),))
+    widget.set_cap_keys(("Difficulty",))
+    widget.set_model(
+        ScrubberModel(
+            count=4,
+            _series={"Difficulty": _series("Difficulty", (1.0, 4.0, 6.0, 7.0), scale=7.0)},
+            _caps={"Difficulty": (CapStep(0, 3, 5.71),)},
+        )
+    )
+    widget._ensure_render_cache()
+
+    assert widget.series_keys == (), "no curve was asked for"
+    assert widget.drawable_cap_keys() == ("Difficulty",)
+    assert len(widget._cached_caps) == 1
+
+    # And the model has to carry the series the cap needs a scale from, even
+    # though no slot asked for it.
+    assert widget.model_keys == ("Difficulty",)
+
+
+def test_an_unchecked_ceiling_is_not_drawn_even_when_its_curve_is() -> None:
+    QApplication.instance() or QApplication([])
+    widget = RecordingScrubber()
+    widget.resize(500, 150)
+    widget.set_slots((("Difficulty",),))
+    widget.set_model(
+        ScrubberModel(
+            count=4,
+            _series={"Difficulty": _series("Difficulty", (1.0, 4.0, 6.0, 7.0), scale=7.0)},
+            _caps={"Difficulty": (CapStep(0, 3, 5.71),)},
+        )
+    )
+    widget._ensure_render_cache()
+
+    assert widget.drawable_cap_keys() == ()
+    assert widget._cached_caps == []

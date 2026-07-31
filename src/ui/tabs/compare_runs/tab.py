@@ -63,36 +63,52 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
-from app.vod_library import load_vod
+from app.vod_library import (
+    load_vod,
+    recording_sort_mode,
+    set_recording_sort_mode,
+)
 from core.run_summary import item_counts
 from core.stats.formats import PlayerStatFormat
 from core.stats.formatters import format_player_stat_delta
 from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
+from projections.recording_sort import normalize_recording_sort_mode, sort_recordings
 from projections.timeline_axis import snapshot_times as projected_snapshot_times
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
 from ui.recording_library import RecordingLibraryRow, recording_search_text
 from ui.shared import (
     FullWidthTabWidget,
+    LabeledSwitch,
     _apply_summary_label_padding,
     _make_scroll_section,
     _set_text,
 )
-from ui.styles import ITEM_SORT_LABELS
+from ui.styles import ITEM_SORT_LABELS, RECORDING_SORT_LABELS
 from ui.throttle import UiUpdateThrottle, batched_updates
 from ui.tabs.player_stats.items_section import ItemsSectionView
+from projections import compare_overview
 from projections import formatting
 from projections import scrubber as scrubber_model
+from projections.compare_overview import EMPTY_AXIS_TABLE, EMPTY_LUCK_LOOT
 from projections.formatting import COMPARE_RUN_STAT_LABELS
 from projections.metric_table import EMPTY_METRIC_TABLE, MetricSection, MetricTable
+from ui.compare_overview import (
+    CompareRunsAxisView,
+    CompareRunsHubView,
+    CompareRunsLuckLootView,
+)
 from ui.tabs.compare_runs.timeline import (
     AXIS_TIME,
     CompareRunsTimeline,
 )
 from ui.tabs.compare_runs.timeline_legend import CompareRunsTimelineLegend
 from ui.timeline_controls import (
+    build_timeline_cap_checkboxes,
     build_timeline_series_menu,
+    checked_timeline_caps,
     refresh_timeline_slot_button,
+    save_timeline_caps,
 )
 
 
@@ -152,7 +168,10 @@ def _timeline_series_delta_value(key: str, snapshot_a, snapshot_b) -> str:
     value_b = _timeline_series_numeric_value(key, snapshot_b)
     if value_a is None or value_b is None:
         return "--"
-    delta = value_b - value_a
+    # `A - B`, matching every other delta on this screen. The legend sits above
+    # the tabs, so a legend that subtracted the other way would contradict the
+    # card the user reads next.
+    delta = value_a - value_b
     if key in {scrubber_model.KILLS_SERIES, scrubber_model.ITEMS_SERIES}:
         sign = "+" if delta >= 0 else "-"
         return f"{sign}{formatting.format_count(abs(delta))}"
@@ -494,6 +513,11 @@ class CompareRunsTab:
         self._compact_timeline_btn = None
         self._series_slot_buttons = []
         self._detail_tabs = None
+        self._sort_combo = None
+        self._cap_checkboxes: dict = {}
+        self._luck_loot_view = None
+        self._axis_view = None
+        self._hub_view = None
         self._stats_search = None
         self._stats_only_diff_checkbox = None
         self._stats_table = None
@@ -510,14 +534,9 @@ class CompareRunsTab:
         if list_a is None or list_b is None:
             return
 
-        vods = list(self._library.index)
+        vods = sort_recordings(self._library.index, self._compare_runs_sort_mode())
         selected_a = self._vod_a.metadata.path if self._vod_a is not None else None
         selected_b = self._vod_b.metadata.path if self._vod_b is not None else None
-        signature = (
-            str(selected_a) if selected_a is not None else "",
-            str(selected_b) if selected_b is not None else "",
-            tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
-        )
         available_paths = {vod.path for vod in vods}
         if selected_a is not None and selected_a not in available_paths:
             self._set_compare_run_error("a", "Selected recording is no longer available")
@@ -525,9 +544,13 @@ class CompareRunsTab:
         if selected_b is not None and selected_b not in available_paths:
             self._set_compare_run_error("b", "Selected recording is no longer available")
             selected_b = None
+        # The sort mode belongs in the signature: reordering changes neither
+        # selection nor the set of recordings, so without it the early return
+        # below eats the repaint and the combo box silently does nothing.
         signature = (
             str(selected_a) if selected_a is not None else "",
             str(selected_b) if selected_b is not None else "",
+            self._compare_runs_sort_mode(),
             tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
         )
         self._library.ensure_refresh()
@@ -540,6 +563,18 @@ class CompareRunsTab:
         self._filter_compare_run_list("b")
         self._list_signature = signature
         self._refresh_compare_runs_selected_labels()
+
+    def _compare_runs_sort_mode(self) -> str:
+        """The combo's order, or the saved one before the combo exists."""
+        combo = self._sort_combo
+        if combo is None:
+            return recording_sort_mode()
+        return normalize_recording_sort_mode(combo.currentData())
+
+    def on_compare_runs_sort_changed(self, _index: int = 0) -> None:
+        set_recording_sort_mode(self._compare_runs_sort_mode())
+        self._list_signature = None
+        self.refresh_compare_runs_list()
 
     def invalidate_compare_runs_list(self) -> None:
         """Drop the painted-list signature. `VodLibrary`'s invalidate hook.
@@ -715,7 +750,43 @@ class CompareRunsTab:
         self.refresh_compare_runs_ui()
 
     def toggle_compare_run_items_expanded(self, side: str) -> None:
-        self._compare_run_items_view(side).toggle_expanded()
+        """One click opens both inventories.
+
+        These two panels exist to be read against each other, and a per-side
+        toggle let them drift: A expanded against a folded B is a comparison of
+        26 items with 6. The clicked side still decides the direction, so the
+        button under the cursor does what its own caption says.
+        """
+        clicked = self._compare_run_items_view(side)
+        if clicked is None:
+            return
+        expanded = not clicked.expanded()
+        for run_side in ("a", "b"):
+            view = self._compare_run_items_view(run_side)
+            if view is not None:
+                view.set_expanded(expanded)
+
+    def on_compare_run_items_sort_changed(self, side: str) -> None:
+        """Sorting one inventory sorts the other, for the same reason.
+
+        Two lists in different orders cannot be compared by eye at all. The
+        mirrored combo emits `currentIndexChanged` and re-enters here, which the
+        equality check below stops -- the second pass finds nothing to change.
+        """
+        source = self._compare_run_items_view(side)
+        if source is None or source.sort_combo is None:
+            return
+        mode = source.sort_combo.currentData()
+        for run_side in ("a", "b"):
+            view = self._compare_run_items_view(run_side)
+            if view is None:
+                continue
+            combo = view.sort_combo
+            if combo is not None and combo.currentData() != mode:
+                index = combo.findData(mode)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+            view.on_sort_changed()
 
     def _compare_run_items_view(self, side: str):
         """The `ItemsSectionView` for one compare side.
@@ -788,11 +859,26 @@ class CompareRunsTab:
         if self._timeline is None:
             return
         keys = tuple(key for slot in self._series_slots for key in slot)
-        self._timeline.set_runs(self._vod_a, self._vod_b, series_keys=keys)
+        self._timeline.set_runs(
+            self._vod_a,
+            self._vod_b,
+            series_keys=keys,
+            cap_keys=self._enabled_cap_keys(),
+        )
         self._timeline.set_axis_mode(AXIS_TIME)
         self._timeline.set_compact(self._timeline_compact)
         self._refresh_series_slot_buttons()
         self._refresh_compare_timeline_readout()
+
+    def _enabled_cap_keys(self) -> tuple[str, ...]:
+        """Which cap staircases to draw. Deliberately not the plotted series."""
+        return checked_timeline_caps(self._cap_checkboxes)
+
+    def on_compare_run_caps_changed(self) -> None:
+        keys = self._enabled_cap_keys()
+        save_timeline_caps(keys)
+        if self._timeline is not None:
+            self._timeline.set_cap_keys(keys)
 
     def _set_timeline_compact(self, compact: bool) -> None:
         compact = bool(compact)
@@ -1123,6 +1209,29 @@ class CompareRunsTab:
                     if show_chaos
                     else EMPTY_METRIC_TABLE
                 ),
+                compare_overview.build_compare_runs_axis(
+                    snapshot_a,
+                    snapshot_b,
+                    stat_labels=stat_labels,
+                ),
+                compare_overview.build_compare_runs_luck_loot(snapshot_a, snapshot_b),
+            )
+            # The hub facts read the stage and weapon tables that were just
+            # built, so they are appended rather than folded into the tuple
+            # above -- and they are cached with it, because they cost a walk
+            # over both.
+            cached = cached + (
+                compare_overview.build_hub_facts(
+                    snapshot_a,
+                    snapshot_b,
+                    stages_table=cached[6],
+                    weapons_table=cached[7],
+                    enabled={
+                        "items": show_items,
+                        "stage_summary": show_stage_summary,
+                        "weapons": show_weapons,
+                    },
+                ),
             )
             self._store_compare_runs_diff(cache_key, cached)
         else:
@@ -1139,6 +1248,9 @@ class CompareRunsTab:
             weapons_table,
             tomes_table,
             chaos_table,
+            axis_table,
+            luck_loot,
+            hub_facts,
         ) = cached
         card_kwargs = dict(
             stats_text=stats_text,
@@ -1157,6 +1269,9 @@ class CompareRunsTab:
         if self._detail_tabs is not None:
             card_kwargs["stats_table"] = stats_table
             card_kwargs["stages_table"] = stages_table
+            card_kwargs["axis_table"] = axis_table
+            card_kwargs["luck_loot"] = luck_loot
+            card_kwargs["hub_facts"] = hub_facts
         self._set_compare_runs_diff_cards(overview_text, **card_kwargs)
         self._refresh_compare_runs_item_details_button(show_items)
 
@@ -1212,6 +1327,9 @@ class CompareRunsTab:
         weapons_table: MetricTable = EMPTY_METRIC_TABLE,
         tomes_table: MetricTable = EMPTY_METRIC_TABLE,
         chaos_table: MetricTable = EMPTY_METRIC_TABLE,
+        axis_table=EMPTY_AXIS_TABLE,
+        luck_loot=EMPTY_LUCK_LOOT,
+        hub_facts: dict[str, str] | None = None,
         show_items: bool = False,
         show_stage_summary: bool = False,
         show_weapons: bool = False,
@@ -1235,6 +1353,9 @@ class CompareRunsTab:
             weapons_table,
             tomes_table,
             chaos_table,
+            axis_table,
+            luck_loot,
+            tuple(sorted((hub_facts or {}).items())),
             show_items,
             show_stage_summary,
             show_weapons,
@@ -1263,6 +1384,9 @@ class CompareRunsTab:
                 weapons_table,
                 tomes_table,
                 chaos_table,
+                _axis_table,
+                _luck_loot,
+                _hub_facts,
                 show_items,
                 show_stage_summary,
                 show_weapons,
@@ -1304,6 +1428,9 @@ class CompareRunsTab:
             weapons_table,
             tomes_table,
             chaos_table,
+            axis_table,
+            luck_loot,
+            hub_facts,
             _show_items,
             _show_stage_summary,
             _show_weapons,
@@ -1311,7 +1438,15 @@ class CompareRunsTab:
             _show_chaos,
         ) = payload
         if page == 0:
-            _set_text(self._diff_overview_label, overview_text)
+            # A test double can hand this class `_detail_tabs` without ever
+            # running `_build_overview_page`, so the three views are checked
+            # rather than assumed.
+            if self._luck_loot_view is not None:
+                self._luck_loot_view.set_payload(luck_loot)
+            if self._axis_view is not None:
+                self._axis_view.set_table(axis_table)
+            if self._hub_view is not None:
+                self._hub_view.set_facts(dict(hub_facts))
         elif page == 1:
             self._stats_source_table = stats_table
             self._render_filtered_stats()
@@ -1766,8 +1901,22 @@ class CompareRunsTab:
         self._swap_btn = QPushButton("Swap")
         self._swap_btn.setObjectName("CompareRunsSwapButton")
         self._swap_btn.clicked.connect(self.swap_compare_runs)
+        # The direction governs all seven tabs and the timeline legend, so it is
+        # stated once, here, rather than repeated per card -- and it sits on
+        # `Swap`, which is the control that reverses it.
+        self._swap_btn.setToolTip("Swap A and B, reversing every delta")
+        direction = QLabel("Δ = A − B")
+        direction.setObjectName("CompareRunsDeltaDirection")
+        direction.setToolTip(
+            "Every delta compares run A to run B, so a positive number means run A has more"
+        )
+        direction.setAlignment(Qt.AlignCenter)
+        swap_column = QVBoxLayout()
+        swap_column.setSpacing(2)
+        swap_column.addWidget(self._swap_btn, 0, Qt.AlignHCenter)
+        swap_column.addWidget(direction, 0, Qt.AlignHCenter)
         header.addWidget(plaque_a, 1)
-        header.addWidget(self._swap_btn, 0, Qt.AlignVCenter)
+        header.addLayout(swap_column)
         header.addWidget(plaque_b, 1)
         compare_layout.addLayout(header)
 
@@ -1781,10 +1930,14 @@ class CompareRunsTab:
         workspace_layout.setSpacing(10)
         self._build_stats_selector(workspace_layout)
 
-        timeline_card = QFrame()
+        timeline_card = QGroupBox("Timeline")
         timeline_card.setObjectName("CompareRunsTimelineCard")
         timeline_layout = QVBoxLayout(timeline_card)
-        timeline_layout.setContentsMargins(10, 9, 10, 10)
+        # The stylesheet's `QGroupBox` padding already insets the card, so the
+        # layout adds none of its own -- doubling them pushed the track in.
+        timeline_layout.setContentsMargins(0, 0, 0, 0)
+        # The controls have to sit on the track, not float above it -- the
+        # series pickers name the curves directly below them.
         timeline_layout.setSpacing(2)
 
         timeline_series_row = QHBoxLayout()
@@ -1803,30 +1956,42 @@ class CompareRunsTab:
             )
             self._series_slot_buttons.append(button)
             timeline_series_row.addWidget(button)
+
+        # Beside the slots, because they answer the same question -- what is
+        # drawn on the track -- but as checkboxes rather than slots, because a
+        # cap is a reference line the game imposes, not one of the four series
+        # the user is spending slots on. Built by the shared helper so the
+        # Recordings scrubber offers the identical control.
+        self._cap_checkboxes = build_timeline_cap_checkboxes(
+            self.on_compare_run_caps_changed
+        )
+        for checkbox in self._cap_checkboxes.values():
+            timeline_series_row.addWidget(checkbox)
         timeline_series_row.addStretch(1)
 
-        self._compact_timeline_btn = QPushButton("Compact")
+        # A switch, not a push button, and on the title row rather than at the
+        # end of the series slots. It is the same "change how much of this you
+        # see" control as `Expanded` on Live Stats and Recordings, so it uses
+        # the same widget; and it belongs beside the readout it resizes, not in
+        # a row of series pickers it has nothing to do with.
+        self._compact_timeline_btn = LabeledSwitch("Compact")
         self._compact_timeline_btn.setObjectName("CompareRunsCompactTimeline")
         self._compact_timeline_btn.setProperty("timelineCompact", True)
-        self._compact_timeline_btn.setCheckable(True)
         self._compact_timeline_btn.setChecked(self._timeline_compact)
         self._compact_timeline_btn.setToolTip(
             "Collapse the timeline into a compact overview strip"
         )
         self._compact_timeline_btn.toggled.connect(self._set_timeline_compact)
-        timeline_header = QHBoxLayout()
-        timeline_header.setSpacing(6)
-        timeline_title = QLabel("TIMELINE")
-        timeline_title.setObjectName("CompareRunsTimelineTitle")
-        timeline_header.addWidget(timeline_title)
-        timeline_header.addStretch(1)
+        # The name rides the frame, not a row of its own: it is the card's
+        # title, and every other titled card on this tab -- Item differences,
+        # Stage comparison, both inventories -- already puts it there. That
+        # leaves one control row above the track instead of two.
         self._timeline_position_label = QLabel("A -- · B --")
         self._timeline_position_label.setObjectName("CompareRunsTimelinePosition")
         self._timeline_position_label.setProperty("timelinePosition", True)
         self._timeline_position_label.setTextFormat(Qt.RichText)
-        timeline_header.addWidget(self._timeline_position_label)
-        timeline_layout.addLayout(timeline_header)
-        timeline_series_row.addWidget(self._compact_timeline_btn)
+        timeline_series_row.addWidget(self._compact_timeline_btn, 0, Qt.AlignVCenter)
+        timeline_series_row.addWidget(self._timeline_position_label, 0, Qt.AlignVCenter)
         timeline_layout.addLayout(timeline_series_row)
 
         self._timeline = CompareRunsTimeline()
@@ -1834,8 +1999,14 @@ class CompareRunsTab:
         self._timeline.positionChanged.connect(self.on_compare_timeline_position_changed)
         timeline_layout.addWidget(self._timeline)
         self._timeline_legend = CompareRunsTimelineLegend()
-        self._timeline_legend.setVisible(not self._timeline_compact)
+        # Parent first, then show. `setVisible(True)` on a widget that has no
+        # parent yet makes it a top-level window, so building the UI flashed a
+        # stray frame on screen -- which is exactly what
+        # `test_building_the_ui_shows_no_window_of_its_own` catches. It only
+        # reproduced with the compact timeline switched off, because that is
+        # the branch that passes `True`.
         timeline_layout.addWidget(self._timeline_legend)
+        self._timeline_legend.setVisible(not self._timeline_compact)
         workspace_layout.addWidget(timeline_card)
 
         self._detail_tabs = FullWidthTabWidget()
@@ -1925,11 +2096,23 @@ class CompareRunsTab:
                 lambda current, _previous, run_side=side:
                 self._on_compare_run_selection_changed(run_side, current)
             )
-            chooser_layout.addWidget(title, 0, column)
-            chooser_layout.addWidget(search, 1, column)
-            chooser_layout.addWidget(list_frame, 2, column)
+            chooser_layout.addWidget(title, 1, column)
+            chooser_layout.addWidget(search, 2, column)
+            chooser_layout.addWidget(list_frame, 3, column)
             chooser_layout.setColumnStretch(column, 1)
-        chooser_layout.setRowStretch(2, 1)
+        # One combo above both columns, not one per side. These are two views
+        # of the same library, and hunting the same recording in two different
+        # orders is harder than hunting it in one.
+        self._sort_combo = QComboBox()
+        self._sort_combo.setObjectName("CompareRunsSortCombo")
+        for mode, label in RECORDING_SORT_LABELS.items():
+            self._sort_combo.addItem(label, mode)
+        saved_index = self._sort_combo.findData(recording_sort_mode())
+        if saved_index >= 0:
+            self._sort_combo.setCurrentIndex(saved_index)
+        self._sort_combo.currentIndexChanged.connect(self.on_compare_runs_sort_changed)
+        chooser_layout.addWidget(self._sort_combo, 0, 0, 1, 2, Qt.AlignRight)
+        chooser_layout.setRowStretch(3, 1)
         parent_layout.addWidget(self._chooser_group, 1)
 
     def _build_stats_selector(self, parent_layout: QVBoxLayout) -> None:
@@ -1962,40 +2145,44 @@ class CompareRunsTab:
         return page, content, content_layout
 
     def _build_overview_page(self) -> None:
+        """Luck &amp; Loot, then the axis, then three ways out.
+
+        What this replaced was a three-line verdict beside a six-row snapshot
+        table with a fifth of the width left as an empty stretch, and both
+        halves repeated the four numbers the run plaques and the timeline
+        legend had already shown. The axis answers a question none of them
+        did -- *where* the runs diverge -- and it names its leader per row, so
+        the page carries no delta sign of its own.
+        """
         page, _content, layout = self._new_scroll_page()
-        overview_row = QHBoxLayout()
-        overview_row.setContentsMargins(0, 0, 0, 0)
-        overview_row.setSpacing(8)
-        self._diff_overview_group, self._diff_overview_label = self._build_diff_card(
-            "Current verdict", "Select two recordings"
-        )
-        self._diff_overview_group.setObjectName("CompareRunsOverviewCard")
-        self._diff_overview_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        snapshots = QGroupBox("Snapshot comparison")
-        snapshots.setObjectName("CompareRunsOverviewCard")
-        snapshots_layout = QVBoxLayout(snapshots)
-        snapshots_layout.setContentsMargins(8, 9, 8, 8)
+        self._luck_loot_view = CompareRunsLuckLootView()
+        self._axis_view = CompareRunsAxisView()
+        self._hub_view = CompareRunsHubView(("Stages", "Items", "Weapons"))
+        self._hub_view.jumpRequested.connect(self._jump_to_page)
+        layout.addWidget(self._luck_loot_view)
+        layout.addWidget(self._axis_view)
+        layout.addWidget(self._hub_view)
+        layout.addStretch(1)
+
+        # The legacy build path and the headless doubles still write these; the
+        # redesigned page has no widget for either, and `_render_active_diff_page`
+        # only touches them when `_detail_tabs` is absent.
+        self._diff_overview_group = page
+        self._diff_overview_label = None
+        self._snapshot_comparison_table = None
         self._run_a_summary_label = None
         self._run_b_summary_label = None
-        self._snapshot_comparison_table = MetricTableView()
-        self._snapshot_comparison_table.setObjectName("CompareRunsSnapshotTable")
-        self._snapshot_comparison_table.set_table(
-            MetricTable(empty_text="Select two recordings")
-        )
-        snapshots_layout.addWidget(self._snapshot_comparison_table)
-        overview_row.addWidget(self._diff_overview_group, 3)
-        overview_row.addWidget(snapshots, 5)
-        overview_row.addStretch(2)
-        layout.addLayout(overview_row)
-        hint = QLabel(
-            "Stage Summary and build differences stay in their dedicated tabs "
-            "so this page remains readable at narrow widths."
-        )
-        hint.setObjectName("CompareRunsOverviewHint")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-        layout.addStretch(1)
         self._detail_tabs.addTab(page, "Overview")
+
+    def _jump_to_page(self, title: str) -> None:
+        """Hub tiles name their target, so a reordered tab bar cannot mis-jump."""
+        tabs = self._detail_tabs
+        if tabs is None:
+            return
+        for index in range(tabs.count()):
+            if tabs.tabText(index) == title:
+                tabs.setCurrentIndex(index)
+                return
 
     def _build_stats_page(self) -> None:
         page = QWidget()
@@ -2099,7 +2286,9 @@ class CompareRunsTab:
             initial_sort_mode=ITEM_SORT_RARITY_DESC,
         )
         toggle.clicked.connect(lambda _checked=False, run_side=side: self.toggle_compare_run_items_expanded(run_side))
-        sort.currentIndexChanged.connect(lambda _index, item_view=view: item_view.on_sort_changed())
+        sort.currentIndexChanged.connect(
+            lambda _index, run_side=side: self.on_compare_run_items_sort_changed(run_side)
+        )
         layout.addWidget(label)
         actions = QHBoxLayout()
         actions.addWidget(toggle)

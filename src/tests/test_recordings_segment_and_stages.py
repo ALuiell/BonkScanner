@@ -56,6 +56,11 @@ class FakeScrubber:
         self.pin = None
         self.model = SimpleNamespace(count=count, stages=(), series=lambda _key: None)
         self.series_keys = ()
+        self.cap_keys = ()
+        # The model must carry the capped stats too, or a ceiling drawn without
+        # its curve has no scale to sit on. The tab reads this, not
+        # `series_keys`, so the double has to have it.
+        self.model_keys = ()
         self.slots = ()
 
     def setEnabled(self, enabled) -> None:
@@ -72,6 +77,12 @@ class FakeScrubber:
 
     def set_slots(self, slots) -> None:
         self.slots = tuple(slots)
+        self.series_keys = tuple(key for slot in self.slots for key in slot)
+        self.model_keys = tuple(dict.fromkeys(self.series_keys + self.cap_keys))
+
+    def set_cap_keys(self, cap_keys) -> None:
+        self.cap_keys = tuple(cap_keys)
+        self.model_keys = tuple(dict.fromkeys(self.series_keys + self.cap_keys))
 
 
 def _snapshot(elapsed: int, *, stage_index: int, kills: int, items=()):

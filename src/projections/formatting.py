@@ -45,6 +45,21 @@ COMPARE_RUN_STAT_LABELS = (
 )
 
 
+# --------------------------------------------------------------------------
+# Compare Runs reads "A против B".
+#
+# Run A is the recording the user came to look at; run B is what it is being
+# held up against. So every delta on this screen is **A - B**, and a positive
+# number always means "run A has more of this". The columns stay in A, B order,
+# and the header names the direction, because a bare signed number cannot.
+#
+# The direction lives in the helpers below rather than at their call sites:
+# each one takes the pair in (A, B) order and subtracts the second from the
+# first. Flipping it here flips the whole screen at once, which is the point --
+# the previous convention was B - A and it was implicit in fifteen places.
+# --------------------------------------------------------------------------
+
+
 def _snapshot_compare_time(snapshot) -> float | None:
     game_time = getattr(snapshot, "game_time_seconds", None)
     if game_time is not None:
@@ -256,11 +271,11 @@ def format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b) -> s
     rows = [
         f'<span style="color:#98A7BA;">A:</span> {html.escape(vod_a.metadata.name)}',
         f'<span style="color:#98A7BA;">B:</span> {html.escape(vod_b.metadata.name)}',
-        '<span style="color:#98A7BA;">Mode:</span> Run B compared to Run A',
+        '<span style="color:#98A7BA;">Mode:</span> Run A compared to Run B',
     ]
     if time_a is not None and time_b is not None:
         rows.append(
-            f'<span style="color:#98A7BA;">Time offset:</span> {_format_signed_seconds(time_b - time_a)}'
+            f'<span style="color:#98A7BA;">Time offset:</span> {_format_signed_seconds(time_a - time_b)}'
         )
 
     kill_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "mob_kills")
@@ -271,7 +286,7 @@ def format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b) -> s
     if level_delta is not None:
         rows.append(f'<span style="color:#98A7BA;">Level Difference:</span> {_format_signed_count(level_delta)}')
 
-    item_delta = _snapshot_item_total(snapshot_b) - _snapshot_item_total(snapshot_a)
+    item_delta = _snapshot_item_total(snapshot_a) - _snapshot_item_total(snapshot_b)
     rows.append(f'<span style="color:#98A7BA;">Item Difference:</span> {_format_signed_count(item_delta)}')
     return "<br>".join(rows)
 
@@ -293,7 +308,7 @@ def format_compare_runs_overview_compact_diff(vod_a, snapshot_a, vod_b, snapshot
     timing_parts = []
     if time_a is not None and time_b is not None:
         timing_parts.append(
-            f'<span style="color:#98A7BA;">Time</span> {_format_signed_seconds(time_b - time_a)}'
+            f'<span style="color:#98A7BA;">Time</span> {_format_signed_seconds(time_a - time_b)}'
         )
 
     kill_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "mob_kills")
@@ -311,7 +326,7 @@ def format_compare_runs_overview_compact_diff(vod_a, snapshot_a, vod_b, snapshot
             f'<span style="color:#98A7BA;">Level</span> {_format_signed_count(level_delta)}'
         )
 
-    item_delta = _snapshot_item_total(snapshot_b) - _snapshot_item_total(snapshot_a)
+    item_delta = _snapshot_item_total(snapshot_a) - _snapshot_item_total(snapshot_b)
     progress_parts.append(
         f'<span style="color:#98A7BA;">Items</span> {_format_signed_count(item_delta)}'
     )
@@ -347,14 +362,14 @@ def build_compare_runs_snapshot_table(
             "Snapshot",
             f"{index_a + 1}/{len(vod_a.snapshots)}",
             f"{index_b + 1}/{len(vod_b.snapshots)}",
-            _format_signed_count(index_b - index_a),
+            _format_signed_count(index_a - index_b),
         ),
         MetricRow(
             "Record",
             str(getattr(snapshot_a, "time_label", "--") or "--"),
             str(getattr(snapshot_b, "time_label", "--") or "--"),
             (
-                _format_signed_seconds(float(elapsed_b) - float(elapsed_a))
+                _format_signed_seconds(float(elapsed_a) - float(elapsed_b))
                 if elapsed_a is not None and elapsed_b is not None
                 else "--"
             ),
@@ -364,7 +379,7 @@ def build_compare_runs_snapshot_table(
             format_elapsed_time(game_a) if game_a is not None else "--",
             format_elapsed_time(game_b) if game_b is not None else "--",
             (
-                _format_signed_seconds(float(game_b) - float(game_a))
+                _format_signed_seconds(float(game_a) - float(game_b))
                 if game_a is not None and game_b is not None
                 else "--"
             ),
@@ -386,7 +401,7 @@ def build_compare_runs_snapshot_table(
             format_count(_snapshot_item_total(snapshot_a)),
             format_count(_snapshot_item_total(snapshot_b)),
             _format_signed_count(
-                _snapshot_item_total(snapshot_b) - _snapshot_item_total(snapshot_a)
+                _snapshot_item_total(snapshot_a) - _snapshot_item_total(snapshot_b)
             ),
         ),
     )
@@ -434,7 +449,7 @@ def build_compare_runs_stats_table(
             delta = _format_compare_run_stat_delta(stat_a, stat_b)
             if delta and not delta.startswith(("+", "-")):
                 try:
-                    numeric_delta = float(stat_b.value) - float(stat_a.value)
+                    numeric_delta = float(stat_a.value) - float(stat_b.value)
                     delta = f"{numeric_delta:+g}"
                 except (TypeError, ValueError):
                     pass
@@ -569,7 +584,7 @@ def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTab
             display_b = "--" if value_b is None else formatter(value_b)
             delta = "--"
             if value_a is not None and value_b is not None:
-                difference = float(value_b) - float(value_a)
+                difference = float(value_a) - float(value_b)
                 delta = (
                     f"{difference:+.0f}s"
                     if key == "time"
@@ -693,13 +708,13 @@ def _chaos_compare_overview_rows(chaos_a, chaos_b) -> list[tuple[str, str, str, 
             "Tracked Rolls",
             _format_chaos_roll_count(chaos_a),
             _format_chaos_roll_count(chaos_b),
-            _format_signed_count(_chaos_roll_count(chaos_b) - _chaos_roll_count(chaos_a)),
+            _format_signed_count(_chaos_roll_count(chaos_a) - _chaos_roll_count(chaos_b)),
         ),
         (
             "Stats",
             str(_chaos_stat_count(chaos_a)),
             str(_chaos_stat_count(chaos_b)),
-            _format_signed_count(_chaos_stat_count(chaos_b) - _chaos_stat_count(chaos_a)),
+            _format_signed_count(_chaos_stat_count(chaos_a) - _chaos_stat_count(chaos_b)),
         ),
     ]
 
@@ -764,12 +779,12 @@ def _format_compare_stage_summary_metric(value_a: str, value_b: str, *, metric: 
         seconds_a = _parse_stage_summary_time(value_a)
         seconds_b = _parse_stage_summary_time(value_b)
         if seconds_a is not None and seconds_b is not None:
-            delta_text = f" ({_format_signed_seconds(seconds_b - seconds_a)})"
+            delta_text = f" ({_format_signed_seconds(seconds_a - seconds_b)})"
     else:
         count_a = _parse_stage_summary_count(value_a)
         count_b = _parse_stage_summary_count(value_b)
         if count_a is not None and count_b is not None:
-            delta_text = f" ({_format_signed_count(count_b - count_a)})"
+            delta_text = f" ({_format_signed_count(count_a - count_b)})"
     return f"{escaped_a} <span style='color:#98A7BA;'>&rarr;</span> {escaped_b}{html.escape(delta_text)}"
 
 
@@ -824,7 +839,7 @@ def _item_delta_text_rows(more_in_b, more_in_a, *, include_inline: bool) -> list
     per-item table that used to follow it is what cost 70 ms a frame and is now
     built by `build_compare_runs_items_table` instead.
     """
-    rarity_rows = _format_item_delta_rarity_totals(more_in_b, more_in_a)
+    rarity_rows = _format_item_delta_rarity_totals(more_in_a, more_in_b)
     if not more_in_b and not more_in_a:
         return [
             f'<span style="color:#98A7BA;">Rarity:</span> {rarity_rows}',
@@ -832,10 +847,12 @@ def _item_delta_text_rows(more_in_b, more_in_a, *, include_inline: bool) -> list
         ]
     rows = [f'<span style="font-size:14px;"><span style="color:#98A7BA; font-weight:700;">Rarity Delta:</span> {rarity_rows}</span>']
     if include_inline:
-        if more_in_b:
-            rows.append(f'<span style="color:#98A7BA;">B has more:</span> {_format_item_delta_inline(more_in_b, "+", max_items=3)}')
+        # A leads, and carries the `+`: the whole screen reads "A - B", so the
+        # side the deltas are about is the side that is listed first.
         if more_in_a:
-            rows.append(f'<span style="color:#98A7BA;">A has more:</span> {_format_item_delta_inline(more_in_a, "-", max_items=3)}')
+            rows.append(f'<span style="color:#98A7BA;">A has more:</span> {_format_item_delta_inline(more_in_a, "+", max_items=3)}')
+        if more_in_b:
+            rows.append(f'<span style="color:#98A7BA;">B has more:</span> {_format_item_delta_inline(more_in_b, "-", max_items=3)}')
     return rows
 
 
@@ -880,14 +897,15 @@ def build_compare_runs_items_table(snapshot_a, snapshot_b, *, details_expanded: 
     )
 
 
-def _format_item_delta_rarity_totals(more_in_b: dict[str, int], more_in_a: dict[str, int]) -> str:
+def _format_item_delta_rarity_totals(more_in_a: dict[str, int], more_in_b: dict[str, int]) -> str:
+    """Per-rarity `A - B`, so a `+` here means run A holds more of that tier."""
     parts: list[str] = []
     for rarity in ("LEGENDARY", "RARE", "UNCOMMON", "COMMON"):
         total = 0
-        for name, count in more_in_b.items():
+        for name, count in more_in_a.items():
             if _item_rarity_name(name) == rarity:
                 total += int(count)
-        for name, count in more_in_a.items():
+        for name, count in more_in_b.items():
             if _item_rarity_name(name) == rarity:
                 total -= int(count)
         if total == 0:
@@ -946,7 +964,7 @@ def _item_delta_table_rows(counts_a: dict[str, int], counts_b: dict[str, int]) -
     for name in set(counts_a) | set(counts_b):
         count_a = counts_a.get(name, 0)
         count_b = counts_b.get(name, 0)
-        delta = count_b - count_a
+        delta = count_a - count_b
         if delta == 0:
             continue
         rows.append((name, count_a, count_b, delta))
@@ -1131,7 +1149,7 @@ def _format_named_level_deltas(values_a: dict[str, object], values_b: dict[str, 
         if value_b is None:
             rows.append(f'<span style="color:#98A7BA;">{html.escape(name)}:</span> {value_formatter(value_a)} -> --')
             continue
-        level_delta = int(getattr(value_b, level_attr, 0)) - int(getattr(value_a, level_attr, 0))
+        level_delta = int(getattr(value_a, level_attr, 0)) - int(getattr(value_b, level_attr, 0))
         rows.append(
             f'<span style="color:#98A7BA;">{html.escape(name)}:</span> '
             f'{value_formatter(value_a)} -> {value_formatter(value_b)} ({_format_signed_count(level_delta)} lv)'
@@ -1440,7 +1458,7 @@ def _format_display_value_delta(display_a: str, display_b: str) -> str | None:
         value_b = float(text_b.replace(",", ""))
     except ValueError:
         return None
-    delta = value_b - value_a
+    delta = value_a - value_b
     if abs(delta) < 0.00001:
         formatted = "0"
     elif delta.is_integer():
@@ -1460,7 +1478,7 @@ def _level_delta(value_a, value_b) -> str:
     level_b = getattr(value_b, "level", None)
     if level_a is None or level_b is None:
         return "--"
-    return _format_signed_count(int(level_b) - int(level_a))
+    return _format_signed_count(int(level_a) - int(level_b))
 
 
 def _format_weapon_summary(weapon) -> str:
@@ -1486,12 +1504,13 @@ def _format_tome_summary(tome) -> str:
     return f"Lv. {int(level)}{suffix}"
 
 
-def _raw_snapshot_int_delta(base_snapshot, snapshot, attr_name: str) -> int | None:
-    base_value = getattr(base_snapshot, attr_name, None)
-    current_value = getattr(snapshot, attr_name, None)
-    if base_value is None or current_value is None:
+def _raw_snapshot_int_delta(snapshot_a, snapshot_b, attr_name: str) -> int | None:
+    """`A - B` for one integer field, or `None` when either side lacks it."""
+    value_a = getattr(snapshot_a, attr_name, None)
+    value_b = getattr(snapshot_b, attr_name, None)
+    if value_a is None or value_b is None:
         return None
-    return int(current_value) - int(base_value)
+    return int(value_a) - int(value_b)
 
 
 def _format_signed_count(value: int | float) -> str:
@@ -1523,7 +1542,7 @@ def _format_compare_run_stat_delta(stat_a, stat_b) -> str:
     )
     if percent_delta is not None:
         return _format_signed_percent_delta(percent_delta)
-    return _format_signed_stat_delta(float(stat_b.value) - float(stat_a.value))
+    return _format_signed_stat_delta(float(stat_a.value) - float(stat_b.value))
 
 
 def _display_percent_delta(display_a: str, display_b: str) -> float | None:
@@ -1536,7 +1555,7 @@ def _display_percent_delta(display_a: str, display_b: str) -> float | None:
         value_b = float(text_b[:-1].replace(",", ""))
     except ValueError:
         return None
-    return value_b - value_a
+    return value_a - value_b
 
 
 def _format_signed_percent_delta(value: float) -> str:

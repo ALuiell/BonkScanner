@@ -94,6 +94,7 @@ class RecordingScrubber(QWidget):
         self._cached_paths: list[tuple[QPainterPath, QColor]] = []
         self._cached_markers = ()
         self._cached_caps: list[tuple[float, float, float, QColor, str | None]] = []
+        self._cap_keys: tuple[str, ...] = ()
         self._model_token = 0
         self._static_layer: QPixmap | None = None
         self._static_cache_key = None
@@ -158,7 +159,47 @@ class RecordingScrubber(QWidget):
 
     @property
     def series_keys(self) -> tuple[str, ...]:
+        """What gets a curve: exactly what the four slots asked for."""
         return tuple(key for slot in self._slots for key in slot)
+
+    @property
+    def model_keys(self) -> tuple[str, ...]:
+        """What the model must carry: the plotted series *and* the caps.
+
+        A cap line needs its stat's scale to know what height to sit at, and
+        that scale comes from the built series -- so a ceiling shown without
+        its curve still needs the series in the model. This is the seam that
+        lets the two be asked for independently.
+        """
+        return tuple(dict.fromkeys(self.series_keys + self._cap_keys))
+
+    @property
+    def cap_keys(self) -> tuple[str, ...]:
+        return self._cap_keys
+
+    def set_cap_keys(self, cap_keys) -> None:
+        """Which ceilings to draw, independent of which curves are plotted."""
+        keys = tuple(dict.fromkeys(cap_keys))
+        if keys == self._cap_keys:
+            return
+        self._cap_keys = keys
+        self._invalidate_static_layer()
+        self.update()
+
+    def drawable_cap_keys(self) -> tuple[str, ...]:
+        """The ceilings this scrubber will actually paint.
+
+        A method rather than an inline loop condition so the rule -- caps come
+        from `_cap_keys`, *not* from the plotted series -- is something a test
+        can read.
+        """
+        keys = []
+        for key in self._cap_keys:
+            series = self._model.series(key)
+            if not self._model.caps(key) or series is None or not series.available:
+                continue
+            keys.append(key)
+        return tuple(keys)
 
     def index(self) -> int:
         return self._index
@@ -465,11 +506,9 @@ class RecordingScrubber(QWidget):
     ) -> list[tuple[float, float, float, QColor, str | None]]:
         """``(x0, x1, y, colour, label)`` per cap step."""
         result: list[tuple[float, float, float, QColor, str | None]] = []
-        for key in self.series_keys:
+        for key in self.drawable_cap_keys():
             steps = self._model.caps(key)
             series = self._model.series(key)
-            if not steps or series is None or not series.available:
-                continue
             colour = QColor(series.color)
             geometries = build_cap_geometry(
                 steps,

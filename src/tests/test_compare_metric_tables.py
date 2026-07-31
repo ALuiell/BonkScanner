@@ -90,6 +90,78 @@ class DeltaDirectionTests(unittest.TestCase):
         )
 
 
+class CompareDirectionTests(unittest.TestCase):
+    """Every delta on the Compare Runs screen is `A - B`.
+
+    Run A is the recording the user opened; run B is what it is measured
+    against. The convention used to be `B - A` and it was implicit in fifteen
+    separate subtractions, which is exactly how it stayed invisible -- so it is
+    asserted here once per builder rather than left to the cards that happen to
+    exercise it. A builder that reverts to `B - A` fails here first.
+    """
+
+    def test_a_holding_more_reads_positive_everywhere(self) -> None:
+        snapshot_a = SimpleNamespace(
+            mob_kills=1500,
+            player_level=12,
+            items=("Key x4",),
+            elapsed_seconds=130,
+            game_time_seconds=126.0,
+            stats={"Damage": stat("Damage", 1.5, "1.50x")},
+            weapons=(weapon("Sword", 5, {1: stat("Damage", 14.0, "14")}),),
+            tomes=(),
+            chaos_tome=None,
+        )
+        snapshot_b = SimpleNamespace(
+            mob_kills=1000,
+            player_level=10,
+            items=("Key x1",),
+            elapsed_seconds=100,
+            game_time_seconds=120.0,
+            stats={"Damage": stat("Damage", 1.25, "1.25x")},
+            weapons=(weapon("Sword", 3, {1: stat("Damage", 10.0, "10")}),),
+            tomes=(),
+            chaos_tome=None,
+        )
+        vod_a = SimpleNamespace(metadata=SimpleNamespace(name="A"), snapshots=(snapshot_a,))
+        vod_b = SimpleNamespace(metadata=SimpleNamespace(name="B"), snapshots=(snapshot_b,))
+
+        stats = formatting.build_compare_runs_stats_table(
+            snapshot_a, snapshot_b, stat_labels=("Damage",)
+        )
+        weapons = formatting.build_compare_runs_weapons_table(snapshot_a, snapshot_b)
+        items = formatting.build_compare_runs_items_table(
+            snapshot_a, snapshot_b, details_expanded=True
+        )
+        snapshots = formatting.build_compare_runs_snapshot_table(
+            vod_a, 0, snapshot_a, vod_b, 0, snapshot_b
+        )
+        rows = {row.label: row for section in snapshots.sections for row in section.rows}
+
+        self.assertEqual("+0.25", stats.sections[0].rows[0].delta, "stat")
+        self.assertEqual("+2", weapons.sections[0].rows[0].delta, "weapon level")
+        self.assertEqual("+3", items.sections[0].rows[0].delta, "item count")
+        self.assertEqual("+500", rows["Kills"].delta)
+        self.assertEqual("+2", rows["Level"].delta)
+        self.assertEqual("+3", rows["Items"].delta)
+        self.assertEqual("+00:06", rows["In-game"].delta)
+
+    def test_the_timeline_legend_subtracts_the_same_way(self) -> None:
+        """The legend sits above the tabs, so it must not disagree with them."""
+        from ui.tabs.compare_runs.tab import _timeline_series_delta_value
+        from projections import scrubber as scrubber_model
+
+        snapshot_a = SimpleNamespace(mob_kills=1500, stats={})
+        snapshot_b = SimpleNamespace(mob_kills=1000, stats={})
+
+        self.assertEqual(
+            "+500",
+            _timeline_series_delta_value(
+                scrubber_model.KILLS_SERIES, snapshot_a, snapshot_b
+            ),
+        )
+
+
 class MetricTableShapeTests(unittest.TestCase):
     def test_an_empty_table_is_falsey_and_keeps_its_caption(self) -> None:
         table = MetricTable(empty_text="No weapon data")
@@ -138,7 +210,11 @@ class WeaponsTableTests(unittest.TestCase):
         sword = next(section for section in table.sections if section.title == "Sword")
 
         self.assertEqual(["Level", "Area", "Damage"], [row.label for row in sword.rows])
-        self.assertEqual(("3", "5", "+2"), (sword.rows[0].value_a, sword.rows[0].value_b, sword.rows[0].delta))
+        self.assertEqual(
+            ("3", "5", "-2"),
+            (sword.rows[0].value_a, sword.rows[0].value_b, sword.rows[0].delta),
+            "deltas are A - B, so run A being two levels behind reads negative",
+        )
 
     def test_every_row_also_appears_in_the_html_the_formatter_builds(self) -> None:
         snapshot_a, snapshot_b = self._snapshots()
@@ -191,7 +267,7 @@ class TomesTableTests(unittest.TestCase):
         chaos_section = next(section for section in table.sections if section.title == "Chaos")
 
         self.assertEqual(["Level"], [row.label for row in chaos_section.rows])
-        self.assertEqual(("4", "7", "+3"), (
+        self.assertEqual(("4", "7", "-3"), (
             chaos_section.rows[0].value_a,
             chaos_section.rows[0].value_b,
             chaos_section.rows[0].delta,
@@ -240,12 +316,12 @@ class ItemsTableTests(unittest.TestCase):
 
         self.assertEqual(("Name", "A", "B", "Diff"), table.sections[0].headers)
         self.assertEqual({"Key", "Za Warudo", "Magnet"}, set(rows), "unchanged items are omitted")
-        self.assertEqual(("2", "5", "+3"), (rows["Key"].value_a, rows["Key"].value_b, rows["Key"].delta))
-        self.assertEqual(("1", "0", "-1"), (
+        self.assertEqual(("2", "5", "-3"), (rows["Key"].value_a, rows["Key"].value_b, rows["Key"].delta))
+        self.assertEqual(("1", "0", "+1"), (
             rows["Za Warudo"].value_a,
             rows["Za Warudo"].value_b,
             rows["Za Warudo"].delta,
-        ))
+        ), "A holds the only Za Warudo, so its delta is positive")
 
     def test_each_row_carries_the_item_colour_the_html_used(self) -> None:
         table = formatting.build_compare_runs_items_table(*self._snapshots(), details_expanded=True)
@@ -324,12 +400,12 @@ class ChaosTableTests(unittest.TestCase):
         overview = table.sections[0]
 
         self.assertEqual(["Level", "Tracked Rolls", "Stats"], [row.label for row in overview.rows])
-        self.assertEqual(("30", "37", "+7"), (
+        self.assertEqual(("30", "37", "-7"), (
             overview.rows[0].value_a,
             overview.rows[0].value_b,
             overview.rows[0].delta,
         ))
-        self.assertEqual(("4", "9", "+5"), (
+        self.assertEqual(("4", "9", "-5"), (
             overview.rows[1].value_a,
             overview.rows[1].value_b,
             overview.rows[1].delta,

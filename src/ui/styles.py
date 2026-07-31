@@ -12,6 +12,12 @@ from projections.item_sort import (
     ITEM_SORT_RARITY_ASC,
     ITEM_SORT_RARITY_DESC,
 )
+from projections.recording_sort import (
+    RECORDING_SORT_LONGEST,
+    RECORDING_SORT_NEWEST,
+    RECORDING_SORT_OLDEST,
+    RECORDING_SORT_SNAPSHOTS,
+)
 from ui.shared import resource_path
 
 PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#B91C1C"
@@ -23,6 +29,15 @@ ITEM_SORT_LABELS = {
     ITEM_SORT_DEFAULT: "Default item order",
     ITEM_SORT_RARITY_DESC: "Rarity — highest first",
     ITEM_SORT_RARITY_ASC: "Rarity — lowest first",
+}
+#: Shown by both library surfaces, in one dict, for the same reason the sort
+#: itself is one function: the Recordings tab and the Compare Runs chooser must
+#: offer the same orders under the same names.
+RECORDING_SORT_LABELS = {
+    RECORDING_SORT_NEWEST: "Newest first",
+    RECORDING_SORT_OLDEST: "Oldest first",
+    RECORDING_SORT_LONGEST: "Longest first",
+    RECORDING_SORT_SNAPSHOTS: "Most snapshots first",
 }
 
 def _template_checkbox_stylesheet(color_hex: str) -> str:
@@ -1116,7 +1131,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             background: transparent;
             border: none;
         }
-        QFrame#CompareRunsRunPlaque, QFrame#CompareRunsTimelineCard {
+        QFrame#CompareRunsRunPlaque, QGroupBox#CompareRunsTimelineCard {
             background-color: #0B0F14;
             border: 1px solid #1B222B;
             border-radius: 11px;
@@ -1126,6 +1141,15 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         QLabel#CompareRunsRunBadge[side="A"] { color: #38BDF8; font-weight: 800; }
         QLabel#CompareRunsRunBadge[side="B"] { color: #C084FC; font-weight: 800; }
         QLabel#CompareRunsChooserTitle { color: #EDF1F5; font-weight: 800; }
+        QLabel#CompareRunsDeltaDirection {
+            color: #5C6675;
+            font-size: 10.5px;
+            font-weight: 700;
+        }
+        QFrame#CompareRunsOverviewCard {
+            background: transparent;
+            border: none;
+        }
         QPushButton#CompareRunsChangeButton,
         QPushButton#CompareRunsSwapButton,
         QPushButton#CompareRunsChooseStats,
@@ -1137,8 +1161,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             border-radius: 7px;
             padding: 5px 9px;
         }
-        QPushButton[timelineSlot="true"],
-        QPushButton[timelineCompact="true"] {
+        QPushButton[timelineSlot="true"] {
             background-color: #141A22;
             color: #8A94A3;
             border: 1px solid #2A3542;
@@ -1147,15 +1170,9 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             font-size: 11.5px;
             font-weight: 700;
         }
-        QPushButton[timelineSlot="true"]:hover,
-        QPushButton[timelineCompact="true"]:hover {
+        QPushButton[timelineSlot="true"]:hover {
             color: #EDF1F5;
             border-color: #38495E;
-        }
-        QPushButton[timelineCompact="true"]:checked {
-            color: #FFFFFF;
-            background-color: #2F6FB0;
-            border-color: #3E82C6;
         }
         QPushButton[timelineSlot="true"][accentRole="blue"] { border-left: 3px solid #38BDF8; }
         QPushButton[timelineSlot="true"][accentRole="green"] { border-left: 3px solid #4ADE80; }

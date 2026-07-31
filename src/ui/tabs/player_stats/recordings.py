@@ -38,6 +38,7 @@ from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QFormLayout,
     QFrame,
@@ -62,13 +63,16 @@ from app.vod_library import (
     delete_vods_below_snapshot_count,
     load_vod,
     minimum_snapshot_count,
+    recording_sort_mode,
     rename_vod,
     set_minimum_snapshot_count,
+    set_recording_sort_mode,
 )
 from core.run_summary import item_counts
 from core.stat_labels import abbreviate_stat_label
 from core.stats.types import PLAYER_STAT_GROUPS, PLAYER_STAT_SPEC_BY_LABEL
 from projections.item_sort import ITEM_SORT_RARITY_DESC
+from projections.recording_sort import normalize_recording_sort_mode, sort_recordings
 from projections.timeline_axis import AXIS_TIME, build_axis_projection
 from ui.dialogs import CleanupRecordingsDialog, ConfirmDeleteRecordingDialog
 from ui.recording_library import RecordingLibraryRow
@@ -93,7 +97,7 @@ from ui.shared import (
     _set_text,
     _set_text_input,
 )
-from ui.styles import ITEM_SORT_LABELS
+from ui.styles import ITEM_SORT_LABELS, RECORDING_SORT_LABELS
 from ui.throttle import UiUpdateThrottle, batched_updates
 from ui.tabs.player_stats.items_section import (
     BANISHES_CHIPS_MAX_HEIGHT,
@@ -117,7 +121,10 @@ from ui.tabs.player_stats.summary_cards import (
 from projections import formatting, scrubber as scrubber_model
 from ui.timeline_controls import (
     TIMELINE_SERIES_GROUPS,
+    build_timeline_cap_checkboxes,
     build_timeline_series_menu,
+    checked_timeline_caps,
+    save_timeline_caps,
     refresh_timeline_slot_button,
 )
 
@@ -462,6 +469,8 @@ class RecordingsTab:
         self._chooser_group = None
         self._list_frame = None
         self._search_entry = None
+        self._sort_combo = None
+        self._cap_checkboxes: dict = {}
         self._library_summary_label = None
         self._min_snapshots_spin = None
         self._chests_card_values = None
@@ -474,9 +483,16 @@ class RecordingsTab:
         vods = list(self._library.index)
         selected_path = self._loaded_vod.metadata.path if self._loaded_vod is not None else None
         query = _read_text(self._search_entry).strip().casefold() if self._search_entry else ""
+        sort_mode = self._recordings_sort_mode()
+        # The sort mode is part of the signature, not just an input to the
+        # paint below. Changing the order changes neither the selection, the
+        # query nor the set of recordings, so without it here the early return
+        # swallows the repaint and the combo box does nothing at all -- with no
+        # error to say why.
         signature = (
             str(selected_path) if selected_path is not None else "",
             query,
+            sort_mode,
             tuple((str(vod.path), vod.name, vod.snapshot_count, vod.duration_seconds) for vod in vods),
         )
         self._library.ensure_refresh()
@@ -488,7 +504,7 @@ class RecordingsTab:
         # "3 recordings" because a search box has three letters in it.
         self._refresh_library_footer(vods)
 
-        matches = filter_recordings(vods, query)
+        matches = sort_recordings(filter_recordings(vods, query), sort_mode)
         longest_seconds = max((vod.duration_seconds for vod in vods), default=0)
 
         self._list_frame.blockSignals(True)
@@ -545,7 +561,19 @@ class RecordingsTab:
         set_minimum_snapshot_count(int(value))
         self._refresh_library_footer(list(self._library.index))
 
+    def _recordings_sort_mode(self) -> str:
+        """The combo's order, or the saved one before the combo exists."""
+        combo = self._sort_combo
+        if combo is None:
+            return recording_sort_mode()
+        return normalize_recording_sort_mode(combo.currentData())
+
     def on_recordings_search_changed(self, _text: str = "") -> None:
+        self._list_signature = None
+        self.refresh_vods_list()
+
+    def on_recordings_sort_changed(self, _index: int = 0) -> None:
+        set_recording_sort_mode(self._recordings_sort_mode())
         self._list_signature = None
         self.refresh_vods_list()
     def invalidate_vods_list(self) -> None:
@@ -1436,6 +1464,15 @@ class RecordingsTab:
             )
             self._slot_buttons.append(button)
             row.addWidget(button)
+        # Directly after the slots, on the left, because they answer the same
+        # question the slots do -- what is drawn on the track. Same builder and
+        # same position as Compare Runs: both timelines show the same two
+        # ceilings, and a second implementation is how they stop agreeing.
+        self._cap_checkboxes = build_timeline_cap_checkboxes(
+            self.on_recording_caps_changed
+        )
+        for checkbox in self._cap_checkboxes.values():
+            row.addWidget(checkbox)
         row.addStretch(1)
         # The compare anchor lost its two buttons to the pin, and with them the
         # only thing that ever announced the feature existed. A hint that turns
@@ -1497,6 +1534,13 @@ class RecordingsTab:
         if self._loaded_vod is not None and self._loaded_vod.snapshots:
             self._refresh_scrub_readout(self._snapshot_index or 0)
 
+    def on_recording_caps_changed(self) -> None:
+        keys = checked_timeline_caps(self._cap_checkboxes)
+        save_timeline_caps(keys)
+        # A cap key can add a series the model does not carry yet, so this is a
+        # rebuild rather than a repaint.
+        self._rebuild_scrubber_model()
+
     def _refresh_slot_buttons(self) -> None:
         for index, (button, slot) in enumerate(zip(self._slot_buttons, self._slots)):
             refresh_timeline_slot_button(button, index, slot)
@@ -1511,11 +1555,14 @@ class RecordingsTab:
         if self._scrubber is None:
             return
         self._scrubber.set_slots(self._slots)
+        self._scrubber.set_cap_keys(checked_timeline_caps(self._cap_checkboxes))
         snapshots = self._loaded_vod.snapshots if self._loaded_vod is not None else ()
         self._scrubber.set_model(
             scrubber_model.build_model(
                 snapshots,
-                series_keys=self._scrubber.series_keys,
+                # Not `series_keys`: a cap drawn without its curve still needs
+                # that stat's scale, which only the built series carries.
+                series_keys=self._scrubber.model_keys,
             )
         )
         if hasattr(self._scrubber, "set_projection"):
@@ -1999,6 +2046,18 @@ class RecordingsTab:
         self._search_entry.setClearButtonEnabled(True)
         self._search_entry.textChanged.connect(self.on_recordings_search_changed)
         chooser_layout.addWidget(self._search_entry)
+
+        # A captioned combo, not the items panel's icon-only one: which order
+        # the library is in has to be readable without opening the menu.
+        self._sort_combo = QComboBox()
+        self._sort_combo.setObjectName("RecordingsSortCombo")
+        for mode, label in RECORDING_SORT_LABELS.items():
+            self._sort_combo.addItem(label, mode)
+        saved_index = self._sort_combo.findData(recording_sort_mode())
+        if saved_index >= 0:
+            self._sort_combo.setCurrentIndex(saved_index)
+        self._sort_combo.currentIndexChanged.connect(self.on_recordings_sort_changed)
+        chooser_layout.addWidget(self._sort_combo)
 
         self._list_frame = QListWidget()
         self._list_frame.setObjectName("RecordingsList")
