@@ -144,6 +144,96 @@ Remaining work:
 - Handle older recordings explicitly. Even inside a single version-6 file the early snapshots predate some keys — `chests_total`, `expected_key_procs` and `free_chests` are absent from the first few rows of `950k.jsonl` — so the comparison needs a real missing-value path rather than treating absence as zero, which would read as "no chests opened" instead of "not recorded".
 - Keep the `Expected` label distinct from the rarity card's. Here it counts expected **key procs**; in item 5 it counts expected items per tier. The two now appear in the same tab and the same comparison view.
 
+### In-Game Overlay
+
+#### 1. Item Cooldown Display (Bob's Light and other timed items)
+
+Status: `[Open]`
+
+Goal:
+
+- Show the live countdown to the next trigger of cooldown-driven passive items (first target: Bob's Light / `ItemBobLantern`), so the player can time movement and pulls around the next explosion.
+- Ship it in one of three placements, to be decided: a new in-game overlay widget, an extra block inside the existing Powerups widget, or a Live Stats card. The read path below is identical for all three; only the projection and the renderer differ.
+
+##### Verified memory read path
+
+Confirmed live on 2026-07-31 against a running `Megabonk.exe` with `tools/probe_item_cooldown.py`. The probe was repaired in the same session (it had been calling a `PlayerStatsClient` method that no longer exists and walking a stale pointer chain) and is the reference implementation for this feature.
+
+Pointer chain to the item object — all of it already exists in `PlayerStatsClient`, nothing new has to be resolved:
+
+```text
+PlayerStats TypeInfo (module_offset TYPE_INFO_OFFSET)
+  -> class_ptr + CLASS_STATIC_FIELDS_OFFSET
+  -> + STATIC_ROOT_OFFSET -> + OWNER_STATS_OFFSET      = owner_stats
+owner_stats + INVENTORY_CONTAINER_OFFSET (0xA0)
+  -> + PASSIVE_ITEM_DICT_OFFSET (0x50)                 = passive item Dictionary
+     (fallback: owner_stats + PLAYER_INVENTORY_OFFSET 0x28
+        -> + ITEM_INVENTORY_OFFSET 0x20
+        -> + ITEM_INVENTORY_ITEMS_DICT_OFFSET 0x10)
+dict + DICT_ENTRIES_OFFSET (0x18) / DICT_COUNT_OFFSET (0x20)
+  -> entry = entries + DICT_ENTRY_START_OFFSET (0x20) + index * DICT_ENTRY_SIZE (0x18)
+  -> entry + DICT_ENTRY_KEY_OFFSET   (0x08)            = item enum id (ItemBobLantern = 85)
+  -> entry + DICT_ENTRY_VALUE_OFFSET (0x10)            = item object
+```
+
+Use `PlayerStatsClient._resolve_preferred_passive_item_dict(owner_stats)` ([src/infra/memory/player_stats_client.py:533](../../src/infra/memory/player_stats_client.py:533)) rather than re-deriving the chain. The container hangs off `owner_stats` **directly**; going through `PLAYER_INVENTORY_OFFSET` first yields a non-null pointer that then reads a null dictionary, which is exactly how the probe was broken.
+
+Per-item cooldown fields, `ItemBobLantern` (offsets relative to the item object):
+
+| Offset | Type | Field | Status |
+| --- | --- | --- | --- |
+| `0x18` | i32 | `amount` (stack count) | Confirmed — same value as `ITEM_STACK_COUNT_OFFSET` |
+| `0x30` | f32 | `cooldownMin` | From `dump.cs`, not re-verified live |
+| `0x34` | f32 | `cooldownMax` | From `dump.cs`, not re-verified live |
+| `0x38` | f32 | `cooldownReductionPerAmount` | From `dump.cs`, not re-verified live |
+| `0x3C` | f32 | `cooldown` — effective CD in seconds | **Confirmed live** (42.00 s at `amount = 1`) |
+| `0x40` | f32 | `nextExplodeTime` — absolute game-time mark | **Confirmed live** |
+| `0x44` | f32 | `radius` | From `dump.cs`, not re-verified live |
+
+The clock these are measured against is `MyTime.time`, available as `PlayerStatsClient.get_my_time_seconds()` ([src/infra/memory/player_stats_client.py:1246](../../src/infra/memory/player_stats_client.py:1246)), which resolves `_resolve_my_time_static_fields() + MY_TIME_TIME_OFFSET (0x04)`.
+
+##### Measured semantics
+
+- `nextExplodeTime` is **not** a countdown. It is an absolute mark on the same `MyTime.time` axis, so the displayed value is `remaining = nextExplodeTime - my_time`. Observed: `my_time 118.45`, `nextExplodeTime 144.97`, remaining `26.52 s`.
+- Re-arming is exact. Across one trigger the mark moved `102.95 -> 144.97`, a delta of `42.02 s` against a `cooldown` field of `42.00` — the game writes `nextExplodeTime = my_time + cooldown` at the moment of the explosion, so a rising `nextExplodeTime` is itself the trigger event and can drive a "just exploded" pulse in the UI.
+- Pause freezes it. With the game paused, `my_time` held at `96.81` across 17 s of wall-clock and `remaining` stayed at `6.14 s`. Never derive the countdown from a local monotonic clock; every tick must re-read `my_time`. This is the same rule the KPS clock and the Event Timer already follow.
+- `cooldown` stayed at exactly `42.00 s` at `amount = 1` across the whole observation. `cooldownReductionPerAmount` is therefore unexercised in the capture — stack scaling is documented but **not measured**.
+- Stage/phase logic is irrelevant here. Unlike powerup effects, which need `resolve_ui_context` to pick between `stage_timer`, `crypt_timer` and `final_swarm_timer`, an item cooldown lives entirely on `MyTime.time` and needs no phase resolution. Do not route it through `core/tracker/powerups.py`'s UI-context machinery.
+
+##### Implementation notes
+
+Read side:
+
+- Add a `get_item_cooldowns(owner_stats)` to `PlayerStatsClient` returning one record per cooldown-capable item: `item_id`, `name`, `stack_count`, `cooldown_seconds`, `next_trigger_time`, plus the `my_time` the batch was read against. Return `my_time` **from the same pass** — computing `remaining` in the renderer against a separately sampled clock reintroduces skew across the tick.
+- Identify items by class metadata (`item + ITEM_CLASS_META_OFFSET (0x0)` -> `+ CLASS_META_NAME_PTR_OFFSET (0x10)` -> ASCII string), with `ITEM_ENUM_NAMES_BY_ID` as the fallback, matching `_read_passive_item_dictionary`. Do not match on substrings like `"bob"`: the field layout is per-class, so reading `0x3C`/`0x40` off the wrong class returns plausible floats rather than an error.
+- Keep a per-class offset table (`{"ItemBobLantern": CooldownLayout(cooldown=0x3C, next=0x40)}`) rather than a single global constant. Every additional timed item needs its own `dump.cs` entry confirmed before it is added.
+- Reuse the passive-item layout cache. `_read_passive_item_dictionary` already memoises `(stack_address, item_name)` per slot, invalidated on `DICT_VERSION_OFFSET (0x2C)` ([src/infra/memory/player_stats_client.py:739](../../src/infra/memory/player_stats_client.py:739)). Extending that tuple with the cooldown addresses makes the per-tick cost two extra float reads for the one item, instead of a second full dictionary walk. Respect the existing rule: **only a clean walk may be memoised** — memoising an incomplete walk is what previously made items disappear from recorded runs for tens of consecutive snapshots.
+
+Refresh side:
+
+- Ride the existing `powerups` task in `RefreshTasks` ([src/app/refresh_tasks.py:468](../../src/app/refresh_tasks.py:468)), registered at `FAST_TRACKER_INTERVAL_MS` (500 ms default, floor 100 ms) at [src/app/refresh_tasks.py:222](../../src/app/refresh_tasks.py:222). A 500 ms tick against a 42 s cooldown is far more than enough, and the task already resolves `owner_stats` through the shared `RefreshTickContext` pass cache, so no additional pointer walks are paid.
+- If the display ends up in its own widget, give it its own `required` predicate next to `_should_refresh_powerup_tracker` ([src/app/refresh_tasks.py:900](../../src/app/refresh_tasks.py:900)) so the read is skipped when nothing shows it — the established demand-gating pattern, and the reason the fast lane stays affordable.
+- Store the result in run-scoped tracker state with a TTL, as `core/tracker/powerups.py` does (`POWERUPS_SNAPSHOT_TTL_SECONDS = 1.5`). A missed read must degrade to "no reading", never to a stale countdown that keeps ticking. Clear it on run reset alongside the other powerup state.
+
+Render side — the three candidate placements:
+
+- **New in-game overlay widget.** Register the id in the widget tuple at [src/gui_in_game_overlay_window.py:408](../../src/gui_in_game_overlay_window.py:408), add defaults to `IN_GAME_OVERLAY["widgets"]` in [src/app/config.py:115](../../src/app/config.py:115) (`{"enabled": ..., "x": ..., "y": ..., "scale": 1.0}`), add the checkbox/scale controls in `gui_in_game_overlay_settings.py`, add an HTML builder beside `build_powerups_overlay_html` in [src/projections/in_game_html.py:227](../../src/projections/in_game_html.py:227), carry the data on `InGameOverlayProjection` ([src/projections/in_game.py](../../src/projections/in_game.py)) and paint it in the `refresh` body of `gui_in_game_overlay.py` next to the `powerups` block at [src/gui_in_game_overlay.py:350](../../src/gui_in_game_overlay.py:350). Anything not carried on the projection is simply invisible to the widgets — that is documented on the dataclass and has already shipped as a bug once.
+- **Inside the Powerups widget.** Cheapest path: extend `build_powerups_overlay_html` with a second block. Note the widget currently hides itself entirely when no powerup is active (`setVisible(False)` at [src/gui_in_game_overlay.py:360](../../src/gui_in_game_overlay.py:360)); an item cooldown is active for the whole run, so that visibility rule has to change or the cooldown line disappears whenever no buff is up. This is the main argument for a separate widget.
+- **Live Stats card.** Follows the existing card pattern in `src/ui/tabs/player_stats/live_stats.py`; useful for verification but does not serve the in-game use case.
+- Colour treatment should reuse the existing convention in `in_game_html.py`: `CRITICAL_COLOR` under ~5 s remaining, `TEXT_SHADOW` on every span so the text survives a bright background.
+
+##### Validation required before shipping
+
+- Re-verify `0x3C`/`0x40` with `amount >= 2` and confirm whether `cooldown` drops by `cooldownReductionPerAmount` per stack; the current capture only covers `x1`.
+- Confirm behaviour across a stage transition and a Graveyard crypt/boss transition: `MyTime.time` is expected to be continuous there (unlike `stage_timer`), but this has not been captured with a lantern equipped.
+- Confirm what `nextExplodeTime` holds before the first trigger of a freshly picked-up item, and that the item is not present in the dictionary at all before pickup.
+- Confirm the field reads as zero/garbage on a `game over` screen and that the TTL, not a stale float, is what clears the display.
+- Add a characterization test with a fake memory backend covering: normal countdown, the re-arm jump, a paused clock (unchanged `my_time` over several ticks), a torn read, and an item whose class has no cooldown layout.
+
+Reference tool:
+
+- `tools/probe_item_cooldown.py` — prints stack count, effective cooldown, `nextExplodeTime` and remaining seconds every 500 ms, plus the rest of the passive inventory for context. Run it with the game attached; it is read-only.
+
 ### Help & Documentation
 
 #### 1. Contextual Help Buttons With Deep Links

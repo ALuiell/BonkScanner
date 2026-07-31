@@ -790,7 +790,7 @@ QScrollArea#CompareRunsPageScroll > QWidget > QWidget {
     border: none;
 }
 QFrame#CompareRunsRunPlaque,
-QFrame#CompareRunsTimelineCard {
+QGroupBox#CompareRunsTimelineCard {
     background-color: #0B0F14;
     border: 1px solid #1B222B;
     border-radius: 11px;
@@ -985,8 +985,7 @@ QProgressBar#RecordingRowBar::chunk {
     background: #2E3A48;
     border-radius: 2px;
 }
-QPushButton[timelineSlot="true"],
-QPushButton[timelineCompact="true"] {
+QPushButton[timelineSlot="true"] {
     background-color: #141A22;
     color: #8A94A3;
     border: 1px solid #2A3542;
@@ -995,15 +994,9 @@ QPushButton[timelineCompact="true"] {
     font-size: 11.5px;
     font-weight: 700;
 }
-QPushButton[timelineSlot="true"]:hover,
-QPushButton[timelineCompact="true"]:hover {
+QPushButton[timelineSlot="true"]:hover {
     color: #EDF1F5;
     border-color: #38495E;
-}
-QPushButton[timelineCompact="true"]:checked {
-    color: #FFFFFF;
-    background-color: #2F6FB0;
-    border-color: #3E82C6;
 }
 QPushButton[timelineSlot="true"][accentRole="blue"] { border-left: 3px solid #38BDF8; }
 QPushButton[timelineSlot="true"][accentRole="green"] { border-left: 3px solid #4ADE80; }
@@ -1055,12 +1048,6 @@ QLabel#CompareRunsTimelineLegendArrow,
 QLabel#CompareRunsTimelineLegendSeparator {
     color: #3D4756;
     background: transparent;
-}
-QLabel#CompareRunsTimelineTitle {
-    color: #8A94A3;
-    font-size: 10px;
-    font-weight: 800;
-    letter-spacing: 1px;
 }
 QLabel[timelinePosition="true"] {
     color: #EDF1F5;
