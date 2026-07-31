@@ -15,12 +15,20 @@ from core.overlay_config import widget_config_by_id
 from infra import paths
 
 
+# One entry per widget in `config.DEFAULT_OVERLAY["widgets"]`, because the
+# overlay tab offers every one of them as a single-widget browser source and
+# copies the URL for it. `luck_rarity` was missing here for as long as it has
+# existed: picking "Luck" in the widget selector handed the streamer a URL this
+# route rejected with 404, and nothing on the way there could tell -- the page
+# is only fetched by OBS, in another process. `test_every_overlay_widget_has_a_route`
+# ties the two lists together so the next widget cannot repeat it.
 WIDGET_ROUTE_NAMES = {
     "stage_summary",
     "tracked_items",
     "stats",
     "kps",
     "banishes",
+    "luck_rarity",
 }
 
 
