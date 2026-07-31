@@ -7,6 +7,7 @@ import mimetypes
 from pathlib import Path
 import sys
 import threading
+import time
 from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 
@@ -135,10 +136,37 @@ class LocalOverlayServer:
         self._server: _OverlayHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self.last_error: str | None = None
+        # When a client last asked for overlay state. `is_running` answers
+        # "did the server start", which is not the question a streamer has --
+        # theirs is "is the Browser Source in OBS actually pulling this?", and
+        # a source pointed at the wrong port looks identical from in here.
+        # The page polls `/api/overlay-state` every `poll_ms` (500 by default),
+        # so a recent request is that answer. It cannot tell OBS from an
+        # ordinary browser tab, which is why nothing built on this should claim
+        # to.
+        self._last_state_request = 0.0
+        self._request_lock = threading.Lock()
 
     @property
     def is_running(self) -> bool:
         return self._server is not None and self._thread is not None and self._thread.is_alive()
+
+    def note_state_request(self) -> None:
+        with self._request_lock:
+            self._last_state_request = time.monotonic()
+
+    def seconds_since_state_request(self) -> float | None:
+        """How long ago a client last polled, or ``None`` if none ever has.
+
+        `None` and "a long time ago" are different answers -- one means nothing
+        has ever connected, the other means something stopped -- so they are not
+        collapsed into a large number here.
+        """
+        with self._request_lock:
+            last = self._last_state_request
+        if not last:
+            return None
+        return max(0.0, time.monotonic() - last)
 
     @property
     def url(self) -> str:
@@ -156,6 +184,7 @@ class LocalOverlayServer:
             state_provider=self.state_store.get_state,
             widget_revision_provider=self.state_store.get_widget_revision,
             widget_revision_waiter=self.state_store.wait_for_widget_revision,
+            state_request_observer=self.note_state_request,
             asset_dir=self.asset_dir,
             settings=self.settings,
         )
@@ -193,6 +222,7 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
         state_provider: Callable[[], dict[str, Any]],
         widget_revision_provider: Callable[[], int],
         widget_revision_waiter: Callable[[int, float], int],
+        state_request_observer: Callable[[], None] | None = None,
         asset_dir: Path,
         settings: OverlaySettings | None = None,
         **kwargs,
@@ -200,6 +230,7 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
         self._state_provider = state_provider
         self._widget_revision_provider = widget_revision_provider
         self._widget_revision_waiter = widget_revision_waiter
+        self._state_request_observer = state_request_observer
         self._asset_dir = asset_dir
         self._settings = settings or NullOverlaySettings()
         super().__init__(*args, **kwargs)
@@ -322,6 +353,11 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
         return
 
     def _serve_state(self) -> None:
+        # Noted before the state is built, not after: a provider that raises
+        # still means a client reached us, and the liveness question is about
+        # the client, not about whether we had anything good to send it.
+        if self._state_request_observer is not None:
+            self._state_request_observer()
         try:
             state = self._state_provider()
             if isinstance(state, dict):

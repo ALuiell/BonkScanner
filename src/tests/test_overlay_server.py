@@ -194,6 +194,39 @@ class OverlayServerTests(unittest.TestCase):
             finally:
                 server.stop()
 
+    def test_state_requests_are_what_liveness_is_measured_from(self) -> None:
+        """`is_running` cannot answer "is a Browser Source actually pulling?".
+
+        A source pointed at the wrong port, or never added to the scene, leaves
+        a perfectly healthy server -- so the OBS tab's preview badge reads this
+        instead. Fetching the page is deliberately not enough: OBS loads the
+        HTML once and then polls state, so only the state route counts.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asset_dir = Path(temp_dir)
+            (asset_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            server = LocalOverlayServer(port=free_port(), asset_dir=asset_dir)
+            server.start()
+            try:
+                # Never asked: not "a long time ago", which is a different
+                # answer and a different badge.
+                self.assertIsNone(server.seconds_since_state_request())
+
+                with urlopen(f"http://127.0.0.1:{server.port}/overlay", timeout=2):
+                    pass
+                self.assertIsNone(
+                    server.seconds_since_state_request(),
+                    "serving the page counted as a client polling",
+                )
+
+                with urlopen(f"http://127.0.0.1:{server.port}/api/overlay-state", timeout=2):
+                    pass
+                elapsed = server.seconds_since_state_request()
+                self.assertIsNotNone(elapsed)
+                self.assertLess(elapsed, 5.0)
+            finally:
+                server.stop()
+
     def test_server_binds_to_loopback_host(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             asset_dir = Path(temp_dir)

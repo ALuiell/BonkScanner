@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
+from ui.canvas_preview import CanvasPreview, PreviewWidget
 from ui.dialogs.tracked_items import TrackedItemPicker
 from ui.module_tile import ModuleTile
 from ui.run_toggle import OVERLAY_SERVER_CAPTIONS
@@ -43,7 +44,7 @@ from ui.shared import (
     _set_text_input,
 )
 from ui.styles import _set_widget_style_role
-from ui.tab_hero import STATE_DANGER, STATE_OFF, STATE_OK, TabHero
+from ui.tab_hero import STATE_DANGER, STATE_OFF, STATE_OK, STATE_WARN, TabHero
 from projections.tracked_items import (
     available_tracked_item_names,
     dedupe_item_names,
@@ -198,6 +199,7 @@ class Overlay:
         self._build_behaviour_card(main_column)
         main_column.addStretch(1)
 
+        self._build_preview_card(side_column)
         self._build_tip_card(side_column)
         side_column.addStretch(1)
 
@@ -207,6 +209,7 @@ class Overlay:
         self.refresh_overlay_item_selector()
         self.refresh_overlay_tracked_items_ui()
         self.refresh_overlay_ui()
+        self._refresh_overlay_preview()
         return self.tab_overlay
 
     def _build_hero(self) -> TabHero:
@@ -360,6 +363,125 @@ class Overlay:
         card.body.addWidget(self.overlay_scanner_reminder_cb)
 
         column.addWidget(card)
+
+    #: How stale a client poll may be before the preview stops calling itself
+    #: live. The page polls every `poll_ms` (500 by default), so this is five
+    #: missed polls -- long enough not to flicker on a slow frame, short enough
+    #: that closing OBS shows up while you are still looking at the tab.
+    PREVIEW_LIVE_WINDOW_SECONDS = 2.5
+
+    def _build_preview_card(self, column: QVBoxLayout) -> None:
+        self.overlay_preview_badge = QLabel("NO SOURCE")
+        self.overlay_preview_badge.setObjectName("heroBadge")
+        self.overlay_preview_badge.setProperty("state", STATE_OFF)
+        card = SettingsCard(
+            number=None,
+            title="Canvas preview",
+            subtitle="Read-only — edit in the layout editor.",
+            action=None,
+        )
+        card.setMaximumWidth(360)
+        # The badge is a header ornament rather than an action, so it goes in
+        # the header row by hand instead of through `action`.
+        card.findChild(QFrame, "settingsCardHead").layout().addWidget(
+            self.overlay_preview_badge, 0, Qt.AlignVCenter
+        )
+
+        self.overlay_preview = CanvasPreview()
+        card.body.addWidget(self.overlay_preview)
+        column.addWidget(card)
+
+        # Its own slow poll, because nothing else ticks when the scanner is off:
+        # `update_overlay_state_from_tracker` only runs while there is tracker
+        # activity, and "OBS was closed" has to become visible without any.
+        self.overlay_preview_timer = QTimer(self.tab_overlay)
+        self.overlay_preview_timer.setInterval(1000)
+        self.overlay_preview_timer.timeout.connect(self._refresh_overlay_preview)
+        self.overlay_preview_timer.start()
+
+    def _refresh_overlay_preview(self) -> None:
+        preview = getattr(self, "overlay_preview", None)
+        if preview is None:
+            return
+        # Only while the tab is on screen: this repaints, and a background tab
+        # repainting once a second for nobody is the cost the guard avoids.
+        if not self._is_overlay_tab_active():
+            return
+
+        overlay_config = self._effective_overlay_config()
+        preview.set_canvas(
+            int(overlay_config.get("canvas_width", 1920) or 1920),
+            int(overlay_config.get("canvas_height", 1080) or 1080),
+        )
+
+        enabled = [
+            widget
+            for widget in overlay_config.get("widgets", [])
+            if isinstance(widget, dict) and widget.get("enabled")
+        ]
+        placed = [
+            widget
+            for widget in enabled
+            if widget.get("x") is not None and widget.get("y") is not None
+        ]
+        if enabled and not placed:
+            # The page's own rule: absolute positioning turns on only when at
+            # least one widget carries coordinates, otherwise the browser flows
+            # them by `order` through CSS this cannot reproduce. Saying so beats
+            # drawing an empty canvas that looks like a lost layout.
+            preview.set_placeholder(
+                "Widgets are auto-arranged.\nOpen the layout editor to place them."
+            )
+            preview.set_widgets(())
+        else:
+            preview.set_placeholder("")
+            preview.set_widgets(
+                PreviewWidget(
+                    label=OVERLAY_WIDGET_LABELS.get(
+                        str(widget.get("id") or ""), str(widget.get("id") or "")
+                    ),
+                    x=int(widget.get("x") or 0),
+                    y=int(widget.get("y") or 0),
+                    width=int(widget.get("width") or 0),
+                    height=int(widget.get("height") or 0),
+                )
+                for widget in placed
+            )
+
+        self._refresh_overlay_preview_badge()
+
+    def _refresh_overlay_preview_badge(self) -> None:
+        badge = getattr(self, "overlay_preview_badge", None)
+        if badge is None:
+            return
+        server = getattr(self, "overlay_server", None)
+        elapsed = None
+        if server is not None:
+            reader = getattr(server, "seconds_since_state_request", None)
+            if callable(reader):
+                elapsed = reader()
+
+        if not (server is not None and server.is_running):
+            caption, state = "SERVER OFF", STATE_OFF
+        elif elapsed is None:
+            # Never polled since this server started: the source has not been
+            # added, or points somewhere else. Not an error -- just not live.
+            caption, state = "NO SOURCE", STATE_WARN
+        elif elapsed <= self.PREVIEW_LIVE_WINDOW_SECONDS:
+            # "A browser source", not "OBS": the server cannot tell OBS from an
+            # ordinary tab, so the badge does not claim to either.
+            caption, state = "SOURCE LIVE", STATE_OK
+        else:
+            caption, state = "SOURCE IDLE", STATE_WARN
+
+        badge.setText(caption)
+        if badge.property("state") != state:
+            badge.setProperty("state", state)
+            style = badge.style()
+            if style is not None:
+                style.unpolish(badge)
+                style.polish(badge)
+            badge.update()
 
     def _build_tip_card(self, column: QVBoxLayout) -> None:
         tip = QFrame()
