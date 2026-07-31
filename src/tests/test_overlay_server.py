@@ -10,7 +10,13 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
-from infra.overlay_server import LocalOverlayServer, _default_overlay_asset_dir, OverlayStateStore
+from app import config
+from infra.overlay_server import (
+    LocalOverlayServer,
+    OverlayStateStore,
+    WIDGET_ROUTE_NAMES,
+    _default_overlay_asset_dir,
+)
 
 
 def free_port() -> int:
@@ -157,6 +163,18 @@ class OverlayServerTests(unittest.TestCase):
             finally:
                 server.stop()
 
+    def test_every_overlay_widget_has_a_route(self) -> None:
+        """The widget selector offers every configured widget as a source.
+
+        It builds itself from the widget list, so a widget that exists in the
+        config but not in `WIDGET_ROUTE_NAMES` is offered, copied, pasted into
+        OBS and answered with 404 -- which is what `luck_rarity` did. Comparing
+        the two lists is the only check that fails *before* the URL leaves the
+        app.
+        """
+        configured = {widget["id"] for widget in config.DEFAULT_OVERLAY["widgets"]}
+        self.assertEqual(configured, WIDGET_ROUTE_NAMES)
+
     def test_widget_overlay_route_serves_overlay_page(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             asset_dir = Path(temp_dir)
@@ -164,9 +182,15 @@ class OverlayServerTests(unittest.TestCase):
             server = LocalOverlayServer(port=free_port(), asset_dir=asset_dir)
             server.start()
             try:
-                with urlopen(f"http://127.0.0.1:{server.port}/overlay/kps", timeout=2) as response:
-                    self.assertEqual(response.status, 200)
-                    self.assertEqual(response.read().decode("utf-8"), "<html>overlay</html>")
+                # Every route, not just one: the set above is what the selector
+                # copies from, so a name in it that the server does not serve is
+                # the same 404 by another path.
+                for widget_id in sorted(WIDGET_ROUTE_NAMES):
+                    with self.subTest(widget=widget_id):
+                        url = f"http://127.0.0.1:{server.port}/overlay/{widget_id}"
+                        with urlopen(url, timeout=2) as response:
+                            self.assertEqual(response.status, 200)
+                            self.assertEqual(response.read().decode("utf-8"), "<html>overlay</html>")
             finally:
                 server.stop()
 
