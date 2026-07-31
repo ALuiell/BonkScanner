@@ -26,13 +26,28 @@ from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 GRID_STEP = 28
-MIN_BLOCK_WIDTH = 26
-MIN_BLOCK_HEIGHT = 12
+MIN_BLOCK_WIDTH = 14
+MIN_BLOCK_HEIGHT = 8
+
+#: What to draw for a widget whose real size is unknown, **in canvas units**, so
+#: it scales down with everything else. Sizing an unknown block from its label's
+#: pixel width instead was the first version's mistake: at roughly 1:6 the text
+#: "Scanner status" measures three to four times the real widget, and the block
+#: then had to be pushed inward to fit the frame -- so a widget sitting against
+#: the right edge was drawn near the middle, which is the opposite of what a
+#: position preview is for.
+DEFAULT_BLOCK_WIDTH = 220
+DEFAULT_BLOCK_HEIGHT = 48
 
 
 @dataclass(frozen=True)
 class PreviewWidget:
-    """One block to draw: a label and where it sits on the canvas."""
+    """One block to draw: a label and where it sits on the canvas.
+
+    `width` and `height` are in canvas units, like `x` and `y`. Zero means "not
+    known" and takes the default above -- never a size derived from the label,
+    which does not scale with the canvas.
+    """
 
     label: str
     x: int
@@ -93,6 +108,36 @@ class CanvasPreview(QWidget):
         super().resizeEvent(event)
         self.setFixedHeight(self.heightForWidth(self.width()))
 
+    # -- placement ------------------------------------------------------------
+
+    def frame_rect(self) -> QRect:
+        return self.rect().adjusted(0, 0, -1, -1)
+
+    def block_rects(self) -> list[QRect]:
+        """Where each widget's block lands, in this widget's coordinates.
+
+        Split out of `paintEvent` so placement can be asserted directly. Testing
+        it through rendered pixels was tried and is a poor bargain: the grid
+        lines behind the blocks make "differs from the background" true almost
+        everywhere, so the probe measures the grid rather than the block.
+        """
+        frame = self.frame_rect()
+        if self._placeholder or not self._widgets:
+            return []
+        scale_x = frame.width() / self._canvas_width
+        scale_y = frame.height() / self._canvas_height
+        rects = []
+        for widget in self._widgets:
+            rects.append(
+                QRect(
+                    frame.left() + round(widget.x * scale_x),
+                    frame.top() + round(widget.y * scale_y),
+                    max(MIN_BLOCK_WIDTH, round((widget.width or DEFAULT_BLOCK_WIDTH) * scale_x)),
+                    max(MIN_BLOCK_HEIGHT, round((widget.height or DEFAULT_BLOCK_HEIGHT) * scale_y)),
+                )
+            )
+        return rects
+
     # -- painting -------------------------------------------------------------
 
     def paintEvent(self, _event) -> None:
@@ -119,35 +164,19 @@ class CanvasPreview(QWidget):
             )
             return
 
-        scale_x = frame.width() / self._canvas_width
-        scale_y = frame.height() / self._canvas_height
         label_font = QFont(painter.font())
         label_font.setPointSizeF(max(6.0, label_font.pointSizeF() - 2.0))
         painter.setFont(label_font)
         metrics = QFontMetrics(label_font)
 
-        for widget in self._widgets:
-            width = (
-                round(widget.width * scale_x)
-                if widget.width
-                else metrics.horizontalAdvance(widget.label) + 10
-            )
-            height = round(widget.height * scale_y) if widget.height else metrics.height() + 4
-            block = QRect(
-                frame.left() + round(widget.x * scale_x),
-                frame.top() + round(widget.y * scale_y),
-                max(MIN_BLOCK_WIDTH, width),
-                max(MIN_BLOCK_HEIGHT, height),
-            )
-            # Clamped into the frame rather than clipped away: a widget parked
-            # off-canvas is exactly what someone opens this preview to find.
-            if block.right() > frame.right():
-                block.moveRight(frame.right())
-            if block.bottom() > frame.bottom():
-                block.moveBottom(frame.bottom())
-            block.moveLeft(max(frame.left(), block.left()))
-            block.moveTop(max(frame.top(), block.top()))
+        # Everything below is clipped to the frame rather than moved into it.
+        # The block's top-left is the whole answer this widget exists to give,
+        # so it is drawn where the coordinates say and cut off at the edge if it
+        # does not fit -- a widget hanging off the right edge should look like
+        # one, not be quietly slid inward until it fits.
+        painter.setClipRect(frame)
 
+        for widget, block in zip(self._widgets, self.block_rects()):
             painter.fillRect(block, QColor(11, 15, 20, 217))
             painter.setPen(QPen(QColor("#2A3542"), 1))
             painter.drawRect(block)
@@ -158,6 +187,7 @@ class CanvasPreview(QWidget):
                 metrics.elidedText(widget.label, Qt.ElideRight, block.width() - 6),
             )
 
+        painter.setClipping(False)
         painter.setPen(QColor("#5C6675"))
         painter.drawText(
             frame.adjusted(0, 0, -6, -4),

@@ -535,15 +535,28 @@ def refresh_in_game_overlay_preview(parent_mixin: Any) -> None:
         )
 
     widgets = config.IN_GAME_OVERLAY.get("widgets", {})
-    preview.set_widgets(
-        PreviewWidget(
-            label=label_text,
-            x=int(widgets.get(widget_id, {}).get("x", 0) or 0),
-            y=int(widgets.get(widget_id, {}).get("y", 0) or 0),
+    # Real sizes when the overlay window exists, because the widgets are right
+    # there and know theirs. Guessing from the label instead is what made a
+    # widget at the right edge draw near the middle: the guess is in screen
+    # pixels and does not scale with the canvas.
+    window = getattr(parent_mixin, "in_game_overlay_window", None)
+    live = getattr(window, "widgets", {}) if window is not None else {}
+    blocks = []
+    for widget_id, label_text, _attribute in IN_GAME_WIDGET_TILES:
+        widget_cfg = widgets.get(widget_id, {})
+        if not widget_cfg.get("enabled"):
+            continue
+        live_widget = live.get(widget_id)
+        blocks.append(
+            PreviewWidget(
+                label=label_text,
+                x=int(widget_cfg.get("x", 0) or 0),
+                y=int(widget_cfg.get("y", 0) or 0),
+                width=int(live_widget.width()) if live_widget is not None else 0,
+                height=int(live_widget.height()) if live_widget is not None else 0,
+            )
         )
-        for widget_id, label_text, _attribute in IN_GAME_WIDGET_TILES
-        if widgets.get(widget_id, {}).get("enabled")
-    )
+    preview.set_widgets(blocks)
 
 
 def update_in_game_overlay_status_ui(parent_mixin: Any) -> None:
