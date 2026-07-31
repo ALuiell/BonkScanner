@@ -74,19 +74,21 @@ def build_workspace(parent_layout: QVBoxLayout, *, rail_width: int | None = RAIL
         rail_layout.setSpacing(12)
         row.addWidget(rail_holder, 0, Qt.AlignTop)
 
-    # Centred with a spacer either side and the cap doing the limiting, *not*
-    # with `Qt.AlignHCenter`. Alignment makes a widget take its size hint rather
-    # than the space offered, which collapsed the whole working area to about a
-    # third of the window: cards came out 520px wide and the Copy button was cut
-    # in half. Here the holder takes what it is given up to `maximumWidth` and
-    # the two spacers split whatever is left, which is the same thing a max-width
-    # and auto margins do on the web.
-    centring = QHBoxLayout()
-    centring.setContentsMargins(0, 0, 0, 0)
-    centring.addStretch(1)
-    centring.addWidget(holder, 8)
-    centring.addStretch(1)
-    parent_layout.addLayout(centring)
+    # Left-aligned, with the cap doing the limiting and one spacer taking the
+    # surplus. Centred was tried and read wrong: the hero above spans the full
+    # width, so centred cards start a couple of hundred pixels to the right of
+    # it and line up with neither the hero nor the tab bar. Sharing a left edge
+    # with both is worth more than symmetric margins.
+    #
+    # The spacer, and not `Qt.AlignLeft`: alignment makes a widget take its size
+    # hint instead of the space offered, which collapsed the whole working area
+    # to about a third of the window -- cards came out 520px wide and the Copy
+    # button was cut in half.
+    placement = QHBoxLayout()
+    placement.setContentsMargins(0, 0, 0, 0)
+    placement.addWidget(holder, 8)
+    placement.addStretch(1)
+    parent_layout.addLayout(placement)
 
     return main_layout, rail_layout
 
