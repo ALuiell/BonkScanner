@@ -227,6 +227,12 @@ class FakeSettingsMaster:
     def apply_run_control_mode(self) -> None:
         self.events.append("apply_run_control_mode")
 
+    def refresh_in_game_overlay_hotkey_ui(self) -> None:
+        # The In-Game Overlay tab shows the layout hotkey in a field and in the
+        # tip that is the only place explaining how to enter layout mode. A save
+        # that does not reach it leaves that tip naming a dead key.
+        self.events.append("refresh_in_game_overlay_hotkey_ui")
+
     def refresh_scanner_reminder_ui(self) -> None:
         # The OBS tab's copy of the reminder flag. Recorded rather than ignored
         # so `test_settings_save_...` can assert the save actually reaches it --
@@ -1001,6 +1007,7 @@ class GuiRunControlTests(unittest.TestCase):
         # The OBS tab shows this same flag; a save that does not reach it leaves
         # a checkbox that will write the old value back.
         self.assertIn("refresh_scanner_reminder_ui", master.events)
+        self.assertIn("refresh_in_game_overlay_hotkey_ui", master.events)
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         update_game_reset_time.assert_called_once_with(0.2)

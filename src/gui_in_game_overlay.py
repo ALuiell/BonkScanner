@@ -46,6 +46,7 @@ from core.luck_rarity import resolve_luck_expected_status_text
 from gui_in_game_overlay_settings import (
     InGameWidgetSettingsDialog,
     build_in_game_overlay_tab,
+    refresh_in_game_overlay_hotkey_ui,
     update_in_game_overlay_status_ui,
 )
 from gui_in_game_overlay_window import InGameOverlayWindow
@@ -69,6 +70,8 @@ class InGameOverlay:
         find_game_window: Callable[[str], Any] | None,
         schedule: Callable[[Callable[[], None]], None],
         schedule_idle: Callable[[Callable[[], None]], None],
+        overlay_tab_active: Callable[[], bool] = lambda: True,
+        rebind_hotkeys: Callable[[], None] = lambda: None,
         widget_settings_dialog: Callable[["InGameOverlay", QWidget | None], Any] = InGameWidgetSettingsDialog,
         timer_factory: Callable[[], Any] = QTimer,
     ) -> None:
@@ -79,6 +82,12 @@ class InGameOverlay:
         self._find_game_window = find_game_window
         self._schedule = schedule
         self._schedule_idle = schedule_idle
+        # Two new ports, both for the tab rather than for the overlay window:
+        # one so the preview only repaints while it is being looked at, one so
+        # an edited hotkey takes effect without a restart. Defaulted because the
+        # suite builds this component without an app.
+        self._overlay_tab_active = overlay_tab_active
+        self._rebind_hotkeys = rebind_hotkeys
         self._widget_settings_dialog = widget_settings_dialog
 
         # The tab and its nine checkboxes. `build_in_game_overlay_tab` writes
@@ -86,9 +95,13 @@ class InGameOverlay:
         # which is where ten of the seventeen hidden reads came from. Declared
         # here so the surface is readable without chasing the builder.
         self.tab_in_game_overlay: QWidget | None = None
+        self.igo_hero = None
         self.igo_status_label = None
         self.igo_toggle_btn = None
-        self.igo_edit_btn = None
+        self.igo_hotkey_entry = None
+        self.igo_target_window_label = None
+        self.igo_tip_label = None
+        self.igo_preview = None
         self.igo_widget_settings_btn = None
         self.igo_auto_start_cb = None
         self.igo_scanner_cb = None
@@ -538,18 +551,47 @@ class InGameOverlay:
         is_edit_mode = not self.in_game_overlay_window.edit_mode
         self.in_game_overlay_window.toggle_edit_mode(is_edit_mode)
 
+        # The tab's `Edit Layout` button is gone, and with it the caption swap
+        # and the inline green stylesheet that lived here. Layout mode is
+        # entered by hotkey; while it is on, the overlay itself shows a
+        # `Save Layout & Exit` button over the game, which is where you are
+        # looking at the time. The hero badge reads LAYOUT MODE meanwhile.
         if is_edit_mode:
-            self.igo_edit_btn.setText("Save Layout")
-            self.igo_edit_btn.setStyleSheet("background-color: #22c55e; color: white;")
             if not self.in_game_overlay_window.isVisible():
                 self.in_game_overlay_window.show()
         else:
-            self.igo_edit_btn.setText("Edit Layout")
-            self.igo_edit_btn.setStyleSheet("")
             self.apply_in_game_overlay_settings()
             config.save_config(config.user_config)
 
         self._update_igo_status_ui()
+
+    # -- ports the tab needs -------------------------------------------------
+
+    def is_in_game_overlay_tab_active(self) -> bool:
+        """Whether this tab is the one on screen.
+
+        The preview repaints on a timer and reads the game window while it does;
+        a background tab doing that once a second is work for nobody.
+        """
+        return bool(self._overlay_tab_active())
+
+    def refresh_hotkey_ui(self) -> None:
+        """Re-read the layout hotkey into the field and the tip.
+
+        Called when the Settings dialog saves. The tab and that dialog are both
+        editors of this value, and only the one that saved knows it changed.
+        """
+        refresh_in_game_overlay_hotkey_ui(self)
+
+    def rebind_hotkeys(self) -> None:
+        """Re-register the hotkeys after this tab edited one of them.
+
+        `setup_hotkeys` tears the previous manager down and builds a new one, so
+        it is safe to call repeatedly -- and it is not optional: without it a
+        saved key does nothing until restart, while the tip beside the field is
+        already telling the user to press it.
+        """
+        self._rebind_hotkeys()
 
     def _open_igo_widget_settings_dialog(self) -> None:
         dialog = self._widget_settings_dialog(self, self.tab_in_game_overlay)
@@ -590,4 +632,6 @@ def build_in_game_overlay(app: Any) -> InGameOverlay:
         find_game_window=lambda process_name: app._run_control.find_game_window(process_name),
         schedule=lambda callback: app.after(0, callback),
         schedule_idle=lambda callback: app.after_idle(callback),
+        overlay_tab_active=lambda: app._is_in_game_overlay_tab_active(),
+        rebind_hotkeys=lambda: app._run_control.setup_hotkeys(),
     )

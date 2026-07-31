@@ -558,7 +558,11 @@ class InGameOverlayWindow(QWidget):
         super().keyPressEvent(event)
 
     def _on_save_clicked(self) -> None:
-        if self.parent_mixin and hasattr(self.parent_mixin, "_toggle_igo_edit_mode"):
+        # Called directly rather than behind `hasattr`. The probe was the shape
+        # this codebase has already been bitten by: it goes quietly false and
+        # the button stops working with nothing raising -- and this button is
+        # now one of only three ways out of layout mode.
+        if self.parent_mixin is not None:
             self.parent_mixin._toggle_igo_edit_mode()
 
     def on_widget_moved(self, widget_id: str, x: int, y: int) -> None:

@@ -579,6 +579,14 @@ class MegabonkApp:
         if overlay is not None:
             overlay.stop_in_game_overlay()
 
+    # The overlay layout hotkey is edited in two places -- the In-Game Overlay
+    # tab and the Settings dialog -- so whichever one saved has to tell the
+    # other. The dialog calls this; the tab calls its own refresh directly.
+    def refresh_in_game_overlay_hotkey_ui(self) -> None:
+        overlay = self.__dict__.get("_in_game_overlay")
+        if overlay is not None:
+            overlay.refresh_hotkey_ui()
+
     # The combat pass calls this the instant it publishes a new KPS value, so
     # the widget stops waiting for the overlay's own timer to come round. Same
     # forwarding shape as the two above, and here for the same reason: the
@@ -635,6 +643,12 @@ class MegabonkApp:
 
     def _is_overlay_tab_active(self) -> bool:
         return _is_tab_active(self.tabview, "OBS Overlay")
+
+    # Same shape, one tab over: the In-Game Overlay tab's preview repaints on a
+    # timer and reads the game window while it does, so it asks first whether
+    # anyone is looking. The title is the one `build_layout` registers.
+    def _is_in_game_overlay_tab_active(self) -> bool:
+        return _is_tab_active(self.tabview, "In-Game Overlay")
 
     # -- player-stats refresh (step 20g) ----------------------------------
     #

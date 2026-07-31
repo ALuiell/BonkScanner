@@ -986,6 +986,15 @@ class SettingsDialog(QDialog):
         self.record_interval_entry.setSuffix(" s")
         form_layout.addRow("Snapshot Interval (s):", self.record_interval_entry)
 
+        # The fourth hotkey. It has always existed in config but had no editor
+        # anywhere, so changing it meant hand-editing config.json. It is edited
+        # on the In-Game Overlay tab too, deliberately -- the tab is where you
+        # read what the key is -- and `save` below tells that tab it changed.
+        self.overlay_edit_hotkey_entry = QLineEdit(
+            str(getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9") or "f9")
+        )
+        form_layout.addRow("Overlay Layout Hotkey:", self.overlay_edit_hotkey_entry)
+
         self.auto_start_recording_var = QCheckBox("Auto-start recording")
         self.auto_start_recording_var.setChecked(bool(getattr(config, "AUTO_START_RECORDING", False)))
         layout.addWidget(self.auto_start_recording_var)
@@ -1092,6 +1101,12 @@ class SettingsDialog(QDialog):
         new_hotkey = _read_text(self.hotkey_entry).strip()
         new_reset_hotkey = _read_text(self.reset_hotkey_entry).strip()
         new_record_hotkey = _read_text(self.record_hotkey_entry).strip()
+        # `getattr` because the suite drives this dialog with stand-in objects
+        # that predate the field; an empty value keeps the current key rather
+        # than unbinding the only way into overlay layout mode.
+        new_overlay_edit_hotkey = _read_text(
+            getattr(self, "overlay_edit_hotkey_entry", None)
+        ).strip() or str(getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9") or "f9")
         auto_start_recording = _read_bool(self.auto_start_recording_var)
         show_obs_reminder_on_start_scanner = _read_bool(
             getattr(self, "show_obs_reminder_on_start_scanner_var", None)
@@ -1141,6 +1156,7 @@ class SettingsDialog(QDialog):
         config.user_config["HOTKEY"] = new_hotkey
         config.user_config["RESET_HOTKEY"] = new_reset_hotkey
         config.user_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
+        config.user_config["IN_GAME_OVERLAY_EDIT_HOTKEY"] = new_overlay_edit_hotkey
         config.user_config["AUTO_START_RECORDING"] = auto_start_recording
         config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = show_obs_reminder_on_start_scanner
         config.user_config["RESET_HOLD_DURATION"] = new_duration
@@ -1148,6 +1164,7 @@ class SettingsDialog(QDialog):
         config.HOTKEY = new_hotkey
         config.RESET_HOTKEY = new_reset_hotkey
         config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
+        config.IN_GAME_OVERLAY_EDIT_HOTKEY = new_overlay_edit_hotkey
         config.AUTO_START_RECORDING = auto_start_recording
         config.SHOW_OBS_REMINDER_ON_START_SCANNER = show_obs_reminder_on_start_scanner
         config.RESET_HOLD_DURATION = new_duration
@@ -1187,6 +1204,11 @@ class SettingsDialog(QDialog):
             # learn that this save happened. Unguarded and through the named
             # port on purpose: see `OverlayView.refresh_scanner_reminder_ui`.
             overlay_view(self.master).refresh_scanner_reminder_ui()
+            # Same shape, for the same reason: the In-Game Overlay tab shows
+            # this hotkey in a field *and* in the tip that is now the only place
+            # explaining how to enter layout mode. A stale tip there tells the
+            # user to press a key that no longer does anything.
+            self.master.refresh_in_game_overlay_hotkey_ui()
             if hasattr(self.master, "apply_run_control_mode"):
                 self.master.apply_run_control_mode()
             self.master.log("[*] Settings saved and applied successfully!", tag="success")
