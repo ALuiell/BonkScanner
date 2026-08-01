@@ -42,9 +42,13 @@ class ReadCensusRatchetTests(unittest.TestCase):
             census.boundary_site_count([census.SRC / rel for rel in census.ON_TICK_FILES]),
             28,
         )
+        # 4 since `reroll_map` stopped reading the map state and stats itself:
+        # `wait_for_map_ready` hands the scan loop the stats it waited for, so
+        # the pair that used to bracket the restart is gone. See
+        # `OFF_TICK_SITE_LIMIT`, which came down with it.
         self.assertEqual(
             census.boundary_site_count([census.SRC / rel for rel in census.OFF_TICK_FILES]),
-            6,
+            4,
         )
 
     def test_missing_one_enrolment_fails_the_guard(self) -> None:
@@ -52,7 +56,7 @@ class ReadCensusRatchetTests(unittest.TestCase):
         declared = len(census.ENROLLABLE_ON_TICK_SOURCE_NAMES)
         payload = {
             "on_tick_sites": 25,
-            "off_tick_sites": 6,
+            "off_tick_sites": 4,
             "enrolled_on_tick_sources": declared - 1,
             "missing_enrolled_sources": ["RUNTIME_ACTIVITY_STATE"],
             "direct_on_tick_client_reads": [],
