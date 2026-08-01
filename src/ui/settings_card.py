@@ -46,16 +46,29 @@ RAIL_WIDTH = 348
 OBS_RAIL_WIDTH = 520
 
 
-def build_workspace(parent_layout: QVBoxLayout, *, rail_width: int | None = RAIL_WIDTH):
-    """A capped, centred main column with an optional fixed rail beside it.
+def build_workspace(
+    parent_layout: QVBoxLayout,
+    *,
+    rail_width: int | None = RAIL_WIDTH,
+    max_width: int | None = WORKSPACE_MAX_WIDTH,
+):
+    """A main column with an optional fixed rail beside it.
 
     Returns `(main_layout, rail_layout)`; `rail_layout` is `None` when
     `rail_width` is None. The rail is a fixed width on purpose -- letting it
     size to its contents is what collapsed the In-Game rail to 180px the moment
     its preview was removed, leaving a paragraph wrapping every three words.
+
+    `max_width=None` lets the cards run the full width of the tab. That is only
+    safe once the controls *inside* them carry their own ceilings: the cap
+    exists to stop a row's two ends drifting half a screen apart, and a card
+    whose fields are individually capped no longer does that however wide it
+    gets. The In-Game tab is there; the other two still have an uncapped URL
+    field and a rail sized to a preview, so they keep the outer cap.
     """
     holder = QWidget()
-    holder.setMaximumWidth(WORKSPACE_MAX_WIDTH)
+    if max_width:
+        holder.setMaximumWidth(int(max_width))
 
     row = QHBoxLayout(holder)
     row.setContentsMargins(0, 0, 0, 0)
@@ -87,7 +100,12 @@ def build_workspace(parent_layout: QVBoxLayout, *, rail_width: int | None = RAIL
     placement = QHBoxLayout()
     placement.setContentsMargins(0, 0, 0, 0)
     placement.addWidget(holder, 8)
-    placement.addStretch(1)
+    # Only when there is a cap. The spacer's job is to absorb what the cap
+    # refuses; with no cap it just takes a ninth of the tab for itself -- which
+    # is why the cards stopped short of the edge the first time the cap came
+    # off, with the hero still running past them.
+    if max_width:
+        placement.addStretch(1)
     parent_layout.addLayout(placement)
 
     return main_layout, rail_layout

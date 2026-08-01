@@ -161,7 +161,7 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
     # and one right edge, which is the "everything on one level" the layout was
     # asked for -- and the rail had nothing left to hold anyway once the tip
     # went (see `_build_igo_layout_card` for why it went).
-    main_column, _rail = build_workspace(layout, rail_width=None)
+    main_column, _rail = build_workspace(layout, rail_width=None, max_width=None)
 
     _build_igo_layout_card(parent_mixin, main_column)
     _build_igo_widgets_card(parent_mixin, main_column)
