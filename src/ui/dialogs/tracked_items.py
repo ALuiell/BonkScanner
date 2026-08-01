@@ -59,6 +59,12 @@ from projections.tracked_items import (
     tracked_item_color,
     tracked_item_display_name,
 )
+from ui.dialogs.shell import (
+    DIALOG_TALL,
+    DIALOG_WIDE,
+    dialog_body,
+    dialog_footer,
+)
 from ui.segmented_toggle import ROLE_GO, SegmentedToggle
 from ui.shared import FlowLayout, _clear_layout
 
@@ -502,12 +508,17 @@ class TrackedItemsDialog(QDialog):
         self._target = TARGETS_BY_KEY.get(target_key, TARGETS[0])
 
         self.setWindowTitle("Tracked Items")
-        self.resize(980, 700)
-        self.setMinimumSize(760, 560)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
+        layout = dialog_body(
+            self,
+            title="Tracked Items",
+            subtitle=(
+                "Session Stats keeps the list; the OBS overlay and !session "
+                "each keep their own or mirror it."
+            ),
+            width=DIALOG_WIDE,
+            height=DIALOG_TALL,
+        )
 
         # Captions carry no counts, deliberately: `SegmentedToggle` is built on
         # its captions never changing -- that is what keeps the control one
@@ -554,20 +565,14 @@ class TrackedItemsDialog(QDialog):
         self._stack.addWidget(self._build_mirror_page())
         layout.addWidget(self._stack, 1)
 
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 0, 0, 0)
+        # Behind a confirmation, and the shared footer is what keeps it away
+        # from Close. The two dialogs this replaces both wiped every rule on one
+        # click of a button sitting next to the dismiss button.
         self._clear_btn = QPushButton("Remove all")
-        # Behind a confirmation, and not shoulder to shoulder with Close. The
-        # two dialogs this replaces both wiped every rule on one click of a
-        # button sitting next to the dismiss button.
-        self._clear_btn.setObjectName("danger")
         self._clear_btn.clicked.connect(lambda _checked=False: self._confirm_clear())
-        footer.addWidget(self._clear_btn)
-        footer.addStretch(1)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        footer.addWidget(close_btn)
-        layout.addLayout(footer)
+        dialog_footer(self, secondary=close_btn, destructive=self._clear_btn)
 
         self._target_toggle.set_active(self._target.key)
         self._refresh()

@@ -29,6 +29,16 @@ import webbrowser
 from functools import partial
 from pathlib import Path
 
+from ui.dialogs.shell import (
+    DIALOG_COMPACT,
+    DIALOG_REGULAR,
+    DIALOG_TALL,
+    DIALOG_WIDE,
+    dialog_body,
+    dialog_card,
+    dialog_footer,
+    dialog_note,
+)
 from ui.shared import (
     CollapsibleSection,
     CollapsibleSectionGroup,
@@ -53,7 +63,6 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
-    QDialogButtonBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -177,15 +186,22 @@ class TemplateDialog(QDialog):
     def __init__(self, parent=None, edit_template=None):
         super().__init__(parent)
         self.result_payload = None
-        self.setWindowTitle("Edit Template" if edit_template else "Add Template")
+        title = "Edit Template" if edit_template else "Add Template"
+        self.setWindowTitle(title)
         self.setModal(True)
-        self.resize(420, 300)
+        body = dialog_body(
+            self,
+            title=title,
+            subtitle="Leave a condition at 0 to ignore it.",
+            width=DIALOG_REGULAR,
+        )
         self.form = TemplateFormFrame(self, edit_template)
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.form)
+        body.addWidget(self.form)
         self.save_btn = QPushButton("Save Template")
         self.save_btn.clicked.connect(self.save)
-        layout.addWidget(self.save_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        dialog_footer(self, primary=self.save_btn, secondary=cancel_btn)
 
     def save(self):
         payload = self.form.get_payload()
@@ -202,31 +218,22 @@ class TemplateManagerDialog(QDialog):
         self.templates = [dict(template) for template in templates]
         self.on_save = on_save
         self.setWindowTitle("Manage Templates")
-        self.resize(760, 760)
-        self.setMinimumSize(640, 560)
         self.expanded_template_id: int | None = None
         self.card_widgets: dict[int, dict[str, object]] = {}
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(12)
-        header = QLabel("Templates")
-        header.setObjectName("SectionHeader")
-        layout.addWidget(header)
-
-        subtitle = QLabel("Select a template from the list, and its settings will appear directly below the card.")
-        subtitle.setStyleSheet("color: #AAB4C4; background: transparent;")
-        layout.addWidget(subtitle)
-
+        layout = dialog_body(
+            self,
+            title="Templates",
+            subtitle="Pick one from the list and its settings open under the card.",
+            width=DIALOG_WIDE,
+            height=DIALOG_TALL,
+        )
         self.scroll, self.scroll_content, self.scroll_layout = _make_scroll_section()
         layout.addWidget(self.scroll, 1)
 
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        buttons.addWidget(close_btn)
-        layout.addLayout(buttons)
+        dialog_footer(self, secondary=close_btn)
 
         self.build_cards()
 
@@ -356,14 +363,19 @@ class ScoresSettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Scores Settings")
-        self.resize(460, 640)
         self.setModal(True)
         self.active_tier_checks: dict[str, QCheckBox] = {}
         self.threshold_entries: dict[str, QLineEdit] = {}
         self.weight_entries: dict[str, QLineEdit] = {}
         self.multiplier_entries: dict[str, QLineEdit] = {}
 
-        outer = QVBoxLayout(self)
+        outer = dialog_body(
+            self,
+            title="Scores Settings",
+            subtitle="Which tiers count, and what a run has to reach for each.",
+            width=DIALOG_REGULAR,
+            height=DIALOG_TALL,
+        )
         scroll, scroll_content, scroll_layout = _make_scroll_section()
         outer.addWidget(scroll, 1)
 
@@ -412,17 +424,11 @@ class ScoresSettingsDialog(QDialog):
         # they only came into view after scrolling all the way down. A footer
         # row on `outer` is always visible regardless of scroll position or
         # window size.
-        button_row = QHBoxLayout()
         reset_btn = QPushButton("Reset to Defaults")
-        reset_btn.setObjectName("danger")
         reset_btn.clicked.connect(self.reset_to_defaults)
         save_btn = QPushButton("Save Settings")
-        save_btn.setObjectName("primary")
         save_btn.clicked.connect(self.save)
-        button_row.addWidget(reset_btn)
-        button_row.addStretch(1)
-        button_row.addWidget(save_btn)
-        outer.addLayout(button_row)
+        dialog_footer(self, primary=save_btn, destructive=reset_btn)
         self.toggle_thresholds_mode()
 
     def reset_to_defaults(self):
@@ -488,9 +494,12 @@ class DeleteDialog(QDialog):
         self.custom_templates = custom_templates
         self.checks: dict[int, QCheckBox] = {}
         self.setWindowTitle("Delete Templates")
-        self.resize(320, 280)
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Select templates to delete:"))
+        layout = dialog_body(
+            self,
+            title="Delete Templates",
+            subtitle="Tick the ones to remove. Built-in templates are not listed.",
+            width=DIALOG_REGULAR,
+        )
         scroll, _content, scroll_layout = _make_scroll_section()
         layout.addWidget(scroll, 1)
         for template in custom_templates:
@@ -498,13 +507,14 @@ class DeleteDialog(QDialog):
             self.checks[template["id"]] = cb
             scroll_layout.addWidget(cb)
         scroll_layout.addStretch(1)
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
         delete_btn = QPushButton("Delete Selected")
-        delete_btn.setObjectName("danger")
-        buttons.addButton(delete_btn, QDialogButtonBox.AcceptRole)
-        buttons.rejected.connect(self.reject)
         delete_btn.clicked.connect(self.delete)
-        layout.addWidget(buttons)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        # `QDialogButtonBox` is gone with it: it put Delete next to Cancel and
+        # ordered them by platform convention, which is the one thing a shared
+        # footer cannot let a dialog decide for itself.
+        dialog_footer(self, secondary=cancel_btn, destructive=delete_btn)
 
     def delete(self):
         to_delete = {template_id for template_id, cb in self.checks.items() if cb.isChecked()}
@@ -528,15 +538,21 @@ class ConfirmDeleteRecordingDialog(QDialog):
         self.result = False
         self.setWindowTitle("Delete Recording")
         self.setModal(True)
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"Delete recording '{recording_name}'?"))
-        buttons = QDialogButtonBox()
-        cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.RejectRole)
-        confirm_btn = buttons.addButton("Delete", QDialogButtonBox.AcceptRole)
-        confirm_btn.setObjectName("danger")
+        layout = dialog_body(
+            self,
+            title="Delete recording?",
+            width=DIALOG_COMPACT,
+        )
+        name = QLabel(str(recording_name))
+        name.setObjectName("dialogSubject")
+        name.setWordWrap(True)
+        layout.addWidget(name)
+        layout.addWidget(dialog_note("This cannot be undone."))
+        cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.cancel)
+        confirm_btn = QPushButton("Delete")
         confirm_btn.clicked.connect(self.confirm)
-        layout.addWidget(buttons)
+        dialog_footer(self, secondary=cancel_btn, destructive=confirm_btn)
 
     def confirm(self):
         self.result = True
@@ -562,19 +578,26 @@ class CleanupRecordingsDialog(QDialog):
         self.threshold: int | None = None
         self.setWindowTitle("Clean Recordings")
         self.setModal(True)
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Remove all recordings where snapshot count is less than:"))
+        layout = dialog_body(
+            self,
+            title="Clean up recordings",
+            subtitle="Removes every recording shorter than the count below.",
+            width=DIALOG_COMPACT,
+        )
         if default_threshold is None:
             default_threshold = DEFAULT_MINIMUM_SNAPSHOT_COUNT
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(12)
         self.threshold_entry = QLineEdit(str(max(0, int(default_threshold))))
-        layout.addWidget(self.threshold_entry)
-        buttons = QDialogButtonBox()
-        cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.RejectRole)
-        confirm_btn = buttons.addButton("Remove", QDialogButtonBox.AcceptRole)
-        confirm_btn.setObjectName("danger")
+        form.addRow("Fewer snapshots than:", self.threshold_entry)
+        layout.addLayout(form)
+        layout.addWidget(dialog_note("This cannot be undone."))
+        cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
+        confirm_btn = QPushButton("Remove")
         confirm_btn.clicked.connect(self.confirm)
-        layout.addWidget(buttons)
+        dialog_footer(self, secondary=cancel_btn, destructive=confirm_btn)
 
     def confirm(self):
         try:
@@ -596,66 +619,36 @@ class RerollWarningDialog(QDialog):
         self.dont_show_again = False
         self.setWindowTitle("Auto-Reroll Confirmation")
         self.setModal(True)
-        self.resize(540, 310)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 20, 18, 18)
-        layout.setSpacing(16)
-
-        card = QFrame()
-        card.setObjectName("WarningCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 14)
-        card_layout.setSpacing(8)
-
-        title = QLabel("Confirm Auto-Reroll Start")
-        title.setObjectName("WarningTitle")
-        card_layout.addWidget(title)
-
-        summary = QLabel(
-            "This button is only required for the Auto-Reroll map mode. Pressing OK will launch the automatic loop to monitor your runs and execute restarts until a matching target map is found.<br><br>"
-            "For more details, please open the Help (?)."
+        layout = dialog_body(
+            self,
+            title="Confirm Auto-Reroll Start",
+            width=DIALOG_REGULAR,
         )
-        summary.setWordWrap(True)
-        summary.setStyleSheet("background: transparent; font-size: 15px;")
-        card_layout.addWidget(summary)
-        layout.addWidget(card)
-
-        switch_note = QLabel(
-            "Note: All other background features (Live Stats, VOD recordings, and the OBS Overlay) "
-            "work fully automatically and do NOT require starting this loop."
+        layout.addWidget(
+            dialog_card(
+                "This button is only required for the Auto-Reroll map mode. "
+                "Pressing OK will launch the automatic loop to monitor your runs "
+                "and execute restarts until a matching target map is found."
+                "<br><br>For more details, please open the Help (?)."
+            )
         )
-        switch_note.setWordWrap(True)
-        switch_note.setStyleSheet("font-size: 14px; color: #9CA3AF; background: transparent;")
-        layout.addWidget(switch_note)
+        layout.addWidget(
+            dialog_note(
+                "All other background features (Live Stats, VOD recordings and the "
+                "OBS overlay) work automatically and do not require this loop."
+            )
+        )
         layout.addStretch(1)
 
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(12)
-
         self.checkbox = QCheckBox("Don't show this again")
-        self.checkbox.setStyleSheet("color: #F3F4F6; font-size: 14px; background: transparent;")
-        bottom_row.addWidget(self.checkbox)
-
-        bottom_row.addStretch(1)
-
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setObjectName("danger")
-        cancel_btn.setProperty("class", "WideDialogButton")
-        cancel_btn.setMinimumHeight(32)
-        cancel_btn.setMinimumWidth(100)
         cancel_btn.clicked.connect(self.cancel)
-
         confirm_btn = QPushButton("OK")
-        confirm_btn.setObjectName("primary")
-        confirm_btn.setProperty("class", "WideDialogButton")
-        confirm_btn.setMinimumHeight(32)
-        confirm_btn.setMinimumWidth(100)
         confirm_btn.clicked.connect(self.confirm)
-
-        bottom_row.addWidget(cancel_btn)
-        bottom_row.addWidget(confirm_btn)
-        layout.addLayout(bottom_row)
+        dialog_footer(
+            self, primary=confirm_btn, secondary=cancel_btn, leading=self.checkbox
+        )
 
     def confirm(self):
         self.result = True
@@ -673,47 +666,26 @@ class ObsRecordingReminderDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("OBS Recording Reminder")
         self.setModal(True)
-        self.resize(500, 245)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 20, 18, 18)
-        layout.setSpacing(16)
-
-        card = QFrame()
-        card.setObjectName("WarningCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 14)
-        card_layout.setSpacing(8)
-
-        title = QLabel("OBS Recording Reminder")
-        title.setObjectName("WarningTitle")
-        card_layout.addWidget(title)
-
-        summary = QLabel(
-            "If this run is for leaderboard verification or YouTube, make sure OBS recording is started before beginning the run."
+        layout = dialog_body(
+            self,
+            title="OBS Recording Reminder",
+            width=DIALOG_REGULAR,
         )
-        summary.setWordWrap(True)
-        summary.setStyleSheet("background: transparent; font-size: 15px;")
-        card_layout.addWidget(summary)
-        layout.addWidget(card)
-
-        note = QLabel("This reminder can be switched off at any time from Settings.")
-        note.setWordWrap(True)
-        note.setStyleSheet("font-size: 14px; color: #9CA3AF; background: transparent;")
-        layout.addWidget(note)
+        layout.addWidget(
+            dialog_card(
+                "If this run is for leaderboard verification or YouTube, make sure "
+                "OBS recording is started before beginning the run."
+            )
+        )
+        layout.addWidget(
+            dialog_note("This reminder can be switched off at any time in Settings.")
+        )
         layout.addStretch(1)
 
-        bottom_row = QHBoxLayout()
-        bottom_row.addStretch(1)
-
         ok_btn = QPushButton("OK")
-        ok_btn.setObjectName("primary")
-        ok_btn.setProperty("class", "WideDialogButton")
-        ok_btn.setMinimumHeight(32)
-        ok_btn.setMinimumWidth(100)
         ok_btn.clicked.connect(self.accept)
-        bottom_row.addWidget(ok_btn)
-        layout.addLayout(bottom_row)
+        dialog_footer(self, primary=ok_btn)
 
 
 class TwitchCommandsHelpDialog(QDialog):
@@ -722,56 +694,25 @@ class TwitchCommandsHelpDialog(QDialog):
         self.dont_show_again = False
         self.setWindowTitle("Twitch Command Aliases")
         self.setModal(True)
-        self.resize(500, 300)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 20, 18, 18)
-        layout.setSpacing(16)
-
-        card = QFrame()
-        card.setObjectName("WarningCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 14)
-        card_layout.setSpacing(10)
-
-        title = QLabel("!bonkhelp aliases")
-        title.setObjectName("WarningTitle")
-        card_layout.addWidget(title)
-
-        summary = QLabel(
-            "The command that lists enabled BonkScanner Twitch commands has several aliases. "
-            "They all produce the same response, so viewers can use whichever one they prefer:"
+        layout = dialog_body(
+            self,
+            title="!bonkhelp aliases",
+            subtitle="All four produce the same response; viewers can use any of them.",
+            width=DIALOG_REGULAR,
         )
-        summary.setWordWrap(True)
-        summary.setStyleSheet("background: transparent; font-size: 14px;")
-        card_layout.addWidget(summary)
-
-        aliases = QLabel(
-            "<b>!bonkhelp</b><br>"
-            "<b>!bonkcmds</b><br>"
-            "<b>!bonkcommands</b><br>"
-            "<b>!bhelp</b>"
+        layout.addWidget(
+            dialog_card(
+                "<b>!bonkhelp</b> &nbsp;·&nbsp; <b>!bonkcmds</b> &nbsp;·&nbsp; "
+                "<b>!bonkcommands</b> &nbsp;·&nbsp; <b>!bhelp</b>"
+            )
         )
-        aliases.setTextFormat(Qt.RichText)
-        aliases.setStyleSheet("font-size: 15px; background: transparent;")
-        card_layout.addWidget(aliases)
-        layout.addWidget(card)
-
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(12)
+        layout.addStretch(1)
 
         self.checkbox = QCheckBox("Don't show this again")
-        bottom_row.addWidget(self.checkbox)
-        bottom_row.addStretch(1)
-
         ok_btn = QPushButton("OK")
-        ok_btn.setObjectName("primary")
-        ok_btn.setProperty("class", "WideDialogButton")
-        ok_btn.setMinimumHeight(32)
-        ok_btn.setMinimumWidth(100)
         ok_btn.clicked.connect(self.confirm)
-        bottom_row.addWidget(ok_btn)
-        layout.addLayout(bottom_row)
+        dialog_footer(self, primary=ok_btn, leading=self.checkbox)
 
     def confirm(self):
         self.dont_show_again = self.checkbox.isChecked()
@@ -782,24 +723,18 @@ class HelpDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("BonkScanner Help")
-        self.resize(700, 620)
-        self.setMinimumSize(560, 420)
         self.setModal(True)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        title = QLabel("Quick Help")
-        title.setObjectName("SectionHeader")
-        layout.addWidget(title)
-
-        subtitle = QLabel(
-            "Practical notes for BonkScanner's main features, common workflows, and non-obvious behavior."
+        layout = dialog_body(
+            self,
+            title="Quick Help",
+            subtitle=(
+                "Practical notes on the main features, common workflows and "
+                "the behaviour that is not obvious."
+            ),
+            width=DIALOG_WIDE,
+            height=DIALOG_TALL,
         )
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: #AAB4C4; background: transparent;")
-        layout.addWidget(subtitle)
 
         tabs = QTabWidget()
         tabs.addTab(self._build_language_tab("docs/help/help_eng.txt", self._fallback_eng_text()), "ENG")
@@ -807,12 +742,9 @@ class HelpDialog(QDialog):
         tabs.addTab(self._build_language_tab("docs/help/help_ru.txt", self._fallback_ru_text()), "RU")
         layout.addWidget(tabs, 1)
 
-        button_row = QHBoxLayout()
-        button_row.addStretch(1)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        button_row.addWidget(close_btn)
-        layout.addLayout(button_row)
+        dialog_footer(self, secondary=close_btn)
 
     def _build_language_tab(self, relative_path: str, fallback_text: str) -> QWidget:
         tab = QWidget()
@@ -935,11 +867,13 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.master = master or parent
         self.setWindowTitle("Settings")
-        self.resize(440, 420)
         self.setModal(True)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 14, 12, 14)
-        layout.setSpacing(14)
+        layout = dialog_body(
+            self,
+            title="Settings",
+            subtitle="Hotkeys, capture intervals and what the app reminds you about.",
+            width=DIALOG_REGULAR,
+        )
 
         form_layout = QFormLayout()
         form_layout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -992,18 +926,7 @@ class SettingsDialog(QDialog):
         )
         layout.addWidget(self.show_obs_reminder_on_start_scanner_var)
 
-        button_row = QVBoxLayout()
-        button_row.setSpacing(10)
-        self.update_btn = QPushButton("Check for Updates")
-        self.update_btn.clicked.connect(self.check_update)
-        self.save_btn = QPushButton("Save")
-        self.save_btn.setObjectName("primary")
-        self.save_btn.clicked.connect(self.save)
-        button_row.addWidget(self.update_btn)
-        button_row.addWidget(self.save_btn)
-        layout.addLayout(button_row)
-
-        layout.addSpacing(6)
+        layout.addStretch(1)
 
         support_divider = QFrame()
         support_divider.setObjectName("SupportDivider")
@@ -1059,6 +982,19 @@ class SettingsDialog(QDialog):
         support_button_row.addWidget(self.github_btn)
         support_button_row.addWidget(self.discord_btn)
         layout.addLayout(support_button_row)
+
+        # Save is a footer button like every other dialog's, rather than a
+        # full-width bar stacked above the support block -- which put the
+        # window's primary action in its middle, with donation links under it.
+        self.update_btn = QPushButton("Check for Updates")
+        self.update_btn.clicked.connect(self.check_update)
+        self.save_btn = QPushButton("Save")
+        self.save_btn.clicked.connect(self.save)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        dialog_footer(
+            self, primary=self.save_btn, secondary=cancel_btn, leading=self.update_btn
+        )
 
     def _sync_support_button_sizes(self):
         buttons = [self.patreon_btn, self.kofi_btn, self.github_btn, self.discord_btn]
@@ -1211,15 +1147,19 @@ class TwitchCommandSettingsDialog(QDialog):
         super().__init__(parent)
         self.master = master or parent
         self.setWindowTitle("Twitch Command Settings")
-        self.resize(700, 760)
-        self.setMinimumSize(640, 680)
         self.setModal(True)
 
         self.stat_checkboxes: dict[str, QCheckBox] = {}
         self.templates_entries: dict[str, QLineEdit] = {}
         self._init_guard = True
 
-        outer_layout = QVBoxLayout(self)
+        outer_layout = dialog_body(
+            self,
+            title="Twitch Command Settings",
+            subtitle="What each command answers with, and what the bot says on its own.",
+            width=DIALOG_WIDE,
+            height=DIALOG_TALL,
+        )
 
         self.tabs = QTabWidget()
         outer_layout.addWidget(self.tabs, 1)
@@ -1523,22 +1463,15 @@ class TwitchCommandSettingsDialog(QDialog):
         ann_scroll_layout.addStretch(1)
         self.tabs.addTab(tab_announcers, "Announcers")
 
-        # 3. Sticky action buttons
-        button_row = QHBoxLayout()
-        button_row.setContentsMargins(0, 10, 0, 0)
         reset_btn = QPushButton("Reset to Defaults")
-        reset_btn.setObjectName("danger")
         reset_btn.clicked.connect(self.reset_to_defaults)
-
         save_btn = QPushButton("Save Settings")
-        save_btn.setObjectName("primary")
         save_btn.clicked.connect(self.save)
-
-        button_row.addWidget(reset_btn)
-        button_row.addStretch(1)
-        button_row.addWidget(save_btn)
-
-        outer_layout.addLayout(button_row)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        dialog_footer(
+            self, primary=save_btn, secondary=cancel_btn, destructive=reset_btn
+        )
 
         self._init_guard = False
 

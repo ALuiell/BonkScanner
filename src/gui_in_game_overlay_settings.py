@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from app import config
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
 from ui.run_toggle import IN_GAME_OVERLAY_CAPTIONS
+from ui.dialogs.shell import DIALOG_REGULAR, dialog_body, dialog_footer
 from ui.settings_card import SettingsCard, build_workspace
 from ui.shared import LabeledSwitch, _make_scroll_section
 from ui.styles import _set_widget_style_role
@@ -83,12 +84,13 @@ class InGameWidgetSettingsDialog(QDialog):
         super().__init__(parent)
         self.parent_mixin = parent_mixin
         self.setWindowTitle("Stats shown by the Stats widget")
-        self.resize(560, 300)
-        self.setMinimumSize(520, 260)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
+        layout = dialog_body(
+            self,
+            title="Stats widget",
+            subtitle="Which stats the in-game Stats widget shows. None selected falls back to four.",
+            width=DIALOG_REGULAR,
+        )
 
         grid_widget = QWidget()
         grid_layout = QGridLayout(grid_widget)
@@ -109,16 +111,11 @@ class InGameWidgetSettingsDialog(QDialog):
         layout.addWidget(grid_widget)
         layout.addStretch(1)
 
-        buttons = QHBoxLayout()
         self.stats_reset_btn = QPushButton("Reset to Default Stats")
         self.stats_reset_btn.clicked.connect(self._reset_stats_to_default)
-        buttons.addWidget(self.stats_reset_btn)
-        buttons.addStretch(1)
         close_btn = QPushButton("Close")
-        close_btn.setObjectName("primary")
         close_btn.clicked.connect(self.accept)
-        buttons.addWidget(close_btn)
-        layout.addLayout(buttons)
+        dialog_footer(self, primary=close_btn, destructive=self.stats_reset_btn)
 
     def _reset_stats_to_default(self) -> None:
         default_stats = set(config.DEFAULT_IN_GAME_OVERLAY["widgets"]["stats"]["selected_stats"])

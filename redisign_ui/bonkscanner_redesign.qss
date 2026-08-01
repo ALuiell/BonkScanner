@@ -1267,24 +1267,36 @@ QTabWidget#CompareRunsTabs QTabBar::tab:selected {
    кнопки поддержки — свои фирменные цвета. Перенесены сюда, в палитру
    редизайна, а не скопированы старыми значениями. */
 
-/* Карточка предупреждения (Auto-Reroll, напоминание про запись OBS).
-   Янтарь тот же, что у бейджа шапки в состоянии warn, чтобы «внимание» во
-   всей программе читалось одним цветом. */
+/* Карточка «прочти это» (Auto-Reroll, напоминание про запись OBS). Тот же
+   инфо-синий и та же полоска слева, что у `tipCard` на вкладках OBS и
+   In-game: это один и тот же жест, и третьего вида для него не нужно.
+
+   Не янтарь, хотя объект и называется Warning: ни одно из двух окон ни о чём
+   не предупреждает — первое объясняет, для чего кнопка, второе напоминает
+   включить запись. Янтарь в программе значит «состояние не в порядке» (бейдж
+   warn, причина выключенной кнопки в picker'е), и раздавать его пояснениям
+   значит стирать этот сигнал.
+
+   И не акцентный #2F6FB0: это цвет кнопки OK внутри самой карточки. */
 QFrame#WarningCard {
-    background-color: rgba(250, 204, 21, 0.07);
-    border: 1px solid #5A4A12;
+    background-color: rgba(56, 189, 248, 0.06);
+    border: 1px solid #1E4A63;
+    border-left: 3px solid #38BDF8;
     border-radius: 12px;
 }
 QLabel#WarningTitle {
-    color: #FACC15;
+    color: #38BDF8;
     background: transparent;
     font-size: 16px;
     font-weight: 800;
 }
 
 /* Блок поддержки внизу настроек. */
+/* Заголовок, а не сигнал: цвет обычной шапки. Золотым он был в старом листе
+   и по той же причине снят, что и янтарь выше -- цвет здесь ничего не
+   сообщает, а четыре кнопки под ним свои цвета несут сами. */
 QLabel#SupportSectionLabel {
-    color: #FACC15;
+    color: #B9C2CE;
     background: transparent;
     font-size: 13px;
     font-weight: 700;
@@ -1347,3 +1359,42 @@ QMessageBox QLabel {
 QMessageBox QPushButton {
     min-width: 84px;
 }
+
+/* =============================================== общий каркас модальных окон ==
+   `ui/dialogs/shell.py`. До него у четырнадцати окон не совпадало ничего:
+   ширины 223…760 без шкалы, у половины не было заголовка внутри окна, кнопки
+   у одних лежали вплотную к рамке, у других с отступом. По отдельности это не
+   видно — видно на паре открытых подряд окон. */
+QLabel#dialogTitle {
+    color: #EDF1F5;
+    background: transparent;
+    font-size: 15px;
+    font-weight: 700;
+}
+QLabel#dialogSubtitle {
+    color: #8A94A3;
+    background: transparent;
+    font-size: 12px;
+}
+/* Линейка под шапкой — тот же приём, что у карточки настроек: не отдельный
+   QFrame с рамкой, а полоса в один пиксель. */
+QFrame#dialogHeadRule {
+    background-color: #1B222B;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+}
+QWidget#dialogHead, QWidget#dialogFooter { background: transparent; }
+/* Одинаковая минимальная ширина: иначе кнопка «OK» вдвое уже «Cancel» рядом,
+   и пара читается как разные по весу. */
+QWidget#dialogFooter QPushButton { min-width: 96px; }
+QLabel#dialogNote { color: #5C6675; background: transparent; font-size: 12px; }
+/* То, о чём спрашивает окно, — имя записи в «удалить запись?». Не заголовок и
+   не подпись: это данные, и их читают. */
+QLabel#dialogSubject {
+    color: #EDF1F5;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 600;
+}
+QLabel#dialogCardText { background: transparent; color: #EDF1F5; font-size: 13px; }
