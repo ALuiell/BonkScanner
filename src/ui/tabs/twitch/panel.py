@@ -337,6 +337,7 @@ class TwitchTab:
         form.setVerticalSpacing(8)
 
         account_row = QWidget()
+        account_row.setObjectName("fieldRow")
         # Capped so the field inside it lands on exactly `_FIELD_MAX_WIDTH`, in
         # line with the two fields under it. Capping the field alone is not
         # enough: it shares the row's surplus with the suffix, so it stopped 84px
@@ -375,6 +376,7 @@ class TwitchTab:
         form.addRow("Access tier:", self._tier_combo)
 
         cooldown_row = QWidget()
+        cooldown_row.setObjectName("fieldRow")
         cooldown_layout = QHBoxLayout(cooldown_row)
         cooldown_layout.setContentsMargins(0, 0, 0, 0)
         cooldown_layout.setSpacing(8)

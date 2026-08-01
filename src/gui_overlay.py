@@ -77,6 +77,17 @@ OVERLAY_WIDGET_LABELS = {
     "luck_rarity": "Luck",
 }
 
+#: How wide the URL row's field and the widget picker beside it may get. The
+#: longest URL this field ever holds is the single-widget one -- about 55
+#: characters -- and it reads at this width with room over. The cards run the
+#: full width of the tab now, so without a cap here the field would follow them
+#: and hold a 55-character URL in 1300px.
+_URL_MAX_WIDTH = 560
+
+#: The width of the whole URL row -- its label, the capped field and the Copy
+#: button. The mode picker above it is held to this so the two line up.
+_SOURCE_ROW_MAX_WIDTH = 690
+
 OVERLAY_KPS_METRIC_LABELS = (
     ("current", "Current KPS"),
     ("minute_avg", "60s Avg"),
@@ -182,7 +193,12 @@ class Overlay:
 
         layout.addWidget(self._build_hero())
 
-        main_column, side_column = build_workspace(layout, rail_width=OBS_RAIL_WIDTH)
+        # Full width, like the other two streaming tabs. The rail keeps its own
+        # fixed width, so what the outer cap used to hold back is the URL row --
+        # and that is capped where it belongs now, on the field itself.
+        main_column, side_column = build_workspace(
+            layout, rail_width=OBS_RAIL_WIDTH, max_width=None
+        )
 
         self._build_source_card(main_column)
         self._build_widgets_card(main_column)
@@ -248,13 +264,24 @@ class Overlay:
             disable_inactive=False,
         )
         self.overlay_source_mode_toggle.activated.connect(self._on_overlay_source_mode)
-        card.body.addWidget(self.overlay_source_mode_toggle)
+        # Held to the width of the URL row under it, so the card reads as one
+        # block of controls rather than a full-bleed banner over a short field.
+        # A row with a trailing stretch rather than `setMaximumWidth` alone: a
+        # widget narrower than its cell in a `QVBoxLayout` gets centred, which
+        # would leave it lined up with nothing.
+        self.overlay_source_mode_toggle.setMaximumWidth(_SOURCE_ROW_MAX_WIDTH)
+        mode_row = QHBoxLayout()
+        mode_row.setContentsMargins(0, 0, 0, 0)
+        mode_row.addWidget(self.overlay_source_mode_toggle, 1)
+        mode_row.addStretch(1)
+        card.body.addLayout(mode_row)
 
         # The widget picker the mock dropped. Without it "Single widget" names a
         # mode but not a widget, and the field below has nothing to put in the
         # URL. Hidden in full-overlay mode rather than disabled: it is not a
         # choice that exists there.
         self.overlay_widget_url_row = QWidget()
+        self.overlay_widget_url_row.setObjectName("fieldRow")
         widget_row = QHBoxLayout(self.overlay_widget_url_row)
         widget_row.setContentsMargins(0, 0, 0, 0)
         widget_row.setSpacing(8)
@@ -265,7 +292,9 @@ class Overlay:
         self.overlay_widget_url_combo.currentIndexChanged.connect(
             lambda _index: self.refresh_overlay_ui()
         )
+        self.overlay_widget_url_combo.setMaximumWidth(_URL_MAX_WIDTH)
         widget_row.addWidget(self.overlay_widget_url_combo, 1)
+        widget_row.addStretch(1)
         self.overlay_widget_url_row.setVisible(False)
         card.body.addWidget(self.overlay_widget_url_row)
 
@@ -278,12 +307,17 @@ class Overlay:
         # decides which URL belongs here.
         self.overlay_url_entry = QLineEdit()
         self.overlay_url_entry.setReadOnly(True)
+        self.overlay_url_entry.setMaximumWidth(_URL_MAX_WIDTH)
         url_row.addWidget(self.overlay_url_entry, 1)
         copy_btn = QPushButton("Copy")
         copy_btn.clicked.connect(
             lambda: self._copy_to_clipboard(self.overlay_url_entry.text(), copy_btn)
         )
         url_row.addWidget(copy_btn)
+        # Keeps Copy against the field. Without it the button takes the surplus
+        # the capped field refuses and ends up sitting at the far edge of the
+        # card, a screen away from what it copies.
+        url_row.addStretch(1)
         card.body.addLayout(url_row)
 
         port_row = QHBoxLayout()

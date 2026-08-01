@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -230,6 +231,7 @@ def _build_igo_layout_card(parent_mixin: Any, column) -> None:
     form.setVerticalSpacing(8)
 
     hotkey_row = QWidget()
+    hotkey_row.setObjectName("fieldRow")
     hotkey_layout = QHBoxLayout(hotkey_row)
     hotkey_layout.setContentsMargins(0, 0, 0, 0)
     hotkey_layout.setSpacing(8)
@@ -239,16 +241,11 @@ def _build_igo_layout_card(parent_mixin: Any, column) -> None:
         lambda: _save_in_game_overlay_hotkey(parent_mixin)
     )
     hotkey_layout.addWidget(parent_mixin.igo_hotkey_entry)
-    # Says the whole thing, because the tip card that used to say it is gone.
-    # Everything it carried was already here or in the card's sub-line except
-    # "or Esc", which is the one part this line did not have.
-    hotkey_layout.addWidget(
-        QLabel("press it again — or Esc — to save and exit", hotkey_row)
-    )
     hotkey_layout.addStretch(1)
     form.addRow("Edit hotkey:", hotkey_row)
 
     window_row = QWidget()
+    window_row.setObjectName("fieldRow")
     window_layout = QHBoxLayout(window_row)
     window_layout.setContentsMargins(0, 0, 0, 0)
     window_layout.setSpacing(8)
@@ -264,8 +261,54 @@ def _build_igo_layout_card(parent_mixin: Any, column) -> None:
     window_layout.addWidget(parent_mixin.igo_target_window_label)
     form.addRow("Target window:", window_row)
 
-    card.body.addLayout(form)
+    # The form takes the width it needs and the tip takes the right-hand end of
+    # the same card. Card 1 has two short rows in it; stretched across the tab it
+    # was two thirds empty, and that empty third is the only piece of this tab
+    # with nothing to do. A tip beside them costs no height at all -- the card is
+    # already as tall as the form.
+    body = QHBoxLayout()
+    body.setContentsMargins(0, 0, 0, 0)
+    body.setSpacing(16)
+    body.addLayout(form, 0)
+    body.addStretch(1)
+    body.addWidget(_build_igo_tip(parent_mixin), 0, Qt.AlignTop)
+
+    card.body.addLayout(body)
     column.addWidget(card)
+
+
+#: How wide the tip beside card 1's form is allowed to be. Three lines at this
+#: width; letting it size itself put the whole sentence on one line running the
+#: width of the tab, which is the shape the OBS tip was widened out of.
+_TIP_WIDTH = 380
+
+
+def _build_igo_tip(parent_mixin: Any) -> QFrame:
+    """The layout-mode hint, back in card 1 rather than in a rail of its own.
+
+    It went when the rail did, on the grounds that the sentence beside the
+    hotkey field said the same thing. That sentence is gone now: with layout
+    mode reachable only by hotkey, this is the only place the app explains how
+    to get into it, and it names the key -- so `refresh_in_game_overlay_hotkey_ui`
+    has to re-render it whenever the key changes, from either editor.
+    """
+    tip = QFrame()
+    tip.setObjectName("tipCard")
+    tip.setProperty("tipCard", "true")
+    tip.setFixedWidth(_TIP_WIDTH)
+    tip_layout = QVBoxLayout(tip)
+    tip_layout.setContentsMargins(12, 11, 12, 11)
+    tip_layout.setSpacing(4)
+
+    title = QLabel("◎ LAYOUT SHORTCUT", tip)
+    title.setObjectName("tipCardTitle")
+    tip_layout.addWidget(title)
+
+    parent_mixin.igo_tip_label = QLabel("", tip)
+    parent_mixin.igo_tip_label.setObjectName("tipCardText")
+    parent_mixin.igo_tip_label.setWordWrap(True)
+    tip_layout.addWidget(parent_mixin.igo_tip_label)
+    return tip
 
 
 def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
@@ -428,6 +471,7 @@ def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
 
 def _options_row() -> tuple[QWidget, QHBoxLayout]:
     holder = QWidget()
+    holder.setObjectName("fieldRow")
     row = QHBoxLayout(holder)
     row.setContentsMargins(0, 0, 0, 0)
     row.setSpacing(10)
@@ -464,9 +508,12 @@ def refresh_in_game_overlay_hotkey_ui(parent_mixin: Any) -> None:
         entry.blockSignals(True)
         entry.setText(hotkey)
         entry.blockSignals(False)
-    # The tip card this used to re-render is gone; the field is the only place
-    # the key is shown now, and the sentence beside it does not name the key, so
-    # it needs no refresh of its own.
+    tip = getattr(parent_mixin, "igo_tip_label", None)
+    if tip is not None:
+        tip.setText(
+            f"Press <b>{hotkey}</b> to enter layout mode. Drag the widgets over "
+            f"the game, then press <b>{hotkey}</b> or <b>Esc</b> to save and exit."
+        )
 
 
 def _save_in_game_overlay_hotkey(parent_mixin: Any) -> None:
