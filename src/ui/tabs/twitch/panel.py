@@ -96,6 +96,22 @@ _COMMAND_DEFAULTS = {
     "disabled": False,
 }
 
+#: Tiles per row. Sixteen commands over four columns is four full rows with no
+#: ragged tail -- and four is what keeps a tile the width it was before the
+#: cards went full-bleed.
+_COMMAND_COLUMNS = 4
+
+#: How wide an account field is allowed to get. Every value typed into this card
+#: is short -- a Twitch login, a channel name, an access tier -- so a field that
+#: follows the card to 1900px puts its `Authorized` suffix most of a screen away
+#: from the text it describes. This is the cap that replaces the workspace one.
+_FIELD_MAX_WIDTH = 460
+
+#: Room for the account field's one-word suffix. Fixed rather than sized to the
+#: text so the field beside it does not change length when `Authorized` appears
+#: and disappears.
+_SUFFIX_WIDTH = 72
+
 
 #: Which commands the chat preview shows, in order. Three, because the card is
 #: a spot-check on formatting rather than a transcript of the whole bot, and
@@ -214,14 +230,24 @@ class TwitchTab:
 
         twitch_layout.addWidget(self._build_hero())
 
-        main_column, side_column = build_workspace(twitch_layout)
+        # No outer cap: the cards run the full width of the tab. What the cap
+        # used to protect against -- a row's two ends drifting half a screen
+        # apart -- is handled inside the cards instead, by `_FIELD_MAX_WIDTH` on
+        # the account fields and by a fourth tile column.
+        main_column, side_column = build_workspace(twitch_layout, max_width=None)
 
         self._build_account_card(main_column)
         self._build_commands_card(main_column)
-        self._build_announcements_card(main_column)
         main_column.addStretch(1)
 
         self._build_preview_card(side_column)
+        # Announcements sits in the rail, beside the tiles rather than under
+        # them. It is two checkboxes -- the widest is 271px, so it fits the
+        # 348px rail with room to spare -- and as a full-width card of its own it
+        # cost ~90px of height for two lines of content. Moving it here is what
+        # gets the whole tab onto one screen in a small window: that ~90px plus
+        # the two grid rows the fourth tile column removes.
+        self._build_announcements_card(side_column)
         side_column.addStretch(1)
 
         twitch_layout.addStretch(1)
@@ -277,6 +303,12 @@ class TwitchTab:
         form.setVerticalSpacing(8)
 
         account_row = QWidget()
+        # Capped so the field inside it lands on exactly `_FIELD_MAX_WIDTH`, in
+        # line with the two fields under it. Capping the field alone is not
+        # enough: it shares the row's surplus with the suffix, so it stopped 84px
+        # short of its own cap in a 1320 window and reached it only at 1920 --
+        # a field that changes length with the window is worse than a short one.
+        account_row.setMaximumWidth(_FIELD_MAX_WIDTH + 8 + _SUFFIX_WIDTH)
         account_layout = QHBoxLayout(account_row)
         account_layout.setContentsMargins(0, 0, 0, 0)
         account_layout.setSpacing(8)
@@ -290,10 +322,12 @@ class TwitchTab:
         # a usable token.
         self._account_suffix = QLabel("")
         self._account_suffix.setObjectName("fieldSuffix")
+        self._account_suffix.setFixedWidth(_SUFFIX_WIDTH)
         account_layout.addWidget(self._account_suffix)
         form.addRow("Twitch account:", account_row)
 
         self._target_channel_entry = QLineEdit()
+        self._target_channel_entry.setMaximumWidth(_FIELD_MAX_WIDTH)
         self._target_channel_entry.setPlaceholderText(
             config.TWITCH_BOT.get("username") or "Authorized account"
         )
@@ -301,6 +335,7 @@ class TwitchTab:
         form.addRow("Target channel:", self._target_channel_entry)
 
         self._tier_combo = QComboBox()
+        self._tier_combo.setMaximumWidth(_FIELD_MAX_WIDTH)
         self._tier_combo.addItems(["Everyone", "Mods & VIPs", "Subs & Mods"])
         self._tier_combo.setCurrentText(config.TWITCH_BOT.get("access_tier", "Everyone"))
         form.addRow("Access tier:", self._tier_combo)
@@ -340,11 +375,15 @@ class TwitchTab:
         grid = QGridLayout()
         grid.setSpacing(8)
         grid.setContentsMargins(0, 0, 0, 0)
+        # Four columns, not three, now that the card is full width: sixteen
+        # commands divide into exactly four rows, and a fourth column keeps a
+        # tile near the ~390px it had under the old cap instead of letting each
+        # one stretch to ~510 and push its switch that far from its name.
         for index, key in enumerate(_COMMAND_KEYS):
             tile = ModuleTile(f"!{key}")
             tile.setChecked(command_checked(commands, key))
             self._command_cbs[key] = tile
-            grid.addWidget(tile, index // 3, index % 3)
+            grid.addWidget(tile, index // _COMMAND_COLUMNS, index % _COMMAND_COLUMNS)
         card.body.addLayout(grid)
 
         column.addWidget(card)
