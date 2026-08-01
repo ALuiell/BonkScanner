@@ -11,31 +11,32 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QSpinBox,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from app import config
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
-from ui.module_tile import ModuleTile
 from ui.run_toggle import IN_GAME_OVERLAY_CAPTIONS
 from ui.settings_card import SettingsCard, build_workspace
-from ui.shared import _make_scroll_section
+from ui.shared import LabeledSwitch, _make_scroll_section
 from ui.styles import _set_widget_style_role
 from ui.tab_hero import STATE_OFF, STATE_OK, STATE_WARN, TabHero
 
-#: The seven in-game widgets, in grid order, with the label each tile carries.
-#: The mock merged `stats` and `event_timer` into one tile; they are two
-#: independent config keys and `_on_igo_settings_changed` writes both, so
-#: merging them would have taken away "timer without stats".
-IN_GAME_WIDGET_TILES = (
+#: The seven in-game widgets, in table order, with the label each row carries
+#: and the attribute its enable toggle is stored under.
+#:
+#: Named for rows rather than tiles because that is what they are now: the
+#: on/off grid and the scale dialog merged into one table, so a widget is one
+#: line rather than a tile here and a group box over there. The mock merged
+#: `stats` and `event_timer` into a single entry; they are two independent
+#: config keys, and merging them would have taken away "timer without stats".
+IN_GAME_WIDGET_ROWS = (
     ("scanner", "Scanner status", "igo_scanner_cb"),
     ("recording", "Recording status", "igo_recording_cb"),
     ("kps", "KPS", "igo_kps_cb"),
@@ -46,239 +47,58 @@ IN_GAME_WIDGET_TILES = (
 )
 
 
-#: Which attribute each widget's scale spin box is stored under. `_save_settings`
-#: reads all seven by name, so the table builder and the saver need one list
-#: rather than two hand-kept copies.
-_SCALE_SPIN_ATTRIBUTES = {
-    "scanner": "scanner_scale_spin",
-    "recording": "recording_scale_spin",
-    "kps": "kps_scale_spin",
-    "powerups": "powerups_scale_spin",
-    "luck_rarity": "luck_rarity_scale_spin",
-    "stats": "stats_scale_spin",
-    "event_timer": "event_timer_scale_spin",
+#: Which attribute each widget's scale spin box is stored under. The table
+#: builder writes them and `_on_igo_settings_changed` reads all seven back by
+#: name, so the two need one list rather than two hand-kept copies -- a rename
+#: on one side alone is a setting that silently stops saving.
+#: `igo_`-prefixed like every other widget this builder writes onto the
+#: component, which is what the enable toggles beside them are already called.
+#: The bare names these carried came from the dialog, where the prefix would
+#: have been noise; on the component it is the convention.
+IGO_SCALE_SPIN_ATTRIBUTES = {
+    "scanner": "igo_scanner_scale_spin",
+    "recording": "igo_recording_scale_spin",
+    "kps": "igo_kps_scale_spin",
+    "powerups": "igo_powerups_scale_spin",
+    "luck_rarity": "igo_luck_rarity_scale_spin",
+    "stats": "igo_stats_scale_spin",
+    "event_timer": "igo_event_timer_scale_spin",
 }
 
 
 class InGameWidgetSettingsDialog(QDialog):
+    """The stats picker, and only that.
+
+    It used to hold every widget's scale and flags as well. Those are a table on
+    the tab now -- they were always about the same seven widgets, and keeping
+    half of them behind a modal only paid while that modal was a 700x760 window
+    with tabs of its own. What is left is the one thing that does not fit a
+    table row: fourteen checkboxes and a reset.
+
+    The name is unchanged because `InGameOverlay` takes it as an injected
+    default and the tab reaches it through `_open_igo_widget_settings_dialog`.
+    """
+
     def __init__(self, parent_mixin: Any, parent: QWidget | None = None):
         super().__init__(parent)
         self.parent_mixin = parent_mixin
-        self.setWindowTitle("In-Game Widgets Configuration")
-        # Two thirds of the old height: seven rows need far less room than the
-        # six group boxes they replace.
-        #
-        # The minimum *width* is the table's own, measured rather than guessed.
-        # Set below it the widget table overflows by a pixel or two, a horizontal
-        # scrollbar appears, that steals height, and a vertical one appears after
-        # it -- which is exactly the pair of bars the old dialog had along its
-        # edges at its 640px minimum.
-        self.resize(720, 540)
-        self.setMinimumSize(680, 430)
+        self.setWindowTitle("Stats shown by the Stats widget")
+        self.resize(560, 300)
+        self.setMinimumSize(520, 260)
 
-        main_layout = QVBoxLayout(self)
-
-        self.tabs = QTabWidget()
-        main_layout.addWidget(self.tabs, 1)
-
-        self.basic_tab = QWidget()
-        basic_layout = QVBoxLayout(self.basic_tab)
-        basic_scroll, _basic_content, basic_scroll_layout = _make_scroll_section()
-        basic_scroll_layout.setSpacing(12)
-        basic_layout.addWidget(basic_scroll)
-        self.tabs.addTab(self.basic_tab, "Widgets")
-
-        self.advanced_tab = QWidget()
-        advanced_layout = QVBoxLayout(self.advanced_tab)
-        advanced_scroll, _advanced_content, advanced_scroll_layout = _make_scroll_section()
-        advanced_scroll_layout.setSpacing(12)
-        advanced_layout.addWidget(advanced_scroll)
-        self.tabs.addTab(self.advanced_tab, "Stats")
-
-        # Advanced first: the widgets table's Stats row reports how many stats
-        # the picker has selected, so the picker has to exist before it asks.
-        self._init_advanced_layout(advanced_scroll_layout)
-        self._init_widgets_table(basic_scroll_layout)
-
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch(1)
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.accept)
-        btn_layout.addWidget(close_btn)
-        main_layout.addLayout(btn_layout)
-
-    def _init_widgets_table(self, layout) -> None:
-        """One row per widget: name, scale, its own options.
-
-        Replaces six group boxes each wrapping a single spin box. That shape
-        spent most of the dialog's height on frames around one number, and it
-        made two widgets with nothing but a scale look as substantial as the one
-        with four metric toggles. A row says what a widget actually has.
-
-        Anything that cannot fit a row stays out of it. The stats picker is
-        fourteen checkboxes and belongs on Advanced; the row links there rather
-        than flattening it in.
-        """
-        table = QGridLayout()
-        table.setHorizontalSpacing(14)
-        table.setVerticalSpacing(6)
-        table.setColumnStretch(2, 1)
-
-        for column, title in enumerate(("Widget", "Scale", "Options")):
-            header = QLabel(title)
-            header.setObjectName("tableHeader")
-            table.addWidget(header, 0, column)
-
-        row = 1
-        for widget_id, label, _attribute in IN_GAME_WIDGET_TILES:
-            name = QLabel(label)
-            name.setObjectName("tableRowName")
-            table.addWidget(name, row, 0)
-            table.addWidget(self._scale_spin(widget_id), row, 1)
-
-            options = self._widget_options(widget_id)
-            if options is not None:
-                table.addWidget(options, row, 2)
-            else:
-                dash = QLabel("—")
-                dash.setObjectName("tableRowEmpty")
-                table.addWidget(dash, row, 2)
-            row += 1
-
-        layout.addLayout(table)
-        layout.addStretch(1)
-
-    def _scale_spin(self, widget_id: str) -> QDoubleSpinBox:
-        """The one control every widget has. Named per widget for `_save_settings`."""
-        spin = QDoubleSpinBox()
-        spin.setRange(0.5, 3.0)
-        spin.setSingleStep(0.1)
-        spin.setMaximumWidth(88)
-        spin.setValue(config.IN_GAME_OVERLAY["widgets"][widget_id].get("scale", 1.0))
-        spin.valueChanged.connect(self._save_settings)
-        setattr(self, _SCALE_SPIN_ATTRIBUTES[widget_id], spin)
-        return spin
-
-    def _widget_options(self, widget_id: str) -> QWidget | None:
-        """Whatever else this widget has, on one line, or `None` for nothing."""
-        if widget_id == "kps":
-            holder = QWidget()
-            row = QHBoxLayout(holder)
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(10)
-            selected = set(config.IN_GAME_OVERLAY["widgets"]["kps"].get("metrics", ["instant"]))
-            for attribute, caption, key in (
-                ("kps_instant_cb", "KPS", "instant"),
-                ("kps_60s_cb", "60s", "60s"),
-                ("kps_5m_cb", "5m", "5m"),
-                ("kps_run_cb", "Run", "run"),
-            ):
-                checkbox = _build_checkbox(caption, key in selected, self._save_settings)
-                setattr(self, attribute, checkbox)
-                row.addWidget(checkbox)
-            row.addStretch(1)
-            return holder
-
-        if widget_id == "luck_rarity":
-            holder = QWidget()
-            row = QHBoxLayout(holder)
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(10)
-            settings = config.IN_GAME_OVERLAY["widgets"]["luck_rarity"]
-            self.luck_rarity_show_bar_cb = _build_checkbox(
-                "Bar", bool(settings.get("show_bar", True)), self._save_settings
-            )
-            row.addWidget(self.luck_rarity_show_bar_cb)
-            # Independent of the bar, not nested under it: all four combinations
-            # are valid, and the block anchors to the percentage row, which is
-            # always drawn.
-            self.luck_rarity_show_expected_cb = _build_checkbox(
-                "Expected", bool(settings.get("show_expected", False)), self._save_settings
-            )
-            self.luck_rarity_show_expected_cb.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
-            row.addWidget(self.luck_rarity_show_expected_cb)
-            self.luck_rarity_expected_layout_combo = QComboBox()
-            for caption, value in (("Column", "column"), ("Row", "row")):
-                self.luck_rarity_expected_layout_combo.addItem(caption, value)
-            self.luck_rarity_expected_layout_combo.setCurrentIndex(
-                max(0, self.luck_rarity_expected_layout_combo.findData(
-                    settings.get("expected_layout", "column")))
-            )
-            self.luck_rarity_expected_layout_combo.setMaximumWidth(110)
-            self.luck_rarity_expected_layout_combo.currentIndexChanged.connect(self._save_settings)
-            row.addWidget(self.luck_rarity_expected_layout_combo)
-            row.addStretch(1)
-            return holder
-
-        if widget_id == "event_timer":
-            holder = QWidget()
-            row = QHBoxLayout(holder)
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(7)
-            row.addWidget(QLabel("Warn at"))
-            self.event_timer_warning_spin = QSpinBox()
-            self.event_timer_warning_spin.setRange(1, 300)
-            self.event_timer_warning_spin.setMaximumWidth(78)
-            self.event_timer_warning_spin.setValue(
-                config.IN_GAME_OVERLAY["widgets"]["event_timer"].get("warning_seconds", 15)
-            )
-            self.event_timer_warning_spin.setSuffix(" s")
-            self.event_timer_warning_spin.valueChanged.connect(self._save_settings)
-            row.addWidget(self.event_timer_warning_spin)
-            row.addStretch(1)
-            return holder
-
-        if widget_id == "stats":
-            holder = QWidget()
-            row = QHBoxLayout(holder)
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(7)
-            self.stats_pick_btn = QPushButton("Choose stats…")
-            self.stats_pick_btn.clicked.connect(
-                lambda: self.tabs.setCurrentWidget(self.advanced_tab)
-            )
-            row.addWidget(self.stats_pick_btn)
-            self.stats_summary_label = QLabel("")
-            self.stats_summary_label.setObjectName("tableRowEmpty")
-            row.addWidget(self.stats_summary_label)
-            row.addStretch(1)
-            self._refresh_stats_summary()
-            return holder
-
-        return None
-
-    def _refresh_stats_summary(self) -> None:
-        """How many stats the picker on Advanced currently has selected.
-
-        The count is what the row can hold, and it is the part worth seeing from
-        here: "none selected" is a real state -- the widget falls back to four
-        defaults -- and it is invisible if the row only offers a button.
-        """
-        label = getattr(self, "stats_summary_label", None)
-        if label is None:
-            return
-        chosen = getattr(self, "stats_checkboxes", None)
-        if not chosen:
-            selected = config.IN_GAME_OVERLAY["widgets"]["stats"].get("selected_stats") or []
-            count = len(selected)
-        else:
-            count = sum(1 for box in chosen.values() if box.isChecked())
-        label.setText(f"{count} selected" if count else "defaults")
-
-    def _init_advanced_layout(self, layout) -> None:
-        stats_group = QGroupBox("Stats shown by the Stats widget")
-        stats_layout = QVBoxLayout(stats_group)
-        stats_layout.setContentsMargins(16, 12, 16, 12)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
 
         grid_widget = QWidget()
         grid_layout = QGridLayout(grid_widget)
         grid_layout.setSpacing(10)
-        grid_layout.setContentsMargins(0, 4, 0, 8)
+        grid_layout.setContentsMargins(0, 0, 0, 0)
 
         selected_stats = set(config.IN_GAME_OVERLAY["widgets"]["stats"].get(
             "selected_stats", ["Damage", "Difficulty", "XP Gain", "Luck"]))
 
-        self.stats_checkboxes = {}
+        self.stats_checkboxes: dict[str, QCheckBox] = {}
         for index, label in enumerate(config.ALL_STAT_LABELS):
             cb = QCheckBox(label)
             cb.setChecked(label in selected_stats)
@@ -286,17 +106,19 @@ class InGameWidgetSettingsDialog(QDialog):
             self.stats_checkboxes[label] = cb
             grid_layout.addWidget(cb, index // 4, index % 4)
 
-        stats_layout.addWidget(grid_widget)
+        layout.addWidget(grid_widget)
+        layout.addStretch(1)
 
-        reset_btn_layout = QHBoxLayout()
+        buttons = QHBoxLayout()
         self.stats_reset_btn = QPushButton("Reset to Default Stats")
         self.stats_reset_btn.clicked.connect(self._reset_stats_to_default)
-        reset_btn_layout.addWidget(self.stats_reset_btn)
-        reset_btn_layout.addStretch(1)
-        stats_layout.addLayout(reset_btn_layout)
-
-        layout.addWidget(stats_group)
-        layout.addStretch(1)
+        buttons.addWidget(self.stats_reset_btn)
+        buttons.addStretch(1)
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("primary")
+        close_btn.clicked.connect(self.accept)
+        buttons.addWidget(close_btn)
+        layout.addLayout(buttons)
 
     def _reset_stats_to_default(self) -> None:
         default_stats = set(config.DEFAULT_IN_GAME_OVERLAY["widgets"]["stats"]["selected_stats"])
@@ -307,43 +129,21 @@ class InGameWidgetSettingsDialog(QDialog):
         self._save_settings()
 
     def _save_settings(self, *_args) -> None:
-        widgets = config.IN_GAME_OVERLAY["widgets"]
-        widgets["scanner"]["scale"] = self.scanner_scale_spin.value()
-        widgets["recording"]["scale"] = self.recording_scale_spin.value()
-        widgets["kps"]["scale"] = self.kps_scale_spin.value()
-        widgets["powerups"]["scale"] = self.powerups_scale_spin.value()
-        widgets["luck_rarity"]["scale"] = self.luck_rarity_scale_spin.value()
-        widgets["luck_rarity"]["show_bar"] = self.luck_rarity_show_bar_cb.isChecked()
-        widgets["luck_rarity"]["show_expected"] = self.luck_rarity_show_expected_cb.isChecked()
-        widgets["luck_rarity"]["expected_layout"] = (
-            self.luck_rarity_expected_layout_combo.currentData() or "column"
+        selected = [
+            label for label in config.ALL_STAT_LABELS
+            if self.stats_checkboxes[label].isChecked()
+        ]
+        # The empty list is not stored: the widget falls back to four defaults,
+        # and writing `[]` would make "I unticked everything" and "I never chose"
+        # the same saved state.
+        config.IN_GAME_OVERLAY["widgets"]["stats"]["selected_stats"] = (
+            selected or ["Damage", "Difficulty", "XP Gain", "Luck"]
         )
-        widgets["event_timer"]["scale"] = self.event_timer_scale_spin.value()
-        widgets["event_timer"]["warning_seconds"] = self.event_timer_warning_spin.value()
-        widgets["stats"]["scale"] = self.stats_scale_spin.value()
-        
-        selected_stats = []
-        for label in config.ALL_STAT_LABELS:
-            if label in self.stats_checkboxes and self.stats_checkboxes[label].isChecked():
-                selected_stats.append(label)
-        widgets["stats"]["selected_stats"] = selected_stats or ["Damage", "Difficulty", "XP Gain", "Luck"]
-        # The Stats row on the widgets tab reports this count; without the call
-        # it keeps whatever it said when the dialog opened.
-        self._refresh_stats_summary()
-
-        metrics = []
-        if self.kps_instant_cb.isChecked():
-            metrics.append("instant")
-        if self.kps_60s_cb.isChecked():
-            metrics.append("60s")
-        if self.kps_5m_cb.isChecked():
-            metrics.append("5m")
-        if self.kps_run_cb.isChecked():
-            metrics.append("run")
-        widgets["kps"]["metrics"] = metrics or ["instant"]
-
         self.parent_mixin.apply_in_game_overlay_settings()
         config.save_config(config.user_config)
+        # The Stats row on the tab reports this count; without the call it keeps
+        # whatever it said when the tab was built.
+        refresh_in_game_overlay_stats_summary(self.parent_mixin)
 
 
 def build_in_game_overlay_tab(parent_mixin: Any) -> None:
@@ -460,29 +260,176 @@ def _build_igo_layout_card(parent_mixin: Any, column) -> None:
 
 
 def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
-    parent_mixin.igo_widget_settings_btn = QPushButton("Widget Settings")
-    parent_mixin.igo_widget_settings_btn.clicked.connect(
-        parent_mixin._open_igo_widget_settings_dialog
-    )
+    """One table: what is on, how big it is, and whatever else it has.
+
+    This used to be a grid of on/off tiles with a `Widget Settings` button
+    opening a dialog that held the scales. The two halves were always about the
+    same seven widgets, and splitting them across a tab and a modal was worth it
+    only while that modal was a 700x760 window with tabs of its own. Once it
+    became a 639x348 table it fitted the tab with room to spare -- and the tab
+    had about 1560x580 of nothing in it.
+
+    The stats picker stays behind a button. Fourteen checkboxes is the one thing
+    here that genuinely does not fit a row.
+    """
     card = SettingsCard(
         number=2,
         title="In-game widgets",
-        subtitle="Scale and per-widget details live in settings.",
-        action=parent_mixin.igo_widget_settings_btn,
+        subtitle="What is shown over the game, how big, and with what.",
     )
 
-    grid = QGridLayout()
-    grid.setSpacing(8)
-    grid.setContentsMargins(0, 0, 0, 0)
-    for index, (widget_id, label, attribute) in enumerate(IN_GAME_WIDGET_TILES):
-        tile = ModuleTile(label)
-        tile.setChecked(bool(config.IN_GAME_OVERLAY["widgets"][widget_id]["enabled"]))
-        tile.stateChanged.connect(parent_mixin._on_igo_settings_changed)
-        setattr(parent_mixin, attribute, tile)
-        grid.addWidget(tile, index // 3, index % 3)
-    card.body.addLayout(grid)
+    table = QGridLayout()
+    table.setHorizontalSpacing(14)
+    table.setVerticalSpacing(7)
+    table.setColumnStretch(3, 1)
+    table.setContentsMargins(0, 0, 0, 0)
 
+    for index, title in enumerate(("Widget", "", "Scale", "Options")):
+        if not title:
+            continue
+        header = QLabel(title)
+        header.setObjectName("tableHeader")
+        table.addWidget(header, 0, index)
+
+    for row, (widget_id, label, attribute) in enumerate(IN_GAME_WIDGET_ROWS, start=1):
+        name = QLabel(label)
+        name.setObjectName("tableRowName")
+        table.addWidget(name, row, 0)
+
+        # `LabeledSwitch` with no caption: the name is already the first column,
+        # and the tab's `_on_igo_settings_changed` reads these back by attribute
+        # exactly as it read the tiles, so nothing downstream changes.
+        toggle = LabeledSwitch("")
+        toggle.setChecked(bool(config.IN_GAME_OVERLAY["widgets"][widget_id]["enabled"]))
+        toggle.stateChanged.connect(parent_mixin._on_igo_settings_changed)
+        setattr(parent_mixin, attribute, toggle)
+        table.addWidget(toggle, row, 1)
+
+        table.addWidget(_igo_scale_spin(parent_mixin, widget_id), row, 2)
+
+        options = _igo_widget_options(parent_mixin, widget_id)
+        if options is None:
+            options = QLabel("—")
+            options.setObjectName("tableRowEmpty")
+        table.addWidget(options, row, 3)
+
+    card.body.addLayout(table)
     column.addWidget(card)
+
+
+def _igo_scale_spin(parent_mixin: Any, widget_id: str) -> QDoubleSpinBox:
+    """The one control every widget has, named per widget for the saver."""
+    spin = QDoubleSpinBox()
+    spin.setRange(0.5, 3.0)
+    spin.setSingleStep(0.1)
+    spin.setMaximumWidth(88)
+    spin.setValue(config.IN_GAME_OVERLAY["widgets"][widget_id].get("scale", 1.0))
+    spin.valueChanged.connect(parent_mixin._on_igo_settings_changed)
+    setattr(parent_mixin, IGO_SCALE_SPIN_ATTRIBUTES[widget_id], spin)
+    return spin
+
+
+def _igo_widget_options(parent_mixin: Any, widget_id: str) -> QWidget | None:
+    """Whatever else a widget has, on one line, or `None` for nothing."""
+    if widget_id == "kps":
+        holder, row = _options_row()
+        selected = set(config.IN_GAME_OVERLAY["widgets"]["kps"].get("metrics", ["instant"]))
+        for attribute, caption, key in (
+            ("igo_kps_instant_cb", "KPS", "instant"),
+            ("igo_kps_60s_cb", "60s", "60s"),
+            ("igo_kps_5m_cb", "5m", "5m"),
+            ("igo_kps_run_cb", "Run", "run"),
+        ):
+            checkbox = _build_checkbox(caption, key in selected, parent_mixin._on_igo_settings_changed)
+            setattr(parent_mixin, attribute, checkbox)
+            row.addWidget(checkbox)
+        row.addStretch(1)
+        return holder
+
+    if widget_id == "luck_rarity":
+        holder, row = _options_row()
+        settings = config.IN_GAME_OVERLAY["widgets"]["luck_rarity"]
+        parent_mixin.igo_luck_bar_cb = _build_checkbox(
+            "Bar", bool(settings.get("show_bar", True)), parent_mixin._on_igo_settings_changed
+        )
+        row.addWidget(parent_mixin.igo_luck_bar_cb)
+        # Independent of the bar, not nested under it: all four combinations are
+        # valid, and the block anchors to the percentage row, which is always
+        # drawn.
+        parent_mixin.igo_luck_expected_cb = _build_checkbox(
+            "Expected", bool(settings.get("show_expected", False)),
+            parent_mixin._on_igo_settings_changed,
+        )
+        parent_mixin.igo_luck_expected_cb.setToolTip(LUCK_RARITY_MODEL_ATTRIBUTION)
+        row.addWidget(parent_mixin.igo_luck_expected_cb)
+        parent_mixin.igo_luck_layout_combo = QComboBox()
+        for caption, value in (("Column", "column"), ("Row", "row")):
+            parent_mixin.igo_luck_layout_combo.addItem(caption, value)
+        parent_mixin.igo_luck_layout_combo.setCurrentIndex(
+            max(0, parent_mixin.igo_luck_layout_combo.findData(
+                settings.get("expected_layout", "column")))
+        )
+        parent_mixin.igo_luck_layout_combo.setMaximumWidth(108)
+        parent_mixin.igo_luck_layout_combo.currentIndexChanged.connect(
+            parent_mixin._on_igo_settings_changed
+        )
+        row.addWidget(parent_mixin.igo_luck_layout_combo)
+        row.addStretch(1)
+        return holder
+
+    if widget_id == "event_timer":
+        holder, row = _options_row()
+        row.addWidget(QLabel("Warn at"))
+        parent_mixin.igo_event_warning_spin = QSpinBox()
+        parent_mixin.igo_event_warning_spin.setRange(1, 300)
+        parent_mixin.igo_event_warning_spin.setMaximumWidth(78)
+        parent_mixin.igo_event_warning_spin.setValue(
+            config.IN_GAME_OVERLAY["widgets"]["event_timer"].get("warning_seconds", 15)
+        )
+        parent_mixin.igo_event_warning_spin.setSuffix(" s")
+        parent_mixin.igo_event_warning_spin.valueChanged.connect(
+            parent_mixin._on_igo_settings_changed
+        )
+        row.addWidget(parent_mixin.igo_event_warning_spin)
+        row.addStretch(1)
+        return holder
+
+    if widget_id == "stats":
+        holder, row = _options_row()
+        parent_mixin.igo_widget_settings_btn = QPushButton("Choose stats…")
+        parent_mixin.igo_widget_settings_btn.clicked.connect(
+            parent_mixin._open_igo_widget_settings_dialog
+        )
+        row.addWidget(parent_mixin.igo_widget_settings_btn)
+        parent_mixin.igo_stats_summary_label = QLabel("")
+        parent_mixin.igo_stats_summary_label.setObjectName("tableRowEmpty")
+        row.addWidget(parent_mixin.igo_stats_summary_label)
+        row.addStretch(1)
+        refresh_in_game_overlay_stats_summary(parent_mixin)
+        return holder
+
+    return None
+
+
+def _options_row() -> tuple[QWidget, QHBoxLayout]:
+    holder = QWidget()
+    row = QHBoxLayout(holder)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(10)
+    return holder, row
+
+
+def refresh_in_game_overlay_stats_summary(parent_mixin: Any) -> None:
+    """How many stats the picker has selected, on the Stats row.
+
+    "None selected" is a real state -- the widget falls back to four defaults --
+    and a bare button would hide it.
+    """
+    label = getattr(parent_mixin, "igo_stats_summary_label", None)
+    if label is None:
+        return
+    selected = config.IN_GAME_OVERLAY["widgets"]["stats"].get("selected_stats") or []
+    label.setText(f"{len(selected)} selected" if selected else "defaults")
 
 
 def _build_igo_tip_card(parent_mixin: Any, column) -> None:

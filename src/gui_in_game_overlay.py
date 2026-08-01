@@ -44,6 +44,8 @@ from projections.in_game_html import (
 )
 from core.luck_rarity import resolve_luck_expected_status_text
 from gui_in_game_overlay_settings import (
+    IGO_SCALE_SPIN_ATTRIBUTES,
+    IN_GAME_WIDGET_ROWS,
     InGameWidgetSettingsDialog,
     build_in_game_overlay_tab,
     refresh_in_game_overlay_hotkey_ui,
@@ -531,15 +533,48 @@ class InGameOverlay:
         update_in_game_overlay_status_ui(self)
 
     def _on_igo_settings_changed(self, *_args) -> None:
+        """Save everything the widgets table holds.
+
+        It used to save only the seven enable toggles, because the scales and
+        per-widget flags lived in a modal with a saver of its own. They are
+        columns of the same table now, so there is one saver -- which is also
+        one less way for the two to disagree about what a widget's settings are.
+        """
         cfg = config.IN_GAME_OVERLAY
+        widgets = cfg["widgets"]
         cfg["auto_start"] = self.igo_auto_start_cb.isChecked()
-        cfg["widgets"]["scanner"]["enabled"] = self.igo_scanner_cb.isChecked()
-        cfg["widgets"]["recording"]["enabled"] = self.igo_recording_cb.isChecked()
-        cfg["widgets"]["kps"]["enabled"] = self.igo_kps_cb.isChecked()
-        cfg["widgets"]["powerups"]["enabled"] = self.igo_powerups_cb.isChecked()
-        cfg["widgets"]["luck_rarity"]["enabled"] = self.igo_luck_rarity_cb.isChecked()
-        cfg["widgets"]["stats"]["enabled"] = self.igo_stats_cb.isChecked()
-        cfg["widgets"]["event_timer"]["enabled"] = self.igo_event_timer_cb.isChecked()
+
+        for widget_id, _label, attribute in IN_GAME_WIDGET_ROWS:
+            widgets[widget_id]["enabled"] = getattr(self, attribute).isChecked()
+            spin = getattr(self, IGO_SCALE_SPIN_ATTRIBUTES[widget_id], None)
+            if spin is not None:
+                widgets[widget_id]["scale"] = spin.value()
+
+        metrics = [
+            key
+            for attribute, key in (
+                ("igo_kps_instant_cb", "instant"),
+                ("igo_kps_60s_cb", "60s"),
+                ("igo_kps_5m_cb", "5m"),
+                ("igo_kps_run_cb", "run"),
+            )
+            if getattr(self, attribute, None) is not None
+            and getattr(self, attribute).isChecked()
+        ]
+        # Never stored empty: the widget falls back to the instant reading, and
+        # an empty list would make "I unticked them all" indistinguishable from
+        # "I never chose".
+        widgets["kps"]["metrics"] = metrics or ["instant"]
+
+        if getattr(self, "igo_luck_bar_cb", None) is not None:
+            widgets["luck_rarity"]["show_bar"] = self.igo_luck_bar_cb.isChecked()
+            widgets["luck_rarity"]["show_expected"] = self.igo_luck_expected_cb.isChecked()
+            widgets["luck_rarity"]["expected_layout"] = (
+                self.igo_luck_layout_combo.currentData() or "column"
+            )
+        if getattr(self, "igo_event_warning_spin", None) is not None:
+            widgets["event_timer"]["warning_seconds"] = self.igo_event_warning_spin.value()
+
         self.apply_in_game_overlay_settings()
         config.save_config(config.user_config)
 
