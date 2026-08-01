@@ -344,6 +344,46 @@ def _apply_button_icon(button: QPushButton, relative_path: str, size: int = 22) 
     button.setIcon(QIcon(icon_path))
     button.setIconSize(QSize(size, size))
 
+
+def release_focus(widget) -> None:
+    """Drop `widget`'s focus. Call before disabling or hiding it.
+
+    Qt does not leave the focus on a widget it has just disabled or hidden: it
+    hands it to the next one in the tab order. Every one of these tabs is a
+    column of cards where a button is followed by a field, so what the next one
+    usually is, is a `QLineEdit` -- and a `QLineEdit` selects its contents when
+    it gains focus. A button pressed to *do* something therefore ended up
+    opening an unrelated field for editing. Three did: Connect and Disconnect
+    both put a caret in the Twitch username, and the in-game overlay's Start
+    segment armed the hotkey field.
+
+    Clearing the focus first is what stops the hand-off, because a widget that
+    does not have it has none to give away. The window is left with nothing
+    focused, exactly as if the user had clicked an empty part of the card, and
+    Tab picks up from the start again.
+
+    Not called for its own sake -- it is only correct next to the disable or the
+    hide it guards, which is why it takes no action of its own.
+    `SegmentedToggle.set_active` does not use it at all: it has somewhere better
+    to put the focus than nowhere, namely the segment that is taking over.
+
+    Duck-typed, as `_set_widget_style_role` is, because the panels that call it
+    are driven through fakes by their component tests -- a `SimpleNamespace` with
+    `setVisible` on it has no focus to release, and demanding one would make
+    every one of those fakes carry a stub for a Qt behaviour it is not testing.
+    That does mean this call is inert under those tests, so it proves nothing
+    there: `test_focus_after_press` is where it is driven against real widgets in
+    a laid-out window, which is the only place the tab order exists at all.
+    """
+    if widget is None:
+        return
+    has_focus = getattr(widget, "hasFocus", None)
+    clear_focus = getattr(widget, "clearFocus", None)
+    if not callable(has_focus) or not callable(clear_focus):
+        return
+    if has_focus():
+        clear_focus()
+
 # `background: transparent` is load-bearing, not decoration: giving a QLabel
 # any per-widget stylesheet at all makes this Qt build stop inheriting the
 # app-wide `QLabel { background: transparent; }` rule for that instance, and

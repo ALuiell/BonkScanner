@@ -550,17 +550,41 @@ class Overlay:
         checkbox.blockSignals(False)
 
     def _copy_to_clipboard(self, text: str, button: QPushButton) -> None:
+        """Copy `text`, and say so on the button for a second and a half.
+
+        The button is not disabled while it says so. Disabling the widget the
+        user has just clicked makes Qt hand the focus to the next one in the tab
+        order, which here is the Port field -- and a `QLineEdit` selects its
+        contents when it gains focus, so pressing Copy looked like it had opened
+        the port for editing. Nothing needed the button off: copying the same
+        URL twice is the same copy.
+
+        A second press inside the window is therefore possible, and is ignored
+        rather than stacked. Two overlapping restores would read the caption
+        while it said "Copied!" and put that back as the permanent one.
+        """
         from PySide6.QtGui import QGuiApplication
         from PySide6.QtCore import QTimer
+
         QGuiApplication.clipboard().setText(text)
+        if getattr(button, "_copy_feedback_pending", False):
+            return
+        button._copy_feedback_pending = True
+
         original_text = button.text()
+        original_role = button.objectName()
         button.setText("Copied!")
-        button.setEnabled(False)
-        button.setStyleSheet("background-color: #2F9E6D; color: white; padding: 5px 10px; min-width: 50px;")
+        # The role the redesign already carries for this colour, instead of the
+        # inline `#2F9E6D` that used to be set here -- and instead of the inline
+        # padding rule the old restore left behind for good, which took the
+        # button out of the stylesheet after the first copy.
+        _set_widget_style_role(button, "SuccessButton")
+
         def restore():
             button.setText(original_text)
-            button.setEnabled(True)
-            button.setStyleSheet("QPushButton { padding: 5px 10px; min-width: 50px; }")
+            _set_widget_style_role(button, original_role)
+            button._copy_feedback_pending = False
+
         QTimer.singleShot(1500, restore)
 
     def open_overlay_widget_settings_dialog(self) -> None:

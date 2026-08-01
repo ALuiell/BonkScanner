@@ -57,7 +57,7 @@ from app import config
 from ui.module_tile import ModuleTile
 from ui.run_toggle import TWITCH_BOT_CAPTIONS
 from ui.settings_card import SettingsCard, build_workspace
-from ui.shared import _make_scroll_section
+from ui.shared import _make_scroll_section, release_focus
 from ui.styles import _set_widget_style_role
 from ui.tab_hero import STATE_DANGER, STATE_OFF, STATE_OK, STATE_WARN, TabHero
 
@@ -621,6 +621,7 @@ class TwitchTab:
             self._account_suffix.setText("Authorized")
             self._account_suffix.setProperty("state", STATE_OK)
             _repolish(self._account_suffix)
+        release_focus(self._connect_btn)
         self._connect_btn.setVisible(False)
         self._disconnect_btn.setVisible(True)
         if self._target_channel_entry is not None:
@@ -635,11 +636,18 @@ class TwitchTab:
             self._account_suffix.setText("")
             self._account_suffix.setProperty("state", STATE_OFF)
             _repolish(self._account_suffix)
+        # Disconnect is pressed to get here, and hiding the focused widget hands
+        # the focus on exactly as disabling it does -- into the username field.
+        release_focus(self._disconnect_btn)
         self._connect_btn.setVisible(True)
         self._disconnect_btn.setVisible(False)
         self._render_badge()
 
     def show_authorizing(self) -> None:
+        # Connect is pressed to get here, so it is the focused widget when it
+        # goes off -- and the next one in the tab order is the username field,
+        # which selects its contents on focus-in. See the helper.
+        release_focus(self._connect_btn)
         self._connect_btn.setEnabled(False)
         self._authorized = False
         self._auth_badge = ("AUTHORIZING", STATE_WARN)

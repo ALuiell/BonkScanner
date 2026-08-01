@@ -113,6 +113,29 @@ class SegmentedToggle(QFrame):
         """
         self._active_key = key
         self._variant = variant
+
+        # The live segment is enabled *first*, and the focus carried onto it if
+        # it is sitting on a segment that is about to go dark. Qt does not leave
+        # the focus on a widget it has just disabled -- it hands it to the next
+        # one in the tab order, and next to these toggles is a `QLineEdit`: the
+        # OBS port, the in-game overlay's hotkey. A `QLineEdit` selects its
+        # contents when it gains focus, so pressing Start put a caret in a field
+        # nobody had asked to edit, and the hotkey field read as armed for a new
+        # binding.
+        #
+        # Order matters twice over: `setFocus` on a disabled widget is a no-op,
+        # so the incoming segment cannot take the focus until it is enabled, and
+        # the outgoing one must not be disabled until it has given it up.
+        live_button = self._buttons.get(key)
+        if live_button is not None and self._disable_inactive:
+            live_button.setEnabled(True)
+            if any(
+                button.hasFocus()
+                for button_key, button in self._buttons.items()
+                if button_key != key
+            ):
+                live_button.setFocus(Qt.OtherFocusReason)
+
         for button_key, button in self._buttons.items():
             live = button_key == key
             button.setEnabled(live or not self._disable_inactive)
