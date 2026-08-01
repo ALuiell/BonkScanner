@@ -1089,10 +1089,17 @@ class GuiRunControlTests(unittest.TestCase):
         save_config.assert_called_once_with(config.user_config)
 
     def test_twitch_command_settings_save_refreshes_session_snapshot_immediately(self) -> None:
+        """The double is only given what the application really has.
+
+        It used to carry `_combined_tracked_item_rules` and a `live_run_tracker`
+        too, because `save` reached for both. That is what made this case pass
+        over a `hasattr` probe that was false in every build: the method it
+        probed for is `gui_overlay.Overlay`'s, and `master` is the application.
+        Both are gone from `save` -- writes go through `TrackedItemSettings` --
+        and neither may come back here without the thing it names being real.
+        """
         refreshed: list[bool] = []
         master = types.SimpleNamespace(
-            live_run_tracker=types.SimpleNamespace(set_tracked_item_rules=lambda _rules: None),
-            _combined_tracked_item_rules=lambda: (),
             _refresh_session_stats_snapshot=lambda: refreshed.append(True),
         )
         dialog = types.SimpleNamespace(
@@ -1101,8 +1108,6 @@ class GuiRunControlTests(unittest.TestCase):
             templates_entries={"stats": FakeEntry("Live Stats: {Damage}")},
             disabled_item_checkboxes={},
             commands_announcement_interval_spin=FakeSpinBox(30),
-            twitch_use_session_tracked_items_cb=FakeCheckbox(False),
-            twitch_tags_layout=object(),
             master=master,
             accept=lambda: None,
         )
@@ -1110,7 +1115,6 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(config, "save_config"):
             TwitchCommandSettingsDialog.save(dialog)
 
-        self.assertEqual(config.TWITCH_BOT["tracked_items_source"], "custom")
         self.assertEqual(refreshed, [True])
 
     def test_twitch_command_settings_filter_shows_ingame_disabled_items_without_show_all(self) -> None:

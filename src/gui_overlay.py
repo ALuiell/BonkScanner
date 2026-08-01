@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -12,15 +11,9 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QAbstractItemView,
     QLabel,
     QLineEdit,
-    QListView,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
     QPushButton,
-    QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -28,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from app import config
 from ui.canvas_preview import CanvasPreview, PreviewWidget
-from ui.dialogs.tracked_items import TrackedItemPicker
+from ui.dialogs.tracked_items import TrackedItemsDialog
 from ui.module_tile import ModuleTile
 from ui.run_toggle import OVERLAY_SERVER_CAPTIONS
 from ui.segmented_toggle import ROLE_GO, SegmentedToggle
@@ -37,30 +30,15 @@ from ui.shared import (
     SCANNER_REMINDER_LABEL,
     CollapsibleSection,
     CollapsibleSectionGroup,
-    FlowLayout,
-    TrackedRuleTagWidget,
     _make_scroll_section,
-    _set_text,
     _set_text_input,
 )
 from ui.styles import _set_widget_style_role
 from ui.tab_hero import STATE_DANGER, STATE_OFF, STATE_OK, STATE_WARN, TabHero
-from projections.tracked_items import (
-    available_tracked_item_names,
-    dedupe_item_names,
-    overlay_rule_id,
-    session_rule_id,
-    tracked_item_color,
-    tracked_item_combo_display_name,
-    tracked_item_command_label,
-    tracked_item_display_name,
-    tracked_rule_color,
-    tracked_rule_display_label,
-    tracked_rule_tag_label,
-    uses_session_tracked_items,
-)
+from projections.tracked_items import uses_session_tracked_items
 from core.tracker.live_run import TrackedItemRule
 from app.coordinator import AppCoordinator
+from app.tracked_item_settings import TrackedItemSettings, combine_rules
 from projections.obs import build_overlay_state
 from core.stats.types import PLAYER_STAT_GROUPS
 from core.luck_rarity import LUCK_RARITY_MODEL_ATTRIBUTION
@@ -139,20 +117,6 @@ class Overlay:
         self.overlay_tracked_items_label = None
         self.overlay_tracked_items_content = None
         self.overlay_tracked_items_toggle_btn = None
-        self.overlay_item_names = ()
-        self.overlay_item_search_entry = None
-        self.overlay_item_selector = None
-        self.overlay_map_one_only_checkbox = None
-        self.overlay_add_tracked_item_btn = None
-        self.overlay_tracked_rules_list = None
-        self.overlay_remove_tracked_item_btn = None
-        self.session_item_names = ()
-        self.session_item_search_entry = None
-        self.session_item_selector = None
-        self.session_map_one_only_checkbox = None
-        self.session_add_tracked_item_btn = None
-        self.session_tracked_rules_list = None
-        self.session_remove_tracked_item_btn = None
 
         self.overlay_state_store.set_state(
             build_overlay_state(self.live_run_tracker, self._effective_overlay_config())
@@ -212,8 +176,6 @@ class Overlay:
         self.overlay_tracked_items_label = None
 
         layout.addStretch(1)
-        self.refresh_overlay_item_selector()
-        self.refresh_overlay_tracked_items_ui()
         self.refresh_overlay_ui()
         self._refresh_overlay_preview()
         return self.tab_overlay
@@ -768,102 +730,8 @@ class Overlay:
 
         advanced_layout.addWidget(stats_group)
 
-        items_group = CollapsibleSection(
-            "Tracked Items",
-            expanded=False,
-        )
-        items_layout = items_group.body_layout
-        items_layout.addWidget(QLabel("Configure tracked item counters for the overlay."))
-
-        self.overlay_use_session_tracked_items_cb = QCheckBox("Use Session Stats tracked items")
-        self.overlay_use_session_tracked_items_cb.setChecked(uses_session_tracked_items(config.OVERLAY, default="custom"))
-        self.overlay_use_session_tracked_items_cb.stateChanged.connect(self.on_overlay_tracked_items_source_toggled)
-        items_layout.addWidget(self.overlay_use_session_tracked_items_cb)
-
-        self.overlay_tracked_items_source_label = QLabel()
-        self.overlay_tracked_items_source_label.setWordWrap(True)
-        items_layout.addWidget(self.overlay_tracked_items_source_label)
-
-        self.overlay_custom_tracked_items_widget = QWidget()
-        overlay_custom_layout = QVBoxLayout(self.overlay_custom_tracked_items_widget)
-        overlay_custom_layout.setContentsMargins(0, 0, 0, 0)
-        overlay_custom_layout.setSpacing(8)
-
-        top_layout = QVBoxLayout()
-        top_layout.setSpacing(4)
-
-        search_top_layout = QHBoxLayout()
-        search_top_layout.addWidget(QLabel("Available Items (select one or more)"))
-        search_top_layout.addStretch(1)
-        top_layout.addLayout(search_top_layout)
-
-        self.overlay_item_names = available_tracked_item_names()
-        self.overlay_item_search_entry = QLineEdit()
-        self.overlay_item_search_entry.setPlaceholderText("Search items...")
-        self.overlay_item_search_entry.textChanged.connect(self.refresh_overlay_item_selector)
-        top_layout.addWidget(self.overlay_item_search_entry)
-
-        self.overlay_item_selector = QListWidget()
-        self.overlay_item_selector.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        self.overlay_item_selector.setMinimumHeight(220)
-        self.overlay_item_selector.setMaximumHeight(280)
-        self.overlay_item_selector.setFlow(QListView.Flow.LeftToRight)
-        self.overlay_item_selector.setWrapping(True)
-        self.overlay_item_selector.setResizeMode(QListView.ResizeMode.Adjust)
-        self.overlay_item_selector.setStyleSheet("QListWidget { font-size: 13px; }")
-        top_layout.addWidget(self.overlay_item_selector)
-
-        action_row = QHBoxLayout()
-        self.overlay_map_one_only_checkbox = QCheckBox("Map 1 only")
-        self.overlay_map_one_only_checkbox.setChecked(True)
-        self.overlay_map_one_only_checkbox.setToolTip("If checked, only counts gains on the first map.")
-        action_row.addWidget(self.overlay_map_one_only_checkbox)
-        action_row.addStretch(1)
-
-        self.overlay_add_tracked_item_btn = QPushButton("Add Rule")
-        self.overlay_add_tracked_item_btn.clicked.connect(self.add_overlay_tracked_item)
-        action_row.addWidget(self.overlay_add_tracked_item_btn)
-
-        top_layout.addLayout(action_row)
-        overlay_custom_layout.addLayout(top_layout)
-
-        overlay_custom_layout.addSpacing(10)
-
-        tags_top_layout = QHBoxLayout()
-        tags_top_layout.addWidget(QLabel("Currently tracked"))
-        tags_top_layout.addStretch(1)
-
-        overlay_custom_layout.addLayout(tags_top_layout)
-
-        self.overlay_tags_container = QWidget()
-        self.overlay_tags_container.setStyleSheet("background-color: #0B1220;")
-        self.overlay_tags_layout = FlowLayout(self.overlay_tags_container, margin=6, spacing=4)
-
-        self.overlay_tags_scroll = QScrollArea()
-        self.overlay_tags_scroll.setWidgetResizable(True)
-        self.overlay_tags_scroll.setStyleSheet("""
-            QScrollArea {
-                border: 1px solid #2B3648;
-                border-radius: 6px;
-                background-color: #0B1220;
-            }
-        """)
-        self.overlay_tags_scroll.setWidget(self.overlay_tags_container)
-        self.overlay_tags_scroll.setMinimumHeight(80)
-        self.overlay_tags_scroll.setMaximumHeight(130)
-        overlay_custom_layout.addWidget(self.overlay_tags_scroll)
-
-        tags_bottom_layout = QHBoxLayout()
-        self.overlay_clear_all_tags_btn = QPushButton("Clear All")
-        self.overlay_clear_all_tags_btn.clicked.connect(self.clear_all_overlay_tracked_items)
-        tags_bottom_layout.addWidget(self.overlay_clear_all_tags_btn)
-        tags_bottom_layout.addStretch(1)
-
-        overlay_custom_layout.addLayout(tags_bottom_layout)
-        items_layout.addWidget(self.overlay_custom_tracked_items_widget)
-        advanced_layout.addWidget(items_group)
         advanced_layout.addStretch(1)
-        self.overlay_advanced_sections_group = CollapsibleSectionGroup((stats_group, items_group))
+        self.overlay_advanced_sections_group = CollapsibleSectionGroup((stats_group,))
 
         settings_tabs.addTab(basic_tab, "Basic")
         settings_tabs.addTab(advanced_tab, "Advanced")
@@ -875,14 +743,11 @@ class Overlay:
         close_row.addWidget(close_btn)
         dialog_layout.addLayout(close_row)
 
-        self.refresh_overlay_item_selector()
-        self.refresh_overlay_tracked_items_ui()
         dialog.setUpdatesEnabled(True)
         try:
             dialog.exec()
         finally:
             self._clear_overlay_widget_settings_dialog_refs()
-            self.refresh_overlay_tracked_items_ui()
 
     def _reset_overlay_stats_to_default(self) -> None:
         if not getattr(self, "overlay_stats_checkboxes", None):
@@ -911,17 +776,6 @@ class Overlay:
         self.overlay_luck_bar_checkbox = None
         self.overlay_luck_expected_checkbox = None
         self.overlay_luck_layout_combo = None
-        self.overlay_item_search_entry = None
-        self.overlay_item_selector = None
-        self.overlay_map_one_only_checkbox = None
-        self.overlay_add_tracked_item_btn = None
-        self.overlay_clear_all_tags_btn = None
-        self.overlay_tags_container = None
-        self.overlay_tags_layout = None
-        self.overlay_tags_scroll = None
-        self.overlay_use_session_tracked_items_cb = None
-        self.overlay_tracked_items_source_label = None
-        self.overlay_custom_tracked_items_widget = None
 
     def toggle_overlay_server(self) -> None:
         server = getattr(self, "overlay_server", None)
@@ -1033,12 +887,12 @@ class Overlay:
                         )
                 widgets.append(widget)
             overlay["widgets"] = widgets
-            if getattr(self, "overlay_tags_layout", None) is not None:
-                overlay["tracked_items"] = config.OVERLAY.get("tracked_items", [])
-            if getattr(self, "overlay_use_session_tracked_items_cb", None) is not None:
-                overlay["tracked_items_source"] = (
-                    "session" if self.overlay_use_session_tracked_items_cb.isChecked() else "custom"
-                )
+            # `tracked_items` and `tracked_items_source` need no branch here:
+            # `overlay` starts as a normalized copy of `config.OVERLAY`, so both
+            # carry through untouched. The two branches that used to write them
+            # existed because widgets in this dialog could change them; the one
+            # tracked-item window writes them itself now, through
+            # `TrackedItemSettings`.
             config.OVERLAY = overlay
             config.user_config["OVERLAY"] = config.OVERLAY
             self.live_run_tracker.set_tracked_item_rules(self._combined_tracked_item_rules())
@@ -1077,234 +931,33 @@ class Overlay:
                 "stopScanner" if running else "primary",
             )
 
-    def refresh_overlay_item_selector(self) -> None:
-        selector = getattr(self, "overlay_item_selector", None)
-        if selector is None:
-            return
-        query = ""
-        if getattr(self, "overlay_item_search_entry", None) is not None:
-            query = self.overlay_item_search_entry.text().strip().lower()
-        if selector.count() == 0:
-            for item_name in getattr(self, "overlay_item_names", ()):
-                display_name = tracked_item_display_name(item_name)
-                item = QListWidgetItem(display_name)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                item.setData(Qt.UserRole, item_name)
-                item.setForeground(QBrush(QColor(tracked_item_color(item_name))))
-                selector.addItem(item)
-
-        for i in range(selector.count()):
-            item = selector.item(i)
-            item_name = str(item.data(Qt.UserRole) or item.text())
-            display_name = tracked_item_display_name(item_name)
-            haystacks = {item_name.lower(), display_name.lower()}
-            if query and not any(query in haystack for haystack in haystacks):
-                item.setHidden(True)
-            else:
-                item.setHidden(False)
-
-    def refresh_overlay_tracked_items_ui(self) -> None:
-        layout = getattr(self, "overlay_tags_layout", None)
-        if layout is not None:
-            while layout.count():
-                item = layout.takeAt(0)
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
-
-        tracked_count = 0
-        for rule in config.OVERLAY.get("tracked_items") or ():
-            if not isinstance(rule, dict):
-                continue
-            item_names = [str(name) for name in rule.get("item_names") or () if str(name).strip()]
-            if not item_names:
-                continue
-            mode = str(rule.get("mode") or "all_run")
-            label = tracked_rule_display_label(dict(rule), item_names, mode)
-            rule_id = str(rule.get("id") or "")
-
-            if layout is not None:
-                accent = tracked_rule_color(item_names)
-                tag = TrackedRuleTagWidget(
-                    rule_id,
-                    tracked_rule_tag_label(label, mode),
-                    text_color=accent,
-                    border_color=accent,
-                    background_color="#18212C",
-                )
-                tag.remove_clicked.connect(self.remove_overlay_tracked_item)
-                layout.addWidget(tag)
-            tracked_count += 1
-
-        if self.overlay_tracked_items_label is not None:
-            if uses_session_tracked_items(config.OVERLAY, default="custom"):
-                tracked_count = len(tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS))
-                detail = "Using Session Stats tracked items. Map 1 only counts gains observed during stage 1."
-            else:
-                detail = "Map 1 only counts gains observed during stage 1."
-            _set_text(self.overlay_tracked_items_label, f"Tracking {tracked_count} rule(s). {detail}")
-        self._refresh_overlay_tracked_items_source_ui()
-
-    def _refresh_overlay_tracked_items_source_ui(self) -> None:
-        use_session = uses_session_tracked_items(config.OVERLAY, default="custom")
-        custom_count = len(tracked_item_rules_from_config(config.OVERLAY))
-        session_rules = tracked_item_rules_from_config(config.SESSION_TRACKED_ITEMS)
-        session_count = len(session_rules)
-        source_label = getattr(self, "overlay_tracked_items_source_label", None)
-        if source_label is not None:
-            if use_session:
-                preview = ", ".join(
-                    tracked_item_command_label({"label": rule.label, "mode": rule.mode})
-                    for rule in session_rules[:4]
-                )
-                if session_count > 4:
-                    preview += ", ..."
-                detail = preview or "No Session Stats tracked items configured"
-                _set_text(
-                    source_label,
-                    f"Overlay source: Session Stats ({session_count}). Custom list is preserved ({custom_count}). {detail}",
-                )
-            else:
-                _set_text(source_label, f"Overlay source: Custom ({custom_count}). Session Stats has {session_count} rule(s).")
-        custom_widget = getattr(self, "overlay_custom_tracked_items_widget", None)
-        if custom_widget is not None:
-            custom_widget.setVisible(not use_session)
-        for widget in (
-            getattr(self, "overlay_map_one_only_checkbox", None),
-            getattr(self, "overlay_item_search_entry", None),
-            getattr(self, "overlay_item_selector", None),
-            getattr(self, "overlay_add_tracked_item_btn", None),
-            getattr(self, "overlay_clear_all_tags_btn", None),
-        ):
-            if widget is not None:
-                widget.setEnabled(not use_session)
-
-    def on_overlay_tracked_items_source_toggled(self, *_args) -> None:
-        self.save_overlay_settings_from_ui()
-        self.refresh_overlay_tracked_items_ui()
-
-    def add_overlay_tracked_item(self) -> None:
-        item_names = self._selected_overlay_item_names()
-        if not item_names:
-            return
-        map_one_only = bool(self.overlay_map_one_only_checkbox.isChecked())
-        mode = "map_1_only" if map_one_only else "all_run"
-        display_name = tracked_item_combo_display_name(item_names)
-        label = f"{display_name} Map 1" if map_one_only else display_name
-        rule = {
-            "id": overlay_rule_id(item_names, mode),
-            "label": label,
-            "item_names": item_names,
-            "mode": mode,
-        }
-        existing_rules = [
-            dict(raw_rule)
-            for raw_rule in config.OVERLAY.get("tracked_items") or ()
-            if isinstance(raw_rule, dict)
-        ]
-        existing_ids = {str(raw_rule.get("id") or "") for raw_rule in existing_rules}
-        if rule["id"] not in existing_ids:
-            existing_rules.append(rule)
-        config.OVERLAY["tracked_items"] = existing_rules
-        config.user_config["OVERLAY"] = config.OVERLAY
-
-        if getattr(self, "overlay_item_selector", None) is not None:
-            self.overlay_item_selector.clearSelection()
-            self.overlay_item_selector.setCurrentItem(None)
-
-        self.refresh_overlay_tracked_items_ui()
-        self.save_overlay_settings_from_ui()
-
-    def remove_overlay_tracked_item(self, rule_id: str) -> None:
-        rule_id = str(rule_id)
-        existing_rules = [
-            dict(raw_rule)
-            for raw_rule in config.OVERLAY.get("tracked_items") or ()
-            if isinstance(raw_rule, dict)
-        ]
-        new_rules = [r for r in existing_rules if str(r.get("id") or "") != rule_id]
-        config.OVERLAY["tracked_items"] = new_rules
-        config.user_config["OVERLAY"] = config.OVERLAY
-        self.refresh_overlay_tracked_items_ui()
-        self.save_overlay_settings_from_ui()
-
-    def clear_all_overlay_tracked_items(self) -> None:
-        config.OVERLAY["tracked_items"] = []
-        config.user_config["OVERLAY"] = config.OVERLAY
-        self.refresh_overlay_tracked_items_ui()
-        self.save_overlay_settings_from_ui()
-
     def open_session_tracked_item_settings_dialog(self) -> None:
-        """The Session Stats tracked-item window.
+        """The one tracked-item window, opened on the Session Stats list.
 
-        The hundred lines of construction this replaces are
-        `ui/dialogs/tracked_items.TrackedItemPicker`'s. What stays here is what
-        is actually the overlay component's: reading and writing
-        `config.SESSION_TRACKED_ITEMS`, and rebuilding the tracker's rule set
-        when it changes.
+        Named for the gear that opens it. It is not a Session-only window any
+        more: OBS and `!session` are two more targets inside it, which is what
+        let their two copies in the widget and command dialogs be deleted.
+
+        What stays here is the wiring, not the screen: this component holds the
+        tracker and the two refresh ports `TrackedItemSettings` needs.
         """
-        dialog = QDialog(self.tab_stats)
-        dialog.setWindowTitle("Session Tracked Items")
-        dialog.resize(930, 660)
-        dialog.setMinimumSize(720, 520)
-        dialog_layout = QVBoxLayout(dialog)
-        dialog_layout.setContentsMargins(14, 14, 14, 14)
-        dialog_layout.setSpacing(12)
-
-        picker = TrackedItemPicker(
-            rules=self._session_tracked_item_config_from_ui,
-            make_rule=self._make_session_tracked_rule,
+        dialog = TrackedItemsDialog(
+            self._tracked_item_settings(),
+            target_key="session",
+            parent=self.tab_stats,
         )
-        picker.rules_changed.connect(self._apply_session_tracked_rules)
-        dialog_layout.addWidget(picker, 1)
-
-        footer = QHBoxLayout()
-        footer.setContentsMargins(0, 0, 0, 0)
-        clear_btn = QPushButton("Remove all")
-        # `danger`, and behind a confirmation, and no longer shoulder to
-        # shoulder with Close: it used to sit next to the dismiss button and
-        # wipe every rule on one click.
-        clear_btn.setObjectName("danger")
-        clear_btn.clicked.connect(
-            lambda _checked=False: self._confirm_clear_session_tracked_items(dialog, picker)
-        )
-        footer.addWidget(clear_btn)
-        footer.addStretch(1)
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(dialog.accept)
-        footer.addWidget(close_btn)
-        dialog_layout.addLayout(footer)
-
         try:
             dialog.exec()
         finally:
             self.refresh_session_tracked_item_stats_ui()
 
-    def _make_session_tracked_rule(self, item_names, mode: str) -> dict:
-        """Build the persisted rule. The label is derived, as it always was."""
-        item_names = tuple(str(name) for name in item_names)
-        display_name = tracked_item_combo_display_name(item_names)
-        return {
-            "id": session_rule_id(item_names, mode),
-            "label": f"{display_name} Map 1" if mode == "map_1_only" else display_name,
-            "item_names": list(item_names),
-            "mode": mode,
-        }
-
-    def _apply_session_tracked_rules(self, rules) -> None:
-        config.SESSION_TRACKED_ITEMS["tracked_items"] = [dict(rule) for rule in rules]
-        self.save_session_tracked_items_from_ui()
-
-    def _confirm_clear_session_tracked_items(self, dialog, picker) -> None:
-        confirmed = QMessageBox.question(
-            dialog,
-            "Remove all tracked items?",
-            "Every rule below will be removed. This cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+    def _tracked_item_settings(self) -> TrackedItemSettings:
+        return TrackedItemSettings(
+            tracker=lambda: self.live_run_tracker,
+            combined_rules=combined_tracked_item_rules,
+            refresh_session_rows=self.refresh_session_tracked_item_stats_ui,
+            refresh_snapshot=self.session_stats.refresh_snapshot,
         )
-        if confirmed == QMessageBox.Yes:
-            picker.clear_rules()
 
     def refresh_session_tracked_item_stats_ui(self) -> None:
         """Hand the tracked-item rules to the Session Stats tab.
@@ -1329,41 +982,6 @@ class Overlay:
         if self.live_run_tracker is not None:
             self.live_run_tracker.set_tracked_item_rules(self._combined_tracked_item_rules())
         self.refresh_session_tracked_item_stats_ui()
-
-    def _session_tracked_item_config_from_ui(self) -> list[dict[str, Any]]:
-        return [
-            dict(raw_rule)
-            for raw_rule in config.SESSION_TRACKED_ITEMS.get("tracked_items") or ()
-            if isinstance(raw_rule, dict)
-        ]
-
-    def _selected_overlay_item_names(self) -> list[str]:
-        selector = getattr(self, "overlay_item_selector", None)
-        if selector is not None:
-            selected_items = selector.selectedItems()
-            if not selected_items and selector.currentItem() is not None:
-                selected_items = [selector.currentItem()]
-            item_names = [
-                str(item.data(Qt.UserRole) or item.text()).strip()
-                for item in selected_items
-                if str(item.data(Qt.UserRole) or item.text()).strip()
-            ]
-            if item_names:
-                return dedupe_item_names(item_names)
-        if getattr(self, "overlay_item_search_entry", None) is not None:
-            query = self.overlay_item_search_entry.text().strip()
-            for item_name in getattr(self, "overlay_item_names", ()):
-                display_name = tracked_item_display_name(item_name)
-                if item_name.lower() == query.lower() or display_name.lower() == query.lower():
-                    return [item_name]
-        return []
-
-    def _tracked_item_config_from_ui(self) -> list[dict[str, Any]]:
-        return [
-            dict(raw_rule)
-            for raw_rule in config.OVERLAY.get("tracked_items") or ()
-            if isinstance(raw_rule, dict)
-        ]
 
     def update_overlay_state_from_tracker(self) -> None:
         if self.overlay_state_store is None:
@@ -1503,11 +1121,15 @@ class Overlay:
 
 
 def combined_tracked_item_rules() -> tuple[TrackedItemRule, ...]:
-    combined: dict[str, TrackedItemRule] = {}
-    for rule_config in (config.OVERLAY, config.SESSION_TRACKED_ITEMS, config.TWITCH_BOT):
-        for rule in tracked_item_rules_from_config(rule_config):
-            combined[rule.id] = rule
-    return tuple(combined.values())
+    """Every tracked-item rule the three surfaces ask for, as tracker rules.
+
+    Which lists exist and how they combine is `app.tracked_item_settings`'s;
+    turning a config entry into a `TrackedItemRule` is the top-level
+    `tracked_item_rules` adapter's, and nothing under `app/` may import it. So
+    the combining is called from here, where both are legal to reach -- which
+    is also where `gui_app` has always imported this from.
+    """
+    return combine_rules(tracked_item_rules_from_config)
 
 
 def build_overlay(app: Any, coordinator: AppCoordinator, session_stats: SessionStats) -> Overlay:

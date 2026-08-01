@@ -32,8 +32,6 @@ from pathlib import Path
 from ui.shared import (
     CollapsibleSection,
     CollapsibleSectionGroup,
-    TrackedRuleTagWidget,
-    FlowLayout,
     _clear_layout,
     _make_scroll_section,
     _read_bool,
@@ -51,7 +49,7 @@ from ui.styles import (
 )
 
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QIcon
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -65,10 +63,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QAbstractItemView,
-    QListView,
-    QListWidget,
-    QListWidgetItem,
     QScrollArea,
     QTabWidget,
     QTextEdit,
@@ -78,14 +72,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
 )
 from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT
-from core.item_metadata import preferred_item_display_name
 from core.stats.types import PLAYER_STAT_GROUPS
-from projections.tracked_items import (
-    available_tracked_item_names,
-    tracked_item_color,
-    tracked_rule_color,
-    tracked_rule_tag_label,
-)
 from core.stat_labels import abbreviate_stat_label
 
 from app import config
@@ -1331,106 +1318,23 @@ class TwitchCommandSettingsDialog(QDialog):
         adv_scroll_layout.addWidget(stats_group)
         adv_scroll_layout.addSpacing(15)
 
-        # -- !session tracked items section --
-        twitch_uses_session_tracked_items = (
-            config.normalize_tracked_items_source(
-                config.TWITCH_BOT.get("tracked_items_source"),
-                default="session",
-            ) == "session"
-        )
+        # -- !session section --
+        # The tracked-item half of this section is gone: it was a copy of the
+        # OBS one, both of them copies of the Session Stats picker, and all
+        # three are one window now (`ui/dialogs/tracked_items`). What is left
+        # here is the one thing that is genuinely about this command -- the
+        # response template.
         twitch_tracked_group = CollapsibleSection(
-            "!session Tracked Items",
+            "!session Command Settings",
             expanded=False,
         )
         twitch_tracked_layout = twitch_tracked_group.body_layout
-        twitch_tracked_layout.addWidget(QLabel("Choose which tracked item counters appear in the Twitch !session response."))
-
-        self.twitch_use_session_tracked_items_cb = QCheckBox("Use Session Stats tracked items")
-        self.twitch_use_session_tracked_items_cb.setChecked(twitch_uses_session_tracked_items)
-        self.twitch_use_session_tracked_items_cb.stateChanged.connect(self.on_twitch_tracked_items_source_toggled)
-        twitch_tracked_layout.addWidget(self.twitch_use_session_tracked_items_cb)
-
-        self.twitch_tracked_items_source_label = QLabel()
-        self.twitch_tracked_items_source_label.setWordWrap(True)
-        twitch_tracked_layout.addWidget(self.twitch_tracked_items_source_label)
-
-        self.twitch_custom_tracked_items_widget = QWidget()
-        twitch_custom_layout = QVBoxLayout(self.twitch_custom_tracked_items_widget)
-        twitch_custom_layout.setContentsMargins(0, 0, 0, 0)
-        twitch_custom_layout.setSpacing(8)
-
-        top_layout = QVBoxLayout()
-        top_layout.setSpacing(4)
-
-        search_top_layout = QHBoxLayout()
-        search_top_layout.addWidget(QLabel("Available Items (select one or more)"))
-        search_top_layout.addStretch(1)
-        top_layout.addLayout(search_top_layout)
-
-        self.twitch_item_names = available_tracked_item_names()
-        self.twitch_item_search_entry = QLineEdit()
-        self.twitch_item_search_entry.setPlaceholderText("Search items...")
-        self.twitch_item_search_entry.textChanged.connect(self.refresh_twitch_item_selector)
-        top_layout.addWidget(self.twitch_item_search_entry)
-
-        self.twitch_item_selector = QListWidget()
-        self.twitch_item_selector.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        self.twitch_item_selector.setMinimumHeight(220)
-        self.twitch_item_selector.setMaximumHeight(280)
-        self.twitch_item_selector.setFlow(QListView.Flow.LeftToRight)
-        self.twitch_item_selector.setWrapping(True)
-        self.twitch_item_selector.setResizeMode(QListView.ResizeMode.Adjust)
-        self.twitch_item_selector.setStyleSheet("QListWidget { font-size: 13px; }")
-        top_layout.addWidget(self.twitch_item_selector)
-
-        action_row = QHBoxLayout()
-        self.twitch_map_one_only_checkbox = QCheckBox("Map 1 only")
-        self.twitch_map_one_only_checkbox.setChecked(True)
-        self.twitch_map_one_only_checkbox.setToolTip("If checked, only counts gains on the first map.")
-        action_row.addWidget(self.twitch_map_one_only_checkbox)
-        action_row.addStretch(1)
-
-        self.twitch_add_tracked_item_btn = QPushButton("Add Rule")
-        self.twitch_add_tracked_item_btn.clicked.connect(self.add_twitch_tracked_item)
-        action_row.addWidget(self.twitch_add_tracked_item_btn)
-
-        top_layout.addLayout(action_row)
-        twitch_custom_layout.addLayout(top_layout)
-
-        twitch_custom_layout.addSpacing(10)
-
-        tags_top_layout = QHBoxLayout()
-        tags_top_layout.addWidget(QLabel("Custom Twitch tracked items"))
-        tags_top_layout.addStretch(1)
-
-        twitch_custom_layout.addLayout(tags_top_layout)
-
-        self.twitch_tags_container = QWidget()
-        self.twitch_tags_container.setStyleSheet("background-color: #0B1220;")
-        self.twitch_tags_layout = FlowLayout(self.twitch_tags_container, margin=6, spacing=4)
-
-        self.twitch_tags_scroll = QScrollArea()
-        self.twitch_tags_scroll.setWidgetResizable(True)
-        self.twitch_tags_scroll.setStyleSheet("""
-            QScrollArea {
-                border: 1px solid #2B3648;
-                border-radius: 6px;
-                background-color: #0B1220;
-            }
-        """)
-        self.twitch_tags_scroll.setWidget(self.twitch_tags_container)
-        self.twitch_tags_scroll.setMinimumHeight(80)
-        self.twitch_tags_scroll.setMaximumHeight(130)
-        twitch_custom_layout.addWidget(self.twitch_tags_scroll)
-
-        tags_bottom_layout = QHBoxLayout()
-        self.twitch_clear_all_tags_btn = QPushButton("Clear All")
-        self.twitch_clear_all_tags_btn.clicked.connect(self.clear_all_twitch_tracked_items)
-        tags_bottom_layout.addWidget(self.twitch_clear_all_tags_btn)
-        tags_bottom_layout.addStretch(1)
-
-        twitch_custom_layout.addLayout(tags_bottom_layout)
-        twitch_tracked_layout.addWidget(self.twitch_custom_tracked_items_widget)
+        twitch_tracked_layout.addWidget(
+            QLabel(
+                "Tracked item counters for !session are configured in the "
+                "Tracked Items window, on the Session Stats tab."
+            )
+        )
 
         twitch_tracked_layout.addSpacing(10)
         session_form = QFormLayout()
@@ -1450,8 +1354,6 @@ class TwitchCommandSettingsDialog(QDialog):
         twitch_tracked_layout.addWidget(session_help)
         twitch_tracked_layout.addSpacing(10)
 
-        self.refresh_twitch_item_selector()
-        self.refresh_twitch_tracked_items_ui()
         adv_scroll_layout.addWidget(twitch_tracked_group)
         adv_scroll_layout.addSpacing(15)
 
@@ -1648,198 +1550,6 @@ class TwitchCommandSettingsDialog(QDialog):
         new_tpl = "Live Stats: " + " | ".join(parts)
         self.stats_tpl_entry.setText(new_tpl)
 
-    def refresh_twitch_item_selector(self) -> None:
-        selector = getattr(self, "twitch_item_selector", None)
-        if selector is None:
-            return
-        query = ""
-        if getattr(self, "twitch_item_search_entry", None) is not None:
-            query = self.twitch_item_search_entry.text().strip().lower()
-        if selector.count() == 0:
-            for item_name in getattr(self, "twitch_item_names", ()):
-                display_name = preferred_item_display_name(str(item_name))
-                item = QListWidgetItem(display_name)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                item.setData(Qt.UserRole, item_name)
-                item.setForeground(QBrush(QColor(tracked_item_color(item_name))))
-                selector.addItem(item)
-
-        for i in range(selector.count()):
-            item = selector.item(i)
-            item_name = str(item.data(Qt.UserRole) or item.text())
-            display_name = preferred_item_display_name(str(item_name))
-            haystacks = {str(item_name).lower(), display_name.lower()}
-            if query and not any(query in haystack for haystack in haystacks):
-                item.setHidden(True)
-            else:
-                item.setHidden(False)
-
-    def refresh_twitch_tracked_items_ui(self) -> None:
-        layout = getattr(self, "twitch_tags_layout", None)
-        if layout is not None:
-            while layout.count():
-                item = layout.takeAt(0)
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
-
-        for rule in config.TWITCH_BOT.get("tracked_items") or ():
-            if not isinstance(rule, dict):
-                continue
-            item_names = [str(name) for name in rule.get("item_names") or () if str(name).strip()]
-            if not item_names:
-                continue
-            mode = str(rule.get("mode") or "all_run")
-            label = self._twitch_tracked_rule_display_label(rule, item_names, mode)
-            rule_id = str(rule.get("id") or "")
-
-            if layout is not None:
-                accent = tracked_rule_color(item_names)
-                tag = TrackedRuleTagWidget(
-                    rule_id,
-                    tracked_rule_tag_label(label, mode),
-                    text_color=accent,
-                    border_color=accent,
-                    background_color="#18212C",
-                )
-                tag.remove_clicked.connect(self.remove_twitch_tracked_item)
-                layout.addWidget(tag)
-        self._refresh_twitch_tracked_items_source_ui()
-
-    def _refresh_twitch_tracked_items_source_ui(self) -> None:
-        use_session = bool(
-            getattr(self, "twitch_use_session_tracked_items_cb", None)
-            and self.twitch_use_session_tracked_items_cb.isChecked()
-        )
-        custom_count = len(config.normalize_tracked_item_rules_config(config.TWITCH_BOT.get("tracked_items"), []))
-        session_count = len(config.normalize_tracked_item_rules_config(config.SESSION_TRACKED_ITEMS.get("tracked_items"), []))
-        source_label = getattr(self, "twitch_tracked_items_source_label", None)
-        if source_label is not None:
-            if use_session:
-                source_label.setText(f"Twitch !session source: Session Stats ({session_count}). Custom Twitch list is preserved ({custom_count}).")
-            else:
-                source_label.setText(f"Twitch !session source: Custom ({custom_count}). Session Stats has {session_count} rule(s).")
-        custom_widget = getattr(self, "twitch_custom_tracked_items_widget", None)
-        if custom_widget is not None:
-            custom_widget.setVisible(not use_session)
-        for widget in (
-            getattr(self, "twitch_map_one_only_checkbox", None),
-            getattr(self, "twitch_item_search_entry", None),
-            getattr(self, "twitch_item_selector", None),
-            getattr(self, "twitch_add_tracked_item_btn", None),
-            getattr(self, "twitch_clear_all_tags_btn", None),
-        ):
-            if widget is not None:
-                widget.setEnabled(not use_session)
-
-    def on_twitch_tracked_items_source_toggled(self, *_args) -> None:
-        self._refresh_twitch_tracked_items_source_ui()
-
-    def add_twitch_tracked_item(self) -> None:
-        item_names = self._selected_twitch_item_names()
-        if not item_names:
-            return
-        map_one_only = bool(self.twitch_map_one_only_checkbox.isChecked())
-        mode = "map_1_only" if map_one_only else "all_run"
-        display_name = self._twitch_tracked_combo_display_name(item_names)
-        label = f"{display_name} Map 1" if map_one_only else display_name
-        rule = {
-            "id": self._twitch_rule_id(item_names, mode),
-            "label": label,
-            "item_names": item_names,
-            "mode": mode,
-        }
-        existing_rules = [
-            dict(raw_rule)
-            for raw_rule in config.TWITCH_BOT.get("tracked_items") or ()
-            if isinstance(raw_rule, dict)
-        ]
-        existing_ids = {str(raw_rule.get("id") or "") for raw_rule in existing_rules}
-        if rule["id"] not in existing_ids:
-            existing_rules.append(rule)
-        config.TWITCH_BOT["tracked_items"] = existing_rules
-
-        if getattr(self, "twitch_item_selector", None) is not None:
-            self.twitch_item_selector.clearSelection()
-            self.twitch_item_selector.setCurrentItem(None)
-
-        self.refresh_twitch_tracked_items_ui()
-
-    def remove_twitch_tracked_item(self, rule_id: str) -> None:
-        rule_id = str(rule_id)
-        existing_rules = [
-            dict(raw_rule)
-            for raw_rule in config.TWITCH_BOT.get("tracked_items") or ()
-            if isinstance(raw_rule, dict)
-        ]
-        new_rules = [r for r in existing_rules if str(r.get("id") or "") != rule_id]
-        config.TWITCH_BOT["tracked_items"] = new_rules
-        self.refresh_twitch_tracked_items_ui()
-
-    def clear_all_twitch_tracked_items(self) -> None:
-        config.TWITCH_BOT["tracked_items"] = []
-        self.refresh_twitch_tracked_items_ui()
-
-    def _selected_twitch_item_names(self) -> list[str]:
-        selector = getattr(self, "twitch_item_selector", None)
-        if selector is not None:
-            selected_items = selector.selectedItems()
-            if not selected_items and selector.currentItem() is not None:
-                selected_items = [selector.currentItem()]
-            item_names = [
-                str(item.data(Qt.UserRole) or item.text()).strip()
-                for item in selected_items
-                if str(item.data(Qt.UserRole) or item.text()).strip()
-            ]
-            if item_names:
-                return self._dedupe_twitch_item_names(item_names)
-        if getattr(self, "twitch_item_search_entry", None) is not None:
-            query = self.twitch_item_search_entry.text().strip()
-            for item_name in getattr(self, "twitch_item_names", ()):
-                display_name = preferred_item_display_name(str(item_name))
-                if str(item_name).lower() == query.lower() or display_name.lower() == query.lower():
-                    return [str(item_name)]
-        return []
-
-    def _twitch_tracked_item_config_from_ui(self) -> list[dict[str, object]]:
-        return [
-            dict(raw_rule)
-            for raw_rule in config.TWITCH_BOT.get("tracked_items") or ()
-            if isinstance(raw_rule, dict)
-        ]
-
-    @staticmethod
-    def _twitch_rule_id(item_names: list[str] | tuple[str, ...], mode: str) -> str:
-        folded = "_".join(
-            "".join(char.lower() for char in item_name if char.isalnum())
-            for item_name in item_names
-        )
-        return f"twitch_{folded or 'item'}_{mode}"
-
-    @staticmethod
-    def _twitch_tracked_rule_display_label(rule: dict, item_names: list[str], mode: str) -> str:
-        raw_label = str(rule.get("label") or " + ".join(item_names))
-        if len(item_names) != 1:
-            return raw_label
-        canonical_name = str(item_names[0])
-        preferred_name = preferred_item_display_name(canonical_name)
-        default_label = f"{canonical_name} Map 1" if mode == "map_1_only" else canonical_name
-        preferred_label = f"{preferred_name} Map 1" if mode == "map_1_only" else preferred_name
-        return preferred_label if raw_label == default_label else raw_label
-
-    @staticmethod
-    def _twitch_tracked_combo_display_name(item_names: list[str] | tuple[str, ...]) -> str:
-        return " + ".join(preferred_item_display_name(str(item_name)) for item_name in item_names)
-
-    @staticmethod
-    def _dedupe_twitch_item_names(item_names: list[str] | tuple[str, ...]) -> list[str]:
-        deduped: list[str] = []
-        for item_name in item_names:
-            value = str(item_name).strip()
-            if value and value not in deduped:
-                deduped.append(value)
-        return deduped
-
     def reset_to_defaults(self):
         self._init_guard = True
         default_selected = set(config.DEFAULT_TWITCH_BOT["selected_stats"])
@@ -1851,11 +1561,10 @@ class TwitchCommandSettingsDialog(QDialog):
         for cb in self.disabled_item_checkboxes.values():
             cb.setChecked(False)
 
-        if getattr(self, "twitch_use_session_tracked_items_cb", None) is not None:
-            self.twitch_use_session_tracked_items_cb.setChecked(False)
-        config.TWITCH_BOT["tracked_items"] = list(config.DEFAULT_TWITCH_BOT.get("tracked_items", []))
-        if hasattr(self, "refresh_twitch_tracked_items_ui"):
-            self.refresh_twitch_tracked_items_ui()
+        # Tracked items are not reset here any more. This dialog no longer
+        # edits them, and "Reset to Defaults" on a screen about templates and
+        # command settings has no business wiping a list configured in another
+        # window -- which it did silently, with nothing on screen to say so.
 
         defaults = config.DEFAULT_TWITCH_BOT["templates"]
         for key, entry in self.templates_entries.items():
@@ -1919,24 +1628,21 @@ class TwitchCommandSettingsDialog(QDialog):
             self.commands_announcement_interval_spin.value()
         )
 
-        if getattr(self, "twitch_use_session_tracked_items_cb", None) is not None:
-            config.TWITCH_BOT["tracked_items_source"] = (
-                "session" if self.twitch_use_session_tracked_items_cb.isChecked() else "custom"
-            )
-        if getattr(self, "twitch_tags_layout", None) is not None:
-            config.TWITCH_BOT["tracked_items"] = config.TWITCH_BOT.get("tracked_items", [])
-
+        # The tracked-item block that stood here is gone with the widgets that
+        # fed it. It also carried the one live bug in this file: the rebuild of
+        # the tracker's rule set was guarded by
+        # `hasattr(master, "_combined_tracked_item_rules")`, and that method is
+        # `gui_overlay.Overlay`'s -- `master` is the application, whose
+        # `__getattr__` forwards to its window and nowhere else. False in every
+        # build, true in the one test that covered it, because the double was
+        # handed the attribute. `TrackedItemSettings` owns that path now and has
+        # no probe in it.
         config.TWITCH_BOT = config.normalize_twitch_bot_config(config.TWITCH_BOT)
         master = getattr(self, "master", None)
-        live_run_tracker = getattr(master, "live_run_tracker", None)
-        if live_run_tracker is not None and hasattr(master, "_combined_tracked_item_rules"):
-            live_run_tracker.set_tracked_item_rules(master._combined_tracked_item_rules())
-        if master is not None and hasattr(master, "refresh_session_tracked_item_stats_ui"):
-            master.refresh_session_tracked_item_stats_ui()
         if master is not None and hasattr(master, "_refresh_session_stats_snapshot"):
-            # `!session` reads an immutable snapshot from its worker thread.
-            # A settings save changes its tracked-item source immediately, so
-            # waiting for the next reroll would leave Twitch showing stale rows.
+            # `!session` reads an immutable snapshot from its worker thread, so
+            # a template edited here would otherwise not show until the next
+            # reroll refreshed it.
             master._refresh_session_stats_snapshot()
 
         config.user_config["TWITCH_BOT"] = config.TWITCH_BOT

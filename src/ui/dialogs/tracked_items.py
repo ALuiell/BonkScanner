@@ -25,12 +25,12 @@ has sorted that way since it was written, so 87 items read as one arbitrary run;
 Why a widget with ports
 =======================
 
-Because there are two of these windows. This one configures Session Stats and
-lives in ``gui_overlay``; the Twitch bot has its own copy in
-``ui/dialogs/__init__.py`` with the same list, the same interaction and its own
-``twitch_``-prefixed widgets. Only the session one is wired here -- converting
-the other is not this change -- but the seam is the three ports below rather
-than a second copy, so it can be.
+Because there were three of these screens: this one for Session Stats, a copy
+in the OBS widget dialog and another in the Twitch command dialog, each with the
+same list, the same interaction and its own widget prefix. ``TrackedItemsDialog``
+at the bottom of this file is what replaced the other two -- one window, three
+targets behind a segmented control -- and the ports are what let one picker
+serve all three without knowing which config it is editing.
 """
 
 from __future__ import annotations
@@ -40,12 +40,15 @@ from typing import Callable, Sequence
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -124,14 +127,16 @@ class TrackedItemPicker(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(10)
 
-        hint = QLabel(
-            "Counts item pickups in Session Stats. "
-            "<b>Map 1</b> counts only what was found on the first map."
-        )
-        hint.setObjectName("dialogHint")
-        hint.setTextFormat(Qt.RichText)
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
+        # Names its target, so it has to be settable: this one picker serves
+        # three lists, and a line reading "in Session Stats" while the OBS
+        # segment is lit is worse than no line -- it is the screen telling you
+        # you are editing something you are not.
+        self._hint = QLabel("")
+        self._hint.setObjectName("dialogHint")
+        self._hint.setTextFormat(Qt.RichText)
+        self._hint.setWordWrap(True)
+        self.set_hint("Session Stats")
+        layout.addWidget(self._hint)
 
         columns = QHBoxLayout()
         columns.setContentsMargins(0, 0, 0, 0)
@@ -441,6 +446,289 @@ class TrackedItemPicker(QWidget):
     def pick(self, item_name: str) -> None:
         """Select or deselect `item_name`, as a click would."""
         self._on_pick(item_name)
+
+    def set_hint(self, target_caption: str) -> None:
+        self._hint.setText(
+            f"Counts item pickups for <b>{target_caption}</b>. "
+            "<b>Map 1</b> counts only what was found on the first map."
+        )
+
+    def reset(self) -> None:
+        """Drop the selection and re-read the rules.
+
+        Called when the window switches to another target. Keeping the
+        selection across a switch would offer to add the items you picked for
+        one list to a different one, on a button whose duplicate check has just
+        been re-evaluated against rules you were not looking at.
+        """
+        self._selected = []
+        self._refresh_picks()
+        self._refresh_preview()
+        self.refresh_rules()
+
+
+class TrackedItemsDialog(QDialog):
+    """One window for all three tracked-item lists.
+
+    The three used to be three screens in three places: a section in the OBS
+    widget dialog, a section in the Twitch command dialog, and this picker in a
+    window of its own. They were copies -- same list, same interaction, same
+    silent refusals -- and being apart hid what they actually are: Session Stats
+    keeps a list, and the other two each either keep their own or mirror it.
+
+    That is what the two controls at the top say out loud. The mirroring one
+    used to be a checkbox that greyed out the editor beside it, which reads as a
+    broken screen rather than an answered question; here the editor is replaced
+    by the list being mirrored, with a way through to edit it.
+
+    Every write goes through `TrackedItemSettings`, which is what makes the
+    third copy safe to delete: the two dialogs it replaces disagreed about when
+    a change reaches the tracker, and one of them never got there at all.
+    """
+
+    def __init__(self, settings, *, target_key: str = "session", parent=None) -> None:
+        super().__init__(parent)
+        from app.tracked_item_settings import (
+            SOURCE_OWN,
+            SOURCE_SESSION,
+            TARGETS,
+            TARGETS_BY_KEY,
+        )
+
+        self._settings = settings
+        self._SOURCE_OWN = SOURCE_OWN
+        self._SOURCE_SESSION = SOURCE_SESSION
+        self._targets = TARGETS
+        self._target = TARGETS_BY_KEY.get(target_key, TARGETS[0])
+
+        self.setWindowTitle("Tracked Items")
+        self.resize(980, 700)
+        self.setMinimumSize(760, 560)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        # Captions carry no counts, deliberately: `SegmentedToggle` is built on
+        # its captions never changing -- that is what keeps the control one
+        # width in every state. The counts go on the summary line below it.
+        self._target_toggle = SegmentedToggle(
+            tuple((target.key, target.caption, ROLE_GO) for target in self._targets),
+            disable_inactive=False,
+        )
+        self._target_toggle.activated.connect(self._on_target)
+        target_row = QHBoxLayout()
+        target_row.setContentsMargins(0, 0, 0, 0)
+        target_row.addWidget(self._target_toggle)
+        target_row.addStretch(1)
+        layout.addLayout(target_row)
+
+        self._source_toggle = SegmentedToggle(
+            (
+                (SOURCE_OWN, "Own list", ROLE_GO),
+                (SOURCE_SESSION, "Same as Session Stats", ROLE_GO),
+            ),
+            disable_inactive=False,
+        )
+        self._source_toggle.activated.connect(self._on_source)
+        self._source_row = QWidget()
+        source_layout = QHBoxLayout(self._source_row)
+        source_layout.setContentsMargins(0, 0, 0, 0)
+        source_layout.setSpacing(10)
+        source_layout.addWidget(self._source_toggle)
+        self._summary = QLabel("")
+        self._summary.setObjectName("dialogHint")
+        source_layout.addWidget(self._summary, 1)
+        layout.addWidget(self._source_row)
+
+        self._picker = TrackedItemPicker(
+            rules=lambda: self._settings.rules(self._target),
+            make_rule=lambda names, mode: self._settings.make_rule(
+                self._target, names, mode
+            ),
+        )
+        self._picker.rules_changed.connect(self._on_rules_changed)
+
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._picker)
+        self._stack.addWidget(self._build_mirror_page())
+        layout.addWidget(self._stack, 1)
+
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        self._clear_btn = QPushButton("Remove all")
+        # Behind a confirmation, and not shoulder to shoulder with Close. The
+        # two dialogs this replaces both wiped every rule on one click of a
+        # button sitting next to the dismiss button.
+        self._clear_btn.setObjectName("danger")
+        self._clear_btn.clicked.connect(lambda _checked=False: self._confirm_clear())
+        footer.addWidget(self._clear_btn)
+        footer.addStretch(1)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        footer.addWidget(close_btn)
+        layout.addLayout(footer)
+
+        self._target_toggle.set_active(self._target.key)
+        self._refresh()
+
+    def _build_mirror_page(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("cardContent")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        card = _card()
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(12, 12, 12, 12)
+        card_layout.setSpacing(10)
+        card_layout.addWidget(_eyebrow("Mirrored from Session Stats"))
+
+        self._mirror_note = QLabel("")
+        self._mirror_note.setObjectName("dialogHint")
+        self._mirror_note.setWordWrap(True)
+        card_layout.addWidget(self._mirror_note)
+
+        self._mirror_rules = QVBoxLayout()
+        self._mirror_rules.setContentsMargins(0, 0, 0, 0)
+        self._mirror_rules.setSpacing(0)
+        card_layout.addLayout(self._mirror_rules)
+
+        self._mirror_empty = QLabel("Session Stats tracks nothing yet")
+        self._mirror_empty.setObjectName("tableEmpty")
+        card_layout.addWidget(self._mirror_empty)
+
+        edit = QPushButton("Edit the Session Stats list")
+        # A way through rather than a dead end: the greyed-out editor this
+        # replaces left the reader with nowhere to go.
+        edit.clicked.connect(lambda _checked=False: self._on_target("session"))
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(edit)
+        row.addStretch(1)
+        card_layout.addLayout(row)
+
+        layout.addWidget(card)
+        layout.addStretch(1)
+        return page
+
+    # -- commands -------------------------------------------------------------
+
+    def _on_target(self, key: str) -> None:
+        from app.tracked_item_settings import TARGETS_BY_KEY
+
+        self._target = TARGETS_BY_KEY.get(key, self._target)
+        self._target_toggle.set_active(self._target.key)
+        self._picker.reset()
+        self._refresh()
+
+    def _on_source(self, source: str) -> None:
+        self._settings.set_source(self._target, source)
+        self._refresh()
+
+    def _on_rules_changed(self, rules) -> None:
+        self._settings.set_rules(self._target, rules)
+        self._refresh()
+
+    def _confirm_clear(self) -> None:
+        confirmed = QMessageBox.question(
+            self,
+            "Remove all tracked items?",
+            f"Every rule in the {self._target.caption} list will be removed. "
+            "This cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirmed == QMessageBox.Yes:
+            self._picker.clear_rules()
+
+    # -- rendering ------------------------------------------------------------
+
+    def _refresh(self) -> None:
+        source = self._settings.source(self._target)
+        mirroring = source == self._SOURCE_SESSION
+
+        self._source_row.setVisible(self._target.can_mirror)
+        if self._target.can_mirror:
+            self._source_toggle.set_active(source)
+
+        self._stack.setCurrentIndex(1 if mirroring else 0)
+        self._clear_btn.setEnabled(not mirroring)
+        self._picker.set_hint(self._target.caption)
+
+        own = len(self._settings.rules(self._target))
+        session = len(self._settings.rules(self._targets[0]))
+        if mirroring:
+            self._summary.setText(
+                f"{self._target.caption} shows the Session Stats list "
+                f"({_rules(session)}). Its own {_rules(own)} stay saved."
+            )
+            self._mirror_note.setText(
+                f"{self._target.caption} counts these. Switch to "
+                f"<b>Own list</b> to give it a list of its own."
+            )
+        else:
+            self._summary.setText(f"{self._target.caption} keeps {_rules(own)}.")
+
+        self._picker.refresh_rules()
+        self._refresh_mirror_rules()
+
+    def _refresh_mirror_rules(self) -> None:
+        _clear_layout(self._mirror_rules)
+        rules = self._settings.rules(self._targets[0])
+        self._mirror_empty.setVisible(not rules)
+        for index, rule in enumerate(rules):
+            self._mirror_rules.addWidget(
+                _mirror_row(rule, last=index == len(rules) - 1)
+            )
+
+    # -- inspection, for tests ------------------------------------------------
+
+    @property
+    def target_key(self) -> str:
+        return self._target.key
+
+    @property
+    def picker(self) -> TrackedItemPicker:
+        return self._picker
+
+    def is_mirroring(self) -> bool:
+        return self._stack.currentIndex() == 1
+
+
+def _rules(count: int) -> str:
+    return "1 rule" if count == 1 else f"{count} rules"
+
+
+def _mirror_row(rule, *, last: bool) -> QWidget:
+    """A rule as the picker draws it, minus the remove button.
+
+    Read-only because it is not this target's rule: removing it here would edit
+    the Session Stats list from a screen that says it is showing OBS.
+    """
+    row = QWidget()
+    row.setObjectName("trackedRowLast" if last else "trackedRow")
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 7, 0, 7)
+    layout.setSpacing(8)
+
+    items = QWidget()
+    items.setObjectName("cardContent")
+    items_layout = FlowLayout(items, margin=0, spacing=5)
+    for index, item_name in enumerate(tuple(rule.get("item_names") or ())):
+        if index:
+            plus = QLabel("+")
+            plus.setObjectName("chipPlus")
+            items_layout.addWidget(plus)
+        items_layout.addWidget(_item_chip(item_name))
+    layout.addWidget(items, 1)
+
+    mode = str(rule.get("mode") or MODE_ALL_RUN)
+    badge = QLabel(MODE_CAPTIONS.get(mode, MODE_CAPTIONS[MODE_ALL_RUN]))
+    badge.setObjectName("condBadge" if mode == MODE_MAP_ONE else "condBadgeMuted")
+    layout.addWidget(badge)
+    return row
 
 
 # -- small builders -----------------------------------------------------------
