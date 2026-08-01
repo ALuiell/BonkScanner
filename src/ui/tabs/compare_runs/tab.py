@@ -80,6 +80,7 @@ from ui.recording_library import RecordingLibraryRow, recording_search_text
 from ui.shared import (
     FullWidthTabWidget,
     LabeledSwitch,
+    LazyPage,
     _apply_summary_label_padding,
     _make_scroll_section,
     _set_text,
@@ -1866,9 +1867,34 @@ class CompareRunsTab:
         return group, status_label, slider, timeline_label, summary_label
 
     def build(self):
-        """Build the redesigned, timeline-first Compare Runs workspace."""
-        self._tab = QWidget()
+        """Put the tab in the bar. Its contents wait until someone opens it.
+
+        This tab is 741 widgets -- more than a third of the whole window -- and
+        every launch paid for them whether or not the tab was ever opened.
+        Measured, that is about 20 MB and most of the two seconds the window
+        took to build.
+
+        Deferring it is safe because nothing outside reaches in unless this tab
+        is the active one: the router gates `refresh_compare_runs_list` and
+        `ensure_compare_runs_chooser_for_empty_selection` on
+        `is_compare_runs_tab_active`, and by then the page has been shown. The
+        one ungated caller, `invalidate_compare_runs_list`, touches no widget.
+        Every widget attribute is already declared `None` in `__init__`, and
+        the readers already treat that as "not built" -- see
+        `refresh_compare_runs_list`, which returns on it, and
+        `_compare_runs_sort_mode`, which falls back to the saved order.
+        """
+        self._tab = LazyPage(self._build_workspace)
         self._tab.setObjectName("CompareRunsPage")
+        self._tabview.addTab(self._tab, "Compare Runs")
+
+    def build_now(self) -> None:
+        """Build the contents without waiting for a show. For tests."""
+        if self._tab is not None:
+            self._tab.build_now()
+
+    def _build_workspace(self):
+        """Build the redesigned, timeline-first Compare Runs workspace."""
         compare_layout = QVBoxLayout(self._tab)
         compare_layout.setContentsMargins(8, 8, 8, 8)
         compare_layout.setSpacing(10)
@@ -2023,7 +2049,12 @@ class CompareRunsTab:
         self._rendered_diff_cards = None
         self._refresh_series_slot_buttons()
         self._refresh_compare_runs_timeline_model()
-        self._tabview.addTab(self._tab, "Compare Runs")
+        # The list was not painted while there was nothing to paint into, and
+        # the signature says "painted" only because it starts as `None`. A tab
+        # opened for the first time must find its library, not an empty column.
+        self._list_signature = None
+        self.refresh_compare_runs_list()
+        self.refresh_compare_runs_ui()
 
     def _build_run_plaque(self, side: str):
         plaque = QFrame()

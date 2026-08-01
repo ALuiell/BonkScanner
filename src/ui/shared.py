@@ -209,6 +209,44 @@ class _TabHeaderCorner(QWidget):
         self._centre_control()
 
 
+class LazyPage(QWidget):
+    """A tab page that builds its contents the first time it is shown.
+
+    The tab is in the bar from the start -- it has to be, the bar's order is
+    part of the design and a tab that appears late is a tab that moves. What is
+    deferred is everything inside it.
+
+    Worth it only where the contents are large and the tab is not the one the
+    application opens on. Compare Runs is both: 741 of the window's 1888 widgets
+    and roughly 20 MB, built at every launch whether or not anyone opens it.
+
+    `showEvent` is the trigger rather than the tab widget's `currentChanged`,
+    because Qt shows the incoming page *before* it emits that signal -- so
+    anything the switch itself sets off finds the widgets already there. Callers
+    that need them without a show can ask, via `build_now`.
+    """
+
+    def __init__(self, populate, parent=None) -> None:
+        super().__init__(parent)
+        self._populate = populate
+
+    @property
+    def is_built(self) -> bool:
+        return self._populate is None
+
+    def build_now(self) -> None:
+        """Build the contents if they are not built yet. Safe to call twice."""
+        populate, self._populate = self._populate, None
+        if populate is not None:
+            populate()
+
+    def showEvent(self, event) -> None:
+        # Before `super()`, so a `showEvent` handler further down the tree --
+        # or anything the build itself shows -- runs against a laid-out page.
+        self.build_now()
+        super().showEvent(event)
+
+
 class FullWidthTabWidget(QTabWidget):
     """A tab widget whose tab bar and corner control share one full-width frame."""
 
