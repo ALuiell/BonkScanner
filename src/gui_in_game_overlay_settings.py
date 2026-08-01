@@ -288,10 +288,16 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
     )
 
     table = QGridLayout()
-    table.setHorizontalSpacing(14)
-    table.setVerticalSpacing(7)
+    # Roomy, but the columns are still sized to their contents and grouped at
+    # the left. Distributing them across the card was tried and measured: on a
+    # 1920 window the Event timer row put its name at x=24 and its switch at
+    # x=1210, which is the same "two ends of one row half a screen apart" the
+    # tile grid was fixed for. A row has to be readable in one look; the surplus
+    # width is better spent on nothing.
+    table.setHorizontalSpacing(34)
+    table.setVerticalSpacing(10)
     table.setColumnStretch(3, 1)
-    table.setContentsMargins(0, 0, 0, 0)
+    table.setContentsMargins(6, 0, 6, 0)
 
     for index, title in enumerate(("Widget", "", "Scale", "Options")):
         if not title:
