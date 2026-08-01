@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -47,6 +47,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -163,6 +164,38 @@ def _fill_sample_tags(template: str) -> str:
         return template
 
 
+class _HeightMirror(QObject):
+    """Keeps a card in the rail as tall as the card beside it.
+
+    The two are in different columns, so no layout can relate them: the rail is
+    a sibling of the main column, not a row shared with it. Watching the source
+    for resizes is what makes the match survive a font change or a window
+    resize, which a hardcoded height would not.
+
+    A *minimum*, not a fixed height, and deliberately. Matching is the point
+    only while the rail card is the shorter one; a chat preview whose templates
+    happen to wrap onto more lines than the account form has rows should get
+    taller rather than clip, and a clipped preview is the one failure this card
+    cannot afford.
+    """
+
+    def __init__(self, source: QWidget, target: QWidget) -> None:
+        # Parented to the target so it dies with the widgets it serves.
+        super().__init__(target)
+        self._source = source
+        self._target = target
+        source.installEventFilter(self)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:
+        if watched is self._source and event.type() in (QEvent.Resize, QEvent.Show):
+            height = self._source.height()
+            # Before the first layout pass the source is 100x30 boilerplate;
+            # copying that would pin the target to nothing.
+            if height > 1:
+                self._target.setMinimumHeight(height)
+        return False
+
+
 def command_checked(commands: dict, key: str) -> bool:
     """Whether a command checkbox starts checked.
 
@@ -196,6 +229,7 @@ class TwitchTab:
         self._commands_announcements_cb = None
         self._command_cbs: dict[str, ModuleTile] = {}
         self._chat_preview = None
+        self._account_card = None
 
         # The bot's status as a *string*, kept apart from whatever the badge is
         # currently rendering. `TwitchSession.on_bot_finished` decides whether to
@@ -360,6 +394,7 @@ class TwitchTab:
         form.addRow("Cooldowns:", cooldown_row)
 
         card.body.addLayout(form)
+        self._account_card = card
         column.addWidget(card)
 
     def _build_commands_card(self, column) -> None:
@@ -396,12 +431,14 @@ class TwitchTab:
         )
 
         self._stage_announcements_cb = QCheckBox("Announce stage transitions")
+        self._stage_announcements_cb.setObjectName("announcementCheck")
         self._stage_announcements_cb.setChecked(
             config.TWITCH_BOT.get("stage_announcements", True)
         )
         card.body.addWidget(self._stage_announcements_cb)
 
         self._commands_announcements_cb = QCheckBox("Periodically announce available commands")
+        self._commands_announcements_cb.setObjectName("announcementCheck")
         self._commands_announcements_cb.setChecked(
             config.TWITCH_BOT.get("commands_announcements", False)
         )
@@ -420,9 +457,16 @@ class TwitchTab:
         self._chat_preview.setObjectName("chatPreview")
         self._chat_preview.setWordWrap(True)
         self._chat_preview.setTextFormat(Qt.RichText)
+        # The transcript box takes the card's surplus height rather than
+        # floating in the middle of it: the card is being stretched to the
+        # account card's height, and an empty band under a small box would be
+        # the stretch showing through.
+        self._chat_preview.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        self._chat_preview.setAlignment(Qt.AlignTop)
         card.body.addWidget(self._chat_preview)
 
         column.addWidget(card)
+        _HeightMirror(self._account_card, card)
         self.refresh_chat_preview()
 
     def refresh_chat_preview(self) -> None:

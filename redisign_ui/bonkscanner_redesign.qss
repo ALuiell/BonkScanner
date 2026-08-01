@@ -538,6 +538,12 @@ QLabel#settingsCardTitle { font-size: 13px; font-weight: 700; color: #EDF1F5; }
 QLabel#settingsCardSubtitle { color: #5C6675; font-size: 10.5px; }
 QWidget#settingsCardBody { background: transparent; }
 
+/* Два чекбокса «Announcements» на вкладке Twitch. Единственная карточка, где
+   подпись контрола — это и есть всё содержимое: у остальных настройка стоит
+   рядом с полем или плиткой, которые сами задают размер строки. 14px против
+   базовых 13, чтобы две строки в узкой колонке не читались как сноска. */
+QCheckBox#announcementCheck { font-size: 14px; }
+
 /* ---------------------------------------------------------- tip card ------- */
 /* Заменяет инфо-карточки вкладок OBS и In-game, которые раньше рисовались
    инлайновыми стилями прямо в Python — с цветами (#111A2E, #1D4ED8, #3B82F6)
