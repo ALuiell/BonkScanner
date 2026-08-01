@@ -992,9 +992,10 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             border-color: #38495E;
         }
         QPushButton[class="SupportPlatformButton"] {
-            min-height: 26px;
-            max-height: 26px;
-            padding: 2px 8px;
+            /* No max-height any more: the row shares its width between the
+               four, so a 26px cap made them wide and flat. */
+            min-height: 32px;
+            padding: 4px 8px;
             font-size: 12px;
         }
         QPushButton[class="SmallGhostButton"] {

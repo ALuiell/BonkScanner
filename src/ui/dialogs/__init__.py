@@ -1046,12 +1046,12 @@ class SettingsDialog(QDialog):
         self.discord_btn.setIconSize(QSize(18, 18))
         self.discord_btn.clicked.connect(self.open_discord_support_page)
         self.discord_btn.setProperty("class", "SupportPlatformButton")
-        self._sync_support_button_sizes()
-        support_button_row.addWidget(self.patreon_btn)
-        support_button_row.addWidget(self.kofi_btn)
-        support_button_row.addWidget(self.github_btn)
-        support_button_row.addWidget(self.discord_btn)
-        support_button_row.addStretch(1)
+        # An equal share of the row each, filling the card. They used to be
+        # fixed to the width of the longest caption and packed at the left with
+        # the surplus behind them, which read as four buttons that had run out
+        # of room rather than a row of four.
+        for button in (self.patreon_btn, self.kofi_btn, self.github_btn, self.discord_btn):
+            support_button_row.addWidget(button, 1)
         support_layout.addLayout(support_button_row)
         layout.addWidget(support_card)
 
@@ -1067,13 +1067,6 @@ class SettingsDialog(QDialog):
         dialog_footer(
             self, primary=self.save_btn, secondary=cancel_btn, leading=self.update_btn
         )
-
-    def _sync_support_button_sizes(self):
-        buttons = [self.patreon_btn, self.kofi_btn, self.github_btn, self.discord_btn]
-        target_width = max(button.sizeHint().width() for button in buttons)
-        for button in buttons:
-            button.setFixedWidth(target_width)
-            button.setFixedHeight(26)
 
     def check_update(self):
         start_update_check(self.master, force_check=True)
