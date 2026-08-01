@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDoubleSpinBox,
     QFormLayout,
-    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -158,14 +157,15 @@ def build_in_game_overlay_tab(parent_mixin: Any) -> None:
 
     layout.addWidget(_build_igo_hero(parent_mixin))
 
-    main_column, side_column = build_workspace(layout)
+    # No rail on this tab. Its two cards and the hero now share one left edge
+    # and one right edge, which is the "everything on one level" the layout was
+    # asked for -- and the rail had nothing left to hold anyway once the tip
+    # went (see `_build_igo_layout_card` for why it went).
+    main_column, _rail = build_workspace(layout, rail_width=None)
 
     _build_igo_layout_card(parent_mixin, main_column)
     _build_igo_widgets_card(parent_mixin, main_column)
     main_column.addStretch(1)
-
-    _build_igo_tip_card(parent_mixin, side_column)
-    side_column.addStretch(1)
 
     layout.addStretch(1)
     update_in_game_overlay_status_ui(parent_mixin)
@@ -221,7 +221,7 @@ def _build_igo_layout_card(parent_mixin: Any, column) -> None:
     card = SettingsCard(
         number=1,
         title="Layout & activation",
-        subtitle="Drag widgets over the game in layout mode; it saves on exit.",
+        subtitle="Press the hotkey to drag the widgets over the game; it saves on exit.",
     )
 
     form = QFormLayout()
@@ -239,7 +239,12 @@ def _build_igo_layout_card(parent_mixin: Any, column) -> None:
         lambda: _save_in_game_overlay_hotkey(parent_mixin)
     )
     hotkey_layout.addWidget(parent_mixin.igo_hotkey_entry)
-    hotkey_layout.addWidget(QLabel("press again to save and exit", hotkey_row))
+    # Says the whole thing, because the tip card that used to say it is gone.
+    # Everything it carried was already here or in the card's sub-line except
+    # "or Esc", which is the one part this line did not have.
+    hotkey_layout.addWidget(
+        QLabel("press it again — or Esc — to save and exit", hotkey_row)
+    )
     hotkey_layout.addStretch(1)
     form.addRow("Edit hotkey:", hotkey_row)
 
@@ -249,7 +254,11 @@ def _build_igo_layout_card(parent_mixin: Any, column) -> None:
     window_layout.setSpacing(8)
     window_name = QLineEdit(str(getattr(config, "PROCESS_NAME", "") or ""), window_row)
     window_name.setReadOnly(True)
-    window_layout.addWidget(window_name, 1)
+    # Capped, not stretched. The card spans the tab now, and a process name in a
+    # field the width of the window is the same "row with its two ends half a
+    # screen apart" the tile grid was fixed for.
+    window_name.setMaximumWidth(320)
+    window_layout.addWidget(window_name)
     parent_mixin.igo_target_window_label = QLabel("", window_row)
     parent_mixin.igo_target_window_label.setObjectName("fieldSuffix")
     window_layout.addWidget(parent_mixin.igo_target_window_label)
@@ -432,31 +441,6 @@ def refresh_in_game_overlay_stats_summary(parent_mixin: Any) -> None:
     label.setText(f"{len(selected)} selected" if selected else "defaults")
 
 
-def _build_igo_tip_card(parent_mixin: Any, column) -> None:
-    tip = QFrame()
-    tip.setObjectName("tipCard")
-    tip.setProperty("tipCard", "true")
-    tip_layout = QVBoxLayout(tip)
-    tip_layout.setContentsMargins(12, 11, 12, 11)
-    tip_layout.setSpacing(4)
-
-    title = QLabel("LAYOUT SHORTCUT", tip)
-    title.setObjectName("tipCardTitle")
-    tip_layout.addWidget(title)
-
-    # Load-bearing now that layout mode is hotkey-only: this is the *only* place
-    # on screen that says how to enter it. It interpolates the key, so it is
-    # re-rendered whenever the key changes -- a stale instruction here is the
-    # whole feature gone. See `refresh_in_game_overlay_hotkey_ui`.
-    parent_mixin.igo_tip_label = QLabel("", tip)
-    parent_mixin.igo_tip_label.setObjectName("tipCardText")
-    parent_mixin.igo_tip_label.setWordWrap(True)
-    parent_mixin.igo_tip_label.setTextFormat(Qt.RichText)
-    tip_layout.addWidget(parent_mixin.igo_tip_label)
-
-    column.addWidget(tip)
-
-
 def in_game_overlay_hotkey_text() -> str:
     return str(getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9") or "f9").upper()
 
@@ -474,12 +458,9 @@ def refresh_in_game_overlay_hotkey_ui(parent_mixin: Any) -> None:
         entry.blockSignals(True)
         entry.setText(hotkey)
         entry.blockSignals(False)
-    tip = getattr(parent_mixin, "igo_tip_label", None)
-    if tip is not None:
-        tip.setText(
-            f"Press <b>{hotkey}</b> to enter layout mode. Drag the widgets over "
-            f"the game, then press <b>{hotkey}</b> or <b>Esc</b> to save and exit."
-        )
+    # The tip card this used to re-render is gone; the field is the only place
+    # the key is shown now, and the sentence beside it does not name the key, so
+    # it needs no refresh of its own.
 
 
 def _save_in_game_overlay_hotkey(parent_mixin: Any) -> None:
