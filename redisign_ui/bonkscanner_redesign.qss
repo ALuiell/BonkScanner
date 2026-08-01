@@ -1301,11 +1301,13 @@ QLabel#SupportSectionLabel {
     font-size: 13px;
     font-weight: 700;
 }
+/* Без бокового padding: он был нужен центрированному блоку под линейкой, а в
+   карточке отступ уже задан её полями — иначе текст стоит с уступом от
+   собственного заголовка. */
 QLabel#SupportSectionNote {
     color: #8A94A3;
     background: transparent;
     font-size: 12px;
-    padding: 0 24px;
 }
 QFrame#SupportDivider {
     background-color: #1B222B;

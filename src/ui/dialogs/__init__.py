@@ -862,6 +862,50 @@ class HelpDialog(QDialog):
         return "Файл довідки не знайдено.\n\nПеревірте, що docs/help/help_ukr.txt знаходиться поруч із застосунком."
 
 
+#: Every value in the Settings form is two to five characters -- `f6`, `0.10 s`,
+#: `30 s`. Capped so the field says so; before this they ran the width of the
+#: window and the dialog read as six long boxes holding almost nothing.
+_SETTINGS_FIELD_WIDTH = 130
+
+#: Enough for `Snapshot every:`, the longest caption in the form. Fixed rather
+#: than sized to content so the two pairs on a line start their fields at the
+#: same x -- otherwise each column is as wide as its own longest label and the
+#: fields step sideways from row to row.
+_SETTINGS_LABEL_WIDTH = 120
+
+
+def _settings_group_label(text: str) -> QLabel:
+    label = QLabel(str(text).upper())
+    label.setObjectName("sectionEyebrow")
+    return label
+
+
+def _settings_grid(rows) -> QGridLayout:
+    """Label-and-field pairs, two pairs per line.
+
+    A `QFormLayout` cannot do this: it is one column of rows by construction, so
+    four two-character hotkeys took four full lines of a 560px window.
+    """
+    grid = QGridLayout()
+    grid.setContentsMargins(0, 0, 0, 0)
+    grid.setHorizontalSpacing(10)
+    grid.setVerticalSpacing(8)
+    for index, (caption, field) in enumerate(rows):
+        row, column = divmod(index, 2)
+        label = QLabel(str(caption))
+        label.setObjectName("rowLabel")
+        # Left-aligned, on a column wide enough for the longest caption, so the
+        # labels share the window's left edge with the group headings and the
+        # checkboxes. Right-aligning them against the fields instead put a
+        # 120px gutter down the left of the dialog with nothing in it.
+        label.setMinimumWidth(_SETTINGS_LABEL_WIDTH)
+        grid.addWidget(label, row, column * 2, Qt.AlignLeft | Qt.AlignVCenter)
+        grid.addWidget(field, row, column * 2 + 1, Qt.AlignLeft | Qt.AlignVCenter)
+    grid.setColumnStretch(1, 1)
+    grid.setColumnStretch(3, 1)
+    return grid
+
+
 class SettingsDialog(QDialog):
     def __init__(self, parent, master=None):
         super().__init__(parent)
@@ -875,38 +919,16 @@ class SettingsDialog(QDialog):
             width=DIALOG_REGULAR,
         )
 
-        form_layout = QFormLayout()
-        form_layout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        form_layout.setFormAlignment(Qt.AlignTop)
-        form_layout.setHorizontalSpacing(18)
-        form_layout.setVerticalSpacing(14)
-        layout.addLayout(form_layout)
-
+        # Three groups, two columns, and every field capped. One column of
+        # full-width rows was what made this window read as scattered: a field
+        # 430px wide holding `f6`, six of them stacked, and 14px between rows
+        # to hold them apart. The values here are two to five characters; the
+        # width was carrying no information at all.
         self.hotkey_entry = QLineEdit(config.HOTKEY)
-        form_layout.addRow("Scan Hotkey:", self.hotkey_entry)
-
         self.reset_hotkey_entry = QLineEdit(config.RESET_HOTKEY)
-        form_layout.addRow("Reset Hotkey:", self.reset_hotkey_entry)
-
-        self.record_hotkey_entry = QLineEdit(getattr(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"))
-        form_layout.addRow("Record Hotkey:", self.record_hotkey_entry)
-
-        self.reset_hold_duration_entry = QDoubleSpinBox()
-        self.reset_hold_duration_entry.setRange(0.01, 10.0)
-        self.reset_hold_duration_entry.setSingleStep(0.05)
-        self.reset_hold_duration_entry.setDecimals(2)
-        self.reset_hold_duration_entry.setValue(float(config.RESET_HOLD_DURATION))
-        self.reset_hold_duration_entry.setSuffix(" s")
-        form_layout.addRow("Reset Hold Duration (s):", self.reset_hold_duration_entry)
-        self._initial_reset_hold_duration = round(float(config.RESET_HOLD_DURATION), 2)
-
-        self.record_interval_entry = QSpinBox()
-        self.record_interval_entry.setRange(1, 3600)
-        self.record_interval_entry.setSingleStep(5)
-        self.record_interval_entry.setValue(int(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30)))
-        self.record_interval_entry.setSuffix(" s")
-        form_layout.addRow("Snapshot Interval (s):", self.record_interval_entry)
-
+        self.record_hotkey_entry = QLineEdit(
+            getattr(config, "PLAYER_STATS_RECORD_HOTKEY", "f8")
+        )
         # The fourth hotkey. It has always existed in config but had no editor
         # anywhere, so changing it meant hand-editing config.json. It is edited
         # on the In-Game Overlay tab too, deliberately -- the tab is where you
@@ -914,8 +936,55 @@ class SettingsDialog(QDialog):
         self.overlay_edit_hotkey_entry = QLineEdit(
             str(getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9") or "f9")
         )
-        form_layout.addRow("Overlay Layout Hotkey:", self.overlay_edit_hotkey_entry)
+        for entry in (
+            self.hotkey_entry,
+            self.reset_hotkey_entry,
+            self.record_hotkey_entry,
+            self.overlay_edit_hotkey_entry,
+        ):
+            entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
 
+        layout.addWidget(_settings_group_label("Hotkeys"))
+        layout.addLayout(
+            _settings_grid(
+                (
+                    ("Scan:", self.hotkey_entry),
+                    ("Reset:", self.reset_hotkey_entry),
+                    ("Record:", self.record_hotkey_entry),
+                    ("Overlay layout:", self.overlay_edit_hotkey_entry),
+                )
+            )
+        )
+
+        self.reset_hold_duration_entry = QDoubleSpinBox()
+        self.reset_hold_duration_entry.setRange(0.01, 10.0)
+        self.reset_hold_duration_entry.setSingleStep(0.05)
+        self.reset_hold_duration_entry.setDecimals(2)
+        self.reset_hold_duration_entry.setValue(float(config.RESET_HOLD_DURATION))
+        self.reset_hold_duration_entry.setSuffix(" s")
+        self.reset_hold_duration_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
+        self._initial_reset_hold_duration = round(float(config.RESET_HOLD_DURATION), 2)
+
+        self.record_interval_entry = QSpinBox()
+        self.record_interval_entry.setRange(1, 3600)
+        self.record_interval_entry.setSingleStep(5)
+        self.record_interval_entry.setValue(
+            int(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30))
+        )
+        self.record_interval_entry.setSuffix(" s")
+        self.record_interval_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
+
+        layout.addWidget(_settings_group_label("Timing"))
+        layout.addLayout(
+            _settings_grid(
+                (
+                    ("Reset hold:", self.reset_hold_duration_entry),
+                    ("Snapshot every:", self.record_interval_entry),
+                )
+            )
+        )
+
+        layout.addWidget(_settings_group_label("On start"))
         self.auto_start_recording_var = QCheckBox("Auto-start recording")
         self.auto_start_recording_var.setChecked(bool(getattr(config, "AUTO_START_RECORDING", False)))
         layout.addWidget(self.auto_start_recording_var)
@@ -928,30 +997,31 @@ class SettingsDialog(QDialog):
 
         layout.addStretch(1)
 
-        support_divider = QFrame()
-        support_divider.setObjectName("SupportDivider")
-        support_divider.setFrameShape(QFrame.HLine)
-        support_divider.setFrameShadow(QFrame.Plain)
-        layout.addWidget(support_divider)
+        # A card rather than a centred block under a rule. Centred text under a
+        # left-aligned form is two alignments in one short window, and the rule
+        # above it was a third divider in a dialog that already has one under
+        # its title.
+        support_card = QFrame()
+        support_card.setObjectName("card")
+        support_layout = QVBoxLayout(support_card)
+        support_layout.setContentsMargins(12, 10, 12, 12)
+        support_layout.setSpacing(8)
 
-        support_label = QLabel("Support")
+        support_label = QLabel("Support", support_card)
         support_label.setObjectName("SupportSectionLabel")
-        support_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(support_label)
+        support_layout.addWidget(support_label)
 
         support_note = QLabel(
-            "BonkScanner is free to download here. "
-            "You can also support the project. For feedback, bugs, "
-            "or ideas, use GitHub or Discord."
+            "BonkScanner is free to download. For feedback, bugs or ideas, "
+            "use GitHub or Discord.",
+            support_card,
         )
         support_note.setObjectName("SupportSectionNote")
-        support_note.setAlignment(Qt.AlignCenter)
         support_note.setWordWrap(True)
-        layout.addWidget(support_note)
+        support_layout.addWidget(support_note)
 
         support_button_row = QHBoxLayout()
-        support_button_row.setSpacing(10)
-        support_button_row.setAlignment(Qt.AlignHCenter)
+        support_button_row.setSpacing(8)
         self.patreon_btn = QPushButton("Patreon")
         self.patreon_btn.setObjectName("PatreonButton")
         self.patreon_btn.setIcon(QIcon(resource_path(PATREON_ICON_PATH)))
@@ -981,7 +1051,9 @@ class SettingsDialog(QDialog):
         support_button_row.addWidget(self.kofi_btn)
         support_button_row.addWidget(self.github_btn)
         support_button_row.addWidget(self.discord_btn)
-        layout.addLayout(support_button_row)
+        support_button_row.addStretch(1)
+        support_layout.addLayout(support_button_row)
+        layout.addWidget(support_card)
 
         # Save is a footer button like every other dialog's, rather than a
         # full-width bar stacked above the support block -- which put the
