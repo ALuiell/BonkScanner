@@ -1257,3 +1257,93 @@ QTabWidget#CompareRunsTabs QTabBar::tab:selected {
     background-color: #2F6FB0;
     color: #FFFFFF;
 }
+
+/* ================================================= диалоги и предупреждения ==
+   Всё в этом разделе жило в legacy_stylesheet — запасном листе, который
+   `build_qt_app_stylesheet` берёт ТОЛЬКО когда этот файл не прочитался
+   (`base_stylesheet = redesign_stylesheet or legacy_stylesheet`). То есть в
+   рабочей сборке эти девять правил не применялись никогда: карточка
+   предупреждения теряла янтарный фон, заголовок — цвет и размер, четыре
+   кнопки поддержки — свои фирменные цвета. Перенесены сюда, в палитру
+   редизайна, а не скопированы старыми значениями. */
+
+/* Карточка предупреждения (Auto-Reroll, напоминание про запись OBS).
+   Янтарь тот же, что у бейджа шапки в состоянии warn, чтобы «внимание» во
+   всей программе читалось одним цветом. */
+QFrame#WarningCard {
+    background-color: rgba(250, 204, 21, 0.07);
+    border: 1px solid #5A4A12;
+    border-radius: 12px;
+}
+QLabel#WarningTitle {
+    color: #FACC15;
+    background: transparent;
+    font-size: 16px;
+    font-weight: 800;
+}
+
+/* Блок поддержки внизу настроек. */
+QLabel#SupportSectionLabel {
+    color: #FACC15;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 700;
+}
+QLabel#SupportSectionNote {
+    color: #8A94A3;
+    background: transparent;
+    font-size: 12px;
+    padding: 0 24px;
+}
+QFrame#SupportDivider {
+    background-color: #1B222B;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+}
+
+/* Четыре кнопки — единственное место в программе, где цвет не наш, а чужого
+   бренда, и это осознанно: их узнают по цвету раньше, чем прочитают. */
+QPushButton#PatreonButton {
+    background-color: #22181A; color: #FF6F61;
+    border: 1px solid #4B2B2F; border-radius: 8px;
+    font-weight: 700; padding: 7px 12px;
+}
+QPushButton#PatreonButton:hover { background-color: #2B1D20; border-color: #6A393F; }
+QPushButton#KofiButton {
+    background-color: #181F24; color: #29ABE0;
+    border: 1px solid #264555; border-radius: 8px;
+    font-weight: 700; padding: 7px 12px;
+}
+QPushButton#KofiButton:hover { background-color: #1D262D; border-color: #2F5F77; }
+QPushButton#GithubButton {
+    background-color: #151B23; color: #F0F6FC;
+    border: 1px solid #3D444D; border-radius: 8px;
+    font-weight: 700; padding: 7px 12px;
+}
+QPushButton#GithubButton:hover { background-color: #1F2832; border-color: #586069; }
+QPushButton#DiscordButton {
+    background-color: #1C2142; color: #AEBBFF;
+    border: 1px solid #3B4383; border-radius: 8px;
+    font-weight: 700; padding: 7px 12px;
+}
+QPushButton#DiscordButton:hover { background-color: #252B57; border-color: #5865F2; }
+
+/* QMessageBox — восемь окон в программе, и ни одного правила на них до сих
+   пор: они собирались из системных умолчаний внутри тёмного окна, поэтому
+   текст лип к иконке, а кнопки стояли вплотную к краю. Стилизуется сам
+   QMessageBox, а не QDialog: у него собственный внутренний layout. */
+QMessageBox {
+    background-color: #0B0F14;
+}
+QMessageBox QLabel {
+    background: transparent;
+    color: #EDF1F5;
+    font-size: 13px;
+    /* Отступ слева от иконки и снизу до кнопок: у QMessageBox нет полей, и
+       без них текст стоит в упор к обоим. */
+    padding: 4px 8px 10px 8px;
+}
+QMessageBox QPushButton {
+    min-width: 84px;
+}
