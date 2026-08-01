@@ -544,6 +544,93 @@ class VodStorageTests(unittest.TestCase):
             self.assertEqual(status, "deleted_empty")
             self.assertFalse(path.exists())
 
+    def test_repeated_strings_are_one_object_across_a_loaded_recording(self) -> None:
+        """The load's string pool, asserted by identity because that is the point.
+
+        A recording is one JSON object per line, so the decoder runs per line
+        and drops its key memo in between: without the pool, a file of 713
+        snapshots holds 713 copies of every stat name and of the few display
+        strings the stats cycle through. Measured on the real library that was
+        5 MB of the 19 a single recording cost.
+
+        Equality would pass with or without the pool -- the copies are equal,
+        that is the whole problem -- so this asserts `is`. It does not assert a
+        byte count: the saving depends on the file, and a test that pinned one
+        would be reporting on this fixture rather than on the sharing.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "repeats.jsonl"
+            snapshot = (
+                '{{"type":"snapshot","elapsed_seconds":{elapsed},"captured_at":{elapsed}.0,'
+                '"stats":{{"Damage":{{"value":1.25,"display":"1.25x"}},'
+                '"Crit Chance":{{"value":0.1,"display":"10%"}}}},'
+                '"items":["Wrench x1"],"banishes":["Boots"],'
+                '"weapons":[{{"id":1,"name":"Hammer","level":2}}],'
+                '"tomes":[{{"id":2,"name":"Tome of Speed","stat_label":"Movement Speed"}}],'
+                '"damage_sources":[{{"source_key":"hammer","source_name":"Hammer","damage":5.0}}]}}'
+            )
+            path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":7,"name":"Repeats","created_at":"2026-08-01T10:00:00","snapshot_interval_seconds":10}',
+                    ]
+                    + [snapshot.format(elapsed=elapsed) for elapsed in (0, 10, 20)]
+                    + ['{"type":"summary","duration_seconds":20,"snapshot_count":3}']
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            first, second, third = load_vod(path).snapshots
+
+            def key_of(snapshot, name):
+                return next(key for key in snapshot.stats if key == name)
+
+            for name in ("Damage", "Crit Chance"):
+                self.assertIs(key_of(first, name), key_of(second, name))
+                self.assertIs(key_of(first, name), key_of(third, name))
+
+            self.assertIs(
+                first.stats["Damage"].display_value,
+                third.stats["Damage"].display_value,
+            )
+            self.assertIs(first.items[0], third.items[0])
+            self.assertIs(first.banishes[0], third.banishes[0])
+            self.assertIs(first.weapons[0].name, third.weapons[0].name)
+            self.assertIs(first.tomes[0].name, third.tomes[0].name)
+            self.assertIs(first.tomes[0].stat_label, third.tomes[0].stat_label)
+            self.assertIs(
+                first.damage_sources[0].source_name,
+                third.damage_sources[0].source_name,
+            )
+
+    def test_the_snapshot_types_carry_no_per_instance_dict(self) -> None:
+        """`slots=True` on the two types that exist in five figures.
+
+        One recording builds a `VodSnapshot` per capture and a `VodStatValue`
+        per stat per capture -- 855 and 25,650 for a run in the real library.
+        A dataclass without slots gives each one a `__dict__`, and putting that
+        back would cost about 1.5 MB per open recording with nothing failing.
+        """
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "slots.jsonl"
+            path.write_text(
+                "\n".join(
+                    [
+                        '{"type":"metadata","version":7,"name":"Slots","created_at":"2026-08-01T10:00:00","snapshot_interval_seconds":10}',
+                        '{"type":"snapshot","elapsed_seconds":0,"captured_at":1000.0,"stats":{"Damage":{"value":1.0,"display":"1x"}}}',
+                        '{"type":"summary","duration_seconds":0,"snapshot_count":1}',
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            snapshot = load_vod(path).snapshots[0]
+
+            self.assertFalse(hasattr(snapshot, "__dict__"))
+            self.assertFalse(hasattr(snapshot.stats["Damage"], "__dict__"))
+
 
 if __name__ == "__main__":
     unittest.main()
