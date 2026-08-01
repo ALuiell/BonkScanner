@@ -321,9 +321,11 @@ class RecordingsLayoutTests(unittest.TestCase):
             chooser = view._chooser_group
             assert chooser is not None
             # Eight extra pixels keep the recording-row metadata inside the
-            # viewport instead of creating a horizontal scrollbar.
-            assert chooser.minimumWidth() == 198
-            assert chooser.maximumWidth() == 328
+            # viewport instead of creating a horizontal scrollbar; the whole
+            # library then carries another 18 on top, so a recording name has
+            # room before it elides.
+            assert chooser.minimumWidth() == 216
+            assert chooser.maximumWidth() == 346
             assert chooser.findChild(QLineEdit, "RecordingsSearch") is not None
             assert (
                 view._list_frame.horizontalScrollBarPolicy()
