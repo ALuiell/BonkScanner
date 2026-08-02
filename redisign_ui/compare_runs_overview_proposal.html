@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Compare Runs — Overview &amp; cards proposal</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#05070A; --page:#0E1217; --panel:#0B0F14; --panel2:#141A22;
+  --line:#1B222B; --line2:#2A3542; --line3:#2E3A48;
+  --muted:#5C6675; --secondary:#8A94A3; --heading:#B9C2CE; --text:#EDF1F5;
+  --accent:#2F6FB0; --accent-border:#3E82C6;
+  --a:#38BDF8; --b:#C084FC; --good:#22C55E; --bad:#FB7185; --warn:#FACC15;
+  --a-soft:#A9D9FF; --b-soft:#D8B4FE;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:13px/1.45 Inter,'Segoe UI',Arial,sans-serif}
+button,input,select{font:inherit;color:inherit}
+h1{font-size:19px;font-weight:800;margin:0}
+h2{font-size:13px;font-weight:800;margin:0;letter-spacing:.05em;text-transform:uppercase;color:var(--heading)}
+.wrap{max-width:1520px;margin:auto;padding:20px 20px 90px}
+.hint{color:var(--secondary);font-size:11.5px}
+.eyebrow{color:var(--muted);font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+
+/* ---------- prototype chrome (не часть дизайна приложения) ---------- */
+.topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.ctl{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);
+  border-radius:9px;padding:4px}
+.ctl>label{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);padding:0 6px}
+.ctl button{background:transparent;border:0;border-radius:6px;padding:5px 10px;cursor:pointer;
+  color:var(--secondary);font-weight:700;font-size:11.5px;transition:.12s}
+.ctl button:hover{color:var(--text);background:var(--panel2)}
+.ctl button.on{background:var(--accent);color:#fff}
+.ctl button u{text-decoration:none;font-size:10px;margin-left:5px}
+.subj-note{display:flex;align-items:center;gap:8px;background:#0E1217;border:1px solid var(--line);
+  border-radius:9px;padding:7px 11px;margin-bottom:10px;font-size:11.5px;color:var(--secondary)}
+.subj-note b{color:var(--text);font-variant-numeric:tabular-nums}
+.note{border-left:2px solid var(--accent-border);background:rgba(47,111,176,.07);
+  border-radius:0 8px 8px 0;padding:9px 12px;margin:0 0 16px;color:var(--heading);font-size:12px}
+.note b{color:var(--text)}
+
+/* ---------- frame = одно окно приложения заданной ширины ---------- */
+.frames{display:flex;flex-direction:column;gap:20px}
+.frame{border:1px solid var(--line);border-radius:14px;background:var(--page);overflow:hidden}
+.frame-bar{display:flex;align-items:center;gap:9px;padding:7px 11px;border-bottom:1px solid var(--line);
+  background:var(--panel)}
+.frame-bar b{font-size:11.5px}
+.frame-bar span{color:var(--muted);font-size:11px}
+.frame-bar i{margin-left:auto;font-style:normal;font-size:10px;font-weight:800;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--accent-border)}
+.frame-body{overflow-x:auto}
+.viewport{container-type:inline-size;padding:12px}
+.f-wide .viewport{width:1440px}
+.f-med .viewport{width:1120px}
+.f-narrow .viewport{width:880px}
+.frame[hidden]{display:none}
+
+/* ---------- общий язык поверхностей Compare Runs ---------- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:11px}
+.card-head{display:flex;align-items:center;gap:9px;padding:9px 12px;border-bottom:1px solid var(--line)}
+.card-head .spacer{margin-left:auto}
+.card-body{padding:11px 12px}
+.badge{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;
+  font-size:12px;font-weight:800;background:#152231;color:var(--a-soft)}
+.jump{background:transparent;border:0;color:#5B9BDD;font-weight:700;font-size:11.5px;cursor:pointer;padding:0}
+.jump:hover{color:#DDEEFF}
+.tag-a{color:var(--a);font-weight:900}
+.tag-b{color:var(--b);font-weight:900}
+.good{color:var(--good)}.bad{color:var(--bad)}.neutral{color:var(--secondary)}
+.num{font-variant-numeric:tabular-nums}
+
+/* ---------- шапка сравнения (плашки A/B) ---------- */
+.plaques{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:stretch;margin-bottom:10px}
+.plaque{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);
+  border-radius:11px;padding:8px 9px 8px 11px;min-width:0}
+.plaque[data-side="A"]{border-left:3px solid var(--a)}
+.plaque[data-side="B"]{border-left:3px solid var(--b)}
+.plaque .who{font-size:12px;font-weight:900}
+.plaque .name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.plaque .meta{color:var(--muted);font-size:11px;white-space:nowrap}
+.plaque .btn{margin-left:auto}
+.btn{background:var(--panel2);border:1px solid var(--line2);border-radius:7px;color:var(--heading);
+  padding:5px 9px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:#38495E;color:var(--text)}
+.swap{align-self:center;padding:5px 10px}
+@container (max-width:959px){
+  .plaques{grid-template-columns:1fr;gap:6px}
+  .swap{justify-self:center}
+}
+
+/* ---------- KPI-плитки ---------- */
+.kpis{display:grid;gap:8px;grid-template-columns:repeat(6,1fr);margin-bottom:10px}
+@container (max-width:1279px){.kpis{grid-template-columns:repeat(3,1fr)}}
+@container (max-width:959px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:9px 11px;min-width:0}
+.kpi .k-label{color:var(--secondary);font-size:10.5px;font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kpi .k-delta{font-size:22px;font-weight:800;line-height:1.15;margin-top:3px;
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpi .k-sides{display:flex;gap:10px;margin-top:5px;padding-top:5px;border-top:1px solid var(--line);
+  font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpi .k-sides span{display:flex;gap:4px;min-width:0}
+.kpi .k-sides em{font-style:normal;color:var(--heading)}
+.kpi.is-flat .k-delta{color:var(--muted)}
+.kpi.is-flat{opacity:.62}
+
+/* ---------- diverging bars ---------- */
+.dv{display:grid;grid-template-columns:132px 1fr 92px;gap:10px;align-items:center;padding:6px 0}
+.dv+.dv{border-top:1px solid var(--line)}
+.dv .d-name{color:var(--heading);font-size:12px;font-weight:700;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.dv .d-track{position:relative;height:16px;background:#0E1217;border:1px solid var(--line);border-radius:5px;
+  overflow:hidden}
+.dv .d-track:before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line2)}
+.dv .d-fill{position:absolute;top:2px;bottom:2px;border-radius:3px}
+.dv .d-fill.a{right:50%;background:linear-gradient(90deg,rgba(56,189,248,.35),var(--a))}
+.dv .d-fill.b{left:50%;background:linear-gradient(90deg,var(--b),rgba(192,132,252,.35))}
+.dv .d-val{text-align:right;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dv-legend{display:flex;gap:14px;color:var(--muted);font-size:10.5px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid var(--line);
+  margin-bottom:4px}
+.dv-legend .r{margin-left:auto}
+@container (max-width:959px){
+  .dv{grid-template-columns:104px 1fr 76px;gap:7px}
+}
+
+/* ---------- Luck & Loot ---------- */
+.loot-grid{display:grid;grid-template-columns:2fr 3fr;gap:10px}
+@container (max-width:1279px){.loot-grid{grid-template-columns:1fr}}
+.luck-tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.luck{background:#0E1217;border:1px solid var(--line);border-radius:9px;padding:9px 10px}
+.luck .l-top{display:flex;align-items:baseline;gap:6px}
+.luck .l-label{color:var(--secondary);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.luck .l-main{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+.luck .l-sub{color:var(--muted);font-size:11px;margin-top:2px;font-variant-numeric:tabular-nums}
+.ladder{display:flex;flex-direction:column;gap:5px}
+.rung{display:grid;grid-template-columns:78px 1fr 1fr;gap:8px;align-items:center;
+  background:#0E1217;border:1px solid var(--line);border-radius:8px;padding:6px 9px}
+.rung .r-name{font-size:11.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rung .r-side{display:grid;grid-template-columns:14px 1fr 62px;gap:6px;align-items:center;min-width:0}
+.rung .r-tag{font-size:10.5px;font-weight:900;text-align:center}
+.rung .r-track{position:relative;height:12px;background:#0B0F14;border:1px solid var(--line);
+  border-radius:4px;overflow:hidden}
+.rung .r-track:before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--line2)}
+.rung .r-fill{position:absolute;top:2px;bottom:2px;border-radius:2px}
+.rung .r-fill.over{left:50%;background:var(--good)}
+.rung .r-fill.under{right:50%;background:var(--bad)}
+.rung .r-num{font-size:11px;font-variant-numeric:tabular-nums;color:var(--heading);text-align:right;
+  white-space:nowrap}
+.rung .r-num u{text-decoration:none;color:var(--muted)}
+.rung.no-data{opacity:.5}
+.rar-legendary{color:#FACC15}.rar-epic{color:#C084FC}.rar-rare{color:#60A5FA}.rar-uncommon{color:#4ADE80}
+@container (max-width:959px){
+  .rung{grid-template-columns:1fr;gap:4px}
+  .luck-tiles{grid-template-columns:1fr}
+}
+.unmeasured{display:flex;align-items:center;gap:8px;background:rgba(250,204,21,.06);
+  border:1px solid rgba(250,204,21,.22);border-radius:8px;padding:8px 10px;color:#E8D9A0;font-size:11.5px}
+.unmeasured b{color:var(--warn)}
+.chest-strip{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding-top:9px;border-top:1px solid var(--line)}
+.chest{flex:1 1 130px;background:#0E1217;border:1px solid var(--line);border-radius:8px;padding:7px 9px;min-width:0}
+.chest .c-label{color:var(--secondary);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.chest .c-vals{display:flex;gap:9px;margin-top:3px;font-size:12px;font-variant-numeric:tabular-nums}
+
+/* ---------- плитки-переходы ---------- */
+.hubs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+@container (max-width:959px){.hubs{grid-template-columns:1fr}}
+.hub{display:flex;align-items:center;gap:10px;text-align:left;background:var(--panel);
+  border:1px solid var(--line);border-radius:11px;padding:10px 11px;cursor:pointer;transition:.12s;min-width:0}
+.hub:hover{border-color:var(--accent-border);background:#10161F}
+.hub .h-txt{min-width:0}
+.hub .h-where{color:var(--muted);font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+.hub .h-fact{font-size:12.5px;font-weight:700;margin-top:2px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.hub .h-arrow{margin-left:auto;color:#5B9BDD;font-weight:800}
+
+/* ---------- вариант B: split ledger ---------- */
+.ledger{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@container (max-width:959px){.ledger{grid-template-columns:1fr}}
+.led-col .card-head{gap:7px}
+.led-row{display:grid;grid-template-columns:1fr 76px 58px;gap:8px;align-items:center;padding:6px 0;
+  font-size:12px}
+.led-row+.led-row{border-top:1px solid var(--line)}
+.led-row .l-name{color:var(--heading);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.led-row .l-bar{height:6px;border-radius:4px;background:#0E1217;border:1px solid var(--line);overflow:hidden}
+.led-row .l-bar i{display:block;height:100%}
+.led-row .l-gain{text-align:right;font-weight:800;font-variant-numeric:tabular-nums}
+.tally{display:flex;align-items:center;gap:10px;justify-content:center;background:var(--panel);
+  border:1px solid var(--line);border-radius:11px;padding:9px;margin-top:10px;font-size:12.5px;font-weight:700}
+
+/* ---------- демо таблиц ---------- */
+.tbl{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);
+  border-radius:10px;overflow:hidden}
+.tbl th,.tbl td{padding:7px 11px;text-align:right;border-bottom:1px solid #151B23;
+  font-variant-numeric:tabular-nums;font-size:13px}
+.tbl th:first-child,.tbl td:first-child{text-align:left}
+.tbl th{color:var(--secondary);font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;
+  background:#0E1217;border-bottom:1px solid var(--line2)}
+.tbl th.ca{color:var(--a-soft)}.tbl th.cb{color:var(--b-soft)}
+.tbl tr:nth-child(odd) td{background:#0E1217}
+.tbl td:first-child{color:var(--secondary)}
+.tbl td.va{color:var(--a-soft)}.tbl td.vb{color:var(--b-soft)}
+.tbl td.d{font-weight:800}
+.tbl tr.flat td{opacity:.55}
+.tbl tr:last-child td{border-bottom:0}
+.dbar{display:inline-block;width:64px;height:4px;background:var(--line2);border-radius:3px;
+  vertical-align:middle;margin-left:8px;overflow:hidden}
+.dbar i{display:block;height:100%;background:currentColor}
+@container (max-width:959px){.dbar{display:none}}
+.pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:9px}
+.pill{background:var(--panel2);border:1px solid var(--line2);border-radius:7px;padding:5px 10px;
+  font-size:11.5px;font-weight:700;color:var(--secondary);cursor:pointer}
+.pill:hover{color:var(--text);border-color:#38495E}
+.pill.on{background:var(--accent);border-color:var(--accent-border);color:#fff}
+.pill u{text-decoration:none;color:inherit;opacity:.7;font-size:10.5px;margin-left:5px}
+
+.sec-title{display:flex;align-items:baseline;gap:10px;margin:26px 0 10px}
+.sec-title h2{font-size:14px;text-transform:none;letter-spacing:0;color:var(--text)}
+.stack{display:flex;flex-direction:column;gap:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div>
+      <div class="eyebrow">Compare Runs · redesign</div>
+      <h1>Overview + карточки</h1>
+    </div>
+    <div class="ctl">
+      <label>Вариант</label>
+      <button data-variant="a" class="on">A · Scorecard</button>
+      <button data-variant="b">B · Ledger</button>
+      <button data-variant="c">C · Diverging</button>
+    </div>
+    <div class="ctl">
+      <label>Ширина</label>
+      <button data-width="all" class="on">Все три</button>
+      <button data-width="wide">1440</button>
+      <button data-width="med">1120</button>
+      <button data-width="narrow">880</button>
+    </div>
+    <div class="ctl">
+      <label>Направление Δ</label>
+      <button data-subj="a" class="on">A − B <u style="opacity:.6">A основная</u></button>
+      <button data-subj="b">B − A <u style="opacity:.6">как сейчас</u></button>
+    </div>
+    <div class="ctl">
+      <label>Loot данные</label>
+      <button data-loot="both" class="on">Обе записаны</button>
+      <button data-loot="one">Только A</button>
+      <button data-loot="none">Не записаны</button>
+    </div>
+  </div>
+
+  <p class="note">
+    Ширины настоящие: каждый фрейм — <b>container query</b>, перестроение внутри происходит по тем же
+    брейкпоинтам, что предлагаются в коде — <b>&lt;960</b> / <b>960–1280</b> / <b>≥1280</b>.
+    Плашки A/B и таймлайн показаны только как контекст сверху; менять их не предлагается.
+  </p>
+
+  <div class="frames" id="frames"></div>
+
+  <div class="sec-title">
+    <h2>Таблицы: точечные правки, структура прежняя</h2>
+    <span class="hint">delta-бар · приглушение равных строк · пилюли сущностей · семантика «меньше = лучше»</span>
+  </div>
+  <div class="frame f-wide">
+    <div class="frame-bar"><b>Stats</b><span>тот же MetricTableView, добавлены бар дельты и приглушение</span><i>1440</i></div>
+    <div class="frame-body"><div class="viewport">
+      <div id="statsTable"></div>
+      <p class="hint" style="margin:9px 0 0">
+        <b style="color:var(--text)">Cooldown покрашен красным для той стороны, которой хуже</b> — сейчас он зелёный
+        всегда, когда знак «+», потому что цвет берётся из знака. Метрике нужен флаг «меньше = лучше»,
+        иначе половина Weapons читается наоборот. Строки без разницы приглушены — «Only differences»
+        перестаёт быть обязательным кликом.
+      </p>
+    </div></div>
+  </div>
+
+  <div class="frame f-wide" style="margin-top:14px">
+    <div class="frame-bar"><b>Weapons</b><span>пилюли-якоря вместо простыни из 8 секций</span><i>1440</i></div>
+    <div class="frame-body"><div class="viewport">
+      <div class="pills">
+        <button class="pill on">Sword <u>2 Δ</u></button>
+        <button class="pill">Revolver <u>3 Δ</u></button>
+        <button class="pill">Lightning Staff <u>1 Δ</u></button>
+        <button class="pill">Boomerang <u>0 Δ</u></button>
+        <button class="pill">Shuriken <u>4 Δ</u></button>
+      </div>
+      <div id="weaponTable"></div>
+    </div></div>
+  </div>
+
+</div>
+
+<script>
+const RUNS={
+  a:{name:"Monolith · 07/27 21:14", meta:"18:42 · 224 снимка"},
+  b:{name:"Forge · 07/29 19:08",    meta:"20:06 · 241 снимок"}
+};
+
+/* dBA — как считается сейчас (B − A); dAB — если субъект A. `favors` — кому
+   метрика в плюс; цвет = «в пользу субъекта», а не «знак плюс». */
+const KPIS=[
+  {label:"Time offset", dBA:"+0:19", dAB:"−0:19", favors:"a", a:"11:37",  b:"11:56"},
+  {label:"Kills",       dBA:"−572",  dAB:"+572",  favors:"a", a:"13 940", b:"13 368"},
+  {label:"Level",       dBA:"+2",    dAB:"−2",    favors:"b", a:"82",     b:"84"},
+  {label:"Items",       dBA:"+1",    dAB:"−1",    favors:"b", a:"26",     b:"27"},
+  {label:"Chests",      dBA:"−5",    dAB:"+5",    favors:"a", a:"34/40",  b:"29/38"},
+  {label:"Luck index",  dBA:"−0.33×",dAB:"+0.33×",favors:"a", a:"1.24×",  b:"0.91×", loot:true}
+];
+
+const STATS=[
+  {name:"Damage",         a:"885K", b:"950K", dBA:"+65K",   dAB:"−65K",   favors:"b", bar:100},
+  {name:"Crit Chance",    a:"34%",  b:"41%",  dBA:"+7 pp",  dAB:"−7 pp",  favors:"b", bar:38},
+  {name:"Crit Damage",    a:"2.4×", b:"2.4×", dBA:"--",     dAB:"--",     favors:"",  bar:0},
+  {name:"Max HP",         a:"412",  b:"380",  dBA:"−32",    dAB:"+32",    favors:"a", bar:22},
+  {name:"Cooldown",       a:"0.42s",b:"0.48s",dBA:"+0.06s", dAB:"−0.06s", favors:"a", bar:18, lower:true},
+  {name:"Movement Speed", a:"146%", b:"134%", dBA:"−12 pp", dAB:"+12 pp", favors:"a", bar:44},
+  {name:"Luck",           a:"64",   b:"78",   dBA:"+14",    dAB:"−14",    favors:"b", bar:51},
+  {name:"Armor",          a:"76",   b:"76",   dBA:"--",     dAB:"--",     favors:"",  bar:0}
+];
+
+const WEAPON=[
+  {name:"Damage",      a:"246",  b:"218",  dBA:"−28",    dAB:"+28",    favors:"a", bar:100},
+  {name:"Cooldown",    a:"0.42s",b:"0.48s",dBA:"+0.06s", dAB:"−0.06s", favors:"a", bar:30, lower:true},
+  {name:"Projectiles", a:"7",    b:"7",    dBA:"--",     dAB:"--",     favors:"",  bar:0}
+];
+
+/* lead: чья сторона впереди; pct: длина бара 0..100; val: подпись */
+const DIFFS=[
+  {name:"Luck index",     lead:"a", pct:92, val:"A +0.33×"},
+  {name:"Chests opened",  lead:"a", pct:71, val:"A +5"},
+  {name:"Kills",          lead:"a", pct:54, val:"A +572"},
+  {name:"Damage",         lead:"b", pct:63, val:"B +65K"},
+  {name:"Crit Chance",    lead:"b", pct:41, val:"B +7 pp"},
+  {name:"Stage 2 time",   lead:"a", pct:37, val:"A −0:32"},
+  {name:"Movement Speed", lead:"a", pct:33, val:"A +12 pp"}
+];
+
+const LOOT=[
+  {rarity:"Legendary", cls:"rar-legendary", a:[3,1.2],  b:[1,1.4]},
+  {rarity:"Epic",      cls:"rar-epic",      a:[7,5.8],  b:[5,6.4]},
+  {rarity:"Rare",      cls:"rar-rare",      a:[11,12.4],b:[13,13.1]},
+  {rarity:"Uncommon",  cls:"rar-uncommon",  a:[9,10.6], b:[12,11.2]}
+];
+
+const HUBS=[
+  {where:"Stages",  fact:"Stage 2 расходится сильнее всего · A −0:32"},
+  {where:"Items",   fact:"B собрал на 1 предмет больше, 4 уникальных"},
+  {where:"Weapons", fact:"Sword: −28 dmg, +0.06s cooldown у B"}
+];
+
+let variant="a", widthMode="all", lootState="both", subject="a";
+
+/* Цвет дельты = «в пользу субъекта», а не «есть ли плюс». Это же правило
+   чинит Cooldown, который сейчас красится зелёным просто из-за знака. */
+const favorClass=favors=>!favors?"neutral":favors===subject?"good":"bad";
+const deltaText=row=>subject==="a"?row.dAB:row.dBA;
+
+const esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function plaques(){
+  return `<div class="plaques">
+    <div class="plaque" data-side="A">
+      <span class="who tag-a">A</span>
+      <span class="name">${esc(RUNS.a.name)}</span>
+      <span class="meta">${esc(RUNS.a.meta)}</span>
+      <button class="btn">Change</button>
+    </div>
+    <button class="btn swap">⇄</button>
+    <div class="plaque" data-side="B">
+      <span class="who tag-b">B</span>
+      <span class="name">${esc(RUNS.b.name)}</span>
+      <span class="meta">${esc(RUNS.b.meta)}</span>
+      <button class="btn">Change</button>
+    </div>
+  </div>`;
+}
+
+function subjNote(){
+  const s=subject==="a"?"a":"b", o=subject==="a"?"b":"a";
+  return `<div class="subj-note">
+    <span class="badge" style="background:${s==="a"?"#152231":"#231A33"};color:var(--${s})">Δ</span>
+    <span>Все дельты считаются как <b class="tag-${s}">${s.toUpperCase()}</b><b> − </b><b class="tag-${o}">${o.toUpperCase()}</b>.
+      Зелёный — <b class="tag-${s}">${s.toUpperCase()}</b> лучше. Ось ниже направление не использует: она называет лидера.</span>
+  </div>`;
+}
+
+function kpiTiles(){
+  return `<div class="kpis">${KPIS.map(k=>{
+    const hidden = k.loot && lootState==="none";
+    const cls = hidden ? "kpi is-flat" : "kpi";
+    const delta = hidden ? "не измерен" : deltaText(k);
+    const dcls  = hidden ? "" : favorClass(k.favors);
+    const av = (k.loot && lootState==="none") ? "--" : k.a;
+    const bv = (k.loot && lootState!=="both") ? "--" : k.b;
+    return `<div class="${cls}">
+      <div class="k-label">${esc(k.label)}</div>
+      <div class="k-delta ${dcls}">${esc(delta)}</div>
+      <div class="k-sides">
+        <span><span class="tag-a">A</span><em>${esc(av)}</em></span>
+        <span><span class="tag-b">B</span><em>${esc(bv)}</em></span>
+      </div>
+    </div>`;}).join("")}</div>`;
+}
+
+function divergingRows(list){
+  return list.map(d=>`<div class="dv">
+    <div class="d-name">${esc(d.name)}</div>
+    <div class="d-track"><i class="d-fill ${d.lead}" style="width:${d.pct/2}%"></i></div>
+    <div class="d-val ${d.lead==="a"?"tag-a":"tag-b"}">${esc(d.val)}</div>
+  </div>`).join("");
+}
+
+function biggestDiffs(){
+  return `<section class="card">
+    <div class="card-head"><span class="badge">Δ</span><h2>Biggest differences</h2>
+      <span class="hint spacer">нормировано к максимальной разнице</span></div>
+    <div class="card-body">
+      <div class="dv-legend"><span class="tag-a">◀ A впереди</span><span class="r tag-b">B впереди ▶</span></div>
+      ${divergingRows(DIFFS)}
+    </div>
+  </section>`;
+}
+
+function lootBlock(){
+  if(lootState==="none"){
+    return `<section class="card">
+      <div class="card-head"><span class="badge">◈</span><h2>Luck &amp; Loot</h2>
+        <button class="jump spacer">Open Loot &amp; Chests →</button></div>
+      <div class="card-body">
+        <div class="unmeasured"><b>Ни одна запись не содержит замеров лута.</b>
+          Записи сделаны до появления трекинга — это «не измерено», а не «ничего не выпало».</div>
+        ${chestStrip()}
+      </div>
+    </section>`;
+  }
+  const onlyA = lootState==="one";
+  return `<section class="card">
+    <div class="card-head"><span class="badge">◈</span><h2>Luck &amp; Loot</h2>
+      <span class="hint">фактический лут против ожидаемого при текущей Luck</span>
+      <button class="jump spacer">Open Loot &amp; Chests →</button></div>
+    <div class="card-body">
+      ${onlyA?`<div class="unmeasured" style="margin-bottom:9px">
+        <b>У Run B лут не записан.</b> Сторона A считается как обычно, B помечена как «не измерено».</div>`:""}
+      <div class="loot-grid">
+        <div class="luck-tiles">
+          <div class="luck">
+            <div class="l-top"><span class="tag-a">A</span><span class="l-label">Luck index</span></div>
+            <div class="l-main good">1.24×</div>
+            <div class="l-sub">30 предметов · ожидалось 24.2</div>
+          </div>
+          <div class="luck">
+            <div class="l-top"><span class="tag-b">B</span><span class="l-label">Luck index</span></div>
+            <div class="l-main ${onlyA?"":"bad"}">${onlyA?'<span style="color:var(--muted);font-size:14px">не измерен</span>':"0.91×"}</div>
+            <div class="l-sub">${onlyA?"лут не записан":"31 предмет · ожидалось 34.1"}</div>
+          </div>
+          <div class="luck">
+            <div class="l-top"><span class="l-label">Luck (stat)</span></div>
+            <div class="l-main"><span class="tag-a" style="font-size:15px">64</span>
+              <span style="color:var(--muted);font-size:14px"> → </span>
+              <span class="tag-b" style="font-size:15px">78</span></div>
+            <div class="l-sub good">B +14</div>
+          </div>
+          <div class="luck">
+            <div class="l-top"><span class="l-label">Вердикт</span></div>
+            <div class="l-main" style="font-size:13px;font-weight:700;line-height:1.35">
+              ${onlyA
+                ? 'A выше ожидания, B <span class="neutral">сравнить нельзя</span>'
+                : 'У B выше Luck, но лут <span class="bad">ниже ожидания</span>'}</div>
+            <div class="l-sub">${onlyA
+              ? "вывод по луту недоступен, пока B не измерен"
+              : "преимущество B в уроне — не от лута"}</div>
+          </div>
+        </div>
+        <div class="ladder">${LOOT.map(r=>rung(r,onlyA)).join("")}</div>
+      </div>
+      ${chestStrip()}
+    </div>
+  </section>`;
+}
+
+function rung(r,onlyA){
+  const side=(pair,tag,dead)=>{
+    if(dead) return `<div class="r-side"><span class="r-tag ${tag==="A"?"tag-a":"tag-b"}">${tag}</span>
+      <div class="r-track"></div><div class="r-num"><u>не измерено</u></div></div>`;
+    const [act,exp]=pair, diff=act-exp, mag=Math.min(50,Math.abs(diff)/Math.max(exp,1)*100);
+    return `<div class="r-side"><span class="r-tag ${tag==="A"?"tag-a":"tag-b"}">${tag}</span>
+      <div class="r-track"><i class="r-fill ${diff>=0?"over":"under"}" style="width:${mag}%"></i></div>
+      <div class="r-num">${act} <u>/ ${exp.toFixed(1)}</u></div></div>`;
+  };
+  return `<div class="rung${onlyA?" ":""}">
+    <div class="r-name ${r.cls}">${esc(r.rarity)}</div>
+    ${side(r.a,"A",false)}${side(r.b,"B",onlyA)}
+  </div>`;
+}
+
+function chestStrip(){
+  const cells=[
+    ["Opened / total","34/40","29/38"],
+    ["Paid / free","21 / 13","19 / 10"],
+    ["Key procs","6/27 (22.2%)","4/23 (17.4%)"],
+    ["Chests / min","1.82","1.44"]
+  ];
+  return `<div class="chest-strip">${cells.map(c=>`<div class="chest">
+    <div class="c-label">${esc(c[0])}</div>
+    <div class="c-vals"><span><span class="tag-a">A</span> ${esc(c[1])}</span>
+      <span><span class="tag-b">B</span> ${esc(c[2])}</span></div>
+  </div>`).join("")}</div>`;
+}
+
+function hubs(){
+  return `<div class="hubs">${HUBS.map(h=>`<button class="hub">
+    <div class="h-txt"><div class="h-where">${esc(h.where)}</div><div class="h-fact">${esc(h.fact)}</div></div>
+    <span class="h-arrow">→</span></button>`).join("")}</div>`;
+}
+
+/* ---------- варианты ---------- */
+function variantA(){
+  return plaques()+subjNote()+kpiTiles()+
+    `<div class="stack">${biggestDiffs()}${lootBlock()}</div>`+hubs();
+}
+
+function variantB(){
+  const aSide=DIFFS.filter(d=>d.lead==="a"), bSide=DIFFS.filter(d=>d.lead==="b");
+  const col=(list,tag,color)=>`<section class="card led-col">
+    <div class="card-head"><span class="${tag==="A"?"tag-a":"tag-b"}">${tag}</span>
+      <h2>впереди в ${list.length}</h2></div>
+    <div class="card-body">${list.map(d=>`<div class="led-row">
+      <div class="l-name">${esc(d.name)}</div>
+      <div class="l-bar"><i style="width:${d.pct}%;background:${color}"></i></div>
+      <div class="l-gain ${tag==="A"?"tag-a":"tag-b"}">${esc(d.val.split(" ").slice(1).join(" "))}</div>
+    </div>`).join("")}</div></section>`;
+  return plaques()+subjNote()+kpiTiles()+
+    `<div class="ledger">${col(aSide,"A","var(--a)")}${col(bSide,"B","var(--b)")}</div>`+
+    `<div class="tally"><span class="tag-a">A ведёт в ${aSide.length}</span>
+      <span style="color:var(--muted)">·</span>
+      <span class="tag-b">B ведёт в ${bSide.length}</span>
+      <span style="color:var(--muted)">· решает Luck index</span></div>`+
+    `<div class="stack" style="margin-top:10px">${lootBlock()}</div>`+hubs();
+}
+
+function variantC(){
+  return plaques()+subjNote()+
+    `<div class="stack" style="margin-bottom:10px">${lootBlock()}</div>`+
+    `<section class="card"><div class="card-head"><span class="badge">Δ</span>
+      <h2>Все различия на одной оси</h2>
+      <span class="hint spacer">длина = относительная разница</span></div>
+      <div class="card-body">
+        <div class="dv-legend"><span class="tag-a">◀ A впереди</span><span class="r tag-b">B впереди ▶</span></div>
+        ${divergingRows(DIFFS.concat([
+          {name:"Items",lead:"b",pct:14,val:"B +1"},
+          {name:"Level",lead:"b",pct:22,val:"B +2"},
+          {name:"Max HP",lead:"a",pct:26,val:"A +32"}
+        ]))}
+      </div></section>`+hubs();
+}
+
+function overview(){
+  return variant==="a"?variantA():variant==="b"?variantB():variantC();
+}
+
+const FRAMES=[
+  {key:"wide",  cls:"f-wide",   title:"Wide",   note:"≥1280 · KPI 6 в ряд, диффы 2 колонки", tag:"1440"},
+  {key:"med",   cls:"f-med",    title:"Medium", note:"960–1280 · KPI 3×2, лут в столбик",    tag:"1120"},
+  {key:"narrow",cls:"f-narrow", title:"Narrow", note:"<960 · KPI 2×3, плашки в столбик",     tag:"880"}
+];
+
+function metricTable(rows,firstHeader){
+  const s=subject.toUpperCase(), o=subject==="a"?"B":"A";
+  return `<table class="tbl">
+    <thead><tr><th>${esc(firstHeader)}</th><th class="ca">Run A</th><th class="cb">Run B</th>
+      <th>Δ &nbsp;<span style="color:var(--muted)">${s} − ${o}</span></th></tr></thead>
+    <tbody>${rows.map(r=>{
+      const flat=!r.favors;
+      return `<tr class="${flat?"flat":""}">
+        <td>${esc(r.name)}${r.lower?' <span style="color:var(--muted);font-size:10px">меньше=лучше</span>':""}</td>
+        <td class="va">${esc(r.a)}</td><td class="vb">${esc(r.b)}</td>
+        <td class="d ${favorClass(r.favors)}">${esc(deltaText(r))}${
+          flat?"":`<span class="dbar"><i style="width:${r.bar}%"></i></span>`}</td></tr>`;
+    }).join("")}</tbody></table>`;
+}
+
+function render(){
+  const html=overview();
+  document.getElementById("statsTable").innerHTML=metricTable(STATS,"Stat");
+  document.getElementById("weaponTable").innerHTML=metricTable(WEAPON,"Sword · Lv 21 → 19");
+  document.getElementById("frames").innerHTML=FRAMES.map(f=>{
+    const show = widthMode==="all"||widthMode===f.key;
+    return `<div class="frame ${f.cls}"${show?"":" hidden"}>
+      <div class="frame-bar"><b>${f.title}</b><span>${f.note}</span><i>${f.tag}px</i></div>
+      <div class="frame-body"><div class="viewport">${html}</div></div>
+    </div>`;}).join("");
+}
+
+document.querySelectorAll("[data-variant]").forEach(b=>b.onclick=()=>{
+  variant=b.dataset.variant;
+  document.querySelectorAll("[data-variant]").forEach(x=>x.classList.toggle("on",x===b));
+  render();
+});
+document.querySelectorAll("[data-width]").forEach(b=>b.onclick=()=>{
+  widthMode=b.dataset.width;
+  document.querySelectorAll("[data-width]").forEach(x=>x.classList.toggle("on",x===b));
+  render();
+});
+document.querySelectorAll("[data-subj]").forEach(b=>b.onclick=()=>{
+  subject=b.dataset.subj;
+  document.querySelectorAll("[data-subj]").forEach(x=>x.classList.toggle("on",x===b));
+  render();
+});
+document.querySelectorAll("[data-loot]").forEach(b=>b.onclick=()=>{
+  lootState=b.dataset.loot;
+  document.querySelectorAll("[data-loot]").forEach(x=>x.classList.toggle("on",x===b));
+  render();
+});
+render();
+</script>
+</body>
+</html>
