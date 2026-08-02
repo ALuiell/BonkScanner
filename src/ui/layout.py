@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.item_metadata import COLOR_MAP
+from core.template_colors import template_color_hex, template_color_tag
 
 from ui.dialogs import (
     DeleteDialog,
@@ -495,8 +495,7 @@ def _template_rail_entries() -> list[tuple[str, str, bool]]:
             in_active = template["name"] in active_set
             if in_active != is_active:
                 continue
-            color_tag = template.get("color", "LIGHTBLUE_EX").upper()
-            color_hex = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
+            color_hex = template_color_hex(template_color_tag(template))
             entries.append((template["name"], color_hex, in_active))
     return entries
 
@@ -535,8 +534,15 @@ def _build_collapsed_rail(app):
     panel_layout.addWidget(dots_holder, 0, Qt.AlignHCenter)
     panel_layout.addStretch(1)
 
+    # `railAdd`, not `primary`. `primary` is a text button and inherits the base
+    # rule's `padding: 9px 14px`, which on a square pinned to 34px leaves a 6px
+    # content box -- so the `+` came out squeezed into the middle at the app's
+    # 12.5px body size, next to a `»` toggle that sets its own `padding: 0`.
+    # Both states of this button are a glyph in a square: `+` here, an 18px
+    # pencil in Scores mode. `railAdd` gives it the icon-square geometry the
+    # rail's other two controls already have, in the primary blue.
     add_btn = QPushButton("+")
-    add_btn.setObjectName("primary")
+    add_btn.setObjectName("railAdd")
     add_btn.setToolTip("Add template")
     add_btn.setFixedSize(34, 34)
     panel_layout.addWidget(add_btn, 0, Qt.AlignHCenter)

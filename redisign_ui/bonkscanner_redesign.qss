@@ -632,6 +632,23 @@ QPushButton#iconBtn {
 QPushButton#iconBtn:hover { background-color: #243040; border-color: #3E82C6; color: #ffffff; }
 
 /* сворачивание левой панели « / » */
+/* Нижняя кнопка свёрнутой рейки: «+» в режиме Templates, карандаш в Scores.
+   Своё правило, а не #primary, потому что #primary — текстовая кнопка и
+   наследует базовые padding: 9px 14px; на квадрате 34px от них остаётся 6px
+   содержимого, и глиф вжимался в середину. Геометрия здесь та же, что у
+   railToggle рядом, скругление — как у плиток над ней, а 20px против базовых
+   12.5px даёт плюсу вес, которого он на 34-пиксельном квадрате не имел. */
+QPushButton#railAdd {
+    background-color: #2F6FB0; border: 1px solid #3E82C6; color: #ffffff;
+    border-radius: 9px; padding: 0;
+    /* Никаких min-width/min-height: в QSS они задают *содержимое*, поэтому с
+       рамкой в 1px кнопка вырастала до 36px и переставала совпадать с
+       плитками над ней. Размер держит setFixedSize(34, 34) в коде. */
+    font-size: 20px; font-weight: 600;
+}
+QPushButton#railAdd:hover   { background-color: #3781CE; border-color: #4E93D7; }
+QPushButton#railAdd:pressed { background-color: #276099; }
+
 QPushButton#railToggle {
     background-color: #161C24; border: 1px solid #232B36; color: #C6CDD8;
     border-radius: 8px; padding: 0; min-width: 34px; min-height: 34px; font-size: 15px;
