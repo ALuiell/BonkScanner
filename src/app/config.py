@@ -247,7 +247,12 @@ LEGACY_TWITCH_POWERUPS_TEMPLATES = {
 
 
 PATREON_SUPPORT_URL = "https://www.patreon.com/cw/ALuiel"
-KOFI_SUPPORT_URL = "https://ko-fi.com/s/34dc062a82"
+# The profile, not the shop item it used to be. `/s/34dc062a82` is a
+# pay-what-you-want listing and did work, but a button captioned "Ko-fi"
+# under the words "if it is useful to you" opening a product page reads as
+# a purchase rather than a tip -- and the footer popup put those two things
+# side by side, which the settings card never did.
+KOFI_SUPPORT_URL = "https://ko-fi.com/aluiel"
 GITHUB_REPOSITORY_URL = "https://github.com/ALuiell/BonkScanner"
 DISCORD_SUPPORT_URL = "https://discord.gg/dYkcrMCJWM"
 
