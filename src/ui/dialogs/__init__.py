@@ -975,6 +975,13 @@ class SettingsDialog(QDialog):
         self.record_interval_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
 
         layout.addWidget(_settings_group_label("Timing"))
+        # Reset hold is written into the game's own config, which the game reads
+        # once at startup -- saving it here does nothing until the game restarts.
+        # Without this line the only feedback is the reset key not holding.
+        reset_hold_note = QLabel("Reset hold takes effect after a game restart.")
+        reset_hold_note.setObjectName("dialogHint")
+        reset_hold_note.setWordWrap(True)
+        layout.addWidget(reset_hold_note)
         layout.addLayout(
             _settings_grid(
                 (
