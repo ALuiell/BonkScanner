@@ -272,7 +272,23 @@ Why this helps:
 
 #### 1. Supporters List in the Footer
 
-Status: `[Open]`
+Status: `[Partial]` -- **the UI is built, tested and unreachable. Only the data is missing.**
+
+The visual half was written deliberately ahead of the data, because it is the
+perishable half: reproducing this popup from a description later is far more
+work than writing the twenty lines that read a JSON file. What remains is a
+reader and a single call.
+
+The seam is `FooterView.set_supporters` ([src/ui/footer.py](../../src/ui/footer.py)).
+Hand it names and the footer link becomes `♥ N supporters` and the popup grows
+the list; hand it nothing and the strip is exactly what ships today. **Nothing
+calls it in production.** `src/tests/test_support_popup.py` drives it directly,
+so the widget is covered rather than merely unused -- including the empty case,
+malformed entries, the tier marker, the cap, and going back to empty.
+
+It accepts plain strings and mappings both, so a `supporters.json` needs no
+shape negotiation: `"Nyxaria"` and `{"name": "Nyxaria", "tier": "gold"}` are
+both valid rows, and any truthy `tier` marks the name.
 
 Design reference:
 
@@ -313,7 +329,11 @@ The UI is a few dozen lines on top of what is already there. The data is the act
 
 ##### UI specification
 
-Footer link, replacing the current `#footerSupportLink` caption:
+**Implemented as described below -- this section is now the record of what was
+built and why, not a brief.** Read it before changing any of it; several of
+these values are the answer to a measurement rather than a preference.
+
+Footer link, `#footerSupportLink`:
 
 | State | Caption | Colour |
 | --- | --- | --- |
@@ -323,9 +343,16 @@ Footer link, replacing the current `#footerSupportLink` caption:
 
 The hover colour is Patreon's own, and is deliberately the *only* place it appears in the strip. The resting colour is warmer than the neighbouring `#8A94A3` links by exactly enough to be findable and not enough to compete with the header's status dot, which is the one element in the window that speaks in colour. This is the balance the mockup's section 5 argues at length; keep it.
 
-Popup, extending `SupportPopup`:
+Popup, `SupportPopup`:
 
-- Card widens from 268 px to ~400 px (`.pop.wide` in the mockup). Surface `#101419`, border `#2A3542`, radius 11 — unchanged, these are the existing `#supportPopupCard` values at [redisign_ui/bonkscanner_redesign.qss:1488](../../redisign_ui/bonkscanner_redesign.qss:1488).
+- Card widens from 268 px to 400 px -- `NARROW_WIDTH` and `WIDE_WIDTH` on the
+  class. The narrow width is set by where the note wraps, the wide one by two
+  columns of display name.
+- `MAX_LISTED = 24`. Names past it are not drawn and the count still includes
+  them, so the note reads "Thank you, and 6 more". A scroll bar inside a popup
+  is a worse answer than a number.
+- Tiers sort to the top; within a tier the given order is preserved rather than
+  alphabetised, because a hand-maintained list means something by its order. Surface `#101419`, border `#2A3542`, radius 11 — unchanged, these are the existing `#supportPopupCard` values at [redisign_ui/bonkscanner_redesign.qss:1488](../../redisign_ui/bonkscanner_redesign.qss:1488).
 - Title `#B9C2CE`, 12.5 px, weight 800. Note `#8A94A3`, 11 px.
 - Names in a two-column grid, 11.5 px, `#B9C2CE`, ellipsised on overflow — a display name is user-supplied text and can be arbitrarily long.
 - A higher tier, if tiers are used at all, is `#FF6F61` and weight 700 with a `♦` prefix. One distinction, not a ladder; three tiers in a footer popup is a pricing page.
@@ -338,7 +365,8 @@ Overflow: when the list outgrows the popup, move it to a card in the Help dialog
 - Delivery mechanism — one of the three rows above.
 - Whether tiers exist at all, or the list is flat.
 - Whether the count includes past supporters or only current ones. `N supporters` is read as "right now", so a lapsed-inclusive count needs different wording.
-- `KOFI_SUPPORT_URL` is currently a Ko-fi **shop item** (`ko-fi.com/s/...`), not a donation page. In the settings card the button carries no promise, but a popup that says "if it is useful to you" and then opens a purchase page is a mismatch. Either repoint the URL or relabel the button before this ships.
+- ~~`KOFI_SUPPORT_URL` is a Ko-fi **shop item** rather than a donation page.~~
+  Resolved: it points at the profile now.
 
 ### Chaos Tome Fingerprint Tracking Optimization
 

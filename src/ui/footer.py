@@ -24,6 +24,7 @@ from PySide6.QtCore import QPoint, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -34,7 +35,7 @@ from PySide6.QtWidgets import (
 from app import config
 from app.version import CURRENT_VERSION
 from ui.dialogs.update_prompt import start_update_check
-from ui.shared import resource_path
+from ui.shared import _clear_layout, resource_path
 
 FOOTER_HEIGHT = 28
 
@@ -114,6 +115,28 @@ class SupportPopup(QFrame):
         note.setObjectName("supportPopupNote")
         note.setWordWrap(True)
         body.addWidget(note)
+        self._title = title
+        self._note = note
+
+        # The names, when there are any. Built empty and hidden, so the popup
+        # is exactly what it was until something calls `set_supporters` -- see
+        # that method for why the empty case must look like this and not like a
+        # heading over a blank space.
+        self._names_host = QWidget(card)
+        self._names_host.setObjectName("supporterList")
+        self._names_grid = QGridLayout(self._names_host)
+        self._names_grid.setContentsMargins(0, 0, 0, 0)
+        self._names_grid.setHorizontalSpacing(16)
+        self._names_grid.setVerticalSpacing(1)
+        self._names_host.setVisible(False)
+        body.addWidget(self._names_host)
+
+        self._rule = QFrame(card)
+        self._rule.setObjectName("supportPopupRule")
+        self._rule.setFixedHeight(1)
+        self._rule.setVisible(False)
+        body.addWidget(self._rule)
+
         body.addSpacing(7)
 
         buttons = QHBoxLayout()
@@ -135,6 +158,81 @@ class SupportPopup(QFrame):
             button.setCursor(Qt.PointingHandCursor)
             buttons.addWidget(button, 1)
         body.addLayout(buttons)
+        self._card = card
+
+    #: Card widths. The narrow one is set by the note's wrap (see above); the
+    #: wide one by two columns of display name, which are user-supplied text and
+    #: can be any length -- they ellipsise rather than widen the card further.
+    NARROW_WIDTH = 268
+    WIDE_WIDTH = 400
+    #: Names past this are not listed; the count in the caption still includes
+    #: them. A popup is not a page, and a scroll bar inside one is a worse
+    #: answer than "and 40 others".
+    MAX_LISTED = 24
+
+    def set_supporters(self, supporters=()) -> None:
+        """Show these people, or go back to being the plain two-button card.
+
+        **The empty case is the shipping case and must stay unremarkable.**
+        Nothing calls this in production yet -- see `FooterView.set_supporters`
+        for the seam the data will arrive through -- so what the card looks like
+        with no list is what everyone sees today: a title, one line, two
+        buttons. No heading over a blank space, no "0 supporters", no rule with
+        nothing above it. An empty card reads as a broken feature; a card that
+        never mentions the list reads as nothing at all, which is correct.
+
+        Accepts plain names or mappings, so a future `supporters.json` can be
+        handed over with no shape negotiation: `"Nyxaria"` and
+        `{"name": "Nyxaria", "tier": "gold"}` both work, and anything with a
+        truthy `tier` is marked.
+        """
+        people = []
+        for entry in supporters or ():
+            if isinstance(entry, dict):
+                name = str(entry.get("name") or "").strip()
+                tier = bool(entry.get("tier"))
+            else:
+                name = str(entry or "").strip()
+                tier = False
+            if name:
+                people.append((name, tier))
+
+        _clear_layout(self._names_grid)
+        self._names_host.setVisible(bool(people))
+        self._rule.setVisible(bool(people))
+        self._card.setFixedWidth(self.WIDE_WIDTH if people else self.NARROW_WIDTH)
+
+        if not people:
+            self._title.setText("Support BonkScanner")
+            self._note.setText(
+                "BonkScanner is free to download and stays that way. "
+                "If it is useful to you:"
+            )
+            return
+
+        self._title.setText(f"{len(people)} people support BonkScanner")
+        # Tiers first, then the order they arrived in. Not alphabetical: a list
+        # someone maintains by hand has an order, and re-sorting it throws away
+        # whatever they meant by it.
+        people.sort(key=lambda person: not person[1])
+        listed = people[: self.MAX_LISTED]
+        hidden = len(people) - len(listed)
+        self._note.setText(
+            "Thank you." if not hidden else f"Thank you, and {hidden} more."
+        )
+
+        rows = (len(listed) + 1) // 2
+        for index, (name, tier) in enumerate(listed):
+            label = QLabel(("♦  " if tier else "") + name, self._names_host)
+            label.setObjectName("supporterNameTier" if tier else "supporterName")
+            # Elided rather than wrapped, and the grid column carries the width:
+            # a display name is whatever its owner typed, and one long one must
+            # not be allowed to widen the popup or reflow the column beside it.
+            label.setTextFormat(Qt.PlainText)
+            label.setToolTip(name)
+            self._names_grid.addWidget(label, index % rows, index // rows)
+        self._names_grid.setColumnStretch(0, 1)
+        self._names_grid.setColumnStretch(1, 1)
 
     def _open_patreon(self) -> None:
         webbrowser.open(config.PATREON_SUPPORT_URL)
@@ -173,6 +271,7 @@ class FooterView:
         self._update_separator = update_separator
         self._support_btn = support_btn
         self._popup: SupportPopup | None = None
+        self._supporters: tuple = ()
 
     def set_update_status(self, state: str, version: str = "") -> None:
         """Say what the update check found, and stay pressable.
@@ -214,12 +313,36 @@ class FooterView:
         # so a version the user once skipped should still be reported back.
         start_update_check(self._app, force_check=True)
 
+    def set_supporters(self, supporters=()) -> None:
+        """Hand the strip a list of supporters, or take it away again.
+
+        **This is the seam, and nothing calls it yet.** The popup and the
+        caption are built and styled; what is missing is where the names come
+        from, which is a product decision rather than a UI one -- bundled in
+        the build, fetched beside the update check, or both. The options and
+        their costs are written up in `docs/updates/functional_updates.md`.
+
+        Deliberately the whole surface: one call sets the caption and the card
+        together, so the two cannot disagree, and passing nothing puts the strip
+        back exactly as it ships. Whoever wires the data in has to add a reader
+        and one call, and nothing else.
+        """
+        self._supporters = tuple(supporters or ())
+        count = len(self._supporters)
+        self._support_btn.setText(
+            "♥  Support" if not count else f"♥  {count} supporters"
+        )
+        if self._popup is not None:
+            self._popup.set_supporters(self._supporters)
+
     def open_support_popup(self) -> None:
         # Built on the first click, not at launch: it is a dozen widgets nobody
         # has asked for yet, and the same discipline `LazyPage` applies to the
         # tabs. Kept afterwards, so clicking twice does not leak a second one.
         if self._popup is None:
             self._popup = SupportPopup(self.frame.window())
+            # Built late, so it has to be told what the view already knows.
+            self._popup.set_supporters(self._supporters)
         self._popup.show_above(self._support_btn)
 
 
