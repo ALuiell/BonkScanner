@@ -56,6 +56,7 @@ from __future__ import annotations
 from typing import Callable
 
 from app import config
+from core.template_colors import template_color_tag
 
 
 class TemplateRuntimeFilters:
@@ -136,9 +137,7 @@ class TemplateRuntimeFilters:
             }
         else:
             color_by_name = {
-                str(template.get("name") or ""): str(
-                    template.get("color") or "BLUE"
-                ).upper()
+                str(template.get("name") or ""): template_color_tag(template)
                 for template in config.TEMPLATES
                 if isinstance(template, dict)
             }

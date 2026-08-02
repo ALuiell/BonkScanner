@@ -47,7 +47,11 @@ from app.template_filters import TemplateRuntimeFilters
 from ui.dialogs import ObsRecordingReminderDialog, RerollWarningDialog
 from gui_run_control import RunControl
 from infra.memory.game_data_client import GameDataClient
-from core.item_metadata import COLOR_MAP
+from core.template_colors import (
+    DEFAULT_TEMPLATE_COLOR,
+    template_color_hex,
+    template_color_tag,
+)
 from ui.styles import _set_widget_style_role
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.run_control import RunControlError
@@ -199,7 +203,7 @@ class Scanner:
 
     def _score_tier_color_tag(self, tier: str) -> str:
         colors = {"Light": "WHITE", "Good": "GREEN", "Perfect": "YELLOW", "Perfect+": "LIGHTRED_EX"}
-        return colors.get(tier, "BLUE")
+        return colors.get(tier, DEFAULT_TEMPLATE_COLOR)
 
     def _log_colored_names(self, prefix: str, names: list[str], color_for_name) -> None:
         colored_parts = [prefix]
@@ -362,13 +366,16 @@ class Scanner:
                 if not self.active_templates:
                     self.log("[-] Error: You must select at least one template!", tag="error")
                     return
-                def template_color_tag(name: str) -> str:
+                # Renamed off `template_color_tag` when that became the shared
+                # helper this module now imports; a local of the same name
+                # would shadow it for the whole function.
+                def _color_tag_for_profile(name: str) -> str:
                     for template in config.TEMPLATES:
                         if template["name"] == name:
-                            return template.get("color", "BLUE").upper()
-                    return "BLUE"
+                            return template_color_tag(template)
+                    return DEFAULT_TEMPLATE_COLOR
 
-                self._log_colored_names("[*] Active profiles: ", self.active_templates, template_color_tag)
+                self._log_colored_names("[*] Active profiles: ", self.active_templates, _color_tag_for_profile)
                 self.template_stats = {name: {"rerolls_since_last": 0, "history": []} for name in self.active_templates}
             else:
                 active_tiers = config.SCORES_SYSTEM.get("active_tiers", [])
@@ -455,7 +462,7 @@ class Scanner:
             if config.EVALUATION_MODE == "templates":
                 for template in config.TEMPLATES:
                     if template["name"] == name:
-                        color_tag = template.get("color", "BLUE").upper()
+                        color_tag = template_color_tag(template)
                         break
             else:
                 color_tag = self._score_tier_color_tag(name)
@@ -464,7 +471,7 @@ class Scanner:
             rows.append(
                 (
                     name,
-                    COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"]),
+                    template_color_hex(color_tag),
                     average,
                     len(history),
                 )
@@ -635,7 +642,7 @@ class Scanner:
                         continue
 
                     t_name = candidate.get("name")
-                    t_color = candidate.get("color", "BLUE").upper()
+                    t_color = template_color_tag(candidate)
                     score_text = (
                         f" (Score: {candidate.get('score', 0):.1f})"
                         if config.EVALUATION_MODE == "scores"

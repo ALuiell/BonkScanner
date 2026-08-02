@@ -59,7 +59,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from core.item_metadata import COLOR_MAP
+from core.template_colors import template_color_hex_or_none
 from ui.throttle import UiUpdateThrottle
 
 #: How many records the panel keeps. Old ones fall off the front.
@@ -129,7 +129,7 @@ def parse_log_entry(message, tag=None, *, timestamp: str = "") -> LogRecord:
         segments = tuple(
             (
                 str(part),
-                COLOR_MAP.get(str(part_tag).upper()) if part_tag else None,
+                template_color_hex_or_none(part_tag),
             )
             for part, part_tag in zip(parts, tags)
         )

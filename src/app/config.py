@@ -25,7 +25,13 @@ DEFAULT_TEMPLATES = [
     {"id": 2, "name": "MERCHANT", "color": "CYAN", "desc": "S+M: 10+, Micro: 1, Boss: 2+", "sm_total": 10, "micro": 1, "boss": 2},
     {"id": 3, "name": "GOOD", "color": "GREEN", "desc": "S+M: 8, Micro: 2, Boss: 1+", "sm_total": 8, "micro": 2, "boss": 1},
     {"id": 4, "name": "PERFECT", "color": "YELLOW", "desc": "S+M: 8+, Micro: 2, Boss: 2+", "sm_total": 8, "micro": 2, "boss": 2},
-    {"id": 5, "name": "PERFECT+", "color": "LIGHTRED_EX", "desc": "S+M: 9+, Micro: 2, Boss: 3+", "sm_total": 9, "micro": 2, "boss": 3},
+    # ORANGE rather than LIGHTRED_EX: the tag had to change because the two
+    # colours are wanted apart -- LIGHTRED_EX is still the *Perfect+ score tier*
+    # in `_tier_color` and the scanner's log. See `core/template_colors.py`, and
+    # `_migrate_template_colors` below for the saved configs that carry the old
+    # tag. The other three defaults keep their tags and change meaning through
+    # the template palette instead, so they need no migration at all.
+    {"id": 5, "name": "PERFECT+", "color": "ORANGE", "desc": "S+M: 9+, Micro: 2, Boss: 3+", "sm_total": 9, "micro": 2, "boss": 3},
     {"id": 6, "name": "BOSS RUSH", "color": "RED", "desc": "S+M: 5+, Micro: 1+, Boss: 5+", "sm_total": 5, "micro": 1, "boss": 5},
     {"id": 7, "name": "BOSS RUSH+", "color": "MAGENTA", "desc": "Boss: 7+", "boss": 7}
 ]
@@ -900,6 +906,48 @@ SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
 TEMPLATES = user_config.get("TEMPLATES", DEFAULT_TEMPLATES)
 if not TEMPLATES:
     TEMPLATES = DEFAULT_TEMPLATES
+
+
+#: Default templates whose colour *tag* changed, as `name -> (old tag, new tag)`.
+#: Only tags need to be here. The three defaults that kept their tag and changed
+#: meaning through the template palette are picked up by every existing config
+#: for free, which is most of why the palette was split rather than repainted.
+_RENAMED_TEMPLATE_COLORS = {
+    "PERFECT+": ("LIGHTRED_EX", "ORANGE"),
+}
+
+
+def _migrate_template_colors(templates) -> bool:
+    """Move a stored default template onto its new colour tag.
+
+    `TEMPLATES` is read from `config.json` and written back on every launch, so
+    a change to `DEFAULT_TEMPLATES` alone reaches nobody who has ever run the
+    app -- their list was saved with the old tag and is never re-read from the
+    defaults.
+
+    Deliberately narrow: it rewrites a template only when **both** its name and
+    its current colour still match the shipped default. A PERFECT+ someone has
+    already recoloured by hand is left alone, and so is any template of their
+    own that happens to be `LIGHTRED_EX`. Same shape as the legacy Twitch
+    template migrations above -- and, like those, it runs before the config is
+    written back, so it persists on the first launch and costs nothing after.
+    """
+    changed = False
+    for template in templates:
+        if not isinstance(template, dict):
+            continue
+        rename = _RENAMED_TEMPLATE_COLORS.get(str(template.get("name") or "").upper())
+        if rename is None:
+            continue
+        old_tag, new_tag = rename
+        if str(template.get("color") or "").upper() != old_tag:
+            continue
+        template["color"] = new_tag
+        changed = True
+    return changed
+
+
+_migrate_template_colors(TEMPLATES)
 
 # Load active templates, default to all if not present
 ACTIVE_TEMPLATES = user_config.get("ACTIVE_TEMPLATES")

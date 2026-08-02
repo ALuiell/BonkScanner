@@ -6,6 +6,7 @@ from pathlib import Path
 # the Qt helpers below still build stylesheets out of it, which is a legal
 # downward import.
 from core.item_metadata import COLOR_MAP
+from core.template_colors import template_color_hex, template_color_tag
 # ITEM_SORT_LABELS below is keyed by the sort modes, which projections/ owns.
 from projections.item_sort import (
     ITEM_SORT_DEFAULT,
@@ -71,8 +72,7 @@ def _template_checkbox_stylesheet(color_hex: str) -> str:
     """
 
 def _template_color_hex(template: dict) -> str:
-    color_tag = template.get("color", "LIGHTBLUE_EX").upper()
-    return COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
+    return template_color_hex(template_color_tag(template))
 
 def _template_manager_card_stylesheet(color_hex: str, expanded: bool) -> str:
     border_color = color_hex if expanded else "#3A4558"

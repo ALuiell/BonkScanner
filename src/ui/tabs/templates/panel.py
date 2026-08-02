@@ -65,7 +65,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
-from core.item_metadata import COLOR_MAP
+from core.template_colors import template_color_hex, template_color_tag
 from ui.shared import (
     _apply_button_icon,
     _clear_layout,
@@ -225,8 +225,7 @@ class TemplatesPanel:
         self._checkboxes.clear()
         active_names = set(config.ACTIVE_TEMPLATES)
         for template in config.TEMPLATES:
-            color_tag = template.get("color", "LIGHTBLUE_EX").upper()
-            color_hex = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
+            color_hex = template_color_hex(template_color_tag(template))
             cb = _CardCheckBox(_format_template_checkbox_text(template))
             cb.setChecked(template["name"] in active_names)
             cb.toggled.connect(self.save_checkbox_state)
