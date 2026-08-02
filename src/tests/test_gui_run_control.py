@@ -1075,6 +1075,7 @@ class GuiRunControlTests(unittest.TestCase):
             stat_checkboxes={"Damage": FakeCheckbox(True)},
             stats_tpl_entry=FakeEntry("Live Stats: {Damage}"),
             templates_entries={"stats": FakeEntry("Live Stats: {Damage}")},
+            template_pool_entries={},
             disabled_item_checkboxes={"Anvil": FakeCheckbox(True), "Coin": FakeCheckbox(False)},
             commands_announcement_interval_spin=FakeSpinBox(42),
             accept=lambda: accepted.append(True),
@@ -1106,6 +1107,7 @@ class GuiRunControlTests(unittest.TestCase):
             stat_checkboxes={"Damage": FakeCheckbox(True)},
             stats_tpl_entry=FakeEntry("Live Stats: {Damage}"),
             templates_entries={"stats": FakeEntry("Live Stats: {Damage}")},
+            template_pool_entries={},
             disabled_item_checkboxes={},
             commands_announcement_interval_spin=FakeSpinBox(30),
             master=master,
@@ -1182,6 +1184,7 @@ class GuiRunControlTests(unittest.TestCase):
             stats_tpl_entry=FakeEntry("custom"),
             disabled_item_checkboxes={"Anvil": FakeCheckbox(True)},
             templates_entries={"stats": FakeEntry("custom"), "disabled": FakeEntry("custom")},
+            template_pool_entries={},
             commands_announcement_interval_spin=FakeSpinBox(99),
         )
 

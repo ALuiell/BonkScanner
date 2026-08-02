@@ -604,6 +604,7 @@ class TwitchTabTests(unittest.TestCase):
             _global_cooldown_spin=SimpleNamespace(value=lambda: 3),
             _cooldown_spin=SimpleNamespace(value=lambda: 9),
             _stage_announcements_cb=SimpleNamespace(isChecked=lambda: True),
+            _one_ring_announcements_cb=SimpleNamespace(isChecked=lambda: True),
             _commands_announcements_cb=SimpleNamespace(isChecked=lambda: False),
             _command_cbs={"stats": SimpleNamespace(isChecked=lambda: True)},
         )
@@ -614,6 +615,7 @@ class TwitchTabTests(unittest.TestCase):
         self.assertEqual(settings["access_tier"], "Mods & VIPs")
         self.assertEqual(settings["global_cooldown_seconds"], 3)
         self.assertEqual(settings["cooldown_seconds"], 9)
+        self.assertTrue(settings["one_ring_announcements"])
         self.assertEqual(settings["commands"], {"stats": True})
 
     def _badge_tab(self, **fields):

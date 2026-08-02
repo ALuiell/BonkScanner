@@ -169,6 +169,7 @@ DEFAULT_TWITCH_BOT = {
     "global_cooldown_seconds": 5,
     "cooldown_seconds": 5,
     "stage_announcements": True,
+    "one_ring_announcements": True,
     "commands_announcements": False,
     "commands_announcement_interval_minutes": 30,
     "commands": {
@@ -217,8 +218,96 @@ DEFAULT_TWITCH_BOT = {
         "bonkhelp": "Available commands: {commands_list}",
         "disabled": "Disabled Items: {items}",
         "stage_announcement": "🚩 Stage {stage} completed! Kills: {kills} | Time: {time}. Moving to Stage {next_stage}! 🚩",
-        "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩"
-    }
+        "stage_announcement_simple": "🚩 Moving to Stage {next_stage}! 🚩",
+        # The two One Ring pools: one phrase per line, drawn from a shuffle bag
+        # so a repeat cannot land next to itself. Newline-separated rather than
+        # a list because every template here is coerced with `str()` below, and
+        # a one-line value -- which is what shipped first -- is a valid pool of
+        # one, so no migration is needed.
+        #
+        # Tags: {streamer}, {stage}, {time}, {count}. Unknown tags render as
+        # `--` through `SafeFormatter` rather than breaking the announcement.
+        # `{streamer}` is deliberately kept in most of these even though the bot
+        # usually posts from the streamer's own account (`target_channel` falls
+        # back to `username`), which makes a third-person line read as the
+        # streamer describing themselves. Every line that uses it here is in
+        # Gollum's voice, where naming the ring-bearer is the character talking
+        # rather than self-reference; the two lines that had a plain narrator
+        # say it were cut for exactly that reason.
+        "one_ring_announcement": (
+            "Filthy, tricksy viewerssss want to steal it... But The One Ring is ours now!\n"
+            "Ssss... our precioussss! {streamer} found our precious! *gollum-gollum*\n"
+            "Ash nazg durbatuluk... One Ring to rule them all, One Ring to find them!\n"
+            "We wants it. We needs it. We must has the precious... and {streamer} has it.\n"
+            "The Ring has left Gollum. It has left Bilbo. It has chosen {streamer} on Stage {stage}.\n"
+            "It does not stay lost. It wanted to be found -- and at {time} it found {streamer}."
+        ),
+        # Every line here must hold for *any* count above one. "A second
+        # precious" reads as a bug on the third ring, so a line either says
+        # {count} or says nothing about the number at all.
+        "one_ring_duplicate_announcement": (
+            "Another precious?! There is only supposed to be ONE, that is the whole name!\n"
+            "Ring number {count}. At this point Sauron should file a complaint.\n"
+            "We has {count} preciouseses now. Greedy, greedy {streamer}.\n"
+            "{count} Rings to rule them all. The lore is ruined and {streamer} does not care.\n"
+            "The precious has friends now. We does not like friends."
+        )
+    },
+    # Which announcer lines were used most recently, per template key. Runtime
+    # state rather than a setting, and persisted deliberately: the pools exist
+    # so a phrase does not repeat, and The One Ring turns up about once a
+    # session -- an in-memory memory would be cleared before it was ever
+    # consulted, leaving a plain uniform draw.
+    "announcer_recent_lines": {}
+}
+
+# Superseded One Ring pools. A config holding exactly one of these was written
+# by a build rather than edited by hand, so it is upgraded to the current pool
+# instead of pinning old wording -- and, for the first entry, instead of leaving
+# a pool of one, which reads as "the randomiser does not work".
+#
+# **Every entry here predates the first release of this announcer** and exists
+# only for configs written by development builds. They can all be deleted the
+# release after this one ships; a genuinely edited pool is never byte-identical
+# to a default.
+LEGACY_ONE_RING_TEMPLATES = {
+    # v1: one phrase, before the field became a pool.
+    "Filthy, tricksy viewerssss want to steal it... But The One Ring is ours now!",
+    # v2: the first eight-line pool.
+    (
+        "Filthy, tricksy viewerssss want to steal it... But The One Ring is ours now!\n"
+        "Ssss... our precioussss! {streamer} found our precious! *gollum-gollum*\n"
+        "Ash nazg durbatuluk... One Ring to rule them all, One Ring to find them!\n"
+        "{streamer} has found The One Ring. Keep it secret. Keep it safe.\n"
+        "We wants it. We needs it. We must has the precious... and {streamer} has it.\n"
+        "Not with ten thousand viewers could you do this. It must be {streamer}.\n"
+        "The Ring has left Gollum. It has left Bilbo. It has chosen {streamer} on Stage {stage}.\n"
+        "It does not stay lost. It wanted to be found -- and at {time} it found {streamer}."
+    ),
+    # v3: the same pool with {streamer} written out of it.
+    (
+        "Filthy, tricksy viewerssss want to steal it... But The One Ring is ours now!\n"
+        "Ssss... our precioussss! {streamer} found our precious! *gollum-gollum*\n"
+        "Ash nazg durbatuluk... One Ring to rule them all, One Ring to find them!\n"
+        "The One Ring. Keep it secret. Keep it safe. Especially from chat.\n"
+        "We wants it. We needs it. We must has the precious... and now we HAS it.\n"
+        "Not with ten thousand viewers could you take it from us.\n"
+        "The Ring has left Gollum. It has left Bilbo. On Stage {stage} it chose us.\n"
+        "It does not stay lost. It wanted to be found -- and at {time} it was."
+    ),
+}
+
+LEGACY_ONE_RING_DUPLICATE_TEMPLATES = {
+    # v2: the pool with {streamer} written out of it. The v1 text is the
+    # current default again, so it is deliberately absent -- listing it would
+    # make the upgrade a no-op that reads as a rule.
+    (
+        "Another precious?! There is only supposed to be ONE, that is the whole name!\n"
+        "Ring number {count}. At this point Sauron should file a complaint.\n"
+        "We has {count} preciouseses now. Greedy, greedy.\n"
+        "{count} Rings to rule them all. The lore is ruined and nobody cares.\n"
+        "The precious has friends now. We does not like friends."
+    ),
 }
 
 LEGACY_TWITCH_SCANNER_TEMPLATES = {
@@ -755,6 +844,16 @@ def normalize_twitch_bot_config(value):
     bot_cfg["global_cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("global_cooldown_seconds"), 5))
     bot_cfg["cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("cooldown_seconds"), 5))
     bot_cfg["stage_announcements"] = bool(bot_cfg.get("stage_announcements", True))
+    bot_cfg["one_ring_announcements"] = bool(bot_cfg.get("one_ring_announcements", True))
+
+    recent_lines = bot_cfg.get("announcer_recent_lines")
+    if not isinstance(recent_lines, dict):
+        recent_lines = {}
+    bot_cfg["announcer_recent_lines"] = {
+        str(key): [str(line) for line in value if str(line).strip()]
+        for key, value in recent_lines.items()
+        if isinstance(value, (list, tuple))
+    }
     bot_cfg["commands_announcements"] = bool(bot_cfg.get("commands_announcements", False))
     bot_cfg["commands_announcement_interval_minutes"] = min(
         1440,
@@ -816,6 +915,17 @@ def normalize_twitch_bot_config(value):
         bot_cfg["templates"]["chests"] = DEFAULT_TWITCH_BOT["templates"]["chests"]
     if bot_cfg["templates"].get("powerups") in LEGACY_TWITCH_POWERUPS_TEMPLATES:
         bot_cfg["templates"]["powerups"] = DEFAULT_TWITCH_BOT["templates"]["powerups"]
+    if bot_cfg["templates"].get("one_ring_announcement") in LEGACY_ONE_RING_TEMPLATES:
+        bot_cfg["templates"]["one_ring_announcement"] = (
+            DEFAULT_TWITCH_BOT["templates"]["one_ring_announcement"]
+        )
+    if (
+        bot_cfg["templates"].get("one_ring_duplicate_announcement")
+        in LEGACY_ONE_RING_DUPLICATE_TEMPLATES
+    ):
+        bot_cfg["templates"]["one_ring_duplicate_announcement"] = (
+            DEFAULT_TWITCH_BOT["templates"]["one_ring_duplicate_announcement"]
+        )
 
     return bot_cfg
 

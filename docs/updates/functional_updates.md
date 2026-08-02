@@ -78,22 +78,114 @@ Documentation anchor:
 
 #### 3. The One Ring Announcer
 
-Status: `[Open]`
+Status: `[Partial]` -- **the first-pickup announcer ships; the duplicate variant and Graveyard do not.**
 
 Goal:
 
 - Add an automatic announcer for the Twitch bot that triggers when the player picks up "The One Ring" (in-game name: "Golden Ring").
 - Support multiple randomized messages to keep the chat reaction fresh.
 
-Example trigger messages:
+##### What shipped
 
-- "Ash nazg durbatulûk... One Ring to rule them all, One Ring to find them, One Ring to bring them all, and in the darkness bind them! 👁️🌋"
-- "[Streamer's Name] has found The One Ring... Keep it secret, keep it safe! 🧙‍♂️"
+Two phrase pools on Forest and Desert only: one for the first ring, one for every
+duplicate after it. Six phrases and five respectively, one per line, drawn at
+random with the recent draws excluded.
 
-From the perspective of Gollum (using his signature speech style):
+- `TwitchBotWorker._check_one_ring_announcement` ([src/twitch_bot.py](../../src/twitch_bot.py)), called from the socket loop beside `_check_stage_transitions`.
+- Config: `one_ring_announcements` (default on), the `one_ring_announcement` and `one_ring_duplicate_announcement` template pools, and `announcer_recent_lines`, all in `DEFAULT_TWITCH_BOT` ([src/app/config.py:163](../../src/app/config.py:163)). Checkbox in the Announcements card; two multi-line editors in the command dialog's Announcers tab.
+- Tags: `{streamer}`, `{stage}`, `{time}`, `{count}`. `SafeFormatter` renders an unknown tag as `--`, so a typo costs a dash rather than the announcement.
 
-- "Ssss... Our precioussss! [Streamer's Name] found our precious! *gollum-gollum* 🐟💍"
-- "Filthy, tricksy viewerssss want to steal it... But The One Ring is ours now! 👁️" (using "tricksy" as a classic Gollum reference)
+**`{streamer}` only inside Gollum's voice.** `target_channel` falls back to
+`username`, so by default the bot posts *from the streamer's own account* — and a
+plain narrator line like "X has found The One Ring" then reads as X describing
+themselves in the third person. That is what removed the two lines this pool used
+to have; the remaining four that name `{streamer}` are all Gollum speaking, where
+naming the ring-bearer is the character rather than self-reference. Judge a new
+line by that test, not by whether it contains the tag.
+
+Two things left for later: `{streamer}` renders `target_channel`, which is a
+lowercase login rather than the display name Twitch also returns at auth; and
+`username != target_channel` is a free, exact test for "a separate bot account is
+posting", if a third-person register is ever wanted as its own pool. Do not try to
+make one tag serve both — "you has found" is where that ends.
+
+**Pools are newline-separated strings, not lists.** Every template in that dict is
+coerced with `str()`, and a one-line value is a valid pool of one — so the
+original single-phrase config needed no migration path at all. The pre-pool
+default is in `LEGACY_ONE_RING_TEMPLATES` and is upgraded on load, because a
+config still holding exactly it was never edited by hand and a pool of one reads
+as a broken randomiser.
+
+**Flat odds, no weights.** The ring turns up on the order of once a session, so a
+line weighted at a tenth would simply never be read; with an event this infrequent
+the useful knob is variety per sighting.
+
+**Two exclusions of different scope, and the scopes are the whole design:**
+
+- *Within a run — absolute.* Nothing repeats until every variant has been spent,
+  then the cycle starts over and the record is cleared. This is the half that
+  matters for the duplicate pool, where one run can draw several times: without
+  it a five-line pool lets ring 4 repeat ring 2. Held in
+  `_pool_lines_used_this_run`, cleared when `run_id` changes.
+- *Across runs — a preference.* The last `len(pool) // 2` draws are avoided **when
+  possible**, and yield the moment the run-scoped rule disagrees. Long enough that
+  a new run does not open by repeating the last one, never long enough to force a
+  repeat inside a run or to corner a hand-shortened pool.
+
+The across-runs half **is persisted** to `TWITCH_BOT["announcer_recent_lines"]`:
+an in-memory memory would be cleared between streams — before it was ever
+consulted — leaving a plain uniform draw. Safe to write from the bot thread:
+`user_config["TWITCH_BOT"]` **is** `config.TWITCH_BOT` ([src/app/config.py:1050](../../src/app/config.py:1050)) and
+`save_config` takes `config_lock`. Both memories hold phrase text, so editing a
+line drops it out by itself.
+
+One test here is white-box on purpose. "A new run forgets what the previous one
+spent" has **no** behavioural expression: a pool the previous run left spent is
+re-filled by the exhaustion branch anyway, so the observable sequence is identical
+either way — a tamper run proved the behavioural version vacuous. It asserts on
+`_pool_lines_used_this_run` instead.
+
+**Every duplicate line must hold for any count above one.** "A second precious"
+reads as a bug on the third ring; a line either names `{count}` or says nothing
+about the number.
+
+Decisions worth keeping:
+
+- **Read off the 1 s lane, not the 10 s snapshot.** The inventory is read every
+  second by the `passive_items` task ([src/app/refresh_tasks.py:204](../../src/app/refresh_tasks.py:204)), but that lane
+  never appends a snapshot — it publishes `_fast_items` and folds its deltas into
+  the tracked-item state, so `RuntimeStateSnapshot.latest_snapshot.items` is the
+  10 s copy. `RuntimeStateSnapshot.fast_items` was added to carry the fast one to
+  the boundary, beside `luck`, which already rides that same pass; the announcer
+  prefers it and falls back to the snapshot when it is `None`. Without this the
+  message trails the pickup by up to ten seconds on stream.
+- **Level-triggered on the inventory, not edge-triggered on a pickup.** An edge
+  would have to survive a torn read, a skipped pass or a reconnect to fire at
+  all. "The bag holds more rings than have been announced" stays true on every
+  tick until it is answered, which is why a momentarily missing map context costs
+  a delay rather than the announcement.
+- **The latch is a count, not a flag.** It is what lets ring 2 be new while ring 1
+  is old. Two rings appearing between one tick and the next is still one event and
+  draws the first-pickup line only — the duplicate pool fires on an *observed*
+  increase past what was announced.
+- **The first usable read of a run seeds the latch.** Whatever the inventory
+  already holds was not picked up under the bot's watch, so a mid-run connect --
+  or a reconnect after a dropped socket -- stays quiet. An *unavailable* read is
+  not allowed to seed, because "no rings" from a failed read would announce on the
+  next successful one.
+- **"Not Graveyard" is not the same as "Forest/Desert".** The gate is a *fresh*
+  `powerup_map_context` whose `is_graveyard` is False; with no context the map is
+  unknown and an unknown map must not announce. The 10 s snapshot republishes
+  that context against a 15 s TTL ([src/core/tracker/powerups.py:29](../../src/core/tracker/powerups.py:29)), so a live run always has one.
+
+Matching is via `fold_item_match_name` ([src/core/tracker/items.py:70](../../src/core/tracker/items.py:70)), which collapses all four spellings the item reaches this code under -- `GoldenRing`, `Golden Ring`, `The One Ring`, and the game's `No Implementation` placeholder -- onto one key. Do not replace it with a literal list here; it would drift from `core/item_metadata.py`.
+
+Covered by `OneRingAnnouncerTests` in `src/tests/test_twitch_bot.py`, tamper-tested against removal of the Graveyard gate, of the seeding branch, of the fast-lane preference, of the exclusion, of its persistence, of the duplicate pool, and of the counting latch.
+
+##### Remaining
+
+- Graveyard, which is out of scope until someone decides what the announcer should do there.
+- Condition-driven lines, **if** they are ever wanted: a pickup on Stage 1, or before 5:00, is a genuinely different event and `current_stage_index` / `game_time_seconds` are both already on the runtime snapshot. Do this as a *condition* rather than a weight — a weighted line on an event this rare is a line nobody reads.
 
 #### 4. `!chaos` / `!chaostome` Roll Frequency Statistics
 

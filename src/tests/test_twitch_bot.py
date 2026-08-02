@@ -1071,5 +1071,366 @@ class TestTwitchBotWorker(unittest.TestCase):
         TWITCH_BOT["cooldown_seconds"] = old_cooldown
         TWITCH_BOT["commands"] = old_commands
 
+class OneRingAnnouncerTests(unittest.TestCase):
+    """One message per run, on the first ring, on Forest and Desert only.
+
+    Driven through `_check_one_ring_announcement` on a mutable fake runtime,
+    which is what the bot's socket loop does every ~0.5 s -- so "announces once"
+    here means "stayed quiet on every later tick", not "was called once".
+    """
+
+    def setUp(self):
+        from app.config import TWITCH_BOT
+
+        self.sent: list[str] = []
+        self.state = SimpleNamespace(
+            run_id="run-1",
+            items=(),
+            items_available=True,
+            # The 1 s lane carries the inventory by default, as it does in a
+            # live run. `fast_lane` False drops it to the 10 s snapshot's copy,
+            # which is the fallback path.
+            fast_lane=True,
+            is_graveyard=False,
+            map_context_known=True,
+            stage_index=2,
+            game_time_seconds=125.0,
+        )
+
+        def runtime_snapshot():
+            return SimpleNamespace(
+                run_id=self.state.run_id,
+                current_stage_index=self.state.stage_index,
+                fast_items=(
+                    tuple(self.state.items)
+                    if self.state.fast_lane and self.state.items_available
+                    else None
+                ),
+                latest_snapshot=SimpleNamespace(
+                    items=self.state.items,
+                    items_available=self.state.items_available,
+                    game_time_seconds=self.state.game_time_seconds,
+                ),
+                powerup_map_context=(
+                    PowerupMapContext(
+                        is_graveyard=self.state.is_graveyard,
+                        captured_at=1.0,
+                    )
+                    if self.state.map_context_known
+                    else None
+                ),
+            )
+
+        self.bot = TwitchBotWorker(SimpleNamespace(runtime_snapshot=runtime_snapshot))
+        self.bot._send_chat = lambda _channel, message: self.sent.append(message)
+
+        # The draw memory is persisted config state; leaving a test's draws in
+        # it would bias the next test's exclusion, and saving it would rewrite
+        # the developer's real config.json.
+        self._previous_recent = TWITCH_BOT.get("announcer_recent_lines")
+        TWITCH_BOT["announcer_recent_lines"] = {}
+        saver = patch("app.config.save_config", lambda *_args, **_kwargs: None)
+        saver.start()
+        self.addCleanup(saver.stop)
+        self.addCleanup(
+            lambda: TWITCH_BOT.__setitem__(
+                "announcer_recent_lines", self._previous_recent
+            )
+        )
+
+    def set_pool(self, template_key, *phrases):
+        """Replace one pool for the duration of the test."""
+        from app.config import TWITCH_BOT
+
+        templates = TWITCH_BOT.setdefault("templates", {})
+        previous = templates.get(template_key)
+        templates[template_key] = "\n".join(phrases)
+        self.addCleanup(lambda: templates.__setitem__(template_key, previous))
+
+    def tick(self, count=1):
+        for _ in range(count):
+            self.bot._check_one_ring_announcement("channel")
+
+    def test_pickup_on_forest_announces_once(self):
+        self.set_pool("one_ring_announcement", "the ring is ours now")
+        self.tick()  # the run's first sighting: empty bag, nothing to say
+        self.state.items = ("Key x2", "The One Ring x1")
+        self.tick(4)
+
+        self.assertEqual(self.sent, ["the ring is ours now"])
+
+    def test_the_ring_is_caught_on_the_fast_lane_not_the_10_s_snapshot(self):
+        # The pickup reaches `fast_items` a second after it happens and
+        # `latest_snapshot.items` up to ten seconds later. Announcing off the
+        # slow copy would put the message that far behind the stream.
+        self.tick()
+
+        def runtime_snapshot():
+            return SimpleNamespace(
+                run_id="run-1",
+                current_stage_index=1,
+                fast_items=("The One Ring x1",),
+                latest_snapshot=SimpleNamespace(
+                    items=(),
+                    items_available=True,
+                    game_time_seconds=10.0,
+                ),
+                powerup_map_context=PowerupMapContext(captured_at=1.0),
+            )
+
+        self.bot.run_tracker = SimpleNamespace(runtime_snapshot=runtime_snapshot)
+        self.tick()
+
+        self.assertEqual(len(self.sent), 1)
+
+    def test_a_stale_fast_read_falls_back_to_the_snapshot_inventory(self):
+        self.tick()
+        self.state.fast_lane = False
+        self.state.items = ("The One Ring x1",)
+        self.tick(3)
+
+        self.assertEqual(len(self.sent), 1)
+
+    def test_a_duplicate_ring_uses_the_duplicate_pool(self):
+        self.set_pool("one_ring_announcement", "first")
+        self.set_pool("one_ring_duplicate_announcement", "ring number {count}")
+        self.tick()
+        self.state.items = ("The One Ring x1",)
+        self.tick()
+        self.state.items = ("The One Ring x2",)
+        self.tick(3)
+        self.state.items = ("The One Ring x3",)
+        self.tick(3)
+
+        self.assertEqual(self.sent, ["first", "ring number 2", "ring number 3"])
+
+    def test_a_ring_count_that_does_not_grow_says_nothing(self):
+        self.set_pool("one_ring_announcement", "first")
+        self.set_pool("one_ring_duplicate_announcement", "duplicate")
+        self.tick()
+        self.state.items = ("The One Ring x2",)
+        self.tick(4)
+
+        # Two rings arriving between one tick and the next is one event, not
+        # two: the first-pickup line is what a viewer needs, and the duplicate
+        # pool must not also fire for the same observation.
+        self.assertEqual(self.sent, ["first"])
+
+    def test_the_tags_are_filled_from_the_run(self):
+        self.set_pool(
+            "one_ring_announcement",
+            "{streamer} @ stage {stage}, {time}, ring {count}",
+        )
+        self.state.stage_index = 3
+        self.state.game_time_seconds = 125.0
+        self.tick()
+        self.state.items = ("The One Ring x1",)
+        self.tick()
+
+        self.assertEqual(self.sent, ["channel @ stage 3, 02:05, ring 1"])
+
+    def test_an_unknown_tag_renders_as_a_dash_rather_than_breaking(self):
+        self.set_pool("one_ring_announcement", "it found {nonsense}")
+        self.tick()
+        self.state.items = ("The One Ring x1",)
+        self.tick()
+
+        self.assertEqual(self.sent, ["it found --"])
+
+    def test_one_run_spends_every_duplicate_phrase_before_repeating(self):
+        self.set_pool("one_ring_announcement", "first")
+        self.set_pool("one_ring_duplicate_announcement", "a", "b", "c", "d", "e")
+        self.tick()
+        for count in range(1, 7):
+            self.state.items = (f"The One Ring x{count}",)
+            self.tick()
+
+        # Rings 2..6 are five draws from a five-line pool inside one run, and
+        # the run-scoped exclusion is absolute -- so they are a permutation,
+        # not a sample.
+        duplicates = self.sent[1:]
+        self.assertEqual(sorted(duplicates), ["a", "b", "c", "d", "e"])
+
+    def test_a_spent_pool_starts_over_instead_of_going_silent(self):
+        self.set_pool("one_ring_announcement", "first")
+        self.set_pool("one_ring_duplicate_announcement", "a", "b")
+        self.tick()
+        for count in range(1, 6):
+            self.state.items = (f"The One Ring x{count}",)
+            self.tick()
+
+        # Two-line pool, four duplicate rings: the cycle has to wrap.
+        self.assertEqual(len(self.sent), 5)
+        self.assertEqual(sorted(self.sent[1:3]), ["a", "b"])
+        self.assertEqual(sorted(self.sent[3:]), ["a", "b"])
+
+    def test_a_new_run_forgets_what_the_previous_one_spent(self):
+        # Asserted on the record rather than on the drawn lines, and
+        # deliberately. Stated behaviourally this test is vacuous: a pool that
+        # the previous run left spent is re-filled by the exhaustion branch
+        # anyway, so the observable sequence is identical whether or not the
+        # run change cleared anything -- which is exactly what a tamper run
+        # showed. The record is the only place the difference is visible.
+        self.set_pool("one_ring_announcement", "first")
+        self.set_pool("one_ring_duplicate_announcement", "a", "b", "c", "d")
+        self.tick()
+        for count in (1, 2, 3):
+            self.state.items = (f"The One Ring x{count}",)
+            self.tick()
+        self.assertEqual(
+            len(self.bot._pool_lines_used_this_run["one_ring_duplicate_announcement"]),
+            2,
+        )
+
+        self.state.run_id = "run-2"
+        self.state.items = ()
+        self.tick()
+
+        self.assertEqual(self.bot._pool_lines_used_this_run, {})
+
+    def test_the_pool_draws_every_phrase_before_repeating_one(self):
+        self.set_pool("one_ring_announcement", "a", "b", "c", "d")
+        for index in range(4):
+            self.state.run_id = f"run-{index}"
+            self.state.items = ()
+            self.tick()
+            self.state.items = ("The One Ring x1",)
+            self.tick()
+
+        # Four draws from a four-line pool with a two-line exclusion cannot be
+        # a perfect permutation, but no line may repeat while an unused one is
+        # still available -- which for the first three draws is exact.
+        self.assertEqual(len(self.sent), 4)
+        self.assertEqual(len(set(self.sent[:3])), 3)
+
+    def test_the_exclusion_is_persisted_so_it_survives_a_restart(self):
+        from app.config import TWITCH_BOT
+
+        self.set_pool("one_ring_announcement", "a", "b", "c", "d")
+        self.tick()
+        self.state.items = ("The One Ring x1",)
+        self.tick()
+
+        remembered = TWITCH_BOT["announcer_recent_lines"]["one_ring_announcement"]
+        self.assertEqual(remembered, self.sent)
+
+        # A fresh worker -- the restart -- must not draw what the old one just
+        # did. In-memory state would have been lost here; the config was not.
+        #
+        # One draw, not several: the memory is half the pool, so on a pool of
+        # four the third draw may legitimately bring the first phrase back. The
+        # claim under test is "the next line after a restart is a different
+        # one", and asserting past that is asserting more than the design
+        # promises -- which is how a test starts failing at random.
+        fresh = TwitchBotWorker(self.bot.run_tracker)
+        self.assertNotEqual(
+            fresh._draw_from_pool("one_ring_announcement", "unused default"),
+            self.sent[0],
+        )
+
+    def test_a_cleared_pool_falls_back_to_the_default_rather_than_going_silent(self):
+        self.set_pool("one_ring_announcement", "", "   ")
+        self.tick()
+        self.state.items = ("The One Ring x1",)
+        self.tick()
+
+        from app import config
+
+        self.assertEqual(len(self.sent), 1)
+        default_lines = {
+            line.strip()
+            for line in config.DEFAULT_TWITCH_BOT["templates"][
+                "one_ring_announcement"
+            ].splitlines()
+        }
+        # The drawn line has its tags filled, so compare on the leading literal.
+        self.assertTrue(
+            any(self.sent[0].startswith(line.split("{")[0]) for line in default_lines)
+        )
+
+    def test_the_scanner_spelling_is_matched_too(self):
+        # Older recordings and the scanner name the item "Golden Ring"; the
+        # memory client formats it "The One Ring". Both are the same item.
+        self.tick()
+        self.state.items = ("Golden Ring x1",)
+        self.tick()
+
+        self.assertEqual(len(self.sent), 1)
+
+    def test_a_ring_shaped_name_is_not_the_ring(self):
+        self.tick()
+        self.state.items = ("Beefy Ring x1", "Slippery Ring x1")
+        self.tick(3)
+
+        self.assertEqual(self.sent, [])
+
+    def test_graveyard_never_announces(self):
+        self.state.is_graveyard = True
+        self.tick()
+        self.state.items = ("The One Ring x1",)
+        self.tick(3)
+
+        self.assertEqual(self.sent, [])
+
+    def test_an_unknown_map_holds_the_announcement_rather_than_dropping_it(self):
+        self.state.map_context_known = False
+        self.tick()
+        self.state.items = ("The One Ring x1",)
+        self.tick(3)
+        self.assertEqual(self.sent, [])
+
+        # The context is republished on the 10 s snapshot; the ring is still in
+        # the bag, so the announcement is owed and still fires.
+        self.state.map_context_known = True
+        self.tick(2)
+        self.assertEqual(len(self.sent), 1)
+
+    def test_connecting_mid_run_does_not_announce_a_ring_already_held(self):
+        self.state.items = ("The One Ring x1",)
+        self.tick(4)
+
+        self.assertEqual(self.sent, [])
+
+    def test_a_new_run_re_arms_the_announcer(self):
+        self.tick()
+        self.state.items = ("The One Ring x1",)
+        self.tick()
+        self.assertEqual(len(self.sent), 1)
+
+        self.state.run_id = "run-2"
+        self.state.items = ()
+        self.tick()
+        self.state.items = ("The One Ring x1",)
+        self.tick()
+
+        self.assertEqual(len(self.sent), 2)
+
+    def test_an_unavailable_item_read_is_not_an_empty_inventory(self):
+        # The bot connects mid-run while the item read is failing. If the failed
+        # read seeded the run as "no ring", the first read that succeeds would
+        # announce a ring the chat was already told about.
+        self.state.items = ("The One Ring x1",)
+        self.state.items_available = False
+        self.tick(2)
+        self.assertEqual(self.sent, [])
+
+        self.state.items_available = True
+        self.tick(2)
+        self.assertEqual(self.sent, [])
+
+    def test_the_toggle_silences_it(self):
+        from app.config import TWITCH_BOT
+        previous = TWITCH_BOT.get("one_ring_announcements", True)
+        TWITCH_BOT["one_ring_announcements"] = False
+        try:
+            self.tick()
+            self.state.items = ("The One Ring x1",)
+            self.tick(3)
+        finally:
+            TWITCH_BOT["one_ring_announcements"] = previous
+
+        self.assertEqual(self.sent, [])
+
+
 if __name__ == '__main__':
     unittest.main()

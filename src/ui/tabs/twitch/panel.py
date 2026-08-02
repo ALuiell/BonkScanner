@@ -226,6 +226,7 @@ class TwitchTab:
         self._cooldown_spin = None
         self._command_settings_btn = None
         self._stage_announcements_cb = None
+        self._one_ring_announcements_cb = None
         self._commands_announcements_cb = None
         self._command_cbs: dict[str, ModuleTile] = {}
         self._chat_preview = None
@@ -439,6 +440,15 @@ class TwitchTab:
         )
         card.body.addWidget(self._stage_announcements_cb)
 
+        # Named after the item's in-game display name rather than "Golden Ring":
+        # the caption has to match what the streamer saw on the pickup card.
+        self._one_ring_announcements_cb = QCheckBox("Announce The One Ring (Forest / Desert only)")
+        self._one_ring_announcements_cb.setObjectName("announcementCheck")
+        self._one_ring_announcements_cb.setChecked(
+            config.TWITCH_BOT.get("one_ring_announcements", True)
+        )
+        card.body.addWidget(self._one_ring_announcements_cb)
+
         self._commands_announcements_cb = QCheckBox("Periodically announce available commands")
         self._commands_announcements_cb.setObjectName("announcementCheck")
         self._commands_announcements_cb.setChecked(
@@ -559,6 +569,7 @@ class TwitchTab:
             else:
                 checkbox.stateChanged.connect(on_settings_changed)
         self._stage_announcements_cb.stateChanged.connect(on_settings_changed)
+        self._one_ring_announcements_cb.stateChanged.connect(on_settings_changed)
         self._commands_announcements_cb.stateChanged.connect(on_settings_changed)
 
     # -- reporting what is on screen --------------------------------------
@@ -575,6 +586,7 @@ class TwitchTab:
             "global_cooldown_seconds": self._global_cooldown_spin.value(),
             "cooldown_seconds": self._cooldown_spin.value(),
             "stage_announcements": self._stage_announcements_cb.isChecked(),
+            "one_ring_announcements": self._one_ring_announcements_cb.isChecked(),
             "commands_announcements": self._commands_announcements_cb.isChecked(),
             "commands": {key: cb.isChecked() for key, cb in self._command_cbs.items()},
         }

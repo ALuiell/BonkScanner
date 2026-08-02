@@ -1,3 +1,4 @@
+import random
 import socket
 import ssl
 import threading
@@ -8,7 +9,9 @@ from decimal import Decimal, ROUND_HALF_UP
 from math import isfinite
 from PySide6.QtCore import QThread, Signal
 from app import config
+from core import run_summary
 from core.stat_labels import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
+from core.tracker.items import fold_item_match_name
 from infra.twitch_credentials import get_twitch_oauth_token
 from core.stats.formatters import format_chaos_tome_stat_delta
 from projections.twitch import (
@@ -30,6 +33,14 @@ COMMAND_COOLDOWN_KEYS = {
     "!bonkcommands": "!bonkhelp",
     "!bhelp": "!bonkhelp",
 }
+
+
+# The One Ring reaches this file under four spellings: the enum's `GoldenRing`,
+# the scanner's `Golden Ring`, the display name the memory client formats
+# (`The One Ring`) and the game's own `No Implementation` placeholder. Folding
+# through the tracker's matcher collapses all of them onto one key instead of
+# keeping a list here that would drift from `core/item_metadata.py`.
+ONE_RING_MATCH_NAME = fold_item_match_name("GoldenRing")
 
 
 class SafeFormatter(string.Formatter):
@@ -73,6 +84,15 @@ class TwitchBotWorker(QThread):
         self._last_run_id = None
         self._last_commands_announcement_at = None
         self._commands_announcements_were_enabled = False
+        self._one_ring_run_id = None
+        # How many rings this run has already been announced for, not a bool:
+        # the duplicate pool needs to know that ring 2 is new while ring 1 is
+        # old, and a bool cannot say that.
+        self._one_ring_announced_count = 0
+        # Phrases already drawn from each pool *in the current run*, cleared
+        # when the run changes. The absolute half of the two exclusions in
+        # `_draw_from_pool`; see its docstring for how the two compose.
+        self._pool_lines_used_this_run: dict[str, list[str]] = {}
         self.last_command_times: dict[str, float] = {}
         self.last_global_command_time: float = 0.0
 
@@ -122,6 +142,7 @@ class TwitchBotWorker(QThread):
 
                 while self.running:
                     self._check_stage_transitions(target_channel)
+                    self._check_one_ring_announcement(target_channel)
                     self._check_commands_announcement(target_channel)
 
                     self.sock.settimeout(0.5)
@@ -992,3 +1013,209 @@ class TwitchBotWorker(QThread):
                     next_stage=stage_index
                 )
                 self._send_chat(channel, msg)
+
+    @staticmethod
+    def _one_ring_count(items) -> int:
+        """How many copies of The One Ring the inventory holds.
+
+        A count rather than a boolean because the announcer distinguishes the
+        first ring from a duplicate, and because `x2` is one entry in the item
+        list rather than two.
+        """
+        for name in items or ():
+            stack_name, suffix = run_summary.split_item_stack_suffix(str(name))
+            if fold_item_match_name(stack_name) != ONE_RING_MATCH_NAME:
+                continue
+            return int(suffix[2:]) if suffix else 1
+        return 0
+
+    def _pool_lines(self, template_key: str, default_pool: str) -> list[str]:
+        """A template read as a pool: one phrase per line, blanks dropped.
+
+        A single-line template is a pool of one, which is what makes the
+        original one-phrase config a valid pool without migrating anything.
+        An all-blank pool falls back to the default rather than going silent --
+        a cleared field is far more likely a mistake than a request for no
+        announcement, and the checkbox is how you ask for that.
+        """
+        templates = config.TWITCH_BOT.get("templates", {})
+        lines = [line.strip() for line in str(templates.get(template_key) or "").splitlines()]
+        lines = [line for line in lines if line]
+        if lines:
+            return lines
+        return [line.strip() for line in default_pool.splitlines() if line.strip()]
+
+    @staticmethod
+    def _recent_pool_lines(template_key: str) -> list[str]:
+        recent = config.TWITCH_BOT.get("announcer_recent_lines") or {}
+        return [str(line) for line in recent.get(template_key) or ()]
+
+    @staticmethod
+    def _remember_pool_line(template_key: str, line: str, *, keep: int) -> None:
+        """Persist the draw so the exclusion survives a restart.
+
+        `config.user_config["TWITCH_BOT"]` **is** `config.TWITCH_BOT` (bound at
+        [app/config.py:1050]), so mutating the dict and saving is enough, and
+        `save_config` takes `config_lock` -- writing it from the bot thread does
+        not race the GUI's own saves.
+        """
+        recent = config.TWITCH_BOT.setdefault("announcer_recent_lines", {})
+        history = [str(item) for item in recent.get(template_key) or () if item != line]
+        history.append(line)
+        recent[template_key] = history[-max(1, keep):]
+        try:
+            config.save_config(config.user_config)
+        except Exception:
+            # The exclusion is a nicety. Failing to persist it must never cost
+            # the announcement it was drawn for.
+            pass
+
+    def _draw_from_pool(self, template_key: str, default_pool: str) -> str:
+        """Draw one phrase at random under two exclusions of different scope.
+
+        Flat odds, no weights. The One Ring turns up on the order of once a
+        session, so a "rare" line at a tenth of the weight would simply never be
+        read -- with an event this infrequent the useful knob is *variety per
+        sighting*, which is what equal odds plus an exclusion give.
+
+        **Within one run the exclusion is absolute**: nothing repeats until
+        every variant has been spent, then the cycle starts over. This is the
+        exclusion that matters for the duplicate pool, where one run can draw
+        several times.
+
+        **Across runs it is a soft preference**: the last ``len(pool) // 2``
+        draws are avoided when possible, and that memory is persisted, so a new
+        run does not open by repeating what the last one said and a restart does
+        not forget. It yields to the run-scoped rule whenever the two disagree
+        -- long enough to be felt, never long enough to force a repeat inside a
+        run or to corner a hand-shortened pool.
+
+        Both memories hold phrase text, so editing a line simply makes it a line
+        nobody has drawn.
+        """
+        lines = self._pool_lines(template_key, default_pool)
+        if not lines:
+            return ""
+
+        used_this_run = self._pool_lines_used_this_run.setdefault(template_key, [])
+        candidates = [line for line in lines if line not in used_this_run]
+        if not candidates:
+            # Every variant spent in this run. Start the cycle over rather than
+            # going silent -- and clear the record, so the next pass through the
+            # pool is a fresh permutation instead of a locked-out set.
+            used_this_run.clear()
+            candidates = list(lines)
+
+        recent = set(self._recent_pool_lines(template_key))
+        chosen = random.choice(
+            [line for line in candidates if line not in recent] or candidates
+        )
+        used_this_run.append(chosen)
+        self._remember_pool_line(template_key, chosen, keep=len(lines) // 2)
+        return chosen
+
+    def _format_pool_message(self, template_key: str, default_pool: str, **tags) -> str:
+        """Draw one line from the pool and fill its tags.
+
+        Not `_format_template`: that reads the whole template back out of the
+        config, which for a pool is every phrase at once -- the draw has to
+        happen first, and the drawn line is what gets formatted. `SafeFormatter`
+        renders an unknown tag as `--`, so only malformed braces can fail here.
+        """
+        line = self._draw_from_pool(template_key, default_pool)
+        if not line:
+            return ""
+        try:
+            return SafeFormatter().format(line, **tags)
+        except Exception as exc:
+            return f"Formatting error in '{template_key}' template: {exc}"
+
+    @staticmethod
+    def _announcer_inventory(runtime) -> tuple[str, ...] | None:
+        """The freshest inventory this runtime view can offer, or ``None``.
+
+        ``fast_items`` is the 1 s ``PASSIVE_ITEMS`` pass and is what the ring
+        should be caught on; ``latest_snapshot.items`` is the same source
+        re-published on the 10 s full snapshot, and is the fallback for the
+        window where the fast read is stale or the app attached mid-tick.
+
+        ``None`` means no usable read at all -- which is *not* an empty
+        inventory, and the difference is load-bearing for the caller.
+        """
+        fast_items = getattr(runtime, "fast_items", None)
+        if fast_items is not None:
+            return tuple(fast_items)
+        snapshot = runtime.latest_snapshot
+        if snapshot is None or not snapshot.items_available:
+            return None
+        return tuple(snapshot.items or ())
+
+    def _check_one_ring_announcement(self, channel: str):
+        """Announce The One Ring on Forest/Desert: once for the first, once per
+        duplicate, each from its own pool.
+
+        Level-triggered on the inventory rather than edge-triggered on a pickup
+        event, and deliberately: an edge would have to survive a torn read, a
+        skipped pass or a reconnect to fire at all, while "the bag holds more
+        rings than have been announced" is true on every tick until it is
+        answered. That is what lets a momentarily missing map context cost a
+        delay instead of the announcement.
+        """
+        if not config.TWITCH_BOT.get("one_ring_announcements", True):
+            return
+
+        runtime = self._runtime_snapshot()
+        items = self._announcer_inventory(runtime)
+        if items is None:
+            # No usable read. Not an empty inventory, and in particular it must
+            # not be allowed to seed a run below as "no rings": that is how a
+            # failed first read turns into an announcement for a ring the player
+            # had picked up before the bot was watching.
+            return
+        ring_count = self._one_ring_count(items)
+
+        if runtime.run_id != self._one_ring_run_id:
+            # First sight of this run. Whatever the inventory already holds was
+            # not picked up under the bot's watch -- seeding from it is what
+            # stops a mid-run connect (or a reconnect after a dropped socket)
+            # from announcing a ring the chat was already told about.
+            self._one_ring_run_id = runtime.run_id
+            self._one_ring_announced_count = ring_count
+            # A new run is a new audience for the same jokes.
+            self._pool_lines_used_this_run.clear()
+            return
+
+        if ring_count <= self._one_ring_announced_count:
+            return
+
+        # Graveyard is out of scope for now, and "not Graveyard" is not the same
+        # as "Forest/Desert": with no fresh map context the map is *unknown*,
+        # and an unknown map must not announce. Costs nothing to wait -- the
+        # 10 s snapshot republishes this against a 15 s TTL, and the check above
+        # stays true until it does.
+        map_context = runtime.powerup_map_context
+        if map_context is None or map_context.is_graveyard:
+            return
+
+        first_ring = self._one_ring_announced_count == 0
+        self._one_ring_announced_count = ring_count
+        template_key = (
+            "one_ring_announcement" if first_ring else "one_ring_duplicate_announcement"
+        )
+        default_pool = config.DEFAULT_TWITCH_BOT["templates"][template_key]
+        snapshot = runtime.latest_snapshot
+        game_time = getattr(snapshot, "game_time_seconds", None)
+        message = self._format_pool_message(
+            template_key,
+            default_pool,
+            streamer=channel,
+            stage=runtime.current_stage_index,
+            time=(
+                run_summary.format_elapsed_time(game_time)
+                if game_time is not None
+                else "--"
+            ),
+            count=ring_count,
+        )
+        if message:
+            self._send_chat(channel, message)

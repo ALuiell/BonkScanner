@@ -71,6 +71,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QTabWidget,
@@ -1223,6 +1224,10 @@ class TwitchCommandSettingsDialog(QDialog):
 
         self.stat_checkboxes: dict[str, QCheckBox] = {}
         self.templates_entries: dict[str, QLineEdit] = {}
+        # Multi-line template *pools*, kept apart from the single-line entries
+        # above because they answer `toPlainText()`/`setPlainText()` rather than
+        # `text()`/`setText()`. See `_build_pool_row`.
+        self.template_pool_entries: dict[str, QPlainTextEdit] = {}
         self._init_guard = True
 
         outer_layout = dialog_body(
@@ -1518,6 +1523,33 @@ class TwitchCommandSettingsDialog(QDialog):
         stage_ann_layout.addWidget(stage_ann_help)
         announcers_form.addRow("Stage Transition:", stage_ann_layout)
 
+        # The two One Ring rows are pools, one phrase per line, so they get a
+        # `QPlainTextEdit` rather than the `QLineEdit` every other template uses
+        # -- a pool in a single-line box is editable only by scrolling sideways
+        # through it. They are registered in their own dict for the same reason:
+        # `save`/`reset_to_defaults` walk `templates_entries` with `text()` and
+        # `setText()`, which a plain-text edit does not have.
+        announcers_form.addRow(
+            "The One Ring:",
+            self._build_pool_row(
+                "one_ring_announcement",
+                "One phrase per line, drawn at random, recent lines skipped. "
+                "Forest and Desert only. Tags: {streamer}, {stage}, {time} -- "
+                "note that the bot usually posts from your own account, so a "
+                "line naming {streamer} reads as you talking about yourself "
+                "unless you run a separate bot account.",
+            ),
+        )
+        announcers_form.addRow(
+            "The One Ring (duplicate):",
+            self._build_pool_row(
+                "one_ring_duplicate_announcement",
+                "Fires on the second ring and every one after it. "
+                "Tags: {streamer}, {stage}, {time}, {count} -- and a line that "
+                "names no count must stay true for any number of rings.",
+            ),
+        )
+
         ann_scroll_layout.addLayout(announcers_form)
 
         # Commands announcer
@@ -1547,6 +1579,30 @@ class TwitchCommandSettingsDialog(QDialog):
 
         self._init_guard = False
 
+    def _build_pool_row(self, template_key: str, help_text: str):
+        """A multi-line template field plus its help line, as one form row."""
+        entry = QPlainTextEdit(
+            config.TWITCH_BOT.get("templates", {}).get(
+                template_key,
+                config.DEFAULT_TWITCH_BOT["templates"][template_key],
+            )
+        )
+        # Tall enough for five or six phrases without scrolling, which is the
+        # size the shipped pools actually are; past that it scrolls rather than
+        # pushing the rest of the tab off screen.
+        entry.setMinimumHeight(120)
+        entry.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.template_pool_entries[template_key] = entry
+
+        layout = QVBoxLayout()
+        layout.addWidget(entry)
+        help_label = QLabel(
+            f"<span style='color: #9CA3AF; font-size: 11px;'>{help_text}</span>"
+        )
+        help_label.setWordWrap(True)
+        layout.addWidget(help_label)
+        return layout
+
     def on_stat_toggled(self):
         if getattr(self, "_init_guard", False):
             return
@@ -1574,6 +1630,8 @@ class TwitchCommandSettingsDialog(QDialog):
         defaults = config.DEFAULT_TWITCH_BOT["templates"]
         for key, entry in self.templates_entries.items():
             entry.setText(defaults.get(key, ""))
+        for key, entry in self.template_pool_entries.items():
+            entry.setPlainText(defaults.get(key, ""))
         self.commands_announcement_interval_spin.setValue(
             int(config.DEFAULT_TWITCH_BOT.get("commands_announcement_interval_minutes", 30))
         )
@@ -1624,6 +1682,11 @@ class TwitchCommandSettingsDialog(QDialog):
 
         for key, entry in self.templates_entries.items():
             config.TWITCH_BOT["templates"][key] = entry.text().strip()
+
+        for key, entry in self.template_pool_entries.items():
+            # Only the outer whitespace: the newlines *are* the separators, and
+            # `_pool_lines` on the bot strips and drops blanks per line anyway.
+            config.TWITCH_BOT["templates"][key] = entry.toPlainText().strip()
 
         highlighted_disabled = [
             name for name, cb in self.disabled_item_checkboxes.items() if cb.isChecked()
