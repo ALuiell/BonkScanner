@@ -5,7 +5,11 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-import requests
+# `requests` is imported inside the two functions that call it, not here.
+# It is the heaviest thing this application imports -- 14.7 MB and 346ms,
+# measured -- and it exists for one HTTP call that happens after the window is
+# up, if it happens at all. At module scope it was on the startup path through
+# `ui.dialogs.update_prompt` -> `app.update_flow` -> here.
 
 
 GITHUB_REPO = "ALuiell/BonkScanner"
@@ -26,6 +30,8 @@ def frozen_exe_path() -> str | None:
 
 
 def fetch_latest_release() -> ReleaseInfo:
+    import requests
+
     response = requests.get(GITHUB_API_URL, timeout=5)
     response.raise_for_status()
     release_data = response.json()
@@ -50,6 +56,8 @@ def download_and_apply_update(exe_path, download_url):
     new_exe_name = exe_name + ".new"
     backup_exe_name = exe_name + ".old"
     bat_path = os.path.join(exe_dir, "update.bat")
+
+    import requests
 
     try:
         r = requests.get(download_url, stream=True, timeout=10)

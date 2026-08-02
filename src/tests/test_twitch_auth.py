@@ -3,6 +3,13 @@ import src
 import unittest
 from unittest.mock import MagicMock, patch
 
+# Patched on `requests` itself rather than through `twitch_auth.requests`: the
+# module imports it inside the three functions that call it, so it is no longer
+# an attribute of `twitch_auth` to reach through. The seam is the same one --
+# a function-body `import requests` binds this very module object -- and keeping
+# `requests` off the startup path is worth 350ms and 9 MB.
+import requests
+
 import twitch_auth
 
 
@@ -15,7 +22,7 @@ class TwitchAuthTests(unittest.TestCase):
             "expires_in": "3600",
         }
 
-        with patch.object(twitch_auth.requests, "get", return_value=response) as request:
+        with patch.object(requests, "get", return_value=response) as request:
             result = twitch_auth.validate_twitch_access_token("token")
 
         self.assertTrue(result.valid)
@@ -28,7 +35,7 @@ class TwitchAuthTests(unittest.TestCase):
         response = MagicMock(status_code=200)
         response.json.side_effect = ValueError("invalid json")
 
-        with patch.object(twitch_auth.requests, "get", return_value=response):
+        with patch.object(requests, "get", return_value=response):
             result = twitch_auth.validate_twitch_access_token("token")
 
         self.assertFalse(result.valid)
@@ -39,7 +46,7 @@ class TwitchAuthTests(unittest.TestCase):
         response = MagicMock(status_code=200)
         response.json.return_value = {"login": "bonkbot"}
 
-        with patch.object(twitch_auth.requests, "get", return_value=response):
+        with patch.object(requests, "get", return_value=response):
             result = twitch_auth.validate_twitch_access_token("token")
 
         self.assertFalse(result.valid)
@@ -47,9 +54,9 @@ class TwitchAuthTests(unittest.TestCase):
 
     def test_validate_token_marks_request_errors_transient(self) -> None:
         with patch.object(
-            twitch_auth.requests,
+            requests,
             "get",
-            side_effect=twitch_auth.requests.RequestException("offline"),
+            side_effect=requests.RequestException("offline"),
         ):
             result = twitch_auth.validate_twitch_access_token("token")
 
@@ -59,7 +66,7 @@ class TwitchAuthTests(unittest.TestCase):
     def test_revoke_accepts_already_invalid_token(self) -> None:
         response = MagicMock(status_code=400)
 
-        with patch.object(twitch_auth.requests, "post", return_value=response) as request:
+        with patch.object(requests, "post", return_value=response) as request:
             revoked, message = twitch_auth.revoke_twitch_access_token("token")
 
         self.assertTrue(revoked)
