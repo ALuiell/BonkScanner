@@ -1510,3 +1510,12 @@ QFrame#supportPopupCard {
 QFrame#supportPopupCard QLabel { background: transparent; }
 QLabel#supportPopupTitle { color: #B9C2CE; font-size: 12.5px; font-weight: 800; }
 QLabel#supportPopupNote { color: #8A94A3; font-size: 11px; }
+/* Список саппортеров. Построен и оформлен, но данными пока не питается —
+   шов `FooterView.set_supporters`, никто его не зовёт. Пустой случай и есть
+   отгружаемый: без списка карточка выглядит ровно как раньше. */
+QWidget#supporterList { background: transparent; }
+QLabel#supporterName { color: #B9C2CE; font-size: 11.5px; background: transparent; }
+/* Один уровень выделения, а не лестница: три тира во всплывашке футера — это
+   уже прайс-лист. Цвет патреоновский, тот же, что у ссылки под курсором. */
+QLabel#supporterNameTier { color: #FF6F61; font-size: 11.5px; font-weight: 700; background: transparent; }
+QFrame#supportPopupRule { background-color: #1B222B; border: none; }
