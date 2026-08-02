@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QPushButton
 
 #: The affirmative segment (Start, Rec) and the negative one (Stop). Only the
@@ -34,8 +34,40 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QPushButton
 ROLE_GO = "go"
 ROLE_HALT = "halt"
 
+#: A floor, so `Rec` and `Stop` do not come out as two tiny pills. **Not** a
+#: width: see `_Segment` for why the difference is load-bearing.
 SEGMENT_MIN_WIDTH = 96
 SEGMENT_MIN_HEIGHT = 30
+
+
+class _Segment(QPushButton):
+    """A segment that is never narrower than the floor *or* than its own text.
+
+    These used to carry `setMinimumWidth(SEGMENT_MIN_WIDTH)`, and that is a
+    stronger statement than it reads as: Qt ignores `minimumSizeHint` once an
+    explicit `minimumSize` is set, so 96px stopped being a floor and became the
+    entire minimum. Any layout under pressure was then free to squeeze a
+    segment to 96px no matter how long its caption was -- and with the
+    stylesheet's `padding: 7px 18px` eating 36 of those, only 60px were left
+    for the text.
+
+    `Start` (30px) and `Stop` (28px) fit in 60 and never showed it. The OBS
+    tab's `Full overlay` (70px) and `Single widget` (83px) did not, and shipped
+    as `ull overla` / `ngle widg` in any window narrow enough to make the
+    layout ask.
+
+    Overriding the hint instead keeps the floor and lets Qt's own measurement
+    win when it is larger. It is also evaluated *late*, which matters: the
+    padding that decides the answer arrives with the stylesheet, long after
+    these buttons are constructed.
+    """
+
+    def minimumSizeHint(self) -> QSize:
+        hint = super().minimumSizeHint()
+        return QSize(
+            max(SEGMENT_MIN_WIDTH, hint.width()),
+            max(SEGMENT_MIN_HEIGHT, hint.height()),
+        )
 
 
 class SegmentedToggle(QFrame):
@@ -86,13 +118,11 @@ class SegmentedToggle(QFrame):
         self._variant = ""
 
         for key, caption, role in segments:
-            button = QPushButton(caption)
+            button = _Segment(caption)
             button.setObjectName("segment")
             button.setProperty("segment", key)
             button.setProperty("role", role)
             button.setProperty("variant", "")
-            button.setMinimumWidth(SEGMENT_MIN_WIDTH)
-            button.setMinimumHeight(SEGMENT_MIN_HEIGHT)
             button.setCursor(Qt.PointingHandCursor)
             button.clicked.connect(lambda _checked=False, k=key: self.activated.emit(k))
             layout.addWidget(button)
