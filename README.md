@@ -269,14 +269,14 @@ The main `Settings` dialog currently includes:
 - `Record Hotkey`
 - `Auto-start recording`
 - `Show OBS reminder on Start Scanner`
-- `Min Reroll Delay (s)`
 - `Reset Hold Duration (s)`
 - `Snapshot Interval (s)`
 - `Check for Updates`
 
 Notes:
 - `Reset Hotkey` and `Reset Hold Duration` control the community restart path;
-- the app also syncs the game's `quick_reset_time` value when reset hold duration changes;
+- the app syncs and verifies the game's `quick_reset_time` value when reset hold duration changes;
+- if the game config is missing or the value cannot be verified, Settings stays open and explains how to retry;
 - global hotkeys and keyboard-driven restart may require Administrator privileges on Windows.
 
 ## Auto-Update Behavior

@@ -67,13 +67,19 @@ window) is a fact about the caller rather than a ``getattr`` that quietly went
 from __future__ import annotations
 
 import threading
+
+from infra import vod_storage
 from typing import Callable, Sequence
+
+from app import config
+from projections.recording_sort import normalize_recording_sort_mode
 
 from infra.vod_storage import (
     delete_vod,
     delete_vods_below_snapshot_count,
     load_cached_vods,
     load_vod,
+    minimum_snapshot_count,
     refresh_vod_metadata_index,
     rename_vod,
 )
@@ -84,9 +90,90 @@ __all__ = [
     "delete_vods_below_snapshot_count",
     "load_cached_vods",
     "load_vod",
+    "minimum_snapshot_count",
     "refresh_vod_metadata_index",
+    "recording_library_open",
+    "recording_library_width",
+    "recording_sort_mode",
     "rename_vod",
+    "set_minimum_snapshot_count",
+    "set_recording_library_open",
+    "set_recording_library_width",
+    "set_recording_sort_mode",
 ]
+
+
+#: Where the library's sort order is remembered. One key, not two: the
+#: Recordings tab and the Compare Runs chooser show the *same* library, and a
+#: list that sits third in one and seventh in the other is not flexibility.
+RECORDING_SORT_CONFIG_KEY = "RECORDING_SORT_MODE"
+
+
+def recording_sort_mode() -> str:
+    """The saved order, normalised -- an unknown value falls back to newest."""
+    return normalize_recording_sort_mode(config.user_config.get(RECORDING_SORT_CONFIG_KEY))
+
+
+def set_recording_sort_mode(mode: str) -> None:
+    config.user_config[RECORDING_SORT_CONFIG_KEY] = normalize_recording_sort_mode(mode)
+    config.save_config(config.user_config)
+
+
+#: Where the Recordings tab remembers its library drawer -- whether it is open,
+#: and how wide the user dragged it.
+#:
+#: Deliberately *not* shared with the Compare Runs chooser the way the sort key
+#: above is, and the difference is the point: sort order is a property of the
+#: library, so two views of one library must agree on it. Open-ness and width
+#: are properties of one tab's layout. Compare Runs keeps its own
+#: open-on-demand behaviour and reads neither of these.
+RECORDING_LIBRARY_OPEN_CONFIG_KEY = "RECORDINGS_LIBRARY_OPEN"
+RECORDING_LIBRARY_WIDTH_CONFIG_KEY = "RECORDINGS_LIBRARY_WIDTH"
+
+
+def recording_library_open() -> bool:
+    """Whether the Recordings library drawer was left open. Closed by default."""
+    return bool(config.user_config.get(RECORDING_LIBRARY_OPEN_CONFIG_KEY, False))
+
+
+def set_recording_library_open(is_open: bool) -> None:
+    config.user_config[RECORDING_LIBRARY_OPEN_CONFIG_KEY] = bool(is_open)
+    config.save_config(config.user_config)
+
+
+def recording_library_width() -> int | None:
+    """The saved drawer width, or ``None`` for "use the layout's default".
+
+    Not clamped here. The bounds are ``RECORDINGS_LIST_MIN/MAX_WIDTH``, which
+    live in ``ui/`` and which ``app/`` may not import; the drawer clamps what
+    it reads, which is also where a hand-edited config gets caught.
+    """
+    try:
+        width = int(config.user_config.get(RECORDING_LIBRARY_WIDTH_CONFIG_KEY))
+    except (TypeError, ValueError):
+        return None
+    return width if width > 0 else None
+
+
+def set_recording_library_width(width: int) -> None:
+    config.user_config[RECORDING_LIBRARY_WIDTH_CONFIG_KEY] = max(0, int(width))
+    config.save_config(config.user_config)
+
+
+def set_minimum_snapshot_count(value: int) -> None:
+    """Persist the auto-filter threshold through the recording settings.
+
+    Here rather than in ``infra.vod_storage`` beside its reader, because the
+    layering table forbids ``ui/ -> infra/`` and this seam is what the
+    Recordings tab is allowed to call. The reader is re-exported above for the
+    same reason.
+    """
+    settings = vod_storage._settings
+    if settings is None:
+        return
+    writer = getattr(settings, "write_minimum_snapshot_count", None)
+    if callable(writer):
+        writer(max(0, int(value)))
 
 
 class VodLibrary:

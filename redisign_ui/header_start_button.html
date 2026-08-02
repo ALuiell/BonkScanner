@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<title>Start Scanner — варианты шапки</title>
+<style>
+  :root{
+    --page:#0E1217; --panel:#101419; --card:#0B0F14; --inner:#141A22;
+    --bd:#1B222B; --bd2:#2A3542; --bd3:#2E3A48;
+    --tx:#EDF1F5; --head:#B9C2CE; --sec:#8A94A3; --mut:#5C6675;
+    --acc:#2F6FB0; --accbd:#3E82C6; --acchov:#3781CE;
+    --ok:#22C55E; --okt:#7DE68C; --stop:#B91C1C; --stopbd:#C8302F; --danger:#F0787E;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#05070A;font-family:Inter,'Segoe UI',Arial,sans-serif;padding:24px;color:var(--tx)}
+  .mono{font-family:'JetBrains Mono',Consolas,monospace}
+  .wrap{width:1360px;margin:0 auto}
+
+  h2{font-size:14px;font-weight:800;margin:26px 0 4px;letter-spacing:.2px}
+  h2 .n{color:var(--mut);font-weight:700;margin-right:8px}
+  .why{color:var(--sec);font-size:12.5px;line-height:1.65;margin:0 0 10px;max-width:940px}
+  .why b{color:var(--tx)}
+  .state{color:var(--mut);font-size:11px;font-weight:700;letter-spacing:.4px;
+         text-transform:uppercase;margin:10px 0 5px}
+
+  /* --- каркас шапки --- */
+  .hdr{background:var(--page);border-bottom:1px solid var(--bd);border-radius:10px 10px 0 0;
+       padding:9px 14px 11px;display:flex;align-items:center;gap:12px}
+  .logo{width:34px;height:24px;border-radius:6px;
+        background:linear-gradient(135deg,#7C3AED,#2F6FB0);flex:0 0 auto}
+  .title{font-size:16px;font-weight:800}
+  .vdiv{width:1px;height:20px;background:var(--bd2)}
+  .grow{flex:1}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--mut);flex:0 0 auto}
+  .dot.run{background:var(--ok)}
+  .dot.rec{background:#F87171}
+  .stxt{font-size:12px;font-weight:600;color:var(--sec)}
+  .stxt.run{color:var(--okt)}
+  .meta{color:var(--sec);font-size:12px}
+
+  button{font-family:inherit;cursor:pointer}
+  .icon{width:34px;height:34px;border-radius:9px;background:#161C24;border:1px solid var(--bd2);
+        color:var(--sec);font-size:15px;display:inline-flex;align-items:center;justify-content:center}
+
+  /* базовая кнопка */
+  .btn{background:#161C24;border:1px solid var(--bd2);border-radius:9px;color:var(--tx);
+       font-weight:700;font-size:12.5px;padding:9px 16px}
+  .btn.primary{background:var(--acc);border-color:var(--accbd);color:#fff}
+  .btn.stop{background:var(--stop);border-color:var(--stopbd);color:#fff;font-weight:800;font-size:13px}
+  .w210{min-width:210px;min-height:38px}
+
+  /* 2 — капсула состояния */
+  .cluster{display:flex;align-items:center;gap:0;background:var(--card);border:1px solid var(--bd);
+           border-radius:11px;padding:4px 4px 4px 12px}
+  .cluster .st{display:flex;align-items:center;gap:7px;padding-right:12px}
+  .cluster .sep{width:1px;height:18px;background:var(--bd);margin-right:12px}
+  .cluster .meta{padding-right:12px}
+  .cluster .go{border-radius:8px;padding:8px 16px;font-size:12.5px;font-weight:700;
+        background:var(--acc);border:1px solid var(--accbd);color:#fff;min-width:132px}
+  .cluster .go.halt{background:var(--stop);border-color:var(--stopbd);font-weight:800}
+
+  /* 3 — ghost в покое, заливка только при работе */
+  .ghostgo{display:inline-flex;align-items:center;gap:9px;background:transparent;
+        border:1px solid var(--bd3);border-radius:10px;color:var(--head);
+        font-weight:700;font-size:12.5px;padding:9px 16px;min-width:186px;justify-content:center}
+  .ghostgo:hover{background:#141A22;border-color:#3E82C6;color:var(--tx)}
+  .ghostgo .tri{width:0;height:0;border-left:8px solid var(--okt);
+        border-top:5px solid transparent;border-bottom:5px solid transparent}
+  .ghostgo .kbd{font-size:10.5px;color:var(--mut);border:1px solid var(--bd2);
+        border-radius:5px;padding:1px 5px;font-weight:700}
+  .livego{display:inline-flex;align-items:center;gap:9px;background:var(--stop);
+        border:1px solid var(--stopbd);border-radius:10px;color:#fff;
+        font-weight:800;font-size:12.5px;padding:9px 16px;min-width:186px;justify-content:center}
+  .livego .sq{width:9px;height:9px;background:#fff;border-radius:2px}
+  .pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);
+        box-shadow:0 0 0 0 rgba(34,197,94,.6);animation:p 2s infinite}
+  @keyframes p{70%{box-shadow:0 0 0 7px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+
+  /* 4 — сегментный переключатель */
+  .seg{display:inline-flex;background:var(--card);border:1px solid var(--bd);
+       border-radius:10px;padding:3px;gap:3px}
+  .seg button{border:0;background:transparent;color:var(--mut);font-weight:700;font-size:12.5px;
+       padding:7px 18px;border-radius:8px;display:inline-flex;align-items:center;gap:7px}
+  .seg button.on{background:var(--acc);color:#fff}
+  .seg button.on.halt{background:var(--stop)}
+  .seg .tri{width:0;height:0;border-left:7px solid currentColor;
+        border-top:4.5px solid transparent;border-bottom:4.5px solid transparent}
+  .seg .sq{width:8px;height:8px;background:currentColor;border-radius:2px}
+
+  /* 5 — действие у статуса, слева */
+  .leftgo{display:inline-flex;align-items:center;gap:8px;background:#141A22;
+        border:1px solid var(--bd3);border-radius:9px;padding:6px 12px 6px 10px;
+        font-weight:700;font-size:12.5px;color:var(--tx)}
+  .leftgo.on{background:rgba(185,28,28,.14);border-color:#4A2226;color:#F0787E}
+
+  .note{color:var(--mut);font-size:12px;margin-top:8px;line-height:1.6}
+  .note b{color:var(--danger);font-weight:700}
+  .rec{color:#F87171;font-weight:700;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h2><span class="n">0</span>Как сейчас</h2>
+<p class="why">
+  Статус <b>[• IDLE]</b> стоит у логотипа слева, а кнопка, которая этот статус меняет, — у правого края,
+  в полутора тысячах пикселей от него. Причина и следствие разнесены по разным концам шапки.
+  Сама кнопка — 210×38 сплошного акцентного синего, того же <code>#2F6FB0</code>, что и активная вкладка,
+  так что за «здесь главное» борются два элемента. Минимальные размеры в
+  <code>_build_header_controls</code> выставлены руками, чтобы шапка не дёргалась при смене
+  Start↔Stop — это симптом: состояния набраны разным кеглем и весом.
+</p>
+<div class="state">Idle</div>
+<div class="hdr">
+  <div class="logo"></div><div class="title">BonkScanner</div><div class="vdiv"></div>
+  <div class="dot"></div><div class="stxt">IDLE</div>
+  <div class="grow"></div>
+  <div class="meta mono">Session 00:00:00 · RPM 0.0</div>
+  <button class="btn primary w210">Start Scanner</button>
+  <button class="icon">?</button><button class="icon">⚙</button>
+</div>
+<div class="state">Running</div>
+<div class="hdr">
+  <div class="logo"></div><div class="title">BonkScanner</div><div class="vdiv"></div>
+  <div class="dot run"></div><div class="stxt run">RUNNING</div>
+  <div class="grow"></div>
+  <div class="meta mono">Session 00:14:22 · RPM 4.2</div>
+  <button class="btn stop w210">Stop Scanner</button>
+  <button class="icon">?</button><button class="icon">⚙</button>
+</div>
+
+<h2><span class="n">1</span>Капсула состояния</h2>
+<p class="why">
+  Точка, надпись, счётчики сессии и кнопка собираются в <b>один блок</b> у правого края:
+  всё про «идёт / не идёт» в одном месте, кнопка перестаёт быть отдельным пятном и читается
+  как управление тем, что рядом. Слева у логотипа остаётся только имя приложения.
+  Ширина кнопки внутри капсулы фиксирована, поэтому смена Start↔Stop ничего не двигает.
+</p>
+<div class="state">Idle</div>
+<div class="hdr">
+  <div class="logo"></div><div class="title">BonkScanner</div>
+  <div class="grow"></div>
+  <div class="cluster">
+    <div class="st"><span class="dot"></span><span class="stxt">IDLE</span></div>
+    <div class="sep"></div>
+    <div class="meta mono">00:00:00 · RPM 0.0</div>
+    <button class="go">Start Scanner</button>
+  </div>
+  <button class="icon">?</button><button class="icon">⚙</button>
+</div>
+<div class="state">Running</div>
+<div class="hdr">
+  <div class="logo"></div><div class="title">BonkScanner</div>
+  <div class="grow"></div>
+  <div class="cluster">
+    <div class="st"><span class="pulse"></span><span class="stxt run">RUNNING</span></div>
+    <div class="sep"></div>
+    <div class="meta mono">00:14:22 · RPM 4.2</div>
+    <button class="go halt">Stop Scanner</button>
+  </div>
+  <button class="icon">?</button><button class="icon">⚙</button>
+</div>
+
+<h2><span class="n">2</span>Спокойный старт, громкий стоп</h2>
+<p class="why">
+  Главная мысль: <b>синяя заливка не нужна в покое</b>. Пока сканер стоит, кнопка — контурная,
+  с зелёным треугольником и подсказкой горячей клавиши; она не конкурирует с активной вкладкой.
+  Как только сканер пошёл — кнопка становится красной заливкой, и это единственный залитый
+  элемент в шапке, то есть внимание уходит туда ровно тогда, когда есть что останавливать.
+  Пульсирующая точка даёт «живость» без анимации самой кнопки.
+</p>
+<div class="state">Idle</div>
+<div class="hdr">
+  <div class="logo"></div><div class="title">BonkScanner</div><div class="vdiv"></div>
+  <div class="dot"></div><div class="stxt">IDLE</div>
+  <div class="grow"></div>
+  <div class="meta mono">Session 00:00:00 · RPM 0.0</div>
+  <button class="ghostgo"><span class="tri"></span>Start Scanner<span class="kbd">F9</span></button>
+  <button class="icon">?</button><button class="icon">⚙</button>
+</div>
+<div class="state">Running</div>
+<div class="hdr">
+  <div class="logo"></div><div class="title">BonkScanner</div><div class="vdiv"></div>
+  <div class="pulse"></div><div class="stxt run">RUNNING</div>
+  <div class="grow"></div>
+  <div class="meta mono">Session 00:14:22 · RPM 4.2</div>
+  <button class="livego"><span class="sq"></span>Stop Scanner</button>
+  <button class="icon">?</button><button class="icon">⚙</button>
+</div>
+
+<h2><span class="n">3</span>Сегментный переключатель</h2>
+<p class="why">
+  Не кнопка, меняющая надпись, а <b>тумблер из двух сегментов</b>: видно и текущее состояние,
+  и то, что доступно. Ширина задана конструкцией, поэтому подпорки из
+  <code>setMinimumWidth(210)</code> становятся не нужны вовсе. Минус — два сегмента занимают
+  больше места, а «Stop» всегда на виду, даже когда останавливать нечего.
+</p>
+<div class="state">Idle</div>
+<div class="hdr">
+  <div class="logo"></div><div class="title">BonkScanner</div><div class="vdiv"></div>
+  <div class="dot"></div><div class="stxt">IDLE</div>
+  <div class="grow"></div>
+  <div class="meta mono">Session 00:00:00 · RPM 0.0</div>
+  <div class="seg"><button class="on"><span class="tri"></span>Start</button><button><span class="sq"></span>Stop</button></div>
+  <button class="icon">?</button><button class="icon">⚙</button>
+</div>
+<div class="state">Running</div>
+<div class="hdr">
+  <div class="logo"></div><div class="title">BonkScanner</div><div class="vdiv"></div>
+  <div class="pulse"></div><div class="stxt run">RUNNING</div>
+  <div class="grow"></div>
+  <div class="meta mono">Session 00:14:22 · RPM 4.2</div>
+  <div class="seg"><button><span class="tri"></span>Start</button><button class="on halt"><span class="sq"></span>Stop</button></div>
+  <button class="icon">?</button><button class="icon">⚙</button>
+</div>
+
+<h2><span class="n">4</span>Действие рядом со статусом, слева</h2>
+<p class="why">
+  Обратный ход: не тащить статус вправо, а <b>поставить кнопку туда, где статус уже есть</b> —
+  сразу за именем приложения. Правый край освобождается под счётчики сессии и иконки,
+  и шапка перестаёт быть перегруженной справа. Кнопка становится компактной: точка состояния
+  внутри неё же. Минус — главное действие уезжает от привычного правого угла.
+</p>
+<div class="state">Idle</div>
+<div class="hdr">
+  <div class="logo"></div><div class="title">BonkScanner</div><div class="vdiv"></div>
+  <button class="leftgo"><span class="dot"></span>Start Scanner<span class="kbd" style="font-size:10.5px;color:var(--mut);border:1px solid var(--bd2);border-radius:5px;padding:1px 5px">F9</span></button>
+  <div class="grow"></div>
+  <div class="meta mono">Session 00:00:00 · RPM 0.0</div>
+  <button class="icon">?</button><button class="icon">⚙</button>
+</div>
+<div class="state">Running</div>
+<div class="hdr">
+  <div class="logo"></div><div class="title">BonkScanner</div><div class="vdiv"></div>
+  <button class="leftgo on"><span class="pulse"></span>Stop Scanner</button>
+  <div class="grow"></div>
+  <div class="meta mono">Session 00:14:22 · RPM 4.2 &nbsp;·&nbsp; <span class="rec">● REC</span></div>
+  <button class="icon">?</button><button class="icon">⚙</button>
+</div>
+
+<p class="note" style="margin-top:26px">
+  Во всех вариантах, кроме нулевого, ширина в двух состояниях одинакова —
+  <b>подпорки <code>setMinimumWidth(210)</code> / <code>setMinimumHeight(38)</code> из
+  <code>_build_header_controls</code> становятся не нужны</b>, шапка перестаёт дёргаться
+  при старте и остановке.
+</p>
+
+</div>
+</body>
+</html>

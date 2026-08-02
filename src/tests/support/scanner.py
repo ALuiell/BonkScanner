@@ -47,19 +47,21 @@ class FakeLabel:
 
 
 class FakeLogBox:
-    """Enough of `QTextEdit` for `_append_log`, and it keeps what it was given."""
+    """Enough of `LogView` for `_append_log`, and it keeps what it was given.
+
+    One method, because that is the whole port now. It used to stand in for a
+    `QTextEdit` -- `moveCursor` and `insertHtml` -- back when the scanner built
+    the markup itself; the panel owns records and their rendering since.
+    """
 
     def __init__(self) -> None:
-        self.html: list[str] = []
+        self.entries: list[tuple] = []
 
-    def moveCursor(self, _position) -> None:
-        pass
-
-    def insertHtml(self, value) -> None:
-        self.html.append(value)
+    def append_log(self, message, tag=None) -> None:
+        self.entries.append((message, tag))
 
     def text(self) -> str:
-        return "".join(self.html)
+        return "".join(str(message) for message, _tag in self.entries)
 
 
 class FakeThread:

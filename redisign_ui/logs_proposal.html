@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<title>Logs — предложение</title>
+<style>
+  :root{
+    --page:#0E1217; --card:#0B0F14; --inner:#141A22;
+    --bd:#1B222B; --bd2:#2A3542; --bd3:#2E3A48;
+    --tx:#EDF1F5; --head:#B9C2CE; --sec:#8A94A3; --mut:#5C6675;
+    --acc:#2F6FB0; --accbd:#3E82C6;
+    --ok:#22C55E; --warn:#FACC15; --err:#F87171; --info:#60A5FA;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#05070A;font-family:Inter,'Segoe UI',Arial,sans-serif;padding:24px;color:var(--tx)}
+  .mono{font-family:'JetBrains Mono',Consolas,monospace}
+  .wrap{width:1180px;margin:0 auto}
+  h2{font-size:14px;font-weight:800;margin:30px 0 4px}
+  h2 .n{color:var(--mut);font-weight:700;margin-right:8px}
+  .why{color:var(--sec);font-size:12.5px;line-height:1.7;margin:0 0 12px;max-width:980px}
+  .why b{color:var(--tx)} .why code{color:var(--head)}
+  .flag{color:var(--err);font-weight:700}
+
+  .logbox{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px 10px;
+          font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;line-height:1.85}
+
+  /* ——— как сейчас ——— */
+  .old div{color:#E5E7EB}
+  .old .dim{color:#5C6675}
+
+  /* ——— предложение ——— */
+  .bar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+  .chips{display:flex;gap:3px;background:var(--card);border:1px solid var(--bd);
+         border-radius:9px;padding:3px}
+  .chips button{border:0;background:transparent;color:var(--mut);font-family:inherit;
+         font-weight:700;font-size:11.5px;padding:5px 11px;border-radius:7px;cursor:pointer;
+         display:inline-flex;align-items:center;gap:6px}
+  .chips button:hover{color:var(--tx)}
+  .chips button.on{background:#161C24;color:var(--tx)}
+  .chips i{width:7px;height:7px;border-radius:50%;display:block}
+  .count{color:var(--mut);font-weight:700;font-size:10.5px}
+  .search{background:var(--card);border:1px solid var(--bd2);border-radius:8px;
+          color:var(--tx);font-family:inherit;font-size:12px;padding:6px 10px;width:210px}
+  .search::placeholder{color:var(--mut)}
+  .ghost{background:transparent;border:1px solid var(--bd2);border-radius:8px;color:var(--sec);
+         font-family:inherit;font-weight:700;font-size:11.5px;padding:6px 12px;cursor:pointer}
+  .ghost:hover{background:#141A22;color:var(--tx)}
+  .toggle{display:inline-flex;align-items:center;gap:6px;color:var(--sec);font-size:11.5px;font-weight:600}
+
+  .line{display:grid;grid-template-columns:64px 10px 1fr;gap:9px;align-items:baseline;
+        padding:1px 4px;border-radius:5px}
+  .line:hover{background:#12171E}
+  .line .t{color:var(--mut)}
+  .line .d{width:6px;height:6px;border-radius:50%;margin-top:5px;background:var(--mut)}
+  .line .m{color:#C6CDD8;white-space:pre-wrap}
+  .line.info .d{background:var(--info)}
+  .line.ok   .d{background:var(--ok)}    .line.ok   .m{color:#BBF7D0}
+  .line.warn .d{background:var(--warn)}  .line.warn .m{color:#FDE68A}
+  .line.err  .d{background:var(--err)}   .line.err  .m{color:#FCA5A5}
+  .line.plain .d{background:transparent;box-shadow:inset 0 0 0 1px #2A3542}
+  .line.plain .m{color:#8A94A3}
+  .rep{color:var(--mut);font-size:10.5px;border:1px solid var(--bd2);border-radius:5px;
+       padding:0 5px;margin-left:8px}
+
+  .foot{display:flex;justify-content:space-between;color:var(--mut);font-size:11px;margin-top:8px}
+  .empty{color:var(--mut);text-align:center;padding:40px 0;font-size:12.5px}
+  table{border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  td,th{padding:5px 16px 5px 0;text-align:left;color:var(--sec);vertical-align:top}
+  th{color:var(--head);font-weight:700}
+  td b{color:var(--tx)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h2><span class="n">0</span>Как сейчас</h2>
+<p class="why">
+  <span class="flag">Раскраска по важности не работает.</span>
+  <code>_append_log</code> берёт цвет как <code>COLOR_MAP.get(tag.upper(), DEFAULT)</code>, а в
+  <code>COLOR_MAP</code> лежат <code>WHITE / GREEN / YELLOW / RED …</code> — ключей
+  <code>WARNING</code>, <code>SUCCESS</code>, <code>ERROR</code> там нет. Все 55 вызовов с тегом
+  падают в <code>DEFAULT</code> и рисуются одним серым. Жёлтые строки жёлтые из-за эмодзи ⚠️
+  внутри самого текста, а не из-за тега.
+  <b>Времени нет ни у одной строки.</b> Ни фильтра, ни поиска, ни «скопировать», ни «очистить».
+  Важность передаётся ASCII-префиксами <code>[*]</code>, <code>[+]</code>, <code>[-]</code>,
+  <code>[WAIT]</code> — четыре разных, и они же занимают место в начале каждой строки.
+  Документ растёт без предела: <code>insertHtml</code> дописывает и никогда не подрезает.
+</p>
+<div class="logbox old">
+  <div>⚠️ WARNING: Script is not running as Administrator!</div>
+  <div>⚠️ Hotkeys may not work while the game window is active.</div>
+  <div>[*] Welcome to BonkScanner v2.1.7!</div>
+  <div class="dim">[*] Target Process: Megabonk.exe</div>
+  <div class="dim">[*] Ready! Select templates and start the main process loop.</div>
+  <div>[*] Player stats recording armed; waiting for an active run.</div>
+  <div class="dim">[*] Player stats recording stopped.</div>
+  <div>[*] Player stats recording armed; waiting for an active run.</div>
+  <div>[*] Player stats recording started from waiting mode: 2026-07-28_22-52-04.jsonl</div>
+</div>
+
+<h2><span class="n">1</span>Предложение</h2>
+<p class="why">
+  Время слева моноширинно, важность — точкой и оттенком текста вместо префикса, панель сверху
+  с фильтром по уровням (счётчики показывают, сколько чего есть), поиском и действиями.
+  Повторы схлопываются счётчиком, а не заливают экран. Внизу — сколько строк в буфере и его предел.
+</p>
+<div class="bar">
+  <div class="chips">
+    <button class="on">Все <span class="count">128</span></button>
+    <button><i style="background:var(--info)"></i>Инфо <span class="count">93</span></button>
+    <button><i style="background:var(--ok)"></i>Успех <span class="count">16</span></button>
+    <button><i style="background:var(--warn)"></i>Внимание <span class="count">15</span></button>
+    <button><i style="background:var(--err)"></i>Ошибки <span class="count">4</span></button>
+  </div>
+  <input class="search" placeholder="Поиск по логу…"/>
+  <div style="flex:1"></div>
+  <label class="toggle"><input type="checkbox" checked/> Автопрокрутка</label>
+  <button class="ghost">Копировать</button>
+  <button class="ghost">Очистить</button>
+</div>
+<div class="logbox">
+  <div class="line warn"><span class="t">22:51:38</span><span class="d"></span><span class="m">Script is not running as Administrator</span></div>
+  <div class="line warn"><span class="t">22:51:38</span><span class="d"></span><span class="m">Hotkeys may not work while the game window is active</span></div>
+  <div class="line info"><span class="t">22:51:38</span><span class="d"></span><span class="m">Welcome to BonkScanner v2.1.7</span></div>
+  <div class="line plain"><span class="t">22:51:39</span><span class="d"></span><span class="m">Target process: Megabonk.exe</span></div>
+  <div class="line plain"><span class="t">22:51:39</span><span class="d"></span><span class="m">Ready — select templates and start the main loop</span></div>
+  <div class="line info"><span class="t">22:52:01</span><span class="d"></span><span class="m">Player stats recording armed; waiting for an active run<span class="rep">×2</span></span></div>
+  <div class="line plain"><span class="t">22:52:03</span><span class="d"></span><span class="m">Player stats recording stopped</span></div>
+  <div class="line ok"><span class="t">22:52:04</span><span class="d"></span><span class="m">Recording started from waiting mode: 2026-07-28_22-52-04.jsonl</span></div>
+  <div class="line err"><span class="t">22:53:11</span><span class="d"></span><span class="m">Lost connection to the game. Details: process exited</span></div>
+  <div class="line info"><span class="t">22:53:12</span><span class="d"></span><span class="m">Waiting for Megabonk.exe…</span></div>
+  <div class="line ok"><span class="t">22:53:40</span><span class="d"></span><span class="m">Game connected — press F6 to start auto-reroll</span></div>
+</div>
+<div class="foot"><span>128 строк · предел 2000</span><span class="mono">фильтр: все уровни</span></div>
+
+<h2>Пустое состояние</h2>
+<p class="why">Сейчас пустой лог — просто чёрный прямоугольник, неотличимый от сломанного.</p>
+<div class="logbox"><div class="empty">Лог пуст. Нажмите <b style="color:var(--tx)">Start</b>, чтобы начать сессию.</div></div>
+
+<h2>Что здесь чинится</h2>
+<table>
+  <tr><th></th><th>сейчас</th><th>предложение</th></tr>
+  <tr><td>цвет по важности</td><td><b style="color:var(--err)">не работает</b> — все теги в DEFAULT</td><td>точка + оттенок текста</td></tr>
+  <tr><td>время</td><td>нет</td><td>моно слева, 64px колонка</td></tr>
+  <tr><td>фильтр по уровню</td><td>нет</td><td>чипы со счётчиками</td></tr>
+  <tr><td>поиск</td><td>нет</td><td>поле в панели</td></tr>
+  <tr><td>копировать / очистить</td><td>нет</td><td>две кнопки</td></tr>
+  <tr><td>рост буфера</td><td>без предела</td><td>кольцевой, 2000 строк</td></tr>
+  <tr><td>важность в тексте</td><td><code>[*] [+] [-] [WAIT]</code></td><td>убрать, она в точке</td></tr>
+  <tr><td>пустое состояние</td><td>чёрный прямоугольник</td><td>подсказка</td></tr>
+</table>
+
+</div>
+</body>
+</html>

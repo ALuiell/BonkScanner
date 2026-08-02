@@ -150,6 +150,11 @@ class TwitchSession:
         self._prime_disabled_items()
         self._refresh_player_stats()
         self._command_settings_dialog().exec()
+        # The dialog is where templates are edited and the tab's chat preview is
+        # what they look like; without this the preview keeps showing the old
+        # wording until something else happens to redraw it, which is the exact
+        # claim the card makes and breaks.
+        self._view.refresh_chat_preview()
 
     # -- auth -------------------------------------------------------------
 

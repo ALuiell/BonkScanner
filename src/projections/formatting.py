@@ -45,6 +45,21 @@ COMPARE_RUN_STAT_LABELS = (
 )
 
 
+# --------------------------------------------------------------------------
+# Compare Runs reads "A против B".
+#
+# Run A is the recording the user came to look at; run B is what it is being
+# held up against. So every delta on this screen is **A - B**, and a positive
+# number always means "run A has more of this". The columns stay in A, B order,
+# and the header names the direction, because a bare signed number cannot.
+#
+# The direction lives in the helpers below rather than at their call sites:
+# each one takes the pair in (A, B) order and subtracts the second from the
+# first. Flipping it here flips the whole screen at once, which is the point --
+# the previous convention was B - A and it was implicit in fifteen places.
+# --------------------------------------------------------------------------
+
+
 def _snapshot_compare_time(snapshot) -> float | None:
     game_time = getattr(snapshot, "game_time_seconds", None)
     if game_time is not None:
@@ -256,11 +271,11 @@ def format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b) -> s
     rows = [
         f'<span style="color:#98A7BA;">A:</span> {html.escape(vod_a.metadata.name)}',
         f'<span style="color:#98A7BA;">B:</span> {html.escape(vod_b.metadata.name)}',
-        '<span style="color:#98A7BA;">Mode:</span> Run B compared to Run A',
+        '<span style="color:#98A7BA;">Mode:</span> Run A compared to Run B',
     ]
     if time_a is not None and time_b is not None:
         rows.append(
-            f'<span style="color:#98A7BA;">Time offset:</span> {_format_signed_seconds(time_b - time_a)}'
+            f'<span style="color:#98A7BA;">Time offset:</span> {_format_signed_seconds(time_a - time_b)}'
         )
 
     kill_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "mob_kills")
@@ -271,14 +286,192 @@ def format_compare_runs_overview_diff(vod_a, snapshot_a, vod_b, snapshot_b) -> s
     if level_delta is not None:
         rows.append(f'<span style="color:#98A7BA;">Level Difference:</span> {_format_signed_count(level_delta)}')
 
-    item_delta = _snapshot_item_total(snapshot_b) - _snapshot_item_total(snapshot_a)
+    item_delta = _snapshot_item_total(snapshot_a) - _snapshot_item_total(snapshot_b)
     rows.append(f'<span style="color:#98A7BA;">Item Difference:</span> {_format_signed_count(item_delta)}')
     return "<br>".join(rows)
+
+
+def format_compare_runs_overview_compact_diff(vod_a, snapshot_a, vod_b, snapshot_b) -> str:
+    """Three-line verdict for the compact redesigned Overview row."""
+
+    time_a = _snapshot_compare_time(snapshot_a)
+    time_b = _snapshot_compare_time(snapshot_b)
+    rows = [
+        (
+            '<span style="color:#38BDF8; font-weight:800;">A</span> '
+            f'{html.escape(vod_a.metadata.name)} '
+            '<span style="color:#5C6675; font-weight:700;">→</span> '
+            '<span style="color:#C084FC; font-weight:800;">B</span> '
+            f"{html.escape(vod_b.metadata.name)}"
+        ),
+    ]
+    timing_parts = []
+    if time_a is not None and time_b is not None:
+        timing_parts.append(
+            f'<span style="color:#98A7BA;">Time</span> {_format_signed_seconds(time_a - time_b)}'
+        )
+
+    kill_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "mob_kills")
+    if kill_delta is not None:
+        timing_parts.append(
+            f'<span style="color:#98A7BA;">Kills</span> {_format_signed_count(kill_delta)}'
+        )
+    if timing_parts:
+        rows.append(" &nbsp;·&nbsp; ".join(timing_parts))
+
+    progress_parts = []
+    level_delta = _raw_snapshot_int_delta(snapshot_a, snapshot_b, "player_level")
+    if level_delta is not None:
+        progress_parts.append(
+            f'<span style="color:#98A7BA;">Level</span> {_format_signed_count(level_delta)}'
+        )
+
+    item_delta = _snapshot_item_total(snapshot_a) - _snapshot_item_total(snapshot_b)
+    progress_parts.append(
+        f'<span style="color:#98A7BA;">Items</span> {_format_signed_count(item_delta)}'
+    )
+    rows.append(" &nbsp;·&nbsp; ".join(progress_parts))
+    return "<br>".join(rows)
+
+
+def build_compare_runs_snapshot_table(
+    vod_a,
+    index_a: int,
+    snapshot_a,
+    vod_b,
+    index_b: int,
+    snapshot_b,
+) -> MetricTable:
+    """Compact Overview comparison with aligned A, B and delta columns."""
+
+    def count_value(snapshot, attr_name: str) -> str:
+        value = getattr(snapshot, attr_name, None)
+        return "--" if value is None else format_count(value)
+
+    def count_delta(attr_name: str) -> str:
+        value = _raw_snapshot_int_delta(snapshot_a, snapshot_b, attr_name)
+        return "--" if value is None else _format_signed_count(value)
+
+    elapsed_a = getattr(snapshot_a, "elapsed_seconds", None)
+    elapsed_b = getattr(snapshot_b, "elapsed_seconds", None)
+    game_a = getattr(snapshot_a, "game_time_seconds", None)
+    game_b = getattr(snapshot_b, "game_time_seconds", None)
+
+    rows = (
+        MetricRow(
+            "Snapshot",
+            f"{index_a + 1}/{len(vod_a.snapshots)}",
+            f"{index_b + 1}/{len(vod_b.snapshots)}",
+            _format_signed_count(index_a - index_b),
+        ),
+        MetricRow(
+            "Record",
+            str(getattr(snapshot_a, "time_label", "--") or "--"),
+            str(getattr(snapshot_b, "time_label", "--") or "--"),
+            (
+                _format_signed_seconds(float(elapsed_a) - float(elapsed_b))
+                if elapsed_a is not None and elapsed_b is not None
+                else "--"
+            ),
+        ),
+        MetricRow(
+            "In-game",
+            format_elapsed_time(game_a) if game_a is not None else "--",
+            format_elapsed_time(game_b) if game_b is not None else "--",
+            (
+                _format_signed_seconds(float(game_a) - float(game_b))
+                if game_a is not None and game_b is not None
+                else "--"
+            ),
+        ),
+        MetricRow(
+            "Kills",
+            count_value(snapshot_a, "mob_kills"),
+            count_value(snapshot_b, "mob_kills"),
+            count_delta("mob_kills"),
+        ),
+        MetricRow(
+            "Level",
+            count_value(snapshot_a, "player_level"),
+            count_value(snapshot_b, "player_level"),
+            count_delta("player_level"),
+        ),
+        MetricRow(
+            "Items",
+            format_count(_snapshot_item_total(snapshot_a)),
+            format_count(_snapshot_item_total(snapshot_b)),
+            _format_signed_count(
+                _snapshot_item_total(snapshot_a) - _snapshot_item_total(snapshot_b)
+            ),
+        ),
+    )
+    return MetricTable(
+        sections=(
+            MetricSection(
+                headers=("Value", "A", "B", "Delta"),
+                rows=rows,
+            ),
+        )
+    )
 
 
 def format_compare_runs_stats_diff(snapshot_a, snapshot_b, *, stat_labels: tuple[str, ...] | None = None) -> str:
     stat_rows = _format_compare_run_stat_deltas(snapshot_a, snapshot_b, stat_labels=stat_labels)
     return "<br>".join(stat_rows) if stat_rows else "--"
+
+
+def build_compare_runs_stats_table(
+    snapshot_a,
+    snapshot_b,
+    *,
+    stat_labels: tuple[str, ...] | None = None,
+) -> MetricTable:
+    """Flat, widget-rendered Stats payload for the redesigned Compare Runs.
+
+    The grouping used by the Recordings series picker is intentionally absent:
+    this is one searchable comparison table, not a copy of that navigation.
+    """
+    rows: list[MetricRow] = []
+    for label in stat_labels or COMPARE_RUN_STAT_LABELS:
+        stat_a = getattr(snapshot_a, "stats", {}).get(label)
+        stat_b = getattr(snapshot_b, "stats", {}).get(label)
+        if stat_a is None and stat_b is None:
+            continue
+        value_a = getattr(stat_a, "display_value", "--") if stat_a is not None else "--"
+        value_b = getattr(stat_b, "display_value", "--") if stat_b is not None else "--"
+        delta = "--"
+        if (
+            stat_a is not None
+            and stat_b is not None
+            and stat_a.value is not None
+            and stat_b.value is not None
+        ):
+            delta = _format_compare_run_stat_delta(stat_a, stat_b)
+            if delta and not delta.startswith(("+", "-")):
+                try:
+                    numeric_delta = float(stat_a.value) - float(stat_b.value)
+                    delta = f"{numeric_delta:+g}"
+                except (TypeError, ValueError):
+                    pass
+        rows.append(
+            MetricRow(
+                label=str(label),
+                value_a=str(value_a),
+                value_b=str(value_b),
+                delta=str(delta),
+            )
+        )
+    if not rows:
+        return MetricTable(empty_text="No stats available")
+    return MetricTable(
+        sections=(
+            MetricSection(
+                headers=("Stat", "Run A", "Run B", "Delta"),
+                rows=tuple(rows),
+            ),
+        ),
+        empty_text="No stats available",
+    )
 
 
 def format_compare_runs_items_diff(snapshot_a, snapshot_b, *, details_expanded: bool = False) -> str:
@@ -305,6 +498,110 @@ def format_compare_runs_stage_summary_diff(vod_a, index_a, vod_b, index_b) -> st
             "</div>"
         )
     return "".join(blocks) if blocks else "--"
+
+
+def build_compare_runs_stages_table(vod_a, index_a, vod_b, index_b) -> MetricTable:
+    """Structured stage rows up to the active playhead on both recordings."""
+
+    def stage_values(vod, index):
+        snapshots = tuple(getattr(vod, "snapshots", ()) or ())
+        if not snapshots or index is None:
+            return {}
+        snapshots = snapshots[: min(max(int(index), 0), len(snapshots) - 1) + 1]
+
+        def parsed_count(value) -> int | None:
+            text = str(value or "").strip()
+            if text == "--":
+                return None
+            try:
+                return max(0, int(text.replace(",", "")))
+            except ValueError:
+                return None
+
+        def parsed_elapsed(value) -> float | None:
+            text = str(value or "").strip()
+            if text == "--":
+                return None
+            try:
+                parts = [int(part) for part in text.split(":")]
+            except ValueError:
+                return None
+            if len(parts) == 2:
+                return float(parts[0] * 60 + parts[1])
+            if len(parts) == 3:
+                return float(parts[0] * 3600 + parts[1] * 60 + parts[2])
+            return None
+
+        # Raw `stage_index` remains 2 through the boss room. The shared run
+        # summary projection resolves the actual human stages 1..4 from stage
+        # pointer/timer transitions, so Compare Runs must group by that same
+        # sequence or Stage 4 is silently folded into Stage 3.
+        stage_numbers = run_summary.stage_number_sequence(snapshots)
+        grouped: dict[int, list] = {}
+        for snapshot, stage_number in zip(snapshots, stage_numbers):
+            grouped.setdefault(int(stage_number), []).append(snapshot)
+        stage_summary_rows = build_stage_summary(snapshots)
+        result = {}
+        for stage_number, stage_snapshots in grouped.items():
+            last = stage_snapshots[-1]
+            opened = getattr(last, "chests_opened_by_stage", None)
+            chests = opened.get(stage_number) if isinstance(opened, dict) else None
+            summary_row = (
+                stage_summary_rows[stage_number - 1]
+                if 1 <= stage_number <= len(stage_summary_rows)
+                else {}
+            )
+            rarity_counts = summary_row.get("item_rarities")
+            items = (
+                sum(max(0, int(count)) for count in rarity_counts.values())
+                if isinstance(rarity_counts, dict)
+                else None
+            )
+            result[stage_number] = {
+                "time": parsed_elapsed(summary_row.get("time")),
+                "kills": parsed_count(summary_row.get("kills")),
+                "chests": chests,
+                "items": items,
+            }
+        return result
+
+    values_a = stage_values(vod_a, index_a)
+    values_b = stage_values(vod_b, index_b)
+    sections = []
+    for stage in sorted(set(values_a) | set(values_b)):
+        a = values_a.get(stage, {})
+        b = values_b.get(stage, {})
+        rows = []
+        for label, key, formatter in (
+            ("Time", "time", lambda value: format_elapsed_time(value)),
+            ("Kills", "kills", lambda value: format_count(value)),
+            ("Chests", "chests", lambda value: format_count(value)),
+            ("Items", "items", lambda value: format_count(value)),
+        ):
+            value_a = a.get(key)
+            value_b = b.get(key)
+            display_a = "--" if value_a is None else formatter(value_a)
+            display_b = "--" if value_b is None else formatter(value_b)
+            delta = "--"
+            if value_a is not None and value_b is not None:
+                difference = float(value_a) - float(value_b)
+                delta = (
+                    f"{difference:+.0f}s"
+                    if key == "time"
+                    else f"{difference:+,.0f}"
+                )
+            rows.append(MetricRow(label, display_a, display_b, delta))
+        sections.append(
+            MetricSection(
+                headers=("Metric", "Run A", "Run B", "Delta"),
+                rows=tuple(rows),
+                title=f"Stage {stage}",
+            )
+        )
+    return MetricTable(
+        sections=tuple(sections),
+        empty_text="No stage data",
+    )
 
 
 #: Shown in place of the sections when a card has nothing to compare. One
@@ -411,13 +708,13 @@ def _chaos_compare_overview_rows(chaos_a, chaos_b) -> list[tuple[str, str, str, 
             "Tracked Rolls",
             _format_chaos_roll_count(chaos_a),
             _format_chaos_roll_count(chaos_b),
-            _format_signed_count(_chaos_roll_count(chaos_b) - _chaos_roll_count(chaos_a)),
+            _format_signed_count(_chaos_roll_count(chaos_a) - _chaos_roll_count(chaos_b)),
         ),
         (
             "Stats",
             str(_chaos_stat_count(chaos_a)),
             str(_chaos_stat_count(chaos_b)),
-            _format_signed_count(_chaos_stat_count(chaos_b) - _chaos_stat_count(chaos_a)),
+            _format_signed_count(_chaos_stat_count(chaos_a) - _chaos_stat_count(chaos_b)),
         ),
     ]
 
@@ -482,12 +779,12 @@ def _format_compare_stage_summary_metric(value_a: str, value_b: str, *, metric: 
         seconds_a = _parse_stage_summary_time(value_a)
         seconds_b = _parse_stage_summary_time(value_b)
         if seconds_a is not None and seconds_b is not None:
-            delta_text = f" ({_format_signed_seconds(seconds_b - seconds_a)})"
+            delta_text = f" ({_format_signed_seconds(seconds_a - seconds_b)})"
     else:
         count_a = _parse_stage_summary_count(value_a)
         count_b = _parse_stage_summary_count(value_b)
         if count_a is not None and count_b is not None:
-            delta_text = f" ({_format_signed_count(count_b - count_a)})"
+            delta_text = f" ({_format_signed_count(count_a - count_b)})"
     return f"{escaped_a} <span style='color:#98A7BA;'>&rarr;</span> {escaped_b}{html.escape(delta_text)}"
 
 
@@ -542,7 +839,7 @@ def _item_delta_text_rows(more_in_b, more_in_a, *, include_inline: bool) -> list
     per-item table that used to follow it is what cost 70 ms a frame and is now
     built by `build_compare_runs_items_table` instead.
     """
-    rarity_rows = _format_item_delta_rarity_totals(more_in_b, more_in_a)
+    rarity_rows = _format_item_delta_rarity_totals(more_in_a, more_in_b)
     if not more_in_b and not more_in_a:
         return [
             f'<span style="color:#98A7BA;">Rarity:</span> {rarity_rows}',
@@ -550,10 +847,12 @@ def _item_delta_text_rows(more_in_b, more_in_a, *, include_inline: bool) -> list
         ]
     rows = [f'<span style="font-size:14px;"><span style="color:#98A7BA; font-weight:700;">Rarity Delta:</span> {rarity_rows}</span>']
     if include_inline:
-        if more_in_b:
-            rows.append(f'<span style="color:#98A7BA;">B has more:</span> {_format_item_delta_inline(more_in_b, "+", max_items=3)}')
+        # A leads, and carries the `+`: the whole screen reads "A - B", so the
+        # side the deltas are about is the side that is listed first.
         if more_in_a:
-            rows.append(f'<span style="color:#98A7BA;">A has more:</span> {_format_item_delta_inline(more_in_a, "-", max_items=3)}')
+            rows.append(f'<span style="color:#98A7BA;">A has more:</span> {_format_item_delta_inline(more_in_a, "+", max_items=3)}')
+        if more_in_b:
+            rows.append(f'<span style="color:#98A7BA;">B has more:</span> {_format_item_delta_inline(more_in_b, "-", max_items=3)}')
     return rows
 
 
@@ -598,14 +897,15 @@ def build_compare_runs_items_table(snapshot_a, snapshot_b, *, details_expanded: 
     )
 
 
-def _format_item_delta_rarity_totals(more_in_b: dict[str, int], more_in_a: dict[str, int]) -> str:
+def _format_item_delta_rarity_totals(more_in_a: dict[str, int], more_in_b: dict[str, int]) -> str:
+    """Per-rarity `A - B`, so a `+` here means run A holds more of that tier."""
     parts: list[str] = []
     for rarity in ("LEGENDARY", "RARE", "UNCOMMON", "COMMON"):
         total = 0
-        for name, count in more_in_b.items():
+        for name, count in more_in_a.items():
             if _item_rarity_name(name) == rarity:
                 total += int(count)
-        for name, count in more_in_a.items():
+        for name, count in more_in_b.items():
             if _item_rarity_name(name) == rarity:
                 total -= int(count)
         if total == 0:
@@ -664,7 +964,7 @@ def _item_delta_table_rows(counts_a: dict[str, int], counts_b: dict[str, int]) -
     for name in set(counts_a) | set(counts_b):
         count_a = counts_a.get(name, 0)
         count_b = counts_b.get(name, 0)
-        delta = count_b - count_a
+        delta = count_a - count_b
         if delta == 0:
             continue
         rows.append((name, count_a, count_b, delta))
@@ -849,7 +1149,7 @@ def _format_named_level_deltas(values_a: dict[str, object], values_b: dict[str, 
         if value_b is None:
             rows.append(f'<span style="color:#98A7BA;">{html.escape(name)}:</span> {value_formatter(value_a)} -> --')
             continue
-        level_delta = int(getattr(value_b, level_attr, 0)) - int(getattr(value_a, level_attr, 0))
+        level_delta = int(getattr(value_a, level_attr, 0)) - int(getattr(value_b, level_attr, 0))
         rows.append(
             f'<span style="color:#98A7BA;">{html.escape(name)}:</span> '
             f'{value_formatter(value_a)} -> {value_formatter(value_b)} ({_format_signed_count(level_delta)} lv)'
@@ -1158,7 +1458,7 @@ def _format_display_value_delta(display_a: str, display_b: str) -> str | None:
         value_b = float(text_b.replace(",", ""))
     except ValueError:
         return None
-    delta = value_b - value_a
+    delta = value_a - value_b
     if abs(delta) < 0.00001:
         formatted = "0"
     elif delta.is_integer():
@@ -1178,7 +1478,7 @@ def _level_delta(value_a, value_b) -> str:
     level_b = getattr(value_b, "level", None)
     if level_a is None or level_b is None:
         return "--"
-    return _format_signed_count(int(level_b) - int(level_a))
+    return _format_signed_count(int(level_a) - int(level_b))
 
 
 def _format_weapon_summary(weapon) -> str:
@@ -1204,12 +1504,13 @@ def _format_tome_summary(tome) -> str:
     return f"Lv. {int(level)}{suffix}"
 
 
-def _raw_snapshot_int_delta(base_snapshot, snapshot, attr_name: str) -> int | None:
-    base_value = getattr(base_snapshot, attr_name, None)
-    current_value = getattr(snapshot, attr_name, None)
-    if base_value is None or current_value is None:
+def _raw_snapshot_int_delta(snapshot_a, snapshot_b, attr_name: str) -> int | None:
+    """`A - B` for one integer field, or `None` when either side lacks it."""
+    value_a = getattr(snapshot_a, attr_name, None)
+    value_b = getattr(snapshot_b, attr_name, None)
+    if value_a is None or value_b is None:
         return None
-    return int(current_value) - int(base_value)
+    return int(value_a) - int(value_b)
 
 
 def _format_signed_count(value: int | float) -> str:
@@ -1241,7 +1542,7 @@ def _format_compare_run_stat_delta(stat_a, stat_b) -> str:
     )
     if percent_delta is not None:
         return _format_signed_percent_delta(percent_delta)
-    return _format_signed_stat_delta(float(stat_b.value) - float(stat_a.value))
+    return _format_signed_stat_delta(float(stat_a.value) - float(stat_b.value))
 
 
 def _display_percent_delta(display_a: str, display_b: str) -> float | None:
@@ -1254,7 +1555,7 @@ def _display_percent_delta(display_a: str, display_b: str) -> float | None:
         value_b = float(text_b[:-1].replace(",", ""))
     except ValueError:
         return None
-    return value_b - value_a
+    return value_a - value_b
 
 
 def _format_signed_percent_delta(value: float) -> str:
@@ -1389,6 +1690,204 @@ def format_snapshot_item_changes_details(previous_snapshot, snapshot, *, segment
     if not sections:
         return '<span style="color:#98A7BA;">No item changes in this segment</span>'
     return "<br>".join(sections)
+
+
+#: Section order for the compare card, and the sign each one carries.
+_COMPARE_SECTIONS = (("gained", "Gained", "+"), ("broken", "Broken", "-"), ("lost", "Lost", "-"))
+
+
+#: Rarity rows for the compare card, brightest first. `UNKNOWN` collects
+#: anything the item table has no rarity for, so a new item still shows up.
+_COMPARE_RARITY_ROW_ORDER = ("LEGENDARY", "RARE", "UNCOMMON", "COMMON", "UNKNOWN")
+
+#: The muted grey the rest of the redesign uses for spent/absent text.
+_COMPARE_MUTED_COLOR = "#5C6675"
+
+#: `--danger` from the mockup, for the two rows that report items going away.
+_COMPARE_DANGER_COLOR = "#F0787E"
+
+#: `--info`. Both segment ends wear it: A and B name one selection, and
+#: colouring only A read as "A is the live one".
+_COMPARE_POINT_A_COLOR = "#38BDF8"
+_COMPARE_POINT_B_COLOR = "#C084FC"
+
+
+def compare_detail_rarity_rows(
+    previous_snapshot, snapshot, *, segment_snapshots=()
+) -> tuple[tuple[str, str], ...]:
+    """The segment's item changes as `((label html, items html), ...)`.
+
+    One row per rarity for the gains, then one for broken and one for lost.
+    Every row has the same shape -- a label column and a wrapping run of items
+    -- so the rows line up whatever the segment did.
+
+    This replaces the four-column chip grid. The grid fixed what the
+    pipe-joined block before it got wrong -- rarity on every item rather than
+    on a bullet at the start of the row -- but four columns wide enough for a
+    two-word item name need most of the tab, and this card gets a third of it,
+    so a thirty-item segment came out as a tall block of half-empty columns.
+
+    A row per rarity is the shape the Items panel's preview already uses, and
+    it keeps the rarity marking the grid was for: the colour is on the leading
+    dot *and* on every name, so the grouping survives wrapping. The sort is
+    unchanged -- rarity, then count -- only the line breaks move.
+
+    Pure and here rather than in the tab: the grouping is a projection
+    decision, and this way it is testable without a widget.
+    """
+    changes = summarize_item_segment_changes(
+        segment_snapshots or (previous_snapshot, snapshot)
+    )
+    rows: list[tuple[str, str]] = list(
+        _compare_gain_rarity_rows(changes.get("gained") or ())
+    )
+    # Broken and lost stay ungrouped, and on one line each: they are a handful
+    # of items at most, and what matters about them is that they are gone, not
+    # how rare they were. Their own label rather than a heading above them --
+    # a heading cost a line to say what four characters say in the column the
+    # rarity dots already occupy.
+    for key, title, sign in _COMPARE_SECTIONS[1:]:
+        entries = changes.get(key) or ()
+        if not entries:
+            continue
+        names = " · ".join(
+            f"{html.escape(_normalize_item_name_for_display(name))} "
+            f"{sign}{format_count(count)}"
+            for name, count in entries
+        )
+        rows.append(
+            (
+                f'<span style="color:{_COMPARE_DANGER_COLOR}; font-weight:700;">'
+                f"{title}</span>",
+                f'<span style="color:#8A94A3;">{names}</span>',
+            )
+        )
+    return tuple(rows)
+
+
+def _compare_gain_rarity_rows(entries) -> tuple[tuple[str, str], ...]:
+    grouped: dict[str, list[tuple[str, int]]] = {}
+    for name, count in entries:
+        display_name = _normalize_item_name_for_display(name)
+        rarity = _item_rarity_name(display_name) or "UNKNOWN"
+        if rarity not in _COMPARE_RARITY_ROW_ORDER:
+            rarity = "UNKNOWN"
+        grouped.setdefault(rarity, []).append((display_name, int(count)))
+
+    rows: list[tuple[str, str]] = []
+    for rarity in _COMPARE_RARITY_ROW_ORDER:
+        items = grouped.get(rarity)
+        if not items:
+            continue
+        total = sum(count for _name, count in items)
+        color = ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
+        badge = (
+            f'<span style="color:{color}; font-weight:800;">&#9679;</span> '
+            f'<span style="color:#8A94A3; font-weight:700;">{format_count(total)}</span>'
+        )
+        names = f'<span style="color:{_COMPARE_MUTED_COLOR};"> · </span>'.join(
+            _compare_gain_item_html(display_name, count, color)
+            for display_name, count in items
+        )
+        rows.append((badge, names))
+    return tuple(rows)
+
+
+def _compare_gain_item_html(display_name: str, count: int, rarity_color: str) -> str:
+    """One gained item: its name in the row's rarity colour, count beside it.
+
+    Not `_format_item_change_text`, which passes a flat `#E5E7EB` fallback to
+    `item_display_color` -- and that table only special-cases a couple of items,
+    so every other name came out the same light grey and the rarity lived on the
+    leading dot alone. `item_display_color` still wins where it has an entry:
+    The One Ring is orange on purpose.
+
+    The count stays grey. It is the second thing you read on the row, after
+    which items are in it, and in the rarity colour it competed with the name.
+    """
+    color = item_display_color(display_name, rarity_color)
+    return (
+        f'<span style="color:{color}; font-weight:700;">'
+        f"{html.escape(display_name)}</span> "
+        f'<span style="color:#8A94A3;">+{format_count(int(count))}</span>'
+    )
+
+
+def format_segment_headline(base_snapshot, snapshot, *, segment_snapshots=()) -> str:
+    """The compare card's header line: `Segment A 12:40 -> B 52:10 · totals`.
+
+    One line where there used to be two -- a rarity-dot gains preview and a
+    `Snapshot 305 -> 1 | 51:02 -> 00:00 | +154 items` line -- which between
+    them said the segment's item total twice and led with a snapshot index,
+    the one number about a segment nobody reads. The A/B letters match the
+    scrubber's playhead and pin, so the header names the same two points the
+    timeline above it does: current point A, Shift-clicked point B.
+    """
+    if base_snapshot is None or snapshot is None:
+        return "--"
+    pieces = [
+        '<span style="color:#8A94A3;">Segment</span> '
+        f'<b style="color:{_COMPARE_POINT_A_COLOR};">A</b> '
+        f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(snapshot))}</span> '
+        f'<span style="color:{_COMPARE_MUTED_COLOR};">&rarr;</span> '
+        f'<b style="color:{_COMPARE_POINT_B_COLOR};">B</b> '
+        f'<span style="color:#EDF1F5;">{html.escape(_segment_time_label(base_snapshot))}</span>'
+    ]
+    span = tuple(segment_snapshots or (base_snapshot, snapshot))
+    changes = summarize_item_segment_changes(span)
+    # Levels, items, kills -- the mockup's order, and the order they grow in.
+    level_delta = _segment_counter_delta(span, "player_level")
+    if level_delta:
+        pieces.append(_segment_headline_total(level_delta, "levels"))
+    pieces.append(
+        _segment_headline_total(sum(gain for _name, gain in changes["gained"]), "items")
+    )
+    kill_delta = _segment_counter_delta(span, "mob_kills")
+    if kill_delta:
+        pieces.append(_segment_headline_total(kill_delta, "kills"))
+    separator = f'<span style="color:{_COMPARE_MUTED_COLOR};"> · </span>'
+    return separator.join(pieces)
+
+
+def _segment_counter_delta(snapshots, attr_name: str) -> int | None:
+    """How far a monotonic counter moved across the segment.
+
+    Read off the segment rather than off the A/B pair, for two reasons the old
+    `base -> snapshot` subtraction got wrong and which is why the header used
+    to say only `+N items`:
+
+    * Direction. The pin can sit *after* the playhead -- shift-clicking back
+      down the timeline does exactly that -- and the item totals do not care,
+      because the segment is always walked low index to high. Subtracting the
+      pair in the order the caller happened to pass them gave a negative, and
+      a clamped negative is a zero, and a zero is dropped from the header.
+    * Gaps. `player_level` and `mob_kills` are optional per snapshot: an older
+      recording, or one where the read failed for a frame. If either end of the
+      segment was one of those frames the whole total vanished, so scanning
+      inwards for the nearest snapshot that has the value keeps it.
+    """
+    values = [
+        int(value)
+        for value in (getattr(item, attr_name, None) for item in snapshots)
+        if value is not None
+    ]
+    if not values:
+        return None
+    return max(0, max(values[0], values[-1]) - min(values[0], values[-1]))
+
+
+def _segment_headline_total(delta: int, noun: str) -> str:
+    return (
+        f'<b style="color:#EDF1F5;">+{format_count(int(delta))}</b> '
+        f'<span style="color:#8A94A3;">{noun}</span>'
+    )
+
+
+def _segment_time_label(snapshot) -> str:
+    seconds = getattr(snapshot, "game_time_seconds", None)
+    if seconds is not None:
+        return format_elapsed_time(seconds)
+    return str(getattr(snapshot, "time_label", None) or "--")
 
 
 def format_item_gains_by_rarity(
@@ -1528,39 +2027,6 @@ def format_item_gain_rarity_totals(gains: tuple[tuple[str, int], ...]) -> str:
     return " ".join(parts) if parts else '<span style="color:#98A7BA;">--</span>'
 
 
-def format_snapshot_compare_summary(
-    base_snapshot,
-    snapshot,
-    *,
-    base_index: int | None,
-    current_index: int | None,
-    segment_snapshots=(),
-) -> str:
-    pieces: list[str] = []
-    if base_index is not None and current_index is not None:
-        pieces.append(f"Snapshot {int(base_index) + 1} -> {int(current_index) + 1}")
-    base_time = getattr(base_snapshot, "game_time_seconds", None)
-    current_time = getattr(snapshot, "game_time_seconds", None)
-    if base_time is not None and current_time is not None:
-        pieces.append(f"{format_elapsed_time(base_time)} -> {format_elapsed_time(current_time)}")
-    kill_delta = _snapshot_int_delta(base_snapshot, snapshot, "mob_kills")
-    if kill_delta is not None and kill_delta > 0:
-        pieces.append(f"+{format_count(kill_delta)} kills")
-    level_delta = _snapshot_int_delta(base_snapshot, snapshot, "player_level")
-    if level_delta is not None and level_delta > 0:
-        pieces.append(f"+{format_count(level_delta)} levels")
-    changes = summarize_item_segment_changes(segment_snapshots or (base_snapshot, snapshot))
-    item_total = sum(gain for _name, gain in changes["gained"])
-    pieces.append(f"+{format_count(item_total)} items")
-    broken_total = sum(count for _name, count in changes["broken"])
-    if broken_total:
-        pieces.append(f"{format_count(broken_total)} broken")
-    lost_total = sum(count for _name, count in changes["lost"])
-    if lost_total:
-        pieces.append(f"-{format_count(lost_total)} lost")
-    return " | ".join(pieces)
-
-
 def _snapshot_int_delta(base_snapshot, snapshot, attr_name: str) -> int | None:
     base_value = getattr(base_snapshot, attr_name, None)
     current_value = getattr(snapshot, attr_name, None)
@@ -1639,6 +2105,31 @@ def _format_single_item_rich_text(item_text: str) -> str:
     return f"{escaped_name}{escaped_suffix}"
 
 
+_ITEM_CHIP_OBJECT_NAME_BY_RARITY = {
+    "COMMON": "tagCommon",
+    "UNCOMMON": "tagUncommon",
+    "RARE": "tagRare",
+    "LEGENDARY": "tagLegendary",
+}
+
+
+def item_chip_display(item_text: str) -> tuple[str, str]:
+    """`(label text incl. stack suffix, chip objectName)` for one item.
+
+    The counterpart to `_format_single_item_rich_text` for chip-widget
+    rendering rather than a single rich-text line: same name/suffix/rarity
+    lookup, but it hands back a QSS objectName (`tagCommon` and friends,
+    already styled in the redesign sheet) instead of a colour baked into an
+    HTML span, since a chip is a real widget rather than markup.
+    """
+    item_name, suffix = _split_item_stack_suffix(item_text)
+    display_name = _normalize_item_name_for_display(item_name)
+    rarity_name = _normalize_item_name_for_rarity(display_name)
+    rarity = ITEM_RARITY_BY_NAME.get(rarity_name)
+    object_name = _ITEM_CHIP_OBJECT_NAME_BY_RARITY.get(rarity, "tagNeutral")
+    return f"{display_name}{suffix}", object_name
+
+
 def _split_item_stack_suffix(item_text: str) -> tuple[str, str]:
     if not item_text:
         return "", ""
@@ -1657,9 +2148,15 @@ def _normalize_item_name_for_display(item_name: str) -> str:
 
 
 def format_chests_per_minute(value: float | None) -> str:
-    if value is None:
-        return "Average chests/min: --"
-    return f"Average chests/min: {value:.2f}"
+    return f"Average chests/min: {format_chests_per_minute_value(value)}"
+
+
+def format_chests_per_minute_value(value: float | None) -> str:
+    return "--" if value is None else f"{value:.2f}"
+
+
+def format_chests_per_minute_short(value: float | None) -> str:
+    return f"Chests/min: {format_chests_per_minute_value(value)}"
 
 
 def format_powerups_duration(stats) -> str:
@@ -1723,6 +2220,8 @@ def chests_card_values(
     keys: int | None,
     expected: float | None,
     total_is_minimum: bool = False,
+    *,
+    chests_per_minute: float | None = None,
 ) -> dict[str, str]:
     if total is None:
         return {
@@ -1732,6 +2231,7 @@ def chests_card_values(
             "key_procs": "-- (--)",
             "expected": "--",
             "keys": "-- (--)",
+            "chests_per_minute": format_chests_per_minute_value(chests_per_minute),
         }
 
     stage_parts = []
@@ -1766,6 +2266,7 @@ def chests_card_values(
         "key_procs": f"{procs_text} ({proc_rate})",
         "expected": expected_text,
         "keys": f"{keys_text} ({chance})",
+        "chests_per_minute": format_chests_per_minute_value(chests_per_minute),
     }
 
 

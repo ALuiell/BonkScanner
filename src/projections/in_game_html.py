@@ -3,6 +3,12 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from core.stage_rules import (
+    GRAVEYARD_STAGE_DURATION_SECONDS,
+    XP_GAIN_CAP,
+    difficulty_cap,
+    stage_duration_seconds,
+)
 from core.stat_labels import abbreviate_stat_label
 from core.item_metadata import ITEM_RARITY_COLOR_MAP
 # The rarity roll moved down to core/ when the loot tracker became its second
@@ -37,12 +43,16 @@ _KPS_METRICS: dict[str, tuple[str, str]] = {
 }
 _STATS_LABEL_MIN_WIDTH_PX = 40
 _STATS_LABEL_WIDTH_PER_CHAR_PX = 9
-_XP_GAIN_CAP = 10.0
 # The Graveyard main map runs a fixed 960 s stage.  `stage_duration_seconds` read
 # from CurrentStage -> Timeline -> stageTime is a live timeline marker there, so
 # every Graveyard schedule -- the Event Timer and the Difficulty cap alike --
 # uses this constant instead of the value carried by the snapshot.
-_GRAVEYARD_STAGE_DURATION_SECONDS = 960.0
+#
+# These four names are re-exported rather than defined: `core/stage_rules.py`
+# owns them now, because the Recordings scrubber draws the same cap staircase
+# over a recorded run and a game constant with two homes drifts silently.
+_XP_GAIN_CAP = XP_GAIN_CAP
+_GRAVEYARD_STAGE_DURATION_SECONDS = GRAVEYARD_STAGE_DURATION_SECONDS
 
 
 def build_kps_overlay_html_from_values(
@@ -308,17 +318,12 @@ def _build_in_game_stats_rows(
                 cap_stage_duration = (
                     _GRAVEYARD_STAGE_DURATION_SECONDS if is_graveyard else stage_time_seconds
                 )
-                is_after_2m_ghosts = stage_timer_seconds >= (cap_stage_duration + 120.0)
-
-                cap = None
-                if is_graveyard:
-                    cap = 4.95 if is_after_2m_ghosts else 5.71
-                elif stage_index == 0:
-                    cap = 4.95 if is_after_2m_ghosts else 5.71
-                elif stage_index == 1:
-                    cap = 4.38 if is_after_2m_ghosts else 5.14
-                elif stage_index == 2:
-                    cap = 3.81 if is_after_2m_ghosts else 4.57
+                cap = difficulty_cap(
+                    stage_index,
+                    stage_timer_seconds,
+                    is_graveyard=is_graveyard,
+                    cap_stage_duration=cap_stage_duration,
+                )
 
                 if cap is not None:
                     cap_pct = int(round(cap * 100))
@@ -445,14 +450,7 @@ def build_event_timer_overlay_html(
     # from CurrentStage -> Timeline -> stageTime is a live timeline marker, not
     # the map's total duration, so it must not be used as the countdown base.
     # Event schedules use the fixed duration of the active map stage.
-    if is_graveyard:
-        event_stage_duration = _GRAVEYARD_STAGE_DURATION_SECONDS
-    elif stage_index in (0, 1):
-        event_stage_duration = 600.0 if stage_index == 0 else 540.0
-    elif stage_index == 2:
-        event_stage_duration = 480.0
-    else:
-        event_stage_duration = 0.0
+    event_stage_duration = stage_duration_seconds(stage_index, is_graveyard=is_graveyard)
 
     remaining_time = event_stage_duration - stage_timer_seconds
     if remaining_time <= 0:

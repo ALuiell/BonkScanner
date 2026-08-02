@@ -92,7 +92,7 @@ Important details:
 Risks:
 
 - Game updates can move memory paths or change dictionary/key layouts.
-- Too-low reroll delay can make the app read partial map state.
+- Map-readiness detection must reject partial/transient map state after a reroll.
 - Keyboard restart depends on global hotkeys and game window/input behavior.
 - If scan loop state, hotkeys, and UI buttons get out of sync, the app can look
   idle while still armed or vice versa.

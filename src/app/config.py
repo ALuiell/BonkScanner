@@ -4,6 +4,7 @@ import math
 import shutil
 import colorama
 import threading
+from dataclasses import dataclass
 
 from infra import paths
 
@@ -24,7 +25,13 @@ DEFAULT_TEMPLATES = [
     {"id": 2, "name": "MERCHANT", "color": "CYAN", "desc": "S+M: 10+, Micro: 1, Boss: 2+", "sm_total": 10, "micro": 1, "boss": 2},
     {"id": 3, "name": "GOOD", "color": "GREEN", "desc": "S+M: 8, Micro: 2, Boss: 1+", "sm_total": 8, "micro": 2, "boss": 1},
     {"id": 4, "name": "PERFECT", "color": "YELLOW", "desc": "S+M: 8+, Micro: 2, Boss: 2+", "sm_total": 8, "micro": 2, "boss": 2},
-    {"id": 5, "name": "PERFECT+", "color": "LIGHTRED_EX", "desc": "S+M: 9+, Micro: 2, Boss: 3+", "sm_total": 9, "micro": 2, "boss": 3},
+    # ORANGE rather than LIGHTRED_EX: the tag had to change because the two
+    # colours are wanted apart -- LIGHTRED_EX is still the *Perfect+ score tier*
+    # in `_tier_color` and the scanner's log. See `core/template_colors.py`, and
+    # `_migrate_template_colors` below for the saved configs that carry the old
+    # tag. The other three defaults keep their tags and change meaning through
+    # the template palette instead, so they need no migration at all.
+    {"id": 5, "name": "PERFECT+", "color": "ORANGE", "desc": "S+M: 9+, Micro: 2, Boss: 3+", "sm_total": 9, "micro": 2, "boss": 3},
     {"id": 6, "name": "BOSS RUSH", "color": "RED", "desc": "S+M: 5+, Micro: 1+, Boss: 5+", "sm_total": 5, "micro": 1, "boss": 5},
     {"id": 7, "name": "BOSS RUSH+", "color": "MAGENTA", "desc": "Boss: 7+", "boss": 7}
 ]
@@ -247,6 +254,12 @@ DISCORD_SUPPORT_URL = "https://discord.gg/dYkcrMCJWM"
 # ==========================================
 # GAME CONFIG PARSER
 # ==========================================
+@dataclass(frozen=True)
+class GameConfigUpdateResult:
+    success: bool
+    reason: str = ""
+
+
 def get_game_config_path() -> str | None:
     user_profile = os.environ.get('USERPROFILE', '')
     if not user_profile:
@@ -327,17 +340,66 @@ def get_game_reset_time() -> float | None:
         pass
     return None
 
-def update_game_reset_time(game_val: float):
+def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
+    """Write and read back quick_reset_time so the UI never reports a false success."""
+    game_config_path = get_game_config_path()
+    if not game_config_path or not os.path.exists(game_config_path):
+        return GameConfigUpdateResult(
+            False,
+            "The game config file was not found. Launch the game once so it can create the file.",
+        )
+
+    data = load_game_config()
+    if data is None:
+        return GameConfigUpdateResult(
+            False,
+            "The game config file could not be read. It may be locked or contain invalid JSON.",
+        )
+
+    settings = data.get("cfGameSettings")
+    if not isinstance(settings, dict):
+        settings = {}
+        data["cfGameSettings"] = settings
+
+    expected_value = round(float(game_val), 2)
+    settings["quick_reset_time"] = expected_value
+    if not save_game_config(data):
+        return GameConfigUpdateResult(
+            False,
+            "Windows did not allow BonkScanner to write to the game config file.",
+        )
+
+    verified_data = load_game_config()
+    if verified_data is None:
+        return GameConfigUpdateResult(
+            False,
+            "The game config was written but could not be read back for verification.",
+        )
+
+    verified_settings = verified_data.get("cfGameSettings")
+    actual_value = (
+        verified_settings.get("quick_reset_time")
+        if isinstance(verified_settings, dict)
+        else None
+    )
     try:
-        data = load_game_config()
-        if data is None:
-            return
-        if "cfGameSettings" not in data:
-            data["cfGameSettings"] = {}
-        data["cfGameSettings"]["quick_reset_time"] = game_val
-        save_game_config(data)
-    except Exception:
-        pass
+        actual_value = round(float(actual_value), 2)
+    except (TypeError, ValueError, OverflowError):
+        return GameConfigUpdateResult(
+            False,
+            "The saved game config does not contain a valid quick_reset_time value.",
+        )
+
+    if actual_value != expected_value:
+        return GameConfigUpdateResult(
+            False,
+            (
+                "The game config did not keep the requested quick_reset_time value "
+                f"(expected {expected_value:.2f}, found {actual_value:.2f})."
+            ),
+        )
+
+    return GameConfigUpdateResult(True)
 
 # ==========================================
 # LOAD JSON CONFIG
@@ -789,13 +851,10 @@ def _normalize_overlay_widgets(value):
     normalized.extend(extra_widgets)
     return normalized
 
-# Migrate from MAP_LOAD_DELAY if MIN_DELAY is not found
-MIN_DELAY = user_config.get("MIN_DELAY", user_config.get("MAP_LOAD_DELAY", 0.3))
-MAP_LOAD_DELAY = MIN_DELAY
-
-# Remove MAP_LOAD_DELAY if it's still there
-if "MAP_LOAD_DELAY" in user_config:
-    del user_config["MAP_LOAD_DELAY"]
+# Min Reroll Delay was removed. Drop both its current and legacy keys from
+# existing user configs the next time the normalized config is saved.
+user_config.pop("MIN_DELAY", None)
+user_config.pop("MAP_LOAD_DELAY", None)
 
 # Load RESET_HOLD_DURATION from user_config first, fallback to game config, fallback to default 0.4
 RESET_HOLD_DURATION_USER = user_config.get("RESET_HOLD_DURATION")
@@ -833,6 +892,7 @@ def resolve_fast_tracker_interval_ms(config_data: dict) -> int:
 FAST_TRACKER_INTERVAL_MS = resolve_fast_tracker_interval_ms(user_config)
 AUTO_START_RECORDING = bool(user_config.get("AUTO_START_RECORDING", False))
 SHOW_OBS_REMINDER_ON_START_SCANNER = bool(user_config.get("SHOW_OBS_REMINDER_ON_START_SCANNER", False))
+LEFT_RAIL_COLLAPSED = bool(user_config.get("LEFT_RAIL_COLLAPSED", False))
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
 RESET_HOTKEY = user_config.get("RESET_HOTKEY", "r")
 PROCESS_NAME = user_config.get("PROCESS_NAME", "Megabonk.exe")
@@ -846,6 +906,48 @@ SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
 TEMPLATES = user_config.get("TEMPLATES", DEFAULT_TEMPLATES)
 if not TEMPLATES:
     TEMPLATES = DEFAULT_TEMPLATES
+
+
+#: Default templates whose colour *tag* changed, as `name -> (old tag, new tag)`.
+#: Only tags need to be here. The three defaults that kept their tag and changed
+#: meaning through the template palette are picked up by every existing config
+#: for free, which is most of why the palette was split rather than repainted.
+_RENAMED_TEMPLATE_COLORS = {
+    "PERFECT+": ("LIGHTRED_EX", "ORANGE"),
+}
+
+
+def _migrate_template_colors(templates) -> bool:
+    """Move a stored default template onto its new colour tag.
+
+    `TEMPLATES` is read from `config.json` and written back on every launch, so
+    a change to `DEFAULT_TEMPLATES` alone reaches nobody who has ever run the
+    app -- their list was saved with the old tag and is never re-read from the
+    defaults.
+
+    Deliberately narrow: it rewrites a template only when **both** its name and
+    its current colour still match the shipped default. A PERFECT+ someone has
+    already recoloured by hand is left alone, and so is any template of their
+    own that happens to be `LIGHTRED_EX`. Same shape as the legacy Twitch
+    template migrations above -- and, like those, it runs before the config is
+    written back, so it persists on the first launch and costs nothing after.
+    """
+    changed = False
+    for template in templates:
+        if not isinstance(template, dict):
+            continue
+        rename = _RENAMED_TEMPLATE_COLORS.get(str(template.get("name") or "").upper())
+        if rename is None:
+            continue
+        old_tag, new_tag = rename
+        if str(template.get("color") or "").upper() != old_tag:
+            continue
+        template["color"] = new_tag
+        changed = True
+    return changed
+
+
+_migrate_template_colors(TEMPLATES)
 
 # Load active templates, default to all if not present
 ACTIVE_TEMPLATES = user_config.get("ACTIVE_TEMPLATES")
@@ -894,7 +996,6 @@ def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) 
     }
 
 # Update user_config object so that mutations to it are saved properly
-user_config["MIN_DELAY"] = MIN_DELAY
 user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
 user_config["HOTKEY"] = HOTKEY
 user_config["HOTKEY_GAME_KEY_WHITELIST"] = HOTKEY_GAME_KEY_WHITELIST
@@ -904,6 +1005,7 @@ user_config["PLAYER_STATS_RECORD_INTERVAL_SECONDS"] = PLAYER_STATS_RECORD_INTERV
 user_config["FAST_TRACKER_INTERVAL_MS"] = FAST_TRACKER_INTERVAL_MS
 user_config["AUTO_START_RECORDING"] = AUTO_START_RECORDING
 user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = SHOW_OBS_REMINDER_ON_START_SCANNER
+user_config["LEFT_RAIL_COLLAPSED"] = LEFT_RAIL_COLLAPSED
 user_config["MENU_HOTKEY"] = MENU_HOTKEY
 user_config["RESET_HOTKEY"] = RESET_HOTKEY
 user_config["PROCESS_NAME"] = PROCESS_NAME

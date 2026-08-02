@@ -11,7 +11,7 @@ from typing import Any
 
 from infra import paths
 
-from core.settings import RecordingSettings
+from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT, RecordingSettings
 from core.stats.formats import PlayerStatFormat, WeaponStatFormat
 from core.stats.types import ChaosTomeSnapshot, ChaosTomeStatSnapshot, DamageSourceSnapshot, PlayerStatValue, TomeSnapshot, WeaponSnapshot, WeaponStatValue
 
@@ -40,13 +40,23 @@ def use_settings(settings: RecordingSettings | None) -> None:
 SNAPSHOT_FLUSH_EVERY = 3
 
 
-@dataclass(frozen=True)
+# `slots=True` on the two types below, and it is not a style choice: these are
+# the only objects in the application that exist in five figures. Opening one
+# recording of 855 snapshots creates 855 `VodSnapshot` and 25,650
+# `VodStatValue` -- one per stat per snapshot -- and a dataclass without slots
+# carries a per-instance `__dict__`, which for `VodStatValue` is 296 of its 344
+# bytes. Measured on the real library, the pair is worth about 9 MB of the
+# ~26 MB that browsing recordings adds to the process.
+#
+# Neither is subclassed, pickled, or given an attribute it was not declared
+# with, which is the whole list of things slots would break.
+@dataclass(frozen=True, slots=True)
 class VodStatValue:
     value: float | None
     display_value: str
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class VodSnapshot:
     elapsed_seconds: int
     captured_at: float
@@ -157,6 +167,25 @@ def _metadata_from_index_record(record: dict[str, Any]) -> tuple[Path, int, int,
         run_seed=raw.get("run_seed"),
     )
     return path, int(record.get("mtime_ns") or 0), int(record.get("size") or 0), metadata
+
+
+def minimum_snapshot_count() -> int:
+    """Shortest run the recorder keeps, in snapshots.
+
+    Falls back to the default when there is no settings store, which is what a
+    test or a bare `VodRecorder` has: the alternative -- keeping everything --
+    would silently disable the discard rule in exactly the configuration that
+    is hardest to notice it in.
+    """
+    if _settings is None:
+        return DEFAULT_MINIMUM_SNAPSHOT_COUNT
+    reader = getattr(_settings, "read_minimum_snapshot_count", None)
+    if not callable(reader):
+        return DEFAULT_MINIMUM_SNAPSHOT_COUNT
+    try:
+        return max(0, int(reader()))
+    except (TypeError, ValueError):
+        return DEFAULT_MINIMUM_SNAPSHOT_COUNT
 
 
 def _load_index_records() -> list[dict[str, Any]]:
@@ -282,10 +311,15 @@ class VodRecorder:
             self._file.flush()
             self._file.close()
             self._file = None
-        if self.path is not None and self.snapshot_count == 0:
+        threshold = minimum_snapshot_count()
+        if self.path is not None and self.snapshot_count < threshold:
             self.path.unlink(missing_ok=True)
             clear_vod_metadata_cache()
-            status = "deleted_empty"
+            # Two statuses rather than one, because the caller logs them and
+            # "we threw away a run you played" deserves different words from
+            # "the file was empty". `deleted_empty` keeps its exact old meaning
+            # so the existing log line and its test stay true.
+            status = "deleted_empty" if self.snapshot_count == 0 else "deleted_short"
         return status
 
     def close(self) -> None:
@@ -440,6 +474,10 @@ def load_vod(path: Path) -> LoadedVod:
     metadata_record: dict[str, Any] | None = None
     summary_record: dict[str, Any] | None = None
     snapshots: list[VodSnapshot] = []
+    # One string pool for the whole file, dropped when this returns -- the
+    # strings it shares are then held by the snapshots that use them, not by it.
+    # See `_record_to_snapshot`, which is where the sharing happens.
+    pool: dict[str, str] = {}
 
     for record in _iter_records(path):
         record_type = record.get("type")
@@ -448,7 +486,7 @@ def load_vod(path: Path) -> LoadedVod:
         elif record_type == "summary":
             summary_record = record
         elif record_type == "snapshot":
-            snapshots.append(_record_to_snapshot(record))
+            snapshots.append(_record_to_snapshot(record, pool))
 
     if metadata_record is None:
         raise ValueError(f"VOD metadata is missing in {path}")
@@ -721,25 +759,59 @@ def _snapshot_to_record(snapshot: VodSnapshot) -> dict[str, Any]:
     return record
 
 
-def _record_to_snapshot(record: dict[str, Any]) -> VodSnapshot:
+def _shared_display(value: Any, share) -> str:
+    """A stat's display text, shared with every other snapshot that shows it."""
+    if type(value) is str:
+        return share(value, value)
+    return str(value) if value else "--"
+
+
+def _shared_name(value: Any, share) -> str:
+    """An item or banish name, shared across the snapshots that carry it."""
+    if type(value) is str:
+        return share(value, value)
+    return str(value)
+
+
+def _record_to_snapshot(record: dict[str, Any], pool: dict[str, str] | None = None) -> VodSnapshot:
+    """One snapshot record as a `VodSnapshot`, sharing strings through `pool`.
+
+    A recording is one JSON object per line, so the decoder runs once per line
+    and throws its key memo away in between: a file of 713 snapshots ends up
+    holding 713 separate copies of every stat name, and 21,390 separate copies
+    of the handful of display strings those stats cycle through. The vocabulary
+    is a few hundred strings stored tens of thousands of times.
+
+    `pool` is the caller's, one per load and dropped with it -- see `load_vod`.
+    Not `sys.intern`, which is process-wide and permanent, and these include
+    run-specific text. Sharing only here rather than through a decoder hook is
+    deliberate: a hook runs for every key in the file and cost 260ms a load,
+    where three dict lookups per stat cost almost nothing for the same 5 MB.
+
+    `None` keeps the old behaviour for the callers that read a single record and
+    have no load to pool across.
+    """
     raw_stats = record.get("stats") or {}
+    if pool is None:
+        pool = {}
+    share = pool.setdefault
     return VodSnapshot(
         elapsed_seconds=int(record.get("elapsed_seconds") or 0),
         captured_at=float(record.get("captured_at") or 0.0),
         stats={
-            str(label): VodStatValue(
+            share(label, label) if type(label) is str else str(label): VodStatValue(
                 value=value.get("value"),
-                display_value=str(value.get("display") or "--"),
+                display_value=_shared_display(value.get("display"), share),
             )
             for label, value in raw_stats.items()
             if isinstance(value, dict)
         },
-        items=tuple(str(item) for item in record.get("items") or ()),
-        weapons=tuple(_record_to_weapon(weapon) for weapon in record.get("weapons") or ()),
-        tomes=tuple(_record_to_tome(tome) for tome in record.get("tomes") or ()),
+        items=tuple(_shared_name(item, share) for item in record.get("items") or ()),
+        weapons=tuple(_record_to_weapon(weapon, share) for weapon in record.get("weapons") or ()),
+        tomes=tuple(_record_to_tome(tome, share) for tome in record.get("tomes") or ()),
         chaos_tome=_record_to_chaos_tome(record.get("chaos_tome")),
-        banishes=tuple(str(item) for item in record.get("banishes") or ()),
-        damage_sources=tuple(_record_to_damage_source(item) for item in record.get("damage_sources") or ()),
+        banishes=tuple(_shared_name(item, share) for item in record.get("banishes") or ()),
+        damage_sources=tuple(_record_to_damage_source(item, share) for item in record.get("damage_sources") or ()),
         chests_per_minute=_coerce_optional_float(record.get("chests_per_minute")),
         game_time_seconds=_coerce_optional_float(
             record.get("game_time_seconds", record.get("in_game_elapsed_seconds"))
@@ -885,7 +957,8 @@ def _weapon_stat_value_to_record(value: WeaponStatValue) -> dict[str, Any]:
     }
 
 
-def _record_to_weapon(record: Any) -> WeaponSnapshot:
+def _record_to_weapon(record: Any, share=None) -> WeaponSnapshot:
+    share = share or (lambda value, _default: value)
     if not isinstance(record, dict):
         return WeaponSnapshot(weapon_id=-1, name="Unknown Weapon", level=0, upgrade_stat_ids=(), upgraded_stats={}, full_stats={})
 
@@ -898,7 +971,7 @@ def _record_to_weapon(record: Any) -> WeaponSnapshot:
     )
     return WeaponSnapshot(
         weapon_id=_coerce_int(record.get("id"), default=-1),
-        name=str(record.get("name") or "Unknown Weapon"),
+        name=_shared_name(record.get("name") or "Unknown Weapon", share),
         level=max(_coerce_int(record.get("level"), default=0), 0),
         upgrade_stat_ids=upgrade_stat_ids,
         upgraded_stats=_record_to_weapon_stats(raw_upgraded_stats),
@@ -906,7 +979,8 @@ def _record_to_weapon(record: Any) -> WeaponSnapshot:
     )
 
 
-def _record_to_tome(record: Any) -> TomeSnapshot:
+def _record_to_tome(record: Any, share=None) -> TomeSnapshot:
+    share = share or (lambda value, _default: value)
     if not isinstance(record, dict):
         return TomeSnapshot(
             tome_id=-1,
@@ -925,10 +999,10 @@ def _record_to_tome(record: Any) -> TomeSnapshot:
         value_format = PlayerStatFormat.FLAT
     return TomeSnapshot(
         tome_id=_coerce_int(record.get("id"), default=-1),
-        name=str(record.get("name") or "Unknown Tome"),
+        name=_shared_name(record.get("name") or "Unknown Tome", share),
         level=max(_coerce_int(record.get("level"), default=0), 0),
         stat_id=_coerce_optional_int(record.get("stat_id")),
-        stat_label=str(record.get("stat_label") or "Unknown"),
+        stat_label=_shared_name(record.get("stat_label") or "Unknown", share),
         value=_coerce_optional_float(record.get("value")),
         value_format=value_format,
     )
@@ -962,12 +1036,13 @@ def _record_to_chaos_tome(record: Any) -> ChaosTomeSnapshot | None:
     )
 
 
-def _record_to_damage_source(record: Any) -> DamageSourceSnapshot:
+def _record_to_damage_source(record: Any, share=None) -> DamageSourceSnapshot:
+    share = share or (lambda value, _default: value)
     if not isinstance(record, dict):
         return DamageSourceSnapshot(source_key="Unknown", source_name="Unknown", damage=0.0, added_at_time=None)
     return DamageSourceSnapshot(
-        source_key=str(record.get("source_key") or "Unknown"),
-        source_name=str(record.get("source_name") or record.get("source_key") or "Unknown"),
+        source_key=_shared_name(record.get("source_key") or "Unknown", share),
+        source_name=_shared_name(record.get("source_name") or record.get("source_key") or "Unknown", share),
         damage=max(0.0, float(record.get("damage") or 0.0)),
         added_at_time=_coerce_optional_float(record.get("added_at_time")),
     )

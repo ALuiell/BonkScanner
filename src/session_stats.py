@@ -55,6 +55,13 @@ class SessionStats:
             formatted_rows.append(
                 {
                     "label": tracked_item_command_label(row),
+                    # Carried through rather than dropped: the Session Stats
+                    # tab renders a rule as its items and its condition, and
+                    # this rebuild used to keep only the label -- in which the
+                    # condition survived as a `T1` suffix on one of the two
+                    # modes and the items not at all.
+                    "item_names": tuple(row.get("item_names") or ()),
+                    "mode": str(row.get("mode") or ""),
                     "count": count,
                     "percent": (count / seed_count * 100.0) if seed_count > 0 else None,
                 }

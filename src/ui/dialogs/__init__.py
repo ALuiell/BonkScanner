@@ -29,11 +29,19 @@ import webbrowser
 from functools import partial
 from pathlib import Path
 
+from ui.dialogs.shell import (
+    DIALOG_COMPACT,
+    DIALOG_REGULAR,
+    DIALOG_TALL,
+    DIALOG_WIDE,
+    dialog_body,
+    dialog_card,
+    dialog_footer,
+    dialog_note,
+)
 from ui.shared import (
     CollapsibleSection,
     CollapsibleSectionGroup,
-    TrackedRuleTagWidget,
-    FlowLayout,
     _clear_layout,
     _make_scroll_section,
     _read_bool,
@@ -50,12 +58,11 @@ from ui.styles import (
     _tier_color,
 )
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QBrush, QColor, QIcon
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
-    QDialogButtonBox,
     QFormLayout,
     QFrame,
     QGridLayout,
@@ -65,10 +72,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QAbstractItemView,
-    QListView,
-    QListWidget,
-    QListWidgetItem,
     QScrollArea,
     QTabWidget,
     QTextEdit,
@@ -77,18 +80,12 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QDoubleSpinBox,
 )
-from core.item_metadata import preferred_item_display_name
+from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT
 from core.stats.types import PLAYER_STAT_GROUPS
-from projections.tracked_items import (
-    available_tracked_item_names,
-    tracked_item_color,
-    tracked_rule_color,
-    tracked_rule_tag_label,
-)
 from core.stat_labels import abbreviate_stat_label
 
 from app import config
-from app.player_stats_view import player_stats_view
+from app.player_stats_view import overlay_view, player_stats_view
 from app.vod_capture import vod_capture
 from ui.dialogs.update_prompt import start_update_check
 
@@ -189,15 +186,22 @@ class TemplateDialog(QDialog):
     def __init__(self, parent=None, edit_template=None):
         super().__init__(parent)
         self.result_payload = None
-        self.setWindowTitle("Edit Template" if edit_template else "Add Template")
+        title = "Edit Template" if edit_template else "Add Template"
+        self.setWindowTitle(title)
         self.setModal(True)
-        self.resize(420, 300)
+        body = dialog_body(
+            self,
+            title=title,
+            subtitle="Leave a condition at 0 to ignore it.",
+            width=DIALOG_REGULAR,
+        )
         self.form = TemplateFormFrame(self, edit_template)
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.form)
+        body.addWidget(self.form)
         self.save_btn = QPushButton("Save Template")
         self.save_btn.clicked.connect(self.save)
-        layout.addWidget(self.save_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        dialog_footer(self, primary=self.save_btn, secondary=cancel_btn)
 
     def save(self):
         payload = self.form.get_payload()
@@ -214,31 +218,22 @@ class TemplateManagerDialog(QDialog):
         self.templates = [dict(template) for template in templates]
         self.on_save = on_save
         self.setWindowTitle("Manage Templates")
-        self.resize(760, 760)
-        self.setMinimumSize(640, 560)
         self.expanded_template_id: int | None = None
         self.card_widgets: dict[int, dict[str, object]] = {}
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(12)
-        header = QLabel("Templates")
-        header.setObjectName("SectionHeader")
-        layout.addWidget(header)
-
-        subtitle = QLabel("Select a template from the list, and its settings will appear directly below the card.")
-        subtitle.setStyleSheet("color: #AAB4C4;")
-        layout.addWidget(subtitle)
-
+        layout = dialog_body(
+            self,
+            title="Templates",
+            subtitle="Pick one from the list and its settings open under the card.",
+            width=DIALOG_WIDE,
+            height=DIALOG_TALL,
+        )
         self.scroll, self.scroll_content, self.scroll_layout = _make_scroll_section()
         layout.addWidget(self.scroll, 1)
 
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        buttons.addWidget(close_btn)
-        layout.addLayout(buttons)
+        dialog_footer(self, secondary=close_btn)
 
         self.build_cards()
 
@@ -264,7 +259,7 @@ class TemplateManagerDialog(QDialog):
             if template.get("id", 100) <= 7:
                 meta_text += "  •  Built-in"
             meta_label = QLabel(meta_text)
-            meta_label.setStyleSheet("color: #C5CEDB;")
+            meta_label.setStyleSheet("color: #C5CEDB; background: transparent;")
             card_layout.addWidget(meta_label)
 
             details = QFrame()
@@ -277,7 +272,7 @@ class TemplateManagerDialog(QDialog):
             save_row = QHBoxLayout()
             save_row.addStretch(1)
             save_btn = QPushButton("Save")
-            save_btn.setObjectName("SuccessButton")
+            save_btn.setObjectName("primary")
             save_btn.clicked.connect(partial(self.save_template, template_id, form))
             save_row.addWidget(save_btn)
             details_layout.addLayout(save_row)
@@ -320,6 +315,26 @@ class TemplateManagerDialog(QDialog):
 
         self.expanded_template_id = template_id
         self._apply_card_state(template_id, expanded=True)
+        self._scroll_card_into_view(template_id)
+
+    def _scroll_card_into_view(self, template_id: int) -> None:
+        """Bring the just-expanded card to the top of the viewport.
+
+        Previously the user had to click a card *and* scroll manually to see
+        the form it just revealed. `card.y()` is stale at this point --
+        `details.setVisible(True)` above hasn't been laid out yet -- so the
+        scroll has to happen after Qt processes that pending layout, not in
+        the same call.
+        """
+        widgets = self.card_widgets.get(template_id)
+        if widgets is None:
+            return
+        card = widgets["card"]
+
+        def _scroll() -> None:
+            self.scroll.verticalScrollBar().setValue(card.y())
+
+        QTimer.singleShot(0, _scroll)
 
     def save_template(self, template_id: int, form: TemplateFormFrame):
         payload = form.get_payload()
@@ -348,14 +363,19 @@ class ScoresSettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("Scores Settings")
-        self.resize(460, 640)
         self.setModal(True)
         self.active_tier_checks: dict[str, QCheckBox] = {}
         self.threshold_entries: dict[str, QLineEdit] = {}
         self.weight_entries: dict[str, QLineEdit] = {}
         self.multiplier_entries: dict[str, QLineEdit] = {}
 
-        outer = QVBoxLayout(self)
+        outer = dialog_body(
+            self,
+            title="Scores Settings",
+            subtitle="Which tiers count, and what a run has to reach for each.",
+            width=DIALOG_REGULAR,
+            height=DIALOG_TALL,
+        )
         scroll, scroll_content, scroll_layout = _make_scroll_section()
         outer.addWidget(scroll, 1)
 
@@ -364,7 +384,7 @@ class ScoresSettingsDialog(QDialog):
         for tier in ("Light", "Good", "Perfect", "Perfect+"):
             cb = QCheckBox(tier)
             cb.setChecked(tier in config.SCORES_SYSTEM.get("active_tiers", []))
-            cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700;")
+            cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700; background: transparent;")
             self.active_tier_checks[tier] = cb
             active_layout.addWidget(cb)
         scroll_layout.addWidget(active_group)
@@ -397,19 +417,18 @@ class ScoresSettingsDialog(QDialog):
             self.multiplier_entries[key] = entry
             multiplier_layout.addRow(f"{key} Microwave(s):", entry)
         scroll_layout.addWidget(multiplier_group)
+        scroll_layout.addStretch(1)
 
-        button_row = QHBoxLayout()
+        # Outside the scroll area, not inside it: Save/Reset used to be the
+        # last thing in `scroll_layout`, so on a dialog this content-heavy
+        # they only came into view after scrolling all the way down. A footer
+        # row on `outer` is always visible regardless of scroll position or
+        # window size.
         reset_btn = QPushButton("Reset to Defaults")
-        reset_btn.setObjectName("DangerButton")
         reset_btn.clicked.connect(self.reset_to_defaults)
         save_btn = QPushButton("Save Settings")
-        save_btn.setObjectName("SuccessButton")
         save_btn.clicked.connect(self.save)
-        button_row.addWidget(reset_btn)
-        button_row.addStretch(1)
-        button_row.addWidget(save_btn)
-        scroll_layout.addLayout(button_row)
-        scroll_layout.addStretch(1)
+        dialog_footer(self, primary=save_btn, destructive=reset_btn)
         self.toggle_thresholds_mode()
 
     def reset_to_defaults(self):
@@ -475,9 +494,12 @@ class DeleteDialog(QDialog):
         self.custom_templates = custom_templates
         self.checks: dict[int, QCheckBox] = {}
         self.setWindowTitle("Delete Templates")
-        self.resize(320, 280)
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Select templates to delete:"))
+        layout = dialog_body(
+            self,
+            title="Delete Templates",
+            subtitle="Tick the ones to remove. Built-in templates are not listed.",
+            width=DIALOG_REGULAR,
+        )
         scroll, _content, scroll_layout = _make_scroll_section()
         layout.addWidget(scroll, 1)
         for template in custom_templates:
@@ -485,13 +507,14 @@ class DeleteDialog(QDialog):
             self.checks[template["id"]] = cb
             scroll_layout.addWidget(cb)
         scroll_layout.addStretch(1)
-        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
         delete_btn = QPushButton("Delete Selected")
-        delete_btn.setObjectName("DangerButton")
-        buttons.addButton(delete_btn, QDialogButtonBox.AcceptRole)
-        buttons.rejected.connect(self.reject)
         delete_btn.clicked.connect(self.delete)
-        layout.addWidget(buttons)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        # `QDialogButtonBox` is gone with it: it put Delete next to Cancel and
+        # ordered them by platform convention, which is the one thing a shared
+        # footer cannot let a dialog decide for itself.
+        dialog_footer(self, secondary=cancel_btn, destructive=delete_btn)
 
     def delete(self):
         to_delete = {template_id for template_id, cb in self.checks.items() if cb.isChecked()}
@@ -515,15 +538,21 @@ class ConfirmDeleteRecordingDialog(QDialog):
         self.result = False
         self.setWindowTitle("Delete Recording")
         self.setModal(True)
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"Delete recording '{recording_name}'?"))
-        buttons = QDialogButtonBox()
-        cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.RejectRole)
-        confirm_btn = buttons.addButton("Delete", QDialogButtonBox.AcceptRole)
-        confirm_btn.setObjectName("DangerButton")
+        layout = dialog_body(
+            self,
+            title="Delete recording?",
+            width=DIALOG_COMPACT,
+        )
+        name = QLabel(str(recording_name))
+        name.setObjectName("dialogSubject")
+        name.setWordWrap(True)
+        layout.addWidget(name)
+        layout.addWidget(dialog_note("This cannot be undone."))
+        cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.cancel)
+        confirm_btn = QPushButton("Delete")
         confirm_btn.clicked.connect(self.confirm)
-        layout.addWidget(buttons)
+        dialog_footer(self, secondary=cancel_btn, destructive=confirm_btn)
 
     def confirm(self):
         self.result = True
@@ -535,22 +564,40 @@ class ConfirmDeleteRecordingDialog(QDialog):
 
 
 class CleanupRecordingsDialog(QDialog):
-    def __init__(self, parent):
+    """Confirm deleting every recording shorter than the auto-filter's threshold.
+
+    The threshold is pre-filled from the library's "don't keep runs shorter
+    than N" setting rather than defaulting to a hard-coded ``2``. They were two
+    numbers for one question, and the pair disagreed by construction: the
+    recorder discarded at one threshold while this dialog proposed another.
+    Editable still, because "clean up harder than I record" is a real one-off.
+    """
+
+    def __init__(self, parent, *, default_threshold: int | None = None):
         super().__init__(parent)
         self.threshold: int | None = None
         self.setWindowTitle("Clean Recordings")
         self.setModal(True)
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Remove all recordings where snapshot count is less than:"))
-        self.threshold_entry = QLineEdit("2")
-        layout.addWidget(self.threshold_entry)
-        buttons = QDialogButtonBox()
-        cancel_btn = buttons.addButton("Cancel", QDialogButtonBox.RejectRole)
-        confirm_btn = buttons.addButton("Remove", QDialogButtonBox.AcceptRole)
-        confirm_btn.setObjectName("DangerButton")
+        layout = dialog_body(
+            self,
+            title="Clean up recordings",
+            subtitle="Removes every recording shorter than the count below.",
+            width=DIALOG_COMPACT,
+        )
+        if default_threshold is None:
+            default_threshold = DEFAULT_MINIMUM_SNAPSHOT_COUNT
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setHorizontalSpacing(12)
+        self.threshold_entry = QLineEdit(str(max(0, int(default_threshold))))
+        form.addRow("Fewer snapshots than:", self.threshold_entry)
+        layout.addLayout(form)
+        layout.addWidget(dialog_note("This cannot be undone."))
+        cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
+        confirm_btn = QPushButton("Remove")
         confirm_btn.clicked.connect(self.confirm)
-        layout.addWidget(buttons)
+        dialog_footer(self, secondary=cancel_btn, destructive=confirm_btn)
 
     def confirm(self):
         try:
@@ -572,66 +619,36 @@ class RerollWarningDialog(QDialog):
         self.dont_show_again = False
         self.setWindowTitle("Auto-Reroll Confirmation")
         self.setModal(True)
-        self.resize(540, 310)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 20, 18, 18)
-        layout.setSpacing(16)
-
-        card = QFrame()
-        card.setObjectName("WarningCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 14)
-        card_layout.setSpacing(8)
-
-        title = QLabel("Confirm Auto-Reroll Start")
-        title.setObjectName("WarningTitle")
-        card_layout.addWidget(title)
-
-        summary = QLabel(
-            "This button is only required for the Auto-Reroll map mode. Pressing OK will launch the automatic loop to monitor your runs and execute restarts until a matching target map is found.<br><br>"
-            "For more details, please open the Help (?)."
+        layout = dialog_body(
+            self,
+            title="Confirm Auto-Reroll Start",
+            width=DIALOG_REGULAR,
         )
-        summary.setWordWrap(True)
-        summary.setStyleSheet("background: transparent; font-size: 15px;")
-        card_layout.addWidget(summary)
-        layout.addWidget(card)
-
-        switch_note = QLabel(
-            "Note: All other background features (Live Stats, VOD recordings, and the OBS Overlay) "
-            "work fully automatically and do NOT require starting this loop."
+        layout.addWidget(
+            dialog_card(
+                "This button is only required for the Auto-Reroll map mode. "
+                "Pressing OK will launch the automatic loop to monitor your runs "
+                "and execute restarts until a matching target map is found."
+                "<br><br>For more details, please open the Help (?)."
+            )
         )
-        switch_note.setWordWrap(True)
-        switch_note.setStyleSheet("font-size: 14px; color: #9CA3AF;")
-        layout.addWidget(switch_note)
+        layout.addWidget(
+            dialog_note(
+                "All other background features (Live Stats, VOD recordings and the "
+                "OBS overlay) work automatically and do not require this loop."
+            )
+        )
         layout.addStretch(1)
 
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(12)
-
         self.checkbox = QCheckBox("Don't show this again")
-        self.checkbox.setStyleSheet("color: #F3F4F6; font-size: 14px;")
-        bottom_row.addWidget(self.checkbox)
-
-        bottom_row.addStretch(1)
-
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setObjectName("DangerButton")
-        cancel_btn.setProperty("class", "WideDialogButton")
-        cancel_btn.setMinimumHeight(32)
-        cancel_btn.setMinimumWidth(100)
         cancel_btn.clicked.connect(self.cancel)
-
         confirm_btn = QPushButton("OK")
-        confirm_btn.setObjectName("SuccessButton")
-        confirm_btn.setProperty("class", "WideDialogButton")
-        confirm_btn.setMinimumHeight(32)
-        confirm_btn.setMinimumWidth(100)
         confirm_btn.clicked.connect(self.confirm)
-
-        bottom_row.addWidget(cancel_btn)
-        bottom_row.addWidget(confirm_btn)
-        layout.addLayout(bottom_row)
+        dialog_footer(
+            self, primary=confirm_btn, secondary=cancel_btn, leading=self.checkbox
+        )
 
     def confirm(self):
         self.result = True
@@ -649,47 +666,26 @@ class ObsRecordingReminderDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("OBS Recording Reminder")
         self.setModal(True)
-        self.resize(500, 245)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 20, 18, 18)
-        layout.setSpacing(16)
-
-        card = QFrame()
-        card.setObjectName("WarningCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 14)
-        card_layout.setSpacing(8)
-
-        title = QLabel("OBS Recording Reminder")
-        title.setObjectName("WarningTitle")
-        card_layout.addWidget(title)
-
-        summary = QLabel(
-            "If this run is for leaderboard verification or YouTube, make sure OBS recording is started before beginning the run."
+        layout = dialog_body(
+            self,
+            title="OBS Recording Reminder",
+            width=DIALOG_REGULAR,
         )
-        summary.setWordWrap(True)
-        summary.setStyleSheet("background: transparent; font-size: 15px;")
-        card_layout.addWidget(summary)
-        layout.addWidget(card)
-
-        note = QLabel("This reminder can be switched off at any time from Settings.")
-        note.setWordWrap(True)
-        note.setStyleSheet("font-size: 14px; color: #9CA3AF;")
-        layout.addWidget(note)
+        layout.addWidget(
+            dialog_card(
+                "If this run is for leaderboard verification or YouTube, make sure "
+                "OBS recording is started before beginning the run."
+            )
+        )
+        layout.addWidget(
+            dialog_note("This reminder can be switched off at any time in Settings.")
+        )
         layout.addStretch(1)
 
-        bottom_row = QHBoxLayout()
-        bottom_row.addStretch(1)
-
         ok_btn = QPushButton("OK")
-        ok_btn.setObjectName("SuccessButton")
-        ok_btn.setProperty("class", "WideDialogButton")
-        ok_btn.setMinimumHeight(32)
-        ok_btn.setMinimumWidth(100)
         ok_btn.clicked.connect(self.accept)
-        bottom_row.addWidget(ok_btn)
-        layout.addLayout(bottom_row)
+        dialog_footer(self, primary=ok_btn)
 
 
 class TwitchCommandsHelpDialog(QDialog):
@@ -698,56 +694,25 @@ class TwitchCommandsHelpDialog(QDialog):
         self.dont_show_again = False
         self.setWindowTitle("Twitch Command Aliases")
         self.setModal(True)
-        self.resize(500, 300)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 20, 18, 18)
-        layout.setSpacing(16)
-
-        card = QFrame()
-        card.setObjectName("WarningCard")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 14)
-        card_layout.setSpacing(10)
-
-        title = QLabel("!bonkhelp aliases")
-        title.setObjectName("WarningTitle")
-        card_layout.addWidget(title)
-
-        summary = QLabel(
-            "The command that lists enabled BonkScanner Twitch commands has several aliases. "
-            "They all produce the same response, so viewers can use whichever one they prefer:"
+        layout = dialog_body(
+            self,
+            title="!bonkhelp aliases",
+            subtitle="All four produce the same response; viewers can use any of them.",
+            width=DIALOG_REGULAR,
         )
-        summary.setWordWrap(True)
-        summary.setStyleSheet("background: transparent; font-size: 14px;")
-        card_layout.addWidget(summary)
-
-        aliases = QLabel(
-            "<b>!bonkhelp</b><br>"
-            "<b>!bonkcmds</b><br>"
-            "<b>!bonkcommands</b><br>"
-            "<b>!bhelp</b>"
+        layout.addWidget(
+            dialog_card(
+                "<b>!bonkhelp</b> &nbsp;·&nbsp; <b>!bonkcmds</b> &nbsp;·&nbsp; "
+                "<b>!bonkcommands</b> &nbsp;·&nbsp; <b>!bhelp</b>"
+            )
         )
-        aliases.setTextFormat(Qt.RichText)
-        aliases.setStyleSheet("font-size: 15px;")
-        card_layout.addWidget(aliases)
-        layout.addWidget(card)
-
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(12)
+        layout.addStretch(1)
 
         self.checkbox = QCheckBox("Don't show this again")
-        bottom_row.addWidget(self.checkbox)
-        bottom_row.addStretch(1)
-
         ok_btn = QPushButton("OK")
-        ok_btn.setObjectName("SuccessButton")
-        ok_btn.setProperty("class", "WideDialogButton")
-        ok_btn.setMinimumHeight(32)
-        ok_btn.setMinimumWidth(100)
         ok_btn.clicked.connect(self.confirm)
-        bottom_row.addWidget(ok_btn)
-        layout.addLayout(bottom_row)
+        dialog_footer(self, primary=ok_btn, leading=self.checkbox)
 
     def confirm(self):
         self.dont_show_again = self.checkbox.isChecked()
@@ -758,24 +723,18 @@ class HelpDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
         self.setWindowTitle("BonkScanner Help")
-        self.resize(700, 620)
-        self.setMinimumSize(560, 420)
         self.setModal(True)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        title = QLabel("Quick Help")
-        title.setObjectName("SectionHeader")
-        layout.addWidget(title)
-
-        subtitle = QLabel(
-            "Practical notes for BonkScanner's main features, common workflows, and non-obvious behavior."
+        layout = dialog_body(
+            self,
+            title="Quick Help",
+            subtitle=(
+                "Practical notes on the main features, common workflows and "
+                "the behaviour that is not obvious."
+            ),
+            width=DIALOG_WIDE,
+            height=DIALOG_TALL,
         )
-        subtitle.setWordWrap(True)
-        subtitle.setStyleSheet("color: #AAB4C4;")
-        layout.addWidget(subtitle)
 
         tabs = QTabWidget()
         tabs.addTab(self._build_language_tab("docs/help/help_eng.txt", self._fallback_eng_text()), "ENG")
@@ -783,12 +742,9 @@ class HelpDialog(QDialog):
         tabs.addTab(self._build_language_tab("docs/help/help_ru.txt", self._fallback_ru_text()), "RU")
         layout.addWidget(tabs, 1)
 
-        button_row = QHBoxLayout()
-        button_row.addStretch(1)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        button_row.addWidget(close_btn)
-        layout.addLayout(button_row)
+        dialog_footer(self, secondary=close_btn)
 
     def _build_language_tab(self, relative_path: str, fallback_text: str) -> QWidget:
         tab = QWidget()
@@ -906,41 +862,99 @@ class HelpDialog(QDialog):
         return "Файл довідки не знайдено.\n\nПеревірте, що docs/help/help_ukr.txt знаходиться поруч із застосунком."
 
 
+#: Every value in the Settings form is two to five characters -- `f6`, `0.10 s`,
+#: `30 s`. Capped so the field says so; before this they ran the width of the
+#: window and the dialog read as six long boxes holding almost nothing.
+_SETTINGS_FIELD_WIDTH = 130
+
+#: Enough for `Snapshot every:`, the longest caption in the form. Fixed rather
+#: than sized to content so the two pairs on a line start their fields at the
+#: same x -- otherwise each column is as wide as its own longest label and the
+#: fields step sideways from row to row.
+_SETTINGS_LABEL_WIDTH = 120
+
+
+def _settings_group_label(text: str) -> QLabel:
+    label = QLabel(str(text).upper())
+    label.setObjectName("sectionEyebrow")
+    return label
+
+
+def _settings_grid(rows) -> QGridLayout:
+    """Label-and-field pairs, two pairs per line.
+
+    A `QFormLayout` cannot do this: it is one column of rows by construction, so
+    four two-character hotkeys took four full lines of a 560px window.
+    """
+    grid = QGridLayout()
+    grid.setContentsMargins(0, 0, 0, 0)
+    grid.setHorizontalSpacing(10)
+    grid.setVerticalSpacing(8)
+    for index, (caption, field) in enumerate(rows):
+        row, column = divmod(index, 2)
+        label = QLabel(str(caption))
+        label.setObjectName("rowLabel")
+        # Left-aligned, on a column wide enough for the longest caption, so the
+        # labels share the window's left edge with the group headings and the
+        # checkboxes. Right-aligning them against the fields instead put a
+        # 120px gutter down the left of the dialog with nothing in it.
+        label.setMinimumWidth(_SETTINGS_LABEL_WIDTH)
+        grid.addWidget(label, row, column * 2, Qt.AlignLeft | Qt.AlignVCenter)
+        grid.addWidget(field, row, column * 2 + 1, Qt.AlignLeft | Qt.AlignVCenter)
+    grid.setColumnStretch(1, 1)
+    grid.setColumnStretch(3, 1)
+    return grid
+
+
 class SettingsDialog(QDialog):
     def __init__(self, parent, master=None):
         super().__init__(parent)
         self.master = master or parent
         self.setWindowTitle("Settings")
-        self.resize(440, 420)
         self.setModal(True)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 14, 12, 14)
-        layout.setSpacing(14)
+        layout = dialog_body(
+            self,
+            title="Settings",
+            subtitle="Hotkeys, capture intervals and what the app reminds you about.",
+            width=DIALOG_REGULAR,
+        )
 
-        form_layout = QFormLayout()
-        form_layout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        form_layout.setFormAlignment(Qt.AlignTop)
-        form_layout.setHorizontalSpacing(18)
-        form_layout.setVerticalSpacing(14)
-        layout.addLayout(form_layout)
-
+        # Three groups, two columns, and every field capped. One column of
+        # full-width rows was what made this window read as scattered: a field
+        # 430px wide holding `f6`, six of them stacked, and 14px between rows
+        # to hold them apart. The values here are two to five characters; the
+        # width was carrying no information at all.
         self.hotkey_entry = QLineEdit(config.HOTKEY)
-        form_layout.addRow("Scan Hotkey:", self.hotkey_entry)
-
         self.reset_hotkey_entry = QLineEdit(config.RESET_HOTKEY)
-        form_layout.addRow("Reset Hotkey:", self.reset_hotkey_entry)
+        self.record_hotkey_entry = QLineEdit(
+            getattr(config, "PLAYER_STATS_RECORD_HOTKEY", "f8")
+        )
+        # The fourth hotkey. It has always existed in config but had no editor
+        # anywhere, so changing it meant hand-editing config.json. It is edited
+        # on the In-Game Overlay tab too, deliberately -- the tab is where you
+        # read what the key is -- and `save` below tells that tab it changed.
+        self.overlay_edit_hotkey_entry = QLineEdit(
+            str(getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9") or "f9")
+        )
+        for entry in (
+            self.hotkey_entry,
+            self.reset_hotkey_entry,
+            self.record_hotkey_entry,
+            self.overlay_edit_hotkey_entry,
+        ):
+            entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
 
-        self.record_hotkey_entry = QLineEdit(getattr(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"))
-        form_layout.addRow("Record Hotkey:", self.record_hotkey_entry)
-
-        self.min_delay_entry = QDoubleSpinBox()
-        self.min_delay_entry.setRange(0.0, 60.0)
-        self.min_delay_entry.setSingleStep(0.1)
-        self.min_delay_entry.setDecimals(2)
-        self.min_delay_entry.setValue(float(config.MIN_DELAY))
-        self.min_delay_entry.setSuffix(" s")
-        self.map_load_delay_entry = self.min_delay_entry
-        form_layout.addRow("Min Reroll Delay (s):", self.min_delay_entry)
+        layout.addWidget(_settings_group_label("Hotkeys"))
+        layout.addLayout(
+            _settings_grid(
+                (
+                    ("Scan:", self.hotkey_entry),
+                    ("Reset:", self.reset_hotkey_entry),
+                    ("Record:", self.record_hotkey_entry),
+                    ("Overlay layout:", self.overlay_edit_hotkey_entry),
+                )
+            )
+        )
 
         self.reset_hold_duration_entry = QDoubleSpinBox()
         self.reset_hold_duration_entry.setRange(0.01, 10.0)
@@ -948,15 +962,36 @@ class SettingsDialog(QDialog):
         self.reset_hold_duration_entry.setDecimals(2)
         self.reset_hold_duration_entry.setValue(float(config.RESET_HOLD_DURATION))
         self.reset_hold_duration_entry.setSuffix(" s")
-        form_layout.addRow("Reset Hold Duration (s):", self.reset_hold_duration_entry)
+        self.reset_hold_duration_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
+        self._initial_reset_hold_duration = round(float(config.RESET_HOLD_DURATION), 2)
 
         self.record_interval_entry = QSpinBox()
         self.record_interval_entry.setRange(1, 3600)
         self.record_interval_entry.setSingleStep(5)
-        self.record_interval_entry.setValue(int(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30)))
+        self.record_interval_entry.setValue(
+            int(getattr(config, "PLAYER_STATS_RECORD_INTERVAL_SECONDS", 30))
+        )
         self.record_interval_entry.setSuffix(" s")
-        form_layout.addRow("Snapshot Interval (s):", self.record_interval_entry)
+        self.record_interval_entry.setMaximumWidth(_SETTINGS_FIELD_WIDTH)
 
+        layout.addWidget(_settings_group_label("Timing"))
+        # Reset hold is written into the game's own config, which the game reads
+        # once at startup -- saving it here does nothing until the game restarts.
+        # Without this line the only feedback is the reset key not holding.
+        reset_hold_note = QLabel("Reset hold takes effect after a game restart.")
+        reset_hold_note.setObjectName("dialogHint")
+        reset_hold_note.setWordWrap(True)
+        layout.addWidget(reset_hold_note)
+        layout.addLayout(
+            _settings_grid(
+                (
+                    ("Reset hold:", self.reset_hold_duration_entry),
+                    ("Snapshot every:", self.record_interval_entry),
+                )
+            )
+        )
+
+        layout.addWidget(_settings_group_label("On start"))
         self.auto_start_recording_var = QCheckBox("Auto-start recording")
         self.auto_start_recording_var.setChecked(bool(getattr(config, "AUTO_START_RECORDING", False)))
         layout.addWidget(self.auto_start_recording_var)
@@ -967,43 +1002,33 @@ class SettingsDialog(QDialog):
         )
         layout.addWidget(self.show_obs_reminder_on_start_scanner_var)
 
-        button_row = QVBoxLayout()
-        button_row.setSpacing(10)
-        self.update_btn = QPushButton("Check for Updates")
-        self.update_btn.clicked.connect(self.check_update)
-        self.save_btn = QPushButton("Save")
-        self.save_btn.setObjectName("SuccessButton")
-        self.save_btn.clicked.connect(self.save)
-        button_row.addWidget(self.update_btn)
-        button_row.addWidget(self.save_btn)
-        layout.addLayout(button_row)
+        layout.addStretch(1)
 
-        layout.addSpacing(6)
+        # A card rather than a centred block under a rule. Centred text under a
+        # left-aligned form is two alignments in one short window, and the rule
+        # above it was a third divider in a dialog that already has one under
+        # its title.
+        support_card = QFrame()
+        support_card.setObjectName("card")
+        support_layout = QVBoxLayout(support_card)
+        support_layout.setContentsMargins(12, 10, 12, 12)
+        support_layout.setSpacing(8)
 
-        support_divider = QFrame()
-        support_divider.setObjectName("SupportDivider")
-        support_divider.setFrameShape(QFrame.HLine)
-        support_divider.setFrameShadow(QFrame.Plain)
-        layout.addWidget(support_divider)
-
-        support_label = QLabel("Support")
+        support_label = QLabel("Support", support_card)
         support_label.setObjectName("SupportSectionLabel")
-        support_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(support_label)
+        support_layout.addWidget(support_label)
 
         support_note = QLabel(
-            "BonkScanner is free to download here. "
-            "You can also support the project. For feedback, bugs, "
-            "or ideas, use GitHub or Discord."
+            "BonkScanner is free to download. For feedback, bugs or ideas, "
+            "use GitHub or Discord.",
+            support_card,
         )
         support_note.setObjectName("SupportSectionNote")
-        support_note.setAlignment(Qt.AlignCenter)
         support_note.setWordWrap(True)
-        layout.addWidget(support_note)
+        support_layout.addWidget(support_note)
 
         support_button_row = QHBoxLayout()
-        support_button_row.setSpacing(10)
-        support_button_row.setAlignment(Qt.AlignHCenter)
+        support_button_row.setSpacing(8)
         self.patreon_btn = QPushButton("Patreon")
         self.patreon_btn.setObjectName("PatreonButton")
         self.patreon_btn.setIcon(QIcon(resource_path(PATREON_ICON_PATH)))
@@ -1028,19 +1053,27 @@ class SettingsDialog(QDialog):
         self.discord_btn.setIconSize(QSize(18, 18))
         self.discord_btn.clicked.connect(self.open_discord_support_page)
         self.discord_btn.setProperty("class", "SupportPlatformButton")
-        self._sync_support_button_sizes()
-        support_button_row.addWidget(self.patreon_btn)
-        support_button_row.addWidget(self.kofi_btn)
-        support_button_row.addWidget(self.github_btn)
-        support_button_row.addWidget(self.discord_btn)
-        layout.addLayout(support_button_row)
+        # An equal share of the row each, filling the card. They used to be
+        # fixed to the width of the longest caption and packed at the left with
+        # the surplus behind them, which read as four buttons that had run out
+        # of room rather than a row of four.
+        for button in (self.patreon_btn, self.kofi_btn, self.github_btn, self.discord_btn):
+            support_button_row.addWidget(button, 1)
+        support_layout.addLayout(support_button_row)
+        layout.addWidget(support_card)
 
-    def _sync_support_button_sizes(self):
-        buttons = [self.patreon_btn, self.kofi_btn, self.github_btn, self.discord_btn]
-        target_width = max(button.sizeHint().width() for button in buttons)
-        for button in buttons:
-            button.setFixedWidth(target_width)
-            button.setFixedHeight(26)
+        # Save is a footer button like every other dialog's, rather than a
+        # full-width bar stacked above the support block -- which put the
+        # window's primary action in its middle, with donation links under it.
+        self.update_btn = QPushButton("Check for Updates")
+        self.update_btn.clicked.connect(self.check_update)
+        self.save_btn = QPushButton("Save")
+        self.save_btn.clicked.connect(self.save)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        dialog_footer(
+            self, primary=self.save_btn, secondary=cancel_btn, leading=self.update_btn
+        )
 
     def check_update(self):
         start_update_check(self.master, force_check=True)
@@ -1063,28 +1096,16 @@ class SettingsDialog(QDialog):
         new_hotkey = _read_text(self.hotkey_entry).strip()
         new_reset_hotkey = _read_text(self.reset_hotkey_entry).strip()
         new_record_hotkey = _read_text(self.record_hotkey_entry).strip()
+        # `getattr` because the suite drives this dialog with stand-in objects
+        # that predate the field; an empty value keeps the current key rather
+        # than unbinding the only way into overlay layout mode.
+        new_overlay_edit_hotkey = _read_text(
+            getattr(self, "overlay_edit_hotkey_entry", None)
+        ).strip() or str(getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9") or "f9")
         auto_start_recording = _read_bool(self.auto_start_recording_var)
         show_obs_reminder_on_start_scanner = _read_bool(
             getattr(self, "show_obs_reminder_on_start_scanner_var", None)
         )
-
-        config.user_config["HOTKEY"] = new_hotkey
-        config.user_config["RESET_HOTKEY"] = new_reset_hotkey
-        config.user_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
-        config.user_config["AUTO_START_RECORDING"] = auto_start_recording
-        config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = show_obs_reminder_on_start_scanner
-
-        config.HOTKEY = new_hotkey
-        config.RESET_HOTKEY = new_reset_hotkey
-        config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
-        config.AUTO_START_RECORDING = auto_start_recording
-        config.SHOW_OBS_REMINDER_ON_START_SCANNER = show_obs_reminder_on_start_scanner
-        if auto_start_recording:
-            # Was `hasattr(self.master, ...)` + a direct assignment. The service
-            # always has the flag, so the guard is gone -- and with it the
-            # step-19 failure shape where a `hasattr` goes quietly false and
-            # re-enabling auto-start silently stops clearing a suppression.
-            vod_capture(self.master).clear_auto_recording_suppression()
 
         def _read_numeric(entry) -> float:
             if entry is None:
@@ -1094,27 +1115,61 @@ class SettingsDialog(QDialog):
                 return float(val() if callable(val) else val)
             return float(_read_text(entry))
 
-        delay_entry = getattr(self, "min_delay_entry", None) or getattr(self, "map_load_delay_entry", None)
         try:
-            new_delay = _read_numeric(delay_entry)
-            config.user_config["MIN_DELAY"] = new_delay
-            config.MIN_DELAY = new_delay
-            config.MAP_LOAD_DELAY = new_delay
-        except ValueError:
-            pass
+            new_duration = max(0.01, round(_read_numeric(self.reset_hold_duration_entry), 2))
+        except (TypeError, ValueError, OverflowError):
+            QMessageBox.warning(
+                self,
+                "Invalid Settings",
+                "Reset Hold Duration must be a valid number.",
+            )
+            return
 
-        try:
-            new_duration = _read_numeric(self.reset_hold_duration_entry)
-            if new_duration < 0.01:
-                new_duration = 0.01
-            config.user_config["RESET_HOLD_DURATION"] = new_duration
-            config.RESET_HOLD_DURATION = new_duration
-            game_val = round(new_duration - 0.05, 2)
-            if game_val < 0.01:
-                game_val = 0.01
-            config.update_game_reset_time(game_val)
-        except ValueError:
-            pass
+        initial_duration = round(
+            float(getattr(self, "_initial_reset_hold_duration", config.RESET_HOLD_DURATION)),
+            2,
+        )
+        if new_duration != initial_duration:
+            # The game threshold stays 0.05 s below the actual key hold. That
+            # safety margin covers input/animation timing jitter at the boundary.
+            game_val = max(0.01, round(new_duration - 0.05, 2))
+            update_result = config.update_game_reset_time(game_val)
+            if not update_result.success:
+                reason = update_result.reason or "The game config change could not be verified."
+                QMessageBox.warning(
+                    self,
+                    "Game Settings Not Applied",
+                    (
+                        "Reset Hold Duration was not saved because BonkScanner could not "
+                        "apply it to the game config.\n\n"
+                        f"Reason: {reason}\n\n"
+                        "Close the game, run BonkScanner as Administrator, and try again."
+                    ),
+                )
+                return
+
+        config.user_config["HOTKEY"] = new_hotkey
+        config.user_config["RESET_HOTKEY"] = new_reset_hotkey
+        config.user_config["PLAYER_STATS_RECORD_HOTKEY"] = new_record_hotkey
+        config.user_config["IN_GAME_OVERLAY_EDIT_HOTKEY"] = new_overlay_edit_hotkey
+        config.user_config["AUTO_START_RECORDING"] = auto_start_recording
+        config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = show_obs_reminder_on_start_scanner
+        config.user_config["RESET_HOLD_DURATION"] = new_duration
+
+        config.HOTKEY = new_hotkey
+        config.RESET_HOTKEY = new_reset_hotkey
+        config.PLAYER_STATS_RECORD_HOTKEY = new_record_hotkey
+        config.IN_GAME_OVERLAY_EDIT_HOTKEY = new_overlay_edit_hotkey
+        config.AUTO_START_RECORDING = auto_start_recording
+        config.SHOW_OBS_REMINDER_ON_START_SCANNER = show_obs_reminder_on_start_scanner
+        config.RESET_HOLD_DURATION = new_duration
+        self._initial_reset_hold_duration = new_duration
+        if auto_start_recording:
+            # Was `hasattr(self.master, ...)` + a direct assignment. The service
+            # always has the flag, so the guard is gone -- and with it the
+            # step-19 failure shape where a `hasattr` goes quietly false and
+            # re-enabling auto-start silently stops clearing a suppression.
+            vod_capture(self.master).clear_auto_recording_suppression()
 
         try:
             new_interval = max(1, int(_read_numeric(self.record_interval_entry)))
@@ -1138,6 +1193,17 @@ class SettingsDialog(QDialog):
             if hasattr(timeline, "refresh_player_stats_timeline_ui"):
                 timeline.refresh_player_stats_timeline_ui(update_slider=False)
             self.master.update_status_ui()
+            # The OBS reminder is edited here *and* on the OBS Overlay tab. This
+            # dialog is modal and rebuilt per open, so it never shows a stale
+            # value -- but the tab's checkbox is long-lived and has no way to
+            # learn that this save happened. Unguarded and through the named
+            # port on purpose: see `OverlayView.refresh_scanner_reminder_ui`.
+            overlay_view(self.master).refresh_scanner_reminder_ui()
+            # Same shape, for the same reason: the In-Game Overlay tab shows
+            # this hotkey in a field *and* in the tip that is now the only place
+            # explaining how to enter layout mode. A stale tip there tells the
+            # user to press a key that no longer does anything.
+            self.master.refresh_in_game_overlay_hotkey_ui()
             if hasattr(self.master, "apply_run_control_mode"):
                 self.master.apply_run_control_mode()
             self.master.log("[*] Settings saved and applied successfully!", tag="success")
@@ -1153,15 +1219,19 @@ class TwitchCommandSettingsDialog(QDialog):
         super().__init__(parent)
         self.master = master or parent
         self.setWindowTitle("Twitch Command Settings")
-        self.resize(700, 760)
-        self.setMinimumSize(640, 680)
         self.setModal(True)
 
         self.stat_checkboxes: dict[str, QCheckBox] = {}
         self.templates_entries: dict[str, QLineEdit] = {}
         self._init_guard = True
 
-        outer_layout = QVBoxLayout(self)
+        outer_layout = dialog_body(
+            self,
+            title="Twitch Command Settings",
+            subtitle="What each command answers with, and what the bot says on its own.",
+            width=DIALOG_WIDE,
+            height=DIALOG_TALL,
+        )
 
         self.tabs = QTabWidget()
         outer_layout.addWidget(self.tabs, 1)
@@ -1260,106 +1330,23 @@ class TwitchCommandSettingsDialog(QDialog):
         adv_scroll_layout.addWidget(stats_group)
         adv_scroll_layout.addSpacing(15)
 
-        # -- !session tracked items section --
-        twitch_uses_session_tracked_items = (
-            config.normalize_tracked_items_source(
-                config.TWITCH_BOT.get("tracked_items_source"),
-                default="session",
-            ) == "session"
-        )
+        # -- !session section --
+        # The tracked-item half of this section is gone: it was a copy of the
+        # OBS one, both of them copies of the Session Stats picker, and all
+        # three are one window now (`ui/dialogs/tracked_items`). What is left
+        # here is the one thing that is genuinely about this command -- the
+        # response template.
         twitch_tracked_group = CollapsibleSection(
-            "!session Tracked Items",
+            "!session Command Settings",
             expanded=False,
         )
         twitch_tracked_layout = twitch_tracked_group.body_layout
-        twitch_tracked_layout.addWidget(QLabel("Choose which tracked item counters appear in the Twitch !session response."))
-
-        self.twitch_use_session_tracked_items_cb = QCheckBox("Use Session Stats tracked items")
-        self.twitch_use_session_tracked_items_cb.setChecked(twitch_uses_session_tracked_items)
-        self.twitch_use_session_tracked_items_cb.stateChanged.connect(self.on_twitch_tracked_items_source_toggled)
-        twitch_tracked_layout.addWidget(self.twitch_use_session_tracked_items_cb)
-
-        self.twitch_tracked_items_source_label = QLabel()
-        self.twitch_tracked_items_source_label.setWordWrap(True)
-        twitch_tracked_layout.addWidget(self.twitch_tracked_items_source_label)
-
-        self.twitch_custom_tracked_items_widget = QWidget()
-        twitch_custom_layout = QVBoxLayout(self.twitch_custom_tracked_items_widget)
-        twitch_custom_layout.setContentsMargins(0, 0, 0, 0)
-        twitch_custom_layout.setSpacing(8)
-
-        top_layout = QVBoxLayout()
-        top_layout.setSpacing(4)
-
-        search_top_layout = QHBoxLayout()
-        search_top_layout.addWidget(QLabel("Available Items (select one or more)"))
-        search_top_layout.addStretch(1)
-        top_layout.addLayout(search_top_layout)
-
-        self.twitch_item_names = available_tracked_item_names()
-        self.twitch_item_search_entry = QLineEdit()
-        self.twitch_item_search_entry.setPlaceholderText("Search items...")
-        self.twitch_item_search_entry.textChanged.connect(self.refresh_twitch_item_selector)
-        top_layout.addWidget(self.twitch_item_search_entry)
-
-        self.twitch_item_selector = QListWidget()
-        self.twitch_item_selector.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        self.twitch_item_selector.setMinimumHeight(220)
-        self.twitch_item_selector.setMaximumHeight(280)
-        self.twitch_item_selector.setFlow(QListView.Flow.LeftToRight)
-        self.twitch_item_selector.setWrapping(True)
-        self.twitch_item_selector.setResizeMode(QListView.ResizeMode.Adjust)
-        self.twitch_item_selector.setStyleSheet("QListWidget { font-size: 13px; }")
-        top_layout.addWidget(self.twitch_item_selector)
-
-        action_row = QHBoxLayout()
-        self.twitch_map_one_only_checkbox = QCheckBox("Map 1 only")
-        self.twitch_map_one_only_checkbox.setChecked(True)
-        self.twitch_map_one_only_checkbox.setToolTip("If checked, only counts gains on the first map.")
-        action_row.addWidget(self.twitch_map_one_only_checkbox)
-        action_row.addStretch(1)
-
-        self.twitch_add_tracked_item_btn = QPushButton("Add Rule")
-        self.twitch_add_tracked_item_btn.clicked.connect(self.add_twitch_tracked_item)
-        action_row.addWidget(self.twitch_add_tracked_item_btn)
-
-        top_layout.addLayout(action_row)
-        twitch_custom_layout.addLayout(top_layout)
-
-        twitch_custom_layout.addSpacing(10)
-
-        tags_top_layout = QHBoxLayout()
-        tags_top_layout.addWidget(QLabel("Custom Twitch tracked items"))
-        tags_top_layout.addStretch(1)
-
-        twitch_custom_layout.addLayout(tags_top_layout)
-
-        self.twitch_tags_container = QWidget()
-        self.twitch_tags_container.setStyleSheet("background-color: #0B1220;")
-        self.twitch_tags_layout = FlowLayout(self.twitch_tags_container, margin=6, spacing=4)
-
-        self.twitch_tags_scroll = QScrollArea()
-        self.twitch_tags_scroll.setWidgetResizable(True)
-        self.twitch_tags_scroll.setStyleSheet("""
-            QScrollArea {
-                border: 1px solid #2B3648;
-                border-radius: 6px;
-                background-color: #0B1220;
-            }
-        """)
-        self.twitch_tags_scroll.setWidget(self.twitch_tags_container)
-        self.twitch_tags_scroll.setMinimumHeight(80)
-        self.twitch_tags_scroll.setMaximumHeight(130)
-        twitch_custom_layout.addWidget(self.twitch_tags_scroll)
-
-        tags_bottom_layout = QHBoxLayout()
-        self.twitch_clear_all_tags_btn = QPushButton("Clear All")
-        self.twitch_clear_all_tags_btn.clicked.connect(self.clear_all_twitch_tracked_items)
-        tags_bottom_layout.addWidget(self.twitch_clear_all_tags_btn)
-        tags_bottom_layout.addStretch(1)
-
-        twitch_custom_layout.addLayout(tags_bottom_layout)
-        twitch_tracked_layout.addWidget(self.twitch_custom_tracked_items_widget)
+        twitch_tracked_layout.addWidget(
+            QLabel(
+                "Tracked item counters for !session are configured in the "
+                "Tracked Items window, on the Session Stats tab."
+            )
+        )
 
         twitch_tracked_layout.addSpacing(10)
         session_form = QFormLayout()
@@ -1379,8 +1366,6 @@ class TwitchCommandSettingsDialog(QDialog):
         twitch_tracked_layout.addWidget(session_help)
         twitch_tracked_layout.addSpacing(10)
 
-        self.refresh_twitch_item_selector()
-        self.refresh_twitch_tracked_items_ui()
         adv_scroll_layout.addWidget(twitch_tracked_group)
         adv_scroll_layout.addSpacing(15)
 
@@ -1467,7 +1452,7 @@ class TwitchCommandSettingsDialog(QDialog):
             is_disabled_ingame = d_name.lower() in disabled_in_game_set
             if is_disabled_ingame:
                 cb = QCheckBox(f"🚫 {d_name}")
-                cb.setStyleSheet("color: #FB7185; font-weight: bold;")
+                cb.setStyleSheet("color: #FB7185; font-weight: bold; background: transparent;")
             else:
                 cb = QCheckBox(d_name)
             cb.setProperty("is_disabled_ingame", is_disabled_ingame)
@@ -1550,22 +1535,15 @@ class TwitchCommandSettingsDialog(QDialog):
         ann_scroll_layout.addStretch(1)
         self.tabs.addTab(tab_announcers, "Announcers")
 
-        # 3. Sticky action buttons
-        button_row = QHBoxLayout()
-        button_row.setContentsMargins(0, 10, 0, 0)
         reset_btn = QPushButton("Reset to Defaults")
-        reset_btn.setObjectName("DangerButton")
         reset_btn.clicked.connect(self.reset_to_defaults)
-
         save_btn = QPushButton("Save Settings")
-        save_btn.setObjectName("SuccessButton")
         save_btn.clicked.connect(self.save)
-
-        button_row.addWidget(reset_btn)
-        button_row.addStretch(1)
-        button_row.addWidget(save_btn)
-
-        outer_layout.addLayout(button_row)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        dialog_footer(
+            self, primary=save_btn, secondary=cancel_btn, destructive=reset_btn
+        )
 
         self._init_guard = False
 
@@ -1576,198 +1554,6 @@ class TwitchCommandSettingsDialog(QDialog):
         parts = [f"{abbreviate_stat_label(name)}: {{{name}}}" for name in selected]
         new_tpl = "Live Stats: " + " | ".join(parts)
         self.stats_tpl_entry.setText(new_tpl)
-
-    def refresh_twitch_item_selector(self) -> None:
-        selector = getattr(self, "twitch_item_selector", None)
-        if selector is None:
-            return
-        query = ""
-        if getattr(self, "twitch_item_search_entry", None) is not None:
-            query = self.twitch_item_search_entry.text().strip().lower()
-        if selector.count() == 0:
-            for item_name in getattr(self, "twitch_item_names", ()):
-                display_name = preferred_item_display_name(str(item_name))
-                item = QListWidgetItem(display_name)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                item.setData(Qt.UserRole, item_name)
-                item.setForeground(QBrush(QColor(tracked_item_color(item_name))))
-                selector.addItem(item)
-
-        for i in range(selector.count()):
-            item = selector.item(i)
-            item_name = str(item.data(Qt.UserRole) or item.text())
-            display_name = preferred_item_display_name(str(item_name))
-            haystacks = {str(item_name).lower(), display_name.lower()}
-            if query and not any(query in haystack for haystack in haystacks):
-                item.setHidden(True)
-            else:
-                item.setHidden(False)
-
-    def refresh_twitch_tracked_items_ui(self) -> None:
-        layout = getattr(self, "twitch_tags_layout", None)
-        if layout is not None:
-            while layout.count():
-                item = layout.takeAt(0)
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
-
-        for rule in config.TWITCH_BOT.get("tracked_items") or ():
-            if not isinstance(rule, dict):
-                continue
-            item_names = [str(name) for name in rule.get("item_names") or () if str(name).strip()]
-            if not item_names:
-                continue
-            mode = str(rule.get("mode") or "all_run")
-            label = self._twitch_tracked_rule_display_label(rule, item_names, mode)
-            rule_id = str(rule.get("id") or "")
-
-            if layout is not None:
-                accent = tracked_rule_color(item_names)
-                tag = TrackedRuleTagWidget(
-                    rule_id,
-                    tracked_rule_tag_label(label, mode),
-                    text_color=accent,
-                    border_color=accent,
-                    background_color="#18212C",
-                )
-                tag.remove_clicked.connect(self.remove_twitch_tracked_item)
-                layout.addWidget(tag)
-        self._refresh_twitch_tracked_items_source_ui()
-
-    def _refresh_twitch_tracked_items_source_ui(self) -> None:
-        use_session = bool(
-            getattr(self, "twitch_use_session_tracked_items_cb", None)
-            and self.twitch_use_session_tracked_items_cb.isChecked()
-        )
-        custom_count = len(config.normalize_tracked_item_rules_config(config.TWITCH_BOT.get("tracked_items"), []))
-        session_count = len(config.normalize_tracked_item_rules_config(config.SESSION_TRACKED_ITEMS.get("tracked_items"), []))
-        source_label = getattr(self, "twitch_tracked_items_source_label", None)
-        if source_label is not None:
-            if use_session:
-                source_label.setText(f"Twitch !session source: Session Stats ({session_count}). Custom Twitch list is preserved ({custom_count}).")
-            else:
-                source_label.setText(f"Twitch !session source: Custom ({custom_count}). Session Stats has {session_count} rule(s).")
-        custom_widget = getattr(self, "twitch_custom_tracked_items_widget", None)
-        if custom_widget is not None:
-            custom_widget.setVisible(not use_session)
-        for widget in (
-            getattr(self, "twitch_map_one_only_checkbox", None),
-            getattr(self, "twitch_item_search_entry", None),
-            getattr(self, "twitch_item_selector", None),
-            getattr(self, "twitch_add_tracked_item_btn", None),
-            getattr(self, "twitch_clear_all_tags_btn", None),
-        ):
-            if widget is not None:
-                widget.setEnabled(not use_session)
-
-    def on_twitch_tracked_items_source_toggled(self, *_args) -> None:
-        self._refresh_twitch_tracked_items_source_ui()
-
-    def add_twitch_tracked_item(self) -> None:
-        item_names = self._selected_twitch_item_names()
-        if not item_names:
-            return
-        map_one_only = bool(self.twitch_map_one_only_checkbox.isChecked())
-        mode = "map_1_only" if map_one_only else "all_run"
-        display_name = self._twitch_tracked_combo_display_name(item_names)
-        label = f"{display_name} Map 1" if map_one_only else display_name
-        rule = {
-            "id": self._twitch_rule_id(item_names, mode),
-            "label": label,
-            "item_names": item_names,
-            "mode": mode,
-        }
-        existing_rules = [
-            dict(raw_rule)
-            for raw_rule in config.TWITCH_BOT.get("tracked_items") or ()
-            if isinstance(raw_rule, dict)
-        ]
-        existing_ids = {str(raw_rule.get("id") or "") for raw_rule in existing_rules}
-        if rule["id"] not in existing_ids:
-            existing_rules.append(rule)
-        config.TWITCH_BOT["tracked_items"] = existing_rules
-
-        if getattr(self, "twitch_item_selector", None) is not None:
-            self.twitch_item_selector.clearSelection()
-            self.twitch_item_selector.setCurrentItem(None)
-
-        self.refresh_twitch_tracked_items_ui()
-
-    def remove_twitch_tracked_item(self, rule_id: str) -> None:
-        rule_id = str(rule_id)
-        existing_rules = [
-            dict(raw_rule)
-            for raw_rule in config.TWITCH_BOT.get("tracked_items") or ()
-            if isinstance(raw_rule, dict)
-        ]
-        new_rules = [r for r in existing_rules if str(r.get("id") or "") != rule_id]
-        config.TWITCH_BOT["tracked_items"] = new_rules
-        self.refresh_twitch_tracked_items_ui()
-
-    def clear_all_twitch_tracked_items(self) -> None:
-        config.TWITCH_BOT["tracked_items"] = []
-        self.refresh_twitch_tracked_items_ui()
-
-    def _selected_twitch_item_names(self) -> list[str]:
-        selector = getattr(self, "twitch_item_selector", None)
-        if selector is not None:
-            selected_items = selector.selectedItems()
-            if not selected_items and selector.currentItem() is not None:
-                selected_items = [selector.currentItem()]
-            item_names = [
-                str(item.data(Qt.UserRole) or item.text()).strip()
-                for item in selected_items
-                if str(item.data(Qt.UserRole) or item.text()).strip()
-            ]
-            if item_names:
-                return self._dedupe_twitch_item_names(item_names)
-        if getattr(self, "twitch_item_search_entry", None) is not None:
-            query = self.twitch_item_search_entry.text().strip()
-            for item_name in getattr(self, "twitch_item_names", ()):
-                display_name = preferred_item_display_name(str(item_name))
-                if str(item_name).lower() == query.lower() or display_name.lower() == query.lower():
-                    return [str(item_name)]
-        return []
-
-    def _twitch_tracked_item_config_from_ui(self) -> list[dict[str, object]]:
-        return [
-            dict(raw_rule)
-            for raw_rule in config.TWITCH_BOT.get("tracked_items") or ()
-            if isinstance(raw_rule, dict)
-        ]
-
-    @staticmethod
-    def _twitch_rule_id(item_names: list[str] | tuple[str, ...], mode: str) -> str:
-        folded = "_".join(
-            "".join(char.lower() for char in item_name if char.isalnum())
-            for item_name in item_names
-        )
-        return f"twitch_{folded or 'item'}_{mode}"
-
-    @staticmethod
-    def _twitch_tracked_rule_display_label(rule: dict, item_names: list[str], mode: str) -> str:
-        raw_label = str(rule.get("label") or " + ".join(item_names))
-        if len(item_names) != 1:
-            return raw_label
-        canonical_name = str(item_names[0])
-        preferred_name = preferred_item_display_name(canonical_name)
-        default_label = f"{canonical_name} Map 1" if mode == "map_1_only" else canonical_name
-        preferred_label = f"{preferred_name} Map 1" if mode == "map_1_only" else preferred_name
-        return preferred_label if raw_label == default_label else raw_label
-
-    @staticmethod
-    def _twitch_tracked_combo_display_name(item_names: list[str] | tuple[str, ...]) -> str:
-        return " + ".join(preferred_item_display_name(str(item_name)) for item_name in item_names)
-
-    @staticmethod
-    def _dedupe_twitch_item_names(item_names: list[str] | tuple[str, ...]) -> list[str]:
-        deduped: list[str] = []
-        for item_name in item_names:
-            value = str(item_name).strip()
-            if value and value not in deduped:
-                deduped.append(value)
-        return deduped
 
     def reset_to_defaults(self):
         self._init_guard = True
@@ -1780,11 +1566,10 @@ class TwitchCommandSettingsDialog(QDialog):
         for cb in self.disabled_item_checkboxes.values():
             cb.setChecked(False)
 
-        if getattr(self, "twitch_use_session_tracked_items_cb", None) is not None:
-            self.twitch_use_session_tracked_items_cb.setChecked(False)
-        config.TWITCH_BOT["tracked_items"] = list(config.DEFAULT_TWITCH_BOT.get("tracked_items", []))
-        if hasattr(self, "refresh_twitch_tracked_items_ui"):
-            self.refresh_twitch_tracked_items_ui()
+        # Tracked items are not reset here any more. This dialog no longer
+        # edits them, and "Reset to Defaults" on a screen about templates and
+        # command settings has no business wiping a list configured in another
+        # window -- which it did silently, with nothing on screen to say so.
 
         defaults = config.DEFAULT_TWITCH_BOT["templates"]
         for key, entry in self.templates_entries.items():
@@ -1848,24 +1633,21 @@ class TwitchCommandSettingsDialog(QDialog):
             self.commands_announcement_interval_spin.value()
         )
 
-        if getattr(self, "twitch_use_session_tracked_items_cb", None) is not None:
-            config.TWITCH_BOT["tracked_items_source"] = (
-                "session" if self.twitch_use_session_tracked_items_cb.isChecked() else "custom"
-            )
-        if getattr(self, "twitch_tags_layout", None) is not None:
-            config.TWITCH_BOT["tracked_items"] = config.TWITCH_BOT.get("tracked_items", [])
-
+        # The tracked-item block that stood here is gone with the widgets that
+        # fed it. It also carried the one live bug in this file: the rebuild of
+        # the tracker's rule set was guarded by
+        # `hasattr(master, "_combined_tracked_item_rules")`, and that method is
+        # `gui_overlay.Overlay`'s -- `master` is the application, whose
+        # `__getattr__` forwards to its window and nowhere else. False in every
+        # build, true in the one test that covered it, because the double was
+        # handed the attribute. `TrackedItemSettings` owns that path now and has
+        # no probe in it.
         config.TWITCH_BOT = config.normalize_twitch_bot_config(config.TWITCH_BOT)
         master = getattr(self, "master", None)
-        live_run_tracker = getattr(master, "live_run_tracker", None)
-        if live_run_tracker is not None and hasattr(master, "_combined_tracked_item_rules"):
-            live_run_tracker.set_tracked_item_rules(master._combined_tracked_item_rules())
-        if master is not None and hasattr(master, "refresh_session_tracked_item_stats_ui"):
-            master.refresh_session_tracked_item_stats_ui()
         if master is not None and hasattr(master, "_refresh_session_stats_snapshot"):
-            # `!session` reads an immutable snapshot from its worker thread.
-            # A settings save changes its tracked-item source immediately, so
-            # waiting for the next reroll would leave Twitch showing stale rows.
+            # `!session` reads an immutable snapshot from its worker thread, so
+            # a template edited here would otherwise not show until the next
+            # reroll refreshed it.
             master._refresh_session_stats_snapshot()
 
         config.user_config["TWITCH_BOT"] = config.TWITCH_BOT

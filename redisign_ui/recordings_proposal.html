@@ -1,0 +1,806 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<title>Recordings — предложение v2</title>
+<style>
+  :root{
+    --page:#0E1217; --card:#0B0F14; --inner:#141A22;
+    --bd:#1B222B; --bd2:#2A3542; --bd3:#2E3A48;
+    --tx:#EDF1F5; --head:#B9C2CE; --sec:#8A94A3; --mut:#5C6675;
+    --acc:#2F6FB0; --accbd:#3E82C6; --info:#38BDF8;
+    --ok:#22C55E; --okt:#7DE68C; --stop:#B91C1C; --stopbd:#C8302F; --danger:#F0787E;
+    --amber:#FACC15; --compareB:#C084FC;
+    --leg:#FACC15; --epi:#C084FC; --rar:#60A5FA; --com:#4ADE80;
+    --sKills:#38BDF8; --sPM:#FACC15; --sPDC:#F59E0B; --sItems:#4ADE80; --sDiff:#F0787E;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#05070A;font-family:Inter,'Segoe UI',Arial,sans-serif;padding:24px 24px 80px;color:var(--tx)}
+  .wrap{width:min(1360px,100%);margin:0 auto}
+  .mono{font-family:'JetBrains Mono',Consolas,monospace;font-variant-numeric:tabular-nums}
+
+  .audit{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+  .audit-card{padding:14px 16px;background:var(--card);border:1px solid var(--bd);border-radius:12px}
+  .audit-card.plus{border-top:2px solid var(--ok)}
+  .audit-card.minus{border-top:2px solid var(--danger)}
+  .audit-card h3{font-size:12px;letter-spacing:.7px;text-transform:uppercase;margin:0 0 9px}
+  .audit-card.plus h3{color:var(--okt)}
+  .audit-card.minus h3{color:var(--danger)}
+  .audit-card ul{margin:0;padding-left:18px;color:var(--head);font-size:12.5px;line-height:1.55}
+  .audit-card li+li{margin-top:5px}
+
+  @media (max-width:1080px){
+    body{padding:16px 12px 56px}
+    .cols{flex-direction:column}
+    .side{width:auto;flex-basis:auto}
+    .audit{grid-template-columns:1fr}
+  }
+
+  h1{font-size:19px;font-weight:800;margin:0 0 6px}
+  h2{font-size:14px;font-weight:800;margin:34px 0 4px}
+  h2 .n{color:var(--mut);font-weight:700;margin-right:8px}
+  .why{color:var(--sec);font-size:12.5px;line-height:1.65;margin:0 0 14px;max-width:1010px}
+  .why b{color:var(--tx)} .why code{color:var(--head);font-family:'JetBrains Mono',Consolas,monospace;font-size:11.5px}
+  .why .old{color:var(--danger)}
+  .st{color:var(--mut);font-size:10.5px;font-weight:700;letter-spacing:.4px;
+      text-transform:uppercase;margin:16px 0 7px}
+
+  .screen{background:var(--page);border:1px solid var(--bd);border-radius:14px;padding:14px}
+  .cols{display:flex;gap:12px;align-items:stretch}
+  .main{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+  .side{width:296px;flex:0 0 296px}
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px}
+
+  /* ---------- плашка записи ---------- */
+  .plaque{display:flex;align-items:center;gap:10px;padding:9px 11px}
+  .libbtn{display:inline-flex;align-items:center;gap:8px;background:var(--inner);
+          border:1px solid var(--bd3);border-radius:7px;color:var(--head);
+          font-size:12px;font-weight:700;padding:5px 9px;white-space:nowrap;cursor:pointer}
+  .libbtn .burger{display:flex;flex-direction:column;gap:2.5px}
+  .libbtn .burger i{width:11px;height:1.6px;background:currentColor;border-radius:1px}
+  .libbtn .cnt{color:var(--mut);font-weight:700}
+  .plaque .id{min-width:0;flex:1}
+  .plaque .nm{display:flex;align-items:center;gap:8px}
+  .plaque .nm b{font-size:17px;font-weight:800;letter-spacing:.2px}
+  .recact{color:var(--head);font:inherit;font-size:11.5px;font-weight:700;cursor:pointer;
+          background:var(--inner);border:1px solid var(--bd2);border-radius:6px;padding:4px 9px}
+  .recact:hover{color:var(--tx);border-color:var(--bd3)}
+  .recact.delete{color:var(--danger);background:transparent;border-color:#4A2226}
+  .recact.delete:hover{color:#fff;background:var(--stop);border-color:var(--stop)}
+  .plaque .meta{color:var(--sec);font-size:11.5px;margin-top:3px;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .plaque .meta s{color:var(--mut);text-decoration:none}
+
+  /* ---------- таймлайн ---------- */
+  .tl{padding:11px 13px 11px}
+  .tlhead{display:flex;align-items:center;gap:8px;margin-bottom:9px;flex-wrap:wrap}
+  .slots{display:flex;align-items:center;gap:6px}
+  .slot{display:inline-flex;align-items:center;gap:6px;background:var(--inner);border:1px solid var(--bd3);
+        border-radius:8px;padding:5px 9px;font-size:11.5px;font-weight:700;color:var(--tx);cursor:pointer;white-space:nowrap}
+  .slot .sw{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .slot .ar{color:var(--mut);font-size:9px}
+  .slot.user{border-style:dashed}
+  .pos{margin-left:auto;background:var(--inner);border:1px solid var(--bd3);border-radius:999px;
+        padding:4px 12px;color:var(--tx);font-weight:700;font-size:11.5px;white-space:nowrap}
+  .pos em{color:var(--sec);font-style:normal;font-weight:600}
+  .scalesel{display:inline-flex;background:var(--card);border:1px solid var(--bd);border-radius:8px;
+        padding:2px;gap:2px}
+  .scalesel button{border:0;background:transparent;color:var(--mut);font:inherit;font-size:11px;
+        font-weight:700;padding:5px 10px;border-radius:6px;cursor:pointer}
+  .scalesel button.on{background:var(--inner);color:var(--tx);box-shadow:inset 0 0 0 1px var(--bd3)}
+
+  .track{position:relative;height:56px;border-radius:9px;overflow:hidden;
+         border:1px solid var(--bd2);background:var(--inner)}
+  .track.tall{height:170px}
+  .stages{position:absolute;inset:0;display:flex}
+  .stg{position:relative;border-right:1px solid var(--bd2);
+       background:linear-gradient(180deg,rgba(47,111,176,.10),rgba(47,111,176,.02))}
+  .stg:last-child{border-right:0}
+  .stg.empty{background:repeating-linear-gradient(135deg,rgba(255,255,255,.018) 0 6px,transparent 6px 12px)}
+  .stg span{position:absolute;top:5px;left:7px;font-size:10px;font-weight:800;letter-spacing:.4px;
+            color:var(--mut);text-transform:uppercase;pointer-events:none}
+  .stg.empty span{color:#3d4756}
+  .curves{position:absolute;inset:0;width:100%;height:100%}
+  .seg{position:absolute;top:0;bottom:0;background:rgba(56,189,248,.09);
+       border-left:1px solid rgba(56,189,248,.55);border-right:1px solid rgba(56,189,248,.55)}
+  .flags{position:absolute;left:0;right:0;bottom:5px;height:10px}
+  .flag{position:absolute;width:7px;height:7px;border-radius:2px;transform:rotate(45deg);top:1px}
+  .flag.leg{background:var(--leg)} .flag.epi{background:var(--epi)}
+  .flag.ban{background:var(--danger);border-radius:50%;transform:none;width:6px;height:6px;top:2px}
+  .flag.boss{background:var(--stopbd);width:9px;height:9px;top:0}
+
+  /* кап-лестница */
+  .cap{position:absolute;border-top:1px dashed var(--sDiff);opacity:.85;pointer-events:none}
+  .cap b{position:absolute;right:3px;top:-13px;font-size:9px;font-weight:800;color:var(--sDiff);
+        background:var(--inner);padding:0 4px;border-radius:3px;letter-spacing:.2px}
+  .capx{position:absolute;top:0;bottom:0;width:0;border-left:1px solid var(--sDiff);pointer-events:none}
+  .capx b{position:absolute;left:5px;top:6px;font-size:9px;font-weight:800;color:var(--sDiff);
+        background:var(--page);border:1px solid var(--sDiff);border-radius:4px;padding:1px 5px;white-space:nowrap}
+  .overcap{position:absolute;top:0;bottom:0;background:rgba(240,120,126,.055);pointer-events:none}
+
+  .head{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx);box-shadow:0 0 0 1px rgba(0,0,0,.55)}
+  .head:after{content:'';position:absolute;left:-5px;top:-1px;width:12px;height:12px;border-radius:50%;
+        background:var(--tx);box-shadow:0 0 0 2px rgba(0,0,0,.5)}
+  .pin{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--compareB)}
+  .pin:after{content:'B';position:absolute;left:-8px;top:-3px;width:18px;height:15px;border-radius:4px;
+        background:var(--compareB);color:#17101f;font-size:10px;font-weight:900;text-align:center;line-height:15px}
+
+  .tlfoot{display:flex;align-items:center;justify-content:space-between;margin-top:8px;color:var(--mut);font-size:11.5px}
+  .tlfoot .now{margin:0 auto;background:var(--inner);border:1px solid var(--bd3);border-radius:999px;
+        padding:3px 11px;color:var(--tx);font-weight:700;font-size:11.5px}
+  .tlfoot .now em{color:var(--sec);font-style:normal;font-weight:600}
+  .kbd{font-size:10px;color:var(--mut);border:1px solid var(--bd2);border-radius:5px;
+       padding:1px 5px;font-weight:700;margin-left:6px}
+
+  /* легенда-читалка */
+  .legend{display:flex;align-items:center;gap:0;margin-top:8px;flex-wrap:wrap;padding-top:8px;
+        border-top:1px solid var(--bd)}
+  .legend .li{display:inline-flex;align-items:baseline;gap:6px;padding-right:16px;font-size:11.5px;color:var(--sec)}
+  .legend .li .sw{width:10px;height:2.5px;border-radius:2px;align-self:center;flex:0 0 auto}
+  .legend .li b{color:var(--tx);font-weight:700;min-width:64px;display:inline-block}
+  .legend .div{margin-left:auto;padding-left:16px;border-left:1px solid var(--bd);
+        color:var(--mut);font-size:11.5px}
+  .legend .div b{color:var(--head);font-weight:700}
+
+  /* ---------- главы ---------- */
+  .chapters{display:flex;gap:10px}
+  .ch{flex:1;background:var(--card);border:1px solid var(--bd);border-radius:11px;padding:9px 12px 10px;cursor:pointer}
+  .ch:hover{border-color:var(--bd3)}
+  .ch.on{border-color:var(--accbd);background:linear-gradient(180deg,rgba(47,111,176,.13),transparent)}
+  .ch.off{opacity:.42}
+  .ch .t{display:flex;align-items:baseline;gap:8px}
+  .ch .t b{font-size:12px;font-weight:800}
+  .ch .t span{color:var(--mut);font-size:11px;font-weight:700}
+  .ch .n{color:var(--sec);font-size:11.5px;margin-top:4px}
+  .ch .n b{color:var(--tx);font-weight:700}
+  .dots{display:flex;gap:9px;margin-top:5px;font-size:11px;font-weight:700}
+  .dots i{font-style:normal;display:inline-flex;align-items:center;gap:4px;color:var(--sec)}
+  .dots i:before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
+  .dots .l{color:var(--leg)} .dots .e{color:var(--epi)} .dots .r{color:var(--rar)} .dots .c{color:var(--com)}
+
+  /* ---------- segment ---------- */
+  .segpanel{padding:11px 13px 13px}
+  .seghead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .seghead .ab{font-size:12.5px;font-weight:800}
+  .seghead .ab em{color:var(--info);font-style:normal}
+  .seghead .sum{color:var(--sec);font-size:12px}
+  .seghead .sum b{color:var(--tx)}
+  .seghead .x{margin-left:auto;color:var(--mut);font-size:11.5px;font-weight:700;cursor:pointer;
+              border:1px solid var(--bd2);border-radius:7px;padding:4px 9px}
+  .gaincols{display:flex;gap:10px;margin-top:11px}
+  .gcol{flex:1;min-width:0}
+  .gcol .h{font-size:10.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;margin-bottom:6px}
+  .gcol.l .h{color:var(--leg)} .gcol.e .h{color:var(--epi)}
+  .gcol.r .h{color:var(--rar)} .gcol.c .h{color:var(--com)}
+  .chips{display:flex;flex-wrap:wrap;gap:5px}
+  .chip{display:inline-flex;align-items:center;gap:5px;border-radius:7px;padding:3px 8px;
+        font-size:11.5px;font-weight:700;border:1px solid;background:var(--inner)}
+  .chip .b{font-size:10.5px;font-weight:800;opacity:.85}
+  .chip.l{color:var(--leg);border-color:#5a4a12;background:rgba(250,204,21,.08)}
+  .chip.e{color:var(--epi);border-color:#452a63;background:rgba(192,132,252,.08)}
+  .chip.r{color:var(--rar);border-color:#1e3a5f;background:rgba(96,165,250,.08)}
+  .chip.c{color:var(--com);border-color:#1d4433;background:rgba(74,222,128,.08)}
+  .chip.dead{color:var(--mut);border-color:var(--bd2);background:transparent;text-decoration:line-through}
+  .lost{margin-top:10px;padding-top:9px;border-top:1px solid var(--bd);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .lost .h{color:var(--danger);font-size:10.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase}
+
+  /* ---------- табы ---------- */
+  .tabs{display:flex;align-items:center;gap:4px;background:var(--card);border:1px solid var(--bd);border-radius:11px;padding:5px}
+  .tabs button{border:0;background:transparent;color:var(--mut);font:inherit;font-size:12.5px;
+        font-weight:700;padding:8px 15px;border-radius:8px;cursor:pointer}
+  .tabs button.on{background:var(--acc);color:#fff}
+  .tabs .sp{margin-left:auto;display:flex;align-items:center;gap:8px;padding-right:6px;color:var(--sec);font-size:12px}
+  .switch{width:32px;height:18px;border-radius:999px;background:var(--inner);border:1px solid var(--bd3);position:relative}
+  .switch:after{content:'';position:absolute;left:2px;top:2px;width:12px;height:12px;border-radius:50%;background:var(--mut)}
+  .statgrid{display:flex;gap:8px}
+  .sc{flex:1;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px 10px}
+  .sc .row{display:flex;justify-content:space-between;font-size:11.5px;padding:1.5px 0}
+  .sc .row span{color:var(--sec)} .sc .row b{font-weight:700}
+
+  /* ---------- items ---------- */
+  .side .panel{height:100%;display:flex;flex-direction:column}
+  .ihead{padding:11px 12px 9px;border-bottom:1px solid var(--bd)}
+  .ihead .t{display:flex;align-items:center;gap:8px}
+  .ihead .t b{font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:var(--head)}
+  .ihead .t .c{color:var(--mut);font-size:11px;font-weight:700}
+  .ihead .t select{margin-left:auto;background:var(--inner);border:1px solid var(--bd3);color:var(--head);
+        border-radius:7px;font:inherit;font-size:11px;font-weight:700;padding:3px 6px}
+  .rfilter{display:flex;gap:5px;margin-top:8px}
+  .rf{flex:1;border-radius:7px;border:1px solid;padding:4px 0;text-align:center;font-size:11.5px;font-weight:800;cursor:pointer}
+  .rf.l{color:var(--leg);border-color:#5a4a12;background:rgba(250,204,21,.07)}
+  .rf.e{color:var(--epi);border-color:#452a63;background:rgba(192,132,252,.07)}
+  .rf.r{color:var(--rar);border-color:#1e3a5f;background:rgba(96,165,250,.07)}
+  .rf.c{color:var(--com);border-color:#1d4433;background:rgba(74,222,128,.07)}
+  .ibody{padding:10px 12px;display:flex;flex-wrap:wrap;gap:5px;align-content:flex-start;flex:1;overflow:hidden;position:relative}
+  .ibody:after{content:'';position:absolute;left:0;right:0;bottom:0;height:34px;
+        background:linear-gradient(180deg,transparent,var(--card))}
+  .ban{border-top:1px solid var(--bd);padding:10px 12px}
+  .ban .h{color:var(--danger);font-size:10.5px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;margin-bottom:6px}
+
+  /* ---------- библиотека ---------- */
+  .lib{width:330px;background:var(--card);border:1px solid var(--bd);border-radius:12px;
+       display:flex;flex-direction:column;overflow:hidden}
+  .lib .h{padding:11px 12px 9px;border-bottom:1px solid var(--bd)}
+  .lib .h .t{color:var(--head);font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase}
+  .lib .h input{width:100%;margin-top:8px;background:var(--inner);border:1px solid var(--bd3);
+       border-radius:8px;color:var(--tx);font:inherit;font-size:12px;padding:6px 9px}
+  .lib .h input::placeholder{color:var(--mut)}
+  .row2{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--bd);cursor:pointer}
+  .row2:hover{background:rgba(255,255,255,.02)}
+  .row2.on{background:linear-gradient(90deg,rgba(47,111,176,.18),transparent);box-shadow:inset 2px 0 0 var(--accbd)}
+  .row2 .n{flex:1;min-width:0}
+  .row2 .n b{font-size:12.5px;font-weight:700;display:block}
+  .row2 .n span{color:var(--mut);font-size:11px}
+  .row2 .bar{width:52px;height:18px;display:flex;align-items:flex-end;gap:1.5px}
+  .row2 .bar i{flex:1;background:var(--bd3);border-radius:1px}
+  .row2.on .bar i{background:var(--acc)}
+  .libfoot{margin-top:auto;border-top:1px solid var(--bd);padding:10px 12px;display:flex;flex-direction:column;gap:9px}
+  .libfoot .l1{display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--sec)}
+  .libfoot .l1 b{color:var(--tx);font-weight:700}
+  .ghost{background:transparent;border:1px solid var(--bd2);border-radius:8px;color:var(--head);
+       font:inherit;font-size:11.5px;font-weight:700;padding:6px 11px;cursor:pointer}
+  .ghost.danger{color:var(--danger);border-color:#4A2226}
+  .num{width:44px;background:var(--inner);border:1px solid var(--bd3);border-radius:7px;color:var(--tx);
+       font:inherit;font-size:11.5px;font-weight:700;padding:4px 6px;text-align:center}
+  .hintline{color:var(--mut);font-size:11px;line-height:1.5}
+
+  .empty{height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+  .empty .big{font-size:14px;font-weight:800;color:var(--head)}
+  .empty .sub{color:var(--mut);font-size:12px;margin-top:-8px}
+  .recent{display:flex;gap:8px}
+
+  .tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;
+       border-radius:5px;padding:2px 6px;margin-left:8px;vertical-align:2px}
+  .tag.new{color:var(--okt);background:rgba(34,197,94,.12);border:1px solid #1d4433}
+  .tag.gone{color:var(--danger);background:rgba(240,120,126,.10);border:1px solid #4A2226}
+  table.map{border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  table.map td,table.map th{padding:5px 18px 5px 0;text-align:left;color:var(--sec);vertical-align:top}
+  table.map th{color:var(--head);font-weight:700;border-bottom:1px solid var(--bd);padding-bottom:7px}
+  table.map td b{color:var(--tx)}
+  table.map td.was{color:var(--danger)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Recordings — предложение, v2</h1>
+<p class="why">
+  <b>Recordings — это плеер рана, а не файловый менеджер.</b> Скраббер становится главным объектом
+  экрана и забирает высоту, которую освободил ряд KPI; работа с файлом уезжает в плашку и в
+  библиотеку. Все кривые ниже построены из настоящей записи <code>950k.jsonl</code> (713 snapshots,
+  каденс 10 с) — мокап не рисует выдуманных форм.
+</p>
+
+<!-- ================= 1. ЭКРАН ================= -->
+<h2><span class="n">1</span>Экран целиком</h2>
+<p class="why">
+  Кнопка библиотеки стоит слева от имени как хлебная крошка — панель и так сворачивается сама,
+  когда запись выбрана. Ряда KPI больше нет: три из пяти его чисел <b>являются</b> сериями
+  таймлайна, поэтому легенда под треком служит читалкой, а всё остальное ушло в пилюлю позиции.
+</p>
+<div class="screen">
+  <div class="cols">
+    <div class="main">
+
+      <!-- плашка -->
+      <div class="card plaque">
+        <div class="libbtn"><span class="burger"><i></i><i></i><i></i></span>Recordings <span class="cnt">28</span></div>
+        <div class="id">
+          <div class="nm"><b>950k</b><button class="recact">✎ Rename</button><button class="recact delete">Delete</button></div>
+          <div class="meta">
+            <span>12 Jul 2026, 09:14</span><s>·</s><span>713 snapshots</span><s>·</s>
+            <span>02:37:47</span><s>·</s><span>3 stages</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- таймлайн -->
+      <div class="card tl">
+        <div class="tlhead">
+          <div class="slots">
+            <span class="slot"><i class="sw" style="background:var(--sKills)"></i>Kills<span class="ar">▾</span></span>
+            <span class="slot"><i class="sw" style="background:linear-gradient(90deg,var(--sPM) 50%,var(--sPDC) 50%)"></i>PM + PDC<span class="ar">▾</span></span>
+            <span class="slot"><i class="sw" style="background:var(--sItems)"></i>Items<span class="ar">▾</span></span>
+            <span class="slot user"><i class="sw" style="background:var(--sDiff)"></i>Difficulty<span class="ar">▾</span></span>
+          </div>
+                    <span class="pos mono">428 / 713 <em>· 01:34:20 · in-game 52:10</em></span>
+                    <div class="scalesel"><button class="on">Norm.</button><button>Abs.</button></div>
+        </div>
+
+        <div class="track tall">
+          <div class="stages">
+            <div class="stg" style="flex:2050"><span>Stage 1 · 34:10</span></div>
+            <div class="stg" style="flex:2740"><span>Stage 2 · 45:40</span></div>
+            <div class="stg" style="flex:5210"><span>Stage 3 · 1:18:00</span></div>
+          </div>
+
+          <!-- кап-лестница Difficulty, посчитана по записи -->
+          <div class="cap" style="left:0%;width:11.0%;top:51.8%"><b>571%</b></div>
+          <div class="cap" style="left:11.0%;width:9.6%;top:57.5%"><b>495%</b></div>
+          <div class="cap" style="left:20.5%;width:9.1%;top:56.1%"><b>514%</b></div>
+          <div class="cap" style="left:29.6%;width:18.3%;top:61.7%"><b>438%</b></div>
+          <div class="cap" style="left:47.9%;width:8.7%;top:60.3%"><b>457%</b></div>
+          <div class="cap" style="left:56.6%;width:43.4%;top:65.9%"><b>381%</b></div>
+          <div class="overcap" style="left:11.2%;right:0"></div>
+          <div class="capx" style="left:11.2%"><b>Difficulty &gt; cap</b></div>
+
+          <svg class="curves" viewBox="0 0 1000 100" preserveAspectRatio="none">
+            <!-- Items -->
+            <path fill="none" stroke="var(--sItems)" stroke-width="1.3" opacity=".85"
+              d="M0,94.0 19,92.7 38,91.0 58,88.6 77,85.6 96,85.6 115,85.6 135,75.9 154,69.1 173,67.5 192,66.8 212,65.5 231,64.4 250,64.4 269,64.4 288,61.8 308,60.1 327,53.7 346,51.7 365,49.3 385,47.6 404,46.3 423,45.0 442,44.6 462,44.6 481,44.0 500,40.3 519,40.3 538,38.2 558,37.6 577,36.2 596,34.5 615,34.2 635,27.2 654,26.2 673,26.2 692,21.8 712,20.4 731,20.4 750,19.4 769,19.4 788,19.4 808,18.4 827,18.4 846,18.4 865,18.4 885,13.7 904,12.7 923,12.4 942,9.4 962,8.7 981,8.7 1000,6.0"/>
+            <!-- PDC -->
+            <path fill="none" stroke="var(--sPDC)" stroke-width="1.3" opacity=".85"
+              d="M0,78.5 19,78.5 38,78.5 58,78.1 77,77.5 96,77.3 115,76.7 135,66.5 154,66.1 173,65.9 192,65.6 212,65.5 231,65.5 250,65.4 269,65.2 288,63.3 308,63.2 327,60.2 346,59.9 365,59.8 385,59.7 404,59.3 423,59.0 442,58.9 462,58.9 481,58.9 500,58.9 519,58.7 538,58.7 558,58.4 577,57.3 596,57.3 615,56.9 635,56.7 654,56.4 673,56.4 692,55.9 712,55.6 731,55.6 750,55.6 769,55.6 788,55.6 808,55.6 827,55.6 846,55.5 865,55.4 885,55.2 904,55.1 923,55.0 942,54.9 962,54.8 981,54.7 1000,54.7"/>
+            <!-- PM -->
+            <path fill="none" stroke="var(--sPM)" stroke-width="1.4"
+              d="M0,78.5 19,78.5 38,78.5 58,78.5 77,77.2 96,77.2 115,75.6 135,48.8 154,48.2 173,47.3 192,31.0 212,30.8 231,30.8 250,30.7 269,30.7 288,30.0 308,26.5 327,26.0 346,24.9 365,18.7 385,18.1 404,17.6 423,17.5 442,17.1 462,17.1 481,17.1 500,17.1 519,17.0 538,16.8 558,15.9 577,11.7 596,11.3 615,10.3 635,10.0 654,9.7 673,8.8 692,8.8 712,8.8 731,8.8 750,8.8 769,8.7 788,8.3 808,8.3 827,8.3 846,8.2 865,7.7 885,7.4 904,7.3 923,6.9 942,6.6 962,6.4 981,6.2 1000,6.0"/>
+            <!-- Difficulty -->
+            <path fill="none" stroke="var(--sDiff)" stroke-width="1.4"
+              d="M0,94.0 19,92.9 38,89.6 58,84.2 77,78.5 96,75.8 115,53.7 135,44.8 154,44.5 173,42.9 192,35.6 212,34.7 231,34.4 250,34.3 269,34.3 288,34.1 308,33.1 327,21.8 346,21.4 365,21.3 385,18.5 404,18.2 423,18.0 442,17.8 462,17.8 481,17.4 500,15.5 519,15.5 538,15.5 558,15.2 577,14.7 596,14.4 615,14.3 635,11.7 654,11.5 673,11.5 692,11.2 712,11.1 731,11.1 750,11.1 769,11.1 788,11.1 808,11.1 827,11.1 846,11.0 865,10.8 885,8.8 904,7.3 923,6.3 942,6.2 962,6.2 981,6.1 1000,6.0"/>
+            <!-- Kills -->
+            <path fill="none" stroke="var(--sKills)" stroke-width="1.6"
+              d="M0,94.0 19,94.0 38,94.0 58,93.9 77,93.6 96,93.5 115,92.0 135,88.7 154,86.4 173,84.0 192,81.9 212,80.9 231,80.8 250,79.9 269,79.0 288,77.4 308,75.1 327,72.7 346,70.3 365,67.7 385,65.0 404,62.5 423,60.0 442,58.8 462,58.4 481,58.0 500,57.9 519,56.7 538,56.1 558,54.5 577,51.4 596,49.1 615,46.3 635,43.5 654,40.5 673,38.1 692,35.3 712,33.0 731,31.7 750,31.2 769,30.8 788,30.4 808,29.9 827,27.2 846,24.7 865,22.0 885,19.1 904,16.8 923,14.2 942,11.7 962,9.1 981,7.2 1000,6.0"/>
+          </svg>
+
+          <div class="seg" style="left:11%;right:40%"></div>
+          <div class="flags">
+            <span class="flag leg" style="left:7%"></span><span class="flag epi" style="left:13%"></span>
+            <span class="flag ban" style="left:17%"></span><span class="flag leg" style="left:24%"></span>
+            <span class="flag epi" style="left:31%"></span><span class="flag boss" style="left:37%"></span>
+            <span class="flag ban" style="left:44%"></span><span class="flag leg" style="left:52%"></span>
+            <span class="flag epi" style="left:59%"></span><span class="flag boss" style="left:66%"></span>
+            <span class="flag leg" style="left:74%"></span><span class="flag epi" style="left:83%"></span>
+          </div>
+          <div class="pin" style="left:11%"></div>
+          <div class="head" style="left:60%"></div>
+        </div>
+
+        <div class="tlfoot">
+          <span class="mono">00:12</span>
+          <span class="mono">02:37:47</span>
+        </div>
+        <div class="legend">
+          <span class="li"><i class="sw" style="background:var(--sKills)"></i>Kills <b class="mono">614 208</b></span>
+          <span class="li"><i class="sw" style="background:var(--sPM)"></i>PM <b class="mono">4.72x</b></span>
+          <span class="li"><i class="sw" style="background:var(--sPDC)"></i>PDC <b class="mono">241%</b></span>
+          <span class="li"><i class="sw" style="background:var(--sItems)"></i>Items <b class="mono">168</b></span>
+          <span class="li"><i class="sw" style="background:var(--sDiff)"></i>Diff <b class="mono">1 084%</b></span>
+          <span class="div mono">lvl <b>2 118</b> · KPS <b>187 / 164</b></span>
+        </div>
+      </div>
+
+      <!-- главы -->
+      <div class="chapters">
+        <div class="ch">
+          <div class="t"><b>Stage 1</b><span class="mono">34:10</span></div>
+          <div class="n"><b>128 402</b> kills</div>
+          <div class="dots"><i class="l">9</i><i class="e">14</i><i class="r">18</i><i class="c">6</i></div>
+        </div>
+        <div class="ch on">
+          <div class="t"><b>Stage 2</b><span class="mono">45:40</span></div>
+          <div class="n"><b>311 967</b> kills</div>
+          <div class="dots"><i class="l">21</i><i class="e">19</i><i class="r">11</i><i class="c">7</i></div>
+        </div>
+        <div class="ch">
+          <div class="t"><b>Stage 3</b><span class="mono">1:18:00</span></div>
+          <div class="n"><b>509 776</b> kills</div>
+          <div class="dots"><i class="l">34</i><i class="e">22</i><i class="r">14</i><i class="c">9</i></div>
+        </div>
+        <div class="ch off">
+          <div class="t"><b>Stage 4</b><span class="mono">—</span></div>
+          <div class="n">no data</div>
+          <div class="dots"><i>—</i></div>
+        </div>
+      </div>
+
+      <!-- segment -->
+      <div class="card segpanel">
+        <div class="seghead">
+          <span class="ab">Segment <em>A</em> 12:40 → <em>B</em> 52:10</span>
+          <span class="sum">·&nbsp; <b>+1 306</b> levels &nbsp;·&nbsp; <b>+94</b> items
+            &nbsp;·&nbsp; <b>+486 331</b> kills</span>
+          <span class="x">Clear A</span>
+        </div>
+        <div class="gaincols">
+          <div class="gcol l"><div class="h">Legendary · 31</div><div class="chips">
+            <span class="chip l">Za Warudo <span class="b">+6</span></span>
+            <span class="chip l">Giant Fork <span class="b">+5</span></span>
+            <span class="chip l">Big Bonk <span class="b">+4</span></span>
+            <span class="chip l">Holy Book <span class="b">+4</span></span>
+            <span class="chip l">Lightning Orb <span class="b">+3</span></span>
+            <span class="chip l">Wizard's Hat <span class="b">+3</span></span>
+          </div></div>
+          <div class="gcol e"><div class="h">Epic · 24</div><div class="chips">
+            <span class="chip e">Credit Card (G) <span class="b">+9</span></span>
+            <span class="chip e">Beefy Ring <span class="b">+7</span></span>
+            <span class="chip e">Kevin <span class="b">+3</span></span>
+            <span class="chip e">Mirror <span class="b">+1</span></span>
+          </div></div>
+          <div class="gcol r"><div class="h">Rare · 19</div><div class="chips">
+            <span class="chip r">Beacon <span class="b">+4</span></span>
+            <span class="chip r">Campfire <span class="b">+3</span></span>
+            <span class="chip r">Coward's cloak <span class="b">+2</span></span>
+            <span class="chip r">Golden Shield <span class="b">+2</span></span>
+          </div></div>
+          <div class="gcol c"><div class="h">Common · 20</div><div class="chips">
+            <span class="chip c">Time Bracelet <span class="b">+8</span></span>
+            <span class="chip c">Key <span class="b">+5</span></span>
+            <span class="chip c">Moldy Cheese <span class="b">+3</span></span>
+            <span class="chip c">Cursed Doll <span class="b">+2</span></span>
+          </div></div>
+        </div>
+        <div class="lost">
+          <span class="h">Broken 2 · lost 5</span>
+          <span class="chip dead">Anvil</span><span class="chip dead">Spicy Meatball</span>
+          <span class="chip dead">Thunder Mitts</span><span class="chip dead">Wrench</span>
+        </div>
+      </div>
+
+      <!-- табы -->
+      <div class="tabs">
+        <button class="on">Stats</button><button>Loot</button><button>Weapons</button>
+        <button>Tomes</button><button>Chaos</button><button>Damage Sources</button>
+        <span class="sp">Expanded <span class="switch"></span></span>
+      </div>
+      <div class="statgrid">
+        <div class="sc">
+          <div class="row"><span>HP</span><b class="mono">4 781</b></div>
+          <div class="row"><span>Regen</span><b class="mono">742.9</b></div>
+          <div class="row"><span>Shield</span><b class="mono">56.6</b></div>
+          <div class="row"><span>Armor</span><b class="mono">21.9%</b></div>
+          <div class="row"><span>Evasion</span><b class="mono">35.3%</b></div>
+        </div>
+        <div class="sc">
+          <div class="row"><span>DMG</span><b class="mono">5972x</b></div>
+          <div class="row"><span>Crit</span><b class="mono">203.9%</b></div>
+          <div class="row"><span>CritDMG</span><b class="mono">3.01x</b></div>
+          <div class="row"><span>AS</span><b class="mono">314.3%</b></div>
+          <div class="row"><span>Proj</span><b class="mono">12.2</b></div>
+        </div>
+        <div class="sc">
+          <div class="row"><span>Size</span><b class="mono">2.25x</b></div>
+          <div class="row"><span>ProjSpeed</span><b class="mono">3.17x</b></div>
+          <div class="row"><span>Dur</span><b class="mono">1.22x</b></div>
+          <div class="row"><span>EliteDMG</span><b class="mono">3.14x</b></div>
+          <div class="row"><span>KB</span><b class="mono">3.33x</b></div>
+        </div>
+        <div class="sc">
+          <div class="row"><span>Pickup</span><b class="mono">51.1</b></div>
+          <div class="row"><span>XP</span><b class="mono">28.6x</b></div>
+          <div class="row"><span>Gold</span><b class="mono">1.58x</b></div>
+          <div class="row"><span>Luck</span><b class="mono">2 645%</b></div>
+          <div class="row"><span>PM</span><b class="mono">4.72x</b></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- items -->
+    <div class="side">
+      <div class="card panel">
+        <div class="ihead">
+          <div class="t"><b>Items</b><span class="c">262</span>
+            <select><option>Default</option></select></div>
+          <div class="rfilter">
+            <div class="rf l">64</div><div class="rf e">55</div>
+            <div class="rf r">43</div><div class="rf c">22</div>
+          </div>
+        </div>
+        <div class="ibody">
+          <span class="chip r">Coward's cloak x3</span><span class="chip c">Time Bracelet x9</span>
+          <span class="chip e">Kevin x4</span><span class="chip l">Anvil x1</span>
+          <span class="chip l">Lightning Orb x5</span><span class="chip r">Beacon x4</span>
+          <span class="chip r">Electric Plug x1</span><span class="chip e">Beefy Ring x12</span>
+          <span class="chip r">Campfire x4</span><span class="chip e">Mirror x1</span>
+          <span class="chip r">Idle Juice x3</span><span class="chip c">Key x7</span>
+          <span class="chip c">Borgar x1</span><span class="chip r">Golden Shield x3</span>
+          <span class="chip c">Feathers x1</span><span class="chip r">Old Mask x1</span>
+          <span class="chip l">Holy Book x5</span><span class="chip c">Moldy Cheese x4</span>
+          <span class="chip c">Gym Sauce x2</span><span class="chip r">Medkit x1</span>
+          <span class="chip r">Credit Card (Red) x1</span><span class="chip c">Golden Glove x1</span>
+          <span class="chip e">Slurp Gloves x1</span><span class="chip l">Za Warudo x8</span>
+          <span class="chip l">Giant Fork x6</span><span class="chip e">Skuleg x2</span>
+        </div>
+        <div class="ban">
+          <div class="h">Banishes · 7</div>
+          <div class="chips">
+            <span class="chip dead">Spiky Shield</span><span class="chip dead">Mirror</span>
+            <span class="chip dead">Scarf</span><span class="chip dead">Slurp Gloves</span>
+            <span class="chip dead">Kevin</span><span class="chip dead">Power Gloves</span>
+            <span class="chip dead">Spicy Meatball</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 2. СКРАББЕР ================= -->
+<h2><span class="n">2</span>Скраббер — что он заменяет и как устроен</h2>
+<p class="why">
+  Полоса заменяет <span class="old">слайдер + подпись «Timeline: …» + Set Compare Start +
+  Clear Compare + ряд из пяти KPI</span>. Четыре слота метрик: <b>Kills</b>, <b>PM + PDC</b> одной
+  парой, <b>Items</b> и четвёртый на выбор пользователя из 30 статов. Выбор запоминается в
+  <code>user_config</code> и переживает смену записи.
+</p>
+<p class="why">
+  <b>Почему PM и PDC в одном слоте работают.</b> Промерено по <code>950k</code>: PM
+  <code>1.00 → 5.69</code>, PDC <code>1.00 → 2.54</code>, обе <b>строго монотонны</b> — ноль
+  падений на 712 шагов — и обе стартуют с 1.0. Это редкий случай, когда две серии честно
+  ложатся на <b>общую абсолютную ось</b> без нормализации, и их соотношение читается напрямую.
+  Остальные серии нормируются каждая на свой максимум: Kills доходит до 950 145, Items до 262 —
+  на одной оси Items был бы плоской линией по нулю.
+</p>
+
+<div class="st">а · пин не поставлен, одна серия</div>
+<div class="screen" style="padding:12px">
+  <div class="card tl">
+    <div class="tlhead">
+      <div class="slots">
+        <span class="slot"><i class="sw" style="background:var(--sKills)"></i>Kills<span class="ar">▾</span></span>
+        <span class="slot user" style="opacity:.5"><i class="sw" style="background:var(--mut)"></i>None<span class="ar">▾</span></span>
+        <span class="slot user" style="opacity:.5"><i class="sw" style="background:var(--mut)"></i>None<span class="ar">▾</span></span>
+        <span class="slot user" style="opacity:.5"><i class="sw" style="background:var(--mut)"></i>None<span class="ar">▾</span></span>
+      </div>
+            <span class="pos mono">235 / 713 <em>· 00:51:44 · in-game 31:02</em></span>
+            <div class="scalesel"><button class="on">Norm.</button><button>Abs.</button></div>
+    </div>
+    <div class="track tall" style="height:120px">
+      <div class="stages">
+        <div class="stg" style="flex:2050"><span>Stage 1 · 34:10</span></div>
+        <div class="stg" style="flex:2740"><span>Stage 2 · 45:40</span></div>
+        <div class="stg" style="flex:5210"><span>Stage 3 · 1:18:00</span></div>
+      </div>
+      <svg class="curves" viewBox="0 0 1000 100" preserveAspectRatio="none">
+        <path fill="rgba(56,189,248,.10)" stroke="none"
+          d="M0,94.0 96,93.5 192,81.9 288,77.4 385,65.0 481,58.0 577,51.4 673,38.1 769,30.8 865,22.0 962,9.1 1000,6.0 L1000,100 L0,100 Z"/>
+        <path fill="none" stroke="var(--sKills)" stroke-width="1.6"
+          d="M0,94.0 19,94.0 38,94.0 58,93.9 77,93.6 96,93.5 115,92.0 135,88.7 154,86.4 173,84.0 192,81.9 212,80.9 231,80.8 250,79.9 269,79.0 288,77.4 308,75.1 327,72.7 346,70.3 365,67.7 385,65.0 404,62.5 423,60.0 442,58.8 462,58.4 481,58.0 500,57.9 519,56.7 538,56.1 558,54.5 577,51.4 596,49.1 615,46.3 635,43.5 654,40.5 673,38.1 692,35.3 712,33.0 731,31.7 750,31.2 769,30.8 788,30.4 808,29.9 827,27.2 846,24.7 865,22.0 885,19.1 904,16.8 923,14.2 942,11.7 962,9.1 981,7.2 1000,6.0"/>
+      </svg>
+      <div class="flags">
+        <span class="flag leg" style="left:7%"></span><span class="flag epi" style="left:13%"></span>
+        <span class="flag ban" style="left:17%"></span><span class="flag leg" style="left:24%"></span>
+        <span class="flag epi" style="left:31%"></span><span class="flag boss" style="left:37%"></span>
+        <span class="flag ban" style="left:44%"></span><span class="flag leg" style="left:52%"></span>
+        <span class="flag epi" style="left:59%"></span><span class="flag boss" style="left:66%"></span>
+        <span class="flag leg" style="left:74%"></span><span class="flag epi" style="left:83%"></span>
+      </div>
+      <div class="head" style="left:33%"></div>
+    </div>
+    <div class="tlfoot">
+      <span class="mono">00:12</span>
+      <span class="mono">02:37:47</span>
+    </div>
+    <div class="legend">
+      <span class="li"><i class="sw" style="background:var(--sKills)"></i>Kills <b class="mono">214 771</b></span>
+      <span class="div mono">lvl <b>1 204</b> · KPS <b>212 / 178</b></span>
+    </div>
+  </div>
+  <p class="hintline" style="margin:9px 2px 0">
+    ← → step per snapshot<span class="kbd">Shift</span>× 10 &nbsp;·&nbsp;
+    <span class="kbd">A</span> pin at the playhead &nbsp;·&nbsp;
+    <span class="kbd">Home</span>/<span class="kbd">End</span> start / end
+  </p>
+</div>
+
+<div class="st">б · кап Difficulty — ступенчатый пунктир, посчитанный из записи</div>
+<div class="screen" style="padding:12px">
+  <div class="card tl">
+    <div class="tlhead">
+      <div class="slots">
+        <span class="slot user"><i class="sw" style="background:var(--sDiff)"></i>Difficulty<span class="ar">▾</span></span>
+      </div>
+      <span class="pos mono">428 / 713 <em>· 01:34:20 · in-game 52:10</em></span>
+      <div class="scalesel"><button>Norm.</button><button class="on">Abs.</button></div>
+    </div>
+    <div class="track tall" style="height:130px">
+      <div class="stages">
+        <div class="stg" style="flex:2050"><span>Stage 1</span></div>
+        <div class="stg" style="flex:2740"><span>Stage 2</span></div>
+        <div class="stg" style="flex:5210"><span>Stage 3</span></div>
+      </div>
+      <div class="cap" style="left:0%;width:11.0%;top:51.8%"><b>571%</b></div>
+      <div class="cap" style="left:11.0%;width:9.6%;top:57.5%"><b>495%</b></div>
+      <div class="cap" style="left:20.5%;width:9.1%;top:56.1%"><b>514%</b></div>
+      <div class="cap" style="left:29.6%;width:18.3%;top:61.7%"><b>438%</b></div>
+      <div class="cap" style="left:47.9%;width:8.7%;top:60.3%"><b>457%</b></div>
+      <div class="cap" style="left:56.6%;width:43.4%;top:65.9%"><b>381%</b></div>
+      <div class="overcap" style="left:11.2%;right:0"></div>
+      <div class="capx" style="left:11.2%"><b>cap exceeded · 11:38</b></div>
+      <svg class="curves" viewBox="0 0 1000 100" preserveAspectRatio="none">
+        <path fill="none" stroke="var(--sDiff)" stroke-width="1.7"
+          d="M0,94.0 19,92.9 38,89.6 58,84.2 77,78.5 96,75.8 115,53.7 135,44.8 154,44.5 173,42.9 192,35.6 212,34.7 231,34.4 250,34.3 269,34.3 288,34.1 308,33.1 327,21.8 346,21.4 365,21.3 385,18.5 404,18.2 423,18.0 442,17.8 462,17.8 481,17.4 500,15.5 519,15.5 538,15.5 558,15.2 577,14.7 596,14.4 615,14.3 635,11.7 654,11.5 673,11.5 692,11.2 712,11.1 731,11.1 750,11.1 769,11.1 788,11.1 808,11.1 827,11.1 846,11.0 865,10.8 885,8.8 904,7.3 923,6.3 942,6.2 962,6.2 981,6.1 1000,6.0"/>
+      </svg>
+      <div class="head" style="left:60%"></div>
+    </div>
+    <div class="tlfoot">
+      <span class="mono">00:12</span>
+      <span class="mono">02:37:47</span>
+    </div>
+    <div class="legend">
+      <span class="li"><i class="sw" style="background:var(--sDiff)"></i>Difficulty <b class="mono">1 084%</b></span>
+      <span class="div">cap <b>381%</b> · above cap for <b>633 of 713</b> snapshots</span>
+    </div>
+  </div>
+</div>
+<p class="why" style="margin-top:12px">
+  Кап диффа — <b>не константа, а лестница</b>: он зависит от стадии и падает ещё раз через две
+  минуты после начала призраков (<code>571 → 495</code>, <code>514 → 438</code>,
+  <code>457 → 381</code>; у stage 3 капа нет). Длительности стадий — константы Event Timer'а
+  (<code>600 / 540 / 480 / 960</code> с), а истёкший таймер стадии пишется в снапшот, поэтому
+  <b>лестница считается из записи целиком, дописывать поля не нужно</b>. Ступени выше
+  посчитаны по <code>950k</code>, а не нарисованы на глаз: дифф пробивает кап на 11.2% рана и
+  идёт над ним 633 снапшота из 713.
+</p>
+<p class="why">
+  <b>XP Gain</b> устроен проще — плоская линия на <code>10x</code>.
+  Две оговорки по данным: на 81% рана появляется односнапшотный зубец
+  <code>457 → 381 → 457</code> — это известный пост-босс сдвиг <code>stage_timer</code>, ступень
+  стоит не менять на одном снапшоте. И в записях старого формата (<code>885к</code>,
+  <code>970k</code>, <code>874k</code>) нет <code>stage_index</code>, поэтому кап-линия там
+  просто не рисуется.
+</p>
+
+<!-- ================= 3. БИБЛИОТЕКА ================= -->
+<h2><span class="n">3</span>Библиотека — и где живёт Clean Short</h2>
+<p class="why">
+  <span class="old">Clean&nbsp;Short</span> стоит сейчас в одном ряду с Rename и Delete, между
+  полем имени и красной кнопкой. Это операция <b>над библиотекой</b>, а не над выбранной записью —
+  из-за чего её легко нажать вместо Rename. Место ей в подвале панели выбора.
+  Туда же — <b>настраиваемый автофильтр</b>: сейчас порог зашит, а чистка спрашивает свой в
+  модалке; две ручки для одного числа. Одна строка «не сохранять раны короче N снапшотов» и
+  есть автофильтр, и она же подставляется как порог чистки — тогда
+  <code>CleanupRecordingsDialog</code> сводится к подтверждению «удалить 6 записей?».
+</p>
+<div style="display:flex;gap:16px;align-items:flex-start">
+  <div class="lib" style="height:520px">
+    <div class="h"><div class="t">Recordings</div><input placeholder="Search by name…"/></div>
+    <div class="row2 on">
+      <div class="n"><b>950k</b><span>12 июля · 713 snapshots · 02:37:47</span></div>
+      <div class="bar"><i style="height:30%"></i><i style="height:55%"></i><i style="height:64%"></i>
+        <i style="height:78%"></i><i style="height:90%"></i><i style="height:100%"></i></div>
+    </div>
+    <div class="row2">
+      <div class="n"><b>885к</b><span>14 июля · 855 snapshots · 02:23:31</span></div>
+      <div class="bar"><i style="height:40%"></i><i style="height:62%"></i><i style="height:75%"></i>
+        <i style="height:88%"></i><i style="height:96%"></i><i style="height:100%"></i></div>
+    </div>
+    <div class="row2">
+      <div class="n"><b>970k</b><span>13 июля · 744 snapshots · 02:31:35</span></div>
+      <div class="bar"><i style="height:35%"></i><i style="height:50%"></i><i style="height:70%"></i>
+        <i style="height:80%"></i><i style="height:92%"></i><i style="height:100%"></i></div>
+    </div>
+    <div class="row2">
+      <div class="n"><b>874k</b><span>10 июля · 796 snapshots · 02:14:12</span></div>
+      <div class="bar"><i style="height:28%"></i><i style="height:44%"></i><i style="height:66%"></i>
+        <i style="height:82%"></i><i style="height:88%"></i><i style="height:100%"></i></div>
+    </div>
+    <div class="row2">
+      <div class="n"><b>Run 2026-07-14 14:40</b><span>114 snapshots · 22:22</span></div>
+      <div class="bar"><i style="height:20%"></i><i style="height:38%"></i><i style="height:52%"></i>
+        <i style="height:60%"></i><i style="height:70%"></i><i style="height:74%"></i></div>
+    </div>
+    <div class="row2">
+      <div class="n"><b>Run 2026-07-02 21:32</b><span>54 snapshots · 11:45</span></div>
+      <div class="bar"><i style="height:14%"></i><i style="height:22%"></i><i style="height:30%"></i>
+        <i style="height:36%"></i><i style="height:41%"></i><i style="height:44%"></i></div>
+    </div>
+    <div class="libfoot">
+      <div class="l1"><b>28</b> recordings<s style="color:var(--mut)">·</s><b>412 МБ</b></div>
+      <div class="l1">Don't keep runs shorter than <input class="num" value="30"/> snapshots</div>
+      <div class="hintline">Порог автофильтра. Он же подставляется в «Удалить короткие».</div>
+      <div style="display:flex;gap:8px"><button class="ghost danger">Delete short · 6</button></div>
+    </div>
+  </div>
+
+  <div style="flex:1">
+    <div class="st">что куда переехало</div>
+    <table class="map">
+      <tr><th>Было</th><th>Стало</th></tr>
+      <tr><td class="was">«Select Recordings» в правом верхнем углу</td>
+          <td><b>«☰ Записи 28»</b> слева от имени, как хлебная крошка</td></tr>
+      <tr><td class="was">Имя в постоянно активном QLineEdit</td>
+          <td>Заголовок с <b>✎</b>; поле появляется по клику на карандаш</td></tr>
+      <tr><td class="was">Rename / Delete дублируются в меню «⋯»</td>
+          <td><b>Rename</b> и <b>Delete</b> один раз рядом с названием записи<span class="tag new">явно</span></td></tr>
+      <tr><td class="was">Clean Short рядом с Rename</td>
+          <td>Подвал библиотеки, вместе с автофильтром<span class="tag new">по смыслу</span></td></tr>
+      <tr><td class="was">QSlider + «Timeline: … | Selected: …»</td>
+          <td>Скраббер: стадии, 4 серии, капы, метки событий</td></tr>
+      <tr><td class="was">Set Compare Start / Clear Compare</td>
+          <td>Пин <b>A</b> на скраббере<span class="tag gone">−2 кнопки</span></td></tr>
+      <tr><td class="was">Run Summary — ряд из 5 плиток KPI</td>
+          <td>Легенда-читалка в подвале трека<span class="tag gone">−62 px</span></td></tr>
+      <tr><td class="was">«Average chests/min» как замер</td>
+          <td>Во вкладку Loot: это оценка по билду, не счёт сундуков</td></tr>
+      <tr><td class="was">Stage Summary — таблица 4×4, половина «--»</td>
+          <td>4 плитки-главы; клик = прыжок в начало стадии</td></tr>
+      <tr><td class="was">Segment Compare висит всегда, дельта за 00:05</td>
+          <td>Панель появляется только при поставленном пине</td></tr>
+      <tr><td class="was">Compare Details — текст через <code>|</code> в скролле</td>
+          <td>Чипы с бейджем <b>+6</b>, 4 колонки по рарности</td></tr>
+      <tr><td class="was">Тумблер «Expanded» отдельной пустой строкой</td>
+          <td>Справа в таб-баре<span class="tag gone">−30 px</span></td></tr>
+      <tr><td class="was">Сортировка items в подвале панели</td>
+          <td>В шапке панели, рядом со счётчиком</td></tr>
+      <tr><td class="was">Точки рарности без подписей</td>
+          <td>4 чипа-фильтра: клик оставляет свою рарность</td></tr>
+    </table>
+  </div>
+</div>
+
+<!-- ================= 4. ПУСТОЕ ================= -->
+<h2><span class="n">4</span>Пустое состояние</h2>
+<p class="why">
+  Сейчас, пока запись не выбрана, экран выглядит так же — только все числа «--». Это читается как
+  сломанная вкладка, а не как приглашение. Раз библиотека и так разворачивается сама, когда выбора
+  нет, — пусть центр говорит, что делать, и предлагает три последних рана в один клик.
+</p>
+<div class="screen">
+  <div class="card plaque" style="opacity:.55">
+    <div class="libbtn"><span class="burger"><i></i><i></i><i></i></span>Recordings <span class="cnt">28</span></div>
+    <div class="id"><div class="nm"><b style="color:var(--mut)">No recording selected</b></div></div>
+  </div>
+  <div class="empty">
+    <div class="big">Select a recording to scrub through the run</div>
+    <div class="sub">28 recordings in the library · latest 14 Jul</div>
+    <div class="recent">
+      <button class="ghost">950k · 02:37:47</button>
+      <button class="ghost">885к · 02:23:31</button>
+      <button class="ghost">970k · 02:31:35</button>
+    </div>
+  </div>
+</div>
+
+<h2><span class="n">5</span>Заметки под реализацию</h2>
+<p class="why">
+  <b>Легенда-читалка дёргается, если её не зафиксировать.</b> Значения меняют ширину при
+  перетаскивании (<code>45</code> → <code>322 976</code> → <code>1 208 331</code>). Нужны
+  моноширинные цифры и <code>minimumWidth</code> на каждом поле, иначе строка будет прыгать на
+  каждом кадре скраба.
+</p>
+<p class="why">
+  <b>Что уже есть и не требует нового захвата.</b> Все 30 статов пишутся каждым снапшотом, так что
+  четвёртый слот стоит ровно одно комбо. <code>mob_kills</code> и предметы есть везде.
+  <code>kps_at_capture</code> и <code>chests_opened_by_stage</code> есть не во всех записях — слот
+  должен уметь честно сказать «в этой записи no data», а не рисовать нули.
+</p>
+<p class="why">
+  <b>Порядок работ.</b> Плашка, переезд Clean&nbsp;Short и тумблер «Expanded» — чистая
+  перестановка виджетов. Плитки-главы читают то, что уже считает <code>build_stage_summary</code>.
+  Чипы сегмента переиспользуют рендер из <code>ItemsSectionView</code>. Свой
+  <code>paintEvent</code> нужен только скрабберу.
+</p>
+
+<h2><span class="n">6</span>Визуальная оценка макета</h2>
+<p class="why">
+  Макет сильнее текущего экрана прежде всего иерархией: сначала пользователь выбирает ран и
+  перемещается по нему, затем читает состояние в точке, и только потом уходит в подробности.
+  Ниже — не список функций, а именно визуальные плюсы и риски предложенной композиции.
+</p>
+<div class="audit">
+  <section class="audit-card plus">
+    <h3>Плюсы</h3>
+    <ul>
+      <li>Скраббер стал главным объектом и сразу объясняет, что Recordings — это просмотр рана во времени.</li>
+      <li>Плашка записи компактно собирает выбор, имя, дату, длительность и файловые действия.</li>
+      <li>Стадии, пин A и цветные серии дают пространственные ориентиры вместо набора разрозненных чисел.</li>
+      <li>Панель Items остаётся постоянно видимой, но визуально уступает таймлайну и не перетягивает фокус.</li>
+      <li>Пустое состояние подсказывает следующий шаг, а не имитирует сломанный экран из прочерков.</li>
+      <li>Опасные библиотечные действия отделены от действий над выбранной записью.</li>
+    </ul>
+  </section>
+  <section class="audit-card minus">
+    <h3>Минусы и риски</h3>
+    <ul>
+      <li>Четыре кривые, события и границы стадий одновременно создают высокую визуальную плотность.</li>
+      <li>Цвет — основной способ различать серии; без маркеров и доступной палитры часть линий будет трудно читать.</li>
+      <li>Сокращения PM, PDC, Diff и KPS требуют подсказок даже от опытного пользователя.</li>
+      <li>Явный Delete заметнее и быстрее, но находится близко к Rename; подтверждение удаления остаётся обязательным.</li>
+      <li>Правая колонка Items на узком окне съест ширину графика, поэтому нужен переход в нижний блок.</li>
+      <li>Полноценный графический скраббер — самый дорогой и рискованный элемент реализации и тестирования.</li>
+    </ul>
+  </section>
+</div>
+
+</div>
+</body>
+</html>

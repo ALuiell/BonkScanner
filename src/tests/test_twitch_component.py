@@ -147,6 +147,9 @@ class TwitchSessionTests(unittest.TestCase):
         harness.session.open_command_settings()
 
         self.assertEqual(order, ["prime", "refresh", "dialog"])
+        # And the chat preview is redrawn *after* the dialog closes, because
+        # that dialog is where the templates it renders get edited.
+        self.assertIn(("refresh_chat_preview",), harness.tab.calls)
 
     # -- auth -------------------------------------------------------------
 
@@ -613,38 +616,145 @@ class TwitchTabTests(unittest.TestCase):
         self.assertEqual(settings["cooldown_seconds"], 9)
         self.assertEqual(settings["commands"], {"stats": True})
 
+    def _badge_tab(self, **fields):
+        """A tab with a recording hero, for the merged-badge cases."""
+        painted = []
+
+        class _Suffix:
+            def __init__(self) -> None:
+                self.text = ""
+
+            def setText(self, value) -> None:
+                self.text = value
+
+            def setProperty(self, _name, _value) -> None:
+                pass
+
+            def style(self):
+                return None
+
+        fields.setdefault(
+            "_hero",
+            SimpleNamespace(
+                set_status=lambda caption, state, detail="": painted.append(
+                    (caption, state, detail)
+                )
+            ),
+        )
+        fields.setdefault("_account_entry", SimpleNamespace(setText=lambda _v: None))
+        fields.setdefault("_account_suffix", _Suffix())
+        fields.setdefault("_connect_btn", SimpleNamespace(setVisible=lambda _v: None,
+                                                          setEnabled=lambda _v: None))
+        fields.setdefault("_disconnect_btn", SimpleNamespace(setVisible=lambda _v: None))
+        fields.setdefault(
+            "_target_channel_entry", SimpleNamespace(setPlaceholderText=lambda _v: None)
+        )
+        return self._tab(**fields), painted
+
     def test_connected_and_disconnected_swap_the_two_buttons(self) -> None:
-        label, connect, disconnect, entry = [], [], [], []
-        tab = self._tab(
-            _auth_status_label=SimpleNamespace(setText=label.append),
-            _connect_btn=SimpleNamespace(setVisible=connect.append),
+        connect, disconnect, entry = [], [], []
+        tab, painted = self._badge_tab(
+            _connect_btn=SimpleNamespace(
+                setVisible=connect.append, setEnabled=lambda _v: None
+            ),
             _disconnect_btn=SimpleNamespace(setVisible=disconnect.append),
             _target_channel_entry=SimpleNamespace(setPlaceholderText=entry.append),
         )
 
         tab.show_connected("bonk")
-        self.assertIn("bonk", label[-1])
         self.assertEqual((connect[-1], disconnect[-1]), (False, True))
         self.assertEqual(entry, ["bonk"])
+        self.assertEqual(tab._account_suffix.text, "Authorized")
 
         tab.show_disconnected()
-        self.assertIn("Not connected", label[-1])
         self.assertEqual((connect[-1], disconnect[-1]), (True, False))
+        self.assertEqual(painted[-1][0], "NOT CONNECTED")
+        self.assertEqual(tab._account_suffix.text, "")
 
-    def test_bot_status_colours_follow_the_message(self) -> None:
-        for status, colour in (
-            ("Error: banned", "#f08b72"),
-            ("Connected", "#4fd67a"),
-            ("Connecting...", "#ffd23f"),
-            ("Stopped", "#f08b72"),
-            ("Idle", "#A0B0C5"),
+    def test_the_chat_preview_fills_the_template_tags(self) -> None:
+        """Raw `{kps}` in the card reads as a failed render, not as a preview.
+
+        It also shows the template, which the command dialog already shows. What
+        the card is for is the *result*, so the tags carry sample values.
+        """
+        from ui.tabs.twitch.panel import _fill_sample_tags
+
+        filled = _fill_sample_tags(
+            "KPS: {kps} | 60s Avg: {minute_avg} | Run Avg: {run_avg}"
+        )
+        self.assertNotIn("{", filled)
+        self.assertIn("188", filled)
+
+    def test_an_unknown_tag_does_not_break_the_preview(self) -> None:
+        """Templates are user-editable free text.
+
+        `format_map` raises on a tag it does not know, and a preview that throws
+        on someone's typo is worse than the raw template it replaced.
+        """
+        from ui.tabs.twitch.panel import _fill_sample_tags
+
+        self.assertEqual("Seeds: …", _fill_sample_tags("Seeds: {seeds_found}"))
+        # An unbalanced brace is theirs to fix, not ours to swallow -- shown as
+        # written rather than not shown at all.
+        self.assertEqual("Broken: {oops", _fill_sample_tags("Broken: {oops"))
+
+    def test_bot_status_maps_onto_badge_states(self) -> None:
+        """The five branches the inline-styled label had, as badge states.
+
+        The error case also moves the worker's message into the detail slot:
+        it is a sentence, and the badge is a 10.5px uppercase pill.
+        """
+        for status, caption, state, detail in (
+            ("Error: banned", "ERROR", "danger", "Error: banned"),
+            ("Connected", "CONNECTED", "ok", ""),
+            ("Connecting...", "CONNECTING", "warn", ""),
+            ("Stopped", "STOPPED", "off", ""),
+            ("Idle", "IDLE", "off", ""),
         ):
             with self.subTest(status=status):
-                shown = []
-                tab = self._tab(_bot_status_label=SimpleNamespace(setText=shown.append))
+                tab, painted = self._badge_tab()
+                tab._authorized = True
                 tab.show_bot_status(status)
-                self.assertIn(colour, shown[0])
-                self.assertNotIn("Status:", shown[0])
+                self.assertEqual(painted[-1], (caption, state, detail))
+
+    def test_authorization_states_do_not_paint_over_a_running_bot(self) -> None:
+        """The periodic token check must not stomp the bot's status.
+
+        `_on_validation_finished` calls `show_connected` on every successful
+        validation, and the validation timer runs for as long as the bot is up.
+        Before the two statuses shared a badge they were separate labels and
+        this was harmless; now it would repaint the bot's state once a cycle.
+        """
+        tab, painted = self._badge_tab()
+        tab.show_connected("bonk")
+        tab.show_bot_status("Connected")
+        self.assertEqual(painted[-1][0], "CONNECTED")
+
+        # The timer fires again, mid-session.
+        tab.show_connected("bonk")
+
+        self.assertEqual(
+            painted[-1][0],
+            "CONNECTED",
+            "a periodic re-validation repainted the badge over the bot's status",
+        )
+        self.assertEqual(tab.bot_status_text(), "Connected")
+
+    def test_bot_status_text_is_the_bots_own_string(self) -> None:
+        """`on_bot_finished` parses this to decide whether to write "Stopped".
+
+        If it returned the merged badge's caption, an account state could answer
+        a question about the bot -- and an error message would be erased by the
+        very check written to preserve it.
+        """
+        tab, _painted = self._badge_tab()
+        tab.show_bot_status("Error: banned from channel")
+        self.assertEqual(tab.bot_status_text(), "Error: banned from channel")
+
+        # A disconnect repaints the badge; the bot's own string must survive it.
+        tab.show_disconnected()
+        self.assertEqual(tab.bot_status_text(), "Error: banned from channel")
+        self.assertIn("error", tab.bot_status_text().lower())
 
 
 if __name__ == "__main__":

@@ -1,0 +1,1512 @@
+/* ============================================================================
+   BonkScanner — Redesign QSS (v3, full)
+   Полный стиль под PySide6/Qt. Классы применяются через objectName в Python:
+   widget.setObjectName("primary")  /  для состояния: setProperty + polish.
+
+   ПАЛИТРА
+     bg (окно)        #0E1217
+     panel            #101419
+     card             #0B0F14
+     card inner       #141A22
+     border           #1B222B  (тонкая) / #2A3542 (контрол) / #2E3A48 (актив)
+     text primary     #EDF1F5
+     text head        #B9C2CE
+     text secondary   #8A94A3
+     text muted       #5C6675
+     accent           #2F6FB0  (border #3E82C6, hover #3781CE, press #276099)
+     info/slider      #38BDF8
+     ok / running     #22C55E / #6EE7A0 / #7DE68C
+     danger           #B91C1C (fill) / #F0787E (muted) / #F87171 (status)
+     rarity           Common #4ADE80 · Uncommon #60A5FA · Rare #E879F9
+                      Epic #C084FC · Legendary #FACC15
+   ШРИФТЫ  Inter (UI) · JetBrains Mono (числа/логи/таймкоды)
+
+   РАДИУСЫ  Один ярус — одно значение. Новое число здесь означает новый ярус,
+            а не «примерно как рядом», иначе они расползаются: до этой правки
+            на одной полосе записи жили 5 / 7 / 8 / 9 / 10 / 11.
+     индикатор   4  (checkbox)
+     бейдж       5  (hotkeyHint, tagLevel — мелкая подпись в рамке)
+     контрол     8  (кнопки, инпуты, сегменты, табы — всё нажимаемое)
+     группа      11 (рамка сегментов, шапка сабтабов — оболочка вокруг контролов)
+     карта       12 · панель 16 (в этой правке не менялись)
+
+   СОГЛАШЕНИЕ ПО objectName
+     Кнопки:   primary · danger · ghost · stopScanner · iconBtn · railToggle
+     Сегменты: [segmentedToggle="true"] (рамка) · segment
+               (+ prop role=go|halt, active=true|false, variant=armed)
+     Статус:   statusDot (+ prop state=running|idle|rec) · statusText · recText
+     Лого:     appLogo · appTitle
+     Карты:    panel · card · cardInner · groupTitle · sectionEyebrow
+     Строки:   rowLabel · rowValue · kpiLabel · kpiValue
+     Табы:     mainTabs · subTabs (pill)
+     Теги:     tagCommon · tagUncommon · tagRare · tagEpic · tagLegendary
+     Моно:     mono · logView · sessionMeta · timecode
+============================================================================ */
+
+/* ---------------------------------------------------------------- base ---- */
+QWidget {
+    background-color: #0E1217;
+    color: #EDF1F5;
+    font-family: "Inter", "Segoe UI", sans-serif;
+    font-size: 13px;
+}
+QMainWindow, QWidget#centralWidget { background-color: #0E1217; }
+QWidget#mainTabPage { background-color: transparent; }
+QWidget#templateListSurface { background-color: #101419; }
+QToolTip {
+    background-color: #141A22;
+    color: #EDF1F5;
+    border: 1px solid #2A3542;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+}
+
+/* ------------------------------------------------------------- header ---- */
+/* строка: [лого][title]  |  [статус·точка]  ...gap...  [session mono] [Help][Settings][Start/Stop] */
+QLabel#appLogo {                 /* контейнер под 28–32px иконку логотипа */
+    min-width: 30px; min-height: 30px;
+}
+QLabel#appTitle {
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.3px;
+    color: #EDF1F5;
+}
+QFrame#headerDivider {           /* вертикальный разделитель 1x18 */
+    background-color: #232B36;
+    max-width: 1px; min-width: 1px;
+}
+
+/* статус-индикатор возле лого — виджет `PulsingDot`: сам рисует точку 8px и
+   расходящееся кольцо, пока состояние живое. Поэтому фон здесь прозрачный, а
+   размер 18px — это место под кольцо, не размер самой точки.
+   Цвет по-прежнему задаётся здесь, через qproperty вместо background-color:
+     dot.setProperty("state","running"); dot.style().polish(dot)          */
+QLabel#statusDot, QLabel#recDot {
+    min-width: 18px; max-width: 18px; min-height: 18px; max-height: 18px;
+    background: transparent;
+}
+QLabel#statusDot                  { qproperty-dotColor: #5C6675; }  /* дефолт = idle */
+QLabel#statusDot[state="running"] { qproperty-dotColor: #22C55E; }
+QLabel#statusDot[state="idle"]    { qproperty-dotColor: #5C6675; }
+
+/* REC — зелёный, пока пишется, как `Live` у статуса OBS Overlay (не лампочка
+   камеры, там наоборот). Выключено — серый, тот же, что у idle: красный читался
+   как ошибка, а не как «записи нет». Пульсирует, пока идёт: `on` входит в
+   `PULSING_STATES`. */
+QLabel#recDot              { qproperty-dotColor: #5C6675; }
+QLabel#recDot[state="on"]  { qproperty-dotColor: #22C55E; }
+QLabel#recDot[state="off"] { qproperty-dotColor: #5C6675; }
+
+QWidget#recFlag, QWidget#statusPair { background: transparent; }
+
+QLabel#statusText { font-weight: 600; font-size: 12px; color: #8A94A3; }
+QLabel#statusText[state="running"] { color: #7DE68C; }
+QLabel#statusText[state="idle"]    { color: #8A94A3; }
+
+/* REC — всегда на линии: отсутствующий индикатор не отличить от сломанного.
+   Состояние несёт кружок, подпись остаётся ровной — красное слово «REC»
+   читалось бы как ошибка, а не как «запись не идёт». */
+QLabel#recText { color: #8A94A3; font-weight: 700; font-size: 12px; }
+
+QLabel#sessionMeta {
+    color: #8A94A3;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 12px;
+}
+
+QLabel#templateSectionTitle {
+    background: transparent;
+    color: #5C6675;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    padding: 8px 2px 4px 2px;
+}
+
+/* -------------------------------------------------------- panels/cards ---- */
+QFrame#panel {
+    background-color: #101419;
+    border: 1px solid #1B222B;
+    border-radius: 16px;
+}
+QFrame#card {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+}
+QFrame#cardInner {
+    background-color: #141A22;
+    border: 1px solid #2A3542;
+    border-radius: 10px;
+}
+/* A plain layout host placed inside a card/panel (a flow-layout wrapper for
+   chips, a VBox holding rows) is not a surface of its own -- it exists only
+   to lay children out. `QWidget`'s blanket background paints it anyway, so
+   without this it shows up as a seam of the wrong shade sitting on top of
+   whatever card it's inside. */
+QWidget#cardContent {
+    background: transparent;
+}
+QWidget#LiveStatsPage,
+QWidget#LiveStatsMain,
+QWidget#LiveStatsCardGrid,
+QWidget#LiveStatsCompactRows {
+    background: transparent;
+}
+QWidget#LiveStatsCompactStat {
+    background: transparent;
+    border: none;
+}
+QLabel#LiveStatsCompactStatName {
+    color: #D7DEE8;
+    font-size: 14px;
+    font-weight: 400;
+}
+QLabel#LiveStatsCompactStatValue {
+    color: #F3F4F6;
+    font-size: 15px;
+    font-weight: 700;
+}
+QLabel#LiveStatsExpandedStatName {
+    color: #D7DEE8;
+    font-size: 14px;
+}
+QLabel#LiveStatsExpandedStatValue {
+    color: #F3F4F6;
+    font-size: 15px;
+    font-weight: 700;
+}
+QLabel#LiveStatsLootStatName {
+    color: #D7DEE8;
+    font-size: 13px;
+}
+QLabel#LiveStatsLootStatValue {
+    color: #F3F4F6;
+    font-size: 14px;
+    font-weight: 700;
+}
+QLabel#LiveStatsMetaText {
+    color: #98A7BA;
+    font-size: 12px;
+}
+QGroupBox#LiveStatsRunSummary QLabel,
+QGroupBox#LiveStatsPowerups QLabel,
+QGroupBox#LiveStatsStageSummary QLabel {
+    font-size: 14px;
+}
+QWidget#LiveStatsBanishes {
+    background: transparent;
+    border: 1px solid rgba(248, 113, 113, 0.42);
+    border-radius: 7px;
+}
+QGroupBox#LiveStatsItems {
+    padding: 11px;
+}
+QScrollArea#LiveStatsItemsScroll {
+    background: transparent;
+    border: none;
+}
+QScrollArea#LiveStatsItemsScroll > QWidget > QWidget {
+    background: transparent;
+}
+QFrame#LiveStatsItemsDivider {
+    background-color: #1B222B;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+}
+QLabel#LiveStatsBanishesTitle {
+    color: #FCA5A5;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+}
+QLabel#LiveStatsBanishesText {
+    color: #98A7BA;
+}
+QWidget#BanishesChips {
+    background: transparent;
+}
+
+/* QGroupBox — стандартная карта-контейнер (Run Summary, Stage Summary, …) */
+QGroupBox {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+    margin-top: 10px;
+    padding: 14px 14px 12px 14px;
+    font-weight: 700;
+    font-size: 11px;
+    color: #B9C2CE;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 14px; top: 2px;
+    padding: 0 2px;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: #B9C2CE;
+}
+
+/* шаблоны в левой панели */
+QFrame#templateRowActive {
+    background-color: #141A22;
+    border: 1px solid #2E3A48;
+    border-radius: 10px;
+}
+QFrame#templateRowInactive {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+}
+QFrame#templateRowInactive, QFrame#templateRowInactive QLabel { color: #8A94A3; }
+
+/* -------------------------------------------------------------- text ---- */
+QLabel#sectionEyebrow {
+    color: #5C6675; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.6px; text-transform: uppercase;
+}
+QLabel#groupTitle {
+    color: #B9C2CE; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.4px; text-transform: uppercase;
+}
+QLabel#kpiLabel {
+    color: #5C6675; font-size: 11px; font-weight: 700;
+    letter-spacing: 0.4px; text-transform: uppercase;
+}
+QLabel#kpiValue      { font-size: 24px; font-weight: 800; color: #EDF1F5; }
+QLabel#kpiValueHero  { font-size: 30px; font-weight: 800; color: #EDF1F5; letter-spacing: -0.5px; }
+QLabel#rowLabel      { color: #8A94A3; font-size: 12px; }
+QLabel#rowValue      { color: #EDF1F5; font-size: 12px; font-weight: 700; }
+QLabel#rowValueMuted { color: #8A94A3; font-size: 12px; font-weight: 700; }
+QLabel#tableHead     { color: #B9C2CE; font-size: 12px; font-weight: 700; }
+QLabel#timecode {
+    color: #5C6675; font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px;
+}
+/* дельты (Compare / Chaos) */
+QLabel#deltaUp   { color: #4ADE80; font-weight: 700; }
+QLabel#deltaDown { color: #F87171; font-weight: 700; }
+
+/* --------------------------------------------------- main tab bar (top) ---- */
+QTabWidget::pane { border: none; }
+
+QTabBar { background: transparent; }
+QWidget#mainTabs QTabBar,
+QTabBar#mainTabs {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+}
+QTabBar::tab {
+    background: transparent;
+    color: #5C6675;
+    font-weight: 700;
+    font-size: 12.5px;
+    padding: 8px 16px;
+    border-radius: 8px;
+    margin: 5px 2px;
+}
+QTabBar::tab:selected {
+    background-color: #2F6FB0;
+    color: #ffffff;
+    font-weight: 800;
+}
+QTabBar::tab:hover:!selected { color: #B9C2CE; }
+
+/* sub-tabs (Stats/Loot/Weapons/Tomes/Chaos/Damage) — компактнее */
+QWidget#subTabs QTabBar,
+QTabBar#subTabs {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 11px;
+}
+QTabBar#subTabs::tab {
+    padding: 6px 13px;
+    font-size: 12px;
+    margin: 4px 2px;
+}
+QTabBar#subTabs::tab:selected { background-color: #2F6FB0; }
+
+/* One shared shell behind the tabs and their right-corner controls. */
+QFrame#SubTabsHeader {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 11px;
+}
+QTabWidget#subTabs QTabBar {
+    background: transparent;
+    border: none;
+}
+QWidget#SubTabsCorner {
+    background: transparent;
+}
+
+/* ----------------------------------------------------------- buttons ---- */
+/* secondary (по умолчанию) */
+QPushButton {
+    background-color: #161C24;
+    border: 1px solid #2A3542;
+    border-radius: 8px;
+    color: #EDF1F5;
+    font-weight: 700;
+    font-size: 12.5px;
+    padding: 9px 14px;
+}
+QPushButton:hover    { background-color: #1B222D; border-color: #37424F; }
+QPushButton:pressed  { background-color: #0B0F14; }
+QPushButton:disabled { background-color: #12161C; border-color: #1B222B; color: #4A5462; }
+
+/* primary — единственное главное действие экрана (Save, Add, Rename) */
+QPushButton#primary {
+    background-color: #2F6FB0; border: 1px solid #3E82C6; color: #ffffff;
+}
+QPushButton#primary:hover   { background-color: #3781CE; border-color: #4E93D7; }
+QPushButton#primary:pressed { background-color: #276099; }
+
+/* ghost — мелкие/встроенные (Show more, Set Compare Start) */
+QPushButton#ghost {
+    background: transparent; border: 1px solid transparent;
+    color: #9AA4B2; font-weight: 600; padding: 6px 12px; border-radius: 8px;
+}
+QPushButton#ghost:hover { background-color: #141A22; color: #EDF1F5; }
+
+/* danger — приглушён, заливается на hover (Delete, Disconnect, ✕) */
+QPushButton#danger {
+    background: transparent; border: 1px solid #4A2226; color: #F0787E;
+}
+QPushButton#danger:hover {
+    background-color: #B91C1C; border-color: #B91C1C; color: #ffffff;
+}
+
+/* stopScanner / stopServer / stopBot — яркое главное деструктивное действие */
+QPushButton#stopScanner {
+    background-color: #B91C1C; border: 1px solid #C8302F; color: #ffffff;
+    font-weight: 800; font-size: 13px; letter-spacing: 0.3px;
+    padding: 11px 16px; border-radius: 11px;
+}
+QPushButton#stopScanner:hover { background-color: #CC2626; }
+
+/* ------------------------------------------ сегментные переключатели ---- */
+/* `SegmentedToggle`: Start/Stop в шапке и Rec/Stop в полосе записи.
+   Рамка выбирается по СВОЙСТВУ, а не по objectName: `update_status_ui` зовёт
+   `_set_widget_style_role` на этом же виджете и переименовывает его в
+   `primary` / `stopScanner`, так что имя здесь ненадёжно.
+   Цвет сегмента задают три свойства: role (go|halt), active, variant. */
+/* 11, а не 10, по ярусу «группа» — и это ещё выравнивает две копии одного
+   контрола между собой. `#stopScanner` ниже задаёт 11 и попадает на эту же
+   рамку, когда `_set_widget_style_role` переименовывает её в шапке; селектор по
+   objectName специфичнее селектора по свойству, так что шапка уже рисовалась
+   с 11, а полоса записи — с 10. Один и тот же переключатель, два радиуса. */
+QFrame[segmentedToggle="true"] {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 11px;
+}
+QPushButton#segment {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: #5C6675;
+    font-weight: 700;
+    font-size: 12.5px;
+    padding: 7px 18px;
+}
+/* Погашенный сегмент — это состояние, а не поломка: он выключен, чтобы по нему
+   нельзя было запустить уже запущенное, но красится не как :disabled. */
+QPushButton#segment:disabled {
+    background: transparent; border-color: transparent; color: #5C6675;
+}
+QPushButton#segment[active="true"][role="go"] {
+    background-color: #2F6FB0; border-color: #3E82C6; color: #ffffff;
+}
+QPushButton#segment[active="true"][role="go"]:hover {
+    background-color: #3781CE; border-color: #4E93D7;
+}
+QPushButton#segment[active="true"][role="go"]:pressed { background-color: #276099; }
+/* ТОЛЬКО цвета. Вес и трекинг живут в базовом правиле #segment и не зависят
+   от состояния: подпись, которая при подсветке набирается жирнее, меряется
+   иначе, сегмент едет по ширине, и весь переключатель прыгает — то самое, ради
+   чего у него вообще фиксированные подписи. Шапка гуляла так на 3px. */
+QPushButton#segment[active="true"][role="halt"] {
+    background-color: #B91C1C; border-color: #C8302F; color: #ffffff;
+}
+QPushButton#segment[active="true"][role="halt"]:hover { background-color: #CC2626; }
+QPushButton#segment[active="true"][role="halt"]:pressed { background-color: #9F1616; }
+
+/* armed — запись взведена, но ещё не идёт. Тот же сегмент Stop (нажатие
+   отменяет взвод), но контуром и янтарным вместо красной заливки: красный
+   означал бы «пишется», а не пишется пока ничего. */
+QPushButton#segment[active="true"][role="halt"][variant="armed"] {
+    background: transparent; border-color: #5A4A12; color: #FACC15;
+}
+QPushButton#segment[active="true"][role="halt"][variant="armed"]:hover {
+    background-color: rgba(250, 204, 21, 0.10); border-color: #7A6520;
+}
+QPushButton#segment[active="true"][role="halt"][variant="armed"]:pressed {
+    background-color: rgba(250, 204, 21, 0.18);
+}
+
+/* --------------------------------------------------------- tab hero -------- */
+/* Шапка вкладок OBS / Twitch / In-game. Левая полоса цветом --info — это
+   единственное, что отличает её от обычной карточки, и она же связывает три
+   вкладки в один скелет. */
+QFrame[tabHero="true"] {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-left: 3px solid #38BDF8;
+    border-radius: 12px;
+}
+QLabel#heroIcon {
+    background-color: #141A22;
+    border: 1px solid #2A3542;
+    border-radius: 12px;
+    color: #38BDF8;
+}
+QLabel#heroTitle { font-size: 16px; font-weight: 800; color: #EDF1F5; }
+QLabel#heroSubtitle { color: #8A94A3; font-size: 12px; }
+
+/* Бейдж статуса. Четыре состояния, а не два: `off` — остановлено, `warn` —
+   переходное (connecting / validating / authorizing), `danger` — ошибка,
+   `ok` — работает. Длинный текст ошибки сюда не кладётся, он уходит в
+   подпись — см. `TabHero.set_status`. */
+QLabel#heroBadge {
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: 10.5px;
+    font-weight: 800;
+}
+QLabel#heroBadge[state="ok"] {
+    background-color: rgba(34, 197, 94, 0.10);
+    border: 1px solid rgba(34, 197, 94, 0.32);
+    color: #22C55E;
+}
+QLabel#heroBadge[state="warn"] {
+    background-color: rgba(250, 204, 21, 0.10);
+    border: 1px solid #7A6520;
+    color: #FACC15;
+}
+QLabel#heroBadge[state="danger"] {
+    background-color: rgba(248, 113, 113, 0.10);
+    border: 1px solid #4A2226;
+    color: #F87171;
+}
+QLabel#heroBadge[state="off"] {
+    background-color: #101419;
+    border: 1px solid #2A3542;
+    color: #5C6675;
+}
+
+/* ------------------------------------------------- settings tables --------- */
+/* Строка на виджет в диалогах настроек. Заменяет групбокс вокруг одного
+   спинбокса — шесть таких занимали большую часть высоты окна и делали виджет
+   с одним масштабом визуально равным виджету с четырьмя переключателями. */
+QLabel#tableHeader {
+    color: #5C6675; font-size: 10px; font-weight: 800;
+    padding-bottom: 4px;
+}
+QLabel#tableRowName { color: #EDF1F5; font-weight: 700; }
+QLabel#tableRowEmpty { color: #5C6675; }
+
+/* ----------------------------------------------------- settings cards ------ */
+/* Пронумерованная карточка вкладок OBS / Twitch / In-game. Заменяет QGroupBox
+   там, где в шапке нужны номер шага, подпись и кнопка справа — заголовок
+   QGroupBox рисуется в рамке и вместить их не может. */
+QFrame[settingsCard="true"] {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+}
+/* Разделитель под шапкой — нижняя граница самой шапки, а не отдельный QFrame:
+   иначе он не попадает под скругление карточки и торчит по краям. */
+QFrame[settingsCardHead="true"] {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #1B222B;
+}
+QLabel#settingsCardNumber {
+    background-color: #141A22;
+    border: 1px solid #2A3542;
+    border-radius: 5px;
+    color: #38BDF8;
+    font-size: 10.5px;
+    font-weight: 800;
+}
+QLabel#settingsCardTitle { font-size: 13px; font-weight: 700; color: #EDF1F5; }
+QLabel#settingsCardSubtitle { color: #5C6675; font-size: 10.5px; }
+QWidget#settingsCardBody { background: transparent; }
+
+/* Обёртка вокруг нескольких контролов одной строки — поле плюс суффикс, спинбокс
+   плюс подпись, четыре чекбокса опций. Голый QWidget красится в #0E1217 общим
+   правилом окна, а тело карточки — #0B0F14, поэтому такая обёртка проступала
+   светлым прямоугольником на всю ширину строки: заметнее всего там, где после
+   контролов стоит stretch и обёртка тянется до края карточки. */
+QWidget#fieldRow { background: transparent; }
+
+/* Два чекбокса «Announcements» на вкладке Twitch. Единственная карточка, где
+   подпись контрола — это и есть всё содержимое: у остальных настройка стоит
+   рядом с полем или плиткой, которые сами задают размер строки. 14px против
+   базовых 13, чтобы две строки в узкой колонке не читались как сноска. */
+QCheckBox#announcementCheck { font-size: 14px; }
+
+/* ---------------------------------------------------------- tip card ------- */
+/* Заменяет инфо-карточки вкладок OBS и In-game, которые раньше рисовались
+   инлайновыми стилями прямо в Python — с цветами (#111A2E, #1D4ED8, #3B82F6)
+   вне этой палитры и размерами шрифта в pt внутри HTML лейбла. */
+QFrame[tipCard="true"] {
+    background-color: #101419;
+    border: 1px solid #2A3542;
+    border-left: 3px solid #38BDF8;
+    border-radius: 8px;
+}
+QLabel#tipCardTitle {
+    color: #38BDF8;
+    font-size: 11px;
+    font-weight: 800;
+}
+QLabel#tipCardText { color: #8A94A3; font-size: 10.5px; }
+
+/* Короткая пометка справа от поля — «Authorized», «Detected». Одно слово: все
+   длинные состояния (авторизация, валидация, отказ) живут в бейдже шапки, где
+   у жизненного цикла есть место. */
+QLabel#fieldSuffix { color: #5C6675; font-size: 10.5px; font-weight: 700; }
+QLabel#fieldSuffix[state="ok"] { color: #22C55E; }
+
+/* Превью чата на вкладке Twitch — рендерится из настоящих шаблонов, не из
+   выдуманной строки, поэтому цвета внутри задаёт сам текст. */
+/* Легенда под превью раскладки: номер в блоке -> имя виджета. Блоки при
+   реальном масштабе (2560 холста в колонке 360px) шириной около двадцати
+   пикселей, имя туда не влезает физически — поэтому имена живут здесь. */
+QLabel#previewLegend { color: #8A94A3; font-size: 10.5px; }
+
+QLabel#chatPreview {
+    background-color: #101419;
+    border: 1px solid #1B222B;
+    border-radius: 8px;
+    padding: 10px;
+    font-size: 11px;
+}
+
+/* ------------------------------------------------------- module tiles ------ */
+/* Плитка-переключатель из сеток вкладок OBS / Twitch / In-game. Выбирается по
+   свойству, а не по objectName, по той же причине, что и рамка сегментов:
+   `_set_widget_style_role` переименовывает всё, что ему дают, и плитка бы
+   осталась без рамки. Радиус 8 — ярус «контрол»: плитка это один контрол, а не
+   группа, хотя внутри неё лежит другой виджет. */
+QFrame[moduleTile="true"] {
+    background-color: #101419;
+    border: 1px solid #1B222B;
+    border-radius: 8px;
+}
+QFrame[moduleTile="true"]:hover { border-color: #2A3542; }
+/* Включённая плитка — заливка, а не галочка: шестнадцать команд Twitch читаются
+   блоком цвета, а не по одной. Цвет — акцент с той же прозрачностью, что в
+   макете. */
+QFrame[moduleTile="true"][on="true"] {
+    background-color: rgba(47, 111, 176, 0.12);
+    border-color: #3E82C6;
+}
+QFrame[moduleTile="true"][on="true"]:hover { border-color: #4A8FD6; }
+/* Здесь стояло вложенное правило, подсвечивавшее название на включённой плитке
+   через qproperty у painted-тумблера внутри неё. `test_painted_control_palette`
+   его завалил, и он прав: палитра этого тумблера объявляется ровно в одном
+   месте (ниже, в его собственном блоке), а вложенное правило делало второе,
+   частичное объявление — ту самую дублирующуюся палитру, ради которой тест и
+   написан. Заливки самой плитки достаточно, чтобы прочитать состояние.
+   Селектор здесь намеренно не выписан: тот тест ищет свой блок подстрокой по
+   готовому листу, и упоминание в комментарии он принимает за объявление. */
+
+/* подсказка горячей клавиши рядом с сегментами */
+QLabel#hotkeyHint {
+    color: #5C6675; font-size: 10.5px; font-weight: 700;
+    border: 1px solid #2A3542; border-radius: 5px; padding: 1px 5px;
+}
+
+/* icon-only (Settings ⚙, Help ?) — квадрат 36x36, светлее фон */
+QPushButton#iconBtn {
+    background-color: #1C2530; border: 1px solid #33414F; color: #DCE3EC;
+    border-radius: 8px; padding: 0; min-width: 36px; min-height: 36px;
+}
+QPushButton#iconBtn:hover { background-color: #243040; border-color: #3E82C6; color: #ffffff; }
+
+/* сворачивание левой панели « / » */
+/* Нижняя кнопка свёрнутой рейки: «+» в режиме Templates, карандаш в Scores.
+   Своё правило, а не #primary, потому что #primary — текстовая кнопка и
+   наследует базовые padding: 9px 14px; на квадрате 34px от них остаётся 6px
+   содержимого, и глиф вжимался в середину. Геометрия здесь та же, что у
+   railToggle рядом, скругление — как у плиток над ней, а 20px против базовых
+   12.5px даёт плюсу вес, которого он на 34-пиксельном квадрате не имел. */
+QPushButton#railAdd {
+    background-color: #2F6FB0; border: 1px solid #3E82C6; color: #ffffff;
+    border-radius: 9px; padding: 0;
+    /* Никаких min-width/min-height: в QSS они задают *содержимое*, поэтому с
+       рамкой в 1px кнопка вырастала до 36px и переставала совпадать с
+       плитками над ней. Размер держит setFixedSize(34, 34) в коде. */
+    font-size: 20px; font-weight: 600;
+}
+QPushButton#railAdd:hover   { background-color: #3781CE; border-color: #4E93D7; }
+QPushButton#railAdd:pressed { background-color: #276099; }
+
+QPushButton#railToggle {
+    background-color: #161C24; border: 1px solid #232B36; color: #C6CDD8;
+    border-radius: 8px; padding: 0; min-width: 34px; min-height: 34px; font-size: 15px;
+}
+QPushButton#railToggle:hover { background-color: #1B222D; color: #EDF1F5; }
+
+/* маленькая ghost-кнопка (Items → Show more) */
+QPushButton#smallGhost {
+    background: transparent; border: 1px solid #2A3542; color: #C6CDD8;
+    border-radius: 8px; padding: 5px 10px; font-size: 11.5px; font-weight: 600;
+}
+QPushButton#smallGhost:hover { background-color: #141A22; color: #EDF1F5; }
+
+/* ------------------------------------------------------------ inputs ---- */
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    background-color: #0E1217;
+    border: 1px solid #2A3542;
+    border-radius: 8px;
+    padding: 6px 8px;
+    color: #EDF1F5;
+    selection-background-color: #2F6FB0;
+    selection-color: #ffffff;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus {
+    border-color: #38BDF8;
+}
+QLineEdit:disabled, QComboBox:disabled { color: #5C6675; border-color: #1B222B; }
+
+QComboBox::drop-down {
+    border: none; width: 20px;
+    subcontrol-origin: padding; subcontrol-position: center right;
+}
+QComboBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #8A94A3;
+    margin-right: 8px;
+}
+QComboBox QAbstractItemView {
+    background-color: #101419;
+    border: 1px solid #2A3542;
+    border-radius: 8px;
+    color: #EDF1F5;
+    selection-background-color: #2F6FB0;
+    selection-color: #ffffff;
+    outline: none;
+    padding: 4px;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border; subcontrol-position: top right;
+    background: #161C24; border: none; border-top-right-radius: 8px;
+    width: 18px;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border; subcontrol-position: bottom right;
+    background: #161C24; border: none; border-bottom-right-radius: 8px;
+    width: 18px;
+}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background: #1B222D;
+}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    width: 0; height: 0;
+    border-left: 3px solid transparent; border-right: 3px solid transparent;
+    border-bottom: 4px solid #8A94A3;
+}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    width: 0; height: 0;
+    border-left: 3px solid transparent; border-right: 3px solid transparent;
+    border-top: 4px solid #8A94A3;
+}
+
+/* checkbox / radio */
+QCheckBox, QRadioButton { spacing: 8px; color: #EDF1F5; }
+QCheckBox::indicator, QRadioButton::indicator {
+    width: 16px; height: 16px; border: 1px solid #2A3542; background: #0E1217;
+}
+QCheckBox::indicator { border-radius: 4px; }
+QRadioButton::indicator { border-radius: 8px; }
+QCheckBox::indicator:hover, QRadioButton::indicator:hover { border-color: #38495E; }
+QCheckBox::indicator:checked {
+    background-color: #2F6FB0; border-color: #3E82C6;
+    image: none;
+}
+QRadioButton::indicator:checked {
+    background-color: #2F6FB0; border: 4px solid #0E1217;
+}
+
+/* `LabeledSwitch` (Expanded в углу сабтабов) — рисуется своим `paintEvent`,
+   поэтому обычные правила фона/рамки до него не доходят: он берёт цвета отсюда
+   через `qproperty-`. Ярлык скрыт, но менять палитру надо здесь, а не в
+   `ui/shared.py`, иначе он снова разъедется с сегментами и активным сабтабом.
+   Правил для ::indicator тут нет намеренно: `paintEvent` не зовёт базовый, так
+   что квадратик чекбокса не рисуется вообще и гасить его нечем. */
+QCheckBox[labeledSwitch="true"] {
+    qproperty-labelColor: #8A94A3;
+    qproperty-labelDisabledColor: #5C6675;
+    qproperty-trackOnColor: #2F6FB0;
+    qproperty-trackOnBorderColor: #3E82C6;
+    qproperty-knobOnColor: #EDF1F5;
+    qproperty-trackOffColor: #141A22;
+    qproperty-trackOffBorderColor: #2E3A48;
+    qproperty-trackHoverBorderColor: #38495E;
+    qproperty-knobOffColor: #5C6675;
+}
+
+/* ----------------------------------------------------- slider (timeline) ---- */
+QSlider::groove:horizontal { height: 4px; background: #1B222B; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #38BDF8; border-radius: 2px; }
+QSlider::add-page:horizontal { background: #1B222B; border-radius: 2px; }
+QSlider::handle:horizontal {
+    width: 14px; height: 14px; margin: -5px 0; background: #EDF1F5; border-radius: 7px;
+}
+QSlider::handle:horizontal:hover { background: #ffffff; }
+
+/* ------------------------------------------- progress / proportion bars ---- */
+QProgressBar {
+    background-color: #141A22; border: none; border-radius: 4px;
+    max-height: 6px; text-align: center; color: transparent;
+}
+QProgressBar::chunk { border-radius: 4px; background-color: #38BDF8; }
+/* по источнику урона можно задать цвет через objectName:
+   pb.setObjectName("barFire") и т.д. */
+QProgressBar#barFire::chunk   { background-color: #F97316; }
+QProgressBar#barKatana::chunk { background-color: #38BDF8; }
+QProgressBar#barDice::chunk   { background-color: #A78BFA; }
+QProgressBar#barThorns::chunk { background-color: #4ADE80; }
+
+/* --------------------------------------------------------- tables ---- */
+QTableWidget, QTableView {
+    background-color: #0B0F14;
+    alternate-background-color: #101419;
+    gridline-color: #1B222B;
+    border: 1px solid #1B222B;
+    border-radius: 12px;
+    color: #EDF1F5;
+    selection-background-color: #17324F;
+    selection-color: #EDF1F5;
+    outline: none;
+}
+QHeaderView::section {
+    background-color: #0B0F14;
+    color: #B9C2CE;
+    border: none;
+    border-bottom: 1px solid #1B222B;
+    padding: 8px 10px;
+    font-weight: 700;
+    font-size: 12px;
+}
+QTableView::item { padding: 6px 10px; }
+
+/* ------------------------------------------------ rarity chips (QLabel) ---- */
+QLabel#tagCommon    { background:#12261A; color:#4ADE80; border:1px solid #1F4A2E; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#tagUncommon  { background:#101E30; color:#60A5FA; border:1px solid #1E3A5C; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#tagRare      { background:#2A1730; color:#E879F9; border:1px solid #4A2A57; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#tagEpic      { background:#241633; color:#C084FC; border:1px solid #3D2A57; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#tagLegendary { background:#2E2708; color:#FACC15; border:1px solid #57481A; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#tagNeutral   { background:#161C24; color:#C6CDD8; border:1px solid #2A3542; border-radius:7px; padding:4px 9px; font-weight:600; font-size:12px; }
+QLabel#itemChipNote { background:transparent; color:#5C6675; font-size:12px; padding:4px 2px; }
+
+/* точка редкости (Stage Summary Items col): 7x7, цвет через objectName */
+QLabel#dotCommon    { background:#4ADE80; border-radius:4px; min-width:7px; max-width:7px; min-height:7px; max-height:7px; }
+QLabel#dotUncommon  { background:#60A5FA; border-radius:4px; min-width:7px; max-width:7px; min-height:7px; max-height:7px; }
+QLabel#dotRare      { background:#E879F9; border-radius:4px; min-width:7px; max-width:7px; min-height:7px; max-height:7px; }
+QLabel#dotEpic      { background:#C084FC; border-radius:4px; min-width:7px; max-width:7px; min-height:7px; max-height:7px; }
+QLabel#dotLegendary { background:#FACC15; border-radius:4px; min-width:7px; max-width:7px; min-height:7px; max-height:7px; }
+
+/* --------------------------------------------------------- scrollbars ---- */
+QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
+QScrollBar::handle:vertical { background: #2A3542; border-radius: 5px; min-height: 24px; }
+QScrollBar::handle:vertical:hover { background: #38495E; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 0; }
+QScrollBar::handle:horizontal { background: #2A3542; border-radius: 5px; min-width: 24px; }
+QScrollBar::handle:horizontal:hover { background: #38495E; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0; }
+QScrollArea { border: none; background: transparent; }
+
+/* ------------------------------------------------- mono (logs / numeric) ---- */
+/* ------------------------------------- окно Tracked Items (picker) ------- */
+QWidget#trackedPicker { background: transparent; }
+QLabel#dialogHint { color: #8A94A3; font-size: 12px; background: transparent; }
+QLabel#pickerCount { color: #5C6675; font-size: 11px; font-weight: 700; background: transparent; }
+/* Заголовок группы по редкости. Список и раньше был отсортирован по ней —
+   просто молча. */
+QLabel#pickerGroup {
+    color: #5C6675; font-size: 10px; font-weight: 700; letter-spacing: 0.4px;
+    background: transparent; padding: 6px 0 2px 0;
+}
+QScrollArea#pickerScroll { background: transparent; border: none; }
+QScrollArea#pickerScroll > QWidget > QWidget { background: transparent; }
+
+/* Собираемое правило: пунктир — это место, которое ждёт содержимого. */
+QWidget#rulePreview {
+    background-color: #141A22;
+    border: 1px dashed #2E3A48;
+    border-radius: 9px;
+}
+QLabel#previewEmpty { color: #5C6675; font-size: 12px; background: transparent; }
+/* Причина, по которой кнопка выключена. Раньше обе такие причины были
+   молчаливым бездействием. */
+QLabel#addNote { color: #FACC15; font-size: 11.5px; background: transparent; }
+/* `padding: 0` обязателен: без него наследуется базовый `9px 14px`, и в
+   кнопке 20x20 на глиф не остаётся места — крестик исчезает, а рамка читается
+   как пустой чекбокс. */
+QPushButton#chipRemove {
+    background: transparent; border: 1px solid #2A3542; border-radius: 6px;
+    color: #8A94A3; font-size: 12px; font-weight: 700; padding: 0;
+}
+QPushButton#chipRemove:hover { border-color: #4A2226; color: #F0787E; }
+
+/* ---------------------------------------------------- Session Stats ------ */
+QLabel#chipValue { font-size: 15px; font-weight: 800; color: #EDF1F5; background: transparent; }
+QLabel#tableEmpty { color: #5C6675; font-size: 12px; background: transparent; }
+
+QLabel#mapTitleBest  { color: #22C55E; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; }
+QLabel#mapTitleWorst { color: #5C6675; font-size: 11px; font-weight: 700; letter-spacing: 0.4px; }
+QLabel#mapScoreBest  { color: #22C55E; font-size: 20px; font-weight: 800; }
+QLabel#mapScoreWorst { color: #5C6675; font-size: 20px; font-weight: 800; }
+QLabel#mapValueBest  { color: #EDF1F5; font-size: 12.5px; font-weight: 700; }
+QLabel#mapValueWorst { color: #8A94A3; font-size: 12.5px; font-weight: 700; }
+
+QLabel#averageName  { font-size: 12.5px; font-weight: 700; background: transparent; }
+QLabel#averageFound { color: #5C6675; font-size: 11.5px; background: transparent; }
+QWidget#barTrack { background-color: #141A22; border-radius: 3px; }
+QWidget#barFill  { border-radius: 3px; }
+
+/* Строка правила: разделитель снизу у всех, кроме последней. */
+QWidget#trackedRow     { border-bottom: 1px solid #1B222B; background: transparent; }
+QWidget#trackedRowLast { background: transparent; }
+QLabel#chipPlus { color: #5C6675; font-size: 11px; font-weight: 700; background: transparent; }
+/* Условий ровно два, и выделяется то, которое сужает подсчёт. */
+QLabel#condBadge {
+    color: #93C5FD; background-color: #101E30; border: 1px solid #1E3A5C;
+    border-radius: 5px; padding: 2px 6px; font-size: 10px; font-weight: 700;
+}
+QLabel#condBadgeMuted {
+    color: #5C6675; background: transparent; border: 1px solid #2A3542;
+    border-radius: 5px; padding: 2px 6px; font-size: 10px; font-weight: 700;
+}
+QLabel#trackedCount { color: #EDF1F5; font-size: 15px; font-weight: 800; background: transparent; }
+/* Доля — второе по важности число в строке, а не сноска. */
+QLabel#trackedRate      { color: #EDF1F5; font-size: 12.5px; font-weight: 700; background: transparent; }
+QLabel#trackedRateMuted { color: #5C6675; font-size: 12.5px; font-weight: 700; background: transparent; }
+
+/* ------------------------------------------------------- панель логов ---- */
+QWidget#logPanel { background: transparent; }
+QWidget#logChips {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 9px;
+}
+QPushButton#logChip {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    color: #5C6675;
+    font-weight: 700;
+    font-size: 11.5px;
+    padding: 5px 11px;
+}
+QPushButton#logChip:hover { color: #EDF1F5; }
+QPushButton#logChip:checked { background-color: #161C24; color: #EDF1F5; }
+/* Точка уровня — тем же цветом, каким этот уровень рисуется в самом логе.
+   Значения продублированы из `ui/log_view.SEVERITY_DOT`: QSS не достаёт до
+   rich-text внутри QTextEdit, поэтому там они живут в Python. */
+QPushButton#logChip[severity="info"]:checked    { border-color: #2A3B52; color: #93C5FD; }
+QPushButton#logChip[severity="success"]:checked { border-color: #1F4A2E; color: #86EFAC; }
+QPushButton#logChip[severity="warning"]:checked { border-color: #57481A; color: #FDE68A; }
+QPushButton#logChip[severity="error"]:checked   { border-color: #4A2226; color: #FCA5A5; }
+
+QLineEdit#logSearch {
+    background-color: #0B0F14;
+    border: 1px solid #2A3542;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+QLabel#logFooter {
+    color: #5C6675;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 11px;
+    background: transparent;
+}
+
+QLabel#mono, QPlainTextEdit#logView, QTextEdit#logView {
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: 12px;
+    color: #5C6675;
+    background: transparent;
+    border: none;
+}
+QPlainTextEdit#logView, QTextEdit#logView {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+    padding: 8px;
+}
+
+/* ------------------------------------------------------- menu / footer ---- */
+QMenu {
+    background-color: #101419; border: 1px solid #2A3542; border-radius: 8px; padding: 4px;
+}
+QMenu::item { padding: 6px 20px; border-radius: 6px; color: #EDF1F5; }
+QMenu::item:selected { background-color: #17324F; }
+QLabel#footerMeta {
+    color: #5C6675; font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px;
+}
+
+/* ----------------------------------------------- Shared timeline controls ----
+   QPainter tokens live in ui/timeline_visuals.py:
+   A #38BDF8 / rgba(56,189,248,20), B #C084FC / rgba(192,132,252,20),
+   track #141A22, border #2A3542. */
+QWidget#CompareRunsPage,
+QWidget#CompareRunsTabPage,
+QWidget#CompareRunsWorkspacePage,
+QWidget#CompareRunsChooserPage,
+QStackedWidget#CompareRunsWorkspaceStack,
+QScrollArea#CompareRunsPageScroll,
+QScrollArea#CompareRunsPageScroll > QWidget > QWidget {
+    background: transparent;
+    border: none;
+}
+QFrame#CompareRunsRunPlaque,
+QGroupBox#CompareRunsTimelineCard {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 11px;
+}
+QFrame#CompareRunsRunPlaque[side="A"] { border-left: 3px solid #38BDF8; }
+QFrame#CompareRunsRunPlaque[side="B"] { border-left: 3px solid #C084FC; }
+QLabel#CompareRunsRunBadge {
+    min-width: 25px; max-width: 25px;
+    min-height: 22px; max-height: 22px;
+    border-radius: 6px;
+    font-weight: 900;
+    qproperty-alignment: AlignCenter;
+}
+QLabel#CompareRunsRunBadge[side="A"] {
+    color: #38BDF8; background-color: rgba(56, 189, 248, 0.12);
+}
+QLabel#CompareRunsRunBadge[side="B"] {
+    color: #C084FC; background-color: rgba(192, 132, 252, 0.12);
+}
+QLabel#CompareRunsRunName {
+    color: #EDF1F5;
+    font-size: 13px;
+    font-weight: 750;
+}
+QPushButton#CompareRunsChangeButton,
+QPushButton#CompareRunsSwapButton,
+QPushButton#CompareRunsChooseStats,
+QPushButton#CompareRunsItemDetails,
+QPushButton#CompareRunsInventoryToggle {
+    background-color: #141A22;
+    color: #B9C2CE;
+    border: 1px solid #2A3542;
+    border-radius: 7px;
+    padding: 5px 10px;
+    font-weight: 700;
+}
+QPushButton#CompareRunsChangeButton:hover,
+QPushButton#CompareRunsSwapButton:hover,
+QPushButton#CompareRunsChooseStats:hover,
+QPushButton#CompareRunsItemDetails:hover,
+QPushButton#CompareRunsInventoryToggle:hover {
+    color: #EDF1F5;
+    border-color: #38495E;
+    background-color: #1B222B;
+}
+QGroupBox#CompareRunsChooser,
+QGroupBox#CompareRunsStatsSelector,
+QGroupBox#CompareRunsOverviewCard,
+QGroupBox#CompareRunsStageTable,
+QGroupBox#CompareRunsItemsDiff,
+QGroupBox#CompareRunsInventory,
+QGroupBox#CompareRunsWeaponsTable,
+QGroupBox#CompareRunsTomesTable,
+QGroupBox#CompareRunsChaosTable {
+    background-color: #0B0F14;
+    border-color: #1B222B;
+}
+QWidget#CompareRunsStageCards,
+QWidget#CompareRunsCompactMetricCards {
+    background: transparent;
+    border: none;
+}
+QFrame#CompareRunsComparisonCard {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+}
+QFrame#CompareRunsComparisonCardHeader {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #1B222B;
+}
+QLabel#CompareRunsComparisonCardBadge {
+    color: #A9D9FF;
+    background-color: #152231;
+    border: none;
+    border-radius: 6px;
+    min-width: 22px;
+    min-height: 22px;
+    max-width: 22px;
+    max-height: 22px;
+    font-size: 13px;
+    font-weight: 800;
+}
+QLabel#CompareRunsComparisonCardTitle {
+    color: #EDF1F5;
+    background: transparent;
+    font-size: 15px;
+    font-weight: 800;
+}
+QLabel#CompareRunsComparisonCardMeta {
+    color: #5C6675;
+    background: transparent;
+    font-size: 12px;
+}
+QWidget#CompareRunsComparisonMetrics {
+    background-color: #1B222B;
+    border: none;
+}
+QFrame#CompareRunsMetricCell {
+    background-color: #0B0F14;
+    border: none;
+    border-radius: 0px;
+}
+QLabel#CompareRunsMetricLabel {
+    color: #8A94A3;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 700;
+}
+QLabel#CompareRunsMetricRunLabel {
+    background: transparent;
+    font-size: 12px;
+    font-weight: 900;
+}
+QLabel#CompareRunsMetricRunLabel[side="A"] { color: #38BDF8; }
+QLabel#CompareRunsMetricRunLabel[side="B"] { color: #C084FC; }
+QLabel#CompareRunsMetricValue {
+    color: #EDF1F5;
+    background: transparent;
+    font-size: 15px;
+}
+QLabel#CompareRunsMetricDelta {
+    background: transparent;
+    font-size: 13px;
+    font-weight: 800;
+}
+QLabel#CompareRunsCompactMetricEmpty {
+    color: #5C6675;
+    background: transparent;
+}
+QLabel#CompareRunsChooserTitle {
+    color: #EDF1F5;
+    font-weight: 800;
+}
+QLineEdit#CompareRunsChooserSearch,
+QLineEdit#CompareRunsStatsSearch {
+    background-color: #0E1217;
+    border: 1px solid #2A3542;
+    border-radius: 8px;
+    padding: 6px 9px;
+}
+QWidget#CompareRunsStatsTable QLabel,
+QWidget#CompareRunsMetricTable QLabel {
+    font-size: 16px;
+}
+QListWidget#CompareRunsRecordingList {
+    background-color: #0E1217;
+    border: 1px solid #1B222B;
+    border-radius: 8px;
+    padding: 3px;
+}
+QListWidget#CompareRunsRecordingList::item {
+    color: #B9C2CE;
+    border-bottom: 1px solid #1B222B;
+    padding: 0;
+}
+QListWidget#CompareRunsRecordingList::item:disabled {
+    color: #5C6675;
+    padding: 8px 9px;
+}
+QListWidget#CompareRunsRecordingList[side="A"]::item:selected {
+    color: #EDF1F5;
+    background-color: rgba(56, 189, 248, 0.12);
+    border-left: 2px solid #38BDF8;
+}
+QListWidget#CompareRunsRecordingList[side="B"]::item:selected {
+    color: #EDF1F5;
+    background-color: rgba(192, 132, 252, 0.12);
+    border-left: 2px solid #C084FC;
+}
+QWidget#RecordingRow {
+    background: transparent;
+}
+QLabel#RecordingRowName {
+    color: #EDF1F5;
+    font-size: 12.5px;
+    font-weight: 700;
+    background: transparent;
+}
+QLabel#RecordingRowMeta {
+    color: #5C6675;
+    font-size: 11px;
+    background: transparent;
+}
+QProgressBar#RecordingRowBar {
+    background: #151B23;
+    border: 0;
+    border-radius: 2px;
+}
+QProgressBar#RecordingRowBar::chunk {
+    background: #2E3A48;
+    border-radius: 2px;
+}
+QPushButton[timelineSlot="true"] {
+    background-color: #141A22;
+    color: #8A94A3;
+    border: 1px solid #2A3542;
+    border-radius: 7px;
+    padding: 5px 9px;
+    font-size: 11.5px;
+    font-weight: 700;
+}
+QPushButton[timelineSlot="true"]:hover {
+    color: #EDF1F5;
+    border-color: #38495E;
+}
+QPushButton[timelineSlot="true"][accentRole="blue"] { border-left: 3px solid #38BDF8; }
+QPushButton[timelineSlot="true"][accentRole="green"] { border-left: 3px solid #4ADE80; }
+QPushButton[timelineSlot="true"][accentRole="yellow"] { border-left: 3px solid #FACC15; }
+QPushButton[timelineSlot="true"][accentRole="orange"] { border-left: 3px solid #F59E0B; }
+QPushButton[timelineSlot="true"][accentRole="red"] { border-left: 3px solid #F0787E; }
+QPushButton[timelineSlot="true"][accentRole="purple"] { border-left: 3px solid #C084FC; }
+QPushButton[timelineSlot="true"][accentRole="sky"] { border-left: 3px solid #60A5FA; }
+QPushButton[timelineSlot="true"][accentRole="neutral"] { border-left: 3px solid #94A3B8; }
+QWidget#CompareRunsTimelineLegend {
+    background: transparent;
+    border: none;
+}
+QFrame#CompareRunsTimelineLegendItem {
+    background-color: #0E1217;
+    border: 1px solid #1B222B;
+    border-radius: 7px;
+}
+QLabel#CompareRunsTimelineLegendDot {
+    background: transparent;
+    font-size: 11px;
+}
+QLabel#CompareRunsTimelineLegendDot[accentRole="blue"] { color: #38BDF8; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="green"] { color: #4ADE80; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="yellow"] { color: #FACC15; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="orange"] { color: #F59E0B; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="red"] { color: #F0787E; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="purple"] { color: #C084FC; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="sky"] { color: #60A5FA; }
+QLabel#CompareRunsTimelineLegendDot[accentRole="neutral"] { color: #94A3B8; }
+QLabel#CompareRunsTimelineLegendName,
+QLabel#CompareRunsTimelineLegendEmpty {
+    color: #8A94A3;
+    background: transparent;
+    font-size: 11.5px;
+}
+QLabel#CompareRunsTimelineLegendName { font-weight: 700; }
+QLabel#CompareRunsTimelineLegendValue,
+QLabel#CompareRunsTimelineLegendDelta {
+    color: #B9C2CE;
+    background: transparent;
+    font-size: 11.5px;
+    font-weight: 700;
+}
+QLabel#CompareRunsTimelineLegendValue[side="A"] { color: #38BDF8; }
+QLabel#CompareRunsTimelineLegendValue[side="B"] { color: #C084FC; }
+QLabel#CompareRunsTimelineLegendDelta { color: #FACC15; }
+QLabel#CompareRunsTimelineLegendArrow,
+QLabel#CompareRunsTimelineLegendSeparator {
+    color: #3D4756;
+    background: transparent;
+}
+QLabel[timelinePosition="true"] {
+    color: #EDF1F5;
+    font-weight: 700;
+    background-color: #141A22;
+    border: 1px solid #2A3542;
+    border-radius: 8px;
+    padding: 3px 9px;
+}
+QLabel#CompareRunsOverviewHint {
+    color: #5C6675;
+    font-size: 11.5px;
+}
+QLabel#CompareRunsSnapshotSummary[side="A"] {
+    border-left: 2px solid #38BDF8;
+    padding-left: 9px;
+}
+QLabel#CompareRunsSnapshotSummary[side="B"] {
+    border-left: 2px solid #C084FC;
+    padding-left: 9px;
+}
+QTabWidget#CompareRunsTabs::pane {
+    border: none;
+    background: transparent;
+}
+QTabWidget#CompareRunsTabs QTabBar {
+    background-color: #0B0F14;
+    border: 1px solid #1B222B;
+    border-radius: 10px;
+}
+QTabWidget#CompareRunsTabs QTabBar::tab {
+    min-width: 0;
+    padding: 7px 13px;
+    margin: 3px 1px;
+    border-radius: 7px;
+}
+QTabWidget#CompareRunsTabs QTabBar::tab:selected {
+    background-color: #2F6FB0;
+    color: #FFFFFF;
+}
+
+/* ================================================= диалоги и предупреждения ==
+   Всё в этом разделе жило в legacy_stylesheet — запасном листе, который
+   `build_qt_app_stylesheet` берёт ТОЛЬКО когда этот файл не прочитался
+   (`base_stylesheet = redesign_stylesheet or legacy_stylesheet`). То есть в
+   рабочей сборке эти девять правил не применялись никогда: карточка
+   предупреждения теряла янтарный фон, заголовок — цвет и размер, четыре
+   кнопки поддержки — свои фирменные цвета. Перенесены сюда, в палитру
+   редизайна, а не скопированы старыми значениями. */
+
+/* Карточка «прочти это» (Auto-Reroll, напоминание про запись OBS). Тот же
+   инфо-синий и та же полоска слева, что у `tipCard` на вкладках OBS и
+   In-game: это один и тот же жест, и третьего вида для него не нужно.
+
+   Не янтарь, хотя объект и называется Warning: ни одно из двух окон ни о чём
+   не предупреждает — первое объясняет, для чего кнопка, второе напоминает
+   включить запись. Янтарь в программе значит «состояние не в порядке» (бейдж
+   warn, причина выключенной кнопки в picker'е), и раздавать его пояснениям
+   значит стирать этот сигнал.
+
+   И не акцентный #2F6FB0: это цвет кнопки OK внутри самой карточки. */
+QFrame#WarningCard {
+    background-color: rgba(56, 189, 248, 0.06);
+    border: 1px solid #1E4A63;
+    border-left: 3px solid #38BDF8;
+    border-radius: 12px;
+}
+QLabel#WarningTitle {
+    color: #38BDF8;
+    background: transparent;
+    font-size: 16px;
+    font-weight: 800;
+}
+
+/* Блок поддержки внизу настроек. */
+/* Заголовок, а не сигнал: цвет обычной шапки. Золотым он был в старом листе
+   и по той же причине снят, что и янтарь выше -- цвет здесь ничего не
+   сообщает, а четыре кнопки под ним свои цвета несут сами. */
+QLabel#SupportSectionLabel {
+    color: #B9C2CE;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 700;
+}
+/* Без бокового padding: он был нужен центрированному блоку под линейкой, а в
+   карточке отступ уже задан её полями — иначе текст стоит с уступом от
+   собственного заголовка. */
+QLabel#SupportSectionNote {
+    color: #8A94A3;
+    background: transparent;
+    font-size: 12px;
+}
+QFrame#SupportDivider {
+    background-color: #1B222B;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+}
+
+/* Четыре кнопки — единственное место в программе, где цвет не наш, а чужого
+   бренда, и это осознанно: их узнают по цвету раньше, чем прочитают. */
+QPushButton#PatreonButton {
+    background-color: #22181A; color: #FF6F61;
+    border: 1px solid #4B2B2F; border-radius: 8px;
+    font-weight: 700; padding: 7px 12px;
+}
+QPushButton#PatreonButton:hover { background-color: #2B1D20; border-color: #6A393F; }
+QPushButton#KofiButton {
+    background-color: #181F24; color: #29ABE0;
+    border: 1px solid #264555; border-radius: 8px;
+    font-weight: 700; padding: 7px 12px;
+}
+QPushButton#KofiButton:hover { background-color: #1D262D; border-color: #2F5F77; }
+QPushButton#GithubButton {
+    background-color: #151B23; color: #F0F6FC;
+    border: 1px solid #3D444D; border-radius: 8px;
+    font-weight: 700; padding: 7px 12px;
+}
+QPushButton#GithubButton:hover { background-color: #1F2832; border-color: #586069; }
+QPushButton#DiscordButton {
+    background-color: #1C2142; color: #AEBBFF;
+    border: 1px solid #3B4383; border-radius: 8px;
+    font-weight: 700; padding: 7px 12px;
+}
+QPushButton#DiscordButton:hover { background-color: #252B57; border-color: #5865F2; }
+
+/* QMessageBox — восемь окон в программе, и ни одного правила на них до сих
+   пор: они собирались из системных умолчаний внутри тёмного окна, поэтому
+   текст лип к иконке, а кнопки стояли вплотную к краю. Стилизуется сам
+   QMessageBox, а не QDialog: у него собственный внутренний layout. */
+QMessageBox {
+    background-color: #0B0F14;
+}
+QMessageBox QLabel {
+    background: transparent;
+    color: #EDF1F5;
+    font-size: 13px;
+    /* Отступ слева от иконки и снизу до кнопок: у QMessageBox нет полей, и
+       без них текст стоит в упор к обоим. */
+    padding: 4px 8px 10px 8px;
+}
+QMessageBox QPushButton {
+    min-width: 84px;
+}
+
+/* =============================================== общий каркас модальных окон ==
+   `ui/dialogs/shell.py`. До него у четырнадцати окон не совпадало ничего:
+   ширины 223…760 без шкалы, у половины не было заголовка внутри окна, кнопки
+   у одних лежали вплотную к рамке, у других с отступом. По отдельности это не
+   видно — видно на паре открытых подряд окон. */
+QLabel#dialogTitle {
+    color: #EDF1F5;
+    background: transparent;
+    font-size: 15px;
+    font-weight: 700;
+}
+QLabel#dialogSubtitle {
+    color: #8A94A3;
+    background: transparent;
+    font-size: 12px;
+}
+/* Линейка под шапкой — тот же приём, что у карточки настроек: не отдельный
+   QFrame с рамкой, а полоса в один пиксель. */
+QFrame#dialogHeadRule {
+    background-color: #1B222B;
+    border: none;
+    min-height: 1px;
+    max-height: 1px;
+}
+QWidget#dialogHead, QWidget#dialogFooter { background: transparent; }
+/* Одинаковая минимальная ширина: иначе кнопка «OK» вдвое уже «Cancel» рядом,
+   и пара читается как разные по весу. */
+QWidget#dialogFooter QPushButton { min-width: 96px; }
+QLabel#dialogNote { color: #5C6675; background: transparent; font-size: 12px; }
+/* То, о чём спрашивает окно, — имя записи в «удалить запись?». Не заголовок и
+   не подпись: это данные, и их читают. */
+QLabel#dialogSubject {
+    color: #EDF1F5;
+    background: transparent;
+    font-size: 13px;
+    font-weight: 600;
+}
+QLabel#dialogCardText { background: transparent; color: #EDF1F5; font-size: 13px; }
+
+/* ======================================================================
+   Нижняя полоска окна. До неё у окна не было футера вообще: в корневой
+   layout клались шапка и сплиттер, и всё. Поэтому версии и ссылкам негде
+   было жить — первая читалась только в заголовке окна, вторые лежали в
+   диалоге настроек, куда после первой настройки хоткеев не заходят.
+   ====================================================================== */
+QFrame#appFooter {
+    background-color: #080C11;
+    border: none;
+    border-top: 1px solid #1B222B;
+}
+/* Фон темнее корпуса (#0E1217), а не светлее: полоска должна уходить под
+   контент, а не всплывать над ним. Одной линии сверху для этого мало —
+   у Logs прямо над футером стоит своя строка «6 lines · buffer limit»,
+   и без разницы фонов две серые строки читались бы как одна лесенка. */
+QFrame#appFooter QLabel { background: transparent; }
+/* Только номер: имя приложения стоит в заголовке окна и в шапке, и третья
+   копия здесь ничего не добавляла. Вес 600, а не 700 — в паре «BonkScanner
+   v2.1.7» жирный отделял номер от имени, а в одиночку ему нечего отделять. */
+QLabel#footerVersionNumber { color: #8A94A3; font-size: 11.5px; font-weight: 600; }
+/* #2A3542, не #212B36: линия в один пиксель при масштабе 125% ложится на
+   полпикселя и половину контраста теряет — на замере тёмный вариант читался
+   как отсутствие разделителя вовсе. Это тот же цвет, что у делителя шапки. */
+QFrame#footerSeparator {
+    background-color: #2A3542;
+    border: none;
+}
+/* Кнопка, а не подпись: «Up to date» мёртвым текстом — самое бесполезное,
+   что тут может стоять, это факт на момент запуска без способа переспросить.
+   Перепроверка жила только за кнопкой в диалоге настроек, то есть в двух
+   кликах и одном модальном окне от строки, которая ответ и показывает. */
+QPushButton#footerUpdate {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 2px 1px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #5C6675;
+}
+QPushButton#footerUpdate:hover {
+    color: #B9C2CE;
+    border-bottom: 1px solid #2E3A48;
+    padding-bottom: 1px;
+}
+/* Единственное состояние, которое повышает голос, и единственное, где это
+   заслуженно: появилось то, чего у пользователя нет. */
+QPushButton#footerUpdate[state="available"] { color: #7DE68C; font-weight: 700; }
+QPushButton#footerUpdate[state="available"]:hover { color: #A7F3B4; border-bottom-color: #1F4A2E; }
+/* Пока запрос в полёте — не нажимается и не подсвечивается. */
+QPushButton#footerUpdate:disabled { color: #3F4A59; }
+
+/* Ссылки набраны тем же #8A94A3, что весь второстепенный текст: в шапке
+   цветом работает точка состояния, и второе цветное пятно на экране —
+   тем более просящее денег — это ровно то, что раздражает. */
+QPushButton#footerLink, QPushButton#footerSupportLink {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 2px 1px;
+    font-size: 11.5px;
+    /* 500, а не 600: Qt рисует Segoe UI Semibold заметно жирнее, чем браузер
+       в макете, и правый край начинал перевешивать строку с версией. */
+    font-weight: 500;
+    color: #8A94A3;
+}
+QPushButton#footerLink:hover {
+    color: #EDF1F5;
+    border-bottom: 1px solid #2E3A48;
+    padding-bottom: 1px;
+}
+/* Support чуть теплее соседей в покое и брендовый только под курсором —
+   #FF6F61 тот же, что у кнопки Patreon в настройках. */
+QPushButton#footerSupportLink { color: #93726E; }
+QPushButton#footerSupportLink:hover {
+    color: #FF6F61;
+    border-bottom: 1px solid #4B2B2F;
+    padding-bottom: 1px;
+}
+
+/* Всплывашка выбора площадки. Площадок две, и выбирать за пользователя
+   незачем; заодно это единственная форма, в которую влезает фраза
+   «программа бесплатная» — голая ссылка контекста не несёт. */
+QFrame#supportPopup { background: transparent; }
+QFrame#supportPopupCard {
+    background-color: #101419;
+    border: 1px solid #2A3542;
+    border-radius: 11px;
+}
+QFrame#supportPopupCard QLabel { background: transparent; }
+QLabel#supportPopupTitle { color: #B9C2CE; font-size: 12.5px; font-weight: 800; }
+QLabel#supportPopupNote { color: #8A94A3; font-size: 11px; }

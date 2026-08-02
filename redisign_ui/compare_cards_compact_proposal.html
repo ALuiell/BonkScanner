@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Compare Runs — compact comparison cards</title>
+  <style>
+    :root{
+      color-scheme:dark;
+      --page:#05070a;--surface:#0e1217;--card:#0b0f14;--raised:#141a22;
+      --line:#1b222b;--line2:#2a3542;--text:#edf1f5;--heading:#b9c2ce;
+      --muted:#5c6675;--a:#38bdf8;--b:#c084fc;--good:#7de68c;
+      --bad:#f0787e;--accent:#2f6fb0;--warning:#facc15;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;background:
+        radial-gradient(circle at 50% -20%,#111b29 0,transparent 36%),var(--page);
+      color:var(--text);font:13px/1.35 Inter,"Segoe UI",sans-serif
+    }
+    button{font:inherit;color:inherit}
+    .page{width:min(1180px,calc(100% - 32px));margin:28px auto 70px}
+    .head{display:flex;justify-content:space-between;gap:20px;align-items:end;margin-bottom:16px}
+    h1{font-size:19px;margin:0 0 3px}.sub{color:var(--muted);font-size:12px}
+    .controls{display:flex;gap:7px;flex-wrap:wrap}
+    .control{
+      border:1px solid var(--line2);background:var(--raised);border-radius:8px;
+      padding:6px 10px;cursor:pointer;font-weight:700;color:#8a94a3
+    }
+    .control:hover{border-color:#38495e;color:var(--text)}
+    .control.active{background:var(--accent);border-color:#3e82c6;color:#fff}
+    .legend{display:flex;gap:12px;align-items:center;margin:0 0 10px;color:var(--muted);font-size:11px}
+    .legend span{display:flex;align-items:center;gap:5px}.dot{width:7px;height:7px;border-radius:50%}
+    .dot.a{background:var(--a)}.dot.b{background:var(--b)}
+    .proposal{
+      border:1px solid var(--line);background:var(--surface);border-radius:14px;
+      padding:13px;box-shadow:0 20px 60px #0005
+    }
+    .proposal-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+    .proposal-title b{font-size:12px}.proposal-title span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+    .view{display:none}.view.active{display:block}
+
+    /* Recommended: two useful cards per row without making values tiny. */
+    .card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+    .stage-card{
+      background:var(--card);border:1px solid var(--line);border-radius:10px;
+      overflow:hidden;transition:.14s
+    }
+    .stage-card:hover{border-color:var(--line2);translate:0 -1px}
+    .stage-head{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:8px 10px;border-bottom:1px solid var(--line)
+    }
+    .stage-name{display:flex;align-items:center;gap:8px;font-weight:800}
+    .stage-number{
+      display:grid;place-items:center;width:22px;height:22px;border-radius:6px;
+      background:#152231;color:#a9d9ff;font-size:11px
+    }
+    .stage-meta{display:flex;gap:10px;color:var(--muted);font-size:10.5px}
+    .stage-meta strong{color:var(--heading)}
+    .metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line)}
+    .metric{background:var(--card);padding:8px 9px;min-width:0}
+    .metric-label{color:#8a94a3;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+    .pair{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:5px;font-variant-numeric:tabular-nums}
+    .pair+.pair{margin-top:2px}.run{font-size:9px;font-weight:900}.run.a{color:var(--a)}.run.b{color:var(--b)}
+    .value{text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .delta{margin-top:5px;text-align:right;font-size:10.5px;font-weight:800}
+    .delta.good{color:var(--good)}.delta.bad{color:var(--bad)}.delta.same{color:var(--muted)}
+    .stage-card[data-difference="false"] .delta{color:var(--muted)}
+
+    /* Dense list: maximum scan speed for many entities. */
+    .dense-list{display:grid;gap:5px}
+    .dense-card{
+      display:grid;grid-template-columns:110px repeat(4,minmax(115px,1fr));
+      border:1px solid var(--line);background:var(--card);border-radius:9px;overflow:hidden
+    }
+    .dense-stage{padding:10px;border-right:1px solid var(--line);font-weight:800;display:flex;align-items:center;gap:7px}
+    .dense-metric{padding:7px 9px;border-right:1px solid var(--line)}
+    .dense-metric:last-child{border:0}
+    .dense-label{font-size:9.5px;color:var(--muted);text-transform:uppercase}
+    .dense-values{display:flex;justify-content:space-between;gap:8px;margin-top:3px;font-variant-numeric:tabular-nums}
+    .dense-values i{font-style:normal;font-size:10px}.dense-values i:first-child{color:var(--a)}.dense-values i:nth-child(2){color:var(--b)}
+    .dense-values b{font-size:10.5px}
+
+    /* Collapsed summary: useful for Weapons/Tomes where there may be many cards. */
+    .summary-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    .summary-card{border:1px solid var(--line);background:var(--card);border-radius:10px;overflow:hidden}
+    .summary-button{
+      width:100%;border:0;background:transparent;padding:10px;text-align:left;cursor:pointer;
+      display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center
+    }
+    .summary-button:hover{background:var(--raised)}
+    .summary-name{font-weight:800}.summary-caption{color:var(--muted);font-size:10.5px;margin-top:2px}
+    .summary-delta{font-weight:900;color:var(--good);font-variant-numeric:tabular-nums}
+    .summary-detail{display:none;border-top:1px solid var(--line);padding:8px 10px}
+    .summary-card.open .summary-detail{display:block}
+    .mini-row{display:grid;grid-template-columns:1fr auto auto auto;gap:10px;padding:4px 0;color:#8a94a3;font-size:10.5px}
+    .mini-row span:nth-child(2){color:var(--a)}.mini-row span:nth-child(3){color:var(--b)}.mini-row b{color:var(--heading)}
+    .only-diff .stage-card[data-difference="false"],.only-diff .dense-card[data-difference="false"]{display:none}
+    .note{margin-top:11px;color:var(--muted);font-size:11px}
+    .note b{color:var(--heading)}
+    @media(max-width:900px){
+      .head{align-items:start;flex-direction:column}.card-grid{grid-template-columns:1fr}
+      .dense-card{grid-template-columns:90px repeat(4,minmax(105px,1fr));overflow:auto}
+      .summary-list{grid-template-columns:1fr 1fr}
+    }
+    @media(max-width:620px){
+      .page{width:min(100% - 18px,1180px);margin-top:12px}.metrics{grid-template-columns:1fr 1fr}
+      .summary-list{grid-template-columns:1fr}.proposal{padding:9px}
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="head">
+      <div>
+        <h1>Compact comparison cards</h1>
+        <div class="sub">A focused mockup for Stages, Weapons, Tomes and other repeated comparisons.</div>
+      </div>
+      <div class="controls">
+        <button class="control active" data-view="grid">2-column cards</button>
+        <button class="control" data-view="dense">Dense rows</button>
+        <button class="control" data-view="summary">Collapsed cards</button>
+        <button class="control" id="differences">Only differences</button>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i class="dot a"></i> Run A · 885K</span>
+      <span><i class="dot b"></i> Run B · 950K</span>
+      <span>Delta is B − A</span>
+    </div>
+
+    <section class="proposal" id="proposal">
+      <div class="proposal-title">
+        <b>Stage comparison</b>
+        <span id="mode-label">Recommended · balanced density</span>
+      </div>
+
+      <div class="view active" data-panel="grid">
+        <div class="card-grid" id="stage-grid"></div>
+      </div>
+
+      <div class="view" data-panel="dense">
+        <div class="dense-list" id="dense-list"></div>
+      </div>
+
+      <div class="view" data-panel="summary">
+        <div class="summary-list" id="summary-list"></div>
+      </div>
+
+      <div class="note">
+        <b>Suggested direction:</b> use the two-column card for Stages and small collections;
+        use collapsed cards for Weapons/Tomes when the entity count grows. Both reuse the same metric-cell component.
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const stages = [
+      {name:"Stage 1",meta:"24:01 vs 22:07",diff:true, metrics:[
+        ["Time","24:01","22:07","−1:54","good"],["Kills","72.4K","78.1K","+5.7K","good"],
+        ["Chests","42","39","−3","bad"],["Items","31","35","+4","good"]]},
+      {name:"Stage 2",meta:"32:56 vs 31:08",diff:true, metrics:[
+        ["Time","32:56","31:08","−1:48","good"],["Kills","247K","236K","−11K","bad"],
+        ["Chests","46","42","−4","bad"],["Items","28","26","−2","bad"]]},
+      {name:"Stage 3",meta:"33:22 vs 36:37",diff:true, metrics:[
+        ["Time","33:22","36:37","+3:15","bad"],["Kills","561K","572K","+10K","good"],
+        ["Chests","18","14","−4","bad"],["Items","24","27","+3","good"]]},
+      {name:"Stage 4",meta:"03:41 vs 03:29",diff:false, metrics:[
+        ["Time","03:41","03:29","−0:12","good"],["Kills","41.2K","42.0K","+0.8K","good"],
+        ["Chests","2","2","—","same"],["Items","3","3","—","same"]]}
+    ];
+
+    const metricCell = ([label,a,b,delta,tone]) => `
+      <div class="metric">
+        <div class="metric-label">${label}</div>
+        <div class="pair"><span class="run a">A</span><span class="value">${a}</span></div>
+        <div class="pair"><span class="run b">B</span><span class="value">${b}</span></div>
+        <div class="delta ${tone}">${delta}</div>
+      </div>`;
+
+    document.querySelector("#stage-grid").innerHTML = stages.map((stage,index)=>`
+      <article class="stage-card" data-difference="${stage.diff}">
+        <header class="stage-head">
+          <div class="stage-name"><span class="stage-number">${index+1}</span>${stage.name}</div>
+          <div class="stage-meta"><span>${stage.meta}</span><strong>${stage.metrics.filter(x=>x[3]!=="—").length} changes</strong></div>
+        </header>
+        <div class="metrics">${stage.metrics.map(metricCell).join("")}</div>
+      </article>`).join("");
+
+    document.querySelector("#dense-list").innerHTML = stages.map((stage,index)=>`
+      <article class="dense-card" data-difference="${stage.diff}">
+        <div class="dense-stage"><span class="stage-number">${index+1}</span>${stage.name}</div>
+        ${stage.metrics.map(([label,a,b,delta])=>`
+          <div class="dense-metric"><div class="dense-label">${label}</div>
+            <div class="dense-values"><i>A ${a}</i><i>B ${b}</i><b>${delta}</b></div>
+          </div>`).join("")}
+      </article>`).join("");
+
+    document.querySelector("#summary-list").innerHTML = stages.map((stage,index)=>`
+      <article class="summary-card${index===0?" open":""}">
+        <button class="summary-button">
+          <span><span class="summary-name">${stage.name}</span><span class="summary-caption">${stage.meta} · ${stage.metrics.length} metrics</span></span>
+          <span class="summary-delta">${stage.metrics[0][3]}</span>
+        </button>
+        <div class="summary-detail">${stage.metrics.map(([label,a,b,delta])=>`
+          <div class="mini-row"><span>${label}</span><span>${a}</span><span>${b}</span><b>${delta}</b></div>`).join("")}
+        </div>
+      </article>`).join("");
+
+    const labels = {grid:"Recommended · balanced density",dense:"Maximum density",summary:"Expandable · best for long lists"};
+    document.querySelectorAll("[data-view]").forEach(button=>button.addEventListener("click",()=>{
+      document.querySelectorAll("[data-view]").forEach(x=>x.classList.toggle("active",x===button));
+      document.querySelectorAll("[data-panel]").forEach(x=>x.classList.toggle("active",x.dataset.panel===button.dataset.view));
+      document.querySelector("#mode-label").textContent=labels[button.dataset.view];
+    }));
+    document.querySelector("#differences").addEventListener("click",event=>{
+      event.currentTarget.classList.toggle("active");
+      document.querySelector("#proposal").classList.toggle("only-diff");
+    });
+    document.querySelectorAll(".summary-button").forEach(button=>button.addEventListener("click",()=>{
+      button.closest(".summary-card").classList.toggle("open");
+    }));
+  </script>
+</body>
+</html>

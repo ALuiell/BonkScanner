@@ -3,27 +3,20 @@ from __future__ import annotations
 import time
 
 from core.run_control import (
-    AbortCondition,
     DynamicFloat,
     DynamicString,
-    MapStateReader,
     RunControlError,
     RunControlProvider,
     SleepFunction,
-    WarningHandler,
 )
-from core.game_state import MapGenerationState, MapStat, StatValue
 
 __all__ = [
-    "AbortCondition",
     "DynamicFloat",
     "DynamicString",
     "KeyboardRunControlProvider",
-    "MapStateReader",
     "RunControlError",
     "RunControlProvider",
     "SleepFunction",
-    "WarningHandler",
 ]
 
 
@@ -34,13 +27,11 @@ class KeyboardRunControlProvider:
         *,
         reset_hotkey: DynamicString,
         reset_hold_duration: DynamicFloat,
-        map_load_delay: DynamicFloat,
         sleep: SleepFunction = time.sleep,
     ) -> None:
         self.keyboard = keyboard_module
         self.reset_hotkey = reset_hotkey
         self.reset_hold_duration = reset_hold_duration
-        self.map_load_delay = map_load_delay
         self._sleep = sleep
 
     def restart_run(self) -> None:
@@ -54,29 +45,6 @@ class KeyboardRunControlProvider:
         finally:
             self.keyboard.release(reset_hotkey)
 
-    def wait_for_next_run(
-        self,
-        *,
-        client: MapStateReader | None = None,
-        previous_state: MapGenerationState | None = None,
-        previous_stats: dict[MapStat, StatValue] | None = None,
-        warn: WarningHandler | None = None,
-        abort_condition: AbortCondition | None = None,
-    ) -> None:
-        del client, previous_state, previous_stats, warn
-        duration = self._map_load_delay()
-        if abort_condition is None:
-            self._sleep(duration)
-            return
-        deadline = time.monotonic() + max(0.0, float(duration))
-        while True:
-            if abort_condition():
-                raise InterruptedError("Run-control wait aborted.")
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return
-            self._sleep(min(0.05, remaining))
-
     def _reset_hotkey(self) -> str:
         return str(self.reset_hotkey() if callable(self.reset_hotkey) else self.reset_hotkey)
 
@@ -84,6 +52,3 @@ class KeyboardRunControlProvider:
         return float(
             self.reset_hold_duration() if callable(self.reset_hold_duration) else self.reset_hold_duration
         )
-
-    def _map_load_delay(self) -> float:
-        return float(self.map_load_delay() if callable(self.map_load_delay) else self.map_load_delay)

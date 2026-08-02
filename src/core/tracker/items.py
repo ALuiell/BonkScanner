@@ -83,6 +83,12 @@ def rows_for_rules(
             {
                 "id": rule.id,
                 "label": rule.label,
+                # The items themselves, not just the derived label. Session
+                # Stats renders a rule as its items -- rarity-coloured chips
+                # joined by `+` for a combination -- because the label is
+                # always built from these same names and the mode, so a name
+                # line above the chips repeats itself.
+                "item_names": tuple(rule.item_names),
                 "count": int(state.tracked_counts.get(rule.id, 0)),
                 "mode": rule.mode,
             }

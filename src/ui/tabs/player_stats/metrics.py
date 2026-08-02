@@ -42,8 +42,8 @@ from core.stats.formats import PlayerStatFormat
 LIVE_STATS_CARD_COLUMNS = 3
 LIVE_STATS_VALUE_WIDTH = 64
 RECORDINGS_STATS_CARD_COLUMNS = 3
-RECORDINGS_LIST_MIN_WIDTH = 190
-RECORDINGS_LIST_MAX_WIDTH = 280
+RECORDINGS_LIST_MIN_WIDTH = 241
+RECORDINGS_LIST_MAX_WIDTH = 331
 STAGE_SUMMARY_COLUMN_BASELINES = {
     "stage": "Stage",
     "time": "59:59",
@@ -80,8 +80,14 @@ def _retain_hidden_widget_size(widget) -> None:
     widget.setSizePolicy(policy)
 
 
-def _build_chests_stats_card():
-    """Six rows, plus the same reason-when-it-can't-fill line the rarity card
+def _build_chests_stats_card(*, include_chests_per_minute: bool = False):
+    """Six core rows, plus an optional rate and the shared unavailable line.
+
+    Recordings puts the derived average rate beside the counters in Loot.
+    Live Stats already shows that rate in Run Summary, so its shared card keeps
+    the original six-row shape.
+
+    The same reason-when-it-can't-fill line the rarity card
     uses below it: `Expected` here fails apart for the same underlying
     reason -- a late attach -- so it gets the same explanation, not a
     second one invented for this card.
@@ -97,26 +103,34 @@ def _build_chests_stats_card():
     form.setHorizontalSpacing(6)
     form.setVerticalSpacing(4)
     values = {}
-    for key, title in (
+    rows = [
         ("maps", "Maps"),
         ("total", "Total"),
+    ]
+    if include_chests_per_minute:
+        rows.append(("chests_per_minute", "Average chests/min"))
+    rows.extend((
         ("paid_free", "Paid / Free"),
         ("key_procs", "Key Procs"),
         ("expected", "Expected"),
         ("keys", "Keys"),
-    ):
+    ))
+    for key, title in rows:
+        name_label = QLabel(title)
+        name_label.setObjectName("LiveStatsLootStatName")
         value_label = QLabel("--")
+        value_label.setObjectName("LiveStatsLootStatValue")
         value_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
         value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         if key == "maps":
             value_label.setWordWrap(True)
-        form.addRow(title, value_label)
+        form.addRow(name_label, value_label)
         values[key] = value_label
     outer.addLayout(form)
 
     status_label = QLabel("")
+    status_label.setObjectName("LiveStatsMetaText")
     status_label.setWordWrap(True)
-    status_label.setStyleSheet("color: #98A7BA;")
     status_label.setVisible(False)
     outer.addWidget(status_label)
     values["status"] = status_label
@@ -147,13 +161,16 @@ def _build_loot_rarity_card():
     values = {}
     for row, rarity in enumerate(LUCK_RARITY_ORDER):
         name_label = QLabel(GAME_RARITY_NAMES[rarity])
+        name_label.setObjectName("LiveStatsLootStatName")
         name_label.setStyleSheet(
-            f"color: {ITEM_RARITY_COLOR_MAP.get(rarity, '#E5E7EB')}; font-weight: 700;"
+            f"color: {ITEM_RARITY_COLOR_MAP.get(rarity, '#E5E7EB')}; font-weight: 700; background: transparent;"
         )
         chance_label = QLabel("--")
+        chance_label.setObjectName("LiveStatsLootStatValue")
         chance_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
         chance_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         counts_label = QLabel("--")
+        counts_label.setObjectName("LiveStatsLootStatValue")
         counts_label.setMinimumWidth(LIVE_STATS_VALUE_WIDTH)
         counts_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         grid.addWidget(name_label, row, 0)
@@ -164,8 +181,8 @@ def _build_loot_rarity_card():
     layout.addLayout(grid)
 
     status_label = QLabel("")
+    status_label.setObjectName("LiveStatsMetaText")
     status_label.setWordWrap(True)
-    status_label.setStyleSheet("color: #98A7BA;")
     status_label.setVisible(False)
     layout.addWidget(status_label)
     values["status"] = status_label

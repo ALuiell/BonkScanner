@@ -1,3 +1,6 @@
+from core.template_colors import DEFAULT_TEMPLATE_COLOR
+
+
 def normalize_microwaves(value: int | None) -> int:
     if value is None or value < 1:
         return 1
@@ -108,7 +111,7 @@ def evaluate_map_by_scores(stats: dict, scores_config: dict) -> dict | None:
         }
         return {
             "name": achieved_tier,
-            "color": colors.get(achieved_tier, "BLUE"),
+            "color": colors.get(achieved_tier, DEFAULT_TEMPLATE_COLOR),
             "score": score
         }
         

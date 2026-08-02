@@ -49,6 +49,47 @@ def available_tracked_item_names() -> tuple[str, ...]:
     return tuple(sorted(available_item_display_names(), key=tracked_item_sort_key))
 
 
+#: Group captions for the picker, in the order `tracked_item_sort_key` already
+#: produces. The list has been sorted by rarity since it was written; nothing
+#: said so, so 87 items read as one arbitrary run.
+RARITY_GROUP_LABELS = (
+    ("LEGENDARY", "Legendary"),
+    ("EPIC", "Epic"),
+    ("RARE", "Rare"),
+    ("UNCOMMON", "Uncommon"),
+    ("COMMON", "Common"),
+    (None, "Other"),
+)
+
+
+def tracked_item_rarity(item_name: str) -> str | None:
+    canonical_name = normalize_item_name_for_rarity(str(item_name))
+    return ITEM_RARITY_BY_NAME.get(canonical_name)
+
+
+def group_tracked_items_by_rarity(item_names) -> list[tuple[str, tuple[str, ...]]]:
+    """`(caption, names)` per rarity, empty groups dropped.
+
+    Takes the order it is given rather than re-sorting: the caller passes
+    `available_tracked_item_names()`, which is already sorted by rarity and
+    then by name, and a second sort here could silently disagree with it.
+    """
+    buckets: dict[str | None, list[str]] = {}
+    for item_name in item_names:
+        buckets.setdefault(tracked_item_rarity(item_name), []).append(str(item_name))
+    groups = []
+    for rarity, caption in RARITY_GROUP_LABELS:
+        names = buckets.pop(rarity, [])
+        if names:
+            groups.append((caption, tuple(names)))
+    # Anything with a rarity the captions do not name still has to appear --
+    # a silently dropped item is an item the user cannot track.
+    leftovers = [name for names in buckets.values() for name in names]
+    if leftovers:
+        groups.append(("Other", tuple(leftovers)))
+    return groups
+
+
 def tracked_item_color(item_name: str) -> str:
     direct_color = item_display_color(item_name)
     if direct_color:

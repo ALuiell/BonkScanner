@@ -59,6 +59,8 @@ class MegabonkApp:
     def __init__(self):
         self._ensure_qt_application()
         self.window = _AppWindow(self)
+        self._window_shown = False
+        self._after_window_shown_callbacks = []
         self._invoker = UiInvoker()
         self._close_protocol_handler = None
         self._is_shutting_down = False
@@ -113,7 +115,7 @@ class MegabonkApp:
         # made `Scanner` an object that builds its own tab. Eleven slots left
         # here, and the measurement that allowed it is the same one steps
         # 21c/21d/23b ran: of the eleven, exactly two had a production reader
-        # outside `gui_scanner` -- `tab_stats` and `stats_tracked_items_label`,
+        # outside `gui_scanner` -- `tab_stats` and the tracked-item rows,
         # both already reached by `gui_overlay` through named ports rather than
         # by attribute, so both ports simply changed which object they name.
         # The other nine were mentioned only by these `= None` lines.
@@ -256,7 +258,7 @@ class MegabonkApp:
         # split created, alongside `_recordings_list_view` in `_build_tab_router`.
         self._overlay_view = self._overlay
         self._in_game_overlay = build_in_game_overlay(self)
-        self._in_game_overlay.start_runtime()
+        self.run_after_window_shown(self._in_game_overlay.start_runtime)
         self.player_stats_last_run_id = None
         self.player_stats_disabled_items_cache = None
         self.player_stats_disabled_items_refresh_pending = False
@@ -297,6 +299,12 @@ class MegabonkApp:
         self._templates_panel.refresh_templates()
         self._templates_panel.refresh_scores_templates_list()
         self._templates_panel.refresh_scores_ui()
+        # After the three refreshes above, never before them: collapsing builds
+        # the rail's tiles from the panel's checkbox dicts, and those are empty
+        # until `refresh_templates`/`refresh_scores_templates_list` fill them.
+        # Restoring any earlier would come up with a rail of zero tiles.
+        if config.LEFT_RAIL_COLLAPSED:
+            self._left_rail.collapse(restoring=True)
         self.setup_hotkeys()
         self.update_timer()
         self.coordinator.start_refresh_loop(
@@ -571,6 +579,14 @@ class MegabonkApp:
         if overlay is not None:
             overlay.stop_in_game_overlay()
 
+    # The overlay layout hotkey is edited in two places -- the In-Game Overlay
+    # tab and the Settings dialog -- so whichever one saved has to tell the
+    # other. The dialog calls this; the tab calls its own refresh directly.
+    def refresh_in_game_overlay_hotkey_ui(self) -> None:
+        overlay = self.__dict__.get("_in_game_overlay")
+        if overlay is not None:
+            overlay.refresh_hotkey_ui()
+
     # The combat pass calls this the instant it publishes a new KPS value, so
     # the widget stops waiting for the overlay's own timer to come round. Same
     # forwarding shape as the two above, and here for the same reason: the
@@ -627,6 +643,12 @@ class MegabonkApp:
 
     def _is_overlay_tab_active(self) -> bool:
         return _is_tab_active(self.tabview, "OBS Overlay")
+
+    # Same shape, one tab over: the In-Game Overlay tab's preview repaints on a
+    # timer and reads the game window while it does, so it asks first whether
+    # anyone is looking. The title is the one `build_layout` registers.
+    def _is_in_game_overlay_tab_active(self) -> bool:
+        return _is_tab_active(self.tabview, "In-Game Overlay")
 
     # -- player-stats refresh (step 20g) ----------------------------------
     #
@@ -798,6 +820,18 @@ class MegabonkApp:
             self._close_protocol_handler = callback
 
     def mainloop(self) -> int:
+        # A plain `show()`, and the opacity dance that stood here is deleted
+        # rather than kept. It was written against a wrong diagnosis: the two
+        # blank windows that flashed before this one were parentless stat grids
+        # made visible before a layout adopted them (see `live_stats.build`),
+        # not this window painting late. Measured on the real desktop, the
+        # dance changed nothing -- `show()` to first paint is ~80 ms with it and
+        # without it, and it was ~80 ms before the visual redesign too.
+        #
+        # That window is real and can be closed by doing the first polish and
+        # layout pass under `Qt.WA_DontShowOnScreen` before mapping anything.
+        # It is not worth a hack that only looks like it does that: kept, these
+        # lines would read as load-bearing to whoever finds them next.
         self.window.show()
         return self.qt_app.exec()
 
@@ -823,6 +857,22 @@ class MegabonkApp:
     def after_idle(self, callback):
         self._invoker.call_now.emit(callback)
         return None
+
+    def run_after_window_shown(self, callback) -> None:
+        """Run native auxiliary-window setup only after the main window maps."""
+        if self._window_shown:
+            self.after(0, callback)
+            return
+        self._after_window_shown_callbacks.append(callback)
+
+    def _handle_window_shown(self) -> None:
+        if self._window_shown:
+            return
+        self._window_shown = True
+        callbacks = tuple(self._after_window_shown_callbacks)
+        self._after_window_shown_callbacks.clear()
+        for callback in callbacks:
+            self.after(0, callback)
 
     def winfo_exists(self) -> bool:
         return not self._is_shutting_down

@@ -15,25 +15,33 @@ reasons still applies.
 from __future__ import annotations
 
 import os
+from functools import partial
 
+from ui.footer import build_footer
+from ui.log_view import LogView
+from ui.scanner_toggle import ScannerToggle
+from ui.status_indicators import LABEL_SPACING, PulsingDot, RecordingFlag
 from ui.shared import (
     _apply_button_icon,
+    _clear_layout,
     resource_path,
 )
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
     QSplitter,
     QTabWidget,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
+
+from core.template_colors import template_color_hex, template_color_tag
 
 from ui.dialogs import (
     DeleteDialog,
@@ -236,16 +244,32 @@ def build_layout(app):
     """
     app._tab_router = _build_tab_router(app)
     central = QWidget()
+    central.setObjectName("centralWidget")
     app.window.setCentralWidget(central)
-    root_layout = QVBoxLayout(central)
-    root_layout.setContentsMargins(10, 10, 10, 10)
-    root_layout.setSpacing(10)
 
-    _build_header(app, root_layout)
+    # Two layouts where there was one, and only because of the footer. The
+    # strip is the window's base edge, so it has to reach both side walls --
+    # inset by the 16px content margins it would read as a floating bar with a
+    # gap under it. So the margins move down onto an inner widget that holds
+    # everything that had them before, and the root keeps none.
+    root_layout = QVBoxLayout(central)
+    root_layout.setContentsMargins(0, 0, 0, 0)
+    root_layout.setSpacing(0)
+
+    content = QWidget()
+    content.setObjectName("centralContent")
+    root_layout.addWidget(content, 1)
+    root_layout.addWidget(build_footer(app))
+
+    content_layout = QVBoxLayout(content)
+    content_layout.setContentsMargins(16, 16, 16, 16)
+    content_layout.setSpacing(14)
+
+    _build_header(app, content_layout)
 
     splitter = QSplitter(Qt.Horizontal)
     splitter.setChildrenCollapsible(False)
-    root_layout.addWidget(splitter, 1)
+    content_layout.addWidget(splitter, 1)
 
     _build_left_tabs(app, splitter)
     right_layout = _build_right_panel(app, splitter)
@@ -267,56 +291,469 @@ def build_layout(app):
     # builder list it belongs in, in the position that keeps the tab bar's
     # order identical.
     app.tabview.addTab(app._in_game_overlay.build(), "In-Game Overlay")
-    _build_footer_controls(app, right_layout)
+    for index in range(app.tabview.count()):
+        app.tabview.widget(index).setObjectName("mainTabPage")
 
 
-def _build_header(app, root_layout):
-    header_wrap = QWidget()
-    header = QVBoxLayout(header_wrap)
-    header.setContentsMargins(0, 4, 0, 8)
-    header.setSpacing(6)
-    header.setAlignment(Qt.AlignHCenter)
-
-    title = QLabel("BonkScanner")
-    title.setObjectName("SectionHeader")
-    title.setAlignment(Qt.AlignHCenter)
-    header.addWidget(title, 0, Qt.AlignHCenter)
+def _build_header(app, parent_layout):
+    header_wrap = QFrame()
+    header_wrap.setObjectName("headerBar")
+    header = QHBoxLayout(header_wrap)
+    header.setContentsMargins(4, 2, 4, 9)
+    header.setSpacing(12)
 
     logo_label = QLabel()
     app.logo_label = logo_label
-    logo_label.setAlignment(Qt.AlignHCenter)
+    logo_label.setObjectName("appLogo")
+    logo_label.setAlignment(Qt.AlignCenter)
     logo_path = resource_path("media/bonkscanner_icon2.png")
     if os.path.exists(logo_path):
         pixmap = QPixmap(logo_path)
         if not pixmap.isNull():
             logo_label.setPixmap(
-                pixmap.scaled(72, 50, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pixmap.scaled(34, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
         else:
             logo_label.setText("BONK")
     else:
         logo_label.setText("BONK")
-    header.addWidget(logo_label, 0, Qt.AlignHCenter)
-    root_layout.addWidget(header_wrap)
+    header.addWidget(logo_label, 0, Qt.AlignVCenter)
+
+    title = QLabel("BonkScanner")
+    title.setObjectName("appTitle")
+    header.addWidget(title, 0, Qt.AlignVCenter)
+
+    divider = QFrame()
+    divider.setObjectName("headerDivider")
+    header.addWidget(divider, 0, Qt.AlignVCenter)
+
+    # Status reads next to the logo: the dot for the colour, the text for which
+    # of the four states it is. The scanner's switch stays at the far end of
+    # the header, where `_build_header_controls` puts it.
+    # The dot and its word go in together, on their own spacing. The header's
+    # is 12px, and `PulsingDot` carries ~5px of transparent padding around the
+    # circle so the ring has somewhere to expand, so side by side in the header
+    # they sat 17px apart and read as two unrelated things.
+    #
+    # `PulsingDot` rather than a plain label: the colour still comes from the
+    # stylesheet per `state`, but the widget has room around the dot to draw a
+    # ring into, so a live scanner reads as live rather than as a green pixel.
+    status_pair = QWidget()
+    status_pair.setObjectName("statusPair")
+    status_pair_layout = QHBoxLayout(status_pair)
+    status_pair_layout.setContentsMargins(0, 0, 0, 0)
+    status_pair_layout.setSpacing(LABEL_SPACING)
+
+    app.status_dot = PulsingDot()
+    app.status_dot.setObjectName("statusDot")
+    app.status_dot.setProperty("state", "idle")
+    status_pair_layout.addWidget(app.status_dot, 0, Qt.AlignVCenter)
+
+    app.status_label = QLabel("IDLE")
+    app.status_label.setObjectName("statusText")
+    app.status_label.setProperty("state", "idle")
+    status_pair_layout.addWidget(app.status_label, 0, Qt.AlignVCenter)
+
+    header.addWidget(status_pair, 0, Qt.AlignVCenter)
+
+    header.addStretch(1)
+
+    # Whether a recording is running was readable only from the Live Stats tab.
+    # It belongs on the header line for the same reason the scanner's status
+    # does: it is a thing the app is doing that nothing else on screen shows.
+    app.rec_flag = RecordingFlag()
+    header.addWidget(app.rec_flag, 0, Qt.AlignVCenter)
+
+    app.session_meta_label = QLabel("Session 00:00:00")
+    app.session_meta_label.setObjectName("sessionMeta")
+    header.addWidget(app.session_meta_label, 0, Qt.AlignVCenter)
+
+    # Scanner owns the status updates; these private widget references keep its
+    # existing two-port surface while letting it update the new header peers.
+    app.status_label._status_dot = app.status_dot
+    app.status_label._session_meta_label = app.session_meta_label
+    app.status_label._rec_flag = app.rec_flag
+
+    _build_header_controls(app, header)
+    parent_layout.addWidget(header_wrap)
 
 
 def _build_left_tabs(app, splitter):
     left_panel = QWidget()
     left_layout = QVBoxLayout(left_panel)
     left_layout.setContentsMargins(0, 0, 0, 0)
+    left_layout.setSpacing(0)
     splitter.addWidget(left_panel)
 
+    # The left column has two states the mockup calls for -- the full 280px
+    # Templates/Scores panel, and a 52px icon rail. Both live in `left_panel`;
+    # `_LeftRail` swaps which one is visible and clamps the splitter width.
+    expanded = QWidget()
+    expanded_layout = QVBoxLayout(expanded)
+    expanded_layout.setContentsMargins(0, 0, 0, 0)
+
     app.left_tabview = QTabWidget()
+    app.left_tabview.setObjectName("mainTabs")
+    app.left_tabview.tabBar().setExpanding(True)
+    app.left_tabview.tabBar().setUsesScrollButtons(False)
     app.left_tabview.currentChanged.connect(app._tab_router.on_left_tab_changed)
-    left_layout.addWidget(app.left_tabview)
+
+    # The `«` collapse control rides in the tab bar's corner, next to the
+    # Templates/Scores pills, exactly where the mockup places it.
+    collapse_btn = QPushButton("«")
+    collapse_btn.setObjectName("railToggle")
+    collapse_btn.setToolTip("Collapse")
+    collapse_btn.setFixedSize(30, 30)
+    app.left_tabview.setCornerWidget(collapse_btn, Qt.TopRightCorner)
+    expanded_layout.addWidget(app.left_tabview)
+
+    collapsed = _build_collapsed_rail(app)
+
+    left_layout.addWidget(expanded)
+    left_layout.addWidget(collapsed)
+
+    app._left_rail = _LeftRail(
+        splitter,
+        left_panel,
+        expanded,
+        collapsed,
+        refresh=lambda: _rebuild_rail_dots(collapsed, app),
+    )
+    collapse_btn.clicked.connect(app._left_rail.collapse)
+    collapsed._expand_btn.clicked.connect(app._left_rail.expand)
 
     # The ~34 lines that built both left tabs are `TemplatesPanel.build()`'s
     # now (step 22c). Which tab opens stays here: that is a router question,
     # and the router is an object as of step 26 -- but *which index the bar
     # opens on* is the layout's, and `setCurrentIndex` is what fires the
     # router's first left-bar slot, one line after the connect above.
+    #
+    # Read *before* the tabs exist, and that is the whole point of the line.
+    # `addTab` fires `currentChanged`, so adding the Templates tab makes index
+    # 0 current and the router writes `EVALUATION_MODE = "templates"` -- and
+    # saves it. Reading config after the build therefore never returned
+    # "scores": the preference had already been overwritten by the act of
+    # building the bar, so Scores mode could not survive a restart and the
+    # saved value was destroyed on disk every launch.
+    saved_evaluation_mode = config.EVALUATION_MODE
     app._templates_panel = _build_templates_panel(app)
-    app.left_tabview.setCurrentIndex(1 if config.EVALUATION_MODE == "scores" else 0)
+    app.left_tabview.setCurrentIndex(1 if saved_evaluation_mode == "scores" else 0)
+
+    # The rail's bottom button follows the collapsed mode -- Add in Templates,
+    # Edit in Scores -- so it is wired to the dispatcher rather than to either
+    # dialog. It can only be wired once the panel it dispatches to exists.
+    collapsed._add_btn.clicked.connect(lambda: _on_rail_action(app, collapsed))
+
+
+class _VerticalRailLabel(QLabel):
+    """A `QLabel` that paints its text rotated to read bottom-to-top.
+
+    The collapsed rail's "TEMPLATES" eyebrow is vertical in the mockup, which
+    Qt style sheets cannot express; a ten-line `paintEvent` is the whole cost
+    of matching it.
+    """
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setPen(QColor("#5C6675"))
+        painter.setFont(self.font())
+        painter.translate(0, self.height())
+        painter.rotate(-90)
+        painter.drawText(0, 0, self.height(), self.width(), Qt.AlignCenter, self.text())
+        painter.end()
+
+    def sizeHint(self) -> QSize:
+        metrics = self.fontMetrics()
+        return QSize(metrics.height() + 2, metrics.horizontalAdvance(self.text()) + 10)
+
+
+def _rail_mode(app) -> tuple[str, list[tuple[str, str, bool]], bool]:
+    """The eyebrow, the tiles and the mode the rail is collapsing over.
+
+    `EVALUATION_MODE` is the router's own record of which left tab is open --
+    `TabRouter.on_left_tab_changed` writes it -- so the rail reads that rather
+    than re-deriving the selection from the tab bar. It is read once per
+    collapse and not watched: the tab bar is hidden while the rail is up, so
+    the mode cannot change underneath it.
+    """
+    if config.EVALUATION_MODE == "scores":
+        return "SCORES", app._templates_panel.rail_tier_entries(), True
+    return "TEMPLATES", _template_rail_entries(), False
+
+
+def _template_rail_entries() -> list[tuple[str, str, bool]]:
+    """`(name, colour, is_active)` for every template, actives first.
+
+    Read fresh each time the rail is shown so it reflects adds, edits and
+    activation toggles made while the panel was expanded.
+    """
+    active_names = list(config.ACTIVE_TEMPLATES)
+    active_set = set(active_names)
+    entries = []
+    for is_active in (True, False):
+        for template in config.TEMPLATES:
+            in_active = template["name"] in active_set
+            if in_active != is_active:
+                continue
+            color_hex = template_color_hex(template_color_tag(template))
+            entries.append((template["name"], color_hex, in_active))
+    return entries
+
+
+def _build_collapsed_rail(app):
+    rail = QWidget()
+    rail.setObjectName("leftRailCollapsed")
+    rail_layout = QVBoxLayout(rail)
+    rail_layout.setContentsMargins(0, 0, 0, 0)
+    rail_layout.setSpacing(10)
+
+    expand_btn = QPushButton("»")
+    expand_btn.setObjectName("railToggle")
+    expand_btn.setToolTip("Expand")
+    expand_btn.setFixedSize(44, 30)
+    rail_layout.addWidget(expand_btn, 0, Qt.AlignHCenter)
+
+    panel = QFrame()
+    panel.setObjectName("panel")
+    panel_layout = QVBoxLayout(panel)
+    panel_layout.setContentsMargins(6, 12, 6, 12)
+    panel_layout.setSpacing(10)
+
+    eyebrow = _VerticalRailLabel("TEMPLATES")
+    eyebrow_font = eyebrow.font()
+    eyebrow_font.setPointSize(8)
+    eyebrow_font.setBold(True)
+    eyebrow.setFont(eyebrow_font)
+    panel_layout.addWidget(eyebrow, 0, Qt.AlignHCenter)
+
+    dots_holder = QWidget()
+    dots_holder.setObjectName("cardContent")
+    dots_layout = QVBoxLayout(dots_holder)
+    dots_layout.setContentsMargins(0, 0, 0, 0)
+    dots_layout.setSpacing(10)
+    panel_layout.addWidget(dots_holder, 0, Qt.AlignHCenter)
+    panel_layout.addStretch(1)
+
+    # `railAdd`, not `primary`. `primary` is a text button and inherits the base
+    # rule's `padding: 9px 14px`, which on a square pinned to 34px leaves a 6px
+    # content box -- so the `+` came out squeezed into the middle at the app's
+    # 12.5px body size, next to a `»` toggle that sets its own `padding: 0`.
+    # Both states of this button are a glyph in a square: `+` here, an 18px
+    # pencil in Scores mode. `railAdd` gives it the icon-square geometry the
+    # rail's other two controls already have, in the primary blue.
+    add_btn = QPushButton("+")
+    add_btn.setObjectName("railAdd")
+    add_btn.setToolTip("Add template")
+    add_btn.setFixedSize(34, 34)
+    panel_layout.addWidget(add_btn, 0, Qt.AlignHCenter)
+
+    rail_layout.addWidget(panel, 1)
+
+    rail._expand_btn = expand_btn
+    rail._add_btn = add_btn
+    rail._eyebrow = eyebrow
+    rail._dots_layout = dots_layout
+    return rail
+
+
+def _rail_tile_stylesheet(color_hex: str, active: bool) -> str:
+    """An active tile is outlined in its own colour; an inactive one is not.
+
+    The pre-toggle rail separated the two states by background alone (`#141A22`
+    against `#0B0F14`), which is a difference of about three percent lightness
+    and reads as nothing at 34px. Now that the tiles are the control rather
+    than a legend, the border carries the state and the fill only supports it.
+    """
+    if active:
+        return (
+            "QPushButton#railTile{background:#141A22;border:1px solid "
+            + color_hex
+            + ";border-radius:9px;}"
+            "QPushButton#railTile:hover{background:#1B2430;}"
+        )
+    return (
+        "QPushButton#railTile{background:#0B0F14;border:1px solid #1B222B;"
+        "border-radius:9px;}"
+        "QPushButton#railTile:hover{background:#141A22;border-color:#2E3A48;}"
+    )
+
+
+def _rail_dot_stylesheet(color_hex: str, active: bool) -> str:
+    """The dot at full strength when active, faded when not.
+
+    Percentage alpha rather than a pre-mixed hex: the tile fill differs between
+    the two states, so a colour mixed against one of them would band on the
+    other.
+    """
+    if not active:
+        colour = QColor(color_hex)
+        return (
+            "background:rgba("
+            f"{colour.red()},{colour.green()},{colour.blue()},35%);"
+            "border-radius:4px;"
+        )
+    return f"background:{color_hex};border-radius:4px;"
+
+
+def _on_rail_tile_toggled(panel, tile, dot, name, color_hex, is_scores, checked) -> None:
+    """Mirror a tile's click onto the panel's checkbox, then restyle in place.
+
+    Restyled rather than rebuilt, and this is the whole reason the rail does
+    not simply call `_rebuild_rail_dots` here: `_template_rail_entries` groups
+    the active templates first, so rebuilding on toggle would slide the tile
+    out from under the cursor as it is clicked and shift every neighbour with
+    it. The order the rail collapsed with is the order it keeps until it is
+    expanded again.
+
+    Persistence is the checkbox's, not ours -- `set_template_active` fires
+    `save_checkbox_state`, `set_tier_active` fires `refresh_scores_ui`.
+    """
+    if is_scores:
+        panel.set_tier_active(name, checked)
+    else:
+        panel.set_template_active(name, checked)
+    tile.setStyleSheet(_rail_tile_stylesheet(color_hex, checked))
+    dot.setStyleSheet(_rail_dot_stylesheet(color_hex, checked))
+
+
+def _on_rail_action(app, rail) -> None:
+    """The rail's bottom button: Add template, or Edit in Scores mode.
+
+    Scores has nothing to add -- its expanded tab offers only Edit -- so the
+    one button follows the mode. Both dialogs rebuild the panel's checkbox
+    dicts, so the tiles are rebuilt after either returns; without that the rail
+    would keep showing the pre-dialog set, missing a template that was just
+    added.
+    """
+    if config.EVALUATION_MODE == "scores":
+        app._templates_panel.open_scores_settings_dialog()
+    else:
+        app._templates_panel.add_template_dialog()
+    _rebuild_rail_dots(rail, app)
+
+
+def _rebuild_rail_dots(rail, app) -> None:
+    """Repaint the rail for the mode it is showing, tiles and eyebrow both.
+
+    The tiles are checkable buttons rather than the frames they were: the rail
+    is a control now, and a template can be armed or disarmed without expanding
+    the panel to reach its checkbox.
+    """
+    eyebrow_text, entries, is_scores = _rail_mode(app)
+    rail._eyebrow.setText(eyebrow_text)
+    # The eyebrow paints rotated, so its *height* is the text's width --
+    # `sizeHint` recomputes from the new string only if geometry is invalidated.
+    rail._eyebrow.updateGeometry()
+
+    if is_scores:
+        rail._add_btn.setText("")
+        _apply_button_icon(rail._add_btn, "media/edit_icon.svg", 18)
+        rail._add_btn.setToolTip("Edit score system")
+    else:
+        rail._add_btn.setIcon(QIcon())
+        rail._add_btn.setText("+")
+        rail._add_btn.setToolTip("Add template")
+
+    _clear_layout(rail._dots_layout)
+    panel = app._templates_panel
+    for name, color_hex, is_active in entries:
+        tile = QPushButton()
+        tile.setObjectName("railTile")
+        tile.setCheckable(True)
+        tile.setChecked(is_active)
+        tile.setCursor(Qt.PointingHandCursor)
+        tile.setFixedSize(34, 34)
+        tile.setToolTip(name)
+        tile.setStyleSheet(_rail_tile_stylesheet(color_hex, is_active))
+
+        tile_layout = QHBoxLayout(tile)
+        tile_layout.setContentsMargins(0, 0, 0, 0)
+        tile_layout.setAlignment(Qt.AlignCenter)
+        dot = QLabel()
+        dot.setFixedSize(9, 9)
+        # Without this the dot swallows the press and the tile never toggles:
+        # it is a child widget sitting over the button's whole hit area.
+        dot.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        dot.setStyleSheet(_rail_dot_stylesheet(color_hex, is_active))
+        tile_layout.addWidget(dot)
+
+        # `partial`, not a closure: every tile in this loop would otherwise
+        # share the last `name` and `tile` the loop bound.
+        tile.toggled.connect(
+            partial(_on_rail_tile_toggled, panel, tile, dot, name, color_hex, is_scores)
+        )
+        rail._dots_layout.addWidget(tile, 0, Qt.AlignHCenter)
+
+
+def _save_rail_collapsed(collapsed: bool) -> None:
+    """Persist which of its two states the left column is in.
+
+    Same three lines as `TemplatesPanel.save_checkbox_state`: the live module
+    attribute, the dict that gets written, and the write.
+    """
+    config.LEFT_RAIL_COLLAPSED = collapsed
+    config.user_config["LEFT_RAIL_COLLAPSED"] = collapsed
+    config.save_config(config.user_config)
+
+
+class _LeftRail:
+    """Swap the left column between its full panel and its 52px icon rail.
+
+    Collapsing clamps `left_panel` to a fixed width and remembers the
+    splitter's proportions so expanding restores them; the icon dots are
+    rebuilt on each collapse so they mirror the current template selection.
+    """
+
+    _COLLAPSED_WIDTH = 58
+
+    def __init__(self, splitter, left_panel, expanded, collapsed, refresh) -> None:
+        self._splitter = splitter
+        self._left_panel = left_panel
+        self._expanded = expanded
+        self._collapsed = collapsed
+        # A callable rather than the app: the rail swaps two widgets and knows
+        # nothing else, and taking `app` here to reach one panel would give it
+        # the whole window to reach anything.
+        self._refresh = refresh
+        self._expanded_sizes = None
+        self.collapsed = False
+        collapsed.hide()
+
+    def toggle(self) -> None:
+        self.expand() if self.collapsed else self.collapse()
+
+    def collapse(self, *, restoring: bool = False) -> None:
+        """Swap to the icon rail. `restoring` replays the saved state at startup.
+
+        A restore differs from a click in both directions. It must not record
+        `_expanded_sizes`, because the window has not been shown yet and the
+        splitter would hand back provisional sizeHint widths that expanding
+        would then impose as if the user had chosen them. And it must not save,
+        because it is reproducing what was already saved.
+        """
+        if self.collapsed:
+            return
+        if not restoring:
+            self._expanded_sizes = self._splitter.sizes()
+        self._refresh()
+        self._expanded.hide()
+        self._collapsed.show()
+        self._left_panel.setFixedWidth(self._COLLAPSED_WIDTH)
+        self.collapsed = True
+        if not restoring:
+            _save_rail_collapsed(True)
+
+    def expand(self) -> None:
+        if not self.collapsed:
+            return
+        self._left_panel.setMinimumWidth(0)
+        self._left_panel.setMaximumWidth(16777215)
+        self._collapsed.hide()
+        self._expanded.show()
+        if self._expanded_sizes:
+            self._splitter.setSizes(self._expanded_sizes)
+        self.collapsed = False
+        _save_rail_collapsed(False)
 
 
 def _build_right_panel(app, splitter):
@@ -327,6 +764,9 @@ def _build_right_panel(app, splitter):
     splitter.setSizes([290, 970])
 
     app.tabview = QTabWidget()
+    app.tabview.setObjectName("mainTabs")
+    app.tabview.tabBar().setExpanding(True)
+    app.tabview.tabBar().setUsesScrollButtons(False)
     # Connected before a single `addTab` runs, and deliberately left that way:
     # see `TabRouter`'s header. Every `addTab` in `build_layout` fires this.
     app.tabview.currentChanged.connect(app._tab_router.on_right_tab_changed)
@@ -338,9 +778,12 @@ def _build_right_panel(app, splitter):
 def _build_logs_tab(app):
     app.tab_logs = QWidget()
     logs_layout = QVBoxLayout(app.tab_logs)
-    app.log_box = QTextEdit()
-    app.log_box.setReadOnly(True)
-    app.log_box.setFont(QFont("Consolas", 11))
+    logs_layout.setContentsMargins(0, 0, 0, 0)
+    # `app.log_box` still names whatever the scanner's `log_box` port returns,
+    # and the scanner still calls one method on it -- but that method is
+    # `append_log` now rather than `insertHtml`, because the panel owns records
+    # and derives the document from them. See `ui/log_view.py` for why.
+    app.log_box = LogView()
     logs_layout.addWidget(app.log_box)
     app.tabview.addTab(app.tab_logs, "Logs")
 
@@ -350,35 +793,31 @@ def _build_logs_tab(app):
 
 
 
-def _build_footer_controls(app, right_layout):
-    controls = QHBoxLayout()
+def _build_header_controls(app, controls):
+    # Two segments rather than one caption-swapping button. The size floors
+    # this line used to carry -- `setMinimumWidth(210)` / `setMinimumHeight(38)`
+    # over a button that measured 199x34 as `Start Scanner` and 194x37 as
+    # `Stop Scanner` -- are gone with the disagreement that needed them: the
+    # segments keep their own captions, so the control is one width in both
+    # states and the header no longer twitches on start and stop.
+    app.toggle_btn = ScannerToggle()
+    app.toggle_btn.toggle_requested.connect(app._scanner.toggle_main_loop)
+    controls.addWidget(app.toggle_btn)
+
     app.settings_btn = QPushButton("")
-    app.settings_btn.setObjectName("SettingsButton")
+    app.settings_btn.setObjectName("iconBtn")
     _apply_button_icon(app.settings_btn, "media/settings_icon.png", 20)
     app.settings_btn.setToolTip("Settings")
     app.settings_btn.clicked.connect(app.open_settings_dialog)
+
     app.help_btn = QPushButton("")
-    app.help_btn.setObjectName("HelpButton")
+    app.help_btn.setObjectName("iconBtn")
     _apply_button_icon(app.help_btn, "media/help_icon.svg", 20)
     app.help_btn.setToolTip("Help")
     app.help_btn.clicked.connect(app.open_help_dialog)
-    app.status_label = QLabel("Status: <span style='color:#9CA3AF;'>IDLE</span>")
-    app.status_label.setTextFormat(Qt.RichText)
-    app.status_label.setObjectName("StatusLabel")
-    app.toggle_btn = QPushButton("Start")
-    app.toggle_btn.setObjectName("ToggleButton")
-    # The scan component, not `app.toggle_main_loop`. The application carried
-    # that delegator only because this line ran with the app as `self`; 26c
-    # deletes it. `open_settings_dialog` and `open_help_dialog` above stay on
-    # the app for the opposite reason -- `SettingsDialog(window, master=self)`
-    # has to mean the application, and `gui_app` records what breaks if the
-    # `master` reads go quietly false.
-    app.toggle_btn.clicked.connect(app._scanner.toggle_main_loop)
-    controls.addWidget(app.settings_btn)
+
     controls.addWidget(app.help_btn)
-    controls.addWidget(app.status_label, 1)
-    controls.addWidget(app.toggle_btn)
-    right_layout.addLayout(controls)
+    controls.addWidget(app.settings_btn)
 
 
 def _build_tab_router(app):

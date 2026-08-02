@@ -227,6 +227,19 @@ class FakeSettingsMaster:
     def apply_run_control_mode(self) -> None:
         self.events.append("apply_run_control_mode")
 
+    def refresh_in_game_overlay_hotkey_ui(self) -> None:
+        # The In-Game Overlay tab shows the layout hotkey in a field and in the
+        # tip that is the only place explaining how to enter layout mode. A save
+        # that does not reach it leaves that tip naming a dead key.
+        self.events.append("refresh_in_game_overlay_hotkey_ui")
+
+    def refresh_scanner_reminder_ui(self) -> None:
+        # The OBS tab's copy of the reminder flag. Recorded rather than ignored
+        # so `test_settings_save_...` can assert the save actually reaches it --
+        # a dialog that saves without telling the tab leaves a checkbox that
+        # writes the stale value back on its next toggle.
+        self.events.append("refresh_scanner_reminder_ui")
+
     def log(self, _message: str, tag: str | None = None) -> None:
         del tag
         self.events.append("log")
@@ -307,7 +320,9 @@ class FakeOverlayServer:
         self.is_running = False
 
 
-def build_overlay_test_component(*, template_stats=None, session_rerolls: int = 0):
+def build_overlay_test_component(
+    *, template_stats=None, session_rerolls: int = 0, tracked_rows_sink=None
+):
     tracker = LiveRunTracker()
     server = FakeOverlayServer()
     state_store = SimpleNamespace(set_state=MagicMock())
@@ -327,7 +342,9 @@ def build_overlay_test_component(*, template_stats=None, session_rerolls: int = 
         coordinator,
         session_stats=session_stats,
         stats_tab=lambda: None,
-        stats_tracked_items_label=lambda: None,
+        set_tracked_item_rows=(
+            tracked_rows_sink if tracked_rows_sink is not None else (lambda _rows: None)
+        ),
         overlay_tab_active=lambda: True,
         server_rebuilt=lambda _server: None,
     )
@@ -834,6 +851,7 @@ class GuiRunControlTests(unittest.TestCase):
                 "key_procs": "71/123 (57.7%)",
                 "expected": "75.4",
                 "keys": "17 (63.0%)",
+                "chests_per_minute": "--",
             },
         )
 
@@ -858,6 +876,7 @@ class GuiRunControlTests(unittest.TestCase):
                 "key_procs": "34/51 (66.7%)",
                 "expected": "--",
                 "keys": "0 (0.0%)",
+                "chests_per_minute": "--",
             },
         )
 
@@ -931,7 +950,6 @@ class GuiRunControlTests(unittest.TestCase):
             "PLAYER_STATS_RECORD_HOTKEY": config.PLAYER_STATS_RECORD_HOTKEY,
             "AUTO_START_RECORDING": config.AUTO_START_RECORDING,
             "SHOW_OBS_REMINDER_ON_START_SCANNER": config.SHOW_OBS_REMINDER_ON_START_SCANNER,
-            "MAP_LOAD_DELAY": config.MAP_LOAD_DELAY,
             "RESET_HOLD_DURATION": config.RESET_HOLD_DURATION,
             "TOTAL_REROLLS": config.TOTAL_REROLLS,
             "ACTIVE_TEMPLATES": deepcopy(config.ACTIVE_TEMPLATES),
@@ -966,15 +984,19 @@ class GuiRunControlTests(unittest.TestCase):
             record_hotkey_entry=FakeEntry("f8"),
             auto_start_recording_var=FakeVar(True),
             show_obs_reminder_on_start_scanner_var=FakeVar(True),
-            map_load_delay_entry=FakeEntry("0.5"),
             reset_hold_duration_entry=FakeEntry("0.25"),
+            _initial_reset_hold_duration=config.RESET_HOLD_DURATION,
             record_interval_entry=FakeEntry("60"),
             master=master,
             destroy=lambda: destroyed.append(True),
         )
 
         with patch.object(config, "save_config") as save_config:
-            with patch.object(config, "update_game_reset_time") as update_game_reset_time:
+            with patch.object(
+                config,
+                "update_game_reset_time",
+                return_value=config.GameConfigUpdateResult(True),
+            ) as update_game_reset_time:
                 SettingsDialog.save(dialog)
 
         self.assertTrue(config.AUTO_START_RECORDING)
@@ -982,10 +1004,70 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertFalse(vod_capture(master).player_stats_auto_recording_suppressed)
         self.assertTrue(config.user_config["AUTO_START_RECORDING"])
         self.assertTrue(config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
+        # The OBS tab shows this same flag; a save that does not reach it leaves
+        # a checkbox that will write the old value back.
+        self.assertIn("refresh_scanner_reminder_ui", master.events)
+        self.assertIn("refresh_in_game_overlay_hotkey_ui", master.events)
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
-        self.assertTrue(update_game_reset_time.called)
+        update_game_reset_time.assert_called_once_with(0.2)
         self.assertEqual(destroyed, [True])
+
+    def test_settings_save_keeps_dialog_open_when_game_reset_time_cannot_be_applied(self) -> None:
+        original_duration = config.RESET_HOLD_DURATION
+        destroyed: list[bool] = []
+        dialog = types.SimpleNamespace(
+            hotkey_entry=FakeEntry("f7"),
+            reset_hotkey_entry=FakeEntry("r"),
+            record_hotkey_entry=FakeEntry("f8"),
+            auto_start_recording_var=FakeVar(False),
+            show_obs_reminder_on_start_scanner_var=FakeVar(False),
+            reset_hold_duration_entry=FakeEntry("0.25"),
+            _initial_reset_hold_duration=original_duration,
+            record_interval_entry=FakeEntry("60"),
+            master=FakeSettingsMaster(),
+            destroy=lambda: destroyed.append(True),
+        )
+        failure = config.GameConfigUpdateResult(
+            False,
+            "Windows did not allow BonkScanner to write to the game config file.",
+        )
+
+        with patch.object(config, "update_game_reset_time", return_value=failure):
+            with patch.object(config, "save_config") as save_config:
+                with patch.object(gui_dialogs.QMessageBox, "warning") as warning:
+                    SettingsDialog.save(dialog)
+
+        save_config.assert_not_called()
+        self.assertEqual(config.RESET_HOLD_DURATION, original_duration)
+        self.assertEqual(destroyed, [])
+        warning.assert_called_once()
+        warning_text = warning.call_args.args[2]
+        self.assertIn(failure.reason, warning_text)
+        self.assertIn("Administrator", warning_text)
+
+    def test_settings_save_does_not_touch_game_config_when_hold_duration_is_unchanged(self) -> None:
+        duration = round(float(config.RESET_HOLD_DURATION), 2)
+        dialog = types.SimpleNamespace(
+            hotkey_entry=FakeEntry(config.HOTKEY),
+            reset_hotkey_entry=FakeEntry(config.RESET_HOTKEY),
+            record_hotkey_entry=FakeEntry(config.PLAYER_STATS_RECORD_HOTKEY),
+            auto_start_recording_var=FakeVar(config.AUTO_START_RECORDING),
+            show_obs_reminder_on_start_scanner_var=FakeVar(
+                config.SHOW_OBS_REMINDER_ON_START_SCANNER
+            ),
+            reset_hold_duration_entry=FakeEntry(str(duration)),
+            _initial_reset_hold_duration=duration,
+            record_interval_entry=FakeEntry("60"),
+            master=FakeSettingsMaster(),
+            destroy=lambda: None,
+        )
+
+        with patch.object(config, "update_game_reset_time") as update_game_reset_time:
+            with patch.object(config, "save_config"):
+                SettingsDialog.save(dialog)
+
+        update_game_reset_time.assert_not_called()
 
     def test_twitch_command_settings_save_persists_commands_announcement_interval(self) -> None:
         accepted: list[bool] = []
@@ -1007,10 +1089,17 @@ class GuiRunControlTests(unittest.TestCase):
         save_config.assert_called_once_with(config.user_config)
 
     def test_twitch_command_settings_save_refreshes_session_snapshot_immediately(self) -> None:
+        """The double is only given what the application really has.
+
+        It used to carry `_combined_tracked_item_rules` and a `live_run_tracker`
+        too, because `save` reached for both. That is what made this case pass
+        over a `hasattr` probe that was false in every build: the method it
+        probed for is `gui_overlay.Overlay`'s, and `master` is the application.
+        Both are gone from `save` -- writes go through `TrackedItemSettings` --
+        and neither may come back here without the thing it names being real.
+        """
         refreshed: list[bool] = []
         master = types.SimpleNamespace(
-            live_run_tracker=types.SimpleNamespace(set_tracked_item_rules=lambda _rules: None),
-            _combined_tracked_item_rules=lambda: (),
             _refresh_session_stats_snapshot=lambda: refreshed.append(True),
         )
         dialog = types.SimpleNamespace(
@@ -1019,8 +1108,6 @@ class GuiRunControlTests(unittest.TestCase):
             templates_entries={"stats": FakeEntry("Live Stats: {Damage}")},
             disabled_item_checkboxes={},
             commands_announcement_interval_spin=FakeSpinBox(30),
-            twitch_use_session_tracked_items_cb=FakeCheckbox(False),
-            twitch_tags_layout=object(),
             master=master,
             accept=lambda: None,
         )
@@ -1028,7 +1115,6 @@ class GuiRunControlTests(unittest.TestCase):
         with patch.object(config, "save_config"):
             TwitchCommandSettingsDialog.save(dialog)
 
-        self.assertEqual(config.TWITCH_BOT["tracked_items_source"], "custom")
         self.assertEqual(refreshed, [True])
 
     def test_twitch_command_settings_filter_shows_ingame_disabled_items_without_show_all(self) -> None:
@@ -1178,9 +1264,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._rename_btn = FakeControl()
         app._cleanup_btn = FakeControl()
         app._delete_btn = FakeControl()
-        app._slider = FakeControl()
-        app._compare_set_btn = FakeControl()
-        app._compare_clear_btn = FakeControl()
+        app._scrubber = FakeControl()
         app._status_label = FakeLabel()
         app.refresh_loaded_vod_ui = lambda: None
         app.refresh_vods_list = lambda: None
@@ -1199,11 +1283,12 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertIsNone(app._loaded_vod)
                 self.assertFalse(app._name_entry.enabled)
                 self.assertFalse(app._rename_btn.isEnabled())
-                self.assertFalse(app._cleanup_btn.isEnabled())
                 self.assertFalse(app._delete_btn.isEnabled())
-                self.assertFalse(app._slider.isEnabled())
-                self.assertFalse(app._compare_set_btn.isEnabled())
-                self.assertFalse(app._compare_clear_btn.isEnabled())
+                # "Delete short" is not in this list any more: it acts on the
+                # whole library, so a recording being mid-load says nothing
+                # about whether it should be available.
+                self.assertTrue(app._cleanup_btn.isEnabled())
+                self.assertFalse(app._scrubber.isEnabled())
 
                 with patch_everywhere("rename_vod") as rename_vod:
                     app.rename_selected_vod()
@@ -1214,11 +1299,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIs(app._loaded_vod, loaded_vod)
         self.assertTrue(app._name_entry.enabled)
         self.assertTrue(app._rename_btn.isEnabled())
-        self.assertTrue(app._cleanup_btn.isEnabled())
         self.assertTrue(app._delete_btn.isEnabled())
-        self.assertTrue(app._slider.isEnabled())
-        self.assertTrue(app._compare_set_btn.isEnabled())
-        self.assertFalse(app._compare_clear_btn.isEnabled())
+        self.assertTrue(app._scrubber.isEnabled())
 
     def test_load_selected_vod_clears_old_ui_when_load_fails(self) -> None:
         app = build_recordings_tab()
@@ -1230,9 +1312,7 @@ class GuiRunControlTests(unittest.TestCase):
         app._rename_btn = FakeControl()
         app._cleanup_btn = FakeControl()
         app._delete_btn = FakeControl()
-        app._slider = FakeControl()
-        app._compare_set_btn = FakeControl()
-        app._compare_clear_btn = FakeControl()
+        app._scrubber = FakeControl()
         app._status_label = FakeLabel()
         app._clear_loaded_vod_selection = MagicMock()
 
@@ -1244,9 +1324,8 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertEqual(app._status_label.text(), "Could not load recording: broken file")
         self.assertFalse(app._name_entry.enabled)
         self.assertFalse(app._rename_btn.isEnabled())
-        self.assertTrue(app._cleanup_btn.isEnabled())
         self.assertFalse(app._delete_btn.isEnabled())
-        self.assertFalse(app._slider.isEnabled())
+        self.assertFalse(app._scrubber.isEnabled())
 
     def test_template_manager_dialog_expands_selected_template(self) -> None:
         MegabonkApp._ensure_qt_application()
@@ -3976,14 +4055,10 @@ class GuiRunControlTests(unittest.TestCase):
     def test_display_loaded_vod_snapshot_shows_legacy_in_game_fallback(self) -> None:
         app = build_recordings_tab()
         app._status_label = FakeLabel()
-        app._slider_time_label = FakeLabel()
+        app._position_label = FakeLabel()
+        app._legend_label = FakeLabel()
         app.vods_items_label = FakeLabel()
-        app._in_game_time_label = FakeLabel()
         app._chests_per_minute_label = FakeLabel()
-        app._mob_kills_label = FakeLabel()
-        app._kps_averages_label = FakeLabel()
-        app._level_label = FakeLabel()
-        app._new_items_label = FakeLabel()
         app._banishes_label = FakeLabel()
         app._stage_summary_labels = []
         app._rows = {"Damage": FakeLabel()}
@@ -4006,26 +4081,28 @@ class GuiRunControlTests(unittest.TestCase):
 
         app.display_loaded_vod_snapshot(0)
 
-        self.assertEqual(app._status_label.text(), "Legacy run | 1/1 at 00:00 | In-Game Time: --")
-        self.assertEqual(app._in_game_time_label.text(), "In-Game Time: --")
-        self.assertEqual(app._mob_kills_label.text(), "Mob Kills: --")
-        self.assertEqual(app._kps_averages_label.text(), "KPS: 60s -- | 5m --")
-        self.assertEqual(app._level_label.text(), "Level: --")
-        self.assertEqual(app._new_items_label.text(), "No previous snapshot")
+        # The plaque's status line is not written per snapshot any more: it
+        # restated the position pill below, which is where these three numbers
+        # sit next to the playhead they describe.
+        self.assertEqual(app._status_label.text(), "")
+        # The "Run Summary" card is gone; the same four values are the
+        # scrubber's readout now. Mob Kills appears because no slot is
+        # plotting it -- there is no scrubber on this harness at all.
+        self.assertEqual(app._position_label.text(), "1 / 1  ·  00:00  ·  in-game --")
+        legend = app._legend_label.text()
+        self.assertIn("Mob Kills: --", legend)
+        self.assertIn("KPS: 60s -- | 5m --", legend)
+        self.assertIn("Level: --", legend)
         self.assertEqual(app._banishes_label.text(), "No banishes yet")
         self.assertEqual(app.vods_items_label.text(), "Wrench x1")
 
     def test_display_loaded_vod_snapshot_updates_damage_sources_tab(self) -> None:
         app = build_recordings_tab()
         app._status_label = FakeLabel()
-        app._slider_time_label = FakeLabel()
+        app._position_label = FakeLabel()
+        app._legend_label = FakeLabel()
         app.vods_items_label = FakeLabel()
-        app._in_game_time_label = FakeLabel()
         app._chests_per_minute_label = FakeLabel()
-        app._mob_kills_label = FakeLabel()
-        app._kps_averages_label = FakeLabel()
-        app._level_label = FakeLabel()
-        app._new_items_label = FakeLabel()
         app._banishes_label = FakeLabel()
         app._stage_summary_labels = []
         app._rows = {}
@@ -4065,8 +4142,9 @@ class GuiRunControlTests(unittest.TestCase):
         sources, status_text = app._stat_cards.damage_sources[0]
         self.assertIsNone(status_text)
         self.assertEqual(sources[0].source_name, "Katana")
-        self.assertEqual(app._mob_kills_label.text(), "Mob Kills: 10 (150/s)")
-        self.assertEqual(app._kps_averages_label.text(), "KPS: 60s 243/s | 5m 221/s")
+        legend = app._legend_label.text()
+        self.assertIn("Mob Kills: 10 (150/s)", legend)
+        self.assertIn("KPS: 60s 243/s | 5m 221/s", legend)
 
     def test_format_in_game_time_truncates_fractional_seconds(self) -> None:
         self.assertEqual(formatting.format_in_game_time(None), "In-Game Time: --")
@@ -4160,7 +4238,7 @@ class GuiRunControlTests(unittest.TestCase):
         # the projection directly and that is where the seam is now.
         with patch.multiple(
             formatting,
-            format_compare_runs_overview_diff=MagicMock(return_value="overview"),
+            format_compare_runs_overview_compact_diff=MagicMock(return_value="overview"),
             format_compare_runs_stats_diff=MagicMock(return_value="stats"),
             build_compare_runs_items_summary=MagicMock(return_value="items"),
             build_compare_runs_items_table=MagicMock(return_value="items table"),
@@ -4216,12 +4294,13 @@ class GuiRunControlTests(unittest.TestCase):
 
         result = formatting.format_compare_runs_diff(vod_a, snapshot_a, vod_b, snapshot_b)
 
-        self.assertIn("Mode:</span> Run B compared to Run A", result)
-        self.assertIn("Time offset:</span> +00:06", result)
-        self.assertIn("Kill Difference:</span> +500", result)
-        self.assertIn("Level Difference:</span> +2", result)
-        self.assertIn("Item Difference:</span> +1", result)
-        self.assertIn("Damage:</span> 1.25x -> 1.50x (+0.25)", result)
+        self.assertIn("Mode:</span> Run A compared to Run B", result)
+        # Every delta is A - B, so run A being the smaller side reads negative.
+        self.assertIn("Time offset:</span> -00:06", result)
+        self.assertIn("Kill Difference:</span> -500", result)
+        self.assertIn("Level Difference:</span> -2", result)
+        self.assertIn("Item Difference:</span> -1", result)
+        self.assertIn("Damage:</span> 1.25x -> 1.50x (-0.25)", result)
 
     def test_format_compare_runs_diff_uses_selected_stat_labels(self) -> None:
         snapshot_a = SimpleNamespace(
@@ -4286,7 +4365,7 @@ class GuiRunControlTests(unittest.TestCase):
             stat_labels=("Difficulty",),
         )
 
-        self.assertIn("Difficulty:</span> 100% -> 200% (+100%)", result)
+        self.assertIn("Difficulty:</span> 100% -> 200% (-100%)", result)
 
     def test_format_compare_runs_diff_can_include_item_difference_section(self) -> None:
         snapshot_a = SimpleNamespace(
@@ -4317,12 +4396,13 @@ class GuiRunControlTests(unittest.TestCase):
         )
 
         self.assertIn(">Items</span>", result)
-        self.assertIn("B has more:</span>", result)
-        self.assertIn("Lightning Orb</span> +2", result)
-        self.assertIn("Beefy Ring</span> +1", result)
+        # The `+` follows run A, the side every delta on this screen is about.
         self.assertIn("A has more:</span>", result)
-        self.assertIn("Giant Fork</span> -1", result)
-        self.assertIn("Key</span> -3", result)
+        self.assertIn("Giant Fork</span> +1", result)
+        self.assertIn("Key</span> +3", result)
+        self.assertIn("B has more:</span>", result)
+        self.assertIn("Lightning Orb</span> -2", result)
+        self.assertIn("Beefy Ring</span> -1", result)
 
     def test_format_compare_runs_diff_can_expand_item_details_by_rarity(self) -> None:
         snapshot_a = SimpleNamespace(
@@ -4359,9 +4439,9 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn(">B</td>", result)
         self.assertIn(">Diff</td>", result)
         self.assertIn("Lightning Orb</span>", result)
-        self.assertIn("+2</span>", result)
+        self.assertIn("-2</span>", result)
         self.assertIn("Key</span>", result)
-        self.assertIn("-3</span>", result)
+        self.assertIn("+3</span>", result)
         self.assertGreaterEqual(result.count("&#9679;"), 3)
 
     def test_format_compare_runs_diff_can_include_weapon_and_tome_sections(self) -> None:
@@ -4421,10 +4501,10 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn(">Diff</td>", result)
         self.assertIn(">10</td>", result)
         self.assertIn(">20</td>", result)
-        self.assertIn(">+10</span>", result)
+        self.assertIn(">-10</span>", result)
         self.assertIn(">Tomes</span>", result)
         self.assertIn("Lv. 1 -> 3", result)
-        self.assertIn(">+0.20x</span>", result)
+        self.assertIn(">-0.20x</span>", result)
 
     def test_configured_compare_run_stat_labels_reads_valid_saved_config(self) -> None:
         original_config = deepcopy(config.user_config)
@@ -4508,10 +4588,10 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("Stage 1", result)
         self.assertIn("01:00", result)
         self.assertIn("01:15", result)
-        self.assertIn("(+00:15)", result)
+        self.assertIn("(-00:15)", result)
         self.assertIn("25", result)
         self.assertIn("40", result)
-        self.assertIn("(+15)", result)
+        self.assertIn("(-15)", result)
         self.assertIn("&rarr;", result)
 
     def test_save_compare_run_stat_selection_persists_checked_labels(self) -> None:
@@ -4746,26 +4826,10 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("Lost", result)
         self.assertIn("Key -2", result)
 
-    def test_format_snapshot_compare_summary_includes_segment_deltas(self) -> None:
-        base = SimpleNamespace(
-            game_time_seconds=120.0,
-            mob_kills=100,
-            player_level=4,
-            items=("Wrench x1",),
-        )
-        current = SimpleNamespace(
-            game_time_seconds=270.0,
-            mob_kills=420,
-            player_level=9,
-            items=("Wrench x3", "Za Warudo x1"),
-        )
-
-        result = formatting.format_snapshot_compare_summary(base, current, base_index=3, current_index=8)
-
-        self.assertEqual(
-            result,
-            "Snapshot 4 -> 9 | 02:00 -> 04:30 | +320 kills | +5 levels | +3 items",
-        )
+    # `format_snapshot_compare_summary` is gone with the pipe-joined line it
+    # wrote -- it led with a snapshot index and restated the item total the
+    # label above it already carried. `format_segment_headline` replaces it,
+    # and is covered in `test_compare_detail_rows.py`.
 
     def test_format_snapshot_new_items_handles_first_snapshot_and_no_changes(self) -> None:
         snapshot = SimpleNamespace(items=("Wrench x1",))
@@ -5070,16 +5134,29 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertTrue(result)
         self.assertEqual(chests_and_keys_args, [(12, 50, 1)])
 
-    def test_session_tracked_items_stats_tab_includes_seed_percent(self) -> None:
-        component = build_overlay_test_component(template_stats={
-            "template_a": {"history": [1, 2]},
-            "template_b": {"history": [3, 4]},
-        })
+    def test_session_tracked_items_reach_the_stats_tab_with_their_seed_percent(self) -> None:
+        """The rows go to the tab whole, rather than pre-joined into a string.
+
+        This used to assert `format_tracked_item_rows_for_stats_tab`'s output,
+        `"Kevin + Electric Plug T1: 2 (50.00%)"`. The tab renders the rule as
+        its items and its condition now, so the join is not on this path -- and
+        what matters is that the fields it needs arrive: the item names, the
+        mode, the count and the percent over found seeds.
+        """
+        delivered: list = []
+        component = build_overlay_test_component(
+            template_stats={
+                "template_a": {"history": [1, 2]},
+                "template_b": {"history": [3, 4]},
+            },
+            tracked_rows_sink=delivered.append,
+        )
         tracker = SimpleNamespace(
             tracked_item_rows_for_rules=lambda _rules: [
                 {
                     "id": "kevin_plug",
                     "label": "Kevin + Electric Plug",
+                    "item_names": ("Kevin", "Electric Plug"),
                     "count": 2,
                     "mode": "map_1_only",
                 }
@@ -5088,11 +5165,15 @@ class GuiRunControlTests(unittest.TestCase):
         component.live_run_tracker = tracker
         component.session_stats._tracker = tracker
 
-        text = gui_overlay.format_tracked_item_rows_for_stats_tab(
-            component.session_stats.session_tracked_item_stat_rows()
-        )
+        component.refresh_session_tracked_item_stats_ui()
 
-        self.assertEqual(text, "Kevin + Electric Plug T1: 2 (50.00%)")
+        self.assertEqual(len(delivered), 1)
+        (row,) = delivered[0]
+        self.assertEqual(row["item_names"], ("Kevin", "Electric Plug"))
+        self.assertEqual(row["mode"], "map_1_only")
+        self.assertEqual(row["count"], 2)
+        # Four seeds found across the two templates, two of them matched.
+        self.assertAlmostEqual(row["percent"], 50.0)
 
     def test_apply_in_game_overlay_settings_stops_without_restarting_overlay(self) -> None:
         overlay = build_in_game_overlay_test_component()

@@ -176,6 +176,37 @@ def format_stage_item_rarity_summary(rarity_totals: dict[str, int]) -> str:
     return " ".join(parts) if parts else '<span style="color:#98A7BA;">--</span>'
 
 
+def stage_number_sequence(snapshots) -> tuple[int, ...]:
+    """The human stage number in force at each snapshot, 1-4.
+
+    The raw ``stage_index`` is **not** this number. It stays at 2 through the
+    whole boss room, so a run that reached Stage 4 reads as three stages if you
+    group on it directly -- which is exactly what the Recordings scrubber did
+    before this existed, drawing three bands under a Stage Summary that showed
+    four rows.
+
+    Extracted from ``build_stage_summary``'s own walk and consumed by it, so
+    there is one answer to "which stage is this snapshot in" rather than two
+    that agree until they do not.
+    """
+    snapshots = tuple(snapshots or ())
+    if not snapshots:
+        return ()
+    current_stage_index = resolve_initial_stage_index(snapshots[0])
+    numbers = [current_stage_index]
+    previous_snapshot = snapshots[0]
+    for snapshot in snapshots[1:]:
+        next_stage_index = resolve_next_stage_index(
+            current_stage_index,
+            previous_snapshot,
+            snapshot,
+        )
+        current_stage_index = min(max(next_stage_index, current_stage_index), 4)
+        numbers.append(current_stage_index)
+        previous_snapshot = snapshot
+    return tuple(numbers)
+
+
 def build_stage_summary(snapshots) -> list[dict[str, str]]:
     rows = default_stage_summary_rows()
     if not snapshots:
@@ -197,7 +228,12 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
     )
     item_gain_tracker = None
     previous_snapshot = None
-    for snapshot in snapshots:
+    # One walk, shared with the scrubber's stage bands. The loop below still
+    # needs `previous_stage_index` and the closing-snapshot predicate, which
+    # are about *this* function's bucketing rather than about which stage a
+    # snapshot is in, so only the stage number itself is lifted out.
+    stage_numbers = stage_number_sequence(snapshots)
+    for position, snapshot in enumerate(snapshots):
         snapshot_mob_kills = getattr(snapshot, "mob_kills", None)
         items_available = bool(getattr(snapshot, "items_available", True))
         if item_gain_tracker is None and items_available:
@@ -212,12 +248,7 @@ def build_stage_summary(snapshots) -> list[dict[str, str]]:
                     stage_item_gains[current_stage_index][rarity] += count
         if previous_snapshot is not None:
             previous_stage_index = current_stage_index
-            next_stage_index = resolve_next_stage_index(
-                current_stage_index,
-                previous_snapshot,
-                snapshot,
-            )
-            current_stage_index = min(max(next_stage_index, current_stage_index), 4)
+            current_stage_index = stage_numbers[position]
             closes_previous_stage = (
                 current_stage_index > previous_stage_index
                 and (

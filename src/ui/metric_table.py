@@ -32,6 +32,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import (
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -49,14 +50,16 @@ from projections.metric_table import (
 
 #: Same palette the HTML cards used, so the change is invisible except for the
 #: alignment being real.
-CARD_BACKGROUND = QColor("#0F1722")
-CARD_BORDER = QColor("#1E2A3A")
-HEADER_RULE = QColor("#26364A")
-ROW_RULE = QColor("#1E2A3A")
-ZEBRA_BACKGROUND = QColor("#121C28")
+CARD_BACKGROUND = QColor("#0B0F14")
+CARD_BORDER = QColor("#1B222B")
+HEADER_RULE = QColor("#2A3542")
+ROW_RULE = QColor("#151B23")
+ZEBRA_BACKGROUND = QColor("#0E1217")
 
-TEXT_COLOR = "#E5E7EB"
-MUTED_COLOR = "#98A7BA"
+TEXT_COLOR = "#EDF1F5"
+MUTED_COLOR = "#8A94A3"
+RUN_A_COLOR = "#A9D9FF"
+RUN_B_COLOR = "#D8B4FE"
 DELTA_COLORS = {
     DELTA_POSITIVE: "#22C55E",
     DELTA_NEGATIVE: "#FB7185",
@@ -95,9 +98,9 @@ class MetricSectionView(QWidget):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(10, 7, 10, 7)
-        self._grid.setHorizontalSpacing(10)
-        self._grid.setVerticalSpacing(_ROW_PADDING)
+        self._grid.setContentsMargins(12, 8, 12, 8)
+        self._grid.setHorizontalSpacing(12)
+        self._grid.setVerticalSpacing(6)
         for column, stretch in enumerate(COLUMN_STRETCH):
             self._grid.setColumnStretch(column, stretch)
 
@@ -119,9 +122,10 @@ class MetricSectionView(QWidget):
         self._grid.addWidget(self._heading, 0, 0)
 
         self._header_cells: list[QLabel] = []
+        header_colors = (RUN_A_COLOR, RUN_B_COLOR, MUTED_COLOR)
         for column in range(1, len(COLUMN_STRETCH)):
             cell = QLabel()
-            cell.setStyleSheet(_cell_style(MUTED_COLOR, bold=True))
+            cell.setStyleSheet(_cell_style(header_colors[column - 1], bold=True))
             cell.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self._grid.addWidget(cell, 0, column)
             self._header_cells.append(cell)
@@ -189,7 +193,14 @@ class MetricSectionView(QWidget):
                     cell.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     # The delta column is styled on its first row write, by
                     # direction; the value columns never change colour.
-                    cell.setStyleSheet(_cell_style(TEXT_COLOR))
+                    value_color = (
+                        RUN_A_COLOR
+                        if column == 1
+                        else RUN_B_COLOR
+                        if column == 2
+                        else TEXT_COLOR
+                    )
+                    cell.setStyleSheet(_cell_style(value_color))
                 self._grid.addWidget(cell, index + 1, column)
                 cells.append(cell)
             self._rows.append(cells)
@@ -301,4 +312,282 @@ class MetricTableView(QWidget):
         low, high = sorted((count, self._visible_section_count))
         for index in range(low, high):
             self._sections[index].setVisible(index < count)
+        self._visible_section_count = count
+
+
+class CompactMetricCellView(QFrame):
+    """One compact ``label / A / B / delta`` cell inside a comparison card.
+
+    The widgets are allocated once and only their text changes while scrubbing.
+    Delta styles are updated only when their direction changes, mirroring the
+    performance rule used by :class:`MetricSectionView`.
+    """
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("CompareRunsMetricCell")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+
+        layout = QGridLayout(self)
+        layout.setContentsMargins(8, 7, 8, 7)
+        layout.setHorizontalSpacing(5)
+        layout.setVerticalSpacing(2)
+        layout.setColumnStretch(1, 1)
+
+        self._label = QLabel(self)
+        self._label.setObjectName("CompareRunsMetricLabel")
+        layout.addWidget(self._label, 0, 0, 1, 2)
+
+        self._run_labels: list[QLabel] = []
+        self._value_labels: list[QLabel] = []
+        for row_index, side in enumerate(("A", "B"), start=1):
+            run_label = QLabel(side, self)
+            run_label.setObjectName("CompareRunsMetricRunLabel")
+            run_label.setProperty("side", side)
+            value_label = QLabel(self)
+            value_label.setObjectName("CompareRunsMetricValue")
+            value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            layout.addWidget(run_label, row_index, 0)
+            layout.addWidget(value_label, row_index, 1)
+            self._run_labels.append(run_label)
+            self._value_labels.append(value_label)
+
+        self._delta = QLabel(self)
+        self._delta.setObjectName("CompareRunsMetricDelta")
+        self._delta.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(self._delta, 3, 0, 1, 2)
+
+        self._direction: str | None = None
+        self._label_color: str | None = None
+
+    def set_row(self, row) -> None:
+        self._label.setText(str(row.label))
+        self._value_labels[0].setText(str(row.value_a))
+        self._value_labels[1].setText(str(row.value_b))
+        self._delta.setText(f"Δ {row.delta}")
+
+        direction = row.direction
+        # Finishing a stage sooner is an improvement, unlike the count metrics.
+        if str(row.label).casefold() == "time":
+            if direction == DELTA_POSITIVE:
+                direction = DELTA_NEGATIVE
+            elif direction == DELTA_NEGATIVE:
+                direction = DELTA_POSITIVE
+        if self._direction != direction:
+            self._direction = direction
+            self._delta.setStyleSheet(
+                _cell_style(DELTA_COLORS.get(direction, MUTED_COLOR), bold=True)
+            )
+
+        label_color = str(row.label_color or "")
+        if self._label_color != label_color:
+            self._label_color = label_color
+            self._label.setStyleSheet(
+                _cell_style(label_color, bold=True) if label_color else ""
+            )
+
+
+class CompactMetricCardView(QFrame):
+    """A compact section card whose metric cells are pooled and reused."""
+
+    def __init__(
+        self,
+        parent=None,
+        *,
+        metric_capacity: int = 4,
+        metrics_per_row: int = 4,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("CompareRunsComparisonCard")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self._metrics_per_row = max(1, int(metrics_per_row))
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        header = QFrame(self)
+        header.setObjectName("CompareRunsComparisonCardHeader")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(9, 7, 9, 7)
+        header_layout.setSpacing(7)
+        self._badge = QLabel(header)
+        self._badge.setObjectName("CompareRunsComparisonCardBadge")
+        self._badge.setAlignment(Qt.AlignCenter)
+        self._title = QLabel(header)
+        self._title.setObjectName("CompareRunsComparisonCardTitle")
+        self._meta = QLabel(header)
+        self._meta.setObjectName("CompareRunsComparisonCardMeta")
+        self._meta.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        header_layout.addWidget(self._badge)
+        header_layout.addWidget(self._title)
+        header_layout.addStretch(1)
+        header_layout.addWidget(self._meta)
+        root.addWidget(header)
+
+        metrics = QWidget(self)
+        metrics.setObjectName("CompareRunsComparisonMetrics")
+        self._metrics_layout = QGridLayout(metrics)
+        self._metrics_layout.setContentsMargins(0, 0, 0, 0)
+        self._metrics_layout.setHorizontalSpacing(1)
+        self._metrics_layout.setVerticalSpacing(1)
+        for column in range(self._metrics_per_row):
+            self._metrics_layout.setColumnStretch(column, 1)
+        root.addWidget(metrics)
+
+        self._cells: list[CompactMetricCellView] = []
+        self._visible_cell_count = 0
+        self._ensure_cell_capacity(max(0, int(metric_capacity)))
+
+    def set_section(self, section, *, fallback_number: int) -> None:
+        title = str(section.title or section.headers[0])
+        self._title.setText(title)
+        suffix = title.rsplit(" ", 1)[-1]
+        self._badge.setText(suffix if suffix.isdigit() else str(fallback_number))
+
+        rows = section.rows
+        changed = sum(
+            str(row.delta).strip() not in {"", "--", "0", "+0", "-0", "+0s", "-0s"}
+            for row in rows
+        )
+        meta_parts = []
+        if section.subtitle:
+            meta_parts.append(str(section.subtitle))
+        elif rows and str(rows[0].label).casefold() == "time":
+            meta_parts.append(f"{rows[0].value_a} vs {rows[0].value_b}")
+        meta_parts.append(f"{changed} changes")
+        self._meta.setText(" · ".join(meta_parts))
+
+        self._ensure_cell_capacity(len(rows))
+        for index, row in enumerate(rows):
+            self._cells[index].set_row(row)
+        self._set_visible_cell_count(len(rows))
+
+    def _ensure_cell_capacity(self, count: int) -> None:
+        while len(self._cells) < count:
+            index = len(self._cells)
+            cell = CompactMetricCellView(self)
+            self._metrics_layout.addWidget(
+                cell,
+                index // self._metrics_per_row,
+                index % self._metrics_per_row,
+            )
+            cell.setVisible(False)
+            self._cells.append(cell)
+
+    def _set_visible_cell_count(self, count: int) -> None:
+        if count == self._visible_cell_count:
+            return
+        low, high = sorted((count, self._visible_cell_count))
+        for index in range(low, high):
+            self._cells[index].setVisible(index < count)
+        self._visible_cell_count = count
+
+
+class CompactMetricCardGridView(QWidget):
+    """A responsive two-column grid of pooled compact comparison cards."""
+
+    def __init__(
+        self,
+        parent=None,
+        *,
+        section_capacity: int = 4,
+        metric_capacity: int = 4,
+        metrics_per_row: int = 4,
+        narrow_breakpoint: int = 900,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("CompareRunsCompactMetricGrid")
+        self._metric_capacity = max(0, int(metric_capacity))
+        self._metrics_per_row = max(1, int(metrics_per_row))
+        self._narrow_breakpoint = max(1, int(narrow_breakpoint))
+        self._column_count = 2
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(_CARD_SPACING)
+
+        self._empty_label = QLabel(self)
+        self._empty_label.setObjectName("CompareRunsCompactMetricEmpty")
+        self._empty_label.setWordWrap(True)
+        self._empty_label.setVisible(False)
+        root.addWidget(self._empty_label)
+
+        self._cards_host = QWidget(self)
+        self._cards_host.setObjectName("CompareRunsCompactMetricCards")
+        self._grid = QGridLayout(self._cards_host)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setHorizontalSpacing(_CARD_SPACING)
+        self._grid.setVerticalSpacing(_CARD_SPACING)
+        root.addWidget(self._cards_host)
+
+        self._cards: list[CompactMetricCardView] = []
+        self._visible_section_count = 0
+        self._table: MetricTable = EMPTY_METRIC_TABLE
+        self._ensure_section_capacity(max(0, int(section_capacity)))
+        self._reflow_cards()
+
+    @property
+    def table(self) -> MetricTable:
+        return self._table
+
+    @property
+    def column_count(self) -> int:
+        return self._column_count
+
+    def set_table(self, table: MetricTable | None) -> None:
+        table = table if table is not None else EMPTY_METRIC_TABLE
+        if table == self._table:
+            return
+        self._table = table
+
+        sections = table.sections
+        self._empty_label.setText(str(table.empty_text))
+        self._empty_label.setVisible(not sections and bool(table.empty_text))
+        self._cards_host.setVisible(bool(sections))
+        if not sections:
+            self._set_visible_section_count(0)
+            return
+
+        self._ensure_section_capacity(len(sections))
+        for index, section in enumerate(sections):
+            self._cards[index].set_section(section, fallback_number=index + 1)
+        self._set_visible_section_count(len(sections))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 -- Qt's name
+        super().resizeEvent(event)
+        columns = 1 if event.size().width() < self._narrow_breakpoint else 2
+        if columns != self._column_count:
+            self._column_count = columns
+            self._reflow_cards()
+
+    def _ensure_section_capacity(self, count: int) -> None:
+        while len(self._cards) < count:
+            card = CompactMetricCardView(
+                self._cards_host,
+                metric_capacity=self._metric_capacity,
+                metrics_per_row=self._metrics_per_row,
+            )
+            card.setVisible(False)
+            self._cards.append(card)
+        self._reflow_cards()
+
+    def _reflow_cards(self) -> None:
+        if not hasattr(self, "_grid"):
+            return
+        for index, card in enumerate(self._cards):
+            self._grid.addWidget(
+                card,
+                index // self._column_count,
+                index % self._column_count,
+            )
+        self._grid.setColumnStretch(0, 1)
+        self._grid.setColumnStretch(1, 1 if self._column_count == 2 else 0)
+
+    def _set_visible_section_count(self, count: int) -> None:
+        if count == self._visible_section_count:
+            return
+        low, high = sorted((count, self._visible_section_count))
+        for index in range(low, high):
+            self._cards[index].setVisible(index < count)
         self._visible_section_count = count

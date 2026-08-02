@@ -52,6 +52,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -64,7 +65,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import config
-from core.item_metadata import COLOR_MAP
+from core.template_colors import template_color_hex, template_color_tag
 from ui.shared import (
     _apply_button_icon,
     _clear_layout,
@@ -130,21 +131,28 @@ class TemplatesPanel:
     def _build_templates_tab(self) -> None:
         self._tab_templates = QWidget()
         templates_layout = QVBoxLayout(self._tab_templates)
-        self._scrollable_templates, _content, self._template_layout = _make_scroll_section()
+        self._scrollable_templates, content, self._template_layout = _make_scroll_section()
+        content.setObjectName("templateListSurface")
+        self._scrollable_templates.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         templates_layout.addWidget(self._scrollable_templates, 1)
 
         buttons = QHBoxLayout()
-        self.add_btn = QPushButton("+ Add")
+        self.add_btn = QPushButton("Add")
+        self.add_btn.setObjectName("primary")
+        _apply_button_icon(self.add_btn, "media/add_icon.svg", 18)
         self.add_btn.clicked.connect(self.add_template_dialog)
         self.edit_btn = QPushButton("Edit")
+        _apply_button_icon(self.edit_btn, "media/edit_icon.svg", 18)
         self.edit_btn.clicked.connect(self.edit_template_dialog)
-        self.del_btn = QPushButton("Delete")
-        self.del_btn.setObjectName("DangerButton")
+        self.del_btn = QPushButton("")
+        self.del_btn.setObjectName("danger")
+        self.del_btn.setToolTip("Delete")
+        _apply_button_icon(self.del_btn, "media/delete_icon.svg", 18)
         self.del_btn.clicked.connect(self.del_template_dialog)
-        buttons.addWidget(self.add_btn)
-        buttons.addWidget(self.edit_btn)
+        buttons.addWidget(self.add_btn, 1)
+        buttons.addWidget(self.edit_btn, 1)
+        self.del_btn.setFixedWidth(44)
         buttons.addWidget(self.del_btn)
-        buttons.addStretch(1)
         templates_layout.addLayout(buttons)
         self._left_tabview.addTab(self._tab_templates, "Templates")
 
@@ -159,11 +167,10 @@ class TemplatesPanel:
         scores_layout.addWidget(self._scores_desc_label, 1)
 
         buttons = QHBoxLayout()
-        self.edit_scores_btn = QPushButton("Edit Settings")
-        _apply_button_icon(self.edit_scores_btn, "media/settings_icon.png", 18)
+        self.edit_scores_btn = QPushButton("Edit")
+        _apply_button_icon(self.edit_scores_btn, "media/edit_icon.svg", 18)
         self.edit_scores_btn.clicked.connect(self.open_scores_settings_dialog)
-        buttons.addWidget(self.edit_scores_btn)
-        buttons.addStretch(1)
+        buttons.addWidget(self.edit_scores_btn, 1)
         scores_layout.addLayout(buttons)
         self._left_tabview.addTab(self._tab_scores, "Scores")
 
@@ -173,16 +180,54 @@ class TemplatesPanel:
         """The checked templates. `TemplateRuntimeFilters`' one question."""
         return [name for name, cb in self._checkboxes.items() if _read_bool(cb)]
 
+    # -- what the collapsed rail asks --------------------------------------
+    #
+    # The rail is a remote control for the two checkbox dicts below, not a
+    # second copy of them. Flipping the box here is what re-runs the existing
+    # persistence path -- `save_checkbox_state` for templates,
+    # `refresh_scores_ui` for tiers -- so the rail cannot drift out of sync
+    # with the expanded panel, and neither one owns state the other has to be
+    # told about.
+
+    def rail_tier_entries(self) -> list[tuple[str, str, bool]]:
+        """`(tier, colour, is_active)` in `TIERS` order, for the rail.
+
+        Tiers keep their declared order rather than sorting the active ones
+        first the way templates do: Light -> Perfect+ is a progression, and
+        scrambling it would cost more than the grouping buys across four rows.
+        """
+        return [
+            (tier, _tier_color(tier), cb.isChecked())
+            for tier, cb in self._scores_checkboxes.items()
+        ]
+
+    def set_template_active(self, name: str, active: bool) -> None:
+        """Check or uncheck one template's box by name.
+
+        Looked up by name on every call, never held: `refresh_templates`
+        rebuilds the dict wholesale, so a cached widget would outlive the box
+        it points at.
+        """
+        cb = self._checkboxes.get(name)
+        if cb is not None:
+            cb.setChecked(active)
+
+    def set_tier_active(self, tier: str, active: bool) -> None:
+        """Check or uncheck one score tier's box by name."""
+        cb = self._scores_checkboxes.get(tier)
+        if cb is not None:
+            cb.setChecked(active)
+
     # -- templates tab ------------------------------------------------------
 
     def refresh_templates(self) -> None:
         _clear_layout(self._template_layout)
         self._checkboxes.clear()
+        active_names = set(config.ACTIVE_TEMPLATES)
         for template in config.TEMPLATES:
-            color_tag = template.get("color", "LIGHTBLUE_EX").upper()
-            color_hex = COLOR_MAP.get(color_tag, COLOR_MAP["DEFAULT"])
-            cb = QCheckBox(_format_template_checkbox_text(template))
-            cb.setChecked(template["name"] in config.ACTIVE_TEMPLATES)
+            color_hex = template_color_hex(template_color_tag(template))
+            cb = _CardCheckBox(_format_template_checkbox_text(template))
+            cb.setChecked(template["name"] in active_names)
             cb.toggled.connect(self.save_checkbox_state)
             cb.setStyleSheet(_template_checkbox_stylesheet(color_hex))
             self._template_layout.addWidget(cb)
@@ -253,7 +298,7 @@ class TemplatesPanel:
         for tier in TIERS:
             cb = QCheckBox(tier)
             cb.setChecked(tier in config.SCORES_SYSTEM.get("active_tiers", []))
-            cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700;")
+            cb.setStyleSheet(f"color: {_tier_color(tier)}; font-weight: 700; background: transparent;")
             cb.toggled.connect(self.refresh_scores_ui)
             self._scores_templates_layout.addWidget(cb)
             self._scores_checkboxes[tier] = cb
@@ -283,6 +328,23 @@ class TemplatesPanel:
 # failure mode step 14b hit and step 19 retired rather than relocated.
 
 
+class _CardCheckBox(QCheckBox):
+    """A checkbox whose whole row is clickable, not just its glyph and text.
+
+    These rows are painted as full-width cards by
+    `_template_checkbox_stylesheet`, but `QAbstractButton.hitButton` only
+    accepts presses that land on the indicator or the label. Everything to the
+    right of the two text lines -- most of the card, and the obvious place to
+    aim -- swallowed the click and toggled nothing.
+
+    Overriding `hitButton` is the whole fix: it makes the clickable region
+    match the region the row draws, which is what the card shape promises.
+    """
+
+    def hitButton(self, pos) -> bool:
+        return self.rect().contains(pos)
+
+
 def _format_template_checkbox_text(template: dict) -> str:
     conditions = format_template_conditions(template)
     compact_conditions = (
@@ -291,7 +353,7 @@ def _format_template_checkbox_text(template: dict) -> str:
         .replace("Micro:", "Mic")
         .replace("Boss:", "Boss")
     )
-    return f"{template['name']} ({compact_conditions})"
+    return f"{template['name']}\n{compact_conditions}"
 
 
 def _score_system_lines() -> list[str]:

@@ -564,7 +564,6 @@ class FocusWaitTests(unittest.TestCase):
                 fake_keyboard,
                 reset_hotkey="r",
                 reset_hold_duration=0.1,
-                map_load_delay=0.2,
             ),
         )
         del scanner  # the subject is run control; the pair is here for the port
@@ -739,9 +738,6 @@ class BackgroundLoopTests(unittest.TestCase):
         scanner, run_control = build_pair(
             provider=SimpleNamespace(
                 restart_run=lambda: self.fail("restart_run should not be called while paused"),
-                wait_for_next_run=lambda **_kwargs: self.fail(
-                    "wait_for_next_run should not be called while paused"
-                ),
             ),
         )
         scanner.client = None
@@ -862,12 +858,12 @@ class SessionStatsTests(unittest.TestCase):
         scanner.update_status_ui()
         running = status.text()
 
-        self.assertEqual(idle[1], "Start")
+        self.assertEqual(idle[1], "Start Scanner")
         self.assertIn("IDLE", idle[0])
         self.assertIn("WAITING FOR GAME", waiting)
         self.assertIn("ARMED", armed)
         self.assertIn("RUNNING", running)
-        self.assertEqual(toggle.text(), "Stop")
+        self.assertEqual(toggle.text(), "Stop Scanner")
 
     def test_the_log_is_silent_without_an_invoker(self) -> None:
         """Step 19's failure shape, pinned rather than fixed.

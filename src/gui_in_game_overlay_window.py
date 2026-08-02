@@ -134,8 +134,20 @@ class DraggableOverlayWidget(QWidget):
         again. Clamping from the configured position instead makes the move
         purely a display adjustment: the intent survives, and the widget returns
         the moment there is room. Same fix covers a resized game window.
+
+        Suppressed while *dragging* only, not for the whole of edit mode. It
+        skipped both, and that is where widgets escaped the screen: the right
+        and bottom clamps are `parent.width() - self.width()`, so they are only
+        as good as the widget's size at the last clamp, while the left and top
+        ones are `max(0, ...)` and hold regardless -- which is why widgets stuck
+        to two edges and slid past the other two. Live text keeps growing the
+        widget (measured: 170px wide with a short caption, 698px with a long
+        one), so one parked against the right edge in layout mode grew straight
+        past it with nothing to pull it back until edit mode ended. Dragging
+        still skips, because clamping mid-drag would yank the widget out from
+        under the cursor.
         """
-        if self.edit_mode or self._dragging:
+        if self._dragging:
             return
         position = self._clamp_to_parent(self.configured_position())
         if position != self.pos():
@@ -558,7 +570,11 @@ class InGameOverlayWindow(QWidget):
         super().keyPressEvent(event)
 
     def _on_save_clicked(self) -> None:
-        if self.parent_mixin and hasattr(self.parent_mixin, "_toggle_igo_edit_mode"):
+        # Called directly rather than behind `hasattr`. The probe was the shape
+        # this codebase has already been bitten by: it goes quietly false and
+        # the button stops working with nothing raising -- and this button is
+        # now one of only three ways out of layout mode.
+        if self.parent_mixin is not None:
             self.parent_mixin._toggle_igo_edit_mode()
 
     def on_widget_moved(self, widget_id: str, x: int, y: int) -> None:

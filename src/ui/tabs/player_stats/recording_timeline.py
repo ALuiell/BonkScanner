@@ -55,17 +55,11 @@ from __future__ import annotations
 from typing import Callable, Sequence
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSlider
 
 from app import config
 from core.game_state import RuntimeGameMode
-from ui.styles import (
-    PLAYER_STATS_ACTIVE_BUTTON_COLOR,
-    PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR,
-    PLAYER_STATS_INACTIVE_BUTTON_COLOR,
-    PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
-    _button_state_stylesheet,
-)
+from ui.segmented_toggle import ROLE_GO, ROLE_HALT, SegmentedToggle
 from ui.throttle import UiUpdateThrottle
 
 
@@ -114,12 +108,34 @@ class RecordingTimelineView:
         appearance is part of what the pilot must not change.
         """
         controls = QHBoxLayout()
-        self._record_btn = QPushButton(
-            f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})"
+        # The same control the header uses, for the same three reasons its
+        # docstring gives -- and one more that is this strip's own: the old
+        # button rendered *three* states as two pictures. `armed` and
+        # `recording` both read "Stop Recording" in red, so "waiting for the
+        # run to start" and "writing snapshots right now" were indistinguishable
+        # without reading the line beside them. Here `armed` is the same Stop
+        # segment in amber outline: pressing it still cancels, but nothing about
+        # it claims a recording is running.
+        #
+        # It also measured 290x33 as `Start Recording (F8)` and 221x37 as
+        # `Stop Recording` -- a 69x4 jump, with no size floor anywhere. Fixed
+        # captions make that arithmetic go away rather than pinning it.
+        self._record_btn = SegmentedToggle(
+            (
+                ("record", "●  Rec", ROLE_GO),
+                ("stop", "■  Stop", ROLE_HALT),
+            )
         )
-        self._record_btn.clicked.connect(self._on_toggle_recording)
+        self._record_btn.activated.connect(lambda _key: self._on_toggle_recording())
+        # The hotkey used to live inside the Start caption, which meant it
+        # disappeared exactly when the user wanted it -- while recording, to
+        # stop without reaching for the mouse. Beside the control it is true in
+        # every state.
+        hotkey_hint = QLabel(config.PLAYER_STATS_RECORD_HOTKEY.upper())
+        hotkey_hint.setObjectName("hotkeyHint")
         self._timeline_label = QLabel("Live stats")
         controls.addWidget(self._record_btn)
+        controls.addWidget(hotkey_hint, 0, Qt.AlignVCenter)
         controls.addStretch(1)
         controls.addWidget(self._timeline_label)
         content_layout.addLayout(controls)
@@ -161,24 +177,16 @@ class RecordingTimelineView:
         recording_armed = self._recording_armed()
         waiting_mode = self._waiting_mode()
 
-        if recorder.is_recording or recording_armed:
-            self._record_btn.setText("Stop Recording")
-            self._record_btn.setStyleSheet(
-                _button_state_stylesheet(
-                    PLAYER_STATS_ACTIVE_BUTTON_COLOR,
-                    PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR,
-                )
-            )
+        # Three states, three pictures. Stop is the live segment for both
+        # `armed` and `recording` because pressing it is what either one
+        # offers -- cancel the arming, or end the recording -- but `armed`
+        # carries the variant, so red never appears before a snapshot does.
+        if recorder.is_recording:
+            self._record_btn.set_active("stop")
+        elif recording_armed:
+            self._record_btn.set_active("stop", variant="armed")
         else:
-            self._record_btn.setText(
-                f"Start Recording ({config.PLAYER_STATS_RECORD_HOTKEY.upper()})"
-            )
-            self._record_btn.setStyleSheet(
-                _button_state_stylesheet(
-                    PLAYER_STATS_INACTIVE_BUTTON_COLOR,
-                    PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR,
-                )
-            )
+            self._record_btn.set_active("record")
 
         if recorder.is_recording and snapshot_count:
             self._slider.setEnabled(True)

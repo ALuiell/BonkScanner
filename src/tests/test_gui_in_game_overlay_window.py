@@ -166,6 +166,61 @@ class InGameOverlayWindowTests(unittest.TestCase):
             finally:
                 window.close()
 
+    def test_a_widget_that_grows_in_layout_mode_stays_on_screen(self) -> None:
+        """Layout mode used to be a hole in the right and bottom clamps.
+
+        Those two are `parent.width() - self.width()`, so they hold only for the
+        size at the last clamp; the left and top ones are `max(0, ...)` and hold
+        always. `reclamp_to_parent` skipped the whole of edit mode, so a widget
+        parked against the right edge grew with its live text and slid straight
+        past it -- sticking to two edges and escaping the other two, which is
+        exactly how it looked. Only the drag itself skips now.
+        """
+        target_rect = QRect(0, 0, 320, 240)
+        parent_mixin = SimpleNamespace(
+            _in_game_overlay_target_geometry=lambda: target_rect,
+            _toggle_igo_edit_mode=lambda: None,
+        )
+        overlay_config = _test_overlay_config()
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_config), patch.object(
+            config, "save_config"
+        ):
+            window = InGameOverlayWindow(parent_mixin)
+            try:
+                window.sync_geometry_to_target()
+                window.toggle_edit_mode(True)
+                scanner = window.widgets["scanner"]
+
+                scanner.set_text("<span>ON</span>")
+                # Park it hard against the right and bottom edges, the way a
+                # drag-release does, and record that as the user's intent.
+                parked = scanner._clamp_to_parent(QPoint(10_000, 10_000))
+                scanner.move(parked)
+                window.on_widget_moved("scanner", parked.x(), parked.y())
+
+                # The live text grows on the next tick.
+                scanner.set_text("<span>SCANNER ON &nbsp; REC &nbsp; 12345 kills</span>")
+
+                # Asserted as "the clamp was applied at the new size" rather
+                # than "the right edge is inside the parent". Font metrics differ
+                # by platform: run after a test that sets QT_QPA_PLATFORM, the
+                # grown widget is wider than the whole 320px window and no
+                # placement can fit it. What must hold either way is that the
+                # position was re-derived from the size it has *now*.
+                self.assertEqual(
+                    max(0, target_rect.width() - scanner.width()),
+                    scanner.x(),
+                    "the right clamp still used the size from before the text grew",
+                )
+                self.assertEqual(
+                    max(0, target_rect.height() - scanner.height()),
+                    scanner.y(),
+                    "the bottom clamp still used the size from before the text grew",
+                )
+            finally:
+                window.close()
+
     def test_drag_position_is_limited_to_overlay_bounds(self) -> None:
         parent_mixin = SimpleNamespace(
             _in_game_overlay_target_geometry=lambda: QRect(0, 0, 320, 240),

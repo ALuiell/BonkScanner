@@ -172,11 +172,28 @@ class FakeTimelineWidget:
     def setValue(self, value) -> None:
         self.calls.append(("setValue", value))
 
+    def set_active(self, key, *, variant: str = "") -> None:
+        """`SegmentedToggle`'s state channel, for the record control."""
+        self.calls.append(("set_active", (key, variant)))
+
     @property
     def text(self):
         """The last text written, or None."""
         for method, value in reversed(self.calls):
             if method == "setText":
+                return value
+        return None
+
+    @property
+    def active(self):
+        """The last `(key, variant)` lit, or None.
+
+        What the record control has instead of a caption. It used to be read
+        through `text`, back when three recording states were rendered as two
+        captions and `armed` was indistinguishable from `recording`.
+        """
+        for method, value in reversed(self.calls):
+            if method == "set_active":
                 return value
         return None
 
@@ -216,7 +233,7 @@ class RecordingTimelineHarness:
 
     def texts(self) -> dict[str, str | None]:
         return {
-            "record_btn": self.record_btn.text,
+            "record_btn": self.record_btn.active,
             "timeline_label": self.timeline_label.text,
             "slider_time_label": self.slider_time_label.text,
         }

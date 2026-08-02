@@ -19,6 +19,7 @@ import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from core.game_state import RuntimeGameMode
 from support.player_stats import FakeRecorder, build_recording_timeline_view
+from ui.styles import build_qt_app_stylesheet
 from ui.tabs.player_stats.recording_timeline import RecordingTimelineView
 
 
@@ -29,13 +30,15 @@ class RecordingTimelineRenderTests(unittest.TestCase):
 
         self.assertEqual(harness.timeline_label.text, "Live stats")
         self.assertEqual(harness.slider_time_label.text, "Timeline: live stats")
-        self.assertIn("Start Recording", harness.record_btn.text)
+        self.assertEqual(harness.record_btn.active, ("record", ""))
 
     def test_armed_but_not_recording_says_waiting_for_run(self) -> None:
         harness = build_recording_timeline_view(armed=True)
         harness.view.refresh()
 
-        self.assertEqual(harness.record_btn.text, "Stop Recording")
+        # The `armed` variant is the whole point: before it, this state and
+        # the recording one below rendered the same red "Stop Recording".
+        self.assertEqual(harness.record_btn.active, ("stop", "armed"))
         self.assertEqual(
             harness.timeline_label.text, "Recording armed | waiting for run"
         )
@@ -48,7 +51,7 @@ class RecordingTimelineRenderTests(unittest.TestCase):
         harness = build_recording_timeline_view(recording=True, elapsed="01:15")
         harness.view.refresh()
 
-        self.assertEqual(harness.record_btn.text, "Stop Recording")
+        self.assertEqual(harness.record_btn.active, ("stop", ""))
         self.assertEqual(harness.timeline_label.text, "Recording 01:15 | No snapshots")
         self.assertEqual(
             harness.slider_time_label.text,
@@ -218,7 +221,8 @@ class RecordingTimelineInitialPaintTests(unittest.TestCase):
     def test_armed_at_startup_is_shown_immediately(self) -> None:
         view = self._install(armed=True, recording=False)
 
-        self.assertEqual("Stop Recording", view._record_btn.text())
+        self.assertEqual("stop", view._record_btn.active_key())
+        self.assertEqual("armed", view._record_btn.variant())
         self.assertEqual(
             "Recording armed | waiting for run", view._timeline_label.text()
         )
@@ -226,14 +230,36 @@ class RecordingTimelineInitialPaintTests(unittest.TestCase):
     def test_idle_at_startup_still_reads_start_recording(self) -> None:
         view = self._install(armed=False, recording=False)
 
-        self.assertIn("Start Recording", view._record_btn.text())
+        self.assertEqual("record", view._record_btn.active_key())
         self.assertEqual("Live stats", view._timeline_label.text())
 
     def test_already_recording_at_startup_is_shown_immediately(self) -> None:
         view = self._install(armed=False, recording=True)
 
-        self.assertEqual("Stop Recording", view._record_btn.text())
+        self.assertEqual("stop", view._record_btn.active_key())
+        self.assertEqual("", view._record_btn.variant())
         self.assertEqual("Recording 00:07 | No snapshots", view._timeline_label.text())
+
+    def test_the_control_is_one_size_in_all_three_states(self) -> None:
+        """Under the real stylesheet, which is the only place it can fail.
+
+        The button this replaced measured 290x33 as `Start Recording (F8)` and
+        221x37 as `Stop Recording`, with no size floor anywhere. Fixed captions
+        are only half of what keeps that from coming back: the QSS must not
+        change their typography with state either. The `armed` variant was
+        written 700/0 against the plain halt's 800/0.3 and moved the control by
+        3px on arming -- caught here, not by eye.
+        """
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.instance().setStyleSheet(build_qt_app_stylesheet(""))
+        sizes = []
+        for armed, recording in ((False, False), (True, False), (False, True)):
+            view = self._install(armed=armed, recording=recording)
+            view._record_btn.ensurePolished()
+            sizes.append(view._record_btn.sizeHint())
+
+        self.assertEqual(1, len(set((size.width(), size.height()) for size in sizes)), sizes)
 
 
 class RecordingTimelineEncapsulationTests(unittest.TestCase):

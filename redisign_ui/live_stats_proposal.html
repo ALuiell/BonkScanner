@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<title>Live Stats — предложенная раскладка</title>
+<style>
+  :root{
+    --bg:#0B0F14; --card:#0E1217; --inner:#141A22;
+    --bd:#1B222B; --bd2:#2A3542; --bd3:#2E3A48;
+    --tx:#EDF1F5; --head:#B9C2CE; --sec:#8A94A3; --mut:#5C6675;
+    --acc:#2F6FB0; --info:#38BDF8;
+    --c1:#4ADE80; --c2:#60A5FA; --c3:#E879F9; --c4:#C084FC; --c5:#FACC15;
+    --red:#F87171; --orange:#F97316; --violet:#A78BFA;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#05070A;font-family:Inter,'Segoe UI',Arial,sans-serif;padding:20px}
+  .mono{font-family:'JetBrains Mono','Consolas',monospace}
+  .app{width:1360px;margin:0 auto;background:var(--bg);color:var(--tx);font-size:13px;padding:16px;
+       display:flex;flex-direction:column;gap:14px;border-radius:14px}
+
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px 14px}
+  .eyebrow{font-weight:700;font-size:11px;color:var(--head);letter-spacing:.4px;text-transform:uppercase;margin-bottom:9px}
+  .row{display:flex;justify-content:space-between;font-size:12px}
+  .row span{color:var(--sec)} .row b{color:var(--tx);font-weight:700}
+  .stack{display:flex;flex-direction:column;gap:5px}
+  .hr{height:1px;background:var(--bd);margin:12px 0}
+  .badge{background:#2A1730;color:var(--c3);border:1px solid #4A2A57;border-radius:6px;
+         padding:2px 8px;font-size:11px;font-weight:700}
+  .note{color:var(--mut);font-size:11.5px}
+
+  /* --- шапка со снапшотом --- */
+  .strip{display:flex;justify-content:space-between;align-items:center}
+  .rec{display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--red)}
+  input[type=range]{width:100%;accent-color:var(--info)}
+
+  /* --- KPI полоса (бывший Run Summary) --- */
+  .kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .kpi-l{font-size:10px;color:var(--mut);font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+  .kpi-v{font-size:30px;font-weight:800;margin-top:3px;letter-spacing:-.5px}
+  .chips{display:flex;flex-wrap:wrap;gap:10px 28px}
+  .chip{display:flex;align-items:baseline;gap:7px}
+  .chip .l{font-size:10.5px;color:var(--mut);font-weight:700;letter-spacing:.3px;text-transform:uppercase}
+  .chip .v{font-size:15px;font-weight:800}
+
+  /* --- двухколоночный сплит --- */
+  .split{display:grid;grid-template-columns:minmax(0,1fr) 322px;gap:14px;align-items:start}
+  .left{min-width:0;display:flex;flex-direction:column;gap:12px}
+  .side{display:flex;flex-direction:column;gap:12px}
+
+  .tabs{display:flex;gap:4px;background:var(--card);border:1px solid var(--bd);
+        border-radius:11px;padding:4px;width:fit-content;flex-wrap:wrap}
+  .tabs button{background:transparent;color:var(--sec);border:0;border-radius:8px;
+        padding:6px 13px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit}
+  .tabs button:hover{color:var(--tx)}
+  .tabs button.on{background:var(--acc);color:#fff}
+
+  /* --- Stats --- */
+  .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .g2{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+
+  /* --- Chaos --- */
+  .chaos-tiles{display:flex;flex-wrap:wrap;gap:10px}
+  .tile{flex:1 1 168px;min-width:168px;background:var(--inner);border:1px solid var(--bd2);
+        border-radius:10px;padding:10px 12px}
+  .tile .l{font-size:10.5px;color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+  .tile .v{font-size:20px;font-weight:800;margin-top:2px}
+  .tile .s{font-size:11px;color:var(--mut);margin-top:2px}
+
+  /* --- Damage Sources --- */
+  .dmg{display:flex;flex-wrap:wrap;gap:8px}
+  .dmg .src{flex:1 1 300px;min-width:300px;background:var(--card);border:1px solid var(--bd);
+        border-radius:12px;padding:11px 13px}
+  .dmg .top{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .dmg .nm{font-size:13.5px;font-weight:700}
+  .dmg .val{font-size:15px;font-weight:800}
+  .dmg .pct{font-size:11.5px;color:var(--mut);margin-left:6px;font-weight:600}
+  .bar{margin-top:8px;height:6px;border-radius:4px;background:var(--inner);overflow:hidden}
+  .bar>i{display:block;height:100%;border-radius:4px}
+
+  /* --- Items (вертикальная карточка) --- */
+  .items-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .items-h .t{font-weight:700;font-size:13px}
+  .items-h .t s{color:var(--mut);font-weight:500;text-decoration:none}
+  .items-h a{font-size:11.5px;color:#7CB2E8;text-decoration:none;cursor:pointer}
+  .rarity{display:flex;flex-wrap:wrap;gap:3px 10px;font-size:11px;font-weight:600;margin-bottom:10px}
+  .tagwrap{display:flex;flex-wrap:wrap;gap:6px}
+  .tag{border-radius:7px;padding:3px 8px;font-size:11.5px;font-weight:600}
+  .t1{background:#12261A;color:var(--c1);border:1px solid #1F4A2E}
+  .t2{background:#101E30;color:var(--c2);border:1px solid #1E3A5C}
+  .t3{background:#2A1730;color:var(--c3);border:1px solid #4A2A57}
+  .t4{background:#221436;color:var(--c4);border:1px solid #3D2A5C}
+  .t5{background:#2E2708;color:var(--c5);border:1px solid #57481A}
+  .more{color:var(--mut);font-size:12px;align-self:center}
+  .sortrow{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:11.5px;color:var(--mut)}
+  select{background:#161C24;color:var(--tx);border:1px solid var(--bd2);border-radius:7px;
+        padding:3px 7px;font-size:11.5px;font-family:inherit}
+
+  /* --- Stage Summary --- */
+  .stage{display:grid;grid-template-columns:.5fr 1fr 1fr 1.1fr;gap:6px 10px;font-size:12px}
+  .stage .h{font-weight:700;color:var(--head)}
+  .pill{display:inline-flex;align-items:center;gap:3px}
+  .pill i{width:7px;height:7px;border-radius:50%;display:block}
+
+  .caption{width:1360px;margin:0 auto 14px;color:#8A94A3;font-size:12.5px;line-height:1.7}
+  .caption b{color:#EDF1F5}
+</style>
+</head>
+<body>
+
+<div class="caption">
+  <b>Live Stats — вариант 2.</b> <b>Items</b> остаётся горизонтальной карточкой во всю ширину вкладки;
+  <b>Run&nbsp;Summary</b> в исходном виде уезжает в правую колонку (322&nbsp;px) к Stage&nbsp;Summary,
+  Powerups и Banishes — ряд из четырёх карточек исчезает.
+  Chaos и Damage&nbsp;Sources переверстаны на переносимые плитки. Переключайте суб-вкладки ниже.
+</div>
+
+<div class="app">
+
+  <!-- снапшот + REC -->
+  <div class="strip">
+    <div class="mono" style="font-size:12px;color:var(--mut)">Snapshot 42/58 · 00:12:04 &nbsp;|&nbsp; In-game 00:11:47</div>
+    <div class="rec"><div class="dot"></div><span style="font-size:12px;font-weight:700;color:var(--red)">REC</span></div>
+  </div>
+  <input type="range" min="0" max="100" value="72"/>
+
+  <!-- ITEMS: горизонтальная карточка во всю ширину вкладки -->
+  <div class="card" style="padding:12px 16px">
+    <div class="items-h" style="margin-bottom:10px">
+      <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap">
+        <div class="t">Items <s>· 14</s></div>
+        <div class="rarity" style="margin:0">
+          <span style="color:var(--c1)">6 Common</span>
+          <span style="color:var(--c2)">4 Uncommon</span>
+          <span style="color:var(--c3)">3 Rare</span>
+          <span style="color:var(--c5)">1 Legendary</span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <a id="showall">Show all</a>
+        <span style="color:var(--mut);font-size:11.5px">Sort:</span>
+        <select><option>Rarity ↓</option><option>Name</option><option>Pickup order</option></select>
+      </div>
+    </div>
+    <div class="tagwrap" id="tags">
+      <span class="tag t1">Beer</span>
+      <span class="tag t1">Battery</span>
+      <span class="tag t1">Protein Shake</span>
+      <span class="tag t1">Rusty Fork</span>
+      <span class="tag t1">Old Boot</span>
+      <span class="tag t1">Cheese</span>
+      <span class="tag t2">Cowards Cloak</span>
+      <span class="tag t2">Golden Sneakers</span>
+      <span class="tag t2">Windbreaker</span>
+      <span class="tag t2">Lucky Coin</span>
+      <span class="tag t3">Spiky Shield</span>
+      <span class="tag t5">Bonker</span>
+      <span class="more" id="morelbl">+2 more</span>
+    </div>
+    <div class="extra" id="extra" hidden style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+      <span class="tag t3">Void Crystal</span>
+      <span class="tag t3">Chaos Shard</span>
+    </div>
+  </div>
+
+  <!-- сплит -->
+  <div class="split">
+
+    <!-- ЛЕВО: суб-вкладки -->
+    <div class="left">
+      <div class="tabs" id="tabs">
+        <button data-t="stats" class="on">Stats</button>
+        <button data-t="loot">Loot</button>
+        <button data-t="weapons">Weapons</button>
+        <button data-t="tomes">Tomes</button>
+        <button data-t="chaos">Chaos</button>
+        <button data-t="damage">Damage Sources</button>
+      </div>
+
+      <!-- STATS: карточки получили заголовки групп -->
+      <div class="pane" data-p="stats">
+        <div class="g3">
+          <div class="card"><div class="eyebrow">Defensive</div><div class="stack">
+            <div class="row"><span>Max HP</span><b>842</b></div>
+            <div class="row"><span>HP Regen</span><b>4.1</b></div>
+            <div class="row"><span>Overheal</span><b>0</b></div>
+            <div class="row"><span>Shield</span><b>120</b></div>
+            <div class="row"><span>Armor</span><b>18%</b></div>
+            <div class="row"><span>Evasion</span><b>6%</b></div>
+            <div class="row"><span>Lifesteal</span><b>4%</b></div>
+            <div class="row"><span>Thorns</span><b>12</b></div></div></div>
+          <div class="card"><div class="eyebrow">Offensive</div><div class="stack">
+            <div class="row"><span>Damage</span><b>2.40x</b></div>
+            <div class="row"><span>Crit Chance</span><b>32%</b></div>
+            <div class="row"><span>Crit Damage</span><b>2.10x</b></div>
+            <div class="row"><span>Attack Speed</span><b>44%</b></div>
+            <div class="row"><span>Projectile Count</span><b>3</b></div>
+            <div class="row"><span>Projectile Bounces</span><b>1</b></div></div></div>
+          <div class="card"><div class="eyebrow">Area &amp; Projectile</div><div class="stack">
+            <div class="row"><span>Size</span><b>1.20x</b></div>
+            <div class="row"><span>Proj. Speed</span><b>1.15x</b></div>
+            <div class="row"><span>Duration</span><b>1.30x</b></div>
+            <div class="row"><span>Dmg to Elites</span><b>1.40x</b></div>
+            <div class="row"><span>Knockback</span><b>1.10x</b></div>
+            <div class="row"><span>Move Speed</span><b>1.18x</b></div></div></div>
+          <div class="card"><div class="eyebrow">Mobility &amp; Luck</div><div class="stack">
+            <div class="row"><span>Extra Jumps</span><b>1</b></div>
+            <div class="row"><span>Luck</span><b>22%</b></div>
+            <div class="row"><span>Difficulty</span><b>15%</b></div></div></div>
+          <div class="card"><div class="eyebrow">Gain</div><div class="stack">
+            <div class="row"><span>Pickup Range</span><b>14</b></div>
+            <div class="row"><span>XP Gain</span><b>1.35x</b></div>
+            <div class="row"><span>Gold Gain</span><b>1.10x</b></div>
+            <div class="row"><span>Elite Spawn</span><b>1.20x</b></div>
+            <div class="row"><span>Powerup Mult</span><b>1.15x</b></div>
+            <div class="row"><span>Powerup Drop</span><b>1.05x</b></div></div></div>
+        </div>
+        <div class="note" style="margin-top:10px">
+          Пустой карточки-заглушки больше нет — сетка переносится сама.
+        </div>
+      </div>
+
+      <!-- LOOT -->
+      <div class="pane" data-p="loot" hidden>
+        <div class="g2">
+          <div class="card"><div class="eyebrow">Chests · Expected = key procs</div><div class="stack">
+            <div class="row"><span>Maps</span><b>Map 1–4</b></div>
+            <div class="row"><span>Total</span><b>34</b></div>
+            <div class="row"><span>Paid / Free</span><b>12 / 22</b></div>
+            <div class="row"><span>Key Procs</span><b>8</b></div>
+            <div class="row"><span>Expected</span><b>7.4</b></div>
+            <div class="row"><span>Keys</span><b>3</b></div></div></div>
+          <div class="card"><div class="eyebrow">Item Rarity · Expected = items by tier</div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="display:grid;grid-template-columns:1fr auto auto;gap:12px;font-size:10px;color:var(--mut);font-weight:700;text-transform:uppercase;letter-spacing:.3px">
+                <span>Tier</span><span>Chance</span><span>Got / Exp</span></div>
+              <div style="display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;font-size:12px">
+                <span style="color:var(--c1);font-weight:700">Common</span><span class="mono" style="color:var(--mut)">60%</span><span class="mono"><b>6</b> <span style="color:var(--mut)">/ 5.2</span></span></div>
+              <div style="display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;font-size:12px">
+                <span style="color:var(--c2);font-weight:700">Uncommon</span><span class="mono" style="color:var(--mut)">25%</span><span class="mono"><b>4</b> <span style="color:var(--mut)">/ 3.4</span></span></div>
+              <div style="display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;font-size:12px">
+                <span style="color:var(--c3);font-weight:700">Rare</span><span class="mono" style="color:var(--mut)">10%</span><span class="mono"><b>3</b> <span style="color:var(--mut)">/ 2.1</span></span></div>
+              <div style="display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;font-size:12px">
+                <span style="color:var(--c4);font-weight:700">Epic</span><span class="mono" style="color:var(--mut)">4%</span><span class="mono"><b>1</b> <span style="color:var(--mut)">/ 0.8</span></span></div>
+              <div style="display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;font-size:12px">
+                <span style="color:var(--c5);font-weight:700">Legendary</span><span class="mono" style="color:var(--mut)">1%</span><span class="mono"><b>1</b> <span style="color:var(--mut)">/ 0.3</span></span></div>
+            </div></div>
+        </div>
+      </div>
+
+      <!-- WEAPONS -->
+      <div class="pane" data-p="weapons" hidden>
+        <div class="g2">
+          <div class="card"><div style="display:flex;justify-content:space-between;font-weight:700;font-size:14px"><span>Fire Staff</span><span style="color:var(--sec)">Lv. 6</span></div>
+            <div class="stack" style="margin-top:8px">
+              <div class="row"><span>Attack Speed</span><b>+44%</b></div>
+              <div class="row"><span>Crit Chance</span><b>+18%</b></div>
+              <div class="row"><span>Damage</span><b>+120</b></div></div></div>
+          <div class="card"><div style="display:flex;justify-content:space-between;font-weight:700;font-size:14px"><span>Katana</span><span style="color:var(--sec)">Lv. 4</span></div>
+            <div class="stack" style="margin-top:8px">
+              <div class="row"><span>Damage</span><b>+120</b></div>
+              <div class="row"><span>Attack Speed</span><b>+20%</b></div></div></div>
+          <div class="card"><div style="display:flex;justify-content:space-between;font-weight:700;font-size:14px"><span>Dice</span><span style="color:var(--sec)">Lv. 3</span></div>
+            <div class="stack" style="margin-top:8px">
+              <div class="row"><span>Crit Chance</span><b>+10%</b></div>
+              <div class="row"><span>Projectiles</span><b>+1</b></div></div></div>
+        </div>
+      </div>
+
+      <!-- TOMES -->
+      <div class="pane" data-p="tomes" hidden>
+        <div class="g2">
+          <div class="card"><div style="display:flex;justify-content:space-between;font-weight:700;font-size:14px"><span>Luck</span><span style="color:var(--sec)">Lv. 3</span></div>
+            <div class="stack" style="margin-top:8px"><div class="row"><span>Luck</span><b>+15%</b></div></div></div>
+          <div class="card"><div style="display:flex;justify-content:space-between;font-weight:700;font-size:14px"><span>Regeneration</span><span style="color:var(--sec)">Lv. 2</span></div>
+            <div class="stack" style="margin-top:8px"><div class="row"><span>HP Regen</span><b>+2.4</b></div></div></div>
+          <div class="card"><div style="display:flex;justify-content:space-between;font-weight:700;font-size:14px"><span>Greed</span><span style="color:var(--sec)">Lv. 2</span></div>
+            <div class="stack" style="margin-top:8px"><div class="row"><span>Gold Gain</span><b>+12%</b></div></div></div>
+        </div>
+      </div>
+
+      <!-- CHAOS: плитки с переносом (FlowLayout), значение крупное и цветное -->
+      <div class="pane" data-p="chaos" hidden>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="card" style="padding:14px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span style="font-weight:800;font-size:14.5px">Chaos Tome</span>
+                <span class="badge">Lv. 4</span>
+              </div>
+              <span class="mono" style="font-size:11.5px;color:var(--mut)">11 rolls tracked · 3 stats hit</span>
+            </div>
+            <div class="hr"></div>
+            <div class="chaos-tiles">
+              <div class="tile"><div class="l">Damage</div><div class="v" style="color:var(--red)">+18%</div><div class="s">rolled 4× · best +18%</div></div>
+              <div class="tile"><div class="l">Luck</div><div class="v" style="color:var(--c5)">+9%</div><div class="s">rolled 3× · best +9%</div></div>
+              <div class="tile"><div class="l">Armor</div><div class="v" style="color:var(--c2)">+4%</div><div class="s">rolled 4× · best +5%</div></div>
+              <div class="tile"><div class="l">Powerup Multiplier</div><div class="v" style="color:var(--c4)">+6%</div><div class="s">rolled 2× · best +4%</div></div>
+              <div class="tile"><div class="l">Attack Speed</div><div class="v" style="color:var(--orange)">+11%</div><div class="s">rolled 3× · best +6%</div></div>
+              <div class="tile"><div class="l">Crit Chance</div><div class="v" style="color:var(--c3)">+7%</div><div class="s">rolled 2× · best +5%</div></div>
+            </div>
+            <div class="note" style="margin-top:10px">
+              Плитки переносятся по ширине (min 168&nbsp;px) — 4 колонки жёстко не зашиты,
+              длинные названия вроде «Powerup Multiplier» больше не режутся.
+            </div>
+          </div>
+
+          <div class="card" style="padding:14px">
+            <div class="eyebrow">Roll Timeline</div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <div style="display:grid;grid-template-columns:44px 1fr 60px;gap:10px;align-items:center;font-size:12px">
+                <span class="mono" style="color:var(--mut)">#11</span><span>Damage <b style="color:var(--red)">+6%</b></span><span class="mono" style="color:var(--mut);text-align:right">00:11:40</span></div>
+              <div style="display:grid;grid-template-columns:44px 1fr 60px;gap:10px;align-items:center;font-size:12px">
+                <span class="mono" style="color:var(--mut)">#10</span><span>Armor <b style="color:var(--c2)">+5%</b></span><span class="mono" style="color:var(--mut);text-align:right">00:10:58</span></div>
+              <div style="display:grid;grid-template-columns:44px 1fr 60px;gap:10px;align-items:center;font-size:12px">
+                <span class="mono" style="color:var(--mut)">#9</span><span>Luck <b style="color:var(--c5)">+3%</b></span><span class="mono" style="color:var(--mut);text-align:right">00:10:12</span></div>
+              <div style="display:grid;grid-template-columns:44px 1fr 60px;gap:10px;align-items:center;font-size:12px">
+                <span class="mono" style="color:var(--mut)">#8</span><span>Damage <b style="color:var(--red)">+4%</b></span><span class="mono" style="color:var(--mut);text-align:right">00:09:30</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DAMAGE SOURCES: полоса доли + % от общего -->
+      <div class="pane" data-p="damage" hidden>
+        <div class="dmg">
+          <div class="src"><div class="top"><span class="nm">Fire Staff</span>
+            <span><span class="val mono">412K</span><span class="pct">50%</span></span></div>
+            <div class="bar"><i style="width:100%;background:var(--orange)"></i></div></div>
+          <div class="src"><div class="top"><span class="nm">Katana</span>
+            <span><span class="val mono">286K</span><span class="pct">35%</span></span></div>
+            <div class="bar"><i style="width:69%;background:var(--info)"></i></div></div>
+          <div class="src"><div class="top"><span class="nm">Dice</span>
+            <span><span class="val mono">91K</span><span class="pct">11%</span></span></div>
+            <div class="bar"><i style="width:22%;background:var(--violet)"></i></div></div>
+          <div class="src"><div class="top"><span class="nm">Thorns</span>
+            <span><span class="val mono">44K</span><span class="pct">5%</span></span></div>
+            <div class="bar"><i style="width:11%;background:var(--c1)"></i></div></div>
+          <div class="src"><div class="top"><span class="nm">Spiky Shield</span>
+            <span><span class="val mono">18K</span><span class="pct">2%</span></span></div>
+            <div class="bar"><i style="width:4%;background:var(--c3)"></i></div></div>
+          <div class="src"><div class="top"><span class="nm">Explosive Barrel</span>
+            <span><span class="val mono">6K</span><span class="pct">1%</span></span></div>
+            <div class="bar"><i style="width:2%;background:var(--c5)"></i></div></div>
+        </div>
+        <div class="note" style="margin-top:10px">
+          Строка занимает всю ширину карточки — шрифт 16&nbsp;px больше не конфликтует с сеткой;
+          полоса даёт долю без чтения чисел.
+        </div>
+      </div>
+    </div>
+
+    <!-- ПРАВО: вертикальная колонка 322 px -->
+    <div class="side">
+
+      <!-- RUN SUMMARY: в исходном виде, просто переехал сюда -->
+      <div class="card">
+        <div class="eyebrow">Run Summary</div>
+        <div class="stack" style="gap:6px">
+          <div class="row"><span>Average chests/min</span><b class="mono">2.4</b></div>
+          <div class="row"><span>In-Game Time</span><b class="mono">11:47</b></div>
+          <div class="row"><span>Mob Kills</span><b class="mono">8,204</b></div>
+          <div class="row"><span>KPS</span><b class="mono">188 / 172</b></div>
+          <div class="row"><span>Level</span><b class="mono">27</b></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow">Stage Summary</div>
+        <div class="stage">
+          <div class="h">Stg</div><div class="h">Time</div><div class="h">Kills</div><div class="h">Items</div>
+          <div>1</div><div class="mono">03:12</div><div class="mono">2,140</div>
+          <div style="display:flex;gap:8px"><span class="pill"><i style="background:var(--c1)"></i>3</span><span class="pill"><i style="background:var(--c2)"></i>1</span></div>
+          <div>2</div><div class="mono">03:40</div><div class="mono">2,610</div>
+          <div style="display:flex;gap:8px"><span class="pill"><i style="background:var(--c1)"></i>2</span><span class="pill"><i style="background:var(--c2)"></i>2</span><span class="pill"><i style="background:var(--c3)"></i>1</span></div>
+          <div>3</div><div class="mono">03:05</div><div class="mono">2,290</div>
+          <div style="display:flex;gap:8px"><span class="pill"><i style="background:var(--c2)"></i>1</span><span class="pill"><i style="background:var(--c3)"></i>1</span><span class="pill"><i style="background:var(--c5)"></i>1</span></div>
+          <div>4</div><div class="mono">01:50</div><div class="mono">1,164</div>
+          <div style="display:flex;gap:8px"><span class="pill"><i style="background:var(--c1)"></i>1</span><span class="pill"><i style="background:var(--c3)"></i>1</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px">
+          <div class="eyebrow" style="margin:0">Powerups</div>
+          <span class="badge" style="background:#101E30;color:var(--c2);border-color:#1E3A5C">PM 1.15x</span>
+        </div>
+        <div class="stack" style="gap:6px">
+          <div class="row"><span>Rage</span><b class="mono" style="color:var(--sec)">21s</b></div>
+          <div class="row"><span>Clock</span><b class="mono">17s</b></div>
+          <div class="row"><span>Shield</span><b class="mono" style="color:var(--sec)">21s</b></div>
+          <div class="row"><span>Stonks</span><b style="color:var(--mut)">—</b></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="eyebrow">Banishes</div>
+        <div style="font-size:12.5px">Ghost, Feathers</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  const tabs = document.getElementById('tabs');
+  tabs.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    [...tabs.children].forEach(x => x.classList.toggle('on', x === b));
+    document.querySelectorAll('.pane').forEach(p => p.hidden = p.dataset.p !== b.dataset.t);
+  });
+  const link = document.getElementById('showall');
+  link.addEventListener('click', () => {
+    const ex = document.getElementById('extra'), lbl = document.getElementById('morelbl');
+    ex.hidden = !ex.hidden;
+    lbl.hidden = !ex.hidden;
+    link.textContent = ex.hidden ? 'Show all' : 'Show less';
+  });
+</script>
+</body>
+</html>

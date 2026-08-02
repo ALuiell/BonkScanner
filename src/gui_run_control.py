@@ -99,7 +99,6 @@ class RunControl:
             keyboard,
             reset_hotkey=lambda: config.RESET_HOTKEY,
             reset_hold_duration=lambda: config.RESET_HOLD_DURATION,
-            map_load_delay=lambda: config.MIN_DELAY,
         )
 
     def check_admin_rights(self):

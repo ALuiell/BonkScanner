@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Streaming tools — layout options</title>
+<style>
+  /* Colours, radii and control sizes are NOT the subject here -- they are the
+     ones already shipped, taken from bonkscanner_redesign.qss so nothing on
+     this page reads as a new visual proposal. The only thing being proposed is
+     where things sit. */
+  :root{
+    --page:#0B0F14; --bg:#0E1217; --card:#0B0F14; --inner:#141A22; --inner2:#101419;
+    --bd:#1B222B; --bd2:#2A3542; --bd3:#2E3A48;
+    --tx:#EDF1F5; --head:#B9C2CE; --sec:#8A94A3; --mut:#5C6675;
+    --acc:#2F6FB0; --acc2:#3E82C6; --info:#38BDF8; --ok:#22C55E; --warn:#FACC15;
+    --r-control:8px; --r-card:12px; --r-panel:16px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:20px;background:var(--page);color:var(--tx);
+       font:13px/1.45 Inter,"Segoe UI",Arial,sans-serif}
+  h1{font-size:17px;margin:0 0 4px}
+  .lede{color:var(--sec);font-size:12px;margin:0 0 16px;max-width:900px}
+  .controls{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
+  .group{display:flex;gap:3px;padding:3px;border:1px solid var(--bd);
+         border-radius:11px;background:var(--card)}
+  .group button{padding:7px 14px;border:1px solid transparent;border-radius:var(--r-control);
+                background:transparent;color:var(--mut);font:inherit;font-weight:700;cursor:pointer}
+  .group button.on{background:var(--acc);border-color:var(--acc2);color:#fff}
+  .group-label{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+
+  .variant{margin:0 0 26px}
+  .variant-head{display:flex;align-items:baseline;gap:10px;margin:0 0 8px}
+  .variant-name{font-size:14px;font-weight:800}
+  .variant-note{color:var(--sec);font-size:11.5px}
+  .frame{border:1px solid var(--bd);border-radius:var(--r-panel);background:var(--bg);
+         padding:12px;overflow:hidden}
+  .frame .rule{display:block;margin-bottom:8px;color:var(--mut);font-size:10.5px}
+
+  /* ---- shared pieces, deliberately schematic --------------------------- */
+  .hero{display:flex;align-items:center;gap:14px;padding:12px 14px;margin-bottom:10px;
+        border:1px solid var(--bd);border-left:3px solid var(--info);
+        border-radius:var(--r-card);background:var(--card)}
+  .hero .ic{flex:0 0 40px;height:40px;border:1px solid var(--bd2);border-radius:10px;
+            background:var(--inner)}
+  .hero .t{font-weight:800}
+  .hero .s{color:var(--sec);font-size:11.5px}
+  .hero .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .chip{padding:2px 7px;border-radius:5px;border:1px solid var(--bd2);
+        background:var(--inner2);color:var(--mut);font-size:10px;font-weight:800}
+  .btn{padding:6px 11px;border:1px solid var(--bd2);border-radius:var(--r-control);
+       background:var(--inner);color:var(--head);font-size:11.5px;font-weight:700}
+  .btn.pri{border-color:var(--acc2);background:var(--acc);color:#fff}
+
+  .card{border:1px solid var(--bd);border-radius:var(--r-card);background:var(--card)}
+  .card > .ch{display:flex;align-items:center;gap:9px;padding:8px 11px;
+              border-bottom:1px solid var(--bd)}
+  .card > .ch .n{width:20px;height:20px;display:grid;place-items:center;border-radius:5px;
+                 border:1px solid var(--bd2);background:var(--inner);color:var(--info);
+                 font-size:10px;font-weight:800}
+  .card > .ch h3{margin:0;font-size:12.5px}
+  .card > .ch .sub{color:var(--mut);font-size:10px}
+  .card > .ch .r{margin-left:auto}
+  .card > .cb{padding:10px 11px}
+
+  .row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .row:last-child{margin-bottom:0}
+  .lbl{color:var(--head);font-size:11px;min-width:82px}
+  .fld{flex:1;min-height:29px;border:1px solid var(--bd2);border-radius:var(--r-control);
+       background:var(--inner);display:flex;align-items:center;padding:0 8px;
+       color:var(--sec);font-size:11px}
+  .fld.sm{flex:0 0 84px}
+  .seg{display:flex;gap:3px;padding:3px;border:1px solid var(--bd);border-radius:11px;
+       background:var(--card);margin-bottom:8px}
+  .seg span{flex:1;text-align:center;padding:6px;border-radius:var(--r-control);
+            color:var(--mut);font-size:11.5px;font-weight:700}
+  .seg span.on{background:var(--acc);color:#fff}
+
+  .tiles{display:grid;gap:7px}
+  .tile{display:flex;align-items:center;gap:8px;padding:6px 9px;border:1px solid var(--bd);
+        border-radius:var(--r-control);background:var(--inner2);font-size:11.5px}
+  .tile.on{border-color:var(--acc2);background:rgba(47,111,176,.12)}
+  .tile .sw{margin-left:auto;width:26px;height:15px;border-radius:999px;
+            border:1px solid var(--bd3);background:var(--inner);position:relative}
+  .tile.on .sw{background:var(--acc);border-color:var(--acc2)}
+  .tile .sw::after{content:"";position:absolute;top:1px;left:2px;width:11px;height:11px;
+                   border-radius:50%;background:var(--mut)}
+  .tile.on .sw::after{left:12px;background:var(--tx)}
+  /* The compact variant pins the switch next to the name instead of at the far
+     end of a 530px row. */
+  .tiles.tight .tile .sw{margin-left:auto}
+
+  .prev{aspect-ratio:16/9;border:1px solid var(--bd2);border-radius:var(--r-control);
+        background:linear-gradient(var(--bd) 1px,transparent 1px),
+                   linear-gradient(90deg,var(--bd) 1px,transparent 1px),var(--page);
+        background-size:22px 22px}
+  .legend{display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;margin-top:7px;
+          color:var(--sec);font-size:10.5px}
+  .tip{padding:9px 10px;border:1px solid var(--bd2);border-left:3px solid var(--info);
+       border-radius:var(--r-control);background:var(--inner2);color:var(--sec);font-size:10.5px}
+  .tip b{color:var(--info);display:block;margin-bottom:3px;font-size:10.5px;
+         text-transform:uppercase;letter-spacing:.3px}
+  .chat{border:1px solid var(--bd);border-radius:var(--r-control);background:var(--inner2);
+        padding:8px;font-size:10.5px;color:var(--sec)}
+  .chat i{color:var(--info);font-style:normal}
+  .opt{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--head);
+       padding:5px 0}
+  .opt::before{content:"";width:14px;height:14px;border:1px solid var(--bd2);border-radius:4px;
+               background:var(--inner)}
+
+  /* ---- the three arrangements ------------------------------------------ */
+  /* A: today's split, with the working area capped and centred. */
+  .lay-a .work{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:10px;
+               align-items:start;max-width:1400px;margin:0 auto}
+  .lay-a .col{display:flex;flex-direction:column;gap:10px}
+
+  /* B: the rail stops being a stack of fixed-height boxes and stretches to the
+     bottom of the tab, so the empty space is filled by something real -- a
+     bigger canvas, more chat lines -- instead of by black. The main column is
+     capped as in A. */
+  .lay-b .work{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:10px;
+               align-items:stretch;min-height:600px;max-width:1560px;margin:0 auto}
+  .lay-b .col{display:flex;flex-direction:column;gap:10px}
+  .lay-b .col:last-child > .card:first-child{flex:1;display:flex;flex-direction:column}
+  .lay-b .col:last-child > .card:first-child > .cb{flex:1;display:flex;flex-direction:column}
+  .lay-b .prev{aspect-ratio:auto;flex:1;min-height:150px}
+  .lay-b .chat{flex:1}
+  .lay-b .col:last-child > .tip:last-child{margin-top:auto}
+
+  /* C: full width, one flow, secondary things on a footer strip. */
+  .lay-c .work{display:flex;flex-direction:column;gap:10px}
+  .lay-c .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+
+  /* Tiles fill by *width*, not by a fixed column count. That is the whole fix
+     for the 530px tile: the row grows another column instead of stretching the
+     ones it has, so a switch never ends up half a screen from its name. The
+     ceiling matters as much as the floor -- without it a short list on a wide
+     tab stretches again. */
+  .tiles.auto{grid-template-columns:repeat(auto-fill,minmax(210px,1fr))}
+  .tiles.auto .tile{max-width:330px}
+  .cols2{grid-template-columns:repeat(2,minmax(0,1fr))}
+
+  .inline-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
+  .inline-fields .row{margin:0}
+
+  /* ---- the dialog proposal --------------------------------------------- */
+  .dlg{max-width:720px;border:1px solid var(--bd);border-radius:var(--r-card);
+       background:var(--card);overflow:hidden}
+  .dlg-head{display:flex;gap:3px;padding:8px 10px;border-bottom:1px solid var(--bd)}
+  .dlg-head span{padding:5px 11px;border-radius:var(--r-control);color:var(--mut);
+                 font-size:11.5px;font-weight:700}
+  .dlg-head span.on{background:var(--acc);color:#fff}
+  .dlg-body{padding:10px}
+  .wtable{width:100%;border-collapse:collapse;font-size:11.5px}
+  .wtable th{text-align:left;color:var(--mut);font-size:10px;font-weight:800;
+             text-transform:uppercase;letter-spacing:.3px;padding:0 8px 6px;border-bottom:1px solid var(--bd)}
+  .wtable td{padding:7px 8px;border-bottom:1px solid var(--bd);vertical-align:middle}
+  .wtable tr:last-child td{border-bottom:0}
+  .wtable .name{color:var(--tx);font-weight:700;width:34%}
+  .spin{display:inline-flex;align-items:center;min-height:26px;padding:0 7px;
+        border:1px solid var(--bd2);border-radius:6px;background:var(--inner);
+        color:var(--sec);font-size:11px}
+  .flags{display:flex;gap:10px;flex-wrap:wrap;color:var(--sec);font-size:11px}
+  .flags span{display:inline-flex;align-items:center;gap:5px}
+  .flags span::before{content:"";width:12px;height:12px;border:1px solid var(--bd2);
+                      border-radius:3px;background:var(--inner)}
+  .flags span.on::before{background:var(--acc);border-color:var(--acc2)}
+  .more{color:var(--info);font-size:11px;font-weight:700}
+
+  .hidden{display:none}
+  .measure{color:var(--mut);font-size:10.5px;margin:6px 2px 0}
+</style>
+</head>
+<body>
+
+<h1>Streaming tools — three arrangements</h1>
+<p class="lede">
+  Colours, icons and controls are unchanged and deliberately so — this is only about
+  where things sit. Each arrangement is shown on all three tabs. Switch the frame width to
+  see what the current build gets wrong: at 1920 the tabs use 40–55% of the height,
+  a tile stretches to ~530px with its switch half a screen from its name, and the
+  in-game rail collapses to ~180px.
+</p>
+
+<div class="controls">
+  <span class="group-label">Tab</span>
+  <div class="group" id="tabs">
+    <button class="on" data-tab="obs">OBS Overlay</button>
+    <button data-tab="twitch">Twitch Bot</button>
+    <button data-tab="game">In-Game Overlay</button>
+  </div>
+  <span class="group-label">Frame width</span>
+  <div class="group" id="widths">
+    <button data-w="1320">1320 (windowed)</button>
+    <button class="on" data-w="1920">1920 (maximised)</button>
+  </div>
+</div>
+
+<div id="stage"></div>
+
+<h1 style="margin-top:30px">Widget settings — the same problem, one level down</h1>
+<p class="lede">
+  Six group boxes, each wrapping a single spin box, is most of the dialog's height. One row
+  per widget puts scale, its own flags and the way into anything deeper on one line, and the
+  six rows fit in the space two group boxes used.
+</p>
+<div id="dialogs"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Content per tab. Kept as data so the three arrangements are the only thing
+// that differs between panels -- otherwise a layout would look better merely
+// for having been given less to hold.
+const DATA = {
+  obs: {
+    title:"OBS Overlay", sub:"Send live run data to OBS through a local browser source.",
+    badge:"STOPPED", auto:"Auto-start server",
+    setup:{n:1,t:"Browser source",s:"Copy once, paste into OBS.",act:"Open layout editor"},
+    seg:["Full overlay","Single widget"],
+    fields:[["URL","http://127.0.0.1:17845/overlay"],["Port","17845"]],
+    mods:{n:2,t:"Overlay widgets",s:"Detailed settings stay one level deeper.",act:"Widget Settings"},
+    tiles:["Stage summary","Tracked items","Stats","KPS","Banishes","Luck"],
+    off:[],
+    extra:{n:3,t:"Server & source behaviour",opts:["Show OBS reminder on Start Scanner"]},
+    aside:"preview"
+  },
+  twitch: {
+    title:"Twitch Bot", sub:"Answer chat commands and announce important run events.",
+    badge:"CONNECTED", auto:"Auto-connect bot",
+    setup:{n:1,t:"Account & channel",s:"Authorization first; routing beside it.",act:"Disconnect"},
+    seg:null,
+    fields:[["Account","aluielll"],["Channel","aluielll"],["Access tier","Everyone"],["Cooldowns","3 sec / 1 sec"]],
+    mods:{n:2,t:"Chat commands",s:"Aliases and templates open separately.",act:"Command Settings"},
+    tiles:["!stats","!session","!bans","!items","!weapons","!tomes","!chaos","!stages",
+           "!powerups","!kps","!scanner","!chests","!luck","!presets","!bonkhelp","!disabled"],
+    off:["!disabled"],
+    extra:{n:3,t:"Announcements",opts:["Announce stage transitions","Periodically announce available commands"]},
+    aside:"chat"
+  },
+  game: {
+    title:"In-Game Overlay", sub:"Pin live scanner information over the game window.",
+    badge:"WAITING", auto:"Auto-start overlay",
+    setup:{n:1,t:"Layout & activation",s:"Layout mode is entered by hotkey.",act:null},
+    seg:null,
+    fields:[["Edit hotkey","F9"],["Target window","Megabonk.exe — Detected"]],
+    mods:{n:2,t:"In-game widgets",s:"Scale and per-widget details live in settings.",act:"Widget Settings"},
+    tiles:["Scanner status","Recording status","KPS","Active powerups","Luck rarity %","Stats","Event timer"],
+    off:[],
+    extra:null,
+    aside:"tip"
+  }
+};
+
+const VARIANTS = [
+  {id:"a", name:"A — Capped column",
+   note:"Today's split, but the working area stops at 1400px and centres. Smallest change; the void moves to the sides where it reads as margin."},
+  {id:"b", name:"B — Stretching rail",
+   note:"Same cards as A, but the rail grows to the bottom of the tab: the canvas gets bigger and the chat shows more lines instead of the space being black. Fills the void with something real — where there is something to grow."},
+  {id:"c", name:"C — Full width, footer strip",
+   note:"One flow at full width: fields go inline, tiles take as many columns as fit, and everything secondary shares one strip along the bottom."}
+];
+
+const esc = s => String(s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function hero(d){
+  return `<div class="hero"><div class="ic"></div>
+    <div><div class="t">${esc(d.title)} <span class="chip">${esc(d.badge)}</span></div>
+    <div class="s">${esc(d.sub)}</div></div>
+    <div class="right"><span class="s">${esc(d.auto)}</span>
+    <span class="btn">▶ Start</span><span class="btn">■ Stop</span></div></div>`;
+}
+
+function cardHead(c){
+  return `<div class="ch">${c.n?`<span class="n">${c.n}</span>`:""}
+    <div><h3>${esc(c.t)}</h3>${c.s?`<div class="sub">${esc(c.s)}</div>`:""}</div>
+    ${c.act?`<span class="btn r">${esc(c.act)}</span>`:""}</div>`;
+}
+
+function fieldRows(d, inline){
+  const rows = d.fields.map(([l,v]) =>
+    `<div class="row"><span class="lbl">${esc(l)}</span><span class="fld">${esc(v)}</span></div>`).join("");
+  return inline ? `<div class="inline-fields">${rows}</div>` : rows;
+}
+
+function setupCard(d, inline){
+  return `<section class="card">${cardHead(d.setup)}<div class="cb">
+    ${d.seg?`<div class="seg">${d.seg.map((s,i)=>`<span class="${i?"":"on"}">${esc(s)}</span>`).join("")}</div>`:""}
+    ${fieldRows(d, inline)}</div></section>`;
+}
+
+function tilesCard(d){
+  const tiles = d.tiles.map(t =>
+    `<div class="tile ${d.off.includes(t)?"":"on"}">${esc(t)}<span class="sw"></span></div>`).join("");
+  return `<section class="card">${cardHead(d.mods)}<div class="cb">
+    <div class="tiles auto">${tiles}</div></div></section>`;
+}
+
+function extraCard(d){
+  if(!d.extra) return "";
+  return `<section class="card">${cardHead({n:d.extra.n,t:d.extra.t})}<div class="cb">
+    ${d.extra.opts.map(o=>`<div class="opt">${esc(o)}</div>`).join("")}</div></section>`;
+}
+
+function aside(d){
+  if(d.aside === "preview"){
+    return `<section class="card"><div class="ch"><div><h3>Canvas preview</h3>
+      <div class="sub">Read-only — edit in the layout editor.</div></div>
+      <span class="chip r">SOURCE LIVE</span></div><div class="cb">
+      <div class="prev"></div>
+      <div class="legend"><span>1 Stage summary</span><span>2 Tracked items</span>
+      <span>3 Stats</span><span>4 KPS</span><span>5 Banishes</span><span>6 Luck</span></div>
+      </div></section>
+      <div class="tip"><b>◎ OBS canvas</b>Match the Browser Source size in OBS to the
+      overlay canvas. The editor saves as you drag.</div>`;
+  }
+  if(d.aside === "chat"){
+    return `<section class="card"><div class="ch"><div><h3>Chat preview</h3>
+      <div class="sub">The message shape before it reaches Twitch.</div></div></div>
+      <div class="cb"><div class="chat">
+      viewer: !kps<br><i>BonkScanner:</i> KPS: 188 | 60s Avg: 172 | 5m Avg: 165<br><br>
+      viewer: !items<br><i>BonkScanner:</i> Items (12): Anvil x3, Magnet x2, Boots<br><br>
+      viewer: !weapons<br><i>BonkScanner:</i> Weapons: Bonk Hammer Lv7, Crossbow Lv5
+      </div></div></section>`;
+  }
+  return `<div class="tip"><b>◎ Layout shortcut</b>Press <b style="display:inline">F9</b>
+    to enter layout mode. Drag the widgets over the game, then press F9 or Esc to save.</div>`;
+}
+
+function render(tab){
+  const d = DATA[tab];
+  return VARIANTS.map(v => {
+    let work = "", caveat = "";
+    if(v.id === "a"){
+      work = `<div class="work"><div class="col">
+        ${setupCard(d,false)}${tilesCard(d)}${extraCard(d)}</div>
+        <div class="col">${aside(d)}</div></div>`;
+    } else if(v.id === "b"){
+      // Same cards as A. The difference is entirely that the rail stretches, so
+      // this is a fair comparison of the arrangement rather than of the
+      // contents. Dealing cards between two equal columns was tried first and
+      // measured badly at every width -- the tile grid reflows as the column
+      // narrows, so any fixed deal is balanced at one width and lopsided at the
+      // next.
+      work = `<div class="work"><div class="col">
+        ${setupCard(d,false)}${tilesCard(d)}${extraCard(d)}</div>
+        <div class="col">${aside(d)}</div></div>`;
+      if(tab === "game"){
+        caveat = "Nothing on this tab can stretch — a tip is a fixed paragraph — so the " +
+                 "space stays empty and only the card gets taller.";
+      }
+    } else {
+      work = `<div class="work">
+        ${setupCard(d,true)}
+        ${tilesCard(d)}
+        <div class="strip">${extraCard(d)}${aside(d)}</div></div>`;
+    }
+    return `<div class="variant">
+      <div class="variant-head"><span class="variant-name">${v.name}</span>
+      <span class="variant-note">${v.note}</span></div>
+      <div class="frame lay-${v.id}">
+      <span class="rule">frame width follows the switch above${
+        caveat ? ` &nbsp;·&nbsp; <b style="color:var(--warn)">${caveat}</b>` : ""}</span>
+      ${hero(d)}${work}</div></div>`;
+  }).join("");
+}
+
+const stage = document.getElementById("stage");
+let currentTab = "obs";
+let currentWidth = 1920;
+
+function paint(){
+  stage.innerHTML = render(currentTab);
+  document.querySelectorAll(".frame").forEach(f => {
+    f.style.width = currentWidth + "px";
+    f.style.maxWidth = "100%";
+  });
+}
+
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); currentTab = b.dataset.tab; paint();
+});
+document.querySelectorAll("#widths button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#widths button").forEach(x => x.classList.remove("on"));
+  b.classList.add("on"); currentWidth = Number(b.dataset.w); paint();
+});
+
+// ---------------------------------------------------------------------------
+const IGO_ROWS = [
+  ["Scanner status","1.00",[]],
+  ["Recording status","1.00",[]],
+  ["KPS","1.90",["KPS","60s","5m","Run"]],
+  ["Active powerups","1.80",[]],
+  ["Luck rarity %","1.00",["Bar","Expected frame"]],
+  ["Stats","1.00",["Header","Short labels"]],
+  ["Event timer","1.00",["Warn at 15s"]]
+];
+
+document.getElementById("dialogs").innerHTML = `
+  <div class="dlg">
+    <div class="dlg-head"><span class="on">Widgets</span><span>Advanced</span></div>
+    <div class="dlg-body">
+      <table class="wtable">
+        <tr><th class="name">Widget</th><th>Scale</th><th>Options</th></tr>
+        ${IGO_ROWS.map(([n,s,flags]) => `
+          <tr><td class="name">${esc(n)}</td>
+          <td><span class="spin">${esc(s)} ▾</span></td>
+          <td><span class="flags">${
+            flags.length
+              ? flags.map((f,i) => `<span class="${i<2?"on":""}">${esc(f)}</span>`).join("")
+              : `<span style="color:var(--mut)" >—</span>`
+          }</span></td></tr>`).join("")}
+      </table>
+    </div>
+  </div>
+  <p class="measure">Seven rows in roughly the height two of today's group boxes take.
+  Anything that will not fit a row — the stat picker, the tracked-item list — stays on the
+  Advanced tab rather than being flattened into it.</p>`;
+
+paint();
+</script>
+</body>
+</html>
