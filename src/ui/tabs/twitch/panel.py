@@ -442,7 +442,7 @@ class TwitchTab:
 
         # Named after the item's in-game display name rather than "Golden Ring":
         # the caption has to match what the streamer saw on the pickup card.
-        self._one_ring_announcements_cb = QCheckBox("Announce The One Ring (Forest / Desert only)")
+        self._one_ring_announcements_cb = QCheckBox("Announce The One Ring")
         self._one_ring_announcements_cb.setObjectName("announcementCheck")
         self._one_ring_announcements_cb.setChecked(
             config.TWITCH_BOT.get("one_ring_announcements", True)

@@ -1364,25 +1364,26 @@ class OneRingAnnouncerTests(unittest.TestCase):
 
         self.assertEqual(self.sent, [])
 
-    def test_graveyard_never_announces(self):
+    def test_graveyard_announces_like_any_other_map(self):
+        # This was Forest/Desert-only in its first version. Nothing in the
+        # announcer ever depended on the map, and `run_id` holds across
+        # Graveyard's crypt and boss-room transitions, so the latch cannot
+        # double-fire there.
         self.state.is_graveyard = True
         self.tick()
         self.state.items = ("The One Ring x1",)
         self.tick(3)
 
-        self.assertEqual(self.sent, [])
+        self.assertEqual(len(self.sent), 1)
 
-    def test_an_unknown_map_holds_the_announcement_rather_than_dropping_it(self):
+    def test_an_unknown_map_does_not_hold_the_announcement(self):
+        # The map gate is gone, so an absent `powerup_map_context` is no longer
+        # a reason to wait for the next 10 s republish.
         self.state.map_context_known = False
         self.tick()
         self.state.items = ("The One Ring x1",)
         self.tick(3)
-        self.assertEqual(self.sent, [])
 
-        # The context is republished on the 10 s snapshot; the ring is still in
-        # the bag, so the announcement is owed and still fires.
-        self.state.map_context_known = True
-        self.tick(2)
         self.assertEqual(len(self.sent), 1)
 
     def test_connecting_mid_run_does_not_announce_a_ring_already_held(self):

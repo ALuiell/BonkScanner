@@ -78,7 +78,7 @@ Documentation anchor:
 
 #### 3. The One Ring Announcer
 
-Status: `[Partial]` -- **the first-pickup announcer ships; the duplicate variant and Graveyard do not.**
+Status: `[Implemented]`
 
 Goal:
 
@@ -87,9 +87,9 @@ Goal:
 
 ##### What shipped
 
-Two phrase pools on Forest and Desert only: one for the first ring, one for every
-duplicate after it. Six phrases and five respectively, one per line, drawn at
-random with the recent draws excluded.
+Two phrase pools, on every map: one for the first ring, one for every duplicate
+after it. Six phrases and five respectively, one per line, drawn at random with
+the recent draws excluded.
 
 - `TwitchBotWorker._check_one_ring_announcement` ([src/twitch_bot.py](../../src/twitch_bot.py)), called from the socket loop beside `_check_stage_transitions`.
 - Config: `one_ring_announcements` (default on), the `one_ring_announcement` and `one_ring_duplicate_announcement` template pools, and `announcer_recent_lines`, all in `DEFAULT_TWITCH_BOT` ([src/app/config.py:163](../../src/app/config.py:163)). Checkbox in the Announcements card; two multi-line editors in the command dialog's Announcers tab.
@@ -162,8 +162,8 @@ Decisions worth keeping:
 - **Level-triggered on the inventory, not edge-triggered on a pickup.** An edge
   would have to survive a torn read, a skipped pass or a reconnect to fire at
   all. "The bag holds more rings than have been announced" stays true on every
-  tick until it is answered, which is why a momentarily missing map context costs
-  a delay rather than the announcement.
+  tick until it is answered, so a read that fails costs a tick rather than the
+  announcement.
 - **The latch is a count, not a flag.** It is what lets ring 2 be new while ring 1
   is old. Two rings appearing between one tick and the next is still one event and
   draws the first-pickup line only — the duplicate pool fires on an *observed*
@@ -173,18 +173,21 @@ Decisions worth keeping:
   or a reconnect after a dropped socket -- stays quiet. An *unavailable* read is
   not allowed to seed, because "no rings" from a failed read would announce on the
   next successful one.
-- **"Not Graveyard" is not the same as "Forest/Desert".** The gate is a *fresh*
-  `powerup_map_context` whose `is_graveyard` is False; with no context the map is
-  unknown and an unknown map must not announce. The 10 s snapshot republishes
-  that context against a 15 s TTL ([src/core/tracker/powerups.py:29](../../src/core/tracker/powerups.py:29)), so a live run always has one.
+- **No map gate at all.** The first version was Forest/Desert-only, gated on a
+  *fresh* `powerup_map_context` that was not Graveyard — scope control, not a
+  requirement. Nothing here ever depended on the map: the inventory and `run_id`
+  are the same facts everywhere, and `run_id` holds across Graveyard's crypt and
+  boss-room transitions — which is exactly the property the Event Timer item
+  below records as making those transitions invisible to seed and pointer — so
+  the latch cannot double-fire there. The gate was removed rather than inverted,
+  which also drops the wait for a context that no longer decides anything.
 
 Matching is via `fold_item_match_name` ([src/core/tracker/items.py:70](../../src/core/tracker/items.py:70)), which collapses all four spellings the item reaches this code under -- `GoldenRing`, `Golden Ring`, `The One Ring`, and the game's `No Implementation` placeholder -- onto one key. Do not replace it with a literal list here; it would drift from `core/item_metadata.py`.
 
-Covered by `OneRingAnnouncerTests` in `src/tests/test_twitch_bot.py`, tamper-tested against removal of the Graveyard gate, of the seeding branch, of the fast-lane preference, of the exclusion, of its persistence, of the duplicate pool, and of the counting latch.
+Covered by `OneRingAnnouncerTests` in `src/tests/test_twitch_bot.py`, tamper-tested against reinstating the map gate and against removal of the seeding branch, the fast-lane preference, either exclusion, the exclusion's persistence, the duplicate pool, and the counting latch.
 
 ##### Remaining
 
-- Graveyard, which is out of scope until someone decides what the announcer should do there.
 - Condition-driven lines, **if** they are ever wanted: a pickup on Stage 1, or before 5:00, is a genuinely different event and `current_stage_index` / `game_time_seconds` are both already on the runtime snapshot. Do this as a *condition* rather than a weight — a weighted line on an event this rare is a line nobody reads.
 
 #### 4. `!chaos` / `!chaostome` Roll Frequency Statistics

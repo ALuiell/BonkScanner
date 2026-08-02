@@ -1151,15 +1151,23 @@ class TwitchBotWorker(QThread):
         return tuple(snapshot.items or ())
 
     def _check_one_ring_announcement(self, channel: str):
-        """Announce The One Ring on Forest/Desert: once for the first, once per
-        duplicate, each from its own pool.
+        """Announce The One Ring: once for the first, once per duplicate, each
+        from its own pool.
 
         Level-triggered on the inventory rather than edge-triggered on a pickup
         event, and deliberately: an edge would have to survive a torn read, a
         skipped pass or a reconnect to fire at all, while "the bag holds more
         rings than have been announced" is true on every tick until it is
-        answered. That is what lets a momentarily missing map context cost a
-        delay instead of the announcement.
+        answered.
+
+        **Map-agnostic.** This shipped Forest/Desert-only, gated on a fresh
+        `powerup_map_context` that was not Graveyard, purely to keep the first
+        version small. Nothing here ever depended on the map -- the inventory
+        and `run_id` are the same facts everywhere, and `run_id` in particular
+        holds across Graveyard's crypt and boss-room transitions, so the latch
+        cannot double-fire there. The gate is gone rather than inverted, which
+        also removes the wait for a map context that no longer decides
+        anything.
         """
         if not config.TWITCH_BOT.get("one_ring_announcements", True):
             return
@@ -1186,15 +1194,6 @@ class TwitchBotWorker(QThread):
             return
 
         if ring_count <= self._one_ring_announced_count:
-            return
-
-        # Graveyard is out of scope for now, and "not Graveyard" is not the same
-        # as "Forest/Desert": with no fresh map context the map is *unknown*,
-        # and an unknown map must not announce. Costs nothing to wait -- the
-        # 10 s snapshot republishes this against a 15 s TTL, and the check above
-        # stays true until it does.
-        map_context = runtime.powerup_map_context
-        if map_context is None or map_context.is_graveyard:
             return
 
         first_ring = self._one_ring_announced_count == 0

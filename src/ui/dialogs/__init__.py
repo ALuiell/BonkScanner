@@ -1534,10 +1534,10 @@ class TwitchCommandSettingsDialog(QDialog):
             self._build_pool_row(
                 "one_ring_announcement",
                 "One phrase per line, drawn at random, recent lines skipped. "
-                "Forest and Desert only. Tags: {streamer}, {stage}, {time} -- "
-                "note that the bot usually posts from your own account, so a "
-                "line naming {streamer} reads as you talking about yourself "
-                "unless you run a separate bot account.",
+                "Tags: {streamer}, {stage}, {time} -- note that the bot usually "
+                "posts from your own account, so a line naming {streamer} reads "
+                "as you talking about yourself unless you run a separate bot "
+                "account.",
             ),
         )
         announcers_form.addRow(
