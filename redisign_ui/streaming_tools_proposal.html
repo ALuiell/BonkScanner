@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Streaming Tools — unified redesign proposal</title>
+<style>
+  /* Every value below is a token from bonkscanner_redesign.qss. Nothing here is
+     mixed by eye: the header of that file is the source, and a colour that is
+     not in it does not belong in a mock the app has to be built from. */
+  :root{
+    /* surfaces -- note the order: the window is LIGHTER than the cards on it */
+    --page:#0B0F14;      /* mock backdrop */
+    --bg:#0E1217;        /* bg (окно) */
+    --panel:#101419;     /* panel */
+    --card:#0B0F14;      /* card */
+    --inner:#141A22;     /* card inner */
+    --inner2:#101419;    /* second inner surface = panel */
+    --hover:#161C24;     /* the app's hover surface */
+    /* borders: тонкая / контрол / актив */
+    --bd:#1B222B;
+    --bd2:#2A3542;
+    --bd3:#2E3A48;
+    /* text */
+    --tx:#EDF1F5;
+    --head:#B9C2CE;
+    --sec:#8A94A3;
+    --mut:#5C6675;
+    --tx-on-accent:#A9D9FF;
+    /* accent, with its documented hover and press */
+    --acc:#2F6FB0;
+    --acc2:#3E82C6;
+    --acc-hover:#3781CE;
+    --acc-press:#276099;
+    --info:#38BDF8;
+    /* state hues, and the tint/border pair each chip is built from */
+    --ok:#22C55E;
+    --ok-soft:#7DE68C;
+    --ok-tint:rgba(34,197,94,.10);
+    --ok-bd:rgba(34,197,94,.32);
+    --warn:#FACC15;
+    --warn-tint:rgba(250,204,21,.10);
+    --warn-bd:#7A6520;
+    --danger:#F87171;        /* status */
+    --danger-muted:#F0787E;
+    --danger-fill:#B91C1C;
+    --danger-fill-bd:#C8302F;
+    --danger-tint:rgba(248,113,113,.10);
+    --danger-bd:#4A2226;
+    --violet:#C084FC;
+    /* radius ladder -- one tier, one number */
+    --r-indicator:4px;
+    --r-badge:5px;
+    --r-control:8px;
+    --r-group:11px;
+    --r-card:12px;
+    --r-panel:16px;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    padding:20px;
+    background:var(--page);
+    color:var(--tx);
+    font:13px/1.45 Inter,"Segoe UI",Arial,sans-serif;
+  }
+  button,input,select{font:inherit}
+  button{color:inherit}
+  .mono{font-family:"JetBrains Mono",Consolas,monospace;font-variant-numeric:tabular-nums}
+
+  .proposal{
+    width:min(1420px,calc(100vw - 40px));
+    margin:0 auto;
+  }
+  .caption{
+    display:flex;
+    justify-content:space-between;
+    gap:24px;
+    margin:0 2px 13px;
+    color:var(--sec);
+    font-size:12px;
+  }
+  .caption strong{color:var(--tx)}
+  .caption .rule{color:var(--info);white-space:nowrap}
+
+  .screen{
+    min-height:820px;
+    padding:14px;
+    border:1px solid var(--bd);
+    border-radius:var(--r-panel);
+    background:var(--bg);
+    box-shadow:0 18px 70px #0008;
+  }
+
+  .contextbar{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:12px;
+  }
+  .page-title{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    min-width:236px;
+    font-weight:800;
+    font-size:14px;
+  }
+  .page-title i{
+    width:10px;height:10px;border-radius:var(--r-indicator);
+    background:var(--info);
+    box-shadow:0 0 0 5px rgba(56,189,248,.18);
+  }
+  .context-tabs{
+    display:flex;
+    gap:4px;
+    padding:4px;
+    border:1px solid var(--bd);
+    border-radius:var(--r-group);
+    background:var(--card);
+  }
+  .context-tabs button{
+    min-width:130px;
+    padding:7px 15px;
+    border:0;
+    border-radius:var(--r-control);
+    background:transparent;
+    color:var(--sec);
+    font-weight:700;
+    cursor:pointer;
+  }
+  .context-tabs button:hover{color:var(--tx)}
+  .context-tabs button.active{
+    background:var(--acc);
+    color:white;
+  }
+  .context-note{
+    margin-left:auto;
+    color:var(--mut);
+    font-size:11.5px;
+  }
+
+  .hero{
+    display:flex;
+    align-items:center;
+    gap:16px;
+    min-height:92px;
+    padding:14px 16px;
+    margin-bottom:12px;
+    border:1px solid var(--bd);
+    border-left:3px solid var(--info);
+    border-radius:var(--r-card);
+    background:var(--card);
+  }
+  .hero-icon{
+    display:grid;
+    place-items:center;
+    flex:0 0 48px;
+    height:48px;
+    border:1px solid var(--bd2);
+    border-radius:var(--r-card);
+    background:var(--inner);
+    color:var(--info);
+  }
+  .hero-icon svg{width:24px;height:24px}
+  .hero-copy{min-width:0}
+  .hero-title{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    margin-bottom:3px;
+    font-size:16px;
+    font-weight:800;
+  }
+  .status{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:2px 8px;
+    border:1px solid var(--ok-bd);
+    border-radius:var(--r-badge);
+    background:var(--ok-tint);
+    color:var(--ok);
+    font-size:10.5px;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:.35px;
+  }
+  .status i{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .status.off{
+    border-color:var(--danger-bd);
+    background:var(--danger-tint);
+    color:var(--danger);
+  }
+  .hero-sub{color:var(--sec);font-size:12px}
+  .hero-actions{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-left:auto;
+  }
+  .toggle-label{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    color:var(--head);
+    font-size:11.5px;
+    font-weight:700;
+    white-space:nowrap;
+    cursor:pointer;
+  }
+  /* Geometry copied from `LabeledSwitch` (ui/shared.py): 32x18 track, 12px
+     knob, 3px inset, and the on/off colours it exposes to QSS through
+     `qproperty-`. Do not re-derive it -- the app has this control, and a mock
+     with its own numbers is how a second one gets built. */
+  .switch{
+    position:relative;
+    width:32px;height:18px;
+    border:1px solid var(--bd3);
+    border-radius:999px;
+    background:var(--inner);
+    cursor:pointer;
+  }
+  .switch::after{
+    content:"";
+    position:absolute;
+    left:3px;top:2px;
+    width:12px;height:12px;
+    border-radius:50%;
+    background:var(--mut);
+    transition:.15s;
+  }
+  .switch:hover{border-color:#38495E}
+  .switch.on{border-color:var(--acc2);background:var(--acc)}
+  .switch.on::after{left:16px;background:var(--tx)}
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+    min-height:34px;
+    padding:7px 12px;
+    border:1px solid var(--bd2);
+    border-radius:var(--r-control);
+    background:var(--inner);
+    color:var(--head);
+    font-weight:700;
+    cursor:pointer;
+  }
+  .btn:hover{border-color:var(--bd3);color:var(--tx)}
+  .btn.primary{
+    min-width:132px;
+    border-color:var(--acc2);
+    background:var(--acc);
+    color:white;
+  }
+  .btn.primary:hover{background:var(--acc-hover)}
+  .btn.primary:active{background:var(--acc-press)}
+  .btn.stop{
+    border-color:var(--danger-fill-bd);
+    background:var(--danger-fill);
+    color:#fff;
+  }
+  .btn.small{min-height:29px;padding:4px 9px;font-size:11.5px}
+  .btn.icon{width:30px;min-width:30px;padding:0}
+
+  .workspace{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 346px;
+    gap:12px;
+    align-items:start;
+  }
+  .main{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    min-width:0;
+  }
+  .side{
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    min-width:0;
+  }
+  .card{
+    border:1px solid var(--bd);
+    border-radius:var(--r-card);
+    background:var(--card);
+  }
+  .card-head{
+    display:flex;
+    align-items:center;
+    min-height:43px;
+    gap:10px;
+    padding:9px 12px;
+    border-bottom:1px solid var(--bd);
+  }
+  .card-head .num{
+    display:grid;
+    place-items:center;
+    width:22px;height:22px;
+    border:1px solid var(--bd2);
+    border-radius:var(--r-badge);
+    background:var(--inner);
+    color:var(--info);
+    font-size:10.5px;
+    font-weight:800;
+  }
+  .card-head h2{margin:0;font-size:13px}
+  .card-head p{margin:1px 0 0;color:var(--mut);font-size:10.5px}
+  .card-head .right{margin-left:auto}
+  .card-body{padding:12px}
+
+  .setup-grid{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(240px,.62fr);
+    gap:10px;
+  }
+  .field{min-width:0}
+  .field.full{grid-column:1/-1}
+  .label{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    margin:0 0 5px;
+    color:var(--head);
+    font-size:10.5px;
+    font-weight:800;
+    letter-spacing:.3px;
+    text-transform:uppercase;
+  }
+  .label em{
+    color:var(--mut);
+    font-size:10px;
+    font-style:normal;
+    font-weight:600;
+    letter-spacing:0;
+    text-transform:none;
+  }
+  .control{
+    display:flex;
+    min-height:35px;
+    overflow:hidden;
+    border:1px solid var(--bd2);
+    border-radius:var(--r-control);
+    background:var(--inner);
+  }
+  .control input,.control select{
+    min-width:0;
+    width:100%;
+    padding:7px 9px;
+    border:0;
+    outline:0;
+    background:transparent;
+    color:var(--tx);
+  }
+  .control select{cursor:pointer}
+  .control .suffix{
+    display:flex;
+    align-items:center;
+    padding:0 9px;
+    border-left:1px solid var(--bd2);
+    color:var(--mut);
+    font-size:11px;
+  }
+  .control .copy{
+    min-width:62px;
+    border:0;
+    border-left:1px solid var(--bd2);
+    background:var(--inner);
+    color:var(--info);
+    font-weight:700;
+    cursor:pointer;
+  }
+  .control .copy:hover{background:var(--hover);color:var(--tx-on-accent)}
+  /* `SegmentedToggle`: group radius on the frame, control radius on the
+     segment, and the weight fixed at 700 in the base rule -- a segment that
+     sets its label bolder when active re-measures and the whole control
+     shifts, which is what its fixed captions exist to prevent. */
+  .segmented{
+    display:flex;
+    gap:3px;
+    padding:3px;
+    border:1px solid var(--bd);
+    border-radius:var(--r-group);
+    background:var(--card);
+  }
+  .segmented button{
+    flex:1;
+    padding:7px 18px;
+    border:1px solid transparent;
+    border-radius:var(--r-control);
+    background:transparent;
+    color:var(--mut);
+    font-size:12.5px;
+    font-weight:700;
+    cursor:pointer;
+  }
+  .segmented button.on{background:var(--acc);border-color:var(--acc2);color:#fff}
+
+  .module-grid{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:8px;
+  }
+  .module{
+    min-height:88px;
+    padding:9px 10px;
+    border:1px solid var(--bd);
+    border-radius:var(--r-control);
+    background:var(--inner2);
+    cursor:pointer;
+  }
+  .module:hover{border-color:var(--bd2)}
+  .module-top{display:flex;align-items:center;gap:8px}
+  .module-icon{
+    display:grid;place-items:center;
+    width:27px;height:27px;
+    border:1px solid var(--bd2);
+    border-radius:var(--r-badge);
+    background:var(--inner);
+    color:var(--info);
+    font-weight:800;
+  }
+  .module-name{min-width:0;font-size:11.5px;font-weight:800}
+  /* The same switch, not a smaller cousin: one control, one size. */
+  .mini-switch{
+    position:relative;
+    flex:0 0 32px;
+    height:18px;
+    margin-left:auto;
+    border:1px solid var(--bd3);
+    border-radius:999px;
+    background:var(--inner);
+  }
+  .mini-switch::after{
+    content:"";
+    position:absolute;left:3px;top:2px;
+    width:12px;height:12px;border-radius:50%;
+    background:var(--mut);
+  }
+  .module.enabled{border-color:var(--acc2);background:rgba(47,111,176,.12)}
+  .module.enabled .mini-switch{border-color:var(--acc2);background:var(--acc)}
+  .module.enabled .mini-switch::after{left:16px;background:var(--tx)}
+  .module-desc{
+    margin-top:8px;
+    color:var(--mut);
+    font-size:10.5px;
+    line-height:1.35;
+  }
+
+  .automation{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
+  }
+  .option{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    min-height:51px;
+    padding:8px 10px;
+    border:1px solid var(--bd);
+    border-radius:var(--r-control);
+    background:var(--inner2);
+  }
+  .option-copy{min-width:0}
+  .option-title{font-size:11.5px;font-weight:700}
+  .option-sub{color:var(--mut);font-size:10px}
+  .option .switch{margin-left:auto;flex:0 0 34px}
+
+  .preview{
+    position:relative;
+    aspect-ratio:16/9;
+    overflow:hidden;
+    border:1px solid var(--bd2);
+    border-radius:var(--r-control);
+    background:
+      linear-gradient(var(--bd) 1px,transparent 1px),
+      linear-gradient(90deg,var(--bd) 1px,transparent 1px),
+      var(--page);
+    background-size:28px 28px;
+  }
+  .preview::after{
+    content:"1920 × 1080";
+    position:absolute;right:8px;bottom:7px;
+    color:var(--mut);
+    font:9px "JetBrains Mono",Consolas,monospace;
+  }
+  .pv-widget{
+    position:absolute;
+    padding:5px 7px;
+    border:1px solid var(--bd2);
+    border-radius:var(--r-badge);
+    background:rgba(11,15,20,.85);
+    color:var(--tx);
+    font-size:9px;
+    box-shadow:0 5px 15px #0007;
+  }
+  .pv-widget b{color:var(--info)}
+  .pv-widget.one{left:12px;top:12px}
+  .pv-widget.two{right:12px;top:12px}
+  .pv-widget.three{left:12px;bottom:12px}
+  .pv-widget.four{right:12px;bottom:12px}
+  .preview-tools{
+    display:flex;
+    gap:7px;
+    margin-top:9px;
+  }
+  .preview-tools .btn{flex:1}
+
+  .checklist{display:flex;flex-direction:column}
+  .check{
+    display:flex;
+    align-items:flex-start;
+    gap:9px;
+    padding:9px 0;
+    border-bottom:1px solid var(--bd);
+  }
+  .check:last-child{border-bottom:0;padding-bottom:0}
+  .check:first-child{padding-top:0}
+  .checkmark{
+    display:grid;place-items:center;
+    flex:0 0 19px;height:19px;
+    border:1px solid var(--ok-bd);
+    border-radius:50%;
+    background:var(--ok-tint);
+    color:var(--ok);
+    font-size:10px;
+    font-weight:900;
+  }
+  .checkmark.pending{
+    border-color:var(--warn-bd);
+    background:var(--warn-tint);
+    color:var(--warn);
+  }
+  .check-title{font-size:11.5px;font-weight:700}
+  .check-sub{color:var(--mut);font-size:10px}
+
+  .tip{
+    padding:11px 12px;
+    border:1px solid var(--bd2);
+    border-left:3px solid var(--info);
+    border-radius:var(--r-control);
+    background:var(--inner2);
+  }
+  .tip-title{
+    display:flex;align-items:center;gap:7px;
+    margin-bottom:4px;
+    color:var(--info);
+    font-size:11px;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:.3px;
+  }
+  .tip p{margin:0;color:var(--sec);font-size:10.5px}
+  .kbd{
+    display:inline-flex;
+    padding:1px 5px;
+    border:1px solid var(--bd3);
+    border-radius:var(--r-indicator);
+    background:var(--inner);
+    color:var(--tx);
+    font:10px "JetBrains Mono",Consolas,monospace;
+  }
+
+  .toast{
+    position:fixed;
+    left:50%;bottom:22px;
+    translate:-50% 14px;
+    padding:8px 12px;
+    border:1px solid var(--bd2);
+    border-radius:var(--r-control);
+    background:var(--inner);
+    color:var(--tx);
+    opacity:0;
+    transition:.2s;
+    pointer-events:none;
+    box-shadow:0 10px 34px #0009;
+  }
+  .toast.show{translate:-50% 0;opacity:1}
+
+  @media(max-width:1050px){
+    .proposal{width:100%}
+    .screen{min-height:0}
+    .workspace{grid-template-columns:1fr}
+    .side{display:grid;grid-template-columns:1fr 1fr}
+    .context-note{display:none}
+  }
+  @media(max-width:760px){
+    body{padding:10px}
+    .proposal{width:100%}
+    .caption{display:block}
+    .screen{padding:10px}
+    .contextbar{align-items:flex-start;flex-direction:column}
+    .context-tabs{width:100%;overflow:auto}
+    .context-tabs button{min-width:118px}
+    .hero{align-items:flex-start;flex-wrap:wrap}
+    .hero-actions{width:100%;margin-left:64px}
+    .setup-grid,.module-grid,.automation,.side{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="proposal">
+  <div class="caption">
+    <span><strong>Streaming Tools — unified redesign.</strong> One hierarchy and one interaction model for OBS Overlay, Twitch Bot and In-game Overlay.</span>
+    <span class="rule">Status → Quick setup → Modules → Advanced</span>
+  </div>
+
+  <main class="screen">
+    <nav class="contextbar">
+      <div class="page-title"><i></i> Streaming tools</div>
+      <div class="context-tabs" id="contextTabs">
+        <button class="active" data-mode="obs">OBS Overlay</button>
+        <button data-mode="twitch">Twitch Bot</button>
+        <button data-mode="game">In-game Overlay</button>
+      </div>
+      <div class="context-note">Shared layout · context-specific controls</div>
+    </nav>
+
+    <section class="hero">
+      <div class="hero-icon" id="heroIcon"></div>
+      <div class="hero-copy">
+        <div class="hero-title">
+          <span id="heroTitle">OBS Overlay</span>
+          <span class="status" id="statusBadge"><i></i><span>Running</span></span>
+        </div>
+        <div class="hero-sub" id="heroSub">Send live run data to OBS through a local browser source.</div>
+      </div>
+      <div class="hero-actions">
+        <div class="toggle-label"><span id="autoLabel">Auto-start server</span><span class="switch on" data-toggle></span></div>
+        <button class="btn primary stop" id="primaryAction">Stop server</button>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <div class="main">
+        <section class="card">
+          <div class="card-head">
+            <span class="num">1</span>
+            <div>
+              <h2 id="setupTitle">Browser source</h2>
+              <p id="setupSub">Copy once, paste into OBS and keep BonkScanner running.</p>
+            </div>
+            <button class="btn small right" id="setupAction">Open layout editor</button>
+          </div>
+          <div class="card-body">
+            <div class="setup-grid" id="setupGrid"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <span class="num">2</span>
+            <div>
+              <h2 id="modulesTitle">Overlay widgets</h2>
+              <p id="modulesSub">Choose what is visible. Detailed settings stay one level deeper.</p>
+            </div>
+            <button class="btn small right" id="moduleSettings">Widget settings</button>
+          </div>
+          <div class="card-body">
+            <div class="module-grid" id="moduleGrid"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <span class="num">3</span>
+            <div>
+              <h2 id="automationTitle">Behaviour</h2>
+              <p id="automationSub">Secondary options stay visible without competing with the primary action.</p>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="automation" id="automationGrid"></div>
+          </div>
+        </section>
+      </div>
+
+      <aside class="side">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2 id="previewTitle">Live canvas preview</h2>
+              <p id="previewSub">A small confidence check, not a full editor.</p>
+            </div>
+            <span class="status" style="margin-left:auto"><i></i><span>Live</span></span>
+          </div>
+          <div class="card-body">
+            <div class="preview" id="preview"></div>
+            <div class="preview-tools">
+              <button class="btn small" id="previewPrimary">Open preview</button>
+              <button class="btn small" id="previewSecondary">Reset layout</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2>Setup checklist</h2>
+              <p>Only the blockers that matter right now.</p>
+            </div>
+          </div>
+          <div class="card-body checklist" id="checklist"></div>
+        </section>
+
+        <section class="tip">
+          <div class="tip-title">◎ <span id="tipTitle">OBS canvas</span></div>
+          <p id="tipText">Match the Browser Source size to your OBS canvas. Use the visual editor only when positions or resolution need adjustment.</p>
+        </section>
+      </aside>
+    </div>
+  </main>
+</div>
+<div class="toast" id="toast">Copied to clipboard</div>
+
+<script>
+  const icons = {
+    obs: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 9h8M8 13h5"/></svg>',
+    twitch: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h15v11l-4 4h-4l-2 2v-2H7L5 17z"/><path d="M10 8v5M15 8v5"/></svg>',
+    game: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 8h8a5 5 0 0 1 4.7 6.7l-.8 2.2a2 2 0 0 1-3.2.8L14.8 16H9.2l-1.9 1.7a2 2 0 0 1-3.2-.8l-.8-2.2A5 5 0 0 1 8 8Z"/><path d="M8 11v4M6 13h4M16.5 11.5h.01M18 14h.01"/></svg>'
+  };
+
+  const modes = {
+    obs: {
+      title:'OBS Overlay',
+      sub:'Send live run data to OBS through a local browser source.',
+      auto:'Auto-start server',
+      action:'Stop server',
+      stopped:'Start server',
+      status:'Running',
+      setupTitle:'Browser source',
+      setupSub:'Copy once, paste into OBS and keep BonkScanner running.',
+      setupAction:'Open layout editor',
+      modulesTitle:'Overlay widgets',
+      modulesSub:'Choose what is visible. Detailed settings stay one level deeper.',
+      moduleAction:'Widget settings',
+      automationTitle:'Server & source behaviour',
+      automationSub:'Connection details and optional source behaviour.',
+      setup:`
+        <div class="field full">
+          <div class="label">Source mode <em>Use one full canvas or one widget per source</em></div>
+          <div class="segmented"><button class="on">Full overlay</button><button>Single widget</button><button>Layout editor</button></div>
+        </div>
+        <div class="field">
+          <div class="label">Browser source URL</div>
+          <div class="control"><input class="mono" readonly value="http://127.0.0.1:17845/overlay"><button class="copy">Copy</button></div>
+        </div>
+        <div class="field">
+          <div class="label">Server port</div>
+          <div class="control"><input class="mono" value="17845"><span class="suffix">Local only</span></div>
+        </div>`,
+      modules:[
+        ['ST','Stage summary','Stage, time, kills and item totals',1],
+        ['IT','Tracked items','Custom goals and item counters',1],
+        ['Σ','Stats','Selected live player statistics',1],
+        ['K','KPS','Current and averaged kill rate',1],
+        ['BX','Banishes','Items removed from the current run',0],
+        ['%','Luck','Rarity odds and expected results',1]
+      ],
+      automation:[
+        ['Remember last canvas','Keep the custom OBS resolution','on'],
+        ['Show scanner reminder','Prompt when scanner starts','']
+      ],
+      previewTitle:'Live canvas preview',
+      previewSub:'A small confidence check, not a full editor.',
+      previewPrimary:'Open preview',
+      previewSecondary:'Reset layout',
+      preview:[
+        ['one','<b>STAGE 3</b><br>08:42 · 6,208 kills'],
+        ['two','<b>KPS</b> 188 · 60s 172'],
+        ['three','Tracked · 8 / 12'],
+        ['four','Luck <b>42.7%</b>']
+      ],
+      checks:[
+        ['Server is reachable','Listening on 127.0.0.1:17845',1],
+        ['Live game data','Receiving scanner updates',1],
+        ['OBS source connected','Open OBS to verify the source',0]
+      ],
+      tipTitle:'OBS canvas',
+      tipText:'Match the Browser Source size to your OBS canvas. Use the visual editor only when positions or resolution need adjustment.'
+    },
+    twitch: {
+      title:'Twitch Bot',
+      sub:'Answer chat commands and announce important run events.',
+      auto:'Auto-connect bot',
+      action:'Stop bot',
+      stopped:'Start bot',
+      status:'Connected',
+      setupTitle:'Account & channel',
+      setupSub:'Authorization is a prerequisite; channel routing stays beside it.',
+      setupAction:'Disconnect account',
+      modulesTitle:'Chat commands',
+      modulesSub:'Fast enable/disable here; aliases and message templates open separately.',
+      moduleAction:'Command settings',
+      automationTitle:'Announcements',
+      automationSub:'Bot messages that happen without an explicit viewer command.',
+      setup:`
+        <div class="field">
+          <div class="label">Twitch account</div>
+          <div class="control"><input readonly value="aluiell"><span class="suffix" style="color:var(--ok)">Authorized</span></div>
+        </div>
+        <div class="field">
+          <div class="label">Target channel</div>
+          <div class="control"><input value="aluiell"><span class="suffix"># channel</span></div>
+        </div>
+        <div class="field">
+          <div class="label">Access tier</div>
+          <div class="control"><select><option>Everyone</option><option>Mods & VIPs</option><option>Subs & Mods</option></select></div>
+        </div>
+        <div class="field">
+          <div class="label">Cooldowns</div>
+          <div class="control"><input value="1"><span class="suffix">global sec</span><input value="5"><span class="suffix">command sec</span></div>
+        </div>`,
+      modules:[
+        ['!','!stats','Current player stats',1],
+        ['!','!items','Collected items and rarity',1],
+        ['!','!weapons','Current weapon loadout',1],
+        ['!','!stages','Stage history and pace',1],
+        ['!','!kps','Current and averaged KPS',1],
+        ['!','!bonkhelp','Command list and aliases',1]
+      ],
+      automation:[
+        ['Stage transitions','Announce when a new stage starts','on'],
+        ['Command reminder','Periodically post available commands','']
+      ],
+      previewTitle:'Chat preview',
+      previewSub:'Shows message shape before it reaches Twitch.',
+      previewPrimary:'Send test message',
+      previewSecondary:'Edit template',
+      preview:[
+        ['one','<b>aluiell:</b> !stats'],
+        ['three','<b>BonkScanner</b><br>DMG 428 · Luck 42.7%<br>KPS 188 · Level 27']
+      ],
+      checks:[
+        ['Twitch account','Authorized as aluiell',1],
+        ['Target channel','Messages route to #aluiell',1],
+        ['Bot connection','Joined chat and ready',1]
+      ],
+      tipTitle:'Safe testing',
+      tipText:'Use “Send test message” to verify formatting. Command cooldowns and access rules still apply to real chat messages.'
+    },
+    game: {
+      title:'In-game Overlay',
+      sub:'Pin live scanner information directly over the game window.',
+      auto:'Auto-start overlay',
+      action:'Stop overlay',
+      stopped:'Start overlay',
+      status:'Running',
+      setupTitle:'Layout & activation',
+      setupSub:'Edit mode owns placement; widget settings own scale and content.',
+      setupAction:'Enter layout mode',
+      modulesTitle:'In-game widgets',
+      modulesSub:'Visible at a glance; scale and per-widget details live in settings.',
+      moduleAction:'Widget settings',
+      automationTitle:'Overlay behaviour',
+      automationSub:'Rules for visibility and position while the game is active.',
+      setup:`
+        <div class="field full">
+          <div class="label">Layout mode <em>Drag widgets directly over the game and save on exit</em></div>
+          <div class="segmented"><button class="on">Live overlay</button><button>Edit positions</button><button>Widget settings</button></div>
+        </div>
+        <div class="field">
+          <div class="label">Edit hotkey</div>
+          <div class="control"><input class="mono" value="F9"><span class="suffix">Press again to save</span></div>
+        </div>
+        <div class="field">
+          <div class="label">Target window</div>
+          <div class="control"><input readonly value="Megabonk.exe"><span class="suffix" style="color:var(--ok)">Detected</span></div>
+        </div>`,
+      modules:[
+        ['SC','Scanner status','Shows whether scanning is active',1],
+        ['REC','Recording','Visible recording state',1],
+        ['K','KPS','Instant, 60s, 5m and run averages',1],
+        ['UP','Active powerups','Buffs with remaining time',1],
+        ['%','Luck rarity','Odds, bar and expected results',1],
+        ['ST','Stats & timer','Selected stats and event warnings',0]
+      ],
+      automation:[
+        ['Game-only visibility','Hide when Megabonk is not focused','on'],
+        ['Clamp to game bounds','Keep widgets inside the client area','on']
+      ],
+      previewTitle:'Game-window preview',
+      previewSub:'Positions approximate the actual game client.',
+      previewPrimary:'Enter layout mode',
+      previewSecondary:'Reset positions',
+      preview:[
+        ['one','<b>SCANNER</b> ON · <b>REC</b>'],
+        ['two','<b>KPS</b> 188'],
+        ['three','Rage 21s · Clock 17s'],
+        ['four','Event in <b>00:15</b>']
+      ],
+      checks:[
+        ['Game window','Megabonk.exe detected',1],
+        ['Overlay permission','Transparent window is available',1],
+        ['Layout saved','7 widget positions stored',1]
+      ],
+      tipTitle:'Layout shortcut',
+      tipText:'Press <span class="kbd">F9</span> to enter layout mode. Drag widgets over the game, then press <span class="kbd">F9</span> or <span class="kbd">Esc</span> to save and exit.'
+    }
+  };
+
+  let currentMode = 'obs';
+  let running = true;
+
+  const $ = id => document.getElementById(id);
+  const toast = message => {
+    $('toast').textContent = message;
+    $('toast').classList.add('show');
+    clearTimeout(window.toastTimer);
+    window.toastTimer = setTimeout(() => $('toast').classList.remove('show'),1200);
+  };
+
+  function render(mode){
+    currentMode = mode;
+    const data = modes[mode];
+    document.querySelectorAll('#contextTabs button').forEach(button =>
+      button.classList.toggle('active',button.dataset.mode === mode)
+    );
+    $('heroIcon').innerHTML = icons[mode];
+    $('heroTitle').textContent = data.title;
+    $('heroSub').textContent = data.sub;
+    $('autoLabel').textContent = data.auto;
+    $('setupTitle').textContent = data.setupTitle;
+    $('setupSub').textContent = data.setupSub;
+    $('setupAction').textContent = data.setupAction;
+    $('modulesTitle').textContent = data.modulesTitle;
+    $('modulesSub').textContent = data.modulesSub;
+    $('moduleSettings').textContent = data.moduleAction;
+    $('automationTitle').textContent = data.automationTitle;
+    $('automationSub').textContent = data.automationSub;
+    $('setupGrid').innerHTML = data.setup;
+    $('moduleGrid').innerHTML = data.modules.map(item => `
+      <article class="module ${item[3] ? 'enabled' : ''}">
+        <div class="module-top">
+          <span class="module-icon">${item[0]}</span>
+          <span class="module-name">${item[1]}</span>
+          <span class="mini-switch"></span>
+        </div>
+        <div class="module-desc">${item[2]}</div>
+      </article>`).join('');
+    $('automationGrid').innerHTML = data.automation.map(item => `
+      <div class="option">
+        <div class="option-copy">
+          <div class="option-title">${item[0]}</div>
+          <div class="option-sub">${item[1]}</div>
+        </div>
+        <span class="switch ${item[2]}"></span>
+      </div>`).join('');
+    $('previewTitle').textContent = data.previewTitle;
+    $('previewSub').textContent = data.previewSub;
+    $('previewPrimary').textContent = data.previewPrimary;
+    $('previewSecondary').textContent = data.previewSecondary;
+    $('preview').innerHTML = data.preview.map(item =>
+      `<div class="pv-widget ${item[0]}">${item[1]}</div>`).join('');
+    $('checklist').innerHTML = data.checks.map(item => `
+      <div class="check">
+        <span class="checkmark ${item[2] ? '' : 'pending'}">${item[2] ? '✓' : '!'}</span>
+        <div><div class="check-title">${item[0]}</div><div class="check-sub">${item[1]}</div></div>
+      </div>`).join('');
+    $('tipTitle').textContent = data.tipTitle;
+    $('tipText').innerHTML = data.tipText;
+    running = true;
+    updateRuntime();
+    bindLocalControls();
+  }
+
+  function updateRuntime(){
+    const data = modes[currentMode];
+    const badge = $('statusBadge');
+    badge.classList.toggle('off',!running);
+    badge.querySelector('span').textContent = running ? data.status : 'Stopped';
+    $('primaryAction').textContent = running ? data.action : data.stopped;
+    $('primaryAction').classList.toggle('stop',running);
+  }
+
+  function bindLocalControls(){
+    document.querySelectorAll('.copy').forEach(button => button.onclick = () => toast('URL copied'));
+    document.querySelectorAll('.segmented').forEach(group => {
+      group.querySelectorAll('button').forEach(button => button.onclick = () => {
+        group.querySelectorAll('button').forEach(item => item.classList.remove('on'));
+        button.classList.add('on');
+      });
+    });
+    document.querySelectorAll('.module').forEach(module =>
+      module.onclick = () => module.classList.toggle('enabled')
+    );
+    document.querySelectorAll('.automation .switch').forEach(toggle =>
+      toggle.onclick = () => toggle.classList.toggle('on')
+    );
+  }
+
+  document.querySelectorAll('#contextTabs button').forEach(button =>
+    button.addEventListener('click',() => render(button.dataset.mode))
+  );
+  $('primaryAction').addEventListener('click',() => {running = !running;updateRuntime()});
+  document.querySelector('[data-toggle]').addEventListener('click',event =>
+    event.currentTarget.classList.toggle('on')
+  );
+  ['setupAction','moduleSettings','previewPrimary','previewSecondary'].forEach(id =>
+    $(id).addEventListener('click',() => toast(`${$(id).textContent} — preview action`))
+  );
+
+  render('obs');
+</script>
+</body>
+</html>
