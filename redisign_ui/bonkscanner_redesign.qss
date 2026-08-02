@@ -1400,3 +1400,96 @@ QLabel#dialogSubject {
     font-weight: 600;
 }
 QLabel#dialogCardText { background: transparent; color: #EDF1F5; font-size: 13px; }
+
+/* ======================================================================
+   Нижняя полоска окна. До неё у окна не было футера вообще: в корневой
+   layout клались шапка и сплиттер, и всё. Поэтому версии и ссылкам негде
+   было жить — первая читалась только в заголовке окна, вторые лежали в
+   диалоге настроек, куда после первой настройки хоткеев не заходят.
+   ====================================================================== */
+QFrame#appFooter {
+    background-color: #080C11;
+    border: none;
+    border-top: 1px solid #1B222B;
+}
+/* Фон темнее корпуса (#0E1217), а не светлее: полоска должна уходить под
+   контент, а не всплывать над ним. Одной линии сверху для этого мало —
+   у Logs прямо над футером стоит своя строка «6 lines · buffer limit»,
+   и без разницы фонов две серые строки читались бы как одна лесенка. */
+QFrame#appFooter QLabel { background: transparent; }
+/* Только номер: имя приложения стоит в заголовке окна и в шапке, и третья
+   копия здесь ничего не добавляла. Вес 600, а не 700 — в паре «BonkScanner
+   v2.1.7» жирный отделял номер от имени, а в одиночку ему нечего отделять. */
+QLabel#footerVersionNumber { color: #8A94A3; font-size: 11.5px; font-weight: 600; }
+/* #2A3542, не #212B36: линия в один пиксель при масштабе 125% ложится на
+   полпикселя и половину контраста теряет — на замере тёмный вариант читался
+   как отсутствие разделителя вовсе. Это тот же цвет, что у делителя шапки. */
+QFrame#footerSeparator {
+    background-color: #2A3542;
+    border: none;
+}
+/* Кнопка, а не подпись: «Up to date» мёртвым текстом — самое бесполезное,
+   что тут может стоять, это факт на момент запуска без способа переспросить.
+   Перепроверка жила только за кнопкой в диалоге настроек, то есть в двух
+   кликах и одном модальном окне от строки, которая ответ и показывает. */
+QPushButton#footerUpdate {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 2px 1px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: #5C6675;
+}
+QPushButton#footerUpdate:hover {
+    color: #B9C2CE;
+    border-bottom: 1px solid #2E3A48;
+    padding-bottom: 1px;
+}
+/* Единственное состояние, которое повышает голос, и единственное, где это
+   заслуженно: появилось то, чего у пользователя нет. */
+QPushButton#footerUpdate[state="available"] { color: #7DE68C; font-weight: 700; }
+QPushButton#footerUpdate[state="available"]:hover { color: #A7F3B4; border-bottom-color: #1F4A2E; }
+/* Пока запрос в полёте — не нажимается и не подсвечивается. */
+QPushButton#footerUpdate:disabled { color: #3F4A59; }
+
+/* Ссылки набраны тем же #8A94A3, что весь второстепенный текст: в шапке
+   цветом работает точка состояния, и второе цветное пятно на экране —
+   тем более просящее денег — это ровно то, что раздражает. */
+QPushButton#footerLink, QPushButton#footerSupportLink {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 2px 1px;
+    font-size: 11.5px;
+    /* 500, а не 600: Qt рисует Segoe UI Semibold заметно жирнее, чем браузер
+       в макете, и правый край начинал перевешивать строку с версией. */
+    font-weight: 500;
+    color: #8A94A3;
+}
+QPushButton#footerLink:hover {
+    color: #EDF1F5;
+    border-bottom: 1px solid #2E3A48;
+    padding-bottom: 1px;
+}
+/* Support чуть теплее соседей в покое и брендовый только под курсором —
+   #FF6F61 тот же, что у кнопки Patreon в настройках. */
+QPushButton#footerSupportLink { color: #93726E; }
+QPushButton#footerSupportLink:hover {
+    color: #FF6F61;
+    border-bottom: 1px solid #4B2B2F;
+    padding-bottom: 1px;
+}
+
+/* Всплывашка выбора площадки. Площадок две, и выбирать за пользователя
+   незачем; заодно это единственная форма, в которую влезает фраза
+   «программа бесплатная» — голая ссылка контекста не несёт. */
+QFrame#supportPopup { background: transparent; }
+QFrame#supportPopupCard {
+    background-color: #101419;
+    border: 1px solid #2A3542;
+    border-radius: 11px;
+}
+QFrame#supportPopupCard QLabel { background: transparent; }
+QLabel#supportPopupTitle { color: #B9C2CE; font-size: 12.5px; font-weight: 800; }
+QLabel#supportPopupNote { color: #8A94A3; font-size: 11px; }

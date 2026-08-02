@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 from functools import partial
 
+from ui.footer import build_footer
 from ui.log_view import LogView
 from ui.scanner_toggle import ScannerToggle
 from ui.status_indicators import LABEL_SPACING, PulsingDot, RecordingFlag
@@ -245,15 +246,30 @@ def build_layout(app):
     central = QWidget()
     central.setObjectName("centralWidget")
     app.window.setCentralWidget(central)
-    root_layout = QVBoxLayout(central)
-    root_layout.setContentsMargins(16, 16, 16, 16)
-    root_layout.setSpacing(14)
 
-    _build_header(app, root_layout)
+    # Two layouts where there was one, and only because of the footer. The
+    # strip is the window's base edge, so it has to reach both side walls --
+    # inset by the 16px content margins it would read as a floating bar with a
+    # gap under it. So the margins move down onto an inner widget that holds
+    # everything that had them before, and the root keeps none.
+    root_layout = QVBoxLayout(central)
+    root_layout.setContentsMargins(0, 0, 0, 0)
+    root_layout.setSpacing(0)
+
+    content = QWidget()
+    content.setObjectName("centralContent")
+    root_layout.addWidget(content, 1)
+    root_layout.addWidget(build_footer(app))
+
+    content_layout = QVBoxLayout(content)
+    content_layout.setContentsMargins(16, 16, 16, 16)
+    content_layout.setSpacing(14)
+
+    _build_header(app, content_layout)
 
     splitter = QSplitter(Qt.Horizontal)
     splitter.setChildrenCollapsible(False)
-    root_layout.addWidget(splitter, 1)
+    content_layout.addWidget(splitter, 1)
 
     _build_left_tabs(app, splitter)
     right_layout = _build_right_panel(app, splitter)
@@ -279,7 +295,7 @@ def build_layout(app):
         app.tabview.widget(index).setObjectName("mainTabPage")
 
 
-def _build_header(app, root_layout):
+def _build_header(app, parent_layout):
     header_wrap = QFrame()
     header_wrap.setObjectName("headerBar")
     header = QHBoxLayout(header_wrap)
@@ -359,7 +375,7 @@ def _build_header(app, root_layout):
     app.status_label._rec_flag = app.rec_flag
 
     _build_header_controls(app, header)
-    root_layout.addWidget(header_wrap)
+    parent_layout.addWidget(header_wrap)
 
 
 def _build_left_tabs(app, splitter):

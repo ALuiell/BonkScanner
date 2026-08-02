@@ -268,6 +268,78 @@ Why this helps:
 - Feature discovery should improve, especially for `OBS Overlay`, `Recordings`, `Compare Runs`, and Twitch bot setup.
 - This should reduce repetitive support questions about the purpose of specific tabs, controls, and nested views.
 
+### Support & Community
+
+#### 1. Supporters List in the Footer
+
+Status: `[Open]`
+
+Design reference:
+
+- [redisign_ui/support_footer_proposal.html](../../redisign_ui/support_footer_proposal.html) — open in a browser. The whole main window is drawn to scale around the strip, so the proposal can be read in context rather than as a floating snippet.
+- Section **4, "Надстройка: счётчик вместо слова «Support»"**, is this item. Sections 1-3 are the footer that already exists; section 5 records the header heart-icon variant and **why it was rejected** — do not resurrect it without reading that section first.
+- The supporters list inside the Help dialog appears only as prose in this document, not in the mockup. An earlier revision of that file drew it; the rewrite that matched the mockup to the real window dropped it.
+
+Goal:
+
+- Replace the footer's `Support` caption with `♥ N supporters` once there is a list to back it, and show the names on click.
+- Keep it a statement of fact rather than a request. "14 people support this" reads differently from "Support", and the difference is the entire argument for the feature.
+
+What already exists (on `visual_redesign`):
+
+- The strip itself, `#appFooter`, 28 px, built by `build_footer` ([src/ui/footer.py:226](../../src/ui/footer.py:226)) and added to the root layout in `build_layout` ([src/ui/layout.py:221](../../src/ui/layout.py:221)).
+- `SupportPopup` ([src/ui/footer.py:70](../../src/ui/footer.py:70)) — a `Qt.Popup` frame holding a title, one line of context and the Patreon/Ko-fi buttons. **This is the widget that grows into the list**; it is not a new construction. Its card is pinned to 268 px ([src/ui/footer.py:98](../../src/ui/footer.py:98)) because the width is what sets the note's wrap.
+- The four URLs, unchanged, in [src/app/config.py:243](../../src/app/config.py:243).
+
+##### What blocks it
+
+The UI is a few dozen lines on top of what is already there. The data is the actual work.
+
+- **The Patreon API is not an option.** It needs OAuth and a refresh token, and the token would have to live inside a binary that is handed to everyone. That means either a credential in the build or a server in between; neither is worth it for a name list.
+- So the source is a hand-maintained `supporters.json`, updated per release. That leaves one real decision — how it reaches the running app:
+
+| Delivery | Freshness | Network cost | Notes |
+| --- | --- | --- | --- |
+| Bundled in the build | Frozen until the next release | None | Safest. Nothing to fail offline. |
+| Fetched from `raw.githubusercontent` | Current between releases | One extra GET | Must ride the existing update check (see below), never a new startup path. |
+| Both — bundled floor, fetched override | Current, with an offline floor | One extra GET | Most code of the three; degrades to the bundled list when the request fails. |
+
+- **If it is fetched, it must not sit on the path to the first window.** That rule is why commit `d3796f0` exists. The cheapest correct place is a second GET beside the update check, which already runs on a daemon thread and already talks to GitHub: `start_update_check` ([src/ui/dialogs/update_prompt.py:9](../../src/ui/dialogs/update_prompt.py:9)) → `check_and_update` ([src/app/update_flow.py:18](../../src/app/update_flow.py:18)) → `GITHUB_API_URL` ([src/infra/updater.py:16](../../src/infra/updater.py:16)). `check_and_update` already carries an optional `report` callback back to the GUI thread through `schedule`; a supporters payload should use the same hop rather than inventing a second one.
+
+##### Degradation rules (non-negotiable)
+
+- No list, empty list, missing file, or failed request → the footer shows plain `♥ Support` exactly as it does today. **Never** `♥ 0 supporters`, never a spinner, never an error. An empty card reads as a broken feature; the absence of the counter reads as nothing at all, which is correct.
+- The popup must never show a "loading" state. It is opened by a click, and by then the answer is either known or the counter was never shown in the first place.
+
+##### UI specification
+
+Footer link, replacing the current `#footerSupportLink` caption:
+
+| State | Caption | Colour |
+| --- | --- | --- |
+| No data | `♥  Support` | `#93726E`, heart `#A0635F` |
+| Data | `♥  14 supporters` | same |
+| Hover, either | — | `#FF6F61`, underline `#4B2B2F` |
+
+The hover colour is Patreon's own, and is deliberately the *only* place it appears in the strip. The resting colour is warmer than the neighbouring `#8A94A3` links by exactly enough to be findable and not enough to compete with the header's status dot, which is the one element in the window that speaks in colour. This is the balance the mockup's section 5 argues at length; keep it.
+
+Popup, extending `SupportPopup`:
+
+- Card widens from 268 px to ~400 px (`.pop.wide` in the mockup). Surface `#101419`, border `#2A3542`, radius 11 — unchanged, these are the existing `#supportPopupCard` values at [redisign_ui/bonkscanner_redesign.qss:1488](../../redisign_ui/bonkscanner_redesign.qss:1488).
+- Title `#B9C2CE`, 12.5 px, weight 800. Note `#8A94A3`, 11 px.
+- Names in a two-column grid, 11.5 px, `#B9C2CE`, ellipsised on overflow — a display name is user-supplied text and can be arbitrarily long.
+- A higher tier, if tiers are used at all, is `#FF6F61` and weight 700 with a `♦` prefix. One distinction, not a ladder; three tiers in a footer popup is a pricing page.
+- The Patreon and Ko-fi buttons stay at the bottom, below a `#1B222B` rule. They keep `#PatreonButton` / `#KofiButton` ([redisign_ui/bonkscanner_redesign.qss:1321](../../redisign_ui/bonkscanner_redesign.qss:1321)) so the popup and the settings card cannot drift apart.
+
+Overflow: when the list outgrows the popup, move it to a card in the Help dialog — names in three columns, all four platform buttons — and leave the footer counter as the entry point. Help is where a long block costs nothing, because people open it deliberately. Do **not** put the card on a main-window tab: on Logs it is pushed off-screen by the log within seconds, and everywhere else it takes space from data.
+
+##### Open decisions
+
+- Delivery mechanism — one of the three rows above.
+- Whether tiers exist at all, or the list is flat.
+- Whether the count includes past supporters or only current ones. `N supporters` is read as "right now", so a lapsed-inclusive count needs different wording.
+- `KOFI_SUPPORT_URL` is currently a Ko-fi **shop item** (`ko-fi.com/s/...`), not a donation page. In the settings card the button carries no promise, but a popup that says "if it is useful to you" and then opens a purchase page is a mismatch. Either repoint the URL or relabel the button before this ships.
+
 ### Chaos Tome Fingerprint Tracking Optimization
 
 Status: `[Planned / Requires More Verification]`
