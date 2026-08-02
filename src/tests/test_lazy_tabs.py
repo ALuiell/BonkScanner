@@ -1,4 +1,4 @@
-"""Compare Runs is not built until someone opens it.
+"""The heavy tabs are not built until someone opens them.
 
 The tab is 741 of the window's 1888 widgets -- more than a third of the whole
 application -- and every launch paid for them whether or not the tab was ever
@@ -50,10 +50,17 @@ tabs = [
     for widget in app.window.findChildren(QTabWidget)
     if widget.objectName() == "mainTabs"
 ][0]
-compare_index = [
-    index for index in range(tabs.count()) if tabs.tabText(index) == "Compare Runs"
-][0]
-page = tabs.widget(compare_index)
+def page_for(caption):
+    index = [
+        position
+        for position in range(tabs.count())
+        if tabs.tabText(position) == caption
+    ][0]
+    return index, tabs.widget(index)
+
+
+compare_index, page = page_for("Compare Runs")
+recordings_index, recordings_page = page_for("Recordings")
 """
 
 EPILOGUE = """
@@ -63,7 +70,7 @@ os._exit(0)
 """
 
 
-class LazyCompareRunsTests(unittest.TestCase):
+class LazyTabsTests(unittest.TestCase):
     def _run(self, body: str) -> None:
         script = (
             textwrap.dedent(PREAMBLE)
@@ -90,18 +97,32 @@ class LazyCompareRunsTests(unittest.TestCase):
         """
         self._run(
             """
-            assert page is not None
-            assert not page.is_built, "the page built itself before anyone opened it"
-            assert page.findChildren(QWidget) == [], len(page.findChildren(QWidget))
+            for caption, deferred in (
+                ("Compare Runs", page),
+                ("Recordings", recordings_page),
+            ):
+                assert deferred is not None, caption
+                assert not deferred.is_built, caption + " built itself unopened"
+                assert deferred.findChildren(QWidget) == [], (
+                    caption, len(deferred.findChildren(QWidget))
+                )
 
-            # The tab bar is unchanged: same position, same caption.
+            # The tab bar is unchanged: same positions, same captions.
             assert tabs.tabText(compare_index) == "Compare Runs"
+            assert tabs.tabText(recordings_index) == "Recordings"
 
-            # And the widgets the tab will own do not exist yet. `__init__`
+            # And the widgets the tabs will own do not exist yet. `__init__`
             # declares them None precisely so this state is representable.
-            view = app._compare_runs_view
-            assert view._timeline is None
-            assert view._detail_tabs is None
+            assert app._compare_runs_view._timeline is None
+            assert app._compare_runs_view._detail_tabs is None
+            assert app._recordings_view._body_splitter is None
+            assert app._recordings_view._scrubber is None
+
+            # Live Stats is built eagerly and must stay that way: the recording
+            # path writes into it with no active-tab gate. A future change that
+            # defers it would land here first.
+            live_page = page_for("Live Stats")[1]
+            assert live_page.findChildren(QWidget), "Live Stats stopped building eagerly"
             """
         )
 
@@ -114,6 +135,19 @@ class LazyCompareRunsTests(unittest.TestCase):
         """
         self._run(
             """
+            tabs.setCurrentIndex(recordings_index)
+            qt.processEvents()
+            assert recordings_page.is_built
+            assert recordings_page.findChildren(QWidget), "Recordings built nothing"
+            recordings = app._recordings_view
+            assert recordings._body_splitter is not None
+            assert recordings._scrubber is not None
+            assert recordings._list_frame is not None
+            assert [
+                recordings._detail_tabs.tabText(index)
+                for index in range(recordings._detail_tabs.count())
+            ] == ["Stats", "Loot", "Weapons", "Tomes", "Chaos", "Damage Sources"]
+
             tabs.setCurrentIndex(compare_index)
             qt.processEvents()
 

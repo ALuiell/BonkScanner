@@ -65,6 +65,9 @@ class ItemsBanishesOverlapTests(unittest.TestCase):
                 log=lambda *_args, **_kwargs: None,
             )
             view.build()
+            # The tab's contents wait for a show; this test drives the
+            # widgets without one, so it asks for them. See `LazyPage`.
+            view.build_now()
 
             # A long run and a long banish list: both flows wrap several rows,
             # which is what grew the minimums that collided.

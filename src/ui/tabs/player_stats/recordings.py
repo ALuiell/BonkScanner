@@ -93,6 +93,7 @@ from ui.shared import (
     FlowLayout,
     FullWidthTabWidget,
     LabeledSwitch,
+    LazyPage,
     _apply_button_icon,
     _apply_summary_label_padding,
     _clear_layout,
@@ -1695,14 +1696,39 @@ class RecordingsTab:
         config.save_config(config.user_config)
 
     def build(self):
-        """Create the tab's widgets and add it to the tab bar.
+        """Put the tab in the bar. Its contents wait until someone opens it.
+
+        400 widgets, built at every launch whether or not the tab was opened --
+        the second-largest tab after Compare Runs, which went the same way.
+
+        Safe to defer because every writer into this tab already asks whether it
+        is showing: the router gates `refresh_vods_list` and
+        `ensure_recordings_chooser_for_empty_selection` on
+        `is_recordings_tab_active`, and `_refresh_vods_list_if_visible` -- the
+        one the recording path calls on every captured snapshot -- gates itself
+        by the same question. Measured as well as read: with all 63 public
+        methods counted and the window parked on Logs, none of them was called.
+
+        (`LiveStatsTab.build` is *not* deferred, and the difference is the
+        measurement: `vod_capture` calls `refresh_player_stats_timeline_ui` and
+        `set_recording_status_text` on it with no such gate, straight off the
+        recording path.)
 
         Separate from `__init__` for the same reason `LiveStatsTab.build` is:
         it needs real offscreen Qt, so `tests/support/player_stats.py`'s builder
         can construct the component without paying for a widget tree, and the
         built tab is covered by `tools/step21_vod_trace.py` instead.
         """
-        self._tab = QWidget()
+        self._tab = LazyPage(self._build_workspace)
+        self._tab.setObjectName("RecordingsPage")
+        self._tabview.addTab(self._tab, "Recordings")
+
+    def build_now(self) -> None:
+        """Build the contents without waiting for a show. For tests."""
+        if self._tab is not None:
+            self._tab.build_now()
+
+    def _build_workspace(self):
         vods_layout = QVBoxLayout(self._tab)
 
         # A splitter, not the QHBoxLayout this used to be: the library is a
@@ -2252,4 +2278,8 @@ class RecordingsTab:
         self.set_recordings_chooser_expanded(
             recording_library_open(), guided=False, remember=False
         )
-        self._tabview.addTab(self._tab, "Recordings")
+        # The list was not painted while there was nothing to paint into, and
+        # the signature says "painted" only because it starts as `None`. A tab
+        # opened for the first time must find its library, not an empty column.
+        self._list_signature = None
+        self.refresh_vods_list()

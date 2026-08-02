@@ -51,6 +51,9 @@ class RecordingsLayoutTests(unittest.TestCase):
                 log=lambda *_args, **_kwargs: None,
             )
             view.build()
+            # The tab's contents wait for a show; this test drives the
+            # widgets without one, so it asks for them. See `LazyPage`.
+            view.build_now()
 
             page = view._tab.findChild(QWidget, "LiveStatsPage")
             items = view._tab.findChild(QGroupBox, "LiveStatsItems")
