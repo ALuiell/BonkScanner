@@ -62,9 +62,37 @@ OVERLAY_WIDGET_LABELS = {
 #: and hold a 55-character URL in 1300px.
 _URL_MAX_WIDTH = 560
 
+#: What the styled field spends on itself before any text: `padding: 6px 8px`
+#: and a 1px border on each side, plus room for the caret. Stated rather than
+#: measured because Qt does not report stylesheet padding back -- `contentsMargins`
+#: and `width() - contentsRect().width()` both return zero on these fields.
+_URL_FIELD_CHROME = 20
+
 #: The width of the whole URL row -- its label, the capped field and the Copy
 #: button. The mode picker above it is held to this so the two line up.
 _SOURCE_ROW_MAX_WIDTH = 690
+
+def _fit_url_field(field) -> None:
+    """Ask for the width this URL actually needs, up to the cap.
+
+    The field is read-only and exists to be copied, which is exactly why it
+    still has to be *readable*: scrolled to `...:17845/overlay`, a source
+    pointed at the wrong port looks identical to a right one, and the only way
+    to check is to select the text and drag. Without a minimum the row's
+    trailing stretch takes half of every pixel the card has spare, and in a
+    1100px window the field came out at 154px against a URL needing 287.
+
+    Recomputed on every refresh because the text changes: the widget URLs are
+    up to 14 characters longer than the full-overlay one, and a minimum left
+    over from the shorter mode would be the same bug one size down.
+
+    `_URL_MAX_WIDTH` still caps it. The longest URL the app can produce needs
+    roughly half of that, so the cap is not what decides the width here -- it
+    is the backstop for a hostname this code does not currently generate.
+    """
+    needed = field.fontMetrics().horizontalAdvance(field.text()) + _URL_FIELD_CHROME
+    field.setMinimumWidth(min(_URL_MAX_WIDTH, needed))
+
 
 OVERLAY_KPS_METRIC_LABELS = (
     ("current", "Current KPS"),
@@ -936,6 +964,7 @@ class Overlay:
             # One field, two modes. Which URL belongs in it is card 1's segmented
             # control; the field itself does not know there is a choice.
             _set_text_input(self.overlay_url_entry, self._overlay_visible_url_text())
+            _fit_url_field(self.overlay_url_entry)
         hero = getattr(self, "overlay_hero", None)
         if hero is not None:
             if running:
