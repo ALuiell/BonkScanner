@@ -422,6 +422,7 @@ class LiveRunTracker:
             fast_stage_timer=copy.deepcopy(self._fresh_fast_stage_timer_context_unlocked()),
             graveyard_main_map_events_active=self._graveyard_main_map_events_active_unlocked(),
             luck=self._fresh_fast_luck_unlocked(),
+            fast_items=self._fresh_fast_items_unlocked(),
         )
 
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:
