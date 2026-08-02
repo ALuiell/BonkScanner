@@ -5,13 +5,51 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-mock_pyside = MagicMock()
-mock_pyside.QtCore.QThread = MagicMock
-mock_pyside.QtCore.Signal = MagicMock
-sys.modules['PySide6'] = mock_pyside
-sys.modules['PySide6.QtCore'] = mock_pyside.QtCore
-
-from twitch_bot import TwitchBotWorker
+# `TwitchBotWorker` is a `QThread` with two `Signal`s, and these tests want it
+# as a plain object -- so PySide6 is mocked while the module is imported and the
+# class is built. `QThread` and `Signal` are resolved once, at class-definition
+# time, so the class keeps its stand-in base for the life of the process and
+# every test below behaves exactly as it did.
+#
+# What changed is the *scope*. This used to assign into `sys.modules` at import
+# and never put it back, which left a MagicMock standing where PySide6 belongs
+# for the whole process:
+#
+#   * on its own, this file died with an access violation before its first test
+#     -- pytest-qt processes the Qt event loop in `pytest_runtest_setup`, and by
+#     then the real bindings had been displaced under a live QApplication;
+#   * in a full run it was worse and looked unrelated, because pytest imports
+#     every test module during *collection*. This file poisoned PySide6 before
+#     any test ran, so the crash surfaced in whichever Qt test happened to go
+#     first -- `test_banishes_section` at the time, which had nothing to do
+#     with it.
+#
+# `twitch_bot` is dropped from `sys.modules` on both sides: before, so the class
+# is built under the stand-ins even if something imported it already; after, so
+# `gui_twitch` and the rest get the real module rather than this one's.
+# Two keys are saved and put back by hand rather than with `patch.dict`, which
+# is the obvious tool and the wrong one: on exit it *clears* the dict and
+# restores its snapshot, so every module imported inside the block is evicted
+# too. `twitch_bot` pulls in `app.config` on the way, and evicting that meant
+# the next `from app.config import ...` built a **second** config module. The
+# tests then mutated one `TWITCH_BOT` dict while the bot read another, and
+# fifteen of them failed on settings that had been applied to the wrong object.
+_mock_pyside = MagicMock()
+_mock_pyside.QtCore.QThread = MagicMock
+_mock_pyside.QtCore.Signal = MagicMock
+_real_pyside = {name: sys.modules.get(name) for name in ("PySide6", "PySide6.QtCore")}
+sys.modules["PySide6"] = _mock_pyside
+sys.modules["PySide6.QtCore"] = _mock_pyside.QtCore
+try:
+    sys.modules.pop("twitch_bot", None)
+    from twitch_bot import TwitchBotWorker
+finally:
+    for _name, _module in _real_pyside.items():
+        if _module is None:
+            sys.modules.pop(_name, None)
+        else:
+            sys.modules[_name] = _module
+sys.modules.pop("twitch_bot", None)
 from core.stats.types import DisabledItemsReadResult, DisabledItemsReadStatus
 from core.tracker.live_run import LiveRunTracker
 from core.tracker.snapshots import LiveRunSnapshot, PowerupMapContext
