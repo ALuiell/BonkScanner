@@ -38,6 +38,7 @@ def build_compare_runs_tab(**overrides) -> CompareRunsTab:
         # a suite run depends on which test files ran first -- so a queued
         # frame may simply never arrive.
         "diff_throttle": None,
+        "timeline_series_slots": None,
     }
     unknown = set(overrides) - set(defaults)
     assert not unknown, f"not CompareRunsTab constructor arguments: {sorted(unknown)}"

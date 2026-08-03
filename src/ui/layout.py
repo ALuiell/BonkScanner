@@ -277,8 +277,11 @@ def build_layout(app):
     _build_logs_tab(app)
     app._scanner.build_session_stats_tab()
     app._player_stats_view = _build_live_stats_view(app)
-    app._recordings_view = _build_recordings_view(app)
-    app._compare_runs_view = _build_compare_runs_view(app)
+    from ui.timeline_controls import TimelineSeriesSlots
+
+    timeline_series_slots = TimelineSeriesSlots()
+    app._recordings_view = _build_recordings_view(app, timeline_series_slots)
+    app._compare_runs_view = _build_compare_runs_view(app, timeline_series_slots)
     app.tabview.addTab(app._overlay.build(), "OBS Overlay")
     # The ~240 lines that built the Twitch tab's widgets are
     # `TwitchTab.build()`'s now (step 23b).
@@ -1197,7 +1200,7 @@ def _build_templates_panel(app):
     return view
 
 
-def _build_compare_runs_view(app):
+def _build_compare_runs_view(app, timeline_series_slots):
     """Construct the Compare Runs tab and name its three collaborators.
 
     The composition root for `CompareRunsTab` (step 21d), kept at the exact
@@ -1222,6 +1225,7 @@ def _build_compare_runs_view(app):
         schedule=lambda callback: (
             app.after(0, callback) if app._invoker is not None else callback()
         ),
+        timeline_series_slots=timeline_series_slots,
     )
     view.build()
     app.vod_library.subscribe(
@@ -1231,7 +1235,7 @@ def _build_compare_runs_view(app):
     return view
 
 
-def _build_recordings_view(app):
+def _build_recordings_view(app, timeline_series_slots):
     """Construct the Recordings tab and name its six collaborators.
 
     The composition root for `RecordingsTab` (step 21c), kept at the exact point
@@ -1271,6 +1275,7 @@ def _build_recordings_view(app):
         schedule=lambda callback: (
             app.after(0, callback) if app._invoker is not None else callback()
         ),
+        timeline_series_slots=timeline_series_slots,
     )
     view.build()
     app.vod_library.subscribe(

@@ -1,6 +1,8 @@
 """Shared series-slot menu and presentation for both recording timelines."""
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtWidgets import QMenu, QPushButton
 
 from core.stat_labels import abbreviate_stat_label
@@ -62,6 +64,13 @@ TIMELINE_SERIES_GROUPS = (
 
 POWERUP_PAIR = ("Powerup Multiplier", "Powerup Drop Chance")
 
+# One preference for both Recordings and Compare Runs.  The two legacy keys are
+# still read and mirrored on save so an upgrade preserves whichever timeline
+# the user configured before the setting became shared.
+TIMELINE_SERIES_SLOTS_CONFIG_KEY = "TIMELINE_SERIES_SLOTS"
+LEGACY_RECORDINGS_SERIES_SLOTS_CONFIG_KEY = "recordings_scrubber_slots"
+LEGACY_COMPARE_RUNS_SERIES_SLOTS_CONFIG_KEY = "COMPARE_RUN_SERIES_SLOTS"
+
 _ACCENT_ROLES = {
     "#38bdf8": "blue",
     "#4ade80": "green",
@@ -112,6 +121,91 @@ def timeline_series_accent_role(keys) -> str:
         return "none"
     color = scrubber_model.series_color(keys[0]).lower()
     return _ACCENT_ROLES.get(color, "neutral")
+
+
+def _validated_timeline_series_slots(stored) -> tuple[tuple[str, ...], ...] | None:
+    """Validate persisted slots, preserving a deliberately cleared slot."""
+    if not isinstance(stored, (list, tuple)):
+        return None
+    allowed = set(scrubber_model.available_series_keys())
+    slots: list[tuple[str, ...]] = []
+    for index, default in enumerate(scrubber_model.DEFAULT_SLOTS):
+        if index >= len(stored) or not isinstance(stored[index], (list, tuple)):
+            slots.append(default)
+            continue
+        slots.append(
+            tuple(str(key) for key in stored[index] if str(key) in allowed)
+        )
+    return tuple(slots)
+
+
+def configured_timeline_series_slots() -> tuple[tuple[str, ...], ...]:
+    """Load the shared slots, migrating either former tab-specific setting."""
+    from app import config
+
+    for key in (
+        TIMELINE_SERIES_SLOTS_CONFIG_KEY,
+        LEGACY_RECORDINGS_SERIES_SLOTS_CONFIG_KEY,
+        LEGACY_COMPARE_RUNS_SERIES_SLOTS_CONFIG_KEY,
+    ):
+        slots = _validated_timeline_series_slots(config.user_config.get(key))
+        if slots is not None:
+            return slots
+    return scrubber_model.DEFAULT_SLOTS
+
+
+def save_timeline_series_slots(slots) -> None:
+    """Persist one slot selection for both timelines and older app builds."""
+    from app import config
+
+    normalized = _validated_timeline_series_slots(slots)
+    if normalized is None:
+        normalized = scrubber_model.DEFAULT_SLOTS
+    serialized = [list(slot) for slot in normalized]
+    for key in (
+        TIMELINE_SERIES_SLOTS_CONFIG_KEY,
+        LEGACY_RECORDINGS_SERIES_SLOTS_CONFIG_KEY,
+        LEGACY_COMPARE_RUNS_SERIES_SLOTS_CONFIG_KEY,
+    ):
+        config.user_config[key] = serialized
+    config.save_config(config.user_config)
+
+
+class TimelineSeriesSlots:
+    """Shared, persisted series slots with lightweight change notification."""
+
+    def __init__(self, slots=None) -> None:
+        configured = (
+            configured_timeline_series_slots()
+            if slots is None
+            else _validated_timeline_series_slots(slots)
+        )
+        self._slots = configured or scrubber_model.DEFAULT_SLOTS
+        self._subscribers: list[
+            Callable[[tuple[tuple[str, ...], ...]], None]
+        ] = []
+
+    @property
+    def slots(self) -> tuple[tuple[str, ...], ...]:
+        return self._slots
+
+    def subscribe(
+        self, callback: Callable[[tuple[tuple[str, ...], ...]], None]
+    ) -> None:
+        self._subscribers.append(callback)
+
+    def set_slot(self, slot_index: int, keys) -> None:
+        if not 0 <= slot_index < len(self._slots):
+            return
+        slots = list(self._slots)
+        slots[slot_index] = tuple(keys)
+        normalized = _validated_timeline_series_slots(slots)
+        if normalized is None or normalized == self._slots:
+            return
+        self._slots = normalized
+        save_timeline_series_slots(self._slots)
+        for callback in tuple(self._subscribers):
+            callback(self._slots)
 
 
 def refresh_timeline_slot_button(button: QPushButton, slot_index: int, keys) -> None:

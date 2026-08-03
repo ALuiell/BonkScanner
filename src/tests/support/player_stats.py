@@ -486,6 +486,7 @@ def build_recordings_tab(**overrides) -> RecordingsTab:
         # a suite run depends on which test files ran first -- so a queued
         # frame may simply never arrive.
         "snapshot_throttle": None,
+        "timeline_series_slots": None,
     }
     unknown = set(overrides) - set(defaults)
     assert not unknown, f"not RecordingsTab constructor arguments: {sorted(unknown)}"

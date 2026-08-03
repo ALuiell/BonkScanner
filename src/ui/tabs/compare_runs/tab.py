@@ -105,9 +105,12 @@ from ui.tabs.compare_runs.timeline import (
 )
 from ui.tabs.compare_runs.timeline_legend import CompareRunsTimelineLegend
 from ui.timeline_controls import (
+    LEGACY_COMPARE_RUNS_SERIES_SLOTS_CONFIG_KEY,
+    TimelineSeriesSlots,
     build_timeline_cap_checkboxes,
     build_timeline_series_menu,
     checked_timeline_caps,
+    configured_timeline_series_slots,
     refresh_timeline_slot_button,
     save_timeline_caps,
 )
@@ -117,7 +120,7 @@ COMPARE_RUN_STAT_CONFIG_KEY = "COMPARE_RUN_STAT_LABELS"
 
 COMPARE_RUN_SECTIONS_CONFIG_KEY = "COMPARE_RUN_SECTIONS"
 COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY = "COMPARE_RUN_COMPACT_TIMELINE"
-COMPARE_RUN_SERIES_SLOTS_CONFIG_KEY = "COMPARE_RUN_SERIES_SLOTS"
+COMPARE_RUN_SERIES_SLOTS_CONFIG_KEY = LEGACY_COMPARE_RUNS_SERIES_SLOTS_CONFIG_KEY
 _RECORDING_SEARCH_ROLE = Qt.UserRole + 1
 
 #: How many rendered diffs to keep. A diff is four short HTML strings and three
@@ -234,15 +237,7 @@ def configured_compare_run_sections() -> dict[str, bool]:
 
 
 def configured_compare_run_series_slots() -> tuple[tuple[str, ...], ...]:
-    allowed = set(scrubber_model.available_series_keys())
-    saved = config.user_config.get(COMPARE_RUN_SERIES_SLOTS_CONFIG_KEY)
-    if isinstance(saved, list) and len(saved) == 4:
-        slots = []
-        for slot in saved:
-            values = slot if isinstance(slot, list) else []
-            slots.append(tuple(str(key) for key in values if str(key) in allowed))
-        return tuple(slots)
-    return scrubber_model.DEFAULT_SLOTS
+    return configured_timeline_series_slots()
 
 
 def _filter_metric_table(table: MetricTable, query: str) -> MetricTable:
@@ -390,6 +385,7 @@ class CompareRunsTab:
         is_active: Callable[[], bool],
         schedule: Callable[[Callable[[], None]], None] | None = None,
         diff_throttle: UiUpdateThrottle | None = None,
+        timeline_series_slots: TimelineSeriesSlots | None = None,
     ) -> None:
         self._tabview = tabview
         self._library = vod_library
@@ -400,6 +396,7 @@ class CompareRunsTab:
         # coalescing with a fake clock instead of a real event loop; the
         # default is the shared ~30 FPS window.
         self._diff_throttle = diff_throttle or UiUpdateThrottle()
+        self._timeline_series_slots = timeline_series_slots or TimelineSeriesSlots()
         # Formatted diffs, keyed by everything that can change one. Cleared
         # whenever a side's recording is replaced, which is also what keeps the
         # `id(vod)` in the key from ever outliving its object.
@@ -427,7 +424,8 @@ class CompareRunsTab:
         self._timeline_compact = bool(
             config.user_config.get(COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY, False)
         )
-        self._series_slots = configured_compare_run_series_slots()
+        self._series_slots = self._timeline_series_slots.slots
+        self._timeline_series_slots.subscribe(self._apply_timeline_series_slots)
         self._pending_diff_payload = None
         self._active_diff_page = 0
         self._stats_query = ""
@@ -882,13 +880,13 @@ class CompareRunsTab:
             self._timeline_legend.setVisible(not compact)
 
     def _set_series_slot(self, slot_index: int, keys) -> None:
-        slots = list(self._series_slots)
-        slots[slot_index] = tuple(keys)
-        self._series_slots = tuple(slots)
-        config.user_config[COMPARE_RUN_SERIES_SLOTS_CONFIG_KEY] = [
-            list(slot) for slot in self._series_slots
-        ]
-        config.save_config(config.user_config)
+        self._timeline_series_slots.set_slot(slot_index, keys)
+
+    def _apply_timeline_series_slots(self, slots) -> None:
+        slots = tuple(tuple(slot) for slot in slots)
+        if slots == self._series_slots:
+            return
+        self._series_slots = slots
         self._refresh_compare_runs_timeline_model()
 
     def _refresh_series_slot_buttons(self) -> None:

@@ -126,11 +126,15 @@ from ui.tabs.player_stats.summary_cards import (
 )
 from projections import formatting, scrubber as scrubber_model
 from ui.timeline_controls import (
+    LEGACY_RECORDINGS_SERIES_SLOTS_CONFIG_KEY,
     TIMELINE_SERIES_GROUPS,
+    TimelineSeriesSlots,
     build_timeline_cap_checkboxes,
     build_timeline_series_menu,
     checked_timeline_caps,
+    configured_timeline_series_slots,
     save_timeline_caps,
+    save_timeline_series_slots,
     refresh_timeline_slot_button,
 )
 
@@ -149,7 +153,7 @@ LIBRARY_TOGGLE_OPEN_CHEVRON = "«"
 #: choice is about how *this user* reads a run, not about the recording: having
 #: to re-pick it every time a different recording loads would make the fourth
 #: slot useless for the comparison it exists to support.
-SCRUBBER_SLOTS_CONFIG_KEY = "recordings_scrubber_slots"
+SCRUBBER_SLOTS_CONFIG_KEY = LEGACY_RECORDINGS_SERIES_SLOTS_CONFIG_KEY
 
 
 #: The graph menu's own grouping. It starts from the same stat set as the cards,
@@ -197,24 +201,7 @@ def _load_scrubber_slots() -> tuple[tuple[str, ...], ...]:
     configuration for one stale name would silently reset the three slots the
     user did still want.
     """
-    stored = config.user_config.get(SCRUBBER_SLOTS_CONFIG_KEY)
-    if not isinstance(stored, list):
-        return scrubber_model.DEFAULT_SLOTS
-    known = set(scrubber_model.available_series_keys())
-    slots: list[tuple[str, ...]] = []
-    for index, default in enumerate(scrubber_model.DEFAULT_SLOTS):
-        if index >= len(stored):
-            slots.append(default)
-            continue
-        entry = stored[index]
-        if not isinstance(entry, list):
-            slots.append(default)
-            continue
-        # An empty list is a slot the user cleared, and is honoured. Only a
-        # *malformed* entry falls back to the default -- otherwise clearing a
-        # slot would silently refill itself on the next launch.
-        slots.append(tuple(str(key) for key in entry if str(key) in known))
-    return tuple(slots)
+    return configured_timeline_series_slots()
 
 
 def filter_recordings(vods, query: str):
@@ -262,8 +249,7 @@ def _format_bytes(total: int) -> str:
 
 
 def _save_scrubber_slots(slots) -> None:
-    config.user_config[SCRUBBER_SLOTS_CONFIG_KEY] = [list(slot) for slot in slots]
-    config.save_config(config.user_config)
+    save_timeline_series_slots(slots)
 
 
 class _NameEdit(QLineEdit):
@@ -413,6 +399,7 @@ class RecordingsTab:
         log: Callable[..., None],
         schedule: Callable[[Callable[[], None]], None] | None = None,
         snapshot_throttle: UiUpdateThrottle | None = None,
+        timeline_series_slots: TimelineSeriesSlots | None = None,
     ) -> None:
         self._tabview = tabview
         self._library = vod_library
@@ -433,6 +420,7 @@ class RecordingsTab:
         # Slider-drag rate limiting; injectable so a test can drive the
         # coalescing with a fake clock instead of a real event loop.
         self._snapshot_throttle = snapshot_throttle or UiUpdateThrottle()
+        self._timeline_series_slots = timeline_series_slots or TimelineSeriesSlots()
         self._compare_start_index = None
         self._stage_range_anchor_index = None
         self._stage_range_anchor_number = None
@@ -483,7 +471,8 @@ class RecordingsTab:
         self._legend_label = None
         self._legend_meta_label = None
         self._slot_buttons = []
-        self._slots = _load_scrubber_slots()
+        self._slots = self._timeline_series_slots.slots
+        self._timeline_series_slots.subscribe(self._apply_timeline_series_slots)
         self._items_section = None
         self._chests_per_minute_label = None
         self._banishes_label = None
@@ -1642,12 +1631,13 @@ class RecordingsTab:
         )
 
     def _set_slot(self, slot_index: int, keys: tuple[str, ...]) -> None:
-        slots = list(self._slots)
-        if not 0 <= slot_index < len(slots) or slots[slot_index] == keys:
+        self._timeline_series_slots.set_slot(slot_index, keys)
+
+    def _apply_timeline_series_slots(self, slots) -> None:
+        slots = tuple(tuple(slot) for slot in slots)
+        if slots == self._slots:
             return
-        slots[slot_index] = keys
-        self._slots = tuple(slots)
-        _save_scrubber_slots(self._slots)
+        self._slots = slots
         self._refresh_slot_buttons()
         self._rebuild_scrubber_model()
         if self._loaded_vod is not None and self._loaded_vod.snapshots:
