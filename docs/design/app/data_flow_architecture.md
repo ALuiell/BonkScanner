@@ -13,6 +13,7 @@ flowchart LR
     Coordinator --> Lifecycle[recording_lifecycle 10 s]
     Coordinator --> Slow[full_player_snapshot 10 s]
     Coordinator --> Combat[combat_metrics 500 ms]
+    Coordinator --> Passive[passive_items 1 s]
     Coordinator --> Powerups[powerups 500 ms]
     Coordinator --> Chests[expected_chest_inputs 500 ms]
     Coordinator --> Event[event_timer 1 s]
@@ -20,6 +21,7 @@ flowchart LR
     Slow --> Store[LiveSnapshotStore last-known values]
     Slow --> Tracker[LiveRunTracker feature states]
     Combat --> Tracker
+    Passive --> Tracker
     Powerups --> Tracker
     Chests --> Tracker
     Event --> Tracker
@@ -50,9 +52,16 @@ flowchart LR
 - `LiveRunTracker` is the single runtime source of truth. Its private state is
   grouped into run, combat, chest, Chaos Tome, powerup, tracked-item and
   availability feature states.
-- `RuntimeStateSnapshot` is the only production read boundary for OBS,
-  in-game overlay and Twitch. Consumers do not read game memory or mutate
-  tracker state.
+- `RuntimeStateSnapshot` is the production read boundary for OBS, Twitch and
+  the in-game overlay. Consumers do not read game memory or mutate tracker
+  state. The in-game KPS repaint is the narrow, documented exception: it reads
+  the tracker's four read-only KPS accessors so a newly published value is
+  painted without waiting for an unrelated overlay timer.
+- When a consumer requires it, `passive_items` runs once per second. One
+  coherent pass publishes fast inventory, Luck, map activity and timed-item
+  cooldowns; it also folds item deltas into the tracker. `fast_items`, `luck`
+  and `item_cooldowns` therefore cross the runtime boundary without waiting for
+  the 10-second full snapshot.
 - The slow task preserves the existing 10-second full player snapshot and
   stage-summary cadence. Actual chest bought/purchased counters stay on that
   slow path; VOD capture keeps its existing effective 10-second minimum.
@@ -153,6 +162,13 @@ This section defines the active logic that pulls from data sources and pushes to
   - **Updates:** Kills, run timer, Chaos Tome modifiers, Powerup snapshots, Chest counters.
   - **Cadence:** Every 500 ms (`FAST_TRACKER_INTERVAL_MS`), except `event_timer` (stage timer and stage index) at 1 s.
   - **Destination:** Directly pushes data into `LiveRunTracker`.
+- **Fast Passive-Item Refresh**
+  - **Code location:** `src/app/refresh_tasks.py` (`passive_items` task).
+  - **Cadence:** Every 1 second (`PASSIVE_ITEMS_REFRESH_MS`).
+  - **Updates:** Passive inventory and its deltas, fast Luck, map activity,
+    `PowerupMapContext`, and timed-item cooldown snapshots such as Bob's Light.
+  - **Destination:** Directly publishes run-scoped data to `LiveRunTracker`.
+    The item-dictionary walk is shared with the slow snapshot when both are due.
 - **Recording Lifecycle**
   - **Code location:** `src/app/refresh_tasks.py` (`recording_lifecycle` task) -> `src/app/vod_capture.py` (`_sync_player_stats_recording_run_state`)
   - **Updates:** VOD recording auto-start, auto-stop, auto-split and pause handling.
@@ -213,7 +229,8 @@ This describes where the most authoritative version of the data lives.
 This defines who is reading the data at the end of the pipeline.
 
 - **Live Stats Tab** (`src/ui/tabs/player_stats/live_stats.py`)
-  - **Reads:** `LiveRunTracker` (for KPS/Chaos/Powerups) and direct memory snapshots (for Items/Banishes/Weapons).
+  - **Reads:** `LiveRunTracker` and immutable full live snapshots; it does not
+    read game memory itself.
   - **Cadence:** Updated directly by the GUI loops (500ms / 10s).
 - **OBS Overlay / Widgets** (`src/infra/overlay_server.py`)
   - **Reads:** `OverlayStateStore` (via HTTP endpoints).
@@ -232,8 +249,11 @@ This defines who is reading the data at the end of the pipeline.
 | KPS | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, Twitch bot |
 | Mob kills | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, VOD |
 | Run timer | Game memory | Fast KPS refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, VOD, Twitch bot |
+| Fast passive items | Game memory | Passive-item refresh | 1 s | 1 s | LiveRunTracker | In-game overlay, Twitch announcer, tracked-item surfaces |
+| Luck | Game memory | Passive-item refresh | 1 s | 1 s | LiveRunTracker | In-game overlay, OBS overlay |
+| Timed item cooldowns | Game memory | Passive-item refresh | 1 s | 1 s | LiveRunTracker | In-game overlay |
 | Player stats | Game memory | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats, Overlay, VOD |
-| Tracked items | Game memory | Slow full refresh | 10 s | 10 s | LiveRunTracker | Live Stats, Overlay |
+| Tracked items | Game memory | Passive-item refresh | 1 s | 1 s | LiveRunTracker | Session Stats, Live Stats, OBS overlay |
 | Stage summary | Derived | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats, Compare Runs |
 | Banishes | Game memory | Slow full refresh | 10 s | 10 s | Full live snapshot | Live Stats |
 | Chaos tome | Game memory | Fast Chaos refresh | 500 ms | 500 ms | LiveRunTracker | Live Stats, Overlay, Twitch bot |
@@ -254,7 +274,10 @@ This defines who is reading the data at the end of the pipeline.
 Note that this document outlines the target mental model, but reality contains some pragmatic exceptions:
 
 - **VOD Fast KPS Lane:** Active VOD recording explicitly enables the fast KPS refresh lane, so recorded `mob_kills` and `run_timer` values remain available even when Live Stats, Twitch, and the KPS overlay are inactive.
-- **Mixed Freshness in Overlay:** The OBS clients poll the `/api/overlay-state` endpoint every 500ms. However, only the KPS/Chaos widgets actually contain 500ms-fresh data. The player stats (Luck, Damage) and Items widgets only change their underlying values every 10 seconds due to the slow refresh path.
+- **Mixed Freshness in Overlay:** OBS clients poll `/api/overlay-state` at the
+  configured interval. KPS and some tracker data can be 500ms-fresh; fast
+  inventory, Luck and timed-item cooldowns are 1s-fresh; full player stats,
+  weapons and banishes remain on the 10s snapshot path.
 
 ## 10. Proposed Direction: Consumer-Composed Reads
 

@@ -137,6 +137,11 @@ In-Game Overlay
   - `KPS` — shows kills per second metrics (with customizable sub-metrics like instant, 60s, 5m, or run averages).
   - `Active Powerups (Buffs)` — displays active powerups (Rage, Shield, Stonks, Clock) and their timers.
   - `Luck Rarity %` — shows the probability of item rarity rolls based on current Luck, with an optional progress bar.
+  - `Stats` — displays the selected player-stat rows.
+  - `Event Timer` — shows phase-aware map-event warnings.
+  - `Item Cooldowns` — shows the countdown to the next trigger of supported
+    timed passive items. Bob's Light is supported first; the widget stays hidden
+    when no supported item is held and freezes correctly while the game is paused.
 - Note: The overlay will automatically hide when the game window loses focus, and reappear when it is focused.
 
 
@@ -175,6 +180,12 @@ Available chat commands:
 Announce Stage Transitions:
 If enabled, the bot automatically sends a summary to Twitch chat when transitioning between stages, e.g.:
 🚩 Stage 1 completed! Kills: 1,042 | Time: 05:00. Moving to Stage 2! 🚩
+
+Announce The One Ring:
+This optional announcement is **off by default**. Enable it in the Announcements
+card to announce The One Ring pickups on every map. The first observed pickup
+and later duplicates use separate editable phrase pools. Connecting the bot in
+the middle of a run does not announce a ring that was already in the inventory.
 
 
 Hotkeys

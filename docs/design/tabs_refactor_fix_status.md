@@ -12,7 +12,8 @@ Implementation status for the findings recorded in `tabs_refactor_audit.md`.
 - Compare Runs clears a side when its selected recording disappears.
 - OBS Overlay UI refresh is gated by active-tab state.
 - Twitch reconnect waits are interruptible, and `!session` reads an immutable copied session projection.
-- In-Game Overlay slow widgets consume the common projection and settings changes perform one refresh.
+- In-Game Overlay widgets consume the common projection; the former slow timer
+  was retired, so one 500 ms repaint timer now handles all widget surfaces.
 - Live Stats architecture documentation now reflects the active VOD fast-KPS lane.
 
 ## Verification

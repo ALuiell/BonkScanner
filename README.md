@@ -65,6 +65,8 @@ Some parts of the project use technical names, so here is what they mean:
 - tracks stage summaries for live runs and recordings, including time, kills, and item gains per stage;
 - compares saved runs side by side with synced in-game time and configurable diff sections;
 - serves a local OBS browser overlay with draggable/resizable widgets and widget-specific URLs;
+- provides a transparent in-game overlay with status, KPS, powerups, Luck,
+  stats, event-timer and timed-item cooldown widgets;
 - runs an optional Twitch chat bot with live stat commands and stage announcements;
 - uses the configured keyboard reset hotkey for run restarts;
 - stores app settings, templates, score rules, overlay settings, Twitch bot settings, and update preferences in `config.json`.
@@ -210,6 +212,7 @@ Recording is not required; the overlay uses live stats reads.
 Overlay features:
 - transparent browser page for OBS;
 - selectable widgets for `Stage Summary`, `Tracked Items`, `Stats`, and `Banishes`;
+- `KPS` as an additional widget-specific source;
 - tracked item rules, including map-1-only tracking;
 - widget-specific URLs such as `/overlay/stats`, `/overlay/banishes`, `/overlay/tracked_items`, and `/overlay/stage_summary`;
 - visual layout editor at `/overlay?edit=true`;
@@ -222,6 +225,18 @@ Overlay features:
 If OBS keeps showing an old layout after an update, refresh the browser source
 cache from the OBS source properties.
 
+## In-Game Overlay
+
+`In-Game Overlay` is a transparent, click-through desktop overlay aligned to
+the game window. It needs neither OBS nor recording. Enable it from its tab,
+optionally enable auto-start, then use **Edit Layout** or the configured edit
+hotkey (F9 by default) to position widgets.
+
+Available widgets are Scanner status, Recording status, KPS, Active powerups,
+Luck rarity %, Stats, Event timer, and Item cooldowns. The timed-item widget
+currently supports Bob's Light, hides when no supported item is held, and
+correctly freezes while the game is paused.
+
 ## Twitch Bot
 The `Twitch Bot` tab runs a built-in Twitch IRC chat bot for the configured channel.
 
@@ -229,7 +244,7 @@ Basic setup:
 1. Open the `Twitch Bot` tab.
 2. Click `Connect to Twitch`.
 3. Authorize through the browser.
-4. Configure target channel, access tier, cooldowns, enabled commands, and stage announcements.
+4. Configure target channel, access tier, cooldowns, enabled commands, and announcements.
 5. Click `Start Bot`.
 
 By default, `Target Channel` uses the authorized Twitch account. If you authorize
@@ -258,6 +273,8 @@ Command settings support:
 - selected stats for `!stats`;
 - customizable response templates;
 - automatic stage transition announcements.
+- an opt-in `Announce The One Ring` option with separate first-pickup and
+  duplicate phrase pools; it is off by default and works on every map.
 
 OAuth tokens are stored through the app's credential helper when available.
 Disconnecting removes the stored token and attempts to revoke it with Twitch.
@@ -327,13 +344,13 @@ build_exe.bat
 ## Project Structure
 - `src/main.py` - desktop app entry point.
 - `src/gui_app.py` - PySide6 application class and top-level app wiring.
-- `src/gui_layout.py` - main UI layout, tabs, and shared UI sections.
+- `src/ui/layout.py` - main UI layout, tabs, and shared UI sections.
 - `src/gui_scanner.py` - scanner loop, hotkeys, lifecycle, and shutdown flow.
 - `src/gui_run_control.py` - run restart mode UI and provider coordination.
 - `src/ui/tabs/player_stats/` - live stats, recordings, and snapshot UI.
 - `src/gui_overlay.py` - OBS overlay controls and overlay state refresh.
-- `src/gui_twitch.py` - Twitch authentication and bot UI orchestration.
-- `src/gui_dialogs.py` - settings, help, score, template, and Twitch command dialogs.
+- `src/ui/tabs/twitch/` - Twitch bot controls and announcement settings.
+- `src/ui/dialogs/` - settings, help, score, template, update and Twitch dialogs.
 - `src/ui/styles.py` - Qt stylesheet helpers. Item rarity colours now live in
   `src/core/item_metadata.py` and the item sort modes in `src/projections/item_sort.py`.
 - `src/app/config.py` - app config, game config integration, templates, scores, overlay, Twitch, and compare settings.
@@ -341,16 +358,17 @@ build_exe.bat
 - `src/infra/memory/game_data_client.py` - map-ready state, counters, seed-related runtime reads, and scan data.
 - `src/infra/memory/reader.py` - low-level `pymem` wrappers and memory helpers.
 - `src/infra/memory/player_stats_client.py` - live player stats, passive items, weapons, tomes, banishes, damage sources, and chest-rate calculations.
-- `src/live_run_tracker.py` - thread-safe live run snapshot tracking for overlay and Twitch.
+- `src/core/tracker/live_run.py` - thread-safe live run tracking and runtime snapshots for overlays and Twitch.
 - `src/projections/obs.py` - builds the OBS overlay payload from a tracker snapshot.
+- `src/projections/in_game.py` and `src/projections/in_game_html.py` - project and render the in-game overlay.
 - `src/infra/overlay_server.py` - local HTTP server for OBS/browser overlay pages.
 - `src/twitch_auth.py` - local Twitch OAuth flow.
 - `src/twitch_bot.py` - Twitch IRC bot worker and command handlers.
 - `src/infra/twitch_credentials.py` - Twitch token storage helpers.
 - `src/infra/vod_storage.py` - saved recording format, metadata cache, load, rename, and cleanup helpers.
 - `src/core/run_summary.py` - recording and compare summary helpers.
-- `src/run_control.py` - keyboard restart provider and restart timing helpers.
-- `src/updater.py` - packaged-build update checks and update application flow.
+- `src/core/run_control.py` and `src/infra/keyboard_run_control.py` - restart port and keyboard adapter.
+- `src/app/update_flow.py` and `src/infra/updater.py` - packaged-build update checks and application flow.
 - `src\tests` - unit tests.
 - `src\media\overlay` - browser overlay HTML, CSS, JS, and preview asset.
 - `docs\help` - in-app help text in English, Ukrainian, and Russian.

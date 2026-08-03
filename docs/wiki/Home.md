@@ -52,14 +52,17 @@ graph TD
     MainUI -- "Pushes State updates" --> OverlayServer
 
     TwitchBot -- IRC Messaging --> TwitchChat
-    OverlayServer -- Serves HTTP/WebSockets --> OBS
+    OverlayServer -- Serves HTTP --> OBS
 ```
 
 ### Threading Rules & State Sync
-- **Main Thread (GUI):** Renders all elements (run control, templates, session logs, live stat panels). It receives all updates from background threads via **PySide6 Signals and Slots** to guarantee thread safety.
+- **Main Thread (GUI):** Owns UI widgets and game-memory refresh work. Qt
+  signals queue UI work from background workers where needed; read-only runtime
+  snapshots and `OverlayStateStore` are the thread-safe state boundaries.
 - **ScannerWorker Thread (`QThread`):** Polling thread that executes the scan loop. It checks map stability, reads map values, checks evaluation conditions, and controls restarts.
 - **TwitchBotWorker Thread (`QThread`):** Runs an IRC connection loop. It listens for commands and broadcasts messages without blocking the GUI.
-- **ThreadingHTTPServer Thread:** Runs a lightweight web and WebSocket server to feed overlay widgets.
+- **ThreadingHTTPServer Thread:** Runs a lightweight local HTTP server to feed
+  overlay widgets, which poll the state endpoint.
 
 ---
 
@@ -91,7 +94,7 @@ Here is how the responsibilities are distributed across the project's codebase:
 | [src/gui_overlay.py](../../src/gui_overlay.py) | Settings panel layout and button callbacks for the OBS HTTP server overlay. |
 | [src/gui_in_game_overlay.py](../../src/gui_in_game_overlay.py) | Controls the QTimer ticks and lifecycle management of the inside-game overlay. |
 | [src/gui_in_game_overlay_window.py](../../src/gui_in_game_overlay_window.py) | Translucent, click-through widget canvas for desktop overlay drawing. |
-| [src/projections/in_game_html.py](../../src/projections/in_game_html.py) | Rich HTML layouts generator for the KPS, powerups, and indicator widgets. |
+| [src/projections/in_game_html.py](../../src/projections/in_game_html.py) | Rich HTML layouts generator for in-game KPS, powerups, stats, event timer, Luck and timed-item widgets. |
 | [src/gui_in_game_overlay_settings.py](../../src/gui_in_game_overlay_settings.py) | Settings tab layout and scaling configuration dialogs for inside-game widgets. |
 | [src/gui_twitch.py](../../src/gui_twitch.py) | Chatbot activation, channel configuration, and console messaging GUI widgets. |
 | **Logic & Evaluators** | |

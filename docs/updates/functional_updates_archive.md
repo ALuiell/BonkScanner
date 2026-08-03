@@ -24,7 +24,7 @@ after it. Six phrases and five respectively, one per line, drawn at random with
 the recent draws excluded.
 
 - `TwitchBotWorker._check_one_ring_announcement` ([src/twitch_bot.py](../../src/twitch_bot.py)), called from the socket loop beside `_check_stage_transitions`.
-- Config: `one_ring_announcements` (default on), the `one_ring_announcement` and `one_ring_duplicate_announcement` template pools, and `announcer_recent_lines`, all in `DEFAULT_TWITCH_BOT` ([src/app/config.py:163](../../src/app/config.py:163)). Checkbox in the Announcements card; two multi-line editors in the command dialog's Announcers tab.
+- Config: `one_ring_announcements` (**default off; opt-in**), the `one_ring_announcement` and `one_ring_duplicate_announcement` template pools, and `announcer_recent_lines`, all in `DEFAULT_TWITCH_BOT` ([src/app/config.py:163](../../src/app/config.py:163)). Checkbox in the Announcements card; two multi-line editors in the command dialog's Announcers tab.
 - Tags: `{streamer}`, `{stage}`, `{time}`, `{count}`. `SafeFormatter` renders an unknown tag as `--`, so a typo costs a dash rather than the announcement.
 
 **`{streamer}` only inside Gollum's voice.** `target_channel` falls back to

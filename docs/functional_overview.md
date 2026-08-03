@@ -1,6 +1,6 @@
 # BonkScanner Functional Overview
 
-Date: 2026-05-21
+Date: 2026-08-03
 
 This document is a product-level and implementation-level map of BonkScanner.
 It is meant to help future debugging, feature planning, and review of possible
@@ -33,7 +33,10 @@ BonkScanner uses a strict multithreaded architecture to prevent UI freezing:
 - **TwitchBotWorker Thread (`QThread`):** Runs the IRC client loop for Twitch integration.
 - **ThreadingHTTPServer Thread:** Handles background HTTP requests for OBS Overlays.
 
-State synchronization between threads relies entirely on PySide6 Signals and Slots.
+Qt signals and slots queue UI work from background workers where needed.
+`RuntimeStateSnapshot` and the OBS `OverlayStateStore` are the read-only,
+thread-safe boundaries for consumers; they keep Twitch and HTTP request threads
+away from game-memory reads.
 
 ## Main Files
 
@@ -50,8 +53,10 @@ State synchronization between threads relies entirely on PySide6 Signals and Slo
 - `src/infra/memory/player_stats_client.py` reads live player stats, passive items, weapons, run timer,
   stage timer, kill count, and level.
 - `src/core/tracker/live_run.py` maintains live stage boundaries, item deltas, and chaos stats.
+- `src/app/refresh_tasks.py` owns task cadence: 500 ms combat/powerup work,
+  the 1 s passive-item lane, and the 10 s full snapshot.
 - `src/twitch_bot.py` handles the Twitch IRC connection and commands.
-- `src/infra/overlay_server.py` runs a local HTTP/WebSocket server for OBS widgets.
+- `src/infra/overlay_server.py` runs a local HTTP server for OBS widgets.
 - `src/infra/vod_storage.py` writes and reads `.jsonl` recordings.
 - `src/core/run_control.py` defines the run-control port; `src/infra/keyboard_run_control.py` is the keyboard adapter behind it.
 - `src/infra/updater.py` fetches releases and applies them; `src/app/update_flow.py` decides whether to update.
@@ -181,10 +186,19 @@ Shown data:
 Implementation shape:
 
 - `PlayerStatsClient` in `src/infra/memory/player_stats_client.py` reads memory.
-- `MegabonkApp.refresh_live_player_stats_now()` coordinates reads.
-- `MegabonkApp.display_player_stats()` updates the UI.
+- `RefreshTasks` coordinates memory reads and tracker publication.
+- The Live Stats view consumes the latest snapshot and tracker state through
+  `src/ui/tabs/player_stats/`.
 - Passive item formatting, coloring, counting, and sorting are handled in
-  `src/ui/tabs/player_stats/` and style constants from `src/ui/styles.py`.
+  `src/ui/tabs/player_stats/` and shared metadata from
+  `src/core/item_metadata.py`.
+
+Fast passive-item lane:
+
+- A 1-second coherent pass also publishes fast inventory, Luck, map activity
+  and timed-item cooldowns to `LiveRunTracker`.
+- It lets the Twitch The One Ring announcer and the in-game overlay react
+  without waiting for the 10-second full snapshot.
 
 Passive item logic:
 
@@ -329,8 +343,11 @@ Implementation shape:
 
 - `TwitchBotWorker` (`src/twitch_bot.py`) runs on a background thread.
 - Connects via IRC socket using a Twitch OAuth token (`src/twitch_auth.py`).
-- Listens to internal application signals to broadcast "Run finished" messages containing the stage and tier.
-- Controlled via `src/gui_twitch.py`.
+- Serves commands and automatic announcements from `RuntimeStateSnapshot`; it
+  never reads game memory itself.
+- Controlled through `src/ui/tabs/twitch/`.
+- The One Ring announcement is opt-in (off by default), works on every map, and
+  uses the fast inventory lane so it does not trail the pickup by a full snapshot.
 
 Risks:
 
@@ -347,13 +364,15 @@ Purpose:
 Implementation shape:
 
 - Background `ThreadingHTTPServer` (`src/infra/overlay_server.py`).
-- Routes like `/stage_summary` return styled HTML widgets.
-- Widgets poll or use WebSockets connecting to the `OverlayStateStore`.
+- Routes such as `/overlay/stage_summary` return styled HTML widgets.
+- Widgets poll the `OverlayStateStore` through `/api/overlay-state`; no
+  WebSocket transport is used.
 - Managed in `src/gui_overlay.py`.
 
 Risks:
 
-- Local port 8080 (or chosen port) conflicts with other development servers.
+- The configured local port (17845 by default) can conflict with another local
+  service.
 - Browser sources may cache aggressively if headers are wrong.
 
 ## Weapons

@@ -97,6 +97,19 @@ Inventory list widgets support three stable sorting priorities:
 3. **Rarity Low to High:** Lowest rarity items (Common, Rare) bubble to the top.
 *Note: The sorting algorithm uses Python's stable Timsort, ensuring that items with identical rarities retain their original insertion order.*
 
+### Fast Inventory, Luck and Timed Items
+
+The normal full player snapshot remains on the 10-second path, but a coherent
+pass over the passive-item dictionary runs every second. It publishes fast
+inventory, Luck, map activity and supported timed-item cooldowns to
+`LiveRunTracker` without making consumers read memory directly.
+
+`Item Cooldowns` currently supports Bob's Light. Its next-trigger timestamp is
+paired with the game's `MyTime.time` from the same pass, so the countdown freezes
+while the game is paused and survives stage transitions correctly. The detailed
+memory validation record is in
+[`docs/updates/functional_updates_archive.md`](../updates/functional_updates_archive.md).
+
 ---
 
 ## Weapons & Upgrades Data

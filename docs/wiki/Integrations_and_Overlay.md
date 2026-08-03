@@ -6,7 +6,8 @@ This page documents the external integration pathways of BonkScanner, detailing 
 
 ## 1. Twitch Chat Bot Integration
 
-Twitch integration enables streamers to announce run milestones (e.g., successful map rerolls with completed tiers or target templates) directly to their Twitch chat.
+Twitch integration lets viewers request live run data and lets streamers opt in
+to automatic announcements such as stage transitions and The One Ring pickups.
 
 ### Concurrency & Architecture
 The integration is split into:
@@ -28,8 +29,8 @@ sequenceDiagram
 
     Note over Bot, IRC: IRC loop listens for PINGs and responds with PONGs
 
-    GUI->>Bot: Signal: announce_run(stage, tier, seed)
-    Bot->>IRC: PRIVMSG #streamer :Run completed at Stage X (Tier Y)!
+    Bot->>Bot: Read RuntimeStateSnapshot for a command or announcement
+    Bot->>IRC: PRIVMSG #streamer :Response or announcement
 
     GUI->>Bot: Stop Thread
     Bot->>IRC: Part & Close Socket
@@ -39,6 +40,13 @@ sequenceDiagram
 ### Safety & Resilience Features
 1. **PONG Keepalive**: Twitch IRC servers periodically send a `PING :tmi.twitch.tv`. The `TwitchBotWorker` immediately replies with `PONG :tmi.twitch.tv` to prevent disconnection.
 2. **Fixed Reconnect Delay**: If the socket is severed while the worker is still marked as running, the bot closes the socket, reports a reconnecting state, and retries after a fixed 2-second delay.
+3. **Snapshot-only game data:** The bot does not read game memory. Commands and
+   announcers consume the runtime snapshot supplied by the application.
+4. **The One Ring announcer:** This opt-in checkbox is off by default. It
+   watches the fast 1-second passive inventory, announces the first observed
+   pickup and later duplicates from separate phrase pools, and works on every
+   map. A bot connected mid-run seeds its count and does not announce an old
+   pickup.
 
 ---
 
@@ -60,6 +68,7 @@ The server listens for requests starting with `/overlay/` and supports the follo
 | `/overlay/tracked_items` | Renders a grid showing active passive items, their levels, and rarity colors. |
 | `/overlay/stats` | Shows real-time player statistics (Damage, Speed, Cooldown, Crit). |
 | `/overlay/banishes` | Lists items currently banished in the active run. |
+| `/overlay/kps` | Displays selected KPS metrics. |
 | `/api/overlay-state` | Returns the raw state store in JSON format (polled by widget frontends). |
 
 ### Thread-Safe State Store
@@ -67,6 +76,9 @@ Because HTTP request handlers run on separate socket threads, the server utilize
 - Access to the state dictionary is protected by a `threading.Lock()`.
 - Updates from the main thread use `set_state(state)` (acquiring the lock and copying state variables).
 - The request handler uses `get_state()` to retrieve a thread-safe snapshot of the state to serve JSON queries.
+- `src/projections/obs.py` builds the payload from `RuntimeStateSnapshot`; the
+  browser renderer receives finished values, including model-supplied rarity
+  colours, and does not reimplement game rules.
 
 ### OBS Cache Prevention
 To ensure widgets update immediately after a game restart, all server responses contain strict cache-control headers:

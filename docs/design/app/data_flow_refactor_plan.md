@@ -2,20 +2,19 @@
 
 ## Purpose
 
-This is the living design and implementation plan for refactoring the
-application data flow. It complements `data_flow_architecture.md`, which
-documents the current system. This document defines the target architecture,
-the decisions made during design, and the migration order.
+This is the historical design and implementation plan for the completed
+data-flow refactor. It preserves the target architecture, decisions and
+migration order that led to the current system. For the live architecture and
+cadence table, use `data_flow_architecture.md`.
 
 ## Status
 
-- Branch: `codex/refactor-data-exchange`
-- Implementation status: phases 1-3 complete; phase 4 partially complete
-  (tracker internals are grouped into feature states). Phase 5 is not started:
-  the coordinator wiring and demand predicates still live in
-  `gui_player_stats.py` (dissolved in step 15), and the two UI timers still drive one coordinator.
-- Compatibility rule: keep existing intervals, consumer gating, payloads, and
-  VOD format while replacing their internal data boundary incrementally.
+- Implementation status: completed through the coordinator, tracker and
+  projection migration. Historical references to `gui_player_stats.py`, two UI
+  refresh timers, or incomplete phases describe the pre-refactor state only.
+- Current compatibility constraints remain: 500 ms fast tasks, the 1 s passive
+  item lane, 10 s full snapshots, consumer gating, persisted VOD payloads and
+  completed-run retention.
 
 ## Goals
 
