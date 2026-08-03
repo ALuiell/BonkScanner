@@ -4,6 +4,503 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ---
 
+## Recently Handled Items (Archived 2026-08-03)
+
+### Twitch Commands
+
+#### 3. The One Ring Announcer
+
+Status: `[Archived]`
+
+Goal:
+
+- Add an automatic announcer for the Twitch bot that triggers when the player picks up "The One Ring" (in-game name: "Golden Ring").
+- Support multiple randomized messages to keep the chat reaction fresh.
+
+##### What shipped
+
+Two phrase pools, on every map: one for the first ring, one for every duplicate
+after it. Six phrases and five respectively, one per line, drawn at random with
+the recent draws excluded.
+
+- `TwitchBotWorker._check_one_ring_announcement` ([src/twitch_bot.py](../../src/twitch_bot.py)), called from the socket loop beside `_check_stage_transitions`.
+- Config: `one_ring_announcements` (default on), the `one_ring_announcement` and `one_ring_duplicate_announcement` template pools, and `announcer_recent_lines`, all in `DEFAULT_TWITCH_BOT` ([src/app/config.py:163](../../src/app/config.py:163)). Checkbox in the Announcements card; two multi-line editors in the command dialog's Announcers tab.
+- Tags: `{streamer}`, `{stage}`, `{time}`, `{count}`. `SafeFormatter` renders an unknown tag as `--`, so a typo costs a dash rather than the announcement.
+
+**`{streamer}` only inside Gollum's voice.** `target_channel` falls back to
+`username`, so by default the bot posts *from the streamer's own account* — and a
+plain narrator line like "X has found The One Ring" then reads as X describing
+themselves in the third person. That is what removed the two lines this pool used
+to have; the remaining four that name `{streamer}` are all Gollum speaking, where
+naming the ring-bearer is the character rather than self-reference. Judge a new
+line by that test, not by whether it contains the tag.
+
+Two things left for later: `{streamer}` renders `target_channel`, which is a
+lowercase login rather than the display name Twitch also returns at auth; and
+`username != target_channel` is a free, exact test for "a separate bot account is
+posting", if a third-person register is ever wanted as its own pool. Do not try to
+make one tag serve both — "you has found" is where that ends.
+
+**Pools are newline-separated strings, not lists.** Every template in that dict is
+coerced with `str()`, and a one-line value is a valid pool of one — so the
+original single-phrase config needed no migration path at all. The pre-pool
+default is in `LEGACY_ONE_RING_TEMPLATES` and is upgraded on load, because a
+config still holding exactly it was never edited by hand and a pool of one reads
+as a broken randomiser.
+
+**Flat odds, no weights.** The ring turns up on the order of once a session, so a
+line weighted at a tenth would simply never be read; with an event this infrequent
+the useful knob is variety per sighting.
+
+**Two exclusions of different scope, and the scopes are the whole design:**
+
+- *Within a run — absolute.* Nothing repeats until every variant has been spent,
+  then the cycle starts over and the record is cleared. This is the half that
+  matters for the duplicate pool, where one run can draw several times: without
+  it a five-line pool lets ring 4 repeat ring 2. Held in
+  `_pool_lines_used_this_run`, cleared when `run_id` changes.
+- *Across runs — a preference.* The last `len(pool) // 2` draws are avoided **when
+  possible**, and yield the moment the run-scoped rule disagrees. Long enough that
+  a new run does not open by repeating the last one, never long enough to force a
+  repeat inside a run or to corner a hand-shortened pool.
+
+The across-runs half **is persisted** to `TWITCH_BOT["announcer_recent_lines"]`:
+an in-memory memory would be cleared between streams — before it was ever
+consulted — leaving a plain uniform draw. Safe to write from the bot thread:
+`user_config["TWITCH_BOT"]` **is** `config.TWITCH_BOT` ([src/app/config.py:1050](../../src/app/config.py:1050)) and
+`save_config` takes `config_lock`. Both memories hold phrase text, so editing a
+line drops it out by itself.
+
+One test here is white-box on purpose. "A new run forgets what the previous one
+spent" has **no** behavioural expression: a pool the previous run left spent is
+re-filled by the exhaustion branch anyway, so the observable sequence is identical
+either way — a tamper run proved the behavioural version vacuous. It asserts on
+`_pool_lines_used_this_run` instead.
+
+**Every duplicate line must hold for any count above one.** "A second precious"
+reads as a bug on the third ring; a line either names `{count}` or says nothing
+about the number.
+
+Decisions worth keeping:
+
+- **Read off the 1 s lane, not the 10 s snapshot.** The inventory is read every
+  second by the `passive_items` task ([src/app/refresh_tasks.py:204](../../src/app/refresh_tasks.py:204)), but that lane
+  never appends a snapshot — it publishes `_fast_items` and folds its deltas into
+  the tracked-item state, so `RuntimeStateSnapshot.latest_snapshot.items` is the
+  10 s copy. `RuntimeStateSnapshot.fast_items` was added to carry the fast one to
+  the boundary, beside `luck`, which already rides that same pass; the announcer
+  prefers it and falls back to the snapshot when it is `None`. Without this the
+  message trails the pickup by up to ten seconds on stream.
+- **Level-triggered on the inventory, not edge-triggered on a pickup.** An edge
+  would have to survive a torn read, a skipped pass or a reconnect to fire at
+  all. "The bag holds more rings than have been announced" stays true on every
+  tick until it is answered, so a read that fails costs a tick rather than the
+  announcement.
+- **The latch is a count, not a flag.** It is what lets ring 2 be new while ring 1
+  is old. Two rings appearing between one tick and the next is still one event and
+  draws the first-pickup line only — the duplicate pool fires on an *observed*
+  increase past what was announced.
+- **The first usable read of a run seeds the latch.** Whatever the inventory
+  already holds was not picked up under the bot's watch, so a mid-run connect --
+  or a reconnect after a dropped socket -- stays quiet. An *unavailable* read is
+  not allowed to seed, because "no rings" from a failed read would announce on the
+  next successful one.
+- **No map gate at all.** The first version was Forest/Desert-only, gated on a
+  *fresh* `powerup_map_context` that was not Graveyard — scope control, not a
+  requirement. Nothing here ever depended on the map: the inventory and `run_id`
+  are the same facts everywhere, and `run_id` holds across Graveyard's crypt and
+  boss-room transitions — which is exactly the property the Event Timer item
+  below records as making those transitions invisible to seed and pointer — so
+  the latch cannot double-fire there. The gate was removed rather than inverted,
+  which also drops the wait for a context that no longer decides anything.
+
+Matching is via `fold_item_match_name` ([src/core/tracker/items.py:70](../../src/core/tracker/items.py:70)), which collapses all four spellings the item reaches this code under -- `GoldenRing`, `Golden Ring`, `The One Ring`, and the game's `No Implementation` placeholder -- onto one key. Do not replace it with a literal list here; it would drift from `core/item_metadata.py`.
+
+Covered by `OneRingAnnouncerTests` in `src/tests/test_twitch_bot.py`, tamper-tested against reinstating the map gate and against removal of the seeding branch, the fast-lane preference, either exclusion, the exclusion's persistence, the duplicate pool, and the counting latch.
+
+##### Remaining
+
+- Condition-driven lines, **if** they are ever wanted: a pickup on Stage 1, or before 5:00, is a genuinely different event and `current_stage_index` / `game_time_seconds` are both already on the runtime snapshot. Do this as a *condition* rather than a weight — a weighted line on an event this rare is a line nobody reads.
+
+### In-Game Overlay
+
+#### 1. Item Cooldown Display (Bob's Light and other timed items)
+
+Status: `[Archived]`
+
+Goal:
+
+- Show the live countdown to the next trigger of cooldown-driven passive items (first target: Bob's Light / `ItemBobLantern`), so the player can time movement and pulls around the next explosion.
+
+**Reconnaissance is closed.** Nothing below is a guess any more: the whole field
+layout, both stacking formulas, the re-arm rule, and the behaviour across stage
+transitions, pause and the death screen were measured live on 2026-08-03 and
+cross-checked against the published mechanics. What remains is writing it.
+
+##### Decided: its own overlay widget
+
+Not a second block inside the Powerups widget, for three reasons that are all
+mechanical rather than aesthetic:
+
+- **The Powerups widget hides itself when no buff is up** (`setVisible(False)` at
+  [src/gui_in_game_overlay.py:373](../../src/gui_in_game_overlay.py:373)). An item cooldown is live for the whole run, so
+  sharing that widget means deleting the rule -- and the widget then becomes
+  permanently visible for everyone already using it. That is a regression in
+  someone's existing layout to make room for a new feature.
+- **Position and scale are per widget id.** One `x/y/scale` and one checkbox for
+  both blocks means a growing item list drags the powerups with it, and
+  `reclamp_to_parent` moves both at once.
+- **The list is expected to grow.** Bob's Light is the first timed item, not the
+  only one; `ItemUnstableTransfusion` is already a live candidate (see below).
+
+The cost of a separate widget is small because this one is pure text: a plain
+`DraggableOverlayWidget` plus `set_text` with RichText, no custom `paintEvent`
+like `LuckRarityBarWidget`. Visually it is close to Powerups; structurally it is
+a copy of the cheapest widget in the file.
+
+**Hidden when there is nothing to show**, matching Powerups -- no timed item in
+the inventory means there is nothing to say. Copy the edit-mode placeholder from
+`build_powerups_overlay_html`, or the widget cannot be grabbed with the mouse
+while the inventory is empty.
+
+**Rows are coloured by the item's rarity**, via `ITEM_RARITY_BY_NAME` (163
+entries, covering every timed class still queued for this widget).
+`CRITICAL_COLOR` overrides under 5 s remaining, `TEXT_SHADOW` on every span.
+
+Two dead ends are worth recording, because both looked right:
+
+- `item_display_color` ([src/core/item_metadata.py:305](../../src/core/item_metadata.py:305)) is not an item colour
+  catalog. Its map holds **one** entry, Golden Ring, as a special case for the
+  ring announcer. Every timed item routed through it comes back
+  `FALLBACK_COLOR` -- one colour for all of them, which is the opposite of what
+  per-item colour is for.
+- A hand-kept `{item_id: colour}` table works and was shipped briefly, but
+  rarity is better: it needs no maintenance, it grows with the catalog, and it
+  says something the player already reads elsewhere.
+
+The cost of rarity is that two timed items of the same tier share a colour --
+accepted deliberately, because the row's *name* is what identifies it and the
+colour is carrying tier information that is real. Rarity colours are the
+overlay's shared vocabulary: the Luck row, the bar and the expected block
+already speak them, so `#E879F9` means "rare" everywhere it appears.
+
+No stack suffix. The effective `cooldown` already reflects the stack, so `xN`
+was saying it twice and costing width that a late inventory full of timed items
+will need.
+
+##### Verified memory read path
+
+First confirmed live on 2026-07-31 with `tools/probe_item_cooldown.py` (repaired in
+that session -- it had been calling a `PlayerStatsClient` method that no longer
+exists and walking a stale pointer chain). Extended on 2026-08-03 with a capture
+that logs every passive item's raw field block to JSONL rather than clearing the
+screen, which is what made the stack, pickup, transition, pause and death-screen
+findings below possible.
+
+Pointer chain to the item object — all of it already exists in `PlayerStatsClient`, nothing new has to be resolved:
+
+```text
+PlayerStats TypeInfo (module_offset TYPE_INFO_OFFSET)
+  -> class_ptr + CLASS_STATIC_FIELDS_OFFSET
+  -> + STATIC_ROOT_OFFSET -> + OWNER_STATS_OFFSET      = owner_stats
+owner_stats + INVENTORY_CONTAINER_OFFSET (0xA0)
+  -> + PASSIVE_ITEM_DICT_OFFSET (0x50)                 = passive item Dictionary
+     (fallback: owner_stats + PLAYER_INVENTORY_OFFSET 0x28
+        -> + ITEM_INVENTORY_OFFSET 0x20
+        -> + ITEM_INVENTORY_ITEMS_DICT_OFFSET 0x10)
+dict + DICT_ENTRIES_OFFSET (0x18) / DICT_COUNT_OFFSET (0x20)
+  -> entry = entries + DICT_ENTRY_START_OFFSET (0x20) + index * DICT_ENTRY_SIZE (0x18)
+  -> entry + DICT_ENTRY_KEY_OFFSET   (0x08)            = item enum id (ItemBobLantern = 85)
+  -> entry + DICT_ENTRY_VALUE_OFFSET (0x10)            = item object
+```
+
+Use `PlayerStatsClient._resolve_preferred_passive_item_dict(owner_stats)` rather than re-deriving the chain.
+
+**Neither route is "the right one" — either can resolve a live pointer to a drained dictionary, and which one does depends on run state.** The earlier note here claimed the container route was authoritative and the `PLAYER_INVENTORY_OFFSET` route yielded a null dictionary. Measured mid-run on 2026-08-03 with 25 items held, it was exactly inverted:
+
+```text
+owner_stats +0xA0 -> +0x50            = 0x...EF750   count=0  version=0  entries=0x0
+owner_stats +0x28 -> +0x20 -> +0x10   = 0x...57AE0   count=25 version=25 entries=0x...DA80
+```
+
+So the resolver may not stop at the first **non-null** pointer; it has to prefer the one that actually **has entries**. That is the rule `get_passive_items` always applied by falling through on an empty *result*, and the helper now states it directly so the two cannot disagree.
+
+They did disagree, silently, and not only for this feature: `_get_cached_key_count` used the helper and reported `key_count=0` for a player visibly holding `Key x1` — measured live, then fixed with the helper. `expected_key_procs` was reading a drained dictionary in exactly this state.
+
+A second, related trap belongs to any consumer of the layout memo: it is cached per dictionary, so a reader must confirm the memo belongs to the dictionary it just walked. Skipping that check made `get_item_cooldowns` return correct-looking readings *through a drained dictionary*, purely because an earlier `get_passive_items` had left a live layout behind — a bug that only reproduces when the calls are made in that order.
+
+Per-item cooldown fields, `ItemBobLantern` (offsets relative to the item object):
+
+| Offset | Type | Field | Live value | Status |
+| --- | --- | --- | --- | --- |
+| `0x18` | i32 | `amount` (stack count) | 1 … 5 | Confirmed — same value as `ITEM_STACK_COUNT_OFFSET` |
+| `0x30` | f32 | `cooldownMin` | 5.00 | **Confirmed live** |
+| `0x34` | f32 | `cooldownMax` | 45.00 | **Confirmed live** |
+| `0x38` | f32 | `cooldownReductionPerAmount` | 3.00 | **Confirmed live** |
+| `0x3C` | f32 | `cooldown` — effective CD in seconds | 42 / 36 / 33 / 30 | **Confirmed live** at `amount` 1/3/4/5 |
+| `0x40` | f32 | `nextExplodeTime` — absolute game-time mark | — | **Confirmed live** |
+| `0x44` | f32 | `radius` — effective | 60 / 80 / 90 | **Confirmed live** at `amount` 1/3/4 |
+| `0x48` | f32 | `radiusMin` | 50.00 | **Confirmed live** |
+| `0x4C` | f32 | `radiusMax` (cap) | 250.00 | **Confirmed live** |
+| `0x50` | f32 | `radiusPerAmount` | 10.00 | **Confirmed live** |
+
+The layout is closed: every offset in the block has a name, and the two derived
+fields match the published mechanics exactly.
+
+```text
+cooldown(n) = max(5,   45 - 3n)     -> 42 / 36 / 33 / 30 at n = 1 / 3 / 4 / 5
+radius(n)   = min(250, 50 + 10n)    -> 60 / 80 / 90      at n = 1 / 3 / 4
+```
+
+The constants on the left of those formulas are `0x30`/`0x34`/`0x38` and
+`0x48`/`0x4C`/`0x50`; the results are `0x3C` and `0x44`. **Read the results, do
+not compute them.** A balance patch changes the constants in the fields, not the
+meaning of the fields — and the formulas are then worth exactly what they are
+worth here: expected values in a characterization test, which will report the
+change as a disagreement with documented mechanics rather than as drifted
+offsets.
+
+The clock these are measured against is `MyTime.time`, available as `PlayerStatsClient.get_my_time_seconds()` ([src/infra/memory/player_stats_client.py:1246](../../src/infra/memory/player_stats_client.py:1246)), which resolves `_resolve_my_time_static_fields() + MY_TIME_TIME_OFFSET (0x04)`.
+
+##### Matching on a field value does not work
+
+Swept all 27 passive items for floats that track `MyTime.time`. Nine items have
+one; **eight of them are not cooldowns**:
+
+| Item | Offset | Lead over `my_time` | What it actually is |
+| --- | --- | --- | --- |
+| `ItemBobLantern` | `0x40` | +29.4 s | the real thing |
+| `ItemGlovesBlood` | `0x30` | +3.7 s | sub-cycle proc timer |
+| `ItemHolyBook` | `0x48` | +1.1 s | sub-cycle proc timer |
+| `ItemCursedDoll` | `0x5C` | +0.9 s | sub-cycle proc timer |
+| `ItemCampfire` / `ItemIdleJuice` | `0x54` / `0x50` | +0.6 s | sub-cycle proc timer |
+| `ItemSpikyShield` | `0x3C` | +0.5 s | sub-cycle proc timer |
+| `ItemBeefyRing` | `0x3C` | +0.1 s | sub-cycle proc timer |
+| `ItemPhantomShroud` | `0x5C` | **−1.3 s** | mark of the *last* trigger, in the past |
+
+`ItemIdleJuice 0x5C` is a third semantic again — it advanced 91.8 s over a 167 s
+span, so it is neither a mark nor a countdown. And note `ItemSpikyShield` and
+`ItemBeefyRing` carry their tick timer at **`0x3C`**, the same offset that holds
+`cooldown` on the lantern.
+
+**Every one of those eight was then named by the dump, exactly.** The live sweep
+found which offsets move; `dump.cs` says what they are; the two agree to the
+byte:
+
+| Live sweep | `dump.cs` |
+| --- | --- |
+| `ItemBeefyRing 0x3C` | `nextUpdateTime` |
+| `ItemSpikyShield 0x3C` | `nextUpdateTime` |
+| `ItemCampfire 0x54` | `startCampfireTime` |
+| `ItemIdleJuice 0x50` | `startCampfireTime` |
+| `ItemCursedDoll 0x5C` | `nextAttackTime` (`attackCooldown` at `0x58`) |
+| `ItemHolyBook 0x48` | `nextDamageTime` (`cooldown` at `0x4C`) |
+| `ItemGlovesBlood 0x30` | `readyAtTime` (`cooldown` at `0x34`) |
+| `ItemPhantomShroud 0x5C` | `speedResetAtTime` — a reset mark, which is why its lead was negative |
+
+**The ninth hit was worse than wrong — it was not a field.** `ItemUnstableTransfusion`
+declares exactly two floats, `chanceToStackPerAmount` at `0x30` and `totalChance`
+at `0x34`. There is nothing at `0x40`; the "+272 s mark" read there was memory
+past the end of the declared layout that happened to hold a plausible future
+timestamp.
+
+So the value heuristic scored **one true positive out of nine**, and its failures
+are silent by construction: seven wrong-semantics fields and one read of nothing
+at all, every one returning a well-formed float. This is the empirical case for
+the per-class offset table, and for confirming a class in `dump.cs` before
+reading a single byte of it.
+
+##### Measured semantics
+
+- `nextExplodeTime` is **not** a countdown. It is an absolute mark on the same `MyTime.time` axis, so the displayed value is `remaining = nextExplodeTime - my_time`.
+- **Re-arming after a trigger is exact.** Twelve consecutive cycles: `+42.003`, `+42.003`, `+36.013`, `+36.007`, `+36.019`, `+36.018`, `+36.009`, `+36.001`, `+36.005`, `+36.012`, `+33.024`, `+33.018` against `cooldown` fields of 42.00/36.00/33.00. Deviation never exceeded 24 ms, and there is no accumulating drift — whole-second display needs no correction.
+- **Any pickup re-arms the mark to exactly `my_time + 2.000 s`** — including the first one, where it moves the mark *backwards* by tens of seconds. This is the finding that breaks the naive model.
+
+  Measured directly, with no sampling ambiguity at all, because **item selection pauses the game**: across the pickup the clock was frozen at `my_time 2257.802` and the game wrote `nextExplodeTime = 2259.802`. Difference: `2.000`.
+
+  Two earlier stack-change samples, taken at 250 ms with the clock *running*, bound it consistently — `next − t_pickup ∈ [1.892, 2.138)` for x1 → x3 and `[1.966, 2.221)` for x3 → x4, intersecting at `[1.966, 2.138)`, which contains 2.000. Those read low (1.89, 1.97) only because the clock advanced between the game's write and the probe's read.
+
+  A *proportional* rule was already excluded by those two samples before the exact one arrived: a common fraction `k` would need `k×36` in the first window and `k×33` in the second, giving `k ∈ [0.0526, 0.0594)` against `k ∈ [0.0596, 0.0673)` — disjoint. The published mechanics agree in words ("On pickup / amount change, the next explosion is scheduled about 2 seconds later"); the measurement makes "about" exact. After that first trigger the normal cycle resumes — observed `+42.005` against `cooldown 42.00`.
+
+  Consequences:
+  - the mark is **not monotonic**, so a "just exploded" pulse must fire on an
+    *increase*, never on a change — a pickup moves it down and the real
+    explosion follows 2 s later, which would double-fire a change-driven pulse;
+  - no local model can predict it, which is the standing argument for re-reading
+    the mark rather than extrapolating it;
+  - because the selection screen holds the game paused, the first value the
+    widget ever shows for a newly picked-up item is a **frozen `2s`**, held for
+    as long as that screen is open. Correct, and indistinguishable from a stuck
+    display to anyone who does not know why.
+- **`remaining` goes briefly negative before a re-arm is observed.** Measured `−0.01 s` on the tick before the mark moved. Clamp at zero; the bound on that window is one read interval.
+- **Pause freezes the clock bit-exact.** Two captures, 4.3 s and 17 s of wall-clock: `my_time` held the *identical* float across 68 consecutive reads, `stage_timer` froze with it, `remaining` held at exactly `30.08` and `27.45`, and the resume was clean with no catch-up. Never derive the countdown from a local monotonic clock — over that 17 s pause it would have burnt half a cooldown. Same rule the KPS clock and the Event Timer already follow.
+- **A stage transition is a complete non-event.** Captured Stage 1 → 2 with a lantern equipped: `stage_index` flipped at `my_time 1938.33`, `stage_timer` reset at `1939.68` and then sat at a flat `0.00` for a further 4.15 s before advancing — while `MyTime.time` stayed continuous (no reset, no jump) and `nextExplodeTime` was **not touched at all**, holding `1946.850` straight through. `amount`, `cooldown` and the dictionary entry were unchanged; the item never left the dictionary. Nothing about a transition needs handling.
+  - Two side findings, both for the Event Timer item rather than this one: `stage_index` and the `stage_timer` reset are **1.35 s apart**, so "stage changed" and "timer reset" are not one event; and on the reset tick `my_time` advanced only 0.058 s against 0.251 s of wall-clock, so a naive `game_delta/wall_delta < 0.9` pause detector fires falsely on a transition.
+- **Graveyard is a non-event too, measured with every timer family in view.** One run, 5094 reads at 10 Hz, `MyTime.time` 3190 → 3582 with **zero** backwards steps. The crypt transition is the sharpest evidence: in a single tick `stage_timer` went `135.51 -> 0.00` and `crypt_timer` `40.96 -> 0.09`, while `nextExplodeTime` held `3428.065` unmoved and `remaining` kept descending `27.34 -> 27.25 -> 27.15`. `MyTime.time` advanced `0.091 s` on that tick against a normal `0.10`.
+
+  Across the whole run — crypt entry, the boss, and 735 s of post-boss swarm — the mark re-armed eight times at `+42.013, +42.006, +42.006, +42.014, +42.014, +42.014, +42.014, +42.012` while `crypt_timer` swung `33 -> 41 -> 27 -> 39` and `final_swarm_timer` climbed from zero. `stage_index` held at `0` throughout, as Graveyard is documented to do. The item is indifferent to all of it.
+
+  Not isolated as its own event: the **portal return**. It produced no timer reset — the crypt entry was the only reset in the run — so there may be nothing there to observe, but that is inference rather than measurement.
+- Stage/phase logic is irrelevant here. Unlike powerup effects, which need `resolve_ui_context` to pick between `stage_timer`, `crypt_timer` and `final_swarm_timer`, an item cooldown lives entirely on `MyTime.time` and needs no phase resolution. Do not route it through `core/tracker/powerups.py`'s UI-context machinery. Graveyard is now the measured case for this, not the assumed one.
+
+##### The death screen reads as valid, frozen data — this is the one real trap
+
+The earlier plan assumed a `game over` screen would produce zeroes, garbage or a
+failing read, and that the TTL would clear the display. **Measured, both halves
+are false.** Across 97 s of wall-clock on the death screen:
+
+```text
+my_time      2146.530  frozen bit-exact, 385 consecutive reads
+stage_timer   642.10   frozen
+run_timer     918.61   frozen
+amount            5    cooldown 30.00   nextExplodeTime 2164.473   remaining 17.94
+dictionary   count 38, version 39, lantern still in its slot
+```
+
+Every read succeeds. Nothing degrades. The widget would sit on a frozen
+`17.9s` forever, and the TTL would never fire because there is no failure to
+detect. By these fields the death screen is **indistinguishable from a pause** —
+both freeze the clock and hold everything else.
+
+So: **the display is cleared by run-lifecycle state, not by the TTL and not by a
+failed read.** The TTL still earns its place for the case it was meant for — a
+read that genuinely fails — but it does not own end-of-run. The overlay's own
+visibility rule does not help either: on the death screen the game window is
+still the active window.
+
+The upside is that pause needs no special handling at all. A frozen countdown is
+the *correct* render while paused; the only question the freeze raises is
+whether to keep showing the widget, and that is a lifecycle question.
+
+**Re-confirmed through the shipped reader, on Graveyard.** The prediction above
+was made from raw bytes; `get_item_cooldowns` then reproduced it exactly. 256
+consecutive reads over 26 s of wall-clock on the death screen, `my_time` frozen
+at `3581.537`, dictionary intact at `count 23, version 23`, and every call
+returning `ItemCooldownReading(item_id=85, stack_count=1, cooldown_seconds=42.0,
+next_trigger_time=3596.12)` -- a permanent `14.58 s`. **Zero exceptions across
+all 5094 reads of the run.** There is nothing for a TTL to catch, because
+nothing fails.
+
+**`MyTime.time` also survives a run boundary**, which closes the other half of
+the same hole: across a death, the menu and a new run it climbed 2231 -> 2739
+with no reset, while the passive dictionary went `count 6, version 6` ->
+`count 0, version 0`. So a mark left over from a previous run would subtract
+against the clock into a perfectly plausible countdown. Nothing renders one
+today only because the dictionary is re-read every pass and the item is absent
+from it -- which is a property of the read path, not a guarantee, and is why the
+reading belongs in run-scoped state that a run reset clears.
+
+##### Implementation notes
+
+**No new refresh task.** Everything rides the existing 1 s `passive_items` lane
+([src/app/refresh_tasks.py:202](../../src/app/refresh_tasks.py:202), `PASSIVE_ITEMS_REFRESH_MS = 1_000`), which already walks
+the passive item dictionary the cooldown fields hang off. This was reached by
+elimination and it is strictly better than riding the 500 ms `powerups` lane:
+
+- The mark is **absolute**, so an old mark is not a stale mark. It only moves on
+  a trigger or a stack change, and a 1 s read bounds the wrong-reading window to
+  one interval right after a trigger — during which `remaining` clamps to zero
+  and reads as "about to fire", i.e. it degrades into the truth. Paying for a
+  second dictionary walk at double the rate buys nothing.
+- `cooldown` and `amount` are coupled through `cooldownReductionPerAmount`.
+  Reading them in one pass means they cannot disagree.
+- `my_time` is **not currently published** on `RuntimeStateSnapshot` — `powerups.py`
+  consumes it internally and emits derived `remaining` values. It has to be
+  published either way, and publishing it from *this* pass gives the item fields
+  and the clock one timestamp. That removes the cross-lane skew question
+  entirely, rather than answering it.
+
+This supersedes the earlier note that `my_time` must come "from the same pass"
+as a correctness rule: it is now true by construction, and the reasoning behind
+it was in any case over-cautious for an absolute mark, where `mark − my_time` is
+exact regardless of when each was sampled.
+
+Read side:
+
+- Add a `get_item_cooldowns(owner_stats)` to `PlayerStatsClient` returning one record per cooldown-capable item: `item_id`, `name`, `stack_count`, `cooldown_seconds`, `next_trigger_time`, plus the `my_time` the batch was read against.
+- Identify items by class metadata (`item + ITEM_CLASS_META_OFFSET (0x0)` -> `+ CLASS_META_NAME_PTR_OFFSET (0x10)` -> ASCII string), with `ITEM_ENUM_NAMES_BY_ID` as the fallback, matching `_read_passive_item_dictionary`. Do not match on substrings like `"bob"`, and do not match on field values either — see the sweep above, which found the same `0x3C` offset holding an unrelated tick timer on two other items.
+- Keep a per-class offset table (`{"ItemBobLantern": CooldownLayout(cooldown=0x3C, next=0x40)}`) from the first version, even with one entry. It costs nothing and it makes a substring match structurally impossible.
+- Reuse the passive-item layout cache. `_read_passive_item_dictionary` already memoises `(stack_address, item_name)` per slot, invalidated on `DICT_VERSION_OFFSET (0x2C)` ([src/infra/memory/player_stats_client.py:739](../../src/infra/memory/player_stats_client.py:739)). Extending that tuple with the cooldown addresses makes the per-pass cost two extra float reads, instead of a second full dictionary walk.
+  - **Addresses only, never values.** Measured: the dictionary `version` did *not*
+    change when the stack went 1 → 3, because stacking mutates the existing item
+    object and leaves the dictionary alone. Version-based invalidation is
+    therefore blind to a stack change. Caching addresses is safe — the item
+    pointer never moved across ~5300 samples and the lantern held slot 15 for the
+    whole run — but a cached `cooldown` or `amount` would go stale in silence.
+  - The existing rule still stands: **only a clean walk may be memoised.**
+    Memoising an incomplete walk is what previously made items disappear from
+    recorded runs for tens of consecutive snapshots.
+- Marginal cost of the whole read, on a pass already paying for the dictionary walk: two 4-byte field reads plus one for `my_time` (`_resolve_my_time_static_fields` is cached, so it is one read and not a chain). At the ~0.004 ms per `ReadProcessMemory` measured for this process, that is **~12 µs per second** — which is why there is no demand-gating predicate for it and `_should_refresh_passive_items` is left alone.
+- **Swallow failures silently**, exactly as `_publish_fast_luck` and `_publish_fast_map_activity` already do in this task body: no `record_memory_failure`, no `mark_fast_feature_failed`. `PASSIVE_ITEMS` keeps a single health owner. Without this a torn cooldown read would be reported as an inventory failure and would poison the feature-status panel. Cost is not the reason demand-gating exists; failure surface is, and this is how that half is paid instead.
+
+Refresh side:
+
+- Publish the result beside `luck` and `fast_items` in `runtime_snapshot` ([src/core/tracker/live_run.py:424](../../src/core/tracker/live_run.py:424)) — that pair is the precedent for "a fast-lane reading carried to the boundary", and `my_time` goes with it.
+- Store it in run-scoped tracker state with a TTL, as `core/tracker/powerups.py` does (`POWERUPS_SNAPSHOT_TTL_SECONDS = 1.5`). A missed read must degrade to "no reading", never to a stale countdown that keeps ticking. Clear it on run reset.
+- The TTL does **not** cover the death screen — see the trap above. That needs a lifecycle gate.
+- Countdown granularity is 1 s, against an overlay that repaints every 500 ms ([src/gui_in_game_overlay.py:123](../../src/gui_in_game_overlay.py:123)), so each value is shown to two repaints. That is what a one-second countdown looks like; the only artefact is lane jitter occasionally dropping two seconds at once. **If that shows up on stream**, the fix is to call the same `my_time` publisher from `_refresh_powerups_task` as well, which makes the clock 500 ms — still without a new task. Do not start there.
+
+Render side:
+
+- Register the id in the widget tuple at [src/gui_in_game_overlay_window.py:420](../../src/gui_in_game_overlay_window.py:420), add defaults to `IN_GAME_OVERLAY["widgets"]` in [src/app/config.py:117](../../src/app/config.py:117) (`{"enabled": ..., "x": ..., "y": ..., "scale": 1.0}`), add the checkbox/scale controls in `gui_in_game_overlay_settings.py`, add an HTML builder beside `build_powerups_overlay_html` in [src/projections/in_game_html.py:227](../../src/projections/in_game_html.py:227), carry the data on `InGameOverlayProjection` ([src/projections/in_game.py:10](../../src/projections/in_game.py:10)) and paint it in the `_overlay_fast_tick` body next to the `powerups` block at [src/gui_in_game_overlay.py:363](../../src/gui_in_game_overlay.py:363).
+- Anything not carried on the projection is simply invisible to the widgets — that is documented on the dataclass and has already shipped as a bug once.
+- `remaining` is computed **in the HTML builder**, from the carried mark and the carried `my_time`, not at read time. A `remaining` frozen at read time would be up to a full lane interval stale by the time it is painted.
+- Ordering needs no sort: one dictionary layout held for the entire run, the lantern never left slot 15 and its pointer never moved. Preserve dictionary order.
+
+##### Validation
+
+Closed on 2026-08-03, all on Forest with a lantern equipped: stack scaling at
+x1/x3/x4/x5, twelve consecutive re-arms, two stack pickups, the first pickup
+from an empty slot captured at 20 Hz, a Stage 1 → 2 transition, two pauses
+(4.3 s and 17 s), and 97 s on the death screen. Each is recorded in the sections
+above with its numbers.
+
+**The first pickup is not a validation item at all** — it is resolved by design.
+The widget is **level-triggered on the inventory**, never
+edge-triggered on a pickup: it renders whatever timed items are in the
+dictionary this pass, so there is no pickup event to detect and nothing to miss
+if a pass is skipped. Same reasoning as the One Ring announcer, which reaches
+the same conclusion from the opposite direction — an edge would have to survive
+a torn read to fire at all.
+
+The questions that were hiding behind it are all absorbed by guards that exist
+anyway, so none of them can produce a visible defect:
+
+| Question | Measured answer | Guard, kept anyway |
+| --- | --- | --- |
+| Is the item in the dictionary before pickup, with `amount = 0`? | **No.** Absent from all 851 pre-pickup reads; the entry appears with the pickup. | render only `amount >= 1` |
+| Is `nextExplodeTime` garbage for a tick after a fresh pickup? | **No.** `cooldown 42.00` and the mark are both correct on the *same* read the entry first appears on — the fields are written with the entry, not after it. Zero ticks at 20 Hz with `cooldown <= 0`. | skip `cooldown <= 0` — insurance against an unobserved state, not a fix for a known one |
+| Can `remaining` be negative? | **Yes**, for up to one read interval before a re-arm is seen (`−0.01` measured). | clamp at zero |
+
+The dictionary `version` bumped 4 → 5 with the added entry. Together with the
+earlier measurement that a *stack* change leaves the version untouched, that
+closes the cache-invalidation story: the version sees new items, never changed
+ones — which is exactly why addresses may be memoised and values may not.
+
+Still open, none of it blocking:
+
+- ~~**Graveyard crypt/boss transitions.**~~ **Closed 2026-08-03**, and closed against the shipped reader rather than raw bytes — see below.
+- **A second item for the layout table.** Resolved from `dump.cs` rather than guessed: of 86 `ItemBase` subclasses, 33 own a timing-shaped float and 30 own an absolute mark, but almost all of those are sub-second tick timers. Only three share the lantern's shape — an explicit effective-`cooldown` float paired with a mark — and are therefore worth rendering:
+
+  | Class | `cooldown` | mark |
+  | --- | --- | --- |
+  | `ItemToxicBarrel` | `0x40` | `readyAtTime` `0x44` |
+  | `ItemGoldenShield` | `0x44` | `readyAtTime` `0x48` (second pair: `selfDamageCooldown` `0x50` / `nextSelfDamageReadyTime` `0x4C`) |
+  | `ItemEnergyCore` | `0x3C` | `nextSpawnTime` `0x44` (plus `nextOrbTime` `0x4C`, an intra-burst timer) |
+
+  None were in the tested inventory, so all three are dump-derived only. Confirm the period live before adding one: a name says what a field *is*, not whether its period is long enough to be worth a line on screen — `ItemGlovesBlood` has a textbook `cooldown`/`readyAtTime` pair and runs at ~3.7 s.
+- ~~**A characterization test.**~~ **Done** — `src/tests/test_item_cooldowns.py`, 19 tests over a fake memory backend: the countdown, the re-arm jump, the backwards re-arm on a pickup, the negative-`remaining` tick, a frozen clock across passes, a torn field, a torn stack count, a class with no layout entry, a class-name mismatch, a drained dictionary, and a stale layout from another dictionary. `max(5, 45−3n)` is asserted at n = 1/3/4/5.
+
+  Tamper-tested against removal of the class-name check, the `cooldown <= 0` guard, the per-item error isolation, the entries-aware resolver, and the layout-ownership check. **One test was found vacuous and replaced**: the cost assertion read "warm pass < cold pass", which a tamper that walked the dictionary twice satisfied happily because it inflated both sides. It asserts exact read counts now (23 cold, 16 warm, 3 of them floats) and catches that tamper. A relative bound cannot see a defect that scales both sides of the comparison — which is the only defect a cost test exists to find.
+
+Reference tools:
+
+- `tools/scan_timed_items.py` — parses `.tools/il2cppdump_out/dump.cs` and prints every `ItemBase` subclass owning a timing-shaped float, split by whether it carries an absolute mark. This is what produced the 86/33/30 counts and the three-candidate shortlist above. Run it first when adding an item; it is the cheap half of the work and it is what stops a value-based guess from ever being made.
+- `tools/probe_item_cooldown.py` — live console view: stack count, effective cooldown, `nextExplodeTime` and remaining seconds every 500 ms, plus the rest of the passive inventory. Read-only.
+- The 2026-08-03 capture used a second, throwaway variant that appended a full raw field block per item to JSONL instead of clearing the screen. **That is the form worth rebuilding if this ground is ever re-walked** — the pickup re-arm rule, the eight false-positive tick timers and the death-screen behaviour are all deltas across ticks, and none of them are visible in a display that overwrites itself. Log `stage_index`/`stage_timer` alongside, or a transition cannot be located afterwards, and write to a per-process file: two capture processes appending to one path corrupted 25 lines out of 5322 by interleaving.
+
+---
+
 ## Recently Handled Items (Archived 2026-07-26)
 
 ### Twitch Commands
