@@ -29,22 +29,43 @@ from core.luck_rarity import (
 
 TEXT_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
 POWERUP_COLORS: dict[str, str] = {
-    # Was `#e879f9`, which is `ITEM_RARITY_COLOR_MAP["RARE"]` to the byte. Once
-    # the item-cooldown rows started colouring by rarity, a Rage row and a rare
-    # item's countdown could sit one line apart in the same colour, reading as
-    # a relationship that does not exist. Moved far enough to be unmistakable
-    # (CIE Lab dE 26 from rare) while staying the same colour in character --
-    # Rage should not look like a different effect. Also the furthest of the
-    # candidates from `FALLBACK_COLOR`, the unknown-item purple, at dE 57.
-    "Rage": "#a855f7",
+    # Violet, because the powerup is violet in the game -- the hue is not free
+    # to change. Brightness was: this row sat at relative luminance 0.215 while
+    # Shield, Stonks, Clock and Timestomp run 0.53-0.75, so Rage was the one
+    # line in the block at half its neighbours' brightness and read as muddy
+    # over grass and water alike. Now 0.60, just above Clock.
+    #
+    # The other constraint is Bob's Light, whose cooldown row is RARE and so
+    # `#e879f9`. Rage was `#e879f9` itself once, then `#a855f7` to escape it at
+    # dE2000 14.7; this is 19.7 from it, so the two are further apart than
+    # before rather than merely no worse. Full saturation is deliberate: the
+    # better-separated colours in this band were all desaturated periwinkles
+    # that drift toward the muted grey and stop reading as a colour at all.
+    "Rage": "#d0c4ff",
     "Shield": "#4ade80",
     "Stonks": "#fde047",
     "Clock": "#7dd3fc",
     "Timestomp": "#22d3ee",
 }
-CRITICAL_COLOR = "#ff4444"
+# One red for "this is the dangerous state", wherever it appears -- powerup and
+# cooldown rows about to expire, a stat sitting on its cap, an active wave. It
+# used to be `#ff4444` here and `#ff4d4d` at the three cap/wave sites: a
+# difference of nine units on one channel, which no eye resolves, so the two
+# reds carried a distinction that could not be perceived and therefore did not
+# exist. `#ff4d4d` won because it is already `--hud-red` in the OBS overlay's
+# stylesheet, which makes the same state the same colour on both surfaces.
+CRITICAL_COLOR = "#ff4d4d"
 HEADER_COLOR = "#ffffff"
-FALLBACK_COLOR = "#d8b4fe"
+#: The colour of "this overlay does not recognise this thing" -- an unrecognised
+#: powerup, or an item whose rarity the catalog has never heard of.
+#:
+#: Was `#d8b4fe`, a light lavender, which is dE2000 5.9 from the violet Rage now
+#: needs to be legible: an unknown powerup row renders *inside the Powerups
+#: block*, directly beside Rage, so those two are the one pair here that is
+#: guaranteed to be adjacent. A neutral is also the more honest answer -- not
+#: knowing what something is has no hue, and every colour in this palette
+#: otherwise means something specific.
+FALLBACK_COLOR = "#cbd5e1"
 
 _KPS_METRICS: dict[str, tuple[str, str]] = {
     "instant": ("current_ui_kps", "KPS"),
@@ -443,11 +464,11 @@ def _build_in_game_stats_rows(
                     cap_pct = int(round(cap * 100))
                     cap_suffix = f" / {cap_pct}%"
                     if raw_val >= cap:
-                        color = "#ff4d4d"  # Red
+                        color = CRITICAL_COLOR
             elif label == "XP Gain":
                 cap_suffix = " / 10x"
                 if raw_val >= _XP_GAIN_CAP:
-                    color = "#ff4d4d"  # Red
+                    color = CRITICAL_COLOR
 
         rows.append(
             {
@@ -576,8 +597,8 @@ def build_event_timer_overlay_html(
             end_rem = start_rem - duration
             if end_rem <= remaining_time <= start_rem:
                 return (
-                    f"<span style='color: #ff4d4d; text-shadow: {TEXT_SHADOW}; font-weight: bold;'>"
-                    "Wave Active</span>"
+                    f"<span style='color: {CRITICAL_COLOR}; text-shadow: {TEXT_SHADOW}; "
+                    f"font-weight: bold;'>Wave Active</span>"
                 )
 
     # Check upcoming warnings next

@@ -166,6 +166,39 @@ class CountdownRenderTests(unittest.TestCase):
         clash = {name: c for name, c in POWERUP_COLORS.items() if c.lower() in rarity}
         self.assertEqual(clash, {}, f"powerup colours colliding with a rarity tier: {clash}")
 
+    def test_no_powerup_row_is_dimmer_than_the_block_it_is_scanned_with(self) -> None:
+        """The Powerups block is read as a group, so one dark row is a defect.
+
+        Rage shipped at `#a855f7`, relative luminance 0.215, while Shield,
+        Stonks, Clock and Timestomp ran 0.53-0.75. Over grass and water it was
+        the only row that went muddy, and it was reported from a live stream
+        rather than by any test here -- every existing guard checked *which*
+        colour, never whether it could be seen.
+
+        The floor is stated as an absolute rather than as a spread around the
+        block's mean, so adding a fifth dim colour cannot drag the bar down to
+        meet itself. 0.45 sits below Timestomp, the darkest of the four that
+        were never in question.
+        """
+        from projections.in_game_html import POWERUP_COLORS
+
+        def relative_luminance(hex_colour: str) -> float:
+            channels = []
+            for offset in (1, 3, 5):
+                value = int(hex_colour[offset:offset + 2], 16) / 255
+                channels.append(
+                    value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+                )
+            red, green, blue = channels
+            return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+        dim = {
+            name: (colour, round(relative_luminance(colour), 3))
+            for name, colour in POWERUP_COLORS.items()
+            if relative_luminance(colour) < 0.45
+        }
+        self.assertEqual(dim, {}, f"powerup colours too dark to scan with the block: {dim}")
+
     def test_every_layout_entry_has_a_known_rarity(self) -> None:
         """The guard the per-item colour table used to provide.
 
