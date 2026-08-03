@@ -445,7 +445,7 @@ class TwitchTab:
         self._one_ring_announcements_cb = QCheckBox("Announce The One Ring")
         self._one_ring_announcements_cb.setObjectName("announcementCheck")
         self._one_ring_announcements_cb.setChecked(
-            config.TWITCH_BOT.get("one_ring_announcements", True)
+            config.TWITCH_BOT.get("one_ring_announcements", False)
         )
         card.body.addWidget(self._one_ring_announcements_cb)
 

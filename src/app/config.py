@@ -169,7 +169,10 @@ DEFAULT_TWITCH_BOT = {
     "global_cooldown_seconds": 5,
     "cooldown_seconds": 5,
     "stage_announcements": True,
-    "one_ring_announcements": True,
+    # Opt-in, like `luck`, `chests` and `presets` below. This one writes in a
+    # voice -- a streamer should choose that deliberately rather than discover
+    # their bot doing Gollum in chat.
+    "one_ring_announcements": False,
     "commands_announcements": False,
     "commands_announcement_interval_minutes": 30,
     "commands": {
@@ -844,7 +847,7 @@ def normalize_twitch_bot_config(value):
     bot_cfg["global_cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("global_cooldown_seconds"), 5))
     bot_cfg["cooldown_seconds"] = max(0, coerce_nonnegative_int(bot_cfg.get("cooldown_seconds"), 5))
     bot_cfg["stage_announcements"] = bool(bot_cfg.get("stage_announcements", True))
-    bot_cfg["one_ring_announcements"] = bool(bot_cfg.get("one_ring_announcements", True))
+    bot_cfg["one_ring_announcements"] = bool(bot_cfg.get("one_ring_announcements", False))
 
     recent_lines = bot_cfg.get("announcer_recent_lines")
     if not isinstance(recent_lines, dict):

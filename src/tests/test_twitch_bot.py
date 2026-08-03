@@ -1124,6 +1124,16 @@ class OneRingAnnouncerTests(unittest.TestCase):
         self.bot = TwitchBotWorker(SimpleNamespace(runtime_snapshot=runtime_snapshot))
         self.bot._send_chat = lambda _channel, message: self.sent.append(message)
 
+        # The announcer is opt-in, so every case here has to switch it on --
+        # except the one that asserts the toggle silences it.
+        self._previous_enabled = TWITCH_BOT.get("one_ring_announcements")
+        TWITCH_BOT["one_ring_announcements"] = True
+        self.addCleanup(
+            lambda: TWITCH_BOT.__setitem__(
+                "one_ring_announcements", self._previous_enabled
+            )
+        )
+
         # The draw memory is persisted config state; leaving a test's draws in
         # it would bias the next test's exclusion, and saving it would rewrite
         # the developer's real config.json.
@@ -1421,16 +1431,23 @@ class OneRingAnnouncerTests(unittest.TestCase):
 
     def test_the_toggle_silences_it(self):
         from app.config import TWITCH_BOT
-        previous = TWITCH_BOT.get("one_ring_announcements", True)
+
+        # `setUp` switches the announcer on for every other case here; this one
+        # switches it back off, which is also its shipped default.
         TWITCH_BOT["one_ring_announcements"] = False
-        try:
-            self.tick()
-            self.state.items = ("The One Ring x1",)
-            self.tick(3)
-        finally:
-            TWITCH_BOT["one_ring_announcements"] = previous
+        self.tick()
+        self.state.items = ("The One Ring x1",)
+        self.tick(3)
 
         self.assertEqual(self.sent, [])
+
+    def test_it_is_off_until_the_streamer_turns_it_on(self):
+        from app import config
+
+        self.assertFalse(config.DEFAULT_TWITCH_BOT["one_ring_announcements"])
+        self.assertFalse(
+            config.normalize_twitch_bot_config({})["one_ring_announcements"]
+        )
 
 
 if __name__ == '__main__':

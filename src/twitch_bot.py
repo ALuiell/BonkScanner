@@ -1169,7 +1169,7 @@ class TwitchBotWorker(QThread):
         also removes the wait for a map context that no longer decides
         anything.
         """
-        if not config.TWITCH_BOT.get("one_ring_announcements", True):
+        if not config.TWITCH_BOT.get("one_ring_announcements", False):
             return
 
         runtime = self._runtime_snapshot()
