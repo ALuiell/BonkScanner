@@ -123,6 +123,46 @@ def test_drag_source_becomes_an_empty_placeholder_until_drag_finishes(qtbot) -> 
     assert [widget.isHidden() for widget in content] == [False, False, False, False]
 
 
+def test_live_drag_moves_the_slot_and_animates_neighbouring_rows(qtbot) -> None:
+    tabs = QTabWidget()
+    qtbot.addWidget(tabs)
+    panel = build_templates_panel(left_tabview=tabs)
+    templates = [
+        {"id": 1, "name": "One", "color": "WHITE"},
+        {"id": 2, "name": "Two", "color": "CYAN"},
+        {"id": 3, "name": "Three", "color": "GREEN"},
+    ]
+    with patch.object(config, "TEMPLATES", templates):
+        with patch.object(config, "ACTIVE_TEMPLATES", []):
+            panel.build()
+            panel.refresh_templates()
+
+    tabs.resize(420, 300)
+    tabs.show()
+    qtbot.wait(1)
+    surface = panel._template_surface
+    first, second, _third = surface.rows()
+    second_start_y = second.y()
+
+    surface.begin_live_drag(first)
+    surface._move_source_to_y(surface.height())
+
+    assert [row.template_id for row in surface.rows()] == [2, 3, 1]
+    assert first.isHidden() is True
+    assert surface._reorder_animation is not None
+    assert {
+        surface._reorder_animation.animationAt(index).duration()
+        for index in range(surface._reorder_animation.animationCount())
+    } == {140}
+    qtbot.wait(160)
+    assert second.y() < second_start_y
+
+    surface.finish_live_drag(False)
+    qtbot.wait(160)
+    assert [row.template_id for row in surface.rows()] == [1, 2, 3]
+    assert first.isHidden() is False
+
+
 def test_drop_event_reorders_and_persists_templates(qtbot) -> None:
     tabs = QTabWidget()
     qtbot.addWidget(tabs)
@@ -177,8 +217,10 @@ def test_drop_event_reorders_and_persists_templates(qtbot) -> None:
                         ),
                     )
                     reordered = [template["id"] for template in config.TEMPLATES]
+                    checkbox_order = list(panel._checkboxes)
 
     assert reordered == [2, 3, 1]
+    assert checkbox_order == ["Two", "Three", "One"]
     save_config.assert_called_once_with(config.user_config)
 
 

@@ -238,3 +238,37 @@ def test_collapsed_drag_hides_the_source_dot_until_drag_finishes(qtbot) -> None:
 
     assert hidden_during_drag == [True]
     assert tile.dot.isHidden() is False
+
+
+def test_collapsed_live_drag_moves_the_slot_and_animates_neighbours(qtbot) -> None:
+    templates = [
+        {"id": 1, "name": "One", "color": "WHITE"},
+        {"id": 2, "name": "Two", "color": "CYAN"},
+        {"id": 3, "name": "Three", "color": "GREEN"},
+    ]
+    with patch.object(config, "EVALUATION_MODE", "templates"):
+        with patch.object(config, "TEMPLATES", templates):
+            with patch.object(config, "ACTIVE_TEMPLATES", []):
+                rail, _panel = _template_rail(qtbot)
+                holder = rail._dots_holder
+                first, second, _third = holder.tiles()
+                second_start_y = second.y()
+
+                holder.begin_live_drag(first)
+                holder._move_source_to_y(holder.height())
+
+                assert [tile.template_id for tile in holder.tiles()] == [2, 3, 1]
+                assert first.isHidden() is True
+                assert holder._reorder_animation is not None
+                assert {
+                    holder._reorder_animation.animationAt(index).duration()
+                    for index in range(holder._reorder_animation.animationCount())
+                } == {140}
+                qtbot.wait(160)
+                assert second.y() < second_start_y
+
+                holder.finish_live_drag(False)
+                qtbot.wait(160)
+
+    assert [tile.template_id for tile in holder.tiles()] == [1, 2, 3]
+    assert first.isHidden() is False

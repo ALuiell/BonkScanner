@@ -27,7 +27,15 @@ from ui.shared import (
     resource_path,
 )
 
-from PySide6.QtCore import QMimeData, QPoint, QSize, Qt
+from PySide6.QtCore import (
+    QEasingCurve,
+    QMimeData,
+    QParallelAnimationGroup,
+    QPoint,
+    QPropertyAnimation,
+    QSize,
+    Qt,
+)
 from PySide6.QtGui import QColor, QDrag, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -507,6 +515,7 @@ def _template_rail_entries() -> list[tuple[str, str, bool]]:
 
 
 _RAIL_TEMPLATE_DRAG_MIME = "application/x-megabonk-template-id"
+_RAIL_REORDER_DURATION_MS = 140
 
 
 class _DraggableRailTile(QPushButton):
@@ -575,11 +584,24 @@ class _DraggableRailTile(QPushButton):
         drag.setPixmap(ghost)
         drag.setHotSpot(QPoint(self.width() // 2, self.height() // 2))
 
+        holder = self.parentWidget()
+        if not isinstance(holder, _RailDotsHolder):
+            holder = None
+        if holder is not None:
+            holder.begin_live_drag(self)
+
         self._set_dragging(True)
+        action = Qt.IgnoreAction
         try:
-            drag.exec(Qt.MoveAction)
+            action = drag.exec(Qt.MoveAction)
         finally:
             self._set_dragging(False)
+            if holder is not None:
+                ordered_ids = holder.finish_live_drag(
+                    action == Qt.MoveAction and holder.drop_accepted
+                )
+                if ordered_ids is not None:
+                    holder.persist_order(ordered_ids)
             self.setDown(False)
             # QDrag consumes the release that completes a drop; clearing this
             # here keeps the next ordinary click independent from that drag.
@@ -617,14 +639,18 @@ class _DraggableRailTile(QPushButton):
 
 
 class _RailDotsHolder(QWidget):
-    """Vertical drop target for template tiles in the collapsed rail."""
+    """Vertical drop target whose dots shift while one is being dragged."""
 
     def __init__(self) -> None:
         super().__init__()
         self.setObjectName("cardContent")
         self.setAcceptDrops(True)
         self._reorder = None
-        self._drop_index: int | None = None
+        self._drag_source: _DraggableRailTile | None = None
+        self._original_order: list[int] = []
+        self._drop_accepted = False
+        self._standalone_drag = False
+        self._reorder_animation: QParallelAnimationGroup | None = None
         self.dots_layout = QVBoxLayout(self)
         self.dots_layout.setContentsMargins(0, 0, 0, 0)
         self.dots_layout.setSpacing(10)
@@ -640,77 +666,176 @@ class _RailDotsHolder(QWidget):
                 tiles.append(widget)
         return tiles
 
+    @property
+    def drop_accepted(self) -> bool:
+        return self._drop_accepted
+
+    def persist_order(self, ordered_ids: list[int]) -> None:
+        if self._reorder is not None:
+            self._reorder(ordered_ids)
+
+    def begin_live_drag(
+        self, tile: _DraggableRailTile, *, standalone: bool = False
+    ) -> None:
+        if self._drag_source is tile:
+            return
+        if self._drag_source is not None:
+            self.finish_live_drag(False)
+        if tile not in self.tiles():
+            return
+        self._drag_source = tile
+        self._original_order = [item.template_id for item in self.tiles()]
+        self._drop_accepted = False
+        self._standalone_drag = bool(standalone)
+        policy = tile.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        tile.setSizePolicy(policy)
+        self._animate_relayout(tile.hide)
+
+    def finish_live_drag(self, accepted: bool) -> list[int] | None:
+        source = self._drag_source
+        if source is None:
+            return None
+        current = [tile.template_id for tile in self.tiles()]
+        original = list(self._original_order)
+        target = current if accepted else original
+
+        def finish_layout() -> None:
+            self._set_tile_order(target)
+            source.show()
+            policy = source.sizePolicy()
+            policy.setRetainSizeWhenHidden(False)
+            source.setSizePolicy(policy)
+
+        self._animate_relayout(finish_layout)
+        self._drag_source = None
+        self._original_order = []
+        self._drop_accepted = False
+        self._standalone_drag = False
+        return current if accepted and current != original else None
+
     def dragEnterEvent(self, event) -> None:
-        if self._reorder is not None and event.mimeData().hasFormat(_RAIL_TEMPLATE_DRAG_MIME):
+        template_id = self._event_template_id(event)
+        if self._reorder is not None and template_id is not None:
+            if self._drag_source is None:
+                source = next(
+                    (tile for tile in self.tiles() if tile.template_id == template_id),
+                    None,
+                )
+                if source is not None:
+                    self.begin_live_drag(source, standalone=True)
+            if self._drag_source is None or self._drag_source.template_id != template_id:
+                event.ignore()
+                return
             event.acceptProposedAction()
             return
         event.ignore()
 
     def dragMoveEvent(self, event) -> None:
-        if self._reorder is None or not event.mimeData().hasFormat(_RAIL_TEMPLATE_DRAG_MIME):
+        template_id = self._event_template_id(event)
+        if (
+            self._reorder is None
+            or template_id is None
+            or self._drag_source is None
+            or self._drag_source.template_id != template_id
+        ):
             event.ignore()
             return
-        y = event.position().toPoint().y()
-        tiles = self.tiles()
-        index = len(tiles)
-        for candidate, tile in enumerate(tiles):
-            if y < tile.geometry().center().y():
-                index = candidate
-                break
-        self._show_drop_index(index)
+        self._move_source_to_y(event.position().toPoint().y())
         event.acceptProposedAction()
 
     def dragLeaveEvent(self, event) -> None:
-        self._clear_drop_indicator()
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event) -> None:
-        if self._reorder is None or not event.mimeData().hasFormat(_RAIL_TEMPLATE_DRAG_MIME):
+        template_id = self._event_template_id(event)
+        if (
+            self._reorder is None
+            or template_id is None
+            or self._drag_source is None
+            or self._drag_source.template_id != template_id
+        ):
             event.ignore()
             return
+        self._move_source_to_y(event.position().toPoint().y())
+        self._drop_accepted = True
+        event.setDropAction(Qt.MoveAction)
+        event.accept()
+        if self._standalone_drag:
+            ordered_ids = self.finish_live_drag(True)
+            if ordered_ids is not None:
+                self.persist_order(ordered_ids)
+
+    def _event_template_id(self, event) -> int | None:
+        if not event.mimeData().hasFormat(_RAIL_TEMPLATE_DRAG_MIME):
+            return None
         try:
-            template_id = int(
+            return int(
                 bytes(event.mimeData().data(_RAIL_TEMPLATE_DRAG_MIME)).decode("ascii")
             )
         except (TypeError, ValueError, UnicodeDecodeError):
-            self._clear_drop_indicator()
-            event.ignore()
-            return
+            return None
 
-        current = [tile.template_id for tile in self.tiles()]
-        if template_id not in current:
-            self._clear_drop_indicator()
-            event.ignore()
+    def _move_source_to_y(self, y: int) -> None:
+        source = self._drag_source
+        if source is None:
             return
-        target = self._drop_index if self._drop_index is not None else len(current)
-        source = current.index(template_id)
-        reordered = list(current)
-        reordered.pop(source)
-        if source < target:
-            target -= 1
-        reordered.insert(max(0, min(target, len(reordered))), template_id)
-        self._clear_drop_indicator()
-        if reordered != current:
-            self._reorder(reordered)
-        event.setDropAction(Qt.MoveAction)
-        event.accept()
-
-    def _show_drop_index(self, index: int) -> None:
-        tiles = self.tiles()
-        self._drop_index = max(0, min(index, len(tiles)))
-        for tile in tiles:
-            tile.set_drop_edge(0)
-        if not tiles:
+        other_tiles = [tile for tile in self.tiles() if tile is not source]
+        target = len(other_tiles)
+        for index, tile in enumerate(other_tiles):
+            if y < tile.geometry().center().y():
+                target = index
+                break
+        desired = list(other_tiles)
+        desired.insert(target, source)
+        if desired == self.tiles():
             return
-        if self._drop_index == len(tiles):
-            tiles[-1].set_drop_edge(1)
-        else:
-            tiles[self._drop_index].set_drop_edge(-1)
+        self._animate_relayout(lambda: self._set_tile_order(desired))
 
-    def _clear_drop_indicator(self) -> None:
-        self._drop_index = None
-        for tile in self.tiles():
-            tile.set_drop_edge(0)
+    def _set_tile_order(self, ordered) -> None:
+        by_id = {tile.template_id: tile for tile in self.tiles()}
+        tiles = [by_id[item] if isinstance(item, int) else item for item in ordered]
+        for index, tile in enumerate(tiles):
+            self.dots_layout.removeWidget(tile)
+            self.dots_layout.insertWidget(index, tile, 0, Qt.AlignHCenter)
+
+    def _animate_relayout(self, mutation) -> None:
+        if self._reorder_animation is not None:
+            self._reorder_animation.stop()
+            self._reorder_animation.deleteLater()
+            self._reorder_animation = None
+        moving_tiles = [tile for tile in self.tiles() if not tile.isHidden()]
+        old_positions = {tile: tile.pos() for tile in moving_tiles}
+        mutation()
+        self.dots_layout.invalidate()
+        self.dots_layout.activate()
+
+        group = QParallelAnimationGroup(self)
+        for tile in moving_tiles:
+            if tile.isHidden():
+                continue
+            start = old_positions[tile]
+            end = tile.pos()
+            if start == end:
+                continue
+            tile.move(start)
+            animation = QPropertyAnimation(tile, b"pos", group)
+            animation.setDuration(_RAIL_REORDER_DURATION_MS)
+            animation.setStartValue(start)
+            animation.setEndValue(end)
+            animation.setEasingCurve(QEasingCurve.OutCubic)
+            group.addAnimation(animation)
+        if group.animationCount() == 0:
+            group.deleteLater()
+            return
+        self._reorder_animation = group
+        group.finished.connect(lambda: self._animation_finished(group))
+        group.start()
+
+    def _animation_finished(self, group: QParallelAnimationGroup) -> None:
+        if self._reorder_animation is group:
+            self._reorder_animation = None
+        group.deleteLater()
 
 
 def _build_collapsed_rail(app):
@@ -846,9 +971,11 @@ def _on_rail_action(app, rail) -> None:
 
 
 def _on_rail_templates_reordered(app, rail, ordered_ids) -> None:
-    """Persist a compact-rail drop and rebuild its tiles in the new order."""
+    """Persist a compact-rail drop without replacing its settling widgets."""
     if app._templates_panel.save_template_order(list(ordered_ids)):
-        _rebuild_rail_dots(rail, app)
+        live_order = [tile.template_id for tile in rail._dots_holder.tiles()]
+        if live_order != list(ordered_ids):
+            _rebuild_rail_dots(rail, app)
 
 
 def _rebuild_rail_dots(rail, app) -> None:

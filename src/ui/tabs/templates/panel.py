@@ -52,7 +52,15 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QMimeData, QPoint, QSize, Qt
+from PySide6.QtCore import (
+    QEasingCurve,
+    QMimeData,
+    QParallelAnimationGroup,
+    QPoint,
+    QPropertyAnimation,
+    QSize,
+    Qt,
+)
 from PySide6.QtGui import QColor, QDrag, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
@@ -86,6 +94,7 @@ _TEMPLATE_DRAG_MIME = "application/x-megabonk-template-id"
 _TEMPLATE_ROW_HEIGHT = 48
 _TEMPLATE_PANEL_MIN_WIDTH = 360
 _TEMPLATE_PANEL_MAX_WIDTH = 420
+_LIVE_REORDER_DURATION_MS = 140
 
 
 class _ElidedLabel(QLabel):
@@ -318,11 +327,24 @@ class _TemplateRow(QFrame):
         drag.setPixmap(ghost)
         drag.setHotSpot(QPoint(28, self.height() // 2))
 
+        surface = self.parentWidget()
+        if not isinstance(surface, _TemplateListSurface):
+            surface = None
+        if surface is not None:
+            surface.begin_live_drag(self)
+
         self._set_dragging(True)
+        action = Qt.IgnoreAction
         try:
-            drag.exec(Qt.MoveAction)
+            action = drag.exec(Qt.MoveAction)
         finally:
             self._set_dragging(False)
+            if surface is not None:
+                ordered_ids = surface.finish_live_drag(
+                    action == Qt.MoveAction and surface.drop_accepted
+                )
+                if ordered_ids is not None:
+                    surface.persist_order(ordered_ids)
 
     def _set_dragging(self, dragging: bool) -> None:
         self._dragging = bool(dragging)
@@ -338,12 +360,16 @@ class _TemplateRow(QFrame):
 
 
 class _TemplateListSurface(QWidget):
-    """Drop target that turns row positions into a persisted id order."""
+    """Drop target whose rows make room while the dragged card is moving."""
 
     def __init__(self, on_reorder: Callable[[list[int]], None]) -> None:
         super().__init__()
         self._on_reorder = on_reorder
-        self._drop_index: int | None = None
+        self._drag_source: _TemplateRow | None = None
+        self._original_order: list[int] = []
+        self._drop_accepted = False
+        self._standalone_drag = False
+        self._reorder_animation: QParallelAnimationGroup | None = None
         self.setObjectName("templateListSurface")
         self.setAcceptDrops(True)
         self.rows_layout = QVBoxLayout(self)
@@ -358,76 +384,173 @@ class _TemplateListSurface(QWidget):
                 result.append(widget)
         return result
 
+    @property
+    def drop_accepted(self) -> bool:
+        return self._drop_accepted
+
+    def persist_order(self, ordered_ids: list[int]) -> None:
+        self._on_reorder(ordered_ids)
+
+    def begin_live_drag(
+        self, row: _TemplateRow, *, standalone: bool = False
+    ) -> None:
+        if self._drag_source is row:
+            return
+        if self._drag_source is not None:
+            self.finish_live_drag(False)
+        if row not in self.rows():
+            return
+        self._drag_source = row
+        self._original_order = [item.template_id for item in self.rows()]
+        self._drop_accepted = False
+        self._standalone_drag = bool(standalone)
+        policy = row.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        row.setSizePolicy(policy)
+        self._animate_relayout(row.hide)
+
+    def finish_live_drag(self, accepted: bool) -> list[int] | None:
+        source = self._drag_source
+        if source is None:
+            return None
+        current = [row.template_id for row in self.rows()]
+        original = list(self._original_order)
+        target = current if accepted else original
+
+        def finish_layout() -> None:
+            self._set_row_order(target)
+            source.show()
+            policy = source.sizePolicy()
+            policy.setRetainSizeWhenHidden(False)
+            source.setSizePolicy(policy)
+
+        self._animate_relayout(finish_layout)
+        self._drag_source = None
+        self._original_order = []
+        self._drop_accepted = False
+        self._standalone_drag = False
+        return current if accepted and current != original else None
+
     def dragEnterEvent(self, event) -> None:
-        if event.mimeData().hasFormat(_TEMPLATE_DRAG_MIME):
+        template_id = self._event_template_id(event)
+        if template_id is not None:
+            if self._drag_source is None:
+                source = next(
+                    (row for row in self.rows() if row.template_id == template_id),
+                    None,
+                )
+                if source is not None:
+                    self.begin_live_drag(source, standalone=True)
+            if self._drag_source is None or self._drag_source.template_id != template_id:
+                event.ignore()
+                return
             event.acceptProposedAction()
             return
         event.ignore()
 
     def dragMoveEvent(self, event) -> None:
-        if not event.mimeData().hasFormat(_TEMPLATE_DRAG_MIME):
+        template_id = self._event_template_id(event)
+        if (
+            template_id is None
+            or self._drag_source is None
+            or self._drag_source.template_id != template_id
+        ):
             event.ignore()
             return
-        y = event.position().toPoint().y()
-        rows = self.rows()
-        index = len(rows)
-        for candidate, row in enumerate(rows):
-            if y < row.geometry().center().y():
-                index = candidate
-                break
-        self._show_drop_index(index)
+        self._move_source_to_y(event.position().toPoint().y())
         event.acceptProposedAction()
 
     def dragLeaveEvent(self, event) -> None:
-        self._clear_drop_indicator()
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event) -> None:
-        if not event.mimeData().hasFormat(_TEMPLATE_DRAG_MIME):
+        template_id = self._event_template_id(event)
+        if (
+            template_id is None
+            or self._drag_source is None
+            or self._drag_source.template_id != template_id
+        ):
             event.ignore()
             return
-        try:
-            template_id = int(bytes(event.mimeData().data(_TEMPLATE_DRAG_MIME)).decode("ascii"))
-        except (TypeError, ValueError, UnicodeDecodeError):
-            self._clear_drop_indicator()
-            event.ignore()
-            return
-
-        current = [row.template_id for row in self.rows()]
-        if template_id not in current:
-            self._clear_drop_indicator()
-            event.ignore()
-            return
-
-        target = self._drop_index if self._drop_index is not None else len(current)
-        source = current.index(template_id)
-        reordered = list(current)
-        reordered.pop(source)
-        if source < target:
-            target -= 1
-        reordered.insert(max(0, min(target, len(reordered))), template_id)
-        self._clear_drop_indicator()
-        if reordered != current:
-            self._on_reorder(reordered)
+        self._move_source_to_y(event.position().toPoint().y())
+        self._drop_accepted = True
         event.setDropAction(Qt.MoveAction)
         event.accept()
+        if self._standalone_drag:
+            ordered_ids = self.finish_live_drag(True)
+            if ordered_ids is not None:
+                self.persist_order(ordered_ids)
 
-    def _show_drop_index(self, index: int) -> None:
-        rows = self.rows()
-        self._drop_index = max(0, min(index, len(rows)))
-        for row in rows:
-            row.set_drop_edge(0)
-        if not rows:
+    def _event_template_id(self, event) -> int | None:
+        if not event.mimeData().hasFormat(_TEMPLATE_DRAG_MIME):
+            return None
+        try:
+            return int(
+                bytes(event.mimeData().data(_TEMPLATE_DRAG_MIME)).decode("ascii")
+            )
+        except (TypeError, ValueError, UnicodeDecodeError):
+            return None
+
+    def _move_source_to_y(self, y: int) -> None:
+        source = self._drag_source
+        if source is None:
             return
-        if self._drop_index == len(rows):
-            rows[-1].set_drop_edge(1)
-        else:
-            rows[self._drop_index].set_drop_edge(-1)
+        other_rows = [row for row in self.rows() if row is not source]
+        target = len(other_rows)
+        for index, row in enumerate(other_rows):
+            if y < row.geometry().center().y():
+                target = index
+                break
+        desired = list(other_rows)
+        desired.insert(target, source)
+        if desired == self.rows():
+            return
+        self._animate_relayout(lambda: self._set_row_order(desired))
 
-    def _clear_drop_indicator(self) -> None:
-        self._drop_index = None
-        for row in self.rows():
-            row.set_drop_edge(0)
+    def _set_row_order(self, ordered) -> None:
+        by_id = {row.template_id: row for row in self.rows()}
+        rows = [by_id[item] if isinstance(item, int) else item for item in ordered]
+        for index, row in enumerate(rows):
+            self.rows_layout.removeWidget(row)
+            self.rows_layout.insertWidget(index, row)
+
+    def _animate_relayout(self, mutation: Callable[[], None]) -> None:
+        if self._reorder_animation is not None:
+            self._reorder_animation.stop()
+            self._reorder_animation.deleteLater()
+            self._reorder_animation = None
+        moving_rows = [row for row in self.rows() if not row.isHidden()]
+        old_positions = {row: row.pos() for row in moving_rows}
+        mutation()
+        self.rows_layout.invalidate()
+        self.rows_layout.activate()
+
+        group = QParallelAnimationGroup(self)
+        for row in moving_rows:
+            if row.isHidden():
+                continue
+            start = old_positions[row]
+            end = row.pos()
+            if start == end:
+                continue
+            row.move(start)
+            animation = QPropertyAnimation(row, b"pos", group)
+            animation.setDuration(_LIVE_REORDER_DURATION_MS)
+            animation.setStartValue(start)
+            animation.setEndValue(end)
+            animation.setEasingCurve(QEasingCurve.OutCubic)
+            group.addAnimation(animation)
+        if group.animationCount() == 0:
+            group.deleteLater()
+            return
+        self._reorder_animation = group
+        group.finished.connect(lambda: self._animation_finished(group))
+        group.start()
+
+    def _animation_finished(self, group: QParallelAnimationGroup) -> None:
+        if self._reorder_animation is group:
+            self._reorder_animation = None
+        group.deleteLater()
 
 
 class TemplatesPanel:
@@ -633,7 +756,23 @@ class TemplatesPanel:
         config.TEMPLATES = [by_id[template_id] for template_id in normalized]
         config.user_config["TEMPLATES"] = config.TEMPLATES
         config.save_config(config.user_config)
-        self.refresh_templates()
+        surface_order = (
+            [row.template_id for row in self._template_surface.rows()]
+            if self._template_surface is not None
+            else []
+        )
+        # A live drag has already put these exact row widgets in final order;
+        # rebuilding here would cut off their settling animation. Compact-rail
+        # drags still refresh because the hidden expanded list has the old order.
+        if surface_order != normalized:
+            self.refresh_templates()
+        else:
+            self._checkboxes = {
+                template["name"]: self._checkboxes[template["name"]]
+                for template in config.TEMPLATES
+                if template["name"] in self._checkboxes
+            }
+            self._sync_filters(announce=True)
         return True
 
     def save_checkbox_state(self, *_args) -> None:
