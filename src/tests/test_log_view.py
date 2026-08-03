@@ -113,6 +113,20 @@ class LogEntryParsingTests(unittest.TestCase):
         record = parse_log_entry("<b>not bold</b> & co")
         self.assertIn("&lt;b&gt;not bold&lt;/b&gt; &amp; co", render_record_html(record))
 
+    def test_map_stats_hide_the_repeat_badge_without_affecting_other_lines(self) -> None:
+        for text in (
+            "Stats: Shady: 2, Moai: 3, Score: 22.5",
+            "Map Stats: Shady: 2, Moai: 3, Score: 22.5",
+        ):
+            with self.subTest(text=text):
+                record = parse_log_entry(text)
+                record.count = 2
+                self.assertNotIn("&#215;2", render_record_html(record))
+
+        diagnostic = parse_log_entry("Waiting for game")
+        diagnostic.count = 2
+        self.assertIn("&#215;2", render_record_html(diagnostic))
+
 
 class LogFilterTests(unittest.TestCase):
     def _record(self, text, severity="info"):
@@ -226,6 +240,20 @@ class LogViewWidgetTests(unittest.TestCase):
             assert "routine" not in text, text
             assert "22" not in text or True  # timestamps are present but not asserted
             assert "[error]" in text
+            """
+        )
+
+    def test_copy_hides_the_map_stats_repeat_count(self) -> None:
+        self._run(
+            """
+            view.append_log("Stats: Shady: 2, Moai: 3, Score: 22.5")
+            view.append_log("Stats: Shady: 2, Moai: 3, Score: 22.5")
+            view.append_log("[*] Waiting for game")
+            view.append_log("[*] Waiting for game")
+
+            text = view.visible_text()
+            assert "Score: 22.5  x2" not in text, text
+            assert "Waiting for game  x2" in text, text
             """
         )
 

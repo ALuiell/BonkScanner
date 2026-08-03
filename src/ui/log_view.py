@@ -98,6 +98,7 @@ PREFIX_SEVERITY = {
 
 TIMESTAMP_COLOR = "#5C6675"
 REPEAT_COLOR = "#5C6675"
+MAP_STATS_PREFIXES = ("Stats: ", "Map Stats: ")
 
 
 @dataclass
@@ -176,6 +177,17 @@ def record_matches(record: LogRecord, *, severities, search: str) -> bool:
     return True
 
 
+def show_repeat_count(record: LogRecord) -> bool:
+    """Whether a collapsed line should expose its repeat counter.
+
+    Scanner map summaries can be delivered twice by the restart approval path.
+    Keeping them collapsed avoids duplicate rows, but the counter reads like a
+    map or score multiplier and adds no useful information to the scan history.
+    Other repeated diagnostics keep their counter.
+    """
+    return record.count > 1 and not record.text.startswith(MAP_STATS_PREFIXES)
+
+
 def render_record_html(record: LogRecord) -> str:
     """One line of the document."""
     dot = SEVERITY_DOT.get(record.severity, SEVERITY_DOT["info"])
@@ -186,7 +198,7 @@ def render_record_html(record: LogRecord) -> str:
     )
     repeat = (
         f' <span style="color:{REPEAT_COLOR}">&#215;{record.count}</span>'
-        if record.count > 1
+        if show_repeat_count(record)
         else ""
     )
     return (
@@ -338,7 +350,7 @@ class LogView(QWidget):
     def visible_text(self) -> str:
         return "\n".join(
             f"{record.timestamp}  [{record.severity}]  {record.text}"
-            + (f"  x{record.count}" if record.count > 1 else "")
+            + (f"  x{record.count}" if show_repeat_count(record) else "")
             for record in self._visible_records()
         )
 
