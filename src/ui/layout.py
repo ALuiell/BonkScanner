@@ -482,22 +482,21 @@ def _rail_mode(app) -> tuple[str, list[tuple[str, str, bool]], bool]:
 
 
 def _template_rail_entries() -> list[tuple[str, str, bool]]:
-    """`(name, colour, is_active)` for every template, actives first.
+    """`(name, colour, is_active)` for every template, in panel order.
 
     Read fresh each time the rail is shown so it reflects adds, edits and
-    activation toggles made while the panel was expanded.
+    activation toggles made while the panel was expanded. Activation only
+    changes a tile's appearance; it must never move that tile to another slot.
     """
-    active_names = list(config.ACTIVE_TEMPLATES)
-    active_set = set(active_names)
-    entries = []
-    for is_active in (True, False):
-        for template in config.TEMPLATES:
-            in_active = template["name"] in active_set
-            if in_active != is_active:
-                continue
-            color_hex = template_color_hex(template_color_tag(template))
-            entries.append((template["name"], color_hex, in_active))
-    return entries
+    active_names = set(config.ACTIVE_TEMPLATES)
+    return [
+        (
+            template["name"],
+            template_color_hex(template_color_tag(template)),
+            template["name"] in active_names,
+        )
+        for template in config.TEMPLATES
+    ]
 
 
 def _build_collapsed_rail(app):
@@ -598,12 +597,9 @@ def _rail_dot_stylesheet(color_hex: str, active: bool) -> str:
 def _on_rail_tile_toggled(panel, tile, dot, name, color_hex, is_scores, checked) -> None:
     """Mirror a tile's click onto the panel's checkbox, then restyle in place.
 
-    Restyled rather than rebuilt, and this is the whole reason the rail does
-    not simply call `_rebuild_rail_dots` here: `_template_rail_entries` groups
-    the active templates first, so rebuilding on toggle would slide the tile
-    out from under the cursor as it is clicked and shift every neighbour with
-    it. The order the rail collapsed with is the order it keeps until it is
-    expanded again.
+    Restyling in place avoids needless widget churn. The rail itself also keeps
+    a stable order across rebuilds, so expanding and collapsing cannot move a
+    template just because its active state changed.
 
     Persistence is the checkbox's, not ours -- `set_template_active` fires
     `save_checkbox_state`, `set_tier_active` fires `refresh_scores_ui`.

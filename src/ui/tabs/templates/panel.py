@@ -192,9 +192,8 @@ class TemplatesPanel:
     def rail_tier_entries(self) -> list[tuple[str, str, bool]]:
         """`(tier, colour, is_active)` in `TIERS` order, for the rail.
 
-        Tiers keep their declared order rather than sorting the active ones
-        first the way templates do: Light -> Perfect+ is a progression, and
-        scrambling it would cost more than the grouping buys across four rows.
+        Light -> Perfect+ is a progression, so each tier keeps a stable slot,
+        matching the stable template order in the other rail mode.
         """
         return [
             (tier, _tier_color(tier), cb.isChecked())
