@@ -94,6 +94,41 @@ function applyStyle(state) {
   document.documentElement.style.setProperty("--accent", accent);
   document.documentElement.style.setProperty("--panel-bg-opacity", Math.max(0, Math.min(opacity, 0.45)));
   document.documentElement.style.setProperty("--scale", scale);
+  applyRarityColors(state.rarity_colors);
+}
+
+// The tier colours arrive on every payload from `projections/obs.py`, which is
+// the only place that knows them. The stylesheet used to carry its own copy on
+// `.stage-item-count`, and it disagreed with the model on two of the four -- so
+// "rare" was one colour in the Luck widget and another in the stage table, on
+// the same page. The `:root` block still holds the same four values as a
+// fallback for the frame before the first poll lands; nothing else may.
+function applyRarityColors(colors) {
+  if (!colors || typeof colors !== "object") {
+    return;
+  }
+  const root = document.documentElement;
+  Object.keys(colors).forEach((rarity) => {
+    const hex = String(colors[rarity] || "");
+    const rgb = hexToRgbTriplet(hex);
+    if (!rgb) {
+      return;
+    }
+    const name = rarity.toLowerCase();
+    root.style.setProperty(`--rarity-${name}`, hex);
+    // The capsule's fill, border and glow are the same hue at four different
+    // alphas, so the stylesheet needs the channels loose, not the hex.
+    root.style.setProperty(`--rarity-${name}-rgb`, rgb);
+  });
+}
+
+function hexToRgbTriplet(hex) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!match) {
+    return null;
+  }
+  const value = parseInt(match[1], 16);
+  return `${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}`;
 }
 
 function panel(title, body, classes = "", widget = null) {

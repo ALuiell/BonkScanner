@@ -62,6 +62,27 @@ class OverlayStateTests(unittest.TestCase):
         self.assertEqual(state["widgets"]["stage_summary"]["enabled"], True)
         self.assertEqual(state["stage_summary"][0]["stage"], "1")
 
+    def test_overlay_state_ships_the_rarity_colours_the_model_owns(self) -> None:
+        """The page must not hold a second copy of the tier colours.
+
+        `overlay.css` used to carry its own table on `.stage-item-count`, two of
+        whose four entries disagreed with `ITEM_RARITY_COLOR_MAP` -- so a "rare"
+        count in the stage table and a "rare" figure in the Luck widget, one
+        overlay apart, were different colours. Compared against the map itself
+        rather than against literals, because a test that restates the hexes
+        would pass a fresh divergence straight through.
+        """
+        from core.item_metadata import ITEM_RARITY_COLOR_MAP
+        from core.luck_rarity import LUCK_RARITY_ORDER
+
+        tracker = LiveRunTracker(clock=lambda: 123.0)
+        state = build_overlay_state(tracker, {})
+
+        self.assertEqual(
+            state["rarity_colors"],
+            {rarity: ITEM_RARITY_COLOR_MAP[rarity] for rarity in LUCK_RARITY_ORDER},
+        )
+
     def test_overlay_state_includes_tracker_counters_and_live_fields(self) -> None:
         tracker = LiveRunTracker(clock=lambda: 123.0)
         tracker.update(

@@ -9,6 +9,20 @@
   --hud-orange: #ff9f1c;
   --hud-red: #ff4d4d;
   --hud-purple: #a86bff;
+  /* Item-rarity tiers. Owned by `core/item_metadata.ITEM_RARITY_COLOR_MAP` and
+     pushed here by `applyStyle` on every poll -- these values exist only to
+     cover the frame before the first payload arrives, and must be kept equal to
+     the model's. They are deliberately NOT the `--hud-*` colours above: those
+     are the HUD's own vocabulary, while a rarity means the same thing in the
+     app, the in-game overlay and here, so it wears the same colour in all three. */
+  --rarity-legendary: #facc15;
+  --rarity-legendary-rgb: 250, 204, 21;
+  --rarity-rare: #e879f9;
+  --rarity-rare-rgb: 232, 121, 249;
+  --rarity-uncommon: #60a5fa;
+  --rarity-uncommon-rgb: 96, 165, 250;
+  --rarity-common: #22c55e;
+  --rarity-common-rgb: 34, 197, 94;
   --panel-bg-opacity: 0;
   --hud-shadow:
     -1.5px -1.5px 0 #000,
@@ -308,24 +322,27 @@ body {
     -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 1.5px 1.5px 0 #000;
 }
 
+/* The tier hue is `--rarity-*`, set on :root from the payload by `applyStyle`.
+   These four rules only pick which one applies; they must never name a colour,
+   or the stage table drifts from the Luck widget again. */
 .stage-item-count.legendary {
-  --rarity-rgb: 255, 210, 63; /* hud-yellow */
-  color: var(--hud-yellow);
+  --rarity-rgb: var(--rarity-legendary-rgb);
+  color: var(--rarity-legendary);
 }
 
 .stage-item-count.rare {
-  --rarity-rgb: 168, 107, 255; /* hud-purple */
-  color: var(--hud-purple);
+  --rarity-rgb: var(--rarity-rare-rgb);
+  color: var(--rarity-rare);
 }
 
 .stage-item-count.uncommon {
-  --rarity-rgb: 22, 231, 255; /* hud-cyan */
-  color: var(--hud-cyan);
+  --rarity-rgb: var(--rarity-uncommon-rgb);
+  color: var(--rarity-uncommon);
 }
 
 .stage-item-count.common {
-  --rarity-rgb: 37, 232, 111; /* hud-green */
-  color: var(--hud-green);
+  --rarity-rgb: var(--rarity-common-rgb);
+  color: var(--rarity-common);
 }
 
 .muted {

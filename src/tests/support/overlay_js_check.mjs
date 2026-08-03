@@ -42,6 +42,10 @@ function makeContext({ pathname = "/overlay", search = "", fetchState = null } =
   const rootEl = makeElement();
   const logs = { error: [], info: [] };
   const control = { state: fetchState };
+  // Recorded rather than discarded: the rarity colours reach the stylesheet as
+  // :root custom properties and nowhere else, so a no-op `setProperty` would
+  // make check 7 pass against an overlay that never sets them.
+  const rootProps = new Map();
   const ctx = {
     console: {
       error: (...a) => logs.error.push(a.join(" ")),
@@ -62,7 +66,9 @@ function makeContext({ pathname = "/overlay", search = "", fetchState = null } =
     document: {
       getElementById: () => rootEl,
       body: { classList: classList() },
-      documentElement: { style: { setProperty() {} } },
+      documentElement: {
+        style: { setProperty: (name, value) => rootProps.set(name, String(value)) },
+      },
       createElement: () => makeElement(),
     },
     window: {
@@ -84,7 +90,7 @@ function makeContext({ pathname = "/overlay", search = "", fetchState = null } =
       + " get failures() { return consecutiveFetchFailures; } };",
     ctx
   );
-  return { ctx, rootEl, logs, control, t: ctx.__t };
+  return { ctx, rootEl, logs, control, rootProps, t: ctx.__t };
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -301,6 +307,61 @@ const liveState = {
   assert.ok(!html.includes("luck-expected-status"), "no status line alongside real figures");
 
   console.log("ok: luck widget layouts and toggles");
+}
+
+// --- 7. rarity colours come from the payload, not from the stylesheet --------
+// `overlay.css` used to carry its own tier table on `.stage-item-count`, and it
+// disagreed with the model on two of the four: rare was a violet and uncommon a
+// cyan, while the Luck widget on the same page drew them magenta and blue from
+// `projections/obs.py`. One overlay, one rarity, two colours. The stylesheet
+// now only names `--rarity-*`, so the whole fix lives in these properties being
+// set -- which is exactly why the stub above records them.
+{
+  const stageWidgets = { stage_summary: { id: "stage_summary", enabled: true, order: 1 } };
+  const stageState = {
+    status: "live",
+    style: {},
+    widgets: stageWidgets,
+    rarity_colors: {
+      LEGENDARY: "#FACC15",
+      RARE: "#E879F9",
+      UNCOMMON: "#60A5FA",
+      COMMON: "#22C55E",
+    },
+    stage_summary: [
+      { stage: "1", time: "05:12", kills: "420", items: [{ rarity: "RARE", count: 2 }] },
+    ],
+  };
+
+  const { t, rootEl, rootProps } = makeContext();
+  t.render(stageState);
+
+  assert.strictEqual(rootProps.get("--rarity-rare"), "#E879F9", "the tier hex reaches :root");
+  assert.strictEqual(
+    rootProps.get("--rarity-rare-rgb"),
+    "232, 121, 249",
+    "and its loose channels, which the capsule's fill and glow need"
+  );
+  for (const [name, hex] of [["legendary", "#FACC15"], ["uncommon", "#60A5FA"], ["common", "#22C55E"]]) {
+    assert.strictEqual(rootProps.get(`--rarity-${name}`), hex, `${name} reaches :root too`);
+  }
+
+  // The markup must stay colourless: a hex inlined here would be a third copy.
+  const html = rootEl.innerHTML;
+  assert.ok(html.includes("stage-item-count rare active"), "the count wears its tier class");
+  assert.ok(!/#[0-9a-fA-F]{6}/.test(html), "no rarity hex may be inlined into the markup");
+
+  // A payload without the field must not blank the tiers -- the :root fallback
+  // in overlay.css covers the frame before the first poll, and a stale value is
+  // better than a colourless one.
+  const { rootProps: bare } = (() => {
+    const made = makeContext();
+    made.t.render({ ...stageState, rarity_colors: undefined });
+    return made;
+  })();
+  assert.ok(!bare.has("--rarity-rare"), "a missing field leaves the stylesheet's fallback alone");
+
+  console.log("ok: rarity colours flow from the payload");
 }
 
 console.log("\nall overlay.js checks passed");

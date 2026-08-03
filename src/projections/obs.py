@@ -97,7 +97,28 @@ def build_overlay_state_from_snapshot(
     data["stats"] = _snapshot_stats(snapshot, widgets)
     data["banishes"] = _snapshot_banishes(snapshot, widgets)
     data["luck_rarity"] = _snapshot_luck_rarity(runtime, widgets)
+    data["rarity_colors"] = _rarity_colors()
     return data
+
+
+def _rarity_colors() -> dict[str, str]:
+    """The four tier colours, shipped to the page so the CSS stops guessing.
+
+    `overlay.css` used to hard-code its own set on `.stage-item-count` -- rare
+    as `#a86bff` and uncommon as `#16e7ff`, neither of which is what the model
+    says -- while the Luck widget on the *same page* took its colours from this
+    module. So one overlay drew "rare" in two different colours depending on
+    which widget you looked at. There is no second table now: `applyStyle` turns
+    this into the `--rarity-*` custom properties the stylesheet reads.
+
+    Keyed by `LUCK_RARITY_ORDER` rather than a literal tuple, because that is
+    already the name for "the four tiers, brightest first" that both the Luck
+    payload above and the stage-summary counts below are ordered by.
+    """
+    return {
+        rarity: ITEM_RARITY_COLOR_MAP.get(rarity, COLOR_MAP["DEFAULT"])
+        for rarity in LUCK_RARITY_ORDER
+    }
 
 
 def _snapshot_luck_rarity(
