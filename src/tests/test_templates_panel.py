@@ -306,6 +306,26 @@ class DialogTests(unittest.TestCase):
             panel.add_template_dialog()
         save_config.assert_not_called()
 
+    def test_add_after_deleting_everything_keeps_custom_ids_outside_builtin_range(self) -> None:
+        from PySide6.QtWidgets import QDialog
+
+        dialog = RecordingDialog(
+            result=QDialog.Accepted,
+            result_payload={"name": "Custom", "color": "BLUE"},
+        )
+        panel = build_templates_panel(template_dialog=lambda _parent: dialog)
+        with patch.object(config, "TEMPLATES", []):
+            with patch.dict(config.user_config, {}, clear=False):
+                with patch.object(config, "save_config"):
+                    with patch.object(panel, "refresh_templates"):
+                        panel.add_template_dialog()
+                        new_id = config.TEMPLATES[0]["id"]
+
+        self.assertGreater(
+            new_id,
+            max(template["id"] for template in config.DEFAULT_TEMPLATES),
+        )
+
     def test_a_cancelled_delete_does_not_refresh(self) -> None:
         from PySide6.QtWidgets import QDialog
 
@@ -320,15 +340,22 @@ class DialogTests(unittest.TestCase):
         # `refresh_templates` would have added the stretch.
         self.assertEqual(panel._template_layout.stretches, 0)
 
-    def test_delete_with_no_custom_templates_says_so_and_opens_nothing(self) -> None:
-        """Empty state: only the shipped defaults exist."""
-        told: list[object] = []
-        panel = build_templates_panel(no_custom_templates_message=told.append)
+    def test_delete_dialog_lists_built_in_templates_too(self) -> None:
+        dialog = RecordingDialog()
+        received: list[list[dict]] = []
 
-        with patch.object(config, "TEMPLATES", [{"id": 1, "name": "LIGHT"}]):
+        def delete_dialog(_parent, templates):
+            received.append(templates)
+            return dialog
+
+        panel = build_templates_panel(delete_dialog=delete_dialog)
+        templates = [{"id": 1, "name": "LIGHT"}]
+
+        with patch.object(config, "TEMPLATES", templates):
             panel.del_template_dialog()
 
-        self.assertEqual(len(told), 1)
+        self.assertEqual(received, [templates])
+        self.assertEqual(dialog.exec_calls, 1)
 
     def test_a_cancelled_scores_settings_dialog_does_not_repaint(self) -> None:
         from PySide6.QtWidgets import QDialog
@@ -355,10 +382,11 @@ class TemplateEditTests(unittest.TestCase):
             with patch.object(config, "TEMPLATES", templates):
                 with patch.object(config, "ACTIVE_TEMPLATES", ["OLD"]):
                     with patch.object(config, "save_config"):
-                        applied = panel.apply_template_edit(
-                            {"id": 1, "name": "OLD"},
-                            {"name": "NEW", "color": "GREEN"},
-                        )
+                        with patch.object(panel, "refresh_templates"):
+                            applied = panel.apply_template_edit(
+                                {"id": 1, "name": "OLD"},
+                                {"name": "NEW", "color": "GREEN"},
+                            )
                     self.assertTrue(applied)
                     self.assertEqual(config.ACTIVE_TEMPLATES, ["NEW"])
                     self.assertEqual(config.TEMPLATES[0]["name"], "NEW")
@@ -374,6 +402,43 @@ class TemplateEditTests(unittest.TestCase):
                     {"id": 99, "name": "GHOST"}, {"name": "NEW"}
                 )
         self.assertFalse(applied)
+        save_config.assert_not_called()
+
+
+class TemplateOrderTests(unittest.TestCase):
+    def test_drag_order_is_saved_once_without_changing_active_templates(self) -> None:
+        panel = build_templates_panel()
+        templates = [
+            {"id": 1, "name": "Alpha"},
+            {"id": 2, "name": "Beta"},
+            {"id": 3, "name": "Gamma"},
+        ]
+        active = ["Alpha", "Gamma"]
+
+        with patch.object(config, "TEMPLATES", templates):
+            with patch.object(config, "ACTIVE_TEMPLATES", active):
+                with patch.dict(config.user_config, {"TEMPLATES": templates}, clear=False):
+                    with patch.object(config, "save_config") as save_config:
+                        with patch.object(panel, "refresh_templates") as refresh:
+                            changed = panel._save_template_order([3, 1, 2])
+                            reordered_ids = [template["id"] for template in config.TEMPLATES]
+                            active_after = list(config.ACTIVE_TEMPLATES)
+
+        self.assertTrue(changed)
+        self.assertEqual(reordered_ids, [3, 1, 2])
+        self.assertEqual(active_after, active)
+        save_config.assert_called_once_with(config.user_config)
+        refresh.assert_called_once_with()
+
+    def test_incomplete_drag_order_is_rejected(self) -> None:
+        panel = build_templates_panel()
+        templates = [{"id": 1, "name": "Alpha"}, {"id": 2, "name": "Beta"}]
+        with patch.object(config, "TEMPLATES", templates):
+            with patch.object(config, "save_config") as save_config:
+                changed = panel._save_template_order([2])
+                templates_after = list(config.TEMPLATES)
+        self.assertFalse(changed)
+        self.assertEqual(templates_after, templates)
         save_config.assert_not_called()
 
 

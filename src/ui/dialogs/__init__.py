@@ -59,9 +59,10 @@ from ui.styles import (
 )
 
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
+    QColorDialog,
     QDialog,
     QFormLayout,
     QFrame,
@@ -84,6 +85,11 @@ from PySide6.QtWidgets import (
 from core.settings import DEFAULT_MINIMUM_SNAPSHOT_COUNT
 from core.stats.types import PLAYER_STAT_GROUPS
 from core.stat_labels import abbreviate_stat_label
+from core.template_colors import (
+    DEFAULT_TEMPLATE_COLOR,
+    template_color_hex,
+    template_color_hex_or_none,
+)
 
 from app import config
 from app.player_stats_view import overlay_view, player_stats_view
@@ -110,6 +116,18 @@ class TemplateFormFrame(QWidget):
         self.name_entry = QLineEdit()
         layout.addRow("Template Name:", self.name_entry)
 
+        self.color_btn = QPushButton()
+        self.color_btn.clicked.connect(self._choose_color)
+        self.reset_color_btn = QPushButton("Reset")
+        self.reset_color_btn.clicked.connect(self._reset_color)
+        color_row = QWidget()
+        color_layout = QHBoxLayout(color_row)
+        color_layout.setContentsMargins(0, 0, 0, 0)
+        color_layout.setSpacing(8)
+        color_layout.addWidget(self.color_btn, 1)
+        color_layout.addWidget(self.reset_color_btn)
+        layout.addRow("Color:", color_row)
+
         self.sm_entry = QLineEdit()
         self.shady_entry = QLineEdit()
         self.moai_entry = QLineEdit()
@@ -133,6 +151,12 @@ class TemplateFormFrame(QWidget):
 
     def load_template(self, template_data=None):
         self.template_data = template_data or {}
+        self._default_color = self._default_color_for(self.template_data)
+        candidate = str(self.template_data.get("color") or self._default_color)
+        self._color_value = (
+            candidate if template_color_hex_or_none(candidate) is not None else self._default_color
+        )
+        self._refresh_color_button()
         for widget in (self.sm_entry, self.shady_entry, self.moai_entry):
             widget.blockSignals(True)
         self.name_entry.setText(self.template_data.get("name", ""))
@@ -147,6 +171,37 @@ class TemplateFormFrame(QWidget):
         for widget in (self.sm_entry, self.shady_entry, self.moai_entry):
             widget.blockSignals(False)
         self._sync_sm_fields()
+
+    @staticmethod
+    def _default_color_for(template_data: dict) -> str:
+        template_id = template_data.get("id")
+        for default in config.DEFAULT_TEMPLATES:
+            if default.get("id") == template_id:
+                return str(default.get("color") or DEFAULT_TEMPLATE_COLOR)
+        return DEFAULT_TEMPLATE_COLOR
+
+    def _refresh_color_button(self) -> None:
+        color_hex = template_color_hex(self._color_value)
+        swatch = QPixmap(18, 18)
+        swatch.fill(QColor(color_hex))
+        self.color_btn.setIcon(QIcon(swatch))
+        self.color_btn.setText(color_hex.upper())
+        self.color_btn.setToolTip("Choose template color")
+
+    def _choose_color(self) -> None:
+        selected = QColorDialog.getColor(
+            QColor(template_color_hex(self._color_value)),
+            self,
+            "Choose Template Color",
+        )
+        if not selected.isValid():
+            return
+        self._color_value = selected.name(QColor.HexRgb).upper()
+        self._refresh_color_button()
+
+    def _reset_color(self) -> None:
+        self._color_value = self._default_color
+        self._refresh_color_button()
 
     def _sync_sm_fields(self) -> None:
         sender = self.sender()
@@ -170,7 +225,7 @@ class TemplateFormFrame(QWidget):
             self.sm_entry.blockSignals(False)
 
     def get_payload(self):
-        return build_template_payload(
+        payload = build_template_payload(
             self.name_entry.text(),
             self.sm_entry.text(),
             self.shady_entry.text(),
@@ -181,6 +236,9 @@ class TemplateFormFrame(QWidget):
             self.magnet_entry.text(),
             source_template=self.template_data,
         )
+        if payload is not None:
+            payload["color"] = self._color_value
+        return payload
 
 
 class TemplateDialog(QDialog):
@@ -490,32 +548,65 @@ class ScoresSettingsDialog(QDialog):
 
 
 class DeleteDialog(QDialog):
-    def __init__(self, parent, custom_templates):
+    def __init__(self, parent, templates):
         super().__init__(parent)
-        self.custom_templates = custom_templates
+        self.templates = list(templates)
         self.checks: dict[int, QCheckBox] = {}
         self.setWindowTitle("Delete Templates")
         layout = dialog_body(
             self,
             title="Delete Templates",
-            subtitle="Tick the ones to remove. Built-in templates are not listed.",
+            subtitle="Tick templates to remove. Built-ins can be restored later.",
             width=DIALOG_REGULAR,
         )
         scroll, _content, scroll_layout = _make_scroll_section()
         layout.addWidget(scroll, 1)
-        for template in custom_templates:
-            cb = QCheckBox(template["name"])
+        builtin_ids = {template.get("id") for template in config.DEFAULT_TEMPLATES}
+        for template in self.templates:
+            suffix = "  •  Built-in" if template.get("id") in builtin_ids else ""
+            cb = QCheckBox(f"{template['name']}{suffix}")
             self.checks[template["id"]] = cb
             scroll_layout.addWidget(cb)
+        if not self.templates:
+            empty_label = QLabel("No templates in the list.")
+            empty_label.setObjectName("dialogNote")
+            scroll_layout.addWidget(empty_label)
         scroll_layout.addStretch(1)
         delete_btn = QPushButton("Delete Selected")
         delete_btn.clicked.connect(self.delete)
+        restore_btn = QPushButton("Restore Built-ins")
+        restore_btn.setEnabled(bool(self._missing_builtins()))
+        restore_btn.clicked.connect(self.restore_builtins)
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
         # `QDialogButtonBox` is gone with it: it put Delete next to Cancel and
         # ordered them by platform convention, which is the one thing a shared
         # footer cannot let a dialog decide for itself.
-        dialog_footer(self, secondary=cancel_btn, destructive=delete_btn)
+        dialog_footer(
+            self,
+            secondary=cancel_btn,
+            destructive=delete_btn,
+            leading=restore_btn,
+        )
+
+    def _missing_builtins(self) -> list[dict]:
+        current_ids = {template.get("id") for template in config.TEMPLATES}
+        return [
+            dict(template)
+            for template in config.DEFAULT_TEMPLATES
+            if template.get("id") not in current_ids
+        ]
+
+    def restore_builtins(self):
+        missing = self._missing_builtins()
+        if not missing:
+            return
+        # Restored rows are intentionally inactive: restoring appearance should
+        # not change what a running scanner accepts without an explicit check.
+        config.TEMPLATES = list(config.TEMPLATES) + missing
+        config.user_config["TEMPLATES"] = config.TEMPLATES
+        config.save_config(config.user_config)
+        self.accept()
 
     def delete(self):
         to_delete = {template_id for template_id, cb in self.checks.items() if cb.isChecked()}

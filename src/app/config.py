@@ -1020,11 +1020,17 @@ TOTAL_REROLLS = coerce_nonnegative_int(user_config.get("TOTAL_REROLLS", 0))
 # Load ignored updates
 SKIPPED_UPDATE_VERSION = user_config.get("SKIPPED_UPDATE_VERSION", "")
 
-# Attempt to retrieve templates from JSON. If the file was empty or contained no TEMPLATES,
-# we use the built-in templates (DEFAULT_TEMPLATES) as a fallback.
-TEMPLATES = user_config.get("TEMPLATES", DEFAULT_TEMPLATES)
-if not TEMPLATES:
-    TEMPLATES = DEFAULT_TEMPLATES
+def normalize_templates_config(value) -> list[dict]:
+    """Keep an intentional empty list; default only missing/invalid values."""
+    if isinstance(value, list):
+        return value
+    return [dict(template) for template in DEFAULT_TEMPLATES]
+
+
+# A missing/invalid value means first run and receives the shipped defaults.
+# An empty list is different: users may intentionally remove every template,
+# so it must survive a restart rather than silently resurrecting the defaults.
+TEMPLATES = normalize_templates_config(user_config.get("TEMPLATES"))
 
 
 #: Default templates whose colour *tag* changed, as `name -> (old tag, new tag)`.

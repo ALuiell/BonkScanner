@@ -31,6 +31,8 @@ another in the log. `DEFAULT_TEMPLATE_COLOR` is that decision made once.
 """
 from __future__ import annotations
 
+import re
+
 from core.item_metadata import COLOR_MAP
 
 #: What a template with no colour of its own is drawn in. Every caller now
@@ -62,6 +64,14 @@ TEMPLATE_COLOR_MAP = {
     "ORANGE": "#FF6F00",
 }
 
+_HEX_COLOR_RE = re.compile(r"^#[0-9A-F]{6}$")
+
+
+def _custom_hex(color_tag) -> str | None:
+    """Return a normalized saved custom colour, if ``color_tag`` is one."""
+    tag = str(color_tag or "").strip().upper()
+    return tag if _HEX_COLOR_RE.fullmatch(tag) else None
+
 
 def template_color_hex(color_tag: str | None) -> str:
     """The colour a template tagged `color_tag` is drawn in.
@@ -71,6 +81,9 @@ def template_color_hex(color_tag: str | None) -> str:
     which is what the call sites this replaces already did, so an unrecognised
     tag still degrades to readable grey rather than to nothing.
     """
+    custom = _custom_hex(color_tag)
+    if custom is not None:
+        return custom
     tag = str(color_tag or DEFAULT_TEMPLATE_COLOR).upper()
     return TEMPLATE_COLOR_MAP.get(tag) or COLOR_MAP.get(tag, COLOR_MAP["DEFAULT"])
 
@@ -83,6 +96,9 @@ def template_color_hex_or_none(color_tag) -> str | None:
     must stay *uncoloured* rather than fall back to grey. That is the one thing
     `template_color_hex` cannot do, and the reason this exists beside it.
     """
+    custom = _custom_hex(color_tag)
+    if custom is not None:
+        return custom
     tag = str(color_tag or "").upper()
     if not tag:
         return None

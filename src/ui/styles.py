@@ -41,33 +41,33 @@ RECORDING_SORT_LABELS = {
     RECORDING_SORT_SNAPSHOTS: "Most snapshots first",
 }
 
-def _template_checkbox_stylesheet(color_hex: str) -> str:
-    # `color_hex` shapes the row only -- the left accent bar and the label
-    # colour when checked, which is what tells templates apart at a glance.
-    # The checkbox glyph itself is deliberately left undefined here: it falls
-    # through to the app-wide indicator rule (`build_qt_app_stylesheet`), so
-    # every checkbox in the app, not just this row, looks the same one way.
+def _template_row_stylesheet(color_hex: str, *, checked: bool, hovered: bool) -> str:
+    """The compact one-line template row from the Templates tab."""
+    background = "#141A22" if checked or hovered else "#0B0F14"
+    border = "#38495E" if hovered else ("#2E3A48" if checked else "#1B222B")
     return f"""
-    QCheckBox {{
-        color: #8A94A3;
-        background: #0B0F14;
-        border: 1px solid #1B222B;
-        border-left: 4px solid {color_hex};
+    QFrame#TemplateRow {{
+        background: {background};
+        border: 1px solid {border};
         border-radius: 10px;
-        padding: 10px 12px;
-        min-height: 38px;
-        font-weight: 600;
     }}
-    QCheckBox:checked {{
+    QLabel#TemplateName {{
         color: {color_hex};
-        background: #141A22;
-        border-color: #2E3A48;
-        border-left-color: {color_hex};
         font-weight: 700;
+        background: transparent;
+        border: none;
     }}
-    QCheckBox:hover {{
-        background: #141A22;
-        border-color: #38495E;
+    QLabel#TemplateConditions {{
+        color: #8A94A3;
+        font-weight: 600;
+        background: transparent;
+        border: none;
+    }}
+    QCheckBox#TemplateActive {{
+        background: transparent;
+        border: none;
+        padding: 0;
+        min-height: 0;
     }}
     """
 

@@ -52,13 +52,19 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QMimeData, QPoint, Qt
+from PySide6.QtGui import QColor, QDrag, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -69,18 +75,273 @@ from core.template_colors import template_color_hex, template_color_tag
 from ui.shared import (
     _apply_button_icon,
     _clear_layout,
-    _make_scroll_section,
     _read_bool,
     format_template_conditions,
 )
-from ui.styles import _template_checkbox_stylesheet, _tier_color
+from ui.styles import _template_row_stylesheet, _tier_color
 
 
 TIERS = ("Light", "Good", "Perfect", "Perfect+")
+_TEMPLATE_DRAG_MIME = "application/x-megabonk-template-id"
+_TEMPLATE_ROW_HEIGHT = 62
 
-# Templates with an id at or below this are the shipped defaults and cannot be
-# deleted. Lifted verbatim from `del_template_dialog`, where it was a bare 7.
-LAST_BUILTIN_TEMPLATE_ID = 7
+
+class _DragHandle(QWidget):
+    """Six-dot handle that starts a drag without stealing checkbox clicks."""
+
+    def __init__(self, row: "_TemplateRow") -> None:
+        super().__init__(row)
+        self._row = row
+        self._press_pos: QPoint | None = None
+        self.setFixedSize(18, 30)
+        self.setCursor(Qt.OpenHandCursor)
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(Qt.white if self.underMouse() else Qt.lightGray)
+        for column in (5, 13):
+            for row in (7, 15, 23):
+                painter.drawEllipse(column - 2, row - 2, 4, 4)
+
+    def enterEvent(self, event) -> None:
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._press_pos = event.position().toPoint()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._press_pos is None or not (event.buttons() & Qt.LeftButton):
+            super().mouseMoveEvent(event)
+            return
+        distance = (event.position().toPoint() - self._press_pos).manhattanLength()
+        if distance >= QApplication.startDragDistance():
+            self._press_pos = None
+            self._row.start_drag()
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._press_pos = None
+        self.setCursor(Qt.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+
+class _TemplateRow(QFrame):
+    """One 62px template record: bracket, handle, check, name, conditions."""
+
+    def __init__(self, template: dict, active: bool, on_toggled: Callable) -> None:
+        super().__init__()
+        self.template_id = int(template.get("id", 0))
+        self._color_hex = template_color_hex(template_color_tag(template))
+        self._hovered = False
+        self._drop_edge = 0
+        self._press_pos: QPoint | None = None
+        self.setObjectName("TemplateRow")
+        self.setFixedHeight(_TEMPLATE_ROW_HEIGHT)
+        self.setCursor(Qt.PointingHandCursor)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(22, 0, 14, 0)
+        layout.setSpacing(10)
+
+        self.drag_handle = _DragHandle(self)
+        layout.addWidget(self.drag_handle)
+
+        self.checkbox = QCheckBox()
+        self.checkbox.setObjectName("TemplateActive")
+        self.checkbox.setFixedSize(26, 26)
+        self.checkbox.setChecked(bool(active))
+        layout.addWidget(self.checkbox)
+
+        self.name_label = QLabel(str(template.get("name", "")))
+        self.name_label.setObjectName("TemplateName")
+        self.name_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        layout.addWidget(self.name_label)
+
+        self.conditions_label = QLabel(_format_template_conditions_inline(template))
+        self.conditions_label.setObjectName("TemplateConditions")
+        self.conditions_label.setMinimumWidth(0)
+        self.conditions_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        layout.addWidget(self.conditions_label, 1)
+
+        self.checkbox.toggled.connect(self._apply_style)
+        self.checkbox.toggled.connect(on_toggled)
+        self._apply_style()
+
+    def _apply_style(self, *_args) -> None:
+        self.setStyleSheet(
+            _template_row_stylesheet(
+                self._color_hex,
+                checked=self.checkbox.isChecked(),
+                hovered=self._hovered,
+            )
+        )
+        self.update()
+
+    def enterEvent(self, event) -> None:
+        self._hovered = True
+        self._apply_style()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hovered = False
+        self._apply_style()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton:
+            self._press_pos = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        if event.button() == Qt.LeftButton and self._press_pos is not None:
+            distance = (event.position().toPoint() - self._press_pos).manhattanLength()
+            if distance < QApplication.startDragDistance() and self.rect().contains(event.position().toPoint()):
+                self.checkbox.toggle()
+                event.accept()
+                self._press_pos = None
+                return
+        self._press_pos = None
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        # The rounded left bracket is the template's sole colour marker.
+        bracket = QPainterPath()
+        bracket.moveTo(10, 2)
+        bracket.quadTo(4, 2, 4, 9)
+        bracket.lineTo(4, self.height() - 9)
+        bracket.quadTo(4, self.height() - 2, 10, self.height() - 2)
+        painter.setPen(QPen(QColor(self._color_hex), 4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.drawPath(bracket)
+
+        if self._drop_edge:
+            y = 1 if self._drop_edge < 0 else self.height() - 2
+            painter.setPen(QPen(QColor("#4DA3FF"), 2, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(14, y, self.width() - 12, y)
+
+    def set_drop_edge(self, edge: int) -> None:
+        edge = -1 if edge < 0 else (1 if edge > 0 else 0)
+        if edge != self._drop_edge:
+            self._drop_edge = edge
+            self.update()
+
+    def start_drag(self) -> None:
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(_TEMPLATE_DRAG_MIME, str(self.template_id).encode("ascii"))
+        drag.setMimeData(mime)
+        drag.setPixmap(self.grab())
+        drag.setHotSpot(QPoint(32, self.height() // 2))
+        drag.exec(Qt.MoveAction)
+
+
+class _TemplateListSurface(QWidget):
+    """Drop target that turns row positions into a persisted id order."""
+
+    def __init__(self, on_reorder: Callable[[list[int]], None]) -> None:
+        super().__init__()
+        self._on_reorder = on_reorder
+        self._drop_index: int | None = None
+        self.setObjectName("templateListSurface")
+        self.setAcceptDrops(True)
+        self.rows_layout = QVBoxLayout(self)
+        self.rows_layout.setContentsMargins(8, 8, 8, 8)
+        self.rows_layout.setSpacing(6)
+
+    def rows(self) -> list[_TemplateRow]:
+        result = []
+        for index in range(self.rows_layout.count()):
+            widget = self.rows_layout.itemAt(index).widget()
+            if isinstance(widget, _TemplateRow):
+                result.append(widget)
+        return result
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasFormat(_TEMPLATE_DRAG_MIME):
+            event.acceptProposedAction()
+            return
+        event.ignore()
+
+    def dragMoveEvent(self, event) -> None:
+        if not event.mimeData().hasFormat(_TEMPLATE_DRAG_MIME):
+            event.ignore()
+            return
+        y = event.position().toPoint().y()
+        rows = self.rows()
+        index = len(rows)
+        for candidate, row in enumerate(rows):
+            if y < row.geometry().center().y():
+                index = candidate
+                break
+        self._show_drop_index(index)
+        event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event) -> None:
+        self._clear_drop_indicator()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event) -> None:
+        if not event.mimeData().hasFormat(_TEMPLATE_DRAG_MIME):
+            event.ignore()
+            return
+        try:
+            template_id = int(bytes(event.mimeData().data(_TEMPLATE_DRAG_MIME)).decode("ascii"))
+        except (TypeError, ValueError, UnicodeDecodeError):
+            self._clear_drop_indicator()
+            event.ignore()
+            return
+
+        current = [row.template_id for row in self.rows()]
+        if template_id not in current:
+            self._clear_drop_indicator()
+            event.ignore()
+            return
+
+        target = self._drop_index if self._drop_index is not None else len(current)
+        source = current.index(template_id)
+        reordered = list(current)
+        reordered.pop(source)
+        if source < target:
+            target -= 1
+        reordered.insert(max(0, min(target, len(reordered))), template_id)
+        self._clear_drop_indicator()
+        if reordered != current:
+            self._on_reorder(reordered)
+        event.setDropAction(Qt.MoveAction)
+        event.accept()
+
+    def _show_drop_index(self, index: int) -> None:
+        rows = self.rows()
+        self._drop_index = max(0, min(index, len(rows)))
+        for row in rows:
+            row.set_drop_edge(0)
+        if not rows:
+            return
+        if self._drop_index == len(rows):
+            rows[-1].set_drop_edge(1)
+        else:
+            rows[self._drop_index].set_drop_edge(-1)
+
+    def _clear_drop_indicator(self) -> None:
+        self._drop_index = None
+        for row in self.rows():
+            row.set_drop_edge(0)
 
 
 class TemplatesPanel:
@@ -110,6 +371,7 @@ class TemplatesPanel:
         self._tab_templates = None
         self._tab_scores = None
         self._scrollable_templates = None
+        self._template_surface = None
         self._template_layout = None
         self._scores_templates_layout = None
         self._scores_desc_label = None
@@ -131,9 +393,13 @@ class TemplatesPanel:
     def _build_templates_tab(self) -> None:
         self._tab_templates = QWidget()
         templates_layout = QVBoxLayout(self._tab_templates)
-        self._scrollable_templates, content, self._template_layout = _make_scroll_section()
-        content.setObjectName("templateListSurface")
+        self._scrollable_templates = QScrollArea()
+        self._scrollable_templates.setWidgetResizable(True)
+        self._scrollable_templates.setFrameShape(QFrame.NoFrame)
         self._scrollable_templates.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._template_surface = _TemplateListSurface(self._save_template_order)
+        self._template_layout = self._template_surface.rows_layout
+        self._scrollable_templates.setWidget(self._template_surface)
         templates_layout.addWidget(self._scrollable_templates, 1)
 
         buttons = QHBoxLayout()
@@ -224,15 +490,35 @@ class TemplatesPanel:
         self._checkboxes.clear()
         active_names = set(config.ACTIVE_TEMPLATES)
         for template in config.TEMPLATES:
-            color_hex = template_color_hex(template_color_tag(template))
-            cb = _CardCheckBox(_format_template_checkbox_text(template))
-            cb.setChecked(template["name"] in active_names)
-            cb.toggled.connect(self.save_checkbox_state)
-            cb.setStyleSheet(_template_checkbox_stylesheet(color_hex))
-            self._template_layout.addWidget(cb)
-            self._checkboxes[template["name"]] = cb
+            row = _TemplateRow(
+                template,
+                template["name"] in active_names,
+                self.save_checkbox_state,
+            )
+            self._template_layout.addWidget(row)
+            self._checkboxes[template["name"]] = row.checkbox
         self._template_layout.addStretch(1)
         self._sync_filters(announce=True)
+
+    def _save_template_order(self, ordered_ids: list[int]) -> bool:
+        """Persist one complete drag result; active selections stay untouched."""
+        templates = list(config.TEMPLATES)
+        try:
+            current_ids = [int(template.get("id", 0)) for template in templates]
+            normalized = [int(template_id) for template_id in ordered_ids]
+        except (TypeError, ValueError):
+            return False
+        if len(set(current_ids)) != len(current_ids) or sorted(normalized) != sorted(current_ids):
+            return False
+        if normalized == current_ids:
+            return False
+
+        by_id = {int(template.get("id", 0)): template for template in templates}
+        config.TEMPLATES = [by_id[template_id] for template_id in normalized]
+        config.user_config["TEMPLATES"] = config.TEMPLATES
+        config.save_config(config.user_config)
+        self.refresh_templates()
+        return True
 
     def save_checkbox_state(self, *_args) -> None:
         selected = self.selected_template_names()
@@ -247,7 +533,12 @@ class TemplatesPanel:
         if dialog.exec() != QDialog.Accepted or dialog.result_payload is None:
             return
         payload = dialog.result_payload
-        next_id = max([t.get("id", 0) for t in config.TEMPLATES] + [0]) + 1
+        builtin_max = max(
+            [template.get("id", 0) for template in config.DEFAULT_TEMPLATES] + [0]
+        )
+        next_id = max(
+            [template.get("id", 0) for template in config.TEMPLATES] + [builtin_max]
+        ) + 1
         payload["id"] = next_id
         config.TEMPLATES = list(config.TEMPLATES) + [payload]
         config.user_config["TEMPLATES"] = config.TEMPLATES
@@ -277,15 +568,7 @@ class TemplatesPanel:
         dialog.exec()
 
     def del_template_dialog(self) -> None:
-        custom_templates = [
-            template
-            for template in config.TEMPLATES
-            if template.get("id", 0) > LAST_BUILTIN_TEMPLATE_ID
-        ]
-        if not custom_templates:
-            self._no_custom_templates_message(self._window())
-            return
-        dialog = self._delete_dialog(self._window(), custom_templates)
+        dialog = self._delete_dialog(self._window(), list(config.TEMPLATES))
         if dialog.exec() == QDialog.Accepted:
             self.refresh_templates()
 
@@ -327,32 +610,14 @@ class TemplatesPanel:
 # failure mode step 14b hit and step 19 retired rather than relocated.
 
 
-class _CardCheckBox(QCheckBox):
-    """A checkbox whose whole row is clickable, not just its glyph and text.
-
-    These rows are painted as full-width cards by
-    `_template_checkbox_stylesheet`, but `QAbstractButton.hitButton` only
-    accepts presses that land on the indicator or the label. Everything to the
-    right of the two text lines -- most of the card, and the obvious place to
-    aim -- swallowed the click and toggled nothing.
-
-    Overriding `hitButton` is the whole fix: it makes the clickable region
-    match the region the row draws, which is what the card shape promises.
-    """
-
-    def hitButton(self, pos) -> bool:
-        return self.rect().contains(pos)
-
-
-def _format_template_checkbox_text(template: dict) -> str:
+def _format_template_conditions_inline(template: dict) -> str:
     conditions = format_template_conditions(template)
-    compact_conditions = (
+    return (
         conditions
         .replace("S+M:", "S+M")
         .replace("Micro:", "Mic")
         .replace("Boss:", "Boss")
     )
-    return f"{template['name']}\n{compact_conditions}"
 
 
 def _score_system_lines() -> list[str]:
