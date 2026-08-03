@@ -122,6 +122,17 @@ class LabeledSwitch(QCheckBox):
             max(24, self.fontMetrics().height()),
         )
 
+    def hitButton(self, pos) -> bool:
+        """Make the input region match this control's custom-painted bounds.
+
+        ``QCheckBox`` still computes its default hit area from the platform's
+        native indicator and label.  That geometry does not know about the
+        32px track painted below; with an empty label (as in the in-game widget
+        table), only the leftmost 14px accepted a click while most of the
+        visible switch did not.
+        """
+        return self.rect().contains(pos)
+
     def paintEvent(self, _event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
