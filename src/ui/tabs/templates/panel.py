@@ -52,8 +52,8 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import QMimeData, QPoint, Qt
-from PySide6.QtGui import QColor, QDrag, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QMimeData, QPoint, QSize, Qt
+from PySide6.QtGui import QColor, QDrag, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -83,7 +83,36 @@ from ui.styles import _template_row_stylesheet, _tier_color
 
 TIERS = ("Light", "Good", "Perfect", "Perfect+")
 _TEMPLATE_DRAG_MIME = "application/x-megabonk-template-id"
-_TEMPLATE_ROW_HEIGHT = 62
+_TEMPLATE_ROW_HEIGHT = 48
+_TEMPLATE_PANEL_MIN_WIDTH = 360
+_TEMPLATE_PANEL_MAX_WIDTH = 420
+
+
+class _ElidedLabel(QLabel):
+    """Keep the full value for sizing/tooltips, but shorten it when squeezed."""
+
+    def __init__(self, text: str) -> None:
+        super().__init__()
+        self._full_text = str(text)
+        super().setText(self._full_text)
+
+    @property
+    def full_text(self) -> str:
+        return self._full_text
+
+    def minimumSizeHint(self) -> QSize:
+        hint = super().minimumSizeHint()
+        return QSize(0, hint.height())
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        available = max(0, self.contentsRect().width())
+        displayed = self.fontMetrics().elidedText(
+            self._full_text, Qt.ElideRight, available
+        )
+        if self.text() != displayed:
+            super().setText(displayed)
+        self.setToolTip(self._full_text if displayed != self._full_text else "")
 
 
 class _DragHandle(QWidget):
@@ -93,7 +122,7 @@ class _DragHandle(QWidget):
         super().__init__(row)
         self._row = row
         self._press_pos: QPoint | None = None
-        self.setFixedSize(18, 30)
+        self.setFixedSize(16, 24)
         self.setCursor(Qt.OpenHandCursor)
 
     def paintEvent(self, event) -> None:
@@ -102,8 +131,8 @@ class _DragHandle(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setPen(Qt.NoPen)
         painter.setBrush(Qt.white if self.underMouse() else Qt.lightGray)
-        for column in (5, 13):
-            for row in (7, 15, 23):
+        for column in (4, 12):
+            for row in (5, 12, 19):
                 painter.drawEllipse(column - 2, row - 2, 4, 4)
 
     def enterEvent(self, event) -> None:
@@ -139,13 +168,14 @@ class _DragHandle(QWidget):
 
 
 class _TemplateRow(QFrame):
-    """One 62px template record: bracket, handle, check, name, conditions."""
+    """One compact template record: bracket, handle, check, name, conditions."""
 
     def __init__(self, template: dict, active: bool, on_toggled: Callable) -> None:
         super().__init__()
         self.template_id = int(template.get("id", 0))
         self._color_hex = template_color_hex(template_color_tag(template))
         self._hovered = False
+        self._dragging = False
         self._drop_edge = 0
         self._press_pos: QPoint | None = None
         self.setObjectName("TemplateRow")
@@ -153,15 +183,15 @@ class _TemplateRow(QFrame):
         self.setCursor(Qt.PointingHandCursor)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(22, 0, 14, 0)
-        layout.setSpacing(10)
+        layout.setContentsMargins(18, 0, 14, 0)
+        layout.setSpacing(7)
 
         self.drag_handle = _DragHandle(self)
         layout.addWidget(self.drag_handle)
 
         self.checkbox = QCheckBox()
         self.checkbox.setObjectName("TemplateActive")
-        self.checkbox.setFixedSize(26, 26)
+        self.checkbox.setFixedSize(24, 24)
         self.checkbox.setChecked(bool(active))
         layout.addWidget(self.checkbox)
 
@@ -170,7 +200,7 @@ class _TemplateRow(QFrame):
         self.name_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
         layout.addWidget(self.name_label)
 
-        self.conditions_label = QLabel(_format_template_conditions_inline(template))
+        self.conditions_label = _ElidedLabel(_format_template_conditions_inline(template))
         self.conditions_label.setObjectName("TemplateConditions")
         self.conditions_label.setMinimumWidth(0)
         self.conditions_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -180,12 +210,30 @@ class _TemplateRow(QFrame):
         self.checkbox.toggled.connect(on_toggled)
         self._apply_style()
 
+    def preferred_width(self) -> int:
+        """Natural one-line width, including 14 px after the final character."""
+        margins = self.layout().contentsMargins()
+        spacing = self.layout().spacing()
+        return (
+            margins.left()
+            + self.drag_handle.width()
+            + self.checkbox.width()
+            + self.name_label.fontMetrics().horizontalAdvance(self.name_label.text())
+            + self.conditions_label.fontMetrics().horizontalAdvance(
+                self.conditions_label.full_text
+            )
+            + spacing * 3
+            + margins.right()
+            + self.frameWidth() * 2
+        )
+
     def _apply_style(self, *_args) -> None:
         self.setStyleSheet(
             _template_row_stylesheet(
                 self._color_hex,
                 checked=self.checkbox.isChecked(),
                 hovered=self._hovered,
+                dragging=self._dragging,
             )
         )
         self.update()
@@ -205,6 +253,16 @@ class _TemplateRow(QFrame):
             self._press_pos = event.position().toPoint()
         super().mousePressEvent(event)
 
+    def mouseMoveEvent(self, event) -> None:
+        if self._press_pos is not None and event.buttons() & Qt.LeftButton:
+            distance = (event.position().toPoint() - self._press_pos).manhattanLength()
+            if distance >= QApplication.startDragDistance():
+                self._press_pos = None
+                self.start_drag()
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.LeftButton and self._press_pos is not None:
             distance = (event.position().toPoint() - self._press_pos).manhattanLength()
@@ -223,11 +281,14 @@ class _TemplateRow(QFrame):
 
         # The rounded left bracket is the template's sole colour marker.
         bracket = QPainterPath()
-        bracket.moveTo(10, 2)
-        bracket.quadTo(4, 2, 4, 9)
-        bracket.lineTo(4, self.height() - 9)
-        bracket.quadTo(4, self.height() - 2, 10, self.height() - 2)
-        painter.setPen(QPen(QColor(self._color_hex), 4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        bracket.moveTo(9, 2)
+        bracket.quadTo(4, 2, 4, 8)
+        bracket.lineTo(4, self.height() - 8)
+        bracket.quadTo(4, self.height() - 2, 9, self.height() - 2)
+        bracket_color = QColor(self._color_hex)
+        if self._dragging:
+            bracket_color.setAlpha(90)
+        painter.setPen(QPen(bracket_color, 4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
         painter.drawPath(bracket)
 
         if self._drop_edge:
@@ -242,13 +303,38 @@ class _TemplateRow(QFrame):
             self.update()
 
     def start_drag(self) -> None:
+        source_pixmap = self.grab()
+        ghost = QPixmap(source_pixmap.size())
+        ghost.fill(Qt.transparent)
+        ghost_painter = QPainter(ghost)
+        ghost_painter.setOpacity(0.88)
+        ghost_painter.drawPixmap(0, 0, source_pixmap)
+        ghost_painter.end()
+
         drag = QDrag(self)
         mime = QMimeData()
         mime.setData(_TEMPLATE_DRAG_MIME, str(self.template_id).encode("ascii"))
         drag.setMimeData(mime)
-        drag.setPixmap(self.grab())
-        drag.setHotSpot(QPoint(32, self.height() // 2))
-        drag.exec(Qt.MoveAction)
+        drag.setPixmap(ghost)
+        drag.setHotSpot(QPoint(28, self.height() // 2))
+
+        self._set_dragging(True)
+        try:
+            drag.exec(Qt.MoveAction)
+        finally:
+            self._set_dragging(False)
+
+    def _set_dragging(self, dragging: bool) -> None:
+        self._dragging = bool(dragging)
+        for widget in (
+            self.drag_handle,
+            self.checkbox,
+            self.name_label,
+            self.conditions_label,
+        ):
+            widget.setVisible(not self._dragging)
+        self.setCursor(Qt.ClosedHandCursor if self._dragging else Qt.PointingHandCursor)
+        self._apply_style()
 
 
 class _TemplateListSurface(QWidget):
@@ -262,7 +348,7 @@ class _TemplateListSurface(QWidget):
         self.setAcceptDrops(True)
         self.rows_layout = QVBoxLayout(self)
         self.rows_layout.setContentsMargins(8, 8, 8, 8)
-        self.rows_layout.setSpacing(6)
+        self.rows_layout.setSpacing(4)
 
     def rows(self) -> list[_TemplateRow]:
         result = []
@@ -377,6 +463,7 @@ class TemplatesPanel:
         self._scores_desc_label = None
         self._checkboxes: dict[str, QCheckBox] = {}
         self._scores_checkboxes: dict[str, QCheckBox] = {}
+        self._preferred_width_changed: Callable[[int], None] | None = None
 
     # -- construction ------------------------------------------------------
 
@@ -397,7 +484,7 @@ class TemplatesPanel:
         self._scrollable_templates.setWidgetResizable(True)
         self._scrollable_templates.setFrameShape(QFrame.NoFrame)
         self._scrollable_templates.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._template_surface = _TemplateListSurface(self._save_template_order)
+        self._template_surface = _TemplateListSurface(self.save_template_order)
         self._template_layout = self._template_surface.rows_layout
         self._scrollable_templates.setWidget(self._template_surface)
         templates_layout.addWidget(self._scrollable_templates, 1)
@@ -445,6 +532,33 @@ class TemplatesPanel:
     def selected_template_names(self) -> list[str]:
         """The checked templates. `TemplateRuntimeFilters`' one question."""
         return [name for name, cb in self._checkboxes.items() if _read_bool(cb)]
+
+    def set_preferred_width_changed(self, callback: Callable[[int], None]) -> None:
+        """Connect the panel's measured content width to its outer splitter."""
+        self._preferred_width_changed = callback
+
+    def preferred_width(self) -> int:
+        """Width of the longest card plus the tab/list layout margins."""
+        if self._template_surface is None or self._tab_templates is None:
+            return _TEMPLATE_PANEL_MIN_WIDTH
+        rows = self._template_surface.rows()
+        natural_row_width = max(
+            (row.preferred_width() for row in rows),
+            default=_TEMPLATE_PANEL_MIN_WIDTH,
+        )
+        surface_margins = self._template_layout.contentsMargins()
+        tab_margins = self._tab_templates.layout().contentsMargins()
+        measured = (
+            natural_row_width
+            + surface_margins.left()
+            + surface_margins.right()
+            + tab_margins.left()
+            + tab_margins.right()
+        )
+        return max(
+            _TEMPLATE_PANEL_MIN_WIDTH,
+            min(_TEMPLATE_PANEL_MAX_WIDTH, measured),
+        )
 
     # -- what the collapsed rail asks --------------------------------------
     #
@@ -498,9 +612,11 @@ class TemplatesPanel:
             self._template_layout.addWidget(row)
             self._checkboxes[template["name"]] = row.checkbox
         self._template_layout.addStretch(1)
+        if self._preferred_width_changed is not None:
+            self._preferred_width_changed(self.preferred_width())
         self._sync_filters(announce=True)
 
-    def _save_template_order(self, ordered_ids: list[int]) -> bool:
+    def save_template_order(self, ordered_ids: list[int]) -> bool:
         """Persist one complete drag result; active selections stay untouched."""
         templates = list(config.TEMPLATES)
         try:

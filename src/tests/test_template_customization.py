@@ -3,8 +3,9 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import src  # noqa: F401 -- path bootstrap
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QDialog, QTabWidget
+from PySide6.QtCore import QMimeData, QPoint, QPointF, Qt
+from PySide6.QtGui import QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent
+from PySide6.QtWidgets import QApplication, QDialog, QTabWidget
 
 from app import config
 from core.template_colors import template_color_hex, template_color_hex_or_none
@@ -40,9 +41,145 @@ def test_templates_panel_builds_approved_single_line_rows(qtbot) -> None:
             panel.refresh_templates()
 
     rows = panel._template_surface.rows()
-    assert [row.height() for row in rows] == [62, 62]
+    assert [row.height() for row in rows] == [48, 48]
     assert [row.name_label.text() for row in rows] == ["LIGHT", "Custom"]
     assert all("\n" not in row.conditions_label.text() for row in rows)
+
+
+def test_templates_panel_reports_a_capped_content_width_and_elides_overflow(qtbot) -> None:
+    tabs = QTabWidget()
+    qtbot.addWidget(tabs)
+    panel = build_templates_panel(left_tabview=tabs)
+    templates = [
+        {"id": 1, "name": "SHORT", "color": "WHITE", "boss": 1},
+        {
+            "id": 2,
+            "name": "LONG",
+            "color": "CYAN",
+            "sm_total": 123,
+            "micro": 45,
+            "boss": 67,
+            "magnet": 89,
+        },
+    ]
+    measured = []
+    with patch.object(config, "TEMPLATES", templates):
+        with patch.object(config, "ACTIVE_TEMPLATES", []):
+            panel.build()
+            panel.set_preferred_width_changed(measured.append)
+            panel.refresh_templates()
+
+    assert measured == [420]
+    tabs.resize(measured[0], 240)
+    tabs.show()
+    qtbot.wait(1)
+    short_row, long_row = panel._template_surface.rows()
+    assert short_row.conditions_label.toolTip() == ""
+    assert long_row.conditions_label.text().endswith("…")
+    assert long_row.conditions_label.toolTip() == long_row.conditions_label.full_text
+
+
+def test_drag_can_start_from_the_whole_template_row(qtbot) -> None:
+    tabs = QTabWidget()
+    qtbot.addWidget(tabs)
+    panel = build_templates_panel(left_tabview=tabs)
+    template = {"id": 1, "name": "LIGHT", "color": "WHITE"}
+    with patch.object(config, "TEMPLATES", [template]):
+        with patch.object(config, "ACTIVE_TEMPLATES", []):
+            panel.build()
+            panel.refresh_templates()
+
+    tabs.resize(560, 240)
+    tabs.show()
+    row = panel._template_surface.rows()[0]
+    with patch.object(row, "start_drag") as start_drag:
+        qtbot.mousePress(row, Qt.LeftButton, pos=QPoint(180, 24))
+        qtbot.mouseMove(row, pos=QPoint(230, 24))
+        qtbot.mouseRelease(row, Qt.LeftButton, pos=QPoint(230, 24))
+
+    start_drag.assert_called_once_with()
+
+
+def test_drag_source_becomes_an_empty_placeholder_until_drag_finishes(qtbot) -> None:
+    tabs = QTabWidget()
+    qtbot.addWidget(tabs)
+    panel = build_templates_panel(left_tabview=tabs)
+    template = {"id": 1, "name": "LIGHT", "color": "WHITE"}
+    with patch.object(config, "TEMPLATES", [template]):
+        with patch.object(config, "ACTIVE_TEMPLATES", []):
+            panel.build()
+            panel.refresh_templates()
+
+    row = panel._template_surface.rows()[0]
+    content = (row.drag_handle, row.checkbox, row.name_label, row.conditions_label)
+    hidden_during_drag = []
+    with patch("ui.tabs.templates.panel.QDrag") as drag_type:
+        drag_type.return_value.exec.side_effect = lambda _action: hidden_during_drag.append(
+            [widget.isHidden() for widget in content]
+        )
+        row.start_drag()
+
+    assert hidden_during_drag == [[True, True, True, True]]
+    assert [widget.isHidden() for widget in content] == [False, False, False, False]
+
+
+def test_drop_event_reorders_and_persists_templates(qtbot) -> None:
+    tabs = QTabWidget()
+    qtbot.addWidget(tabs)
+    panel = build_templates_panel(left_tabview=tabs)
+    templates = [
+        {"id": 1, "name": "One", "color": "WHITE"},
+        {"id": 2, "name": "Two", "color": "CYAN"},
+        {"id": 3, "name": "Three", "color": "GREEN"},
+    ]
+    with patch.object(config, "TEMPLATES", templates):
+        with patch.object(config, "ACTIVE_TEMPLATES", []):
+            with patch.dict(config.user_config, {"TEMPLATES": templates}, clear=False):
+                with patch.object(config, "save_config") as save_config:
+                    panel.build()
+                    panel.refresh_templates()
+                    tabs.resize(560, 300)
+                    tabs.show()
+                    qtbot.wait(1)
+
+                    surface = panel._template_surface
+                    mime = QMimeData()
+                    mime.setData("application/x-megabonk-template-id", b"1")
+                    target = QPoint(100, surface.height() - 4)
+                    QApplication.sendEvent(
+                        surface,
+                        QDragEnterEvent(
+                            target,
+                            Qt.MoveAction,
+                            mime,
+                            Qt.LeftButton,
+                            Qt.NoModifier,
+                        ),
+                    )
+                    QApplication.sendEvent(
+                        surface,
+                        QDragMoveEvent(
+                            target,
+                            Qt.MoveAction,
+                            mime,
+                            Qt.LeftButton,
+                            Qt.NoModifier,
+                        ),
+                    )
+                    QApplication.sendEvent(
+                        surface,
+                        QDropEvent(
+                            QPointF(target),
+                            Qt.MoveAction,
+                            mime,
+                            Qt.LeftButton,
+                            Qt.NoModifier,
+                        ),
+                    )
+                    reordered = [template["id"] for template in config.TEMPLATES]
+
+    assert reordered == [2, 3, 1]
+    save_config.assert_called_once_with(config.user_config)
 
 
 def test_template_form_saves_a_system_dialog_color(qtbot) -> None:

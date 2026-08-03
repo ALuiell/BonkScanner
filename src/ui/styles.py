@@ -41,14 +41,25 @@ RECORDING_SORT_LABELS = {
     RECORDING_SORT_SNAPSHOTS: "Most snapshots first",
 }
 
-def _template_row_stylesheet(color_hex: str, *, checked: bool, hovered: bool) -> str:
+def _template_row_stylesheet(
+    color_hex: str,
+    *,
+    checked: bool,
+    hovered: bool,
+    dragging: bool,
+) -> str:
     """The compact one-line template row from the Templates tab."""
-    background = "#141A22" if checked or hovered else "#0B0F14"
-    border = "#38495E" if hovered else ("#2E3A48" if checked else "#1B222B")
+    if dragging:
+        background = "#0D1218"
+        border = "1px dashed #38495E"
+    else:
+        background = "#141A22" if checked or hovered else "#0B0F14"
+        border_color = "#38495E" if hovered else ("#2E3A48" if checked else "#1B222B")
+        border = f"1px solid {border_color}"
     return f"""
     QFrame#TemplateRow {{
         background: {background};
-        border: 1px solid {border};
+        border: {border};
         border-radius: 10px;
     }}
     QLabel#TemplateName {{

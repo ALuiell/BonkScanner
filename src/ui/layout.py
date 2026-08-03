@@ -27,9 +27,10 @@ from ui.shared import (
     resource_path,
 )
 
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QMimeData, QPoint, QSize, Qt
+from PySide6.QtGui import QColor, QDrag, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -437,6 +438,9 @@ def _build_left_tabs(app, splitter):
     # saved value was destroyed on disk every launch.
     saved_evaluation_mode = config.EVALUATION_MODE
     app._templates_panel = _build_templates_panel(app)
+    app._templates_panel.set_preferred_width_changed(
+        app._left_rail.set_preferred_expanded_width
+    )
     app.left_tabview.setCurrentIndex(1 if saved_evaluation_mode == "scores" else 0)
 
     # The rail's bottom button follows the collapsed mode -- Add in Templates,
@@ -499,6 +503,213 @@ def _template_rail_entries() -> list[tuple[str, str, bool]]:
     ]
 
 
+_RAIL_TEMPLATE_DRAG_MIME = "application/x-megabonk-template-id"
+
+
+class _DraggableRailTile(QPushButton):
+    """A rail toggle that becomes a drag source after the move threshold."""
+
+    def __init__(self, template_id: int | None = None) -> None:
+        super().__init__()
+        self.template_id = template_id
+        self.color_hex = "#8A94A3"
+        self.dot = None
+        self._press_pos: QPoint | None = None
+        self._drag_started = False
+        self._dragging = False
+        self._drop_edge = 0
+
+    @property
+    def draggable(self) -> bool:
+        return self.template_id is not None
+
+    def mousePressEvent(self, event) -> None:
+        if self.draggable and event.button() == Qt.LeftButton:
+            self._press_pos = event.position().toPoint()
+            self._drag_started = False
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        if (
+            self.draggable
+            and self._press_pos is not None
+            and event.buttons() & Qt.LeftButton
+        ):
+            distance = (event.position().toPoint() - self._press_pos).manhattanLength()
+            if distance >= QApplication.startDragDistance():
+                self._press_pos = None
+                self._drag_started = True
+                self.setDown(False)
+                self.start_drag()
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._press_pos = None
+        if self._drag_started:
+            self._drag_started = False
+            self.setDown(False)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def start_drag(self) -> None:
+        if not self.draggable:
+            return
+        source_pixmap = self.grab()
+        ghost = QPixmap(source_pixmap.size())
+        ghost.fill(Qt.transparent)
+        painter = QPainter(ghost)
+        painter.setOpacity(0.9)
+        painter.drawPixmap(0, 0, source_pixmap)
+        painter.end()
+
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(_RAIL_TEMPLATE_DRAG_MIME, str(self.template_id).encode("ascii"))
+        drag.setMimeData(mime)
+        drag.setPixmap(ghost)
+        drag.setHotSpot(QPoint(self.width() // 2, self.height() // 2))
+
+        self._set_dragging(True)
+        try:
+            drag.exec(Qt.MoveAction)
+        finally:
+            self._set_dragging(False)
+            self.setDown(False)
+            # QDrag consumes the release that completes a drop; clearing this
+            # here keeps the next ordinary click independent from that drag.
+            self._drag_started = False
+
+    def _set_dragging(self, dragging: bool) -> None:
+        self._dragging = bool(dragging)
+        if self.dot is not None:
+            self.dot.setVisible(not self._dragging)
+        self.setCursor(Qt.ClosedHandCursor if self._dragging else Qt.PointingHandCursor)
+        self.setStyleSheet(
+            _rail_tile_stylesheet(
+                self.color_hex,
+                self.isChecked(),
+                dragging=self._dragging,
+            )
+        )
+        self.update()
+
+    def set_drop_edge(self, edge: int) -> None:
+        edge = -1 if edge < 0 else (1 if edge > 0 else 0)
+        if edge != self._drop_edge:
+            self._drop_edge = edge
+            self.update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if not self._drop_edge:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(QColor("#38BDF8"), 2, Qt.SolidLine, Qt.RoundCap))
+        y = 1 if self._drop_edge < 0 else self.height() - 2
+        painter.drawLine(3, y, self.width() - 3, y)
+
+
+class _RailDotsHolder(QWidget):
+    """Vertical drop target for template tiles in the collapsed rail."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("cardContent")
+        self.setAcceptDrops(True)
+        self._reorder = None
+        self._drop_index: int | None = None
+        self.dots_layout = QVBoxLayout(self)
+        self.dots_layout.setContentsMargins(0, 0, 0, 0)
+        self.dots_layout.setSpacing(10)
+
+    def set_reorder_callback(self, callback) -> None:
+        self._reorder = callback
+
+    def tiles(self) -> list[_DraggableRailTile]:
+        tiles = []
+        for index in range(self.dots_layout.count()):
+            widget = self.dots_layout.itemAt(index).widget()
+            if isinstance(widget, _DraggableRailTile) and widget.draggable:
+                tiles.append(widget)
+        return tiles
+
+    def dragEnterEvent(self, event) -> None:
+        if self._reorder is not None and event.mimeData().hasFormat(_RAIL_TEMPLATE_DRAG_MIME):
+            event.acceptProposedAction()
+            return
+        event.ignore()
+
+    def dragMoveEvent(self, event) -> None:
+        if self._reorder is None or not event.mimeData().hasFormat(_RAIL_TEMPLATE_DRAG_MIME):
+            event.ignore()
+            return
+        y = event.position().toPoint().y()
+        tiles = self.tiles()
+        index = len(tiles)
+        for candidate, tile in enumerate(tiles):
+            if y < tile.geometry().center().y():
+                index = candidate
+                break
+        self._show_drop_index(index)
+        event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event) -> None:
+        self._clear_drop_indicator()
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event) -> None:
+        if self._reorder is None or not event.mimeData().hasFormat(_RAIL_TEMPLATE_DRAG_MIME):
+            event.ignore()
+            return
+        try:
+            template_id = int(
+                bytes(event.mimeData().data(_RAIL_TEMPLATE_DRAG_MIME)).decode("ascii")
+            )
+        except (TypeError, ValueError, UnicodeDecodeError):
+            self._clear_drop_indicator()
+            event.ignore()
+            return
+
+        current = [tile.template_id for tile in self.tiles()]
+        if template_id not in current:
+            self._clear_drop_indicator()
+            event.ignore()
+            return
+        target = self._drop_index if self._drop_index is not None else len(current)
+        source = current.index(template_id)
+        reordered = list(current)
+        reordered.pop(source)
+        if source < target:
+            target -= 1
+        reordered.insert(max(0, min(target, len(reordered))), template_id)
+        self._clear_drop_indicator()
+        if reordered != current:
+            self._reorder(reordered)
+        event.setDropAction(Qt.MoveAction)
+        event.accept()
+
+    def _show_drop_index(self, index: int) -> None:
+        tiles = self.tiles()
+        self._drop_index = max(0, min(index, len(tiles)))
+        for tile in tiles:
+            tile.set_drop_edge(0)
+        if not tiles:
+            return
+        if self._drop_index == len(tiles):
+            tiles[-1].set_drop_edge(1)
+        else:
+            tiles[self._drop_index].set_drop_edge(-1)
+
+    def _clear_drop_indicator(self) -> None:
+        self._drop_index = None
+        for tile in self.tiles():
+            tile.set_drop_edge(0)
+
+
 def _build_collapsed_rail(app):
     rail = QWidget()
     rail.setObjectName("leftRailCollapsed")
@@ -525,11 +736,8 @@ def _build_collapsed_rail(app):
     eyebrow.setFont(eyebrow_font)
     panel_layout.addWidget(eyebrow, 0, Qt.AlignHCenter)
 
-    dots_holder = QWidget()
-    dots_holder.setObjectName("cardContent")
-    dots_layout = QVBoxLayout(dots_holder)
-    dots_layout.setContentsMargins(0, 0, 0, 0)
-    dots_layout.setSpacing(10)
+    dots_holder = _RailDotsHolder()
+    dots_layout = dots_holder.dots_layout
     panel_layout.addWidget(dots_holder, 0, Qt.AlignHCenter)
     panel_layout.addStretch(1)
 
@@ -551,11 +759,12 @@ def _build_collapsed_rail(app):
     rail._expand_btn = expand_btn
     rail._add_btn = add_btn
     rail._eyebrow = eyebrow
+    rail._dots_holder = dots_holder
     rail._dots_layout = dots_layout
     return rail
 
 
-def _rail_tile_stylesheet(color_hex: str, active: bool) -> str:
+def _rail_tile_stylesheet(color_hex: str, active: bool, *, dragging: bool = False) -> str:
     """An active tile is outlined in its own colour; an inactive one is not.
 
     The pre-toggle rail separated the two states by background alone (`#141A22`
@@ -563,6 +772,11 @@ def _rail_tile_stylesheet(color_hex: str, active: bool) -> str:
     and reads as nothing at 34px. Now that the tiles are the control rather
     than a legend, the border carries the state and the fill only supports it.
     """
+    if dragging:
+        return (
+            "QPushButton#railTile{background:#0D1218;border:1px dashed #38495E;"
+            "border-radius:9px;}"
+        )
     if active:
         return (
             "QPushButton#railTile{background:#141A22;border:1px solid "
@@ -628,6 +842,12 @@ def _on_rail_action(app, rail) -> None:
     _rebuild_rail_dots(rail, app)
 
 
+def _on_rail_templates_reordered(app, rail, ordered_ids) -> None:
+    """Persist a compact-rail drop and rebuild its tiles in the new order."""
+    if app._templates_panel.save_template_order(list(ordered_ids)):
+        _rebuild_rail_dots(rail, app)
+
+
 def _rebuild_rail_dots(rail, app) -> None:
     """Repaint the rail for the mode it is showing, tiles and eyebrow both.
 
@@ -652,14 +872,24 @@ def _rebuild_rail_dots(rail, app) -> None:
 
     _clear_layout(rail._dots_layout)
     panel = app._templates_panel
-    for name, color_hex, is_active in entries:
-        tile = QPushButton()
+    rail._dots_holder.set_reorder_callback(
+        None if is_scores else partial(_on_rail_templates_reordered, app, rail)
+    )
+    template_ids = (
+        [] if is_scores else [int(template.get("id", 0)) for template in config.TEMPLATES]
+    )
+    for index, (name, color_hex, is_active) in enumerate(entries):
+        template_id = None if is_scores else template_ids[index]
+        tile = _DraggableRailTile(template_id)
+        tile.color_hex = color_hex
         tile.setObjectName("railTile")
         tile.setCheckable(True)
         tile.setChecked(is_active)
         tile.setCursor(Qt.PointingHandCursor)
         tile.setFixedSize(34, 34)
-        tile.setToolTip(name)
+        tile.setToolTip(
+            name if is_scores else f"{name}\nDrag to reorder · Click to enable/disable"
+        )
         tile.setStyleSheet(_rail_tile_stylesheet(color_hex, is_active))
 
         tile_layout = QHBoxLayout(tile)
@@ -672,6 +902,7 @@ def _rebuild_rail_dots(rail, app) -> None:
         dot.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         dot.setStyleSheet(_rail_dot_stylesheet(color_hex, is_active))
         tile_layout.addWidget(dot)
+        tile.dot = dot
 
         # `partial`, not a closure: every tile in this loop would otherwise
         # share the last `name` and `tile` the loop bound.
@@ -712,8 +943,35 @@ class _LeftRail:
         # the whole window to reach anything.
         self._refresh = refresh
         self._expanded_sizes = None
+        self._preferred_expanded_width = 290
+        self._applying_preferred_width = False
+        self._user_resized = False
         self.collapsed = False
         collapsed.hide()
+        splitter.splitterMoved.connect(self._on_splitter_moved)
+
+    def set_preferred_expanded_width(self, width: int) -> None:
+        """Auto-fit until the user explicitly moves the splitter handle."""
+        self._preferred_expanded_width = max(1, int(width))
+        if self._user_resized:
+            return
+
+        current = self._expanded_sizes if self.collapsed else self._splitter.sizes()
+        right_width = current[1] if current and len(current) > 1 else 970
+        fitted = [self._preferred_expanded_width, max(1, right_width)]
+        if self.collapsed:
+            self._expanded_sizes = fitted
+            return
+
+        self._applying_preferred_width = True
+        try:
+            self._splitter.setSizes(fitted)
+        finally:
+            self._applying_preferred_width = False
+
+    def _on_splitter_moved(self, *_args) -> None:
+        if not self.collapsed and not self._applying_preferred_width:
+            self._user_resized = True
 
     def toggle(self) -> None:
         self.expand() if self.collapsed else self.collapse()
@@ -734,8 +992,8 @@ class _LeftRail:
         self._refresh()
         self._expanded.hide()
         self._collapsed.show()
-        self._left_panel.setFixedWidth(self._COLLAPSED_WIDTH)
         self.collapsed = True
+        self._left_panel.setFixedWidth(self._COLLAPSED_WIDTH)
         if not restoring:
             _save_rail_collapsed(True)
 
@@ -757,6 +1015,8 @@ def _build_right_panel(app, splitter):
     right_layout = QVBoxLayout(right_panel)
     right_layout.setContentsMargins(0, 0, 0, 0)
     splitter.addWidget(right_panel)
+    splitter.setStretchFactor(0, 0)
+    splitter.setStretchFactor(1, 1)
     splitter.setSizes([290, 970])
 
     app.tabview = QTabWidget()

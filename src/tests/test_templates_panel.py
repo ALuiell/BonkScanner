@@ -420,7 +420,7 @@ class TemplateOrderTests(unittest.TestCase):
                 with patch.dict(config.user_config, {"TEMPLATES": templates}, clear=False):
                     with patch.object(config, "save_config") as save_config:
                         with patch.object(panel, "refresh_templates") as refresh:
-                            changed = panel._save_template_order([3, 1, 2])
+                            changed = panel.save_template_order([3, 1, 2])
                             reordered_ids = [template["id"] for template in config.TEMPLATES]
                             active_after = list(config.ACTIVE_TEMPLATES)
 
@@ -435,7 +435,7 @@ class TemplateOrderTests(unittest.TestCase):
         templates = [{"id": 1, "name": "Alpha"}, {"id": 2, "name": "Beta"}]
         with patch.object(config, "TEMPLATES", templates):
             with patch.object(config, "save_config") as save_config:
-                changed = panel._save_template_order([2])
+                changed = panel.save_template_order([2])
                 templates_after = list(config.TEMPLATES)
         self.assertFalse(changed)
         self.assertEqual(templates_after, templates)
