@@ -349,7 +349,7 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
         table.addWidget(header, 0, index)
 
     for row, (widget_id, label, attribute) in enumerate(IN_GAME_WIDGET_ROWS, start=1):
-        name = QLabel(label)
+        name = _IgoRowNameLabel(label)
         name.setObjectName("tableRowName")
         table.addWidget(name, row, 0)
 
@@ -360,6 +360,13 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
         toggle.setChecked(bool(config.IN_GAME_OVERLAY["widgets"][widget_id]["enabled"]))
         toggle.stateChanged.connect(parent_mixin._on_igo_settings_changed)
         setattr(parent_mixin, attribute, toggle)
+        # The name drives the switch, the same way the caption did when these
+        # rows were captioned checkboxes. Splitting the name into its own
+        # `QLabel` silently took that away: the click target went from the full
+        # width of "Recording status" to a 40px switch, which is what a user
+        # notices as the control being hard to hit. `ModuleTile` solved the same
+        # problem for the tile grids by making the whole tile the target.
+        name.set_target(toggle)
         table.addWidget(toggle, row, 1)
 
         table.addWidget(_igo_scale_spin(parent_mixin, widget_id), row, 2)
@@ -372,6 +379,41 @@ def _build_igo_widgets_card(parent_mixin: Any, column) -> None:
 
     card.body.addLayout(table)
     column.addWidget(card)
+
+
+class _IgoRowNameLabel(QLabel):
+    """The widget-name cell, which toggles the switch on its row.
+
+    A plain `QLabel` here is what made these rows feel broken: the eye reads
+    "name + switch" as one control, and only the switch answered. Restoring the
+    captioned-checkbox behaviour costs one press handler.
+
+    Deliberately not a `buddy`: `setBuddy` only wires the Alt-mnemonic, which
+    these captions do not have, and does nothing for a mouse press.
+    """
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self._target: LabeledSwitch | None = None
+
+    def set_target(self, target: LabeledSwitch) -> None:
+        self._target = target
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event) -> None:
+        # On release, not press: a press that leaves the label before releasing
+        # is a cancelled click everywhere else in Qt, and toggling on press
+        # would make it commit anyway.
+        target = self._target
+        if (
+            target is not None
+            and event.button() == Qt.LeftButton
+            and self.rect().contains(event.position().toPoint())
+        ):
+            target.setChecked(not target.isChecked())
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 def _igo_scale_spin(parent_mixin: Any, widget_id: str) -> QDoubleSpinBox:
