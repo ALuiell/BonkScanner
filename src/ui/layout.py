@@ -957,8 +957,9 @@ class _LeftRail:
             return
 
         current = self._expanded_sizes if self.collapsed else self._splitter.sizes()
-        right_width = current[1] if current and len(current) > 1 else 970
-        fitted = [self._preferred_expanded_width, max(1, right_width)]
+        fitted = self._sizes_with_left_width(
+            self._preferred_expanded_width, current=current
+        )
         if self.collapsed:
             self._expanded_sizes = fitted
             return
@@ -968,6 +969,13 @@ class _LeftRail:
             self._splitter.setSizes(fitted)
         finally:
             self._applying_preferred_width = False
+
+    def _sizes_with_left_width(self, width: int, *, current=None) -> list[int]:
+        """Give width released by the left side to the right side, and vice versa."""
+        current = list(current if current is not None else self._splitter.sizes())
+        total_width = sum(current[:2]) if len(current) >= 2 else 0
+        total_width = max(total_width, int(width) + 1)
+        return [int(width), max(1, total_width - int(width))]
 
     def _on_splitter_moved(self, *_args) -> None:
         if not self.collapsed and not self._applying_preferred_width:
@@ -994,6 +1002,9 @@ class _LeftRail:
         self._collapsed.show()
         self.collapsed = True
         self._left_panel.setFixedWidth(self._COLLAPSED_WIDTH)
+        self._splitter.setSizes(
+            self._sizes_with_left_width(self._COLLAPSED_WIDTH)
+        )
         if not restoring:
             _save_rail_collapsed(True)
 
@@ -1006,6 +1017,10 @@ class _LeftRail:
         self._expanded.show()
         if self._expanded_sizes:
             self._splitter.setSizes(self._expanded_sizes)
+        else:
+            self._splitter.setSizes(
+                self._sizes_with_left_width(self._preferred_expanded_width)
+            )
         self.collapsed = False
         _save_rail_collapsed(False)
 

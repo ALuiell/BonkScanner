@@ -43,7 +43,22 @@ class _FakeSplitter:
 
 
 class _FakeRailWidget:
+    def __init__(self) -> None:
+        self.fixed_width = None
+
     def hide(self) -> None:
+        pass
+
+    def show(self) -> None:
+        pass
+
+    def setFixedWidth(self, width) -> None:
+        self.fixed_width = width
+
+    def setMinimumWidth(self, _width) -> None:
+        pass
+
+    def setMaximumWidth(self, _width) -> None:
         pass
 
 
@@ -78,7 +93,30 @@ class LeftRailTests(unittest.TestCase):
         splitter.splitterMoved.callback(395, 1)
         rail.set_preferred_expanded_width(380)
 
-        self.assertEqual(splitter.set_calls, [[410, 970]])
+        self.assertEqual(splitter.set_calls, [[410, 850]])
+
+    def test_collapse_releases_the_expanded_width_and_expand_restores_it(self) -> None:
+        splitter = _FakeSplitter()
+        splitter.current_sizes = [420, 1000]
+        left_panel = _FakeRailWidget()
+        expanded = _FakeRailWidget()
+        collapsed = _FakeRailWidget()
+        rail = _LeftRail(
+            splitter,
+            left_panel,
+            expanded,
+            collapsed,
+            lambda: None,
+        )
+
+        with patch("ui.layout._save_rail_collapsed"):
+            rail.collapse()
+            collapsed_sizes = list(splitter.current_sizes)
+            rail.expand()
+
+        self.assertEqual(left_panel.fixed_width, 58)
+        self.assertEqual(collapsed_sizes, [58, 1362])
+        self.assertEqual(splitter.current_sizes, [420, 1000])
 
     def test_template_tiles_keep_panel_order_and_include_inactive_entries(self) -> None:
         templates = [
