@@ -178,6 +178,49 @@ class PowerupTrackingSnapshot:
 
 
 @dataclass(frozen=True)
+class ItemCooldownReading:
+    """One timed passive item's cooldown state, as read from memory.
+
+    ``next_trigger_time`` is an **absolute mark on the same clock as
+    ``ItemCooldownSnapshot.my_time_seconds``**, not a countdown -- the game
+    writes it once per cycle and it does not tick. Rendering code subtracts;
+    nothing here is a remaining time, deliberately, because a remaining time
+    computed at read time is stale by however long it waits to be painted.
+
+    The mark is **not monotonic**: a pickup or stack change rewrites it to
+    ``my_time + 2.0``, which for an item mid-cooldown moves it *backwards* by
+    tens of seconds. Anything watching for "it just fired" must trigger on an
+    increase, never on a change.
+    """
+
+    item_id: int
+    name: str
+    stack_count: int
+    cooldown_seconds: float
+    next_trigger_time: float
+
+
+@dataclass(frozen=True)
+class ItemCooldownSnapshot:
+    """A batch of readings and the clock they were taken against.
+
+    ``my_time_seconds`` comes from the *same pass* as the readings, so
+    ``next_trigger_time - my_time_seconds`` is coherent by construction rather
+    than by matching two buffers. It freezes bit-exact while the game is paused,
+    which is the entire reason the countdown may never be derived from a local
+    monotonic clock.
+
+    An empty ``readings`` means "no timed item in the inventory", which is a
+    real answer. A failed read produces no snapshot at all rather than an empty
+    one -- the distinction is what keeps a missed pass from rendering as "no
+    cooldown".
+    """
+
+    my_time_seconds: float
+    readings: tuple[ItemCooldownReading, ...] = ()
+
+
+@dataclass(frozen=True)
 class PlayerStatSpec:
     label: str
     stat_id: int | None

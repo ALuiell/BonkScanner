@@ -116,6 +116,7 @@ DEFAULT_IN_GAME_OVERLAY = {
     "auto_start": False,
     "widgets": {
         "scanner": {"enabled": True, "x": 10, "y": 10, "scale": 1.0},
+        "item_cooldowns": {"enabled": False, "x": 10, "y": 190, "scale": 1.0},
         "recording": {"enabled": True, "x": 150, "y": 10, "scale": 1.0},
         "kps": {"enabled": True, "x": 10, "y": 40, "scale": 1.0, "metrics": ["instant"]},
         "powerups": {"enabled": True, "x": 10, "y": 70, "scale": 1.0},

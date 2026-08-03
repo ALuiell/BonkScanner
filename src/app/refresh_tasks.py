@@ -534,6 +534,38 @@ class RefreshTasks:
         if callable(update_fast_luck):
             update_fast_luck(luck)
 
+    def _publish_item_cooldowns(self, context: RefreshTickContext) -> None:
+        """Timed-item cooldowns, from the same pass as the inventory.
+
+        Costs almost nothing on top of that pass: the dictionary walk is
+        already paid for and memoised, so this is two float reads for the item
+        plus one for ``MyTime.time``, whose static-field chain is cached --
+        ~12 us against the ~0.004 ms measured per ``ReadProcessMemory``. That
+        is why there is no demand-gating predicate for it and
+        ``_should_refresh_passive_items`` is left alone: the cost this feature
+        adds is below the threshold at which gating pays for itself.
+
+        **Swallows, and records no health**, matching ``_publish_fast_luck``
+        and ``_publish_fast_map_activity`` above. ``PASSIVE_ITEMS`` keeps a
+        single health owner; without this a torn cooldown float would be
+        reported as an inventory failure and would mark the whole feature
+        degraded. Cost is not what demand-gating protects -- failure surface is
+        -- and this is how that half is paid instead.
+
+        A failure clears the reading rather than leaving the previous one in
+        place, so the TTL retires it on schedule instead of a stale countdown
+        outliving the pass that produced it.
+        """
+        try:
+            client = self._fast_task_client(context)
+            owner_stats = self._fast_task_owner_stats(context)
+            snapshot = client.get_item_cooldowns(owner_stats)
+        except Exception:
+            snapshot = None
+        publish = getattr(self._tracker(), "update_item_cooldowns", None)
+        if callable(publish):
+            publish(snapshot)
+
     def _publish_fast_map_activity(self, context: RefreshTickContext) -> None:
         """The interactable counters, from the same pass as the inventory.
 
@@ -620,6 +652,7 @@ class RefreshTasks:
         """
         self._publish_fast_luck(context)
         self._publish_fast_map_activity(context)
+        self._publish_item_cooldowns(context)
         try:
             client = self._fast_task_client(context)
             owner_stats = self._fast_task_owner_stats(context)

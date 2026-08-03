@@ -58,6 +58,7 @@ from core.tracker.snapshots import (
     PowerupsSnapshot,
     PowerupMapContext,
     FastRunTimer,
+    FastItemCooldowns,
     FastItems,
     FastLuck,
 )
@@ -91,6 +92,17 @@ FAST_ITEMS_TTL_SECONDS = 3.0
 # in the *same pass*, so a bound that expired one before the other would let a
 # gain be projected against a Luck the pass that observed it did not carry.
 FAST_LUCK_TTL_SECONDS = FAST_ITEMS_TTL_SECONDS
+
+# Item cooldowns' freshness bound. Same pass as the inventory and Luck, so the
+# same bound, for the same reason.
+#
+# What this bound does *not* do is worth stating, because the obvious reading of
+# "TTL" is wrong here: it retires a reading whose *pass failed*, and nothing
+# else. On the death screen every read keeps succeeding against a frozen clock,
+# so the reading stays perpetually fresh and perpetually wrong -- 256
+# consecutive successful reads over 26 s of wall-clock, measured. Only
+# ``RunLifecycle`` distinguishes that from a pause, which is byte-identical.
+FAST_ITEM_COOLDOWNS_TTL_SECONDS = FAST_ITEMS_TTL_SECONDS
 
 
 def with_lock(method):
@@ -140,6 +152,10 @@ class _RunState:
     # beside it rather than inside it because a failed Luck read must not
     # withhold the inventory, nor the reverse.
     fast_luck: FastLuck = field(default_factory=FastLuck)
+    # Published by that same pass. Holds the readings and the game clock they
+    # were measured against as one object, because the countdown is their
+    # difference and pairing them across passes is the bug this prevents.
+    fast_item_cooldowns: FastItemCooldowns = field(default_factory=FastItemCooldowns)
 
 
 @dataclass
@@ -171,7 +187,7 @@ class LiveRunTracker:
             "_pending_fast_stage_index", "_pending_fast_stage_samples",
             "_pending_fast_stage_boundary", "_pending_fast_stage_awaiting_timer_reset",
             "_slow_stage_timer_reset_pending_from", "_fast_run_timer",
-            "_fast_items", "_fast_luck",
+            "_fast_items", "_fast_luck", "_fast_item_cooldowns",
         )},
         **{name: "_combat_state" for name in (
             "_recent_kills_history", "_ui_kps_second", "_ui_kps_value",
@@ -321,6 +337,7 @@ class LiveRunTracker:
             self._fast_run_timer = FastRunTimer()
             self._fast_items = FastItems()
             self._fast_luck = FastLuck()
+            self._fast_item_cooldowns = FastItemCooldowns()
             self._cached_stage_summary = None
 
     @with_lock
@@ -423,6 +440,7 @@ class LiveRunTracker:
             graveyard_main_map_events_active=self._graveyard_main_map_events_active_unlocked(),
             luck=self._fresh_fast_luck_unlocked(),
             fast_items=self._fresh_fast_items_unlocked(),
+            item_cooldowns=self._fresh_item_cooldowns_unlocked(),
         )
 
     def _stage_summary_rows_unlocked(self) -> list[dict[str, Any]]:
@@ -727,6 +745,41 @@ class LiveRunTracker:
         pay for one float.
         """
         return self._fresh_fast_luck_unlocked()
+
+    @with_lock
+    def update_item_cooldowns(self, snapshot: Any | None) -> None:
+        """Publish timed-item cooldowns from the fast loot pass.
+
+        ``None`` clears rather than storing an empty reading, for the same
+        reason ``update_fast_luck`` does: a pass that failed and an inventory
+        holding no timed item are different facts, and only the second one may
+        render as "nothing to show". Clearing lets the TTL retire the last good
+        value instead of a failed read overwriting it with a plausible blank.
+        """
+        if snapshot is None:
+            self._fast_item_cooldowns = FastItemCooldowns()
+            return
+        self._fast_item_cooldowns = FastItemCooldowns(
+            captured_at=self.clock(), snapshot=snapshot
+        )
+
+    @with_lock
+    def item_cooldowns(self) -> Any | None:
+        """The fast lane's cooldown reading, or ``None`` when it is not fresh.
+
+        A named getter beside ``fast_luck`` so a repaint does not have to build
+        a whole ``runtime_snapshot()`` for it -- that deep-copies the latest
+        snapshot, which no widget should pay for a countdown.
+        """
+        return self._fresh_item_cooldowns_unlocked()
+
+    def _fresh_item_cooldowns_unlocked(self) -> Any | None:
+        reading = self._fast_item_cooldowns
+        if reading.captured_at <= 0 or reading.snapshot is None:
+            return None
+        if self.clock() - reading.captured_at > FAST_ITEM_COOLDOWNS_TTL_SECONDS:
+            return None
+        return reading.snapshot
 
     def _fresh_fast_luck_unlocked(self) -> float | None:
         fast_luck = self._fast_luck
@@ -1139,6 +1192,7 @@ class LiveRunTracker:
         self._fast_run_timer = FastRunTimer()
         self._fast_items = FastItems()
         self._fast_luck = FastLuck()
+        self._fast_item_cooldowns = FastItemCooldowns()
         self._pending_fast_stage_index = None
         self._pending_fast_stage_samples = 0
         self._pending_fast_stage_boundary = None

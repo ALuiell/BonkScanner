@@ -37,6 +37,7 @@ from projections.in_game_html import (
     build_event_timer_overlay_html,
     build_kps_overlay_html_from_values,
     build_luck_rarity_overlay_html_for_probabilities,
+    build_item_cooldowns_overlay_html,
     build_powerups_overlay_html,
     build_stats_overlay_html,
     build_status_indicator_html,
@@ -111,6 +112,7 @@ class InGameOverlay:
         self.igo_luck_rarity_cb = None
         self.igo_stats_cb = None
         self.igo_event_timer_cb = None
+        self.igo_item_cooldowns_cb = None
 
         self.in_game_overlay_window: InGameOverlayWindow | None = None
 
@@ -170,7 +172,11 @@ class InGameOverlay:
             widget = self.in_game_overlay_window.widgets.get(widget_id)
             if widget is None:
                 continue
-            if widget_id == "powerups":
+            # These two hide themselves from the fast tick when they have
+            # nothing to say -- no buff up, no timed item held -- so applying
+            # settings may only ever *hide* them. Showing here would put an
+            # empty box on screen until the next tick took it away again.
+            if widget_id in ("powerups", "item_cooldowns"):
                 if not widget_cfg["enabled"]:
                     widget.setVisible(False)
             else:
@@ -371,6 +377,21 @@ class InGameOverlay:
                 widgets["powerups"].setVisible(True)
             else:
                 widgets["powerups"].setVisible(False)
+
+        # Its own widget rather than a block inside Powerups above, because that
+        # one hides itself whenever no buff is up while an item cooldown runs
+        # for the whole run -- sharing it would mean deleting that rule and
+        # making Powerups permanently visible for everyone already using it.
+        if cfg["widgets"].get("item_cooldowns", {}).get("enabled", False):
+            html = build_item_cooldowns_overlay_html(
+                projection,
+                edit_mode=self.in_game_overlay_window.edit_mode,
+            )
+            if html:
+                widgets["item_cooldowns"].set_text(html)
+                widgets["item_cooldowns"].setVisible(True)
+            else:
+                widgets["item_cooldowns"].setVisible(False)
 
         self._refresh_in_game_overlay_luck_widget(projection)
 

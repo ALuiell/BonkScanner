@@ -8,6 +8,7 @@ The timer fields live in the static fields of the `MyTime` class. `PlayerStatsCl
 
 | Code field | Offset from `MyTime` static fields | Purpose |
 | --- | ---: | --- |
+| `my_time_seconds` / `MY_TIME_TIME_OFFSET` | `0x04` | **Session** clock, not a run clock. Counts upward. See §1.1. |
 | `stage_timer_seconds` / `STAGE_TIMER_OFFSET` | `0x1C` | Regular timer for the current map or main phase. Counts upward. |
 | `run_timer_seconds` / `RUN_TIMER_OFFSET` | `0x20` | Total run time. Counts upward. |
 | `final_swarm_timer_seconds` / `FINAL_SWARM_TIMER_OFFSET` | `0x24` | Dedicated final-swarm / ghost-phase timer. Counts upward. |
@@ -15,6 +16,40 @@ The timer fields live in the static fields of the `MyTime` class. `PlayerStatsCl
 | `crypt_timer_seconds` / `CRYPT_TIMER_OFFSET` | `0x2C` | Graveyard crypt-phase timer. Counts upward. |
 
 `stage_index` and `CurrentStage.Timeline.stageTime` are read separately through `MapController`. They are useful context, but neither is a universal source of truth for the current map phase or countdown duration.
+
+### 1.1. `MyTime.time` (`0x04`): the session clock
+
+Behaves unlike every other field in the table above, and item cooldowns are
+measured against it rather than against `stage_timer`. Measured live on
+2026-08-03 across Forest and Graveyard runs (~26 000 samples at 4–20 Hz).
+
+**It is not a run clock.** Across a death, the menu and a *new run* it climbed
+`2231 → 2739` with **no reset and no jump**, while the passive item dictionary
+went `count 6, version 6` → `count 0, version 0`. Consequences:
+
+- A new run cannot be detected from this clock.
+- A timestamp captured in one run stays subtractable against it in the next, and
+  yields a plausible-looking result. Anything derived from it must be held in
+  run-scoped state that a run reset clears.
+
+**It is continuous across every map transition.** Unlike `stage_timer`, it does
+not reset at a stage change or a Graveyard crypt entry. At the crypt transition,
+in a single tick, `stage_timer` went `135.51 → 0.00` and `crypt_timer`
+`40.96 → 0.09` while `my_time` advanced its normal `0.09 s`. Zero backwards
+steps over the whole capture.
+
+**It freezes bit-exact when the game pauses — and the death screen is
+indistinguishable from a pause by this field alone.** Both hold the *identical*
+float across consecutive reads: 68 reads over a 17 s pause, 385 reads over 97 s
+on the death screen. On the death screen `stage_timer`, `run_timer` and the item
+dictionary freeze with it and **every read keeps succeeding**, so no freshness
+bound or read-failure check can tell the two apart. Only run-lifecycle state
+can. Picking an item up also pauses the game, so a value captured at pickup
+sits frozen for as long as the selection screen is open.
+
+**A transition can look like a pause.** On the tick where `stage_timer` reset,
+`my_time` advanced `0.058 s` against `0.251 s` of wall-clock. A detector of the
+form `game_delta / wall_delta < 0.9` fires falsely there.
 
 ## 2. Time Direction
 
@@ -121,6 +156,8 @@ During an active wave, the overlay intentionally displays the static text `Wave 
 3. For events and countdowns, always use the timer for the relevant phase and an explicit canonical duration.
 4. Detect transitions using the timer family together with the activity dictionary: additions/removals of `Crypt Chests`, `Crypt Pots`, `Pumpkin`, `Gravestones`, and changes to `Chests.max`.
 5. Validate every new timing assumption in a live run and record it in a test with concrete input values.
+6. Never derive a displayed time from a local monotonic clock. Every tick must re-read the game's own field; a 17 s pause would otherwise burn half a 33 s cooldown. This is what the KPS clock, the Event Timer and the item-cooldown widget all do.
+7. A frozen clock is not a failure and does not mean the run ended. Pause and the death screen produce byte-identical freezes with every read succeeding (§1.1), so **use run-lifecycle state to decide whether to keep displaying**, never a freshness bound and never a read-failure check.
 
 ## 6. Items Requiring Live Validation
 

@@ -11,6 +11,7 @@ delete them once nothing depends on this module for types.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from math import isfinite
 import time
 from typing import Iterable
@@ -40,6 +41,8 @@ from core.stats.types import (
     DisabledItemsReadResult,
     DisabledItemsReadStatus,
     InvalidItemStackCountError,
+    ItemCooldownReading,
+    ItemCooldownSnapshot,
     LUCK_LABEL,
     MemoryReader,
     PLAYER_STAT_GROUPS,
@@ -75,7 +78,11 @@ __all__ = [
     "DamageSourceSnapshot",
     "DisabledItemsReadResult",
     "DisabledItemsReadStatus",
+    "ITEM_COOLDOWN_LAYOUTS",
     "InvalidItemStackCountError",
+    "ItemCooldownLayout",
+    "ItemCooldownReading",
+    "ItemCooldownSnapshot",
     "LUCK_LABEL",
     "MemoryReader",
     "PICKUP_RANGE_BASE_METERS",
@@ -112,6 +119,68 @@ __all__ = [
     "format_weapon_stat_value",
     "iter_player_stat_groups",
 ]
+
+
+@dataclass(frozen=True)
+class ItemCooldownLayout:
+    """Where one item class keeps its cooldown pair, and how to prove it.
+
+    ``class_name`` is the IL2CPP class from ``dump.cs``. It is not the lookup
+    key -- it is the *check*. The key is the item enum id, because the two
+    naming spaces do not agree: ``ITEM_ENUM_NAMES_BY_ID[85]`` is ``BobsLantern``
+    while the class is ``ItemBobLantern``, and ``74`` is ``GloveBlood`` against
+    ``ItemGlovesBlood``. Keying on a name built from the enum table would miss
+    silently.
+
+    The verification matters more than it looks. Field offsets are per class, so
+    reading this pair off the wrong object does not fail -- it returns
+    well-formed floats. A sweep of the live inventory for values that track the
+    game clock found nine hits: one was this item, seven were sub-second proc
+    timers (``ItemSpikyShield`` and ``ItemBeefyRing`` keep theirs at ``0x3C``,
+    exactly where the lantern keeps ``cooldown``), one was a *last*-fired mark
+    reading in the past, and one was not a declared field at all. Nothing about
+    a wrong read announces itself, so the class name is confirmed before the
+    floats are trusted.
+    """
+
+    class_name: str
+    cooldown_offset: int
+    next_trigger_offset: int
+
+
+#: Item enum id -> where that class keeps its cooldown pair.
+#:
+#: One entry, and the table shape is the point: it makes a substring or
+#: value-shaped guess structurally impossible. Adding a row costs a `dump.cs`
+#: confirmation (`tools/scan_timed_items.py`) *and* a live capture -- the dump
+#: says a field exists and what it is called, never whether its period is long
+#: enough to be worth a line on screen. `ItemGlovesBlood` has a textbook
+#: `cooldown`/`readyAtTime` pair and cycles every ~3.7 s.
+#:
+#: Confirmed live 2026-08-03: `cooldown` = max(5, 45 - 3n) and the mark is
+#: absolute on `MyTime.time`, re-armed exactly `+cooldown` on a trigger and to
+#: `my_time + 2.000` on any pickup.
+ITEM_COOLDOWN_LAYOUTS: dict[int, ItemCooldownLayout] = {
+    85: ItemCooldownLayout("ItemBobLantern", cooldown_offset=0x3C, next_trigger_offset=0x40),
+}
+
+
+@dataclass(frozen=True)
+class _CooldownSlot:
+    """Resolved addresses for one item's cooldown pair.
+
+    Addresses, never values. The dictionary's ``_version`` -- which is what
+    invalidates the memo these live in -- moves on an Add or Remove and **not**
+    on a stack change: measured, the version held at 27 across a stack going
+    1 -> 3, and stepped 4 -> 5 when an item was added. So a cached address stays
+    correct (the item object does not move; its pointer was identical across
+    ~5300 samples) while a cached ``cooldown`` would go stale in silence the
+    moment a copy is picked up.
+    """
+
+    item_id: int
+    cooldown_address: int
+    next_trigger_address: int
 
 
 class PlayerStatsClient:
@@ -281,7 +350,9 @@ class PlayerStatsClient:
         self._cached_item_layout_entries = 0
         self._cached_item_layout_count = -1
         self._cached_item_layout_version: int | None = None
-        self._cached_item_layout: tuple[tuple[int, str], ...] | None = None
+        self._cached_item_layout: (
+            tuple[tuple[int, str, "_CooldownSlot | None"], ...] | None
+        ) = None
         self._cached_chaos_level_dict = 0
         self._cached_chaos_level_entries = 0
         self._cached_chaos_level_version: int | None = None
@@ -530,20 +601,54 @@ class PlayerStatsClient:
             )
         return first
 
+    def _dictionary_has_entries(self, dictionary: int) -> bool:
+        """Is this dictionary the live one, or a drained shell?
+
+        Both routes to the passive inventory can hand back a **non-null pointer
+        to an empty dictionary**, and which one does depends on run state.
+        Measured live on 2026-08-03, mid-run, with 25 items held: the container
+        route resolved `0x...EF750` with `count=0, version=0, entries=0x0` while
+        the player-inventory route resolved the real one with `count=25`. A
+        resolver that stops at "non-null" therefore picks the dead one and never
+        looks further.
+        """
+        try:
+            if not self.memory.read_ptr(dictionary + self.DICT_ENTRIES_OFFSET):
+                return False
+            return self.memory.read_i32(dictionary + self.DICT_COUNT_OFFSET) > 0
+        except MemoryReadError:
+            return False
+
     def _resolve_preferred_passive_item_dict(self, owner_stats: int) -> int:
+        """The passive item dictionary that actually holds the inventory.
+
+        Prefers whichever candidate has entries rather than whichever pointer is
+        non-null first. This is the rule `get_passive_items` has always applied
+        by falling through on an *empty result*; stating it here means the two
+        cannot disagree about which dictionary is live -- which they did, and
+        the disagreement was silent: `_get_cached_key_count` read the drained
+        container dictionary and reported `key_count=0` for a player visibly
+        holding a Key.
+
+        When neither candidate has entries the container one is returned
+        unchanged, so "the player owns nothing yet" still reads as an empty
+        inventory rather than a failure.
+        """
+        container_dict = 0
         try:
             inventory_container = self.memory.read_ptr(
                 owner_stats + self.INVENTORY_CONTAINER_OFFSET
             )
             if inventory_container:
-                passive_item_dict = self.memory.read_ptr(
+                container_dict = self.memory.read_ptr(
                     inventory_container + self.PASSIVE_ITEM_DICT_OFFSET
                 )
-                if passive_item_dict:
-                    return passive_item_dict
+                if container_dict and self._dictionary_has_entries(container_dict):
+                    return container_dict
         except MemoryReadError:
             pass
 
+        inventory_dict = 0
         try:
             player_inventory = self.memory.read_ptr(
                 owner_stats + self.PLAYER_INVENTORY_OFFSET
@@ -553,7 +658,7 @@ class PlayerStatsClient:
                 if player_inventory
                 else 0
             )
-            return (
+            inventory_dict = (
                 self.memory.read_ptr(
                     item_inventory + self.ITEM_INVENTORY_ITEMS_DICT_OFFSET
                 )
@@ -561,7 +666,16 @@ class PlayerStatsClient:
                 else 0
             )
         except MemoryReadError:
-            return 0
+            inventory_dict = 0
+
+        if inventory_dict and self._dictionary_has_entries(inventory_dict):
+            return inventory_dict
+        # Neither holds anything: hand back the container one so an inventory
+        # that is genuinely empty still resolves to a dictionary rather than to
+        # a failure. `container_dict or inventory_dict` rather than a bare
+        # `container_dict`, so a state where only the fallback pointer resolves
+        # at all is not turned into "no dictionary".
+        return container_dict or inventory_dict
 
     def _find_passive_item_stack_address(
         self,
@@ -667,10 +781,10 @@ class PlayerStatsClient:
         if cached_layout is not None:
             return tuple(
                 f"{item_name} x{max(1, self._layout_stack_count(stack_address))}"
-                for stack_address, item_name in cached_layout
+                for stack_address, item_name, _cooldown in cached_layout
             )
 
-        layout: list[tuple[int, str]] = []
+        layout: list[tuple[int, str, _CooldownSlot | None]] = []
         items: list[str] = []
         broken_entries = 0
         for index in range(count):
@@ -683,6 +797,11 @@ class PlayerStatsClient:
                     # is not an incomplete walk and does not defeat the memo.
                     continue
 
+                # Rebound per entry, not left over from the previous one: the
+                # read below can fail, and a stale id would then be attributed
+                # to this slot -- which is exactly how a cooldown layout would
+                # get bound to the wrong item.
+                item_id: int | None = None
                 try:
                     item_id = self.memory.read_i32(entry + self.DICT_ENTRY_KEY_OFFSET)
                     enum_name = ITEM_ENUM_NAMES_BY_ID.get(item_id)
@@ -720,7 +839,11 @@ class PlayerStatsClient:
                 broken_entries += 1
                 continue
 
-            layout.append((item_value + self.ITEM_STACK_COUNT_OFFSET, item_name))
+            # Resolved on the clean walk only, so the per-pass cost of the
+            # cooldown feature on the cached path is two float reads for the one
+            # item that has them -- not a second walk of the dictionary.
+            cooldown_slot = self._resolve_cooldown_slot(item_value, item_id)
+            layout.append((item_value + self.ITEM_STACK_COUNT_OFFSET, item_name, cooldown_slot))
             items.append(f"{item_name} x{max(1, stack_count)}")
 
         if count > 0 and not items and broken_entries:
@@ -736,12 +859,138 @@ class PlayerStatsClient:
 
         return tuple(items)
 
+    def _resolve_cooldown_slot(
+        self, item_value: int, item_id: int | None
+    ) -> _CooldownSlot | None:
+        """Bind an item object to its cooldown layout, or refuse to.
+
+        Returns ``None`` for every item that is not in the table, which is
+        almost all of them, and also for a listed item whose class metadata does
+        not read back as the class the table names. That check is the whole
+        safety of the feature: the offsets are per class, so a mismatch does not
+        raise -- it hands back plausible floats. Refusing is silent and costs
+        one line on screen; guessing is silent and costs a wrong number that
+        looks right.
+
+        Failing to read the class name is treated as a mismatch. This runs only
+        on the clean-walk path, so a slot dropped here is retried on the very
+        next pass rather than being frozen out until the dictionary changes.
+        """
+        if item_id is None:
+            return None
+        layout = ITEM_COOLDOWN_LAYOUTS.get(item_id)
+        if layout is None:
+            return None
+
+        try:
+            class_meta = self.memory.read_ptr(item_value + self.ITEM_CLASS_META_OFFSET)
+            name_ptr = (
+                self.memory.read_ptr(class_meta + self.CLASS_META_NAME_PTR_OFFSET)
+                if class_meta
+                else 0
+            )
+            class_name = self.memory.read_ascii_string(name_ptr) if name_ptr else None
+        except MemoryReadError:
+            return None
+
+        if class_name != layout.class_name:
+            return None
+
+        return _CooldownSlot(
+            item_id=item_id,
+            cooldown_address=item_value + layout.cooldown_offset,
+            next_trigger_address=item_value + layout.next_trigger_offset,
+        )
+
+    def get_item_cooldowns(self, owner_stats: int | None = None) -> ItemCooldownSnapshot:
+        """Cooldown state for every timed passive item, against one clock read.
+
+        ``my_time`` is read in this same call rather than by the caller, so a
+        reading and the clock it is measured against cannot come from different
+        passes. Both freeze together while the game is paused, which is correct
+        and is also indistinguishable from the death screen -- neither the TTL
+        nor a failed read will clear a stale display, because nothing here
+        fails there. Whether to keep showing the widget is a run-lifecycle
+        question, not this method's.
+
+        Raises on an unreadable clock or dictionary. An empty ``readings`` tuple
+        means the inventory holds no timed item, which is a real answer; a
+        failure must not be flattened into one.
+        """
+        owner_stats = owner_stats or self._resolve_owner_stats()
+        my_time = self.get_my_time_seconds()
+
+        passive_item_dict = self._resolve_preferred_passive_item_dict(owner_stats)
+        if not passive_item_dict:
+            return ItemCooldownSnapshot(my_time_seconds=my_time)
+
+        # Populates the memo as a side effect when it is cold, and is a no-op
+        # walk when it is warm -- so this costs a dictionary walk once per
+        # Add/Remove and two float reads per pass thereafter.
+        self._read_passive_item_dictionary(passive_item_dict)
+        layout = self._cached_item_layout
+        # The memo must belong to the dictionary just walked. Without this the
+        # method reads whatever layout happened to be cached by an *earlier*
+        # call against a *different* dictionary -- which is not hypothetical:
+        # while the container route was resolving a drained dictionary, this
+        # returned correct-looking readings purely because `get_passive_items`
+        # had run first and left a live layout behind.
+        if not layout or self._cached_item_layout_dict != passive_item_dict:
+            return ItemCooldownSnapshot(my_time_seconds=my_time)
+
+        readings: list[ItemCooldownReading] = []
+        for stack_address, item_name, cooldown_slot in layout:
+            if cooldown_slot is None:
+                continue
+            try:
+                cooldown = self.memory.read_float(cooldown_slot.cooldown_address)
+                next_trigger = self.memory.read_float(cooldown_slot.next_trigger_address)
+            except MemoryReadError:
+                # One torn item, not a failed batch. The others in this pass are
+                # still good, and the caller's TTL covers a slot that stays
+                # unreadable.
+                continue
+
+            if not isfinite(cooldown) or not isfinite(next_trigger):
+                continue
+            # `cooldown <= 0` is insurance rather than a fix: at 20 Hz the
+            # fields were never observed half-written -- they appear correct on
+            # the same read the dictionary entry first appears on. It costs one
+            # comparison to not find out the hard way on some other item.
+            if cooldown <= 0.0:
+                continue
+
+            # `_layout_stack_count`, not a bespoke read: it already encodes the
+            # policy the cached item path uses -- an unreadable stack degrades
+            # to 1, while `InvalidItemStackCountError` (a *torn* read) is left
+            # to propagate. Here that aborts the batch, the caller records no
+            # reading, and the TTL clears the display. Failing closed on a torn
+            # read is the same answer the item ladders give, reached for the
+            # same reason.
+            stack_count = self._layout_stack_count(stack_address)
+            if stack_count < 1:
+                continue
+
+            readings.append(
+                ItemCooldownReading(
+                    item_id=cooldown_slot.item_id,
+                    name=item_name,
+                    stack_count=stack_count,
+                    cooldown_seconds=cooldown,
+                    next_trigger_time=next_trigger,
+                )
+            )
+
+        return ItemCooldownSnapshot(
+            my_time_seconds=my_time, readings=tuple(readings)
+        )
+
     def _passive_item_layout(
         self,
         passive_item_dict: int,
         entries: int,
         count: int,
-    ) -> tuple[tuple[int, str], ...] | None:
+    ) -> tuple[tuple[int, str, _CooldownSlot | None], ...] | None:
         """The memoised slot layout, or ``None`` when it must be rebuilt."""
         if self._cached_item_layout is None:
             return None
@@ -765,7 +1014,7 @@ class PlayerStatsClient:
         passive_item_dict: int,
         entries: int,
         count: int,
-        layout: tuple[tuple[int, str], ...],
+        layout: tuple[tuple[int, str, _CooldownSlot | None], ...],
     ) -> None:
         try:
             version = self.memory.read_i32(passive_item_dict + self.DICT_VERSION_OFFSET)

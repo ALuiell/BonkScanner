@@ -10,7 +10,11 @@ from core.stage_rules import (
     stage_duration_seconds,
 )
 from core.stat_labels import abbreviate_stat_label
-from core.item_metadata import ITEM_RARITY_COLOR_MAP
+from core.item_metadata import (
+    ITEM_RARITY_BY_NAME,
+    ITEM_RARITY_COLOR_MAP,
+    normalize_item_name_for_rarity,
+)
 # The rarity roll moved down to core/ when the loot tracker became its second
 # consumer -- core/ may not import projections/, and the model was never a
 # rendering concern. Both names stay importable from here because every existing
@@ -25,7 +29,14 @@ from core.luck_rarity import (
 
 TEXT_SHADOW = "-1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000"
 POWERUP_COLORS: dict[str, str] = {
-    "Rage": "#e879f9",
+    # Was `#e879f9`, which is `ITEM_RARITY_COLOR_MAP["RARE"]` to the byte. Once
+    # the item-cooldown rows started colouring by rarity, a Rage row and a rare
+    # item's countdown could sit one line apart in the same colour, reading as
+    # a relationship that does not exist. Moved far enough to be unmistakable
+    # (CIE Lab dE 26 from rare) while staying the same colour in character --
+    # Rage should not look like a different effect. Also the furthest of the
+    # candidates from `FALLBACK_COLOR`, the unknown-item purple, at dE 57.
+    "Rage": "#a855f7",
     "Shield": "#4ade80",
     "Stonks": "#fde047",
     "Clock": "#7dd3fc",
@@ -265,6 +276,109 @@ def build_powerups_overlay_html(
         lines.append(
             f"<span style='color: {color}; text-shadow: {TEXT_SHADOW};'>"
             f"{name}: {detail}</span>"
+        )
+
+    return "<br>".join(lines)
+
+
+#: Below this many seconds remaining, a row switches to `CRITICAL_COLOR`.
+#: Matches the powerup rows' threshold so the two blocks mean the same thing by
+#: the same colour.
+ITEM_COOLDOWN_CRITICAL_SECONDS = 5.0
+
+def item_cooldown_row_color(item_name: str) -> str:
+    """A cooldown row's colour: the item's own rarity.
+
+    Not a hand-kept table. `ITEM_RARITY_BY_NAME` already covers 163 items --
+    including all three of the timed classes still queued for this widget -- so
+    a newly supported item is coloured correctly without a renderer change, and
+    there is no second table to drift out of step.
+
+    `item_display_color` looks like the obvious source and is not: its map holds
+    exactly **one** entry, Golden Ring, as a special case for the ring
+    announcer. Every item routed through it would have come back
+    `FALLBACK_COLOR` -- one colour for all of them.
+
+    Rarity colours are the overlay's shared vocabulary rather than this
+    widget's: the Luck row, the bar and the expected block already speak them,
+    so `#E879F9` means "rare" everywhere it appears. That it also happens to be
+    the Rage powerup's colour is a coincidence in the existing palette, not a
+    meaning invented here.
+    """
+    rarity = ITEM_RARITY_BY_NAME.get(normalize_item_name_for_rarity(item_name))
+    return ITEM_RARITY_COLOR_MAP.get(rarity, FALLBACK_COLOR)
+
+
+def build_item_cooldowns_overlay_html(
+    projection: Any,
+    *,
+    edit_mode: bool = False,
+) -> str:
+    """The countdown to each timed item's next trigger.
+
+    Returns an empty string when there is nothing to show, which the widget
+    renders as hidden -- no timed item held is not a state worth a caption. In
+    edit mode it returns a placeholder instead, or the widget cannot be grabbed
+    with the mouse before the player owns one.
+
+    **The countdown is computed here, from the mark and the clock carried
+    together on the projection.** ``next_trigger_time`` is an absolute mark on
+    the game's own clock, not a countdown, and the subtraction belongs at paint
+    time: the overlay repaints every 500 ms against a 1 s read lane, so a
+    remaining time frozen at read time would always be shown stale. Both values
+    come from one pass, so the difference is coherent by construction.
+
+    **Nothing is drawn once the run is over.** On the death screen the game
+    clock freezes and every read keeps succeeding, so the reading stays fresh
+    and the countdown would sit frozen on screen indefinitely -- measured, 256
+    consecutive successful reads across 26 s. Freshness cannot detect that;
+    only the lifecycle can. The same freeze happens under pause, where holding
+    the value *is* correct, which is exactly why the two need separating by
+    something other than the reading itself.
+    """
+    if edit_mode:
+        snapshot = getattr(projection, "item_cooldowns", None)
+        if snapshot is None or not getattr(snapshot, "readings", ()):
+            return (
+                f"<span style='color: {HEADER_COLOR}; opacity: 0.5; "
+                f"text-shadow: {TEXT_SHADOW};'>Item Cooldowns (preview)</span>"
+            )
+    elif getattr(projection, "run_completed", False):
+        return ""
+
+    snapshot = getattr(projection, "item_cooldowns", None)
+    readings = tuple(getattr(snapshot, "readings", ()) or ())
+    if not readings:
+        return ""
+
+    my_time = getattr(snapshot, "my_time_seconds", None)
+    if my_time is None:
+        return ""
+
+    lines = [
+        f"<span style='color: {HEADER_COLOR}; text-shadow: {TEXT_SHADOW};'>Cooldowns</span>"
+    ]
+    for reading in readings:
+        name = str(getattr(reading, "name", "?"))
+        # Clamped at zero: the mark goes briefly negative between a trigger and
+        # the pass that observes the re-arm (measured at -0.01 s), and "0s"
+        # reads as "about to fire", which is what is happening.
+        remaining = max(0.0, float(getattr(reading, "next_trigger_time", 0.0)) - float(my_time))
+
+        colour = (
+            CRITICAL_COLOR
+            if remaining < ITEM_COOLDOWN_CRITICAL_SECONDS
+            else item_cooldown_row_color(name)
+        )
+        # Truncated, not rounded. `{:.0f}` rounds half to even, which both
+        # displays *more* time than remains (26.5 -> 27 under half-up, and
+        # inconsistently under half-even: 26.5 -> 26 but 27.5 -> 28) and never
+        # shows `0s`. A countdown that overstates its own deadline is the one
+        # error mode worth ruling out here, and truncating also makes the final
+        # second read `0s`, which is what "about to fire" should look like.
+        lines.append(
+            f"<span style='color: {colour}; text-shadow: {TEXT_SHADOW};'>"
+            f"{escape(name)}: {int(remaining)}s</span>"
         )
 
     return "<br>".join(lines)

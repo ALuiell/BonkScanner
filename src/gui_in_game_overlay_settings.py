@@ -45,11 +45,12 @@ IN_GAME_WIDGET_ROWS = (
     ("luck_rarity", "Luck rarity %", "igo_luck_rarity_cb"),
     ("stats", "Stats", "igo_stats_cb"),
     ("event_timer", "Event timer", "igo_event_timer_cb"),
+    ("item_cooldowns", "Item cooldowns", "igo_item_cooldowns_cb"),
 )
 
 
 #: Which attribute each widget's scale spin box is stored under. The table
-#: builder writes them and `_on_igo_settings_changed` reads all seven back by
+#: builder writes them and `_on_igo_settings_changed` reads all of them back by
 #: name, so the two need one list rather than two hand-kept copies -- a rename
 #: on one side alone is a setting that silently stops saving.
 #: `igo_`-prefixed like every other widget this builder writes onto the
@@ -64,6 +65,7 @@ IGO_SCALE_SPIN_ATTRIBUTES = {
     "luck_rarity": "igo_luck_rarity_scale_spin",
     "stats": "igo_stats_scale_spin",
     "event_timer": "igo_event_timer_scale_spin",
+    "item_cooldowns": "igo_item_cooldowns_scale_spin",
 }
 
 

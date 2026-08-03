@@ -221,6 +221,11 @@ class RuntimeStateSnapshot:
     # reads this and falls back to ``latest_snapshot`` when it is ``None``.
     # ``None`` is "no fresh read", never "the inventory is empty".
     fast_items: tuple[str, ...] | None = None
+    # Timed-item cooldowns and the game clock they were read against, from that
+    # same 1 s pass. One object rather than two fields precisely so a consumer
+    # cannot pair a reading with a clock from a different pass. ``None`` is "no
+    # fresh read"; a snapshot with empty ``readings`` is "no timed item held".
+    item_cooldowns: Any | None = None
 
 
 @dataclass(frozen=True)
@@ -281,6 +286,32 @@ class FastLuck:
 
     captured_at: float = 0.0
     luck: float | None = None
+
+
+@dataclass
+class FastItemCooldowns:
+    """Timed-item cooldowns, published by the fast-lane ``PASSIVE_ITEMS`` read.
+
+    ``snapshot`` carries the readings **and** the ``my_time`` they were taken
+    against, together, because the countdown is their difference and sampling
+    the two separately would reintroduce the skew the single pass exists to
+    remove.
+
+    ``None`` is "no fresh read", never "no cooldowns". An inventory holding no
+    timed item produces a snapshot with an empty ``readings`` tuple, which is a
+    real answer; a failed pass produces nothing at all and the TTL retires the
+    last good one. The two must stay distinguishable or a missed pass renders
+    as "this item has no cooldown".
+
+    The TTL does **not** cover a finished run. Measured on the death screen: the
+    game clock freezes bit-exact, the item dictionary stays intact, and every
+    read keeps succeeding -- so there is no failure for a freshness bound to
+    catch, and the countdown would sit frozen forever. Clearing that is
+    ``RunLifecycle``'s job, not this one's.
+    """
+
+    captured_at: float = 0.0
+    snapshot: Any | None = None
 
 
 @dataclass(frozen=True)
