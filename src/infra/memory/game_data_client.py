@@ -427,6 +427,10 @@ class GameDataClient:
             if previous_state is not None and previous_state.current_stage_ptr
             else None
         )
+        has_baseline_identity = any(
+            value is not None
+            for value in (baseline_seed, baseline_map_ptr, baseline_stage_ptr)
+        )
         baseline_stats = self._normalize_ready_stats(previous_stats) if previous_stats is not None else None
         stable_stats: dict[MapStat, StatValue] | None = None
         ready_raw_stats: dict[MapStat, StatValue] | None = None
@@ -470,7 +474,16 @@ class GameDataClient:
                 zero_defaulted_stats = self.EXPECTED_READY_STATS.difference(stats.keys())
                 if baseline_stats is None:
                     baseline_stats = ready_stats
-                elif ready_stats != baseline_stats:
+                elif ready_stats != baseline_stats and not has_baseline_identity:
+                    # Stats are a last-resort map identity only. During a real
+                    # restart the old map is torn down before `is_generating`
+                    # flips and before the seed changes; Chests/Pots maxima can
+                    # therefore shrink through several stable snapshots while
+                    # every score-relevant value still belongs to the old map.
+                    # Treating that teardown as a completed map change logs the
+                    # old map twice and immediately sends a second restart.
+                    # When a seed or pointer baseline exists, wait for that
+                    # identity (or the observed generation cycle) instead.
                     map_change_seen = True
 
                 if (

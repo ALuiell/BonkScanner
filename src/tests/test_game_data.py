@@ -621,7 +621,6 @@ class GameDataClientTests(unittest.TestCase):
 
         self.assertEqual(
             client.wait_for_map_ready(
-                previous_seed=1,
                 previous_stats=old_stats,
                 timeout=1.0,
                 poll_interval=0.001,
@@ -678,7 +677,7 @@ class GameDataClientTests(unittest.TestCase):
                 poll_interval=0.001,
             )
 
-    def test_wait_for_map_ready_can_use_previous_stats_as_baseline(self) -> None:
+    def test_wait_for_map_ready_can_use_previous_stats_without_state_identity(self) -> None:
         ready_state = MapGenerationState(
             is_generating=False,
             map_seed=1,
@@ -695,7 +694,46 @@ class GameDataClientTests(unittest.TestCase):
 
         self.assertEqual(
             client.wait_for_map_ready(
-                previous_seed=1,
+                previous_stats=old_stats,
+                timeout=1.0,
+                poll_interval=0.001,
+            ),
+            new_stats,
+        )
+
+    def test_wait_for_map_ready_ignores_old_map_teardown_until_seed_changes(self) -> None:
+        previous_state = MapGenerationState(
+            is_generating=False,
+            map_seed=1,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        ready_state = MapGenerationState(
+            is_generating=False,
+            map_seed=2,
+            current_map_ptr=0x40000000,
+            current_stage_ptr=0x40000100,
+            is_resetting=False,
+        )
+        old_stats = full_stats(current=1)
+        teardown_stats = dict(old_stats)
+        teardown_stats[MapStat.CHESTS] = StatValue(current=1, max=4)
+        teardown_stats[MapStat.POTS] = StatValue(current=1, max=12)
+        new_stats = full_stats(current=2)
+        client = SequencedGameDataClient(
+            states=[previous_state, previous_state, ready_state, ready_state],
+            stats_snapshots=[
+                teardown_stats,
+                teardown_stats,
+                new_stats,
+                new_stats,
+            ],
+        )
+
+        self.assertEqual(
+            client.wait_for_map_ready(
+                previous_state=previous_state,
                 previous_stats=old_stats,
                 timeout=1.0,
                 poll_interval=0.001,
