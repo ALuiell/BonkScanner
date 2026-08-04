@@ -589,11 +589,11 @@ class RecordingsScrubTests(unittest.TestCase):
             tab.on_scrub_index_changed(value)
 
         self.assertEqual(
-            ["2 / 4  ·  10s  ·  in-game 00:10",
-             "3 / 4  ·  20s  ·  in-game 00:20",
-             "4 / 4  ·  30s  ·  in-game 00:30"],
+            ["2 / 4  ·  10s", "3 / 4  ·  20s", "4 / 4  ·  30s"],
             tab._position_label.writes,
         )
+        self.assertIn("Game</span> <b", tab._legend_label.writes[-1])
+        self.assertIn(">00:30</b>", tab._legend_label.writes[-1])
         self.assertEqual([((1,), {})], [
             (call.args, call.kwargs) for call in tab.display_loaded_vod_snapshot.call_args_list
         ])

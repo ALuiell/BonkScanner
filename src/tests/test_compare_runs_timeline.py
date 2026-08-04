@@ -495,6 +495,12 @@ def test_timeline_footer_shows_visible_series_a_b_and_delta() -> None:
     app.processEvents()
 
     assert compare._timeline_legend.keys == ("Damage",)
+    game = compare._timeline_legend._game
+    assert game._name.text() == "Game"
+    assert game._value_a.text() == "A 00:01"
+    assert game._arrow.text() == "→"
+    assert game._value_b.text() == "B 00:02"
+    assert game._delta.text() == "Δ -00:01"
     item = compare._timeline_legend._items[0]
     assert item._name.text() == "DMG"
     assert item._value_a.text() == "A 10.0"

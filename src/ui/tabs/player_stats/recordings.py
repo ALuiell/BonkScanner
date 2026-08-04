@@ -983,12 +983,7 @@ class RecordingsTab:
         snapshots = self._loaded_vod.snapshots
         index = min(max(int(index), 0), len(snapshots) - 1)
         snapshot = snapshots[index]
-        game_time = getattr(snapshot, "game_time_seconds", None)
-        in_game = "--" if game_time is None else formatting.format_elapsed_time(game_time)
-        return (
-            f"{index + 1} / {len(snapshots)}  ·  {snapshot.time_label}"
-            f"  ·  in-game {in_game}"
-        )
+        return f"{index + 1} / {len(snapshots)}  ·  {snapshot.time_label}"
 
     def _legend_parts(self, index: int) -> tuple[str, str]:
         """The series values at the playhead, plus what is not a series.
@@ -1007,7 +1002,15 @@ class RecordingsTab:
         # not been built yet.
         model = self._scrubber.model if self._scrubber is not None else None
         series_keys = self._scrubber.series_keys if self._scrubber is not None else ()
-        parts: list[str] = []
+        snapshot = snapshots[index]
+        game_time = getattr(snapshot, "game_time_seconds", None)
+        game = "--" if game_time is None else formatting.format_elapsed_time(game_time)
+        # Time is the coordinate for every value that follows, so it leads the
+        # footer instead of living in the detached position pill above it.
+        parts: list[str] = [
+            '<span style="color:#8A94A3;">Game</span> '
+            f'<b style="color:#EDF1F5;">{game}</b>'
+        ]
         if model is not None and model.count > 0:
             for key in series_keys:
                 series = model.series(key)
@@ -1018,7 +1021,6 @@ class RecordingsTab:
                     f'<span style="color:#8A94A3;">{abbreviate_stat_label(series.label)}</span> '
                     f'<b style="color:#EDF1F5;">{self._series_display(key, snapshots[index])}</b>'
                 )
-        snapshot = snapshots[index]
         # What is not a series, in muted text. Mob Kills joins them only when
         # no slot is plotting it: the "Run Summary" card this readout replaced
         # always showed it, and clearing the Kills slot must not take a
@@ -1457,10 +1459,10 @@ class RecordingsTab:
 
         The status line above it is gone rather than moved. It read
         `950k | 601/713 at 02:14:38 | In-Game Time: 01:43:22`, rewritten on
-        every drag frame, while the position pill beside the slot buttons says
-        the same three numbers -- and says them next to the playhead they
-        describe. What is left here is what the pill does not carry: the name,
-        and a line for how the recording was captured (or for what went wrong).
+        every drag frame, while the position pill and timeline footer say the
+        same three numbers next to the playhead they describe. What is left
+        here is what that readout does not carry: the name, and a line for how
+        the recording was captured (or for what went wrong).
         """
         frame = QFrame()
         frame.setObjectName("RecordingPlaque")

@@ -9,6 +9,44 @@ from ui.shared import FlowLayout
 from ui.timeline_controls import timeline_series_accent_role
 
 
+class _GameLegendItem(QFrame):
+    """The playhead's game-time coordinate, before the plotted values."""
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("CompareRunsTimelineLegendItem")
+        self.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(5)
+
+        self._name = QLabel("Game")
+        self._name.setObjectName("CompareRunsTimelineLegendName")
+        self._value_a = _SeriesLegendItem._make_value("A")
+        self._arrow = QLabel("→")
+        self._arrow.setObjectName("CompareRunsTimelineLegendArrow")
+        self._value_b = _SeriesLegendItem._make_value("B")
+        self._separator = QLabel("·")
+        self._separator.setObjectName("CompareRunsTimelineLegendSeparator")
+        self._delta = QLabel("Δ --")
+        self._delta.setObjectName("CompareRunsTimelineLegendDelta")
+        self._delta.setToolTip("Game-time difference: Run A minus Run B")
+
+        layout.addWidget(self._name)
+        layout.addSpacing(2)
+        layout.addWidget(self._value_a)
+        layout.addWidget(self._arrow)
+        layout.addWidget(self._value_b)
+        layout.addWidget(self._separator)
+        layout.addWidget(self._delta)
+
+    def set_values(self, value_a: str, value_b: str, delta: str) -> None:
+        _SeriesLegendItem._set_text(self._value_a, f"A {value_a}")
+        _SeriesLegendItem._set_text(self._value_b, f"B {value_b}")
+        _SeriesLegendItem._set_text(self._delta, f"Δ {delta}")
+
+
 class _SeriesLegendItem(QFrame):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -83,6 +121,8 @@ class CompareRunsTimelineLegend(QWidget):
         self._items: list[_SeriesLegendItem] = []
         self._keys: tuple[str, ...] = ()
 
+        self._game = _GameLegendItem(self)
+        self._flow.addWidget(self._game)
         self._empty = QLabel("No curves selected")
         self._empty.setObjectName("CompareRunsTimelineLegendEmpty")
         self._flow.addWidget(self._empty)
@@ -114,3 +154,6 @@ class CompareRunsTimelineLegend(QWidget):
         readings = dict(values)
         for key, item in zip(self._keys, self._items):
             item.set_values(*readings.get(key, ("--", "--", "--")))
+
+    def set_game_values(self, value_a: str, value_b: str, delta: str) -> None:
+        self._game.set_values(value_a, value_b, delta)

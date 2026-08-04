@@ -4085,14 +4085,16 @@ class GuiRunControlTests(unittest.TestCase):
         app.display_loaded_vod_snapshot(0)
 
         # The plaque's status line is not written per snapshot any more: it
-        # restated the position pill below, which is where these three numbers
-        # sit next to the playhead they describe.
+        # restated the timeline readout below, where position and values sit
+        # next to the playhead they describe.
         self.assertEqual(app._status_label.text(), "")
         # The "Run Summary" card is gone; the same four values are the
         # scrubber's readout now. Mob Kills appears because no slot is
         # plotting it -- there is no scrubber on this harness at all.
-        self.assertEqual(app._position_label.text(), "1 / 1  ·  00:00  ·  in-game --")
+        self.assertEqual(app._position_label.text(), "1 / 1  ·  00:00")
         legend = app._legend_label.text()
+        self.assertIn("Game</span> <b", legend)
+        self.assertIn(">--</b>", legend)
         self.assertIn("Mob Kills: --", legend)
         self.assertIn("KPS: 60s -- | 5m --", legend)
         self.assertIn("Level: --", legend)
@@ -5207,6 +5209,38 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertEqual(overlay.overlay_fast_timer.start_calls, 1)
         self.assertEqual(status_updates, ["fast", "status"])
+
+    def test_in_game_overlay_autostart_enables_a_previously_stopped_runtime(self) -> None:
+        overlay = build_in_game_overlay_test_component()
+        overlay._update_igo_status_ui = MagicMock()
+        overlay_cfg = {"enabled": False, "auto_start": True, "widgets": {}}
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), patch.object(
+            gui_in_game_overlay,
+            "InGameOverlayWindow",
+            side_effect=lambda _owner: FakeInGameOverlayWindow(),
+        ):
+            overlay._init_in_game_overlay()
+
+        self.assertTrue(overlay_cfg["enabled"])
+        self.assertEqual(overlay.overlay_fast_timer.start_calls, 1)
+        overlay._update_igo_status_ui.assert_called_once_with()
+
+    def test_in_game_overlay_without_autostart_stays_disabled_on_startup(self) -> None:
+        overlay = build_in_game_overlay_test_component()
+        overlay._update_igo_status_ui = MagicMock()
+        overlay_cfg = {"enabled": True, "auto_start": False, "widgets": {}}
+
+        with patch.object(config, "IN_GAME_OVERLAY", overlay_cfg), patch.object(
+            gui_in_game_overlay,
+            "InGameOverlayWindow",
+            side_effect=lambda _owner: FakeInGameOverlayWindow(),
+        ):
+            overlay._init_in_game_overlay()
+
+        self.assertFalse(overlay_cfg["enabled"])
+        self.assertEqual(overlay.overlay_fast_timer.start_calls, 0)
+        overlay._update_igo_status_ui.assert_called_once_with()
 
     def test_overlay_fast_tick_hides_disabled_overlay_even_if_game_is_active(self) -> None:
         tracker = SimpleNamespace(

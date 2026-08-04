@@ -192,6 +192,31 @@ def _timeline_series_delta_value(key: str, snapshot_a, snapshot_b) -> str:
     return format_player_stat_delta(delta * display_scale, value_format)
 
 
+def _timeline_game_time_value(snapshot) -> float | None:
+    if snapshot is None:
+        return None
+    try:
+        value = float(getattr(snapshot, "game_time_seconds", None))
+    except (TypeError, ValueError):
+        return None
+    return value if isfinite(value) else None
+
+
+def _timeline_game_time_display(snapshot) -> str:
+    value = _timeline_game_time_value(snapshot)
+    return "--" if value is None else formatting.format_elapsed_time(value)
+
+
+def _timeline_game_time_delta(snapshot_a, snapshot_b) -> str:
+    value_a = _timeline_game_time_value(snapshot_a)
+    value_b = _timeline_game_time_value(snapshot_b)
+    if value_a is None or value_b is None:
+        return "--"
+    delta = value_a - value_b
+    sign = "+" if delta > 0 else "-" if delta < 0 else ""
+    return f"{sign}{formatting.format_elapsed_time(abs(delta))}"
+
+
 # --------------------------------------------------------------------------
 # Module-level, not methods on the tab.
 #
@@ -830,6 +855,11 @@ class CompareRunsTab:
         legend.set_keys(keys)
         snapshot_a = self._compare_run_snapshot("a")
         snapshot_b = self._compare_run_snapshot("b")
+        legend.set_game_values(
+            _timeline_game_time_display(snapshot_a),
+            _timeline_game_time_display(snapshot_b),
+            _timeline_game_time_delta(snapshot_a, snapshot_b),
+        )
         legend.set_values(
             (
                 key,

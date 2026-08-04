@@ -133,10 +133,14 @@ class InGameOverlay:
     def _init_in_game_overlay(self) -> None:
         self.in_game_overlay_window = InGameOverlayWindow(self)
 
-        if not config.IN_GAME_OVERLAY.get("auto_start", False):
-            config.IN_GAME_OVERLAY["enabled"] = False
-
-        if config.IN_GAME_OVERLAY["enabled"] and config.IN_GAME_OVERLAY.get("auto_start", False):
+        # ``enabled`` is the current runtime state, not a second startup
+        # preference. A user can enable auto-start while the overlay is stopped,
+        # which persists ``auto_start=True`` beside ``enabled=False``. Requiring
+        # both values here made that perfectly valid combination skip startup.
+        # At process start the preference decides the initial runtime state.
+        auto_start = bool(config.IN_GAME_OVERLAY.get("auto_start", False))
+        config.IN_GAME_OVERLAY["enabled"] = auto_start
+        if auto_start:
             self.start_in_game_overlay()
 
         self._update_igo_status_ui()
