@@ -225,7 +225,11 @@ body {
 
 
 .stage-summary-widget {
-  width: calc(410px * var(--scale));
+  /* Reserve the ordinary maximum frame up front: 59:59, 999,999 and four
+     two-digit rarity counts. The absolute-layout wrapper otherwise derives
+     its auto width from the current text and makes the widget visibly breathe
+     as the run fills in. */
+  width: calc(470px * var(--scale));
   padding: calc(12px * var(--scale)) calc(16px * var(--scale));
   border: calc(1px * var(--scale)) solid rgba(255, 210, 63, 0);
   border-radius: 0;
@@ -245,7 +249,7 @@ body {
     calc(48px * var(--scale))
     calc(78px * var(--scale))
     calc(88px * var(--scale))
-    minmax(calc(142px * var(--scale)), 1fr);
+    minmax(calc(176px * var(--scale)), 1fr);
   column-gap: calc(15px * var(--scale));
   row-gap: calc(7px * var(--scale));
   align-items: center;
@@ -275,6 +279,7 @@ body {
   font-weight: 800;
   line-height: 1.05;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .stage-items {
@@ -283,7 +288,7 @@ body {
 
 .stage-item-counts {
   display: grid;
-  grid-template-columns: repeat(4, minmax(calc(28px * var(--scale)), max-content));
+  grid-template-columns: repeat(4, minmax(calc(38px * var(--scale)), max-content));
   align-items: center;
   column-gap: calc(8px * var(--scale));
 }
@@ -295,7 +300,8 @@ body {
   font-weight: 700;
   font-size: calc(13.5px * var(--scale));
   text-align: center;
-  min-width: calc(32px * var(--scale));
+  min-width: calc(38px * var(--scale));
+  font-variant-numeric: tabular-nums;
   background: rgba(25, 25, 25, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.01);
@@ -621,6 +627,15 @@ body:has(#edit-mode-banner) .overlay-shell.absolute-layout {
   z-index: 10;
   display: flex;
   flex-direction: column;
+}
+
+/* `render()` writes `width: auto` on unsized wrappers. Give Stage Summary the
+   same reserved frame as its panel so that auto means "at least the normal
+   maximum", while still allowing genuinely larger values to overflow/grow and
+   preserving an explicit custom width chosen in the editor. */
+.overlay-shell.absolute-layout
+  .widget-wrapper[data-id="stage_summary"]:not(.custom-size-active) {
+  min-width: calc(470px * var(--scale));
 }
 
 .overlay-shell.absolute-layout .widget-wrapper .panel {
