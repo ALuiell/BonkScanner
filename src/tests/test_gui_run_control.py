@@ -1287,7 +1287,7 @@ class GuiRunControlTests(unittest.TestCase):
                 self.assertFalse(app._name_entry.enabled)
                 self.assertFalse(app._rename_btn.isEnabled())
                 self.assertFalse(app._delete_btn.isEnabled())
-                # "Delete short" is not in this list any more: it acts on the
+                # "Recording cleanup" is not in this list any more: it acts on the
                 # whole library, so a recording being mid-load says nothing
                 # about whether it should be available.
                 self.assertTrue(app._cleanup_btn.isEnabled())

@@ -665,9 +665,16 @@ class CleanupRecordingsDialog(QDialog):
     Editable still, because "clean up harder than I record" is a real one-off.
     """
 
-    def __init__(self, parent, *, default_threshold: int | None = None):
+    def __init__(
+        self,
+        parent,
+        *,
+        default_threshold: int | None = None,
+        recordings=(),
+    ):
         super().__init__(parent)
         self.threshold: int | None = None
+        self.recordings = tuple(recordings)
         self.setWindowTitle("Clean Recordings")
         self.setModal(True)
         layout = dialog_body(
@@ -687,9 +694,33 @@ class CleanupRecordingsDialog(QDialog):
         layout.addWidget(dialog_note("This cannot be undone."))
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
-        confirm_btn = QPushButton("Remove")
-        confirm_btn.clicked.connect(self.confirm)
-        dialog_footer(self, secondary=cancel_btn, destructive=confirm_btn)
+        self.confirm_btn = QPushButton("Remove")
+        self.confirm_btn.clicked.connect(self.confirm)
+        self.threshold_entry.textChanged.connect(self._refresh_removal_count)
+        dialog_footer(self, secondary=cancel_btn, destructive=self.confirm_btn)
+        self._refresh_removal_count()
+
+    def _refresh_removal_count(self, _text: str = "") -> None:
+        try:
+            threshold = int(float(_read_text(self.threshold_entry)))
+        except ValueError:
+            self.confirm_btn.setText("Remove")
+            self.confirm_btn.setEnabled(False)
+            return
+
+        if threshold < 0:
+            self.confirm_btn.setText("Remove")
+            self.confirm_btn.setEnabled(False)
+            return
+
+        count = sum(
+            1
+            for recording in self.recordings
+            if int(recording.snapshot_count) < threshold
+        )
+        noun = "recording" if count == 1 else "recordings"
+        self.confirm_btn.setText(f"Remove {count} {noun}")
+        self.confirm_btn.setEnabled(count > 0)
 
     def confirm(self):
         try:

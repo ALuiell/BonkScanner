@@ -552,31 +552,23 @@ class RecordingsTab:
         self._list_signature = signature
 
     def _refresh_library_footer(self, vods) -> None:
-        """The library's own totals, and how many the threshold would remove."""
+        """Refresh the library totals and availability of its cleanup action."""
         _set_text(
             self._library_summary_label,
             f"{len(vods)} recordings  ·  {_format_bytes(library_size_bytes(vods))}",
         )
         if self._cleanup_btn is not None:
-            short = short_recording_count(vods, self._minimum_snapshot_count())
-            self._cleanup_btn.setText(f"Delete short  ·  {short}")
-            self._cleanup_btn.setEnabled(short > 0)
+            self._cleanup_btn.setText("Recording cleanup")
+            self._cleanup_btn.setEnabled(bool(vods))
         self._refresh_recordings_chooser()
 
-    def _minimum_snapshot_count(self) -> int:
-        """The threshold as the *spinner* has it, falling back to the store."""
-        if self._min_snapshots_spin is not None:
-            return max(0, int(self._min_snapshots_spin.value()))
-        return minimum_snapshot_count()
-
     def on_minimum_snapshot_count_changed(self, value: int) -> None:
-        """Persist the auto-filter threshold and restate what it would remove.
+        """Persist the threshold the recorder applies when a run ends.
 
-        One number drives both halves: the recorder discards below it when a
-        run ends, and "Delete short" applies it to what is already on disk.
+        The cleanup dialog starts from the same value, but can change it for
+        that one operation and owns the preview of what the choice will remove.
         """
         set_minimum_snapshot_count(int(value))
-        self._refresh_library_footer(list(self._library.index))
 
     def _recordings_sort_mode(self) -> str:
         """The combo's order, or the saved one before the combo exists."""
@@ -1246,20 +1238,29 @@ class RecordingsTab:
         # the one control that could fix it collapsed behind a button.
         self.ensure_recordings_chooser_for_empty_selection()
     def cleanup_recordings_by_snapshot_count(self):
-        dialog = CleanupRecordingsDialog(
-            self._window(),
-            default_threshold=minimum_snapshot_count(),
-        )
-        if dialog.exec() != QDialog.Accepted or dialog.threshold is None:
-            return
-
-        selected_path = self._loaded_vod.metadata.path if self._loaded_vod is not None else None
         recorder = self._vod_recorder()
         active_path = (
             getattr(recorder, "path", None)
             if recorder is not None and getattr(recorder, "is_recording", False)
             else None
         )
+        active_resolved = (
+            Path(active_path).resolve() if active_path is not None else None
+        )
+        cleanup_candidates = [
+            vod
+            for vod in self._library.index
+            if active_resolved is None or vod.path.resolve() != active_resolved
+        ]
+        dialog = CleanupRecordingsDialog(
+            self._window(),
+            default_threshold=minimum_snapshot_count(),
+            recordings=cleanup_candidates,
+        )
+        if dialog.exec() != QDialog.Accepted or dialog.threshold is None:
+            return
+
+        selected_path = self._loaded_vod.metadata.path if self._loaded_vod is not None else None
         try:
             result = delete_vods_below_snapshot_count(
                 dialog.threshold,
@@ -2249,7 +2250,7 @@ class RecordingsTab:
         threshold_hint.setWordWrap(True)
         footer_layout.addWidget(threshold_hint)
 
-        self._cleanup_btn = QPushButton("Delete short")
+        self._cleanup_btn = QPushButton("Recording cleanup")
         self._cleanup_btn.setObjectName("danger")
         self._cleanup_btn.clicked.connect(self.cleanup_recordings_by_snapshot_count)
         footer_layout.addWidget(self._cleanup_btn, 0, Qt.AlignLeft)

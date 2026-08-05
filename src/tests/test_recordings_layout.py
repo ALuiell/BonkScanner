@@ -19,6 +19,7 @@ class RecordingsLayoutTests(unittest.TestCase):
             import os
             os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
             import src
+            from types import SimpleNamespace
             from PySide6.QtWidgets import (
                 QApplication,
                 QComboBox,
@@ -30,6 +31,7 @@ class RecordingsLayoutTests(unittest.TestCase):
                 QWidget,
             )
             from app import config
+            from ui.dialogs import CleanupRecordingsDialog
             from ui.tabs.player_stats.recordings import RecordingsTab
 
             config.user_config.pop("LIVE_STATS_EXPANDED", None)
@@ -338,9 +340,27 @@ class RecordingsLayoutTests(unittest.TestCase):
             assert footer is not None
             assert footer.findChild(QSpinBox, "RecordingsMinimumSnapshots") is not None
             assert view._cleanup_btn.parent() is footer
+            assert view._cleanup_btn.text() == "Recording cleanup"
             # Filled at build time, not on the first refresh: the panel starts
             # collapsed, so a footer that waits would read "0 recordings".
             assert view._library_summary_label.text() != "--"
+
+            cleanup = CleanupRecordingsDialog(
+                None,
+                default_threshold=10,
+                recordings=(
+                    SimpleNamespace(snapshot_count=3),
+                    SimpleNamespace(snapshot_count=10),
+                    SimpleNamespace(snapshot_count=20),
+                ),
+            )
+            assert cleanup.confirm_btn.text() == "Remove 1 recording"
+            assert cleanup.confirm_btn.isEnabled()
+            cleanup.threshold_entry.setText("21")
+            assert cleanup.confirm_btn.text() == "Remove 3 recordings"
+            cleanup.threshold_entry.setText("0")
+            assert cleanup.confirm_btn.text() == "Remove 0 recordings"
+            assert not cleanup.confirm_btn.isEnabled()
 
             # The record plaque is one compact context row: library selector,
             # current name, then the two explicit actions for that recording.

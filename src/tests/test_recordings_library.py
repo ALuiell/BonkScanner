@@ -23,6 +23,7 @@ from types import SimpleNamespace
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from ui.tabs.player_stats.recordings import (
+    RecordingsTab,
     _format_bytes,
     filter_recordings,
     library_size_bytes,
@@ -76,6 +77,45 @@ class ShortRecordingCountTests(unittest.TestCase):
 
     def test_a_negative_threshold_cannot_select_recordings(self) -> None:
         self.assertEqual(short_recording_count(VODS, -10), 0)
+
+
+class _FakeTextWidget:
+    def __init__(self) -> None:
+        self.value = ""
+        self.enabled = None
+
+    def setText(self, value: str) -> None:
+        self.value = value
+
+    def setEnabled(self, value: bool) -> None:
+        self.enabled = bool(value)
+
+
+class CleanupButtonStateTests(unittest.TestCase):
+    def test_cleanup_stays_available_when_the_current_threshold_matches_nothing(self) -> None:
+        button = _FakeTextWidget()
+        tab = SimpleNamespace(
+            _library_summary_label=_FakeTextWidget(),
+            _cleanup_btn=button,
+            _refresh_recordings_chooser=lambda: None,
+        )
+
+        RecordingsTab._refresh_library_footer(tab, VODS)
+
+        self.assertEqual(button.value, "Recording cleanup")
+        self.assertTrue(button.enabled)
+
+    def test_cleanup_is_disabled_only_for_an_empty_library(self) -> None:
+        button = _FakeTextWidget()
+        tab = SimpleNamespace(
+            _library_summary_label=_FakeTextWidget(),
+            _cleanup_btn=button,
+            _refresh_recordings_chooser=lambda: None,
+        )
+
+        RecordingsTab._refresh_library_footer(tab, ())
+
+        self.assertFalse(button.enabled)
 
 
 class LibrarySizeTests(unittest.TestCase):
