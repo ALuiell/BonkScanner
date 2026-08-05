@@ -490,7 +490,8 @@ class TwitchBoundaryTests(unittest.TestCase):
         for relative in self.COMPONENT_MODULES:
             path = os.path.join(SRC_ROOT, relative)
             with self.subTest(module=relative):
-                tree = ast.parse(open(path, encoding="utf-8").read())
+                with open(path, encoding="utf-8") as source_file:
+                    tree = ast.parse(source_file.read())
                 reached = {
                     node.attr
                     for node in ast.walk(tree)
@@ -520,7 +521,8 @@ class TwitchBoundaryTests(unittest.TestCase):
         that may only shrink.
         """
         path = os.path.join(SRC_ROOT, "app", "twitch_session.py")
-        tree = ast.parse(open(path, encoding="utf-8").read())
+        with open(path, encoding="utf-8") as source_file:
+            tree = ast.parse(source_file.read())
         imported = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
