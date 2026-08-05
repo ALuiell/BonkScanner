@@ -39,12 +39,14 @@ Unlike regular items and other tomes, the Megabonk developers implemented a dual
 ### 2.1. Mathematical Representation
 Each roll of the Chaos Tome is calculated using the following formula:
 
-$$\text{Value} = \text{round3}\left(\text{round3}(\text{base} \times \text{rarity}_1) \times 1.4 \times \text{rarity}_2\right)$$
+$$\text{Value} = \text{round3}\left(\text{round3}(\text{base} \times \text{rarity}_{inner}) \times 1.4 \times \text{rarity}_{outer}\right)$$
 
 Where:
 * **base**: The base value of the stat (see section 3).
 * **1.4**: A fixed internal multiplier for the Chaos Tome (`chaosTomeMultiplier = 1.4f` from `TomeUtility`).
-* **rarity₁ / rarity₂**: Rarity multipliers selected independently from the pool:
+* **`rarity_inner`**: The hidden rarity of the random stat offer generated specifically for the Chaos Tome effect.
+* **`rarity_outer`**: The rarity of the Chaos Tome upgrade that triggered the effect.
+* Both rarities use a multiplier from the same pool:
   * `1.0` (Common)
   * `1.2` (Uncommon)
   * `1.4` (Rare)
@@ -53,11 +55,23 @@ Where:
 * **round3**: A helper function rounding to 3 decimal places (implemented as `StatUtility.GetRarityValue(..., 3)` in C#).
 
 ### 2.2. Why Are the Rarities Independent?
-The two-step calculation comes from the architecture of stat generation:
-1. **First Pass (`GetRandomStatOffers`)**: The game selects a base stat and multiplies it by the first rolled rarity of the offer ($\text{rarity}_1$). The result is rounded to 3 decimals.
-2. **Second Pass (`CheckSpecialTomes`)**: If the tome is a Chaos Tome, a special handler triggers, multiplying the rounded value by `1.4` and a second independently rolled rarity ($\text{rarity}_2$), then rounding the final result to 3 decimals.
+The two rarity inputs come from different stages of stat generation:
+1. **Outer rarity**: The upgrade system rolls the rarity of the Chaos Tome upgrade before applying it. `TomeInventory.AddTome(..., ERarity rarity)` passes that already-rolled value to `TomeUtility.CheckSpecialTomes(tomeData, rarity)`.
+2. **Inner rarity (`GetRandomStatOffers`)**: The Chaos branch calls `EncounterUtility.GetRandomStatOffers(1, false, false)`. This generates a new random stat offer with its own rarity, applies that rarity to the stat's base value, and rounds the result to 3 decimals.
+3. **Final Chaos pass (`CheckSpecialTomes`)**: The handler multiplies the inner offer value by `chaosTomeMultiplier` (`1.4`) and applies the **outer rarity passed into the function**, then rounds the final result to 3 decimals. `CheckSpecialTomes` does not perform another rarity RNG call at this point.
 
-This creates **25 possible rarity combinations** ($\text{rarity}_1 \times \text{rarity}_2$). Because of symmetry and rounding collisions, these map to **15 unique fingerprint values** per stat.
+The inner and outer rarities come from two separate rarity events. This creates **25 possible rarity combinations** ($\text{rarity}_{inner} \times \text{rarity}_{outer}$). Because of symmetry and rounding collisions, these map to **15 unique fingerprint values** per stat.
+
+### 2.3. Luck Affects Both Rarities
+
+Both rarity events are affected by the player's current **Luck**:
+
+* The outer Chaos Tome upgrade uses the normal Luck-dependent upgrade-offer rarity path.
+* For the inner hidden roll, `GetRandomStatOffers` reads `GetStat(EStat.Luck)` (`EStat` ID `30`) and passes the result to `Rarity.GetEncounterOfferRarity(luck)` before constructing the stat offer.
+
+Therefore, the hidden secondary rarity roll is **not** a fixed or Luck-independent roll. Increasing Luck shifts both the visible outer upgrade rarity and the hidden inner stat-offer rarity toward higher tiers. The two results remain independent draws even though they use the same current Luck value and rarity-weight function.
+
+This distinction does not affect the tracker's fingerprint matching: the tracker needs the complete set of possible values, not the probability of each combination.
 
 ---
 
@@ -155,7 +169,8 @@ Below are all mathematically possible modifier values for a **single roll** of t
 
 ```python
 # Formula:
-# round3(round3(base * r1) * 1.4 * r2) for r1, r2 in [2.0, 1.6, 1.4, 1.2, 1.0]
+# round3(round3(base * rarity_inner) * 1.4 * rarity_outer)
+# for rarity_inner, rarity_outer in [2.0, 1.6, 1.4, 1.2, 1.0]
 ```
 
 ### 6.1. Flat Stats
