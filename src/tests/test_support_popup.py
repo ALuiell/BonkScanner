@@ -219,6 +219,39 @@ class SupportPopupPlacementTests(unittest.TestCase):
         anchor_right = anchor.mapToGlobal(QPoint(anchor.width(), 0)).x()
         self.assertEqual(popup.geometry().right() + 1, anchor_right)
 
+    def test_the_card_grows_upwards_and_never_down_over_its_button(self):
+        window, anchor = self._anchor()
+        popup = SupportPopup(window)
+        self.addCleanup(popup.deleteLater)
+        popup.show_above(anchor)
+        self.addCleanup(popup.close)
+
+        heights = []
+        for count in (2, 8, SupportPopup.MAX_LISTED):
+            popup.set_supporters([f"Supporter {index}" for index in range(count)])
+            # Twice: the placement that matters happens on the pass after the
+            # rows become measurable. See `SupportPopup._reanchor`.
+            _app.processEvents()
+            _app.processEvents()
+
+            anchor_top = anchor.mapToGlobal(QPoint(0, 0)).y()
+            self.assertLess(
+                popup.geometry().bottom(),
+                anchor_top,
+                f"{count} names: the card covers the button it opens from",
+            )
+            heights.append(popup.geometry().height())
+
+        self.assertEqual(heights, sorted(heights))
+        self.assertLess(heights[0], heights[-1])
+
+        # And it stops growing: `MAX_LISTED` caps the rows, so a list ten times
+        # longer is exactly as tall. Nothing here can outgrow a screen.
+        popup.set_supporters([f"Supporter {index}" for index in range(240)])
+        _app.processEvents()
+        _app.processEvents()
+        self.assertEqual(popup.geometry().height(), heights[-1])
+
     def test_the_card_is_kept_on_the_screen(self):
         window, anchor = self._anchor()
         screen = window.screen() or QApplication.primaryScreen()

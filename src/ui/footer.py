@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import webbrowser
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QFrame,
@@ -285,7 +285,23 @@ class SupportPopup(QFrame):
         lands on the narrow card and widens it while it is open. Every early
         return here is a case where there is nothing to correct: not visible, or
         never opened against anything.
+
+        **Placed twice, and the second time is the one that gets the height
+        right.** Rows added to the grid are not measurable yet at this point:
+        the labels they replaced are only unparented on the next pass through
+        the event loop, and the new ones have not been polished, so `sizeHint`
+        still answers for the previous contents -- measured, 8 names reported
+        the height of 2. Placing from that puts the bottom edge of the card
+        below the button it is supposed to sit above. The immediate placement
+        keeps the width honest without waiting a frame; `_settle` fixes the
+        height once there is something true to measure.
         """
+        if self.isVisible() and self._anchor is not None:
+            self._place_above(self._anchor)
+            QTimer.singleShot(0, self._settle)
+
+    def _settle(self) -> None:
+        """Second half of `_reanchor`, once the layout has caught up."""
         if self.isVisible() and self._anchor is not None:
             self._place_above(self._anchor)
 
@@ -302,6 +318,10 @@ class SupportPopup(QFrame):
         self._anchor = anchor
         self._place_above(anchor)
         self.show()
+        # The same one-pass lag applies to a popup built and filled in the click
+        # that opens it: nothing has been polished yet. Idempotent when the
+        # first placement was already right.
+        QTimer.singleShot(0, self._settle)
 
     def _place_above(self, anchor: QWidget) -> None:
         """Put the bottom-right corner of the card over `anchor`'s top-right.
@@ -321,6 +341,15 @@ class SupportPopup(QFrame):
         one rendered half off the edge.
         """
         self.ensurePolished()
+        # Invalidated innermost first, and this is not belt-and-braces. A layout
+        # caches the size hint it computed for its parent, so activating only
+        # the outer one answers from the *previous* contents: adding rows to the
+        # grid re-placed the card at its height from one call ago, which put its
+        # bottom edge below the button it is supposed to sit above. The width
+        # never showed it -- the card's width is set outright.
+        self._names_grid.invalidate()
+        self._card.layout().invalidate()
+        self.layout().invalidate()
         self.layout().activate()
         self.adjustSize()
         size = self.sizeHint()
