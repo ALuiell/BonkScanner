@@ -23,7 +23,6 @@ from core.item_metadata import (
 # them: nothing outside the model itself ever read those.
 from core.luck_rarity import (
     LUCK_RARITY_ORDER,
-    calculate_luck_rarity_probabilities,
     format_expected_count,
 )
 

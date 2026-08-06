@@ -910,6 +910,3 @@ class MegabonkApp:
         self._after_window_shown_callbacks.clear()
         for callback in callbacks:
             self.after(0, callback)
-
-    def winfo_exists(self) -> bool:
-        return not self._is_shutting_down

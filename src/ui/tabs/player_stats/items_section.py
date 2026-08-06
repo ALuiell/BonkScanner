@@ -53,9 +53,7 @@ from PySide6.QtCore import Property, QPointF, QTimer, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
-    QFrame,
     QLabel,
-    QScrollArea,
     QStyle,
     QStyleOptionComboBox,
     QStylePainter,

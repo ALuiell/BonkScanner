@@ -163,25 +163,14 @@ class FakeEntry:
     def __init__(self, value: str) -> None:
         self.value = value
 
-    def get(self) -> str:
-        return self.value
-
     def text(self) -> str:
         return self.value
 
     def setText(self, value: str) -> None:
         self.value = value
 
-
-class FakeVar:
-    def __init__(self, value: bool) -> None:
-        self.value = value
-
-    def get(self) -> bool:
-        return self.value
-
-    def set(self, value: bool) -> None:
-        self.value = value
+    def clear(self) -> None:
+        self.value = ""
 
 
 class FakeSpinBox:
@@ -977,18 +966,18 @@ class GuiRunControlTests(unittest.TestCase):
     def test_settings_save_updates_community_settings_and_applies_run_control_mode(self) -> None:
         master = FakeSettingsMaster()
         vod_capture(master).player_stats_auto_recording_suppressed = True
-        destroyed: list[bool] = []
+        accepted: list[bool] = []
         dialog = types.SimpleNamespace(
             hotkey_entry=FakeEntry("f7"),
             reset_hotkey_entry=FakeEntry("r"),
             record_hotkey_entry=FakeEntry("f8"),
-            auto_start_recording_var=FakeVar(True),
-            show_obs_reminder_on_start_scanner_var=FakeVar(True),
+            auto_start_recording_var=FakeCheckbox(True),
+            show_obs_reminder_on_start_scanner_var=FakeCheckbox(True),
             reset_hold_duration_entry=FakeEntry("0.25"),
             _initial_reset_hold_duration=config.RESET_HOLD_DURATION,
             record_interval_entry=FakeEntry("60"),
             master=master,
-            destroy=lambda: destroyed.append(True),
+            accept=lambda: accepted.append(True),
         )
 
         with patch.object(config, "save_config") as save_config:
@@ -1011,22 +1000,22 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
         update_game_reset_time.assert_called_once_with(0.2)
-        self.assertEqual(destroyed, [True])
+        self.assertEqual(accepted, [True])
 
     def test_settings_save_keeps_dialog_open_when_game_reset_time_cannot_be_applied(self) -> None:
         original_duration = config.RESET_HOLD_DURATION
-        destroyed: list[bool] = []
+        accepted: list[bool] = []
         dialog = types.SimpleNamespace(
             hotkey_entry=FakeEntry("f7"),
             reset_hotkey_entry=FakeEntry("r"),
             record_hotkey_entry=FakeEntry("f8"),
-            auto_start_recording_var=FakeVar(False),
-            show_obs_reminder_on_start_scanner_var=FakeVar(False),
+            auto_start_recording_var=FakeCheckbox(False),
+            show_obs_reminder_on_start_scanner_var=FakeCheckbox(False),
             reset_hold_duration_entry=FakeEntry("0.25"),
             _initial_reset_hold_duration=original_duration,
             record_interval_entry=FakeEntry("60"),
             master=FakeSettingsMaster(),
-            destroy=lambda: destroyed.append(True),
+            accept=lambda: accepted.append(True),
         )
         failure = config.GameConfigUpdateResult(
             False,
@@ -1040,7 +1029,7 @@ class GuiRunControlTests(unittest.TestCase):
 
         save_config.assert_not_called()
         self.assertEqual(config.RESET_HOLD_DURATION, original_duration)
-        self.assertEqual(destroyed, [])
+        self.assertEqual(accepted, [])
         warning.assert_called_once()
         warning_text = warning.call_args.args[2]
         self.assertIn(failure.reason, warning_text)
@@ -1052,15 +1041,15 @@ class GuiRunControlTests(unittest.TestCase):
             hotkey_entry=FakeEntry(config.HOTKEY),
             reset_hotkey_entry=FakeEntry(config.RESET_HOTKEY),
             record_hotkey_entry=FakeEntry(config.PLAYER_STATS_RECORD_HOTKEY),
-            auto_start_recording_var=FakeVar(config.AUTO_START_RECORDING),
-            show_obs_reminder_on_start_scanner_var=FakeVar(
+            auto_start_recording_var=FakeCheckbox(config.AUTO_START_RECORDING),
+            show_obs_reminder_on_start_scanner_var=FakeCheckbox(
                 config.SHOW_OBS_REMINDER_ON_START_SCANNER
             ),
             reset_hold_duration_entry=FakeEntry(str(duration)),
             _initial_reset_hold_duration=duration,
             record_interval_entry=FakeEntry("60"),
             master=FakeSettingsMaster(),
-            destroy=lambda: None,
+            accept=lambda: None,
         )
 
         with patch.object(config, "update_game_reset_time") as update_game_reset_time:

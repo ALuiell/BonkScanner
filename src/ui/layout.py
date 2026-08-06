@@ -281,7 +281,7 @@ def build_layout(app):
     content_layout.addWidget(splitter, 1)
 
     _build_left_tabs(app, splitter)
-    right_layout = _build_right_panel(app, splitter)
+    _build_right_panel(app, splitter)
     _build_logs_tab(app)
     app._scanner.build_session_stats_tab()
     app._player_stats_view = _build_live_stats_view(app)

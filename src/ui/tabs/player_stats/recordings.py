@@ -75,7 +75,7 @@ from app.vod_library import (
 )
 from core.run_summary import item_counts
 from core.stat_labels import abbreviate_stat_label
-from core.stats.types import PLAYER_STAT_GROUPS, PLAYER_STAT_SPEC_BY_LABEL
+from core.stats.types import PLAYER_STAT_GROUPS
 from projections.item_sort import ITEM_SORT_RARITY_DESC
 from projections.recording_sort import normalize_recording_sort_mode, sort_recordings
 from projections.timeline_axis import AXIS_TIME, build_axis_projection
@@ -126,15 +126,12 @@ from ui.tabs.player_stats.summary_cards import (
 )
 from projections import formatting, scrubber as scrubber_model
 from ui.timeline_controls import (
-    LEGACY_RECORDINGS_SERIES_SLOTS_CONFIG_KEY,
     TIMELINE_SERIES_GROUPS,
     TimelineSeriesSlots,
     build_timeline_cap_checkboxes,
     build_timeline_series_menu,
     checked_timeline_caps,
-    configured_timeline_series_slots,
     save_timeline_caps,
-    save_timeline_series_slots,
     refresh_timeline_slot_button,
 )
 
@@ -147,13 +144,6 @@ from ui.timeline_controls import (
 #: nothing to do with the button.
 LIBRARY_TOGGLE_CLOSED_CHEVRON = "»"
 LIBRARY_TOGGLE_OPEN_CHEVRON = "«"
-
-
-#: Which series each of the scrubber's four slots holds. Persisted because the
-#: choice is about how *this user* reads a run, not about the recording: having
-#: to re-pick it every time a different recording loads would make the fourth
-#: slot useless for the comparison it exists to support.
-SCRUBBER_SLOTS_CONFIG_KEY = LEGACY_RECORDINGS_SERIES_SLOTS_CONFIG_KEY
 
 
 #: The graph menu's own grouping. It starts from the same stat set as the cards,
@@ -191,17 +181,6 @@ def _build_compare_rarity_row(badge_html: str, items_html: str) -> QWidget:
     layout.addWidget(items, 1, Qt.AlignTop)
     _apply_summary_label_padding(badge, items)
     return row
-
-
-def _load_scrubber_slots() -> tuple[tuple[str, ...], ...]:
-    """The configured slots, falling back to the defaults slot by slot.
-
-    Validated per entry rather than wholesale: a config written by an older
-    build can name a stat that no longer exists, and dropping the *whole*
-    configuration for one stale name would silently reset the three slots the
-    user did still want.
-    """
-    return configured_timeline_series_slots()
 
 
 def filter_recordings(vods, query: str):
@@ -246,10 +225,6 @@ def _format_bytes(total: int) -> str:
             return f"{size:.0f} {unit}" if unit in ("B", "KB") else f"{size:.1f} {unit}"
         size /= 1024.0
     return f"{size:.1f} GB"
-
-
-def _save_scrubber_slots(slots) -> None:
-    save_timeline_series_slots(slots)
 
 
 class _NameEdit(QLineEdit):

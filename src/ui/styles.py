@@ -21,11 +21,6 @@ from projections.recording_sort import (
 )
 from ui.shared import resource_path
 
-PLAYER_STATS_ACTIVE_BUTTON_COLOR = "#B91C1C"
-PLAYER_STATS_ACTIVE_BUTTON_HOVER_COLOR = "#CC2626"
-PLAYER_STATS_INACTIVE_BUTTON_COLOR = "#2F6FB0"
-PLAYER_STATS_INACTIVE_BUTTON_HOVER_COLOR = "#3781CE"
-PLAYER_STATS_VALUE_WIDTH = 72
 ITEM_SORT_LABELS = {
     ITEM_SORT_DEFAULT: "Default item order",
     ITEM_SORT_RARITY_DESC: "Rarity — highest first",
@@ -114,22 +109,6 @@ def _template_manager_header_stylesheet(color_hex: str) -> str:
     }}
     """
 
-def _button_state_stylesheet(background: str, hover: str) -> str:
-    return f"""
-    QPushButton {{
-        background: {background};
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 8px 14px;
-        font-weight: 700;
-    }}
-    QPushButton:hover {{
-        background: {hover};
-    }}
-    """
-
-
 def _set_widget_style_role(widget, object_name: str, *, state: str | None = None) -> None:
     """Switch a live widget to a QSS role and force Qt to re-evaluate it."""
     if widget is None:
@@ -155,11 +134,6 @@ def _set_widget_style_role(widget, object_name: str, *, state: str | None = None
         unpolish(widget)
     if callable(polish):
         polish(widget)
-
-def _session_stats_label_stylesheet(accent: bool = False) -> str:
-    color = "#F3F4F6" if accent else "#D7DEE8"
-    weight = "700" if accent else "600"
-    return f"color: {color}; font-size: 17px; font-weight: {weight}; background: transparent;"
 
 def _tier_color(tier: str) -> str:
     return {

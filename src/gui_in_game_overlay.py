@@ -41,9 +41,15 @@ from projections.in_game_html import (
     build_powerups_overlay_html,
     build_stats_overlay_html,
     build_status_indicator_html,
-    calculate_luck_rarity_probabilities,
 )
-from core.luck_rarity import resolve_luck_expected_status_text
+# `calculate_luck_rarity_probabilities` is `core.luck_rarity`'s, and was reached
+# through `projections.in_game_html` -- which imported it, never used it, and so
+# was a re-export this module was the only reader of. Taken from its owner, on
+# the import line this module already had for that owner.
+from core.luck_rarity import (
+    calculate_luck_rarity_probabilities,
+    resolve_luck_expected_status_text,
+)
 from gui_in_game_overlay_settings import (
     IGO_SCALE_SPIN_ATTRIBUTES,
     IN_GAME_WIDGET_ROWS,

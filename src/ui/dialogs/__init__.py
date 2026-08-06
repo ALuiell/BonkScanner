@@ -1200,8 +1200,7 @@ class SettingsDialog(QDialog):
 
     def check_update(self):
         start_update_check(self.master, force_check=True)
-        if hasattr(self, "close"):
-            self.close()
+        self.close()
 
     def open_patreon_support_page(self):
         webbrowser.open(PATREON_SUPPORT_URL)
@@ -1331,10 +1330,15 @@ class SettingsDialog(QDialog):
                 self.master.apply_run_control_mode()
             self.master.log("[*] Settings saved and applied successfully!", tag="success")
 
-        if hasattr(self, "accept"):
-            self.accept()
-        elif hasattr(self, "destroy"):
-            self.destroy()
+        # `self.accept()`, unguarded. This was `if hasattr(self, "accept") ...
+        # elif hasattr(self, "destroy"): self.destroy()`, and the `elif` was the
+        # tk close call: `QWidget.destroy()` tears down the native handle rather
+        # than closing a dialog, so taking that branch in production would have
+        # been a bug. It was unreachable there -- this class is a `QDialog` and
+        # always has `accept` -- and reachable only from the suite, whose
+        # stand-ins carried `destroy` and no `accept`. Those stand-ins model a
+        # `QDialog` now, so the branch that only the fakes could take is gone.
+        self.accept()
 
 
 class TwitchCommandSettingsDialog(QDialog):

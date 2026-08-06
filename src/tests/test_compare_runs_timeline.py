@@ -24,11 +24,14 @@ from ui.compare_overview import CompareRunsAxisView, CompareRunsLuckLootView
 from ui.metric_table import CompactMetricCardGridView, MetricTableView
 from ui.shared import LabeledSwitch
 from ui.tabs.compare_runs.tab import CompareRunsTab
+# `AXIS_PROGRESS` and `axis_positions` come from their owner rather than through
+# the timeline widget. The widget imported both and used neither: they were a
+# re-export this file was the only reader of, so the import survived in `ui/`
+# purely to be reached from here.
+from projections.timeline_axis import AXIS_PROGRESS, axis_positions
 from ui.tabs.compare_runs.timeline import (
-    AXIS_PROGRESS,
     AXIS_TIME,
     CompareRunsTimeline,
-    axis_positions,
     shared_series_scales,
     snapshot_times,
     stage_start_deltas,

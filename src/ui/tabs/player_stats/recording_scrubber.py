@@ -25,8 +25,6 @@ from core.stats.formatters import format_player_stat_value
 from projections import scrubber as model_module
 from projections.timeline_axis import AXIS_PROGRESS, TimelineAxisProjection
 from ui.timeline_visuals import (
-    MARKER_BIN_WIDTH,
-    MARKER_HOVER_SLACK,
     MARKER_STRIP_HEIGHT,
     MARKER_TOOLTIP_MAX_LINES,
     RUN_A_COLOR,
@@ -59,8 +57,6 @@ _PLAYHEAD = RUN_A_COLOR
 _BAND_LABEL_HEIGHT = 15
 #: Height of the strip along the bottom that carries event markers.
 _MARKER_STRIP_HEIGHT = int(MARKER_STRIP_HEIGHT)
-_MARKER_BIN_WIDTH = MARKER_BIN_WIDTH
-_MARKER_HOVER_SLACK = MARKER_HOVER_SLACK
 _MARKER_TOOLTIP_MAX_LINES = MARKER_TOOLTIP_MAX_LINES
 #: Breathing room so a curve at full scale does not merge into the border.
 _PLOT_PADDING = 7

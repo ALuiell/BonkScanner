@@ -20,8 +20,6 @@ from PySide6.QtGui import QCloseEvent, QColor, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
-    QHBoxLayout,
-    QLabel,
     QLayout,
     QMainWindow,
     QPushButton,
@@ -31,9 +29,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-TRACKED_ITEM_LIST_HEIGHT = 96
-
 
 #: One label for one flag. `SHOW_OBS_REMINDER_ON_START_SCANNER` is edited in two
 #: places -- the Settings dialog and the OBS Overlay tab -- and two hand-written
@@ -308,61 +303,39 @@ def resource_path(relative_path: str) -> str:
         base_path = source_path if normalized == "media" or normalized.startswith("media/") else repo_root
     return os.path.join(base_path, relative_path)
 
+# The six accessors below each carried a second branch speaking tkinter --
+# `widget.get()`, `configure(text=...)`, `delete(0, "end")`, `insert(0, text)`,
+# `set(value)`. Those branches could not run: there has been no tk widget in
+# this process since the PySide port, and the harness fakes that still answered
+# to them also carried the Qt names, which were tested first. `_set_bool` was
+# the whole function dead -- zero callers in production or the suite.
+#
+# What is left is the `None` guard, which is not tk residue: `_set_text(None,
+# ...)` is how a refresh reaches a tab whose widgets are not built yet.
 def _read_text(widget) -> str:
     if widget is None:
         return ""
-    if hasattr(widget, "text"):
-        text_attr = getattr(widget, "text")
-        return text_attr() if callable(text_attr) else str(text_attr)
-    if hasattr(widget, "get"):
-        return str(widget.get())
-    return ""
+    return widget.text()
 
 def _set_text(widget, text: str) -> None:
     if widget is None:
         return
-    if hasattr(widget, "setText"):
-        widget.setText(text)
-        return
-    if hasattr(widget, "configure"):
-        widget.configure(text=text)
-        return
+    widget.setText(text)
 
 def _clear_text_input(widget) -> None:
     if widget is None:
         return
-    if hasattr(widget, "clear"):
-        widget.clear()
-        return
-    if hasattr(widget, "delete"):
-        widget.delete(0, "end")
+    widget.clear()
 
 def _set_text_input(widget, text: str) -> None:
     if widget is None:
         return
-    if hasattr(widget, "setText"):
-        widget.setText(text)
-        return
-    if hasattr(widget, "insert"):
-        widget.insert(0, text)
+    widget.setText(text)
 
 def _read_bool(widget) -> bool:
     if widget is None:
         return False
-    if hasattr(widget, "isChecked"):
-        return bool(widget.isChecked())
-    if hasattr(widget, "get"):
-        return bool(widget.get())
-    return False
-
-def _set_bool(widget, value: bool) -> None:
-    if widget is None:
-        return
-    if hasattr(widget, "setChecked"):
-        widget.setChecked(value)
-        return
-    if hasattr(widget, "set"):
-        widget.set(value)
+    return bool(widget.isChecked())
 
 def _safe_float(value: str, default: float = 0.0) -> float:
     try:
@@ -740,64 +713,3 @@ class FlowLayout(QLayout):
             self.parentWidget().setMinimumHeight(height)
 
         return height
-
-class TrackedRuleTagWidget(QFrame):
-    remove_clicked = Signal(str)
-
-    def __init__(
-        self,
-        rule_id: str,
-        label_text: str,
-        parent=None,
-        *,
-        text_color: str = "#E2E8F0",
-        border_color: str = "#4B4B5A",
-        background_color: str = "#2D2D35",
-    ):
-        super().__init__(parent)
-        self.rule_id = rule_id
-        self.setObjectName("TrackedRuleTag")
-
-        self.setStyleSheet(f"""
-            QFrame#TrackedRuleTag {{
-                background-color: {background_color};
-                border: 1px solid {border_color};
-                border-radius: 4px;
-            }}
-            QLabel {{
-                color: {text_color};
-                font-weight: bold;
-                font-size: 11px;
-                padding-left: 6px;
-                padding-right: 2px;
-                padding-top: 4px;
-                padding-bottom: 4px;
-            }}
-            QPushButton#TagCloseBtn {{
-                color: #A0AEC0;
-                background: transparent;
-                border: none;
-                font-weight: bold;
-                font-size: 11px;
-                padding-left: 4px;
-                padding-right: 6px;
-                padding-top: 4px;
-                padding-bottom: 4px;
-            }}
-            QPushButton#TagCloseBtn:hover {{
-                color: #F87171;
-            }}
-        """)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        lbl = QLabel(label_text)
-        layout.addWidget(lbl)
-
-        close_btn = QPushButton("✕")
-        close_btn.setObjectName("TagCloseBtn")
-        close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.clicked.connect(lambda: self.remove_clicked.emit(self.rule_id))
-        layout.addWidget(close_btn)

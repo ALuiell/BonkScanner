@@ -30,9 +30,6 @@ class FakeCheckbox:
     def isChecked(self) -> bool:
         return self._checked
 
-    def get(self) -> bool:
-        return self._checked
-
 
 class FakeLayout:
     """Enough of a QLayout for `_clear_layout` and the two `add*` calls."""

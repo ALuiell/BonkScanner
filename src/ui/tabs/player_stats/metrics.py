@@ -39,18 +39,9 @@ from core.luck_rarity import (
 from core.stats.formats import PlayerStatFormat
 
 
-LIVE_STATS_CARD_COLUMNS = 3
 LIVE_STATS_VALUE_WIDTH = 64
-RECORDINGS_STATS_CARD_COLUMNS = 3
 RECORDINGS_LIST_MIN_WIDTH = 241
 RECORDINGS_LIST_MAX_WIDTH = 331
-STAGE_SUMMARY_COLUMN_BASELINES = {
-    "stage": "Stage",
-    "time": "59:59",
-    "kills": "999,999",
-    "items": "\u25cf 99 \u25cf 99 \u25cf 99 \u25cf 99",
-}
-STAGE_SUMMARY_COLUMN_PADDING = 8
 SUMMARY_LABEL_BASELINE_PADDING = 8
 RUN_SUMMARY_LABEL_BASELINES = {
     "chests_per_minute": "Average chests/min: 999.99",
@@ -60,7 +51,6 @@ RUN_SUMMARY_LABEL_BASELINES = {
     "kps_averages": "KPS: 60s 999/s | 5m 999/s",
     "level": "Level: 999",
 }
-POWERUPS_CARD_LINE_BASELINE = "Stonks: 99:59 -> +99:59 (999.99s)"
 PLAYER_STAT_VALUE_BASELINES = {
     PlayerStatFormat.FLAT: "999,999",
     PlayerStatFormat.PERCENT: "999.9%",
@@ -72,12 +62,6 @@ def _reserve_label_baseline_width(label, baseline: str, padding: int = SUMMARY_L
     metrics = QFontMetrics(label.font())
     width = max(metrics.horizontalAdvance(baseline), metrics.horizontalAdvance(label.text()))
     label.setMinimumWidth(max(label.minimumWidth(), width + padding))
-
-
-def _retain_hidden_widget_size(widget) -> None:
-    policy = widget.sizePolicy()
-    policy.setRetainSizeWhenHidden(True)
-    widget.setSizePolicy(policy)
 
 
 def _build_chests_stats_card(*, include_chests_per_minute: bool = False):
@@ -190,20 +174,6 @@ def _build_loot_rarity_card():
     return card, values
 
 
-def _build_empty_placeholder_card():
-    """The hole the chests card leaves behind in `Stats`, to be filled later.
-
-    A visible empty card rather than a closed gap: the grid's other cards keep
-    their positions, so nothing the user has learned to find by place moves.
-    """
-    card = QFrame()
-    card.setObjectName("StatCard")
-    layout = QVBoxLayout(card)
-    layout.setContentsMargins(8, 8, 8, 8)
-    layout.addStretch(1)
-    return card
-
-
 def _apply_run_summary_baselines(chests_per_minute_label, *labels) -> None:
     if len(labels) == 3:
         powerups_duration_label = None
@@ -249,17 +219,3 @@ def _apply_player_stat_value_baseline(label, value_format) -> None:
     _reserve_label_baseline_width(label, baseline)
 
 
-def _apply_stage_summary_column_baseline(layout, rows) -> None:
-    for column, key in enumerate(("stage", "time", "kills", "items")):
-        baseline = STAGE_SUMMARY_COLUMN_BASELINES[key]
-        width = 0
-        for row in rows:
-            label = row[key]
-            metrics = QFontMetrics(label.font())
-            width = max(width, metrics.horizontalAdvance(baseline), metrics.horizontalAdvance(label.text()))
-        layout.setColumnMinimumWidth(column, width + STAGE_SUMMARY_COLUMN_PADDING)
-
-
-def _apply_powerups_card_baselines(labels_by_name) -> None:
-    for label in labels_by_name.values():
-        _reserve_label_baseline_width(label, POWERUPS_CARD_LINE_BASELINE)

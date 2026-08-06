@@ -24,10 +24,11 @@ error_streak`` and ``_player_stats_game_data_memory_error_streak`` were app
 state, but nothing outside the reconnect policy ever touched them -- only the
 four ``record_*`` recorders and the two close helpers, all of which are this
 module's. So they move in, exactly as ``VodCapture`` pulled in its nine
-recording-lifecycle fields. The four module-level ``record_*`` functions survive
-as **thin owner-taking adapters** (``refresh_tasks`` and
-``player_stats_refresh`` call them ~14 times and pass the app), each resolving
-the service and delegating; the streak now lives in one place instead of on a
+recording-lifecycle fields. Four module-level ``record_*`` owner-taking adapters
+stood here to keep step 20's call sites unchanged; every one of those call sites
+has since moved to the service methods directly (``self._memory().record_memory_
+failure(...)`` in ``refresh_tasks`` and ``player_stats_refresh``), so all four
+had zero callers and are gone. The streak lives in one place instead of on a
 shared ``self`` two other modules also wrote.
 
 **What this service does *not* own: the two clients or the disabled-items
@@ -68,7 +69,6 @@ from app.read_sources import (
     RUNTIME_ACTIVITY_STATE,
     RUNTIME_GAME_STATE,
     STAGE_TIMER_CONTEXT,
-    read_memory_source,
     read_source,
     source_health_recorded,
 )
@@ -665,28 +665,3 @@ def player_stats_memory(owner) -> PlayerStatsMemory:
     else:
         owner.__dict__["_player_stats_memory"] = service
     return service
-
-
-# The four module-level recorders survive as thin owner-taking adapters. Their
-# ~14 call sites in ``refresh_tasks`` and ``player_stats_refresh`` pass the app
-# and stay unchanged; each resolves the service and delegates to the streak
-# policy that now lives there. The game-data pair became module-level in step
-# 20's second commit (1d09c1b) to retire twelve class-qualified call sites that
-# named this class -- the exact spelling that stranded the Chaos Tome panel for
-# two commits at step 14b, through a green suite and a working exe.
-
-
-def record_player_stats_game_data_memory_success(owner) -> None:
-    player_stats_memory(owner).record_game_data_success()
-
-
-def record_player_stats_game_data_memory_failure(owner, error: Exception) -> None:
-    player_stats_memory(owner).record_game_data_failure(error)
-
-
-def record_player_stats_memory_success(owner) -> None:
-    player_stats_memory(owner).record_memory_success()
-
-
-def record_player_stats_memory_failure(owner, error: Exception) -> None:
-    player_stats_memory(owner).record_memory_failure(error)

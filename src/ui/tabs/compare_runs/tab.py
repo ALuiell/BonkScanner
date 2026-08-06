@@ -54,7 +54,6 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QSlider,
     QStackedWidget,
@@ -105,12 +104,10 @@ from ui.tabs.compare_runs.timeline import (
 )
 from ui.tabs.compare_runs.timeline_legend import CompareRunsTimelineLegend
 from ui.timeline_controls import (
-    LEGACY_COMPARE_RUNS_SERIES_SLOTS_CONFIG_KEY,
     TimelineSeriesSlots,
     build_timeline_cap_checkboxes,
     build_timeline_series_menu,
     checked_timeline_caps,
-    configured_timeline_series_slots,
     refresh_timeline_slot_button,
     save_timeline_caps,
 )
@@ -120,7 +117,6 @@ COMPARE_RUN_STAT_CONFIG_KEY = "COMPARE_RUN_STAT_LABELS"
 
 COMPARE_RUN_SECTIONS_CONFIG_KEY = "COMPARE_RUN_SECTIONS"
 COMPARE_RUN_COMPACT_TIMELINE_CONFIG_KEY = "COMPARE_RUN_COMPACT_TIMELINE"
-COMPARE_RUN_SERIES_SLOTS_CONFIG_KEY = LEGACY_COMPARE_RUNS_SERIES_SLOTS_CONFIG_KEY
 _RECORDING_SEARCH_ROLE = Qt.UserRole + 1
 
 #: How many rendered diffs to keep. A diff is four short HTML strings and three
@@ -259,10 +255,6 @@ def configured_compare_run_sections() -> dict[str, bool]:
             if key in saved_sections:
                 sections[key] = bool(saved_sections[key])
     return sections
-
-
-def configured_compare_run_series_slots() -> tuple[tuple[str, ...], ...]:
-    return configured_timeline_series_slots()
 
 
 def _filter_metric_table(table: MetricTable, query: str) -> MetricTable:

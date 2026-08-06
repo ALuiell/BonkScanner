@@ -400,32 +400,6 @@ def save_game_config(data: dict) -> bool:
         return False
 
 
-def get_game_settings() -> dict | None:
-    data = load_game_config()
-    settings = (data or {}).get("cfGameSettings")
-    return settings.copy() if isinstance(settings, dict) else None
-
-
-def get_game_setting(name: str, default=None):
-    settings = get_game_settings()
-    if not isinstance(settings, dict):
-        return default
-    return settings.get(name, default)
-
-
-def update_game_setting(name: str, value) -> bool:
-    try:
-        data = load_game_config()
-        if data is None:
-            return False
-        if "cfGameSettings" not in data or not isinstance(data["cfGameSettings"], dict):
-            data["cfGameSettings"] = {}
-        data["cfGameSettings"][name] = value
-        return save_game_config(data)
-    except Exception:
-        return False
-
-
 def get_game_reset_time() -> float | None:
     try:
         data = load_game_config()

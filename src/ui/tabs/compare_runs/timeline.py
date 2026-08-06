@@ -24,9 +24,7 @@ from core.stats.formats import PlayerStatFormat
 from core.stats.formatters import format_player_stat_value
 from projections.timeline_axis import (
     AXIS_MODES,
-    AXIS_PROGRESS,
     AXIS_TIME,
-    axis_positions,
     build_axis_projection,
     snapshot_times,
 )
