@@ -1510,12 +1510,17 @@ QFrame#supportPopupCard {
 QFrame#supportPopupCard QLabel { background: transparent; }
 QLabel#supportPopupTitle { color: #B9C2CE; font-size: 12.5px; font-weight: 800; }
 QLabel#supportPopupNote { color: #8A94A3; font-size: 11px; }
-/* Список саппортеров. Построен и оформлен, но данными пока не питается —
-   шов `FooterView.set_supporters`, никто его не зовёт. Пустой случай и есть
-   отгружаемый: без списка карточка выглядит ровно как раньше. */
+/* Список саппортеров. Имена приходят из supporters.json в репозитории —
+   `app.supporters.load_supporters`. Пустой случай и есть отгружаемый: без
+   списка карточка выглядит ровно как раньше. */
 QWidget#supporterList { background: transparent; }
 QLabel#supporterName { color: #B9C2CE; font-size: 11.5px; background: transparent; }
-/* Один уровень выделения, а не лестница: три тира во всплывашке футера — это
-   уже прайс-лист. Цвет патреоновский, тот же, что у ссылки под курсором. */
-QLabel#supporterNameTier { color: #FF6F61; font-size: 11.5px; font-weight: 700; background: transparent; }
+/* Три состояния, различаются платформой, а не суммой. Патреон и пак — один и
+   тот же красный, потому что деньги одинаковые; ромбик остаётся только у
+   подписки, потому что она продолжается. Ko-fi — свой синий, тот же, что у
+   кнопки Ko-fi выше: это «другое место», а не «другой уровень». Четвёртого
+   состояния быть не должно — карточка благодарности, а не прайс-лист. */
+QLabel#supporterNamePatreon { color: #FF6F61; font-size: 11.5px; font-weight: 700; background: transparent; }
+QLabel#supporterNamePack { color: #FF6F61; font-size: 11.5px; font-weight: 700; background: transparent; }
+QLabel#supporterNameKofi { color: #29ABE0; font-size: 11.5px; font-weight: 700; background: transparent; }
 QFrame#supportPopupRule { background-color: #1B222B; border: none; }

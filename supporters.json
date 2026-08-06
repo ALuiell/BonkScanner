@@ -1,4 +1,6 @@
 [
-  {"name": "TEST Patreon Supporter", "tier": "patreon"},
-  "TEST One-Time Donor"
+  {"name": "TEST Patreon Sub", "tier": "patreon"},
+  {"name": "TEST Pack Buyer", "tier": "pack"},
+  {"name": "TEST Ko-fi Tip", "tier": "kofi"},
+  "TEST No Tier"
 ]

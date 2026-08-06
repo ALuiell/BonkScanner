@@ -179,8 +179,11 @@ malformed entries, the tier marker, the cap, going back to empty, and the
 reader's silence on a failed request, an empty list and a malformed payload.
 
 It accepts plain strings and mappings both, so a `supporters.json` needs no
-shape negotiation: `"Nyxaria"` and `{"name": "Nyxaria", "tier": "gold"}` are
-both valid rows, and any truthy `tier` marks the name.
+shape negotiation: `"Nyxaria"` and `{"name": "Nyxaria", "tier": "patreon"}` are
+both valid rows. The recognised tiers are `patreon`, `pack` and `kofi`,
+normalised so `"Ko-Fi"` and `"ko_fi"` also land; an unrecognised but non-empty
+tier is still marked, because a typo in the tier of someone who paid must not
+read as "not a supporter".
 
 Design reference:
 
@@ -240,16 +243,14 @@ Popup, `SupportPopup`:
   alphabetised, because a hand-maintained list means something by its order. Surface `#101419`, border `#2A3542`, radius 11 — unchanged, these are the existing `#supportPopupCard` values at [redisign_ui/bonkscanner_redesign.qss:1488](../../redisign_ui/bonkscanner_redesign.qss:1488).
 - Title `#B9C2CE`, 12.5 px, weight 800. Note `#8A94A3`, 11 px.
 - Names in a two-column grid, 11.5 px, `#B9C2CE`, ellipsised on overflow — a display name is user-supplied text and can be arbitrarily long.
-- A higher tier, if tiers are used at all, is `#FF6F61` and weight 700 with a `♦` prefix. One distinction, not a ladder; three tiers in a footer popup is a pricing page.
+- Three states, distinguished by *platform* rather than by amount, all at weight 700: a Patreon subscription is `#FF6F61` with a `♦` prefix; a supporter pack is the same `#FF6F61` without the diamond, because the money is the same and only the recurrence differs; a Ko-fi tip is `#29ABE0`, the Ko-fi button's own blue, which reads as a different place rather than a higher rank. An entry with no tier stays `#B9C2CE`. A fourth state would turn a thank-you card into a pricing page — do not add one.
 - The Patreon and Ko-fi buttons stay at the bottom, below a `#1B222B` rule. They keep `#PatreonButton` / `#KofiButton` ([redisign_ui/bonkscanner_redesign.qss:1321](../../redisign_ui/bonkscanner_redesign.qss:1321)) so the popup and the settings card cannot drift apart.
 
 Overflow: when the list outgrows the popup, move it to a card in the Help dialog — names in three columns, all four platform buttons — and leave the footer counter as the entry point. Help is where a long block costs nothing, because people open it deliberately. Do **not** put the card on a main-window tab: on Logs it is pushed off-screen by the log within seconds, and everywhere else it takes space from data.
 
 ##### Open decisions
 
-- Delivery mechanism — one of the three rows above.
-- Whether tiers exist at all, or the list is flat.
-- Whether the count includes past supporters or only current ones. `N supporters` is read as "right now", so a lapsed-inclusive count needs different wording.
+- Whether the count includes past supporters or only current ones. `N supporters` is read as "right now", so a lapsed-inclusive count needs different wording. Current intent: the list is grow-only — a one-time payment does not expire, and a lapsed subscription loses its `patreon` tier rather than its row.
 - ~~`KOFI_SUPPORT_URL` is a Ko-fi **shop item** rather than a donation page.~~
   Resolved: it points at the profile now.
 

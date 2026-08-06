@@ -12,7 +12,8 @@ import src  # noqa: F401  -- puts src/ on the path, as the other tests do
 
 import unittest
 
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtCore import QPoint
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
 
 from app import supporters as supporters_flow
 from infra import updater
@@ -31,11 +32,16 @@ def _names(popup):
     a list that has already been replaced, and the "back to empty" case would
     pass or fail depending on whether anything happened to spin the loop.
     """
+    return [text for text, _object_name in _rows(popup)]
+
+
+def _rows(popup):
+    """The visible name rows as `(text, object name)` -- the styling included."""
+    known = {"supporterName", *(style[0] for style in SupportPopup.TIER_STYLES.values())}
     return [
-        label.text()
+        (label.text(), label.objectName())
         for label in popup.findChildren(QLabel)
-        if label.objectName() in ("supporterName", "supporterNameTier")
-        and not label.isHidden()
+        if label.objectName() in known and not label.isHidden()
     ]
 
 
@@ -53,28 +59,72 @@ class SupportPopupTests(unittest.TestCase):
         self.assertEqual(self.popup._title.text(), "Support BonkScanner")
 
     def test_blank_and_malformed_entries_do_not_become_rows(self):
-        self.popup.set_supporters(["", "  ", {"name": ""}, {"tier": "gold"}, None])
+        self.popup.set_supporters(["", "  ", {"name": ""}, {"tier": "patreon"}, None])
         self.assertEqual(_names(self.popup), [])
         self.assertEqual(self.popup._card.width(), SupportPopup.NARROW_WIDTH)
 
     def test_plain_names_and_mappings_are_both_accepted(self):
-        self.popup.set_supporters(["Grimwald", {"name": "Nyxaria", "tier": "gold"}])
+        self.popup.set_supporters(["Grimwald", {"name": "Nyxaria", "tier": "patreon"}])
         self.assertIn("Grimwald", _names(self.popup))
         self.assertTrue(any("Nyxaria" in name for name in _names(self.popup)))
         self.assertEqual(self.popup._card.width(), SupportPopup.WIDE_WIDTH)
 
-    def test_tiers_sort_first_and_are_marked(self):
+    def test_each_tier_gets_its_own_style_and_only_patreon_is_marked(self):
         self.popup.set_supporters(
-            ["a", "b", {"name": "paid", "tier": "gold"}, "c"]
+            [
+                {"name": "sub", "tier": "patreon"},
+                {"name": "buyer", "tier": "pack"},
+                {"name": "tipper", "tier": "kofi"},
+                "nobody",
+            ]
         )
-        marked = [
-            label
-            for label in self.popup.findChildren(QLabel)
-            if label.objectName() == "supporterNameTier"
-        ]
+
+        styles = {text.lstrip("♦ "): name for text, name in _rows(self.popup)}
+        self.assertEqual(styles["sub"], "supporterNamePatreon")
+        self.assertEqual(styles["buyer"], "supporterNamePack")
+        self.assertEqual(styles["tipper"], "supporterNameKofi")
+        self.assertEqual(styles["nobody"], "supporterName")
+
+        # The diamond is the subscription's alone -- a pack shares its colour.
+        marked = [text for text, _name in _rows(self.popup) if "♦" in text]
         self.assertEqual(len(marked), 1)
-        self.assertIn("paid", marked[0].text())
-        self.assertEqual(_names(self.popup)[0], marked[0].text())
+        self.assertIn("sub", marked[0])
+
+    def test_tiers_group_in_order_and_keep_the_files_order_inside_a_group(self):
+        self.popup.set_supporters(
+            [
+                "plain one",
+                {"name": "kofi one", "tier": "kofi"},
+                {"name": "pack one", "tier": "pack"},
+                {"name": "pack two", "tier": "pack"},
+                {"name": "sub one", "tier": "patreon"},
+            ]
+        )
+
+        self.assertEqual(
+            [text.lstrip("♦ ") for text, _name in _rows(self.popup)],
+            ["sub one", "pack one", "pack two", "kofi one", "plain one"],
+        )
+
+    def test_a_tier_is_matched_however_it_was_typed(self):
+        self.popup.set_supporters(
+            [
+                {"name": "a", "tier": "Ko-Fi"},
+                {"name": "b", "tier": " KOFI "},
+                {"name": "c", "tier": "ko_fi"},
+            ]
+        )
+
+        self.assertEqual(
+            {name for _text, name in _rows(self.popup)}, {"supporterNameKofi"}
+        )
+
+    def test_an_unknown_tier_stays_marked_rather_than_dropping_to_plain(self):
+        # A typo in the tier of someone who paid must not read as "not a
+        # supporter". It costs the diamond, not the colour.
+        self.popup.set_supporters([{"name": "typo", "tier": "patrn"}])
+
+        self.assertEqual(_rows(self.popup), [("typo", "supporterNamePack")])
 
     def test_count_is_everyone_even_when_the_list_is_capped(self):
         people = [f"person {index}" for index in range(SupportPopup.MAX_LISTED + 6)]
@@ -89,6 +139,73 @@ class SupportPopupTests(unittest.TestCase):
         self.assertEqual(_names(self.popup), [])
         self.assertEqual(self.popup._card.width(), SupportPopup.NARROW_WIDTH)
         self.assertEqual(self.popup._title.text(), "Support BonkScanner")
+
+
+class SupportPopupPlacementTests(unittest.TestCase):
+    """Where the card lands when it is opened for the first time.
+
+    **These do not reproduce the bug that prompted them.** In the real window
+    the first open hung off the right of the display and every later one was
+    fine; headless, with no stylesheet to polish, `adjustSize` alone already
+    gets the size right and the misplacement never happens. What is pinned here
+    is the placement *rule* and the clamp -- verified by breaking each and
+    watching the matching test fail -- not the original symptom, which only the
+    running application can confirm.
+    """
+
+    def _anchor(self):
+        window = QWidget()
+        self.addCleanup(window.deleteLater)
+        window.resize(900, 600)
+        button = QPushButton("♥ 2 supporters", window)
+        button.setGeometry(780, 570, 110, 20)
+        # Shown, and not for realism: `mapToGlobal` on a window the platform has
+        # not placed yet answers from a position it then changes, so the
+        # expected value and the one `show_above` used are read from different
+        # windows. Closed again by cleanup.
+        window.show()
+        self.addCleanup(window.close)
+        _app.processEvents()
+        return window, button
+
+    def _open_fresh(self, anchor):
+        popup = SupportPopup(anchor.window())
+        self.addCleanup(popup.deleteLater)
+        popup.set_supporters(["Grimwald", {"name": "Nyxaria", "tier": "gold"}])
+        popup.show_above(anchor)
+        self.addCleanup(popup.close)
+        return popup
+
+    def test_first_open_is_sized_and_placed_like_the_second(self):
+        _window, anchor = self._anchor()
+
+        first = self._open_fresh(anchor)
+        geometry = first.geometry()
+
+        self.assertEqual(geometry.width(), first.sizeHint().width())
+        # Aligned with the anchor's right edge -- the placement rule. Reading a
+        # stale 100 would put the right edge 300px past it.
+        anchor_right = anchor.mapToGlobal(QPoint(anchor.width(), 0)).x()
+        self.assertEqual(geometry.right() + 1, anchor_right)
+
+    def test_the_card_is_kept_on_the_screen(self):
+        window, anchor = self._anchor()
+        screen = window.screen() or QApplication.primaryScreen()
+        available = screen.availableGeometry()
+        # The anchor pushed hard against the left of the display, so that the
+        # card -- wider than the space to the left of it -- would be placed at a
+        # negative x and hang off the edge. Right-aligning to the anchor cannot
+        # go wrong on the right; this is the side where it can.
+        window.move(available.left(), available.top())
+        anchor.setGeometry(10, 570, 110, 20)
+        _app.processEvents()
+
+        popup = self._open_fresh(anchor)
+
+        self.assertTrue(
+            available.contains(popup.geometry()),
+            f"{popup.geometry()} is not inside {available}",
+        )
 
 
 class SupportersLoadTests(unittest.TestCase):

@@ -170,6 +170,38 @@ class SupportPopup(QFrame):
     #: answer than "and 40 others".
     MAX_LISTED = 24
 
+    #: How a `tier` value is drawn: `(object name, prefix, sort rank)`.
+    #:
+    #: Three states and no more, each earning its distinction. A diamond and the
+    #: Patreon red for a subscription, which is the only one that is *ongoing*;
+    #: the same red without the diamond for someone who bought a pack, since the
+    #: money is the same and the recurrence is not; the Ko-fi blue for a Ko-fi
+    #: tip, which reads as "a different place" rather than "a different amount".
+    #: Anything past this is a price list, which is not what a thank-you card is.
+    #:
+    #: Keys are normalised by `_tier_key`, so `"Ko-Fi"` and `"ko_fi"` both land.
+    TIER_STYLES = {
+        "patreon": ("supporterNamePatreon", "♦  ", 0),
+        "pack": ("supporterNamePack", "", 1),
+        "kofi": ("supporterNameKofi", "", 2),
+    }
+    #: An unrecognised but non-empty tier. It is marked rather than dropped to
+    #: grey: `supporters.json` is edited by hand in a browser, and a typo in the
+    #: tier of someone who is *known to have paid* should cost them a diamond,
+    #: not their place among the people being thanked.
+    UNKNOWN_TIER_STYLE = ("supporterNamePack", "", 1)
+    #: No tier at all -- a bare `"Name"` string. Deliberately unmarked.
+    PLAIN_STYLE = ("supporterName", "", 3)
+
+    @staticmethod
+    def _tier_key(tier) -> str:
+        """`"Ko-fi"`, `"ko_fi"` and `" KOFI "` are all `kofi`."""
+        return "".join(
+            character
+            for character in str(tier or "").lower()
+            if character.isalnum()
+        )
+
     def set_supporters(self, supporters=()) -> None:
         """Show these people, or go back to being the plain two-button card.
 
@@ -183,19 +215,24 @@ class SupportPopup(QFrame):
         all, which is correct.
 
         Accepts plain names or mappings, so `supporters.json` needs no shape
-        negotiation: `"Nyxaria"` and `{"name": "Nyxaria", "tier": "gold"}` both
-        work, and anything with a truthy `tier` is marked.
+        negotiation: `"Nyxaria"` and `{"name": "Nyxaria", "tier": "patreon"}`
+        both work. See `TIER_STYLES` for what each tier looks like.
         """
         people = []
         for entry in supporters or ():
             if isinstance(entry, dict):
                 name = str(entry.get("name") or "").strip()
-                tier = bool(entry.get("tier"))
+                key = self._tier_key(entry.get("tier"))
+                style = (
+                    self.PLAIN_STYLE
+                    if not key
+                    else self.TIER_STYLES.get(key, self.UNKNOWN_TIER_STYLE)
+                )
             else:
                 name = str(entry or "").strip()
-                tier = False
+                style = self.PLAIN_STYLE
             if name:
-                people.append((name, tier))
+                people.append((name, style))
 
         _clear_layout(self._names_grid)
         self._names_host.setVisible(bool(people))
@@ -211,10 +248,11 @@ class SupportPopup(QFrame):
             return
 
         self._title.setText(f"{len(people)} people support BonkScanner")
-        # Tiers first, then the order they arrived in. Not alphabetical: a list
-        # someone maintains by hand has an order, and re-sorting it throws away
-        # whatever they meant by it.
-        people.sort(key=lambda person: not person[1])
+        # Grouped by tier, and inside a group the order they arrived in. Not
+        # alphabetical: a list someone maintains by hand has an order, and
+        # re-sorting it throws away whatever they meant by it. `sort` is stable,
+        # so the file's order survives within each group.
+        people.sort(key=lambda person: person[1][2])
         listed = people[: self.MAX_LISTED]
         hidden = len(people) - len(listed)
         self._note.setText(
@@ -222,9 +260,9 @@ class SupportPopup(QFrame):
         )
 
         rows = (len(listed) + 1) // 2
-        for index, (name, tier) in enumerate(listed):
-            label = QLabel(("♦  " if tier else "") + name, self._names_host)
-            label.setObjectName("supporterNameTier" if tier else "supporterName")
+        for index, (name, (object_name, prefix, _rank)) in enumerate(listed):
+            label = QLabel(prefix + name, self._names_host)
+            label.setObjectName(object_name)
             # Elided rather than wrapped, and the grid column carries the width:
             # a display name is whatever its owner typed, and one long one must
             # not be allowed to widen the popup or reflow the column beside it.
@@ -243,10 +281,39 @@ class SupportPopup(QFrame):
         self.close()
 
     def show_above(self, anchor: QWidget) -> None:
-        """Open with the popup's bottom-right corner over `anchor`'s top-right."""
+        """Open with the popup's bottom-right corner over `anchor`'s top-right.
+
+        The first open used to hang off the right of the display while every
+        later one was placed correctly -- a size read before the popup had ever
+        been shown, and therefore before it was worth anything. `adjustSize`
+        alone was not enough in the real window, though **it is enough in a
+        headless harness, which is why no test here reproduces the original
+        symptom**; do not read the assertions below as covering it. The polish
+        and the explicit layout activation are the difference, the stylesheet
+        being the thing a test without one never applies: font metrics settle at
+        polish, and a card measured before that is measured too narrow.
+
+        The clamp is the part that is actually guaranteed rather than reasoned
+        about. Whatever the size turns out to be, the card ends up on the
+        screen: a popup rendered half off the edge is worse than one nudged a
+        few pixels out of alignment with its button. That one is tested.
+        """
+        self.ensurePolished()
+        self.layout().activate()
         self.adjustSize()
+        size = self.sizeHint()
+
         top_right = anchor.mapToGlobal(QPoint(anchor.width(), 0))
-        self.move(top_right.x() - self.width(), top_right.y() - self.height() - 8)
+        x = top_right.x() - size.width()
+        y = top_right.y() - size.height() - 8
+
+        screen = self.screen() or anchor.screen()
+        if screen is not None:
+            available = screen.availableGeometry()
+            x = min(max(x, available.left()), available.right() - size.width() + 1)
+            y = min(max(y, available.top()), available.bottom() - size.height() + 1)
+
+        self.move(x, y)
         self.show()
 
 
