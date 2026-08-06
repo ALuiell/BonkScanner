@@ -57,7 +57,15 @@ config.save_config = lambda *_args, **_kwargs: None
 app = MegabonkApp()
 qt = QApplication.instance()
 app.window.show()
+# There is no focus at all inside a window that is not active, and nothing
+# activates this one for us: under `offscreen` never, and on the real platform
+# only sometimes, which is what made three of these four flaky -- every claim
+# below read `focusWidget() is None`. Asserted rather than assumed, because
+# `None` is not a `QLineEdit` either: a window that silently stopped activating
+# would leave `assert_no_field_armed` passing without checking anything.
+app.window.activateWindow()
 qt.processEvents()
+assert qt.activeWindow() is app.window, qt.activeWindow()
 
 tabs = [
     widget
