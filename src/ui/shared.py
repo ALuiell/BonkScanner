@@ -5,6 +5,7 @@ import sys
 
 from PySide6.QtCore import (
     Property,
+    QEvent,
     QObject,
     QPoint,
     QRect,
@@ -643,6 +644,15 @@ class _AppWindow(QMainWindow):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self.owner._handle_window_shown()
+
+    # Persisting on close would lose the state whenever the process is killed
+    # rather than closed, and `closeEvent` fires *after* Qt has already left
+    # fullscreen on some window managers. The transition itself is the only
+    # moment the answer is reliably true, so it is recorded here.
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self.owner._handle_window_state_changed()
 
 
 class FlowLayout(QLayout):

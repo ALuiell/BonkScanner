@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QCloseEvent, QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -832,8 +833,41 @@ class MegabonkApp:
         # layout pass under `Qt.WA_DontShowOnScreen` before mapping anything.
         # It is not worth a hack that only looks like it does that: kept, these
         # lines would read as load-bearing to whoever finds them next.
-        self.window.show()
+        self._restore_window_state()
         return self.qt_app.exec()
+
+    # -- remembered window state -------------------------------------------
+    #
+    # One config key holding the last state the user *chose*: minimizing is not
+    # a choice about how the app should come back, so it is not recorded, and a
+    # window that was minimized while maximized still reopens maximized.
+    _WINDOW_STATE_KEY = "WINDOW_STATE"
+
+    def _current_window_state_name(self) -> str:
+        state = self.window.windowState()
+        if state & Qt.WindowFullScreen:
+            return "fullscreen"
+        if state & Qt.WindowMaximized:
+            return "maximized"
+        if state & Qt.WindowMinimized:
+            return ""
+        return "normal"
+
+    def _handle_window_state_changed(self) -> None:
+        name = self._current_window_state_name()
+        if not name or name == config.user_config.get(self._WINDOW_STATE_KEY):
+            return
+        config.user_config[self._WINDOW_STATE_KEY] = name
+        config.save_config(config.user_config)
+
+    def _restore_window_state(self) -> None:
+        saved = config.user_config.get(self._WINDOW_STATE_KEY)
+        if saved == "fullscreen":
+            self.window.showFullScreen()
+        elif saved == "maximized":
+            self.window.showMaximized()
+        else:
+            self.window.show()
 
     def destroy(self):
         self._close_in_progress = True
