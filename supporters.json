@@ -28,10 +28,5 @@
     "Изменения доезжают до пользователей за ~5 минут (кэш CDN) и подхватываются",
     "при следующем запуске приложения."
   ],
-  "supporters": [
-    {"name": "TEST Patreon Sub", "tier": "patreon"},
-    {"name": "TEST Pack Buyer", "tier": "pack"},
-    {"name": "TEST Ko-fi Tip", "tier": "kofi"},
-    "TEST No Tier"
-  ]
+  "supporters": []
 }
