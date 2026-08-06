@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 
+from app.supporters import load_supporters
 from app.update_flow import check_and_update
 from ui.dialogs.update_dialog import show_update_dialog
 
@@ -44,5 +45,33 @@ def start_update_check(app_instance, *, force_check: bool) -> None:
             "report": report,
             "force_check": force_check,
         },
+        daemon=True,
+    ).start()
+
+
+def start_supporters_load(app_instance) -> None:
+    """Fill the footer's supporters list, off the GUI thread.
+
+    Deliberately its own request and its own thread rather than a passenger on
+    the update check, which returns before it reaches the network on a source
+    run (`check_and_update` -> `frozen_exe_path`). Riding along would mean the
+    list is invisible to everyone running from source, including while working
+    on it -- a difference that reads as a bug every time it is rediscovered.
+    """
+    footer = getattr(app_instance, "footer", None) if app_instance else None
+    after = getattr(app_instance, "after", None) if app_instance else None
+    # Same shape as the `report` wiring above: driven by stand-in app objects in
+    # the suite, and by the real one before `build_layout` has run.
+    if footer is None or after is None:
+        return
+
+    def report_to_footer(supporters: list) -> None:
+        # `load_supporters` runs on the thread started below; the strip is a
+        # widget. Same hop as `report_to_footer` above, for the same reason.
+        after(0, lambda: footer.set_supporters(supporters))
+
+    threading.Thread(
+        target=load_supporters,
+        args=(report_to_footer,),
         daemon=True,
     ).start()

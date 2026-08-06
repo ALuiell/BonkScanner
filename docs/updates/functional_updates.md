@@ -163,19 +163,20 @@ Why this helps:
 
 #### 1. Supporters List in the Footer
 
-Status: `[Partial]` -- **the UI is built, tested and unreachable. Only the data is missing.**
+Status: `[Done]` -- UI and data both.
 
 The visual half was written deliberately ahead of the data, because it is the
 perishable half: reproducing this popup from a description later is far more
-work than writing the twenty lines that read a JSON file. What remains is a
-reader and a single call.
+work than writing the twenty lines that read a JSON file.
 
 The seam is `FooterView.set_supporters` ([src/ui/footer.py](../../src/ui/footer.py)).
 Hand it names and the footer link becomes `♥ N supporters` and the popup grows
-the list; hand it nothing and the strip is exactly what ships today. **Nothing
-calls it in production.** `src/tests/test_support_popup.py` drives it directly,
-so the widget is covered rather than merely unused -- including the empty case,
-malformed entries, the tier marker, the cap, and going back to empty.
+the list; hand it nothing and the strip is exactly what ships today. It is now
+called once a launch from `start_supporters_load`
+([src/ui/dialogs/update_prompt.py](../../src/ui/dialogs/update_prompt.py)).
+`src/tests/test_support_popup.py` covers both halves -- the empty case,
+malformed entries, the tier marker, the cap, going back to empty, and the
+reader's silence on a failed request, an empty list and a malformed payload.
 
 It accepts plain strings and mappings both, so a `supporters.json` needs no
 shape negotiation: `"Nyxaria"` and `{"name": "Nyxaria", "tier": "gold"}` are
@@ -198,20 +199,13 @@ What already exists (on `visual_redesign`):
 - `SupportPopup` ([src/ui/footer.py:70](../../src/ui/footer.py:70)) — a `Qt.Popup` frame holding a title, one line of context and the Patreon/Ko-fi buttons. **This is the widget that grows into the list**; it is not a new construction. Its card is pinned to 268 px ([src/ui/footer.py:98](../../src/ui/footer.py:98)) because the width is what sets the note's wrap.
 - The four URLs, unchanged, in [src/app/config.py:243](../../src/app/config.py:243).
 
-##### What blocks it
-
-The UI is a few dozen lines on top of what is already there. The data is the actual work.
+##### Where the data comes from
 
 - **The Patreon API is not an option.** It needs OAuth and a refresh token, and the token would have to live inside a binary that is handed to everyone. That means either a credential in the build or a server in between; neither is worth it for a name list.
-- So the source is a hand-maintained `supporters.json`, updated per release. That leaves one real decision — how it reaches the running app:
-
-| Delivery | Freshness | Network cost | Notes |
-| --- | --- | --- | --- |
-| Bundled in the build | Frozen until the next release | None | Safest. Nothing to fail offline. |
-| Fetched from `raw.githubusercontent` | Current between releases | One extra GET | Must ride the existing update check (see below), never a new startup path. |
-| Both — bundled floor, fetched override | Current, with an offline floor | One extra GET | Most code of the three; degrades to the bundled list when the request fails. |
-
-- **If it is fetched, it must not sit on the path to the first window.** That rule is why commit `d3796f0` exists. The cheapest correct place is a second GET beside the update check, which already runs on a daemon thread and already talks to GitHub: `start_update_check` ([src/ui/dialogs/update_prompt.py:9](../../src/ui/dialogs/update_prompt.py:9)) → `check_and_update` ([src/app/update_flow.py:18](../../src/app/update_flow.py:18)) → `GITHUB_API_URL` ([src/infra/updater.py:16](../../src/infra/updater.py:16)). `check_and_update` already carries an optional `report` callback back to the GUI thread through `schedule`; a supporters payload should use the same hop rather than inventing a second one.
+- **The source is a hand-maintained `supporters.json` at the repository root, fetched from `raw.githubusercontent`** — not bundled. Bundling was rejected on the one point that matters in practice: a name added when someone subscribes would then wait for the next release, which turns a thirty-second browser edit into a build. Fetching costs one GET and a few minutes of CDN cache, and the list is a thank-you, not a clock.
+- **It must not sit on the path to the first window.** That rule is why commit `d3796f0` exists. It is started from `deferred_update_check` ([src/gui_app.py](../../src/gui_app.py)), 1.5 s after `__init__`, on its own daemon thread.
+- **It is its own request, not a passenger on the update check.** `check_and_update` returns before it reaches the network when `frozen_exe_path()` is `None`, so riding along would make the list invisible to every source run — including while working on the feature, where it reads as a bug each time it is rediscovered. The two share the delay and the footer, nothing else.
+- **The network half lives in `app/`, not beside the widget.** `ui/` may not import `infra/` (`test_import_direction`), so the fetch is `app.supporters.load_supporters` → `infra.updater.fetch_supporters`, and `ui.dialogs.update_prompt.start_supporters_load` owns only the thread and the hop back to the GUI thread.
 
 ##### Degradation rules (non-negotiable)
 

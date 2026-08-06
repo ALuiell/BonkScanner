@@ -174,17 +174,17 @@ class SupportPopup(QFrame):
         """Show these people, or go back to being the plain two-button card.
 
         **The empty case is the shipping case and must stay unremarkable.**
-        Nothing calls this in production yet -- see `FooterView.set_supporters`
-        for the seam the data will arrive through -- so what the card looks like
-        with no list is what everyone sees today: a title, one line, two
-        buttons. No heading over a blank space, no "0 supporters", no rule with
-        nothing above it. An empty card reads as a broken feature; a card that
-        never mentions the list reads as nothing at all, which is correct.
+        The list is fetched, so every copy of the application starts here and a
+        good number of them stay: no network, no names published yet, an older
+        build. What the card looks like with no list is what those people see --
+        a title, one line, two buttons. No heading over a blank space, no
+        "0 supporters", no rule with nothing above it. An empty card reads as a
+        broken feature; a card that never mentions the list reads as nothing at
+        all, which is correct.
 
-        Accepts plain names or mappings, so a future `supporters.json` can be
-        handed over with no shape negotiation: `"Nyxaria"` and
-        `{"name": "Nyxaria", "tier": "gold"}` both work, and anything with a
-        truthy `tier` is marked.
+        Accepts plain names or mappings, so `supporters.json` needs no shape
+        negotiation: `"Nyxaria"` and `{"name": "Nyxaria", "tier": "gold"}` both
+        work, and anything with a truthy `tier` is marked.
         """
         people = []
         for entry in supporters or ():
@@ -316,16 +316,15 @@ class FooterView:
     def set_supporters(self, supporters=()) -> None:
         """Hand the strip a list of supporters, or take it away again.
 
-        **This is the seam, and nothing calls it yet.** The popup and the
-        caption are built and styled; what is missing is where the names come
-        from, which is a product decision rather than a UI one -- bundled in
-        the build, fetched beside the update check, or both. The options and
-        their costs are written up in `docs/updates/functional_updates.md`.
+        Called from `ui.dialogs.update_prompt.start_supporters_load`, on the GUI
+        thread, once a launch, and only when there is something to show --
+        `app.supporters.load_supporters` stays silent on every failure and on
+        the empty list, so this is not the path that decides what an absent list
+        looks like. `SupportPopup.set_supporters` is.
 
         Deliberately the whole surface: one call sets the caption and the card
         together, so the two cannot disagree, and passing nothing puts the strip
-        back exactly as it ships. Whoever wires the data in has to add a reader
-        and one call, and nothing else.
+        back exactly as it ships.
         """
         self._supporters = tuple(supporters or ())
         count = len(self._supporters)

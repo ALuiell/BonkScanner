@@ -1,13 +1,12 @@
-"""The supporters list in the footer popup.
-
-The list has no data source yet -- `FooterView.set_supporters` is a seam nobody
-calls in production. These tests are what stops that from meaning *untested*:
-they drive the seam directly, so the widget cannot rot between now and the day
-someone adds a reader for it.
+"""The supporters list in the footer popup, and the reader that fills it.
 
 The first test is the one that matters most. The shipping state is the empty
-one, and it has to stay indistinguishable from the card that was there before
-the list existed.
+one -- nobody has subscribed, or the request failed -- and it has to stay
+indistinguishable from the card that was there before the list existed.
+
+The `SupportersLoadTests` half covers the other end: `supporters.json` is a file
+maintained by hand in a browser, so a half-saved edit or a dead network is a
+normal Tuesday, not an exceptional case, and none of them may reach the screen.
 """
 import src  # noqa: F401  -- puts src/ on the path, as the other tests do
 
@@ -15,6 +14,9 @@ import unittest
 
 from PySide6.QtWidgets import QApplication, QLabel
 
+from app import supporters as supporters_flow
+from infra import updater
+from ui.dialogs import update_prompt
 from ui.footer import SupportPopup
 
 _app = QApplication.instance() or QApplication([])
@@ -87,6 +89,65 @@ class SupportPopupTests(unittest.TestCase):
         self.assertEqual(_names(self.popup), [])
         self.assertEqual(self.popup._card.width(), SupportPopup.NARROW_WIDTH)
         self.assertEqual(self.popup._title.text(), "Support BonkScanner")
+
+
+class SupportersLoadTests(unittest.TestCase):
+    def setUp(self):
+        self.reported: list = []
+        self._real_fetch = updater.fetch_supporters
+        self.addCleanup(setattr, updater, "fetch_supporters", self._real_fetch)
+
+    def _fetch_returns(self, value):
+        updater.fetch_supporters = lambda: value
+
+    def _fetch_raises(self, error):
+        def fetch():
+            raise error
+
+        updater.fetch_supporters = fetch
+
+    def test_names_are_reported(self):
+        self._fetch_returns(["Grimwald", "Nyxaria"])
+
+        supporters_flow.load_supporters(self.reported.append)
+
+        self.assertEqual(self.reported, [["Grimwald", "Nyxaria"]])
+
+    def test_a_failed_request_reports_nothing(self):
+        self._fetch_raises(RuntimeError("no network"))
+
+        supporters_flow.load_supporters(self.reported.append)
+
+        self.assertEqual(self.reported, [])
+
+    def test_an_empty_list_reports_nothing(self):
+        # Not the same as "report an empty list": the strip already ships empty,
+        # and a call here would only risk `♥ 0 supporters` if that rule moved.
+        self._fetch_returns([])
+
+        supporters_flow.load_supporters(self.reported.append)
+
+        self.assertEqual(self.reported, [])
+
+    def test_load_does_nothing_without_a_footer_or_a_scheduler(self):
+        # `build_layout` has not run yet, or an app stand-in has neither. The
+        # thread must not start at all rather than fail inside it.
+        self._fetch_raises(AssertionError("must not be called"))
+
+        update_prompt.start_supporters_load(None)
+        update_prompt.start_supporters_load(object())
+
+    def test_clean_supporters_drops_what_the_popup_cannot_draw(self):
+        self.assertEqual(
+            updater.clean_supporters(["Grimwald", 5, None, {"name": "Nyxaria"}]),
+            ["Grimwald", {"name": "Nyxaria"}],
+        )
+
+    def test_clean_supporters_rejects_a_payload_that_is_not_a_list(self):
+        # What a mis-edited file looks like: an object, a bare string, `null`.
+        self.assertEqual(updater.clean_supporters({"names": ["a"]}), [])
+        self.assertEqual(updater.clean_supporters("Grimwald"), [])
+        self.assertEqual(updater.clean_supporters(None), [])
 
 
 if __name__ == "__main__":

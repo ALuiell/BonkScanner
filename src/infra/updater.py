@@ -14,6 +14,14 @@ from dataclasses import dataclass
 
 GITHUB_REPO = "ALuiell/BonkScanner"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+#: The supporters list, read from the branch rather than from a release asset.
+#: That is the whole point of it: the list changes when someone subscribes, not
+#: when a build is cut, and a name added here reaches every installed copy
+#: without a release. Raw content is served through a CDN with a few minutes of
+#: cache, which is well inside the tolerance of a thank-you list.
+SUPPORTERS_URL = (
+    f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/supporters.json"
+)
 
 
 @dataclass(frozen=True)
@@ -47,6 +55,38 @@ def fetch_latest_release() -> ReleaseInfo:
         notes=release_data.get("body", "No release notes provided."),
         exe_download_url=exe_download_url,
     )
+
+
+def clean_supporters(payload) -> list:
+    """Keep only the entries `SupportPopup.set_supporters` knows how to draw.
+
+    A hand-maintained file edited in a browser is the one input here, so the
+    shapes to defend against are typos, not attacks: a mapping instead of a
+    list, a stray number, a `null` left behind by a deleted line. Anything that
+    is not a name or a `{"name": ...}` mapping is dropped rather than coerced --
+    `str(5)` would put a supporter called "5" on the card.
+
+    Blank names and empty mappings are *not* filtered here; the popup already
+    drops them, and duplicating that rule in two places is how the two of them
+    start to disagree.
+    """
+    if not isinstance(payload, list):
+        return []
+    return [entry for entry in payload if isinstance(entry, (str, dict))]
+
+
+def fetch_supporters() -> list:
+    """The supporters list as published, or raise trying.
+
+    Callers swallow the failure -- see `start_supporters_load` -- because there
+    is nothing to tell the user: without a list the footer is exactly the strip
+    that shipped before one existed.
+    """
+    import requests
+
+    response = requests.get(SUPPORTERS_URL, timeout=5)
+    response.raise_for_status()
+    return clean_supporters(response.json())
 
 
 def download_and_apply_update(exe_path, download_url):

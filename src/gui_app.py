@@ -21,7 +21,7 @@ from gui_scanner import build_scanner
 from gui_twitch import build_twitch_session, session_command_tracked_item_config
 from app.template_filters import TemplateRuntimeFilters
 from ui.shared import UiInvoker, _AppWindow, resource_path
-from ui.dialogs.update_prompt import start_update_check
+from ui.dialogs.update_prompt import start_supporters_load, start_update_check
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
 from app.vod_library import VodLibrary
@@ -811,6 +811,9 @@ class MegabonkApp:
     # namespace with it.
     def deferred_update_check(self):
         start_update_check(self, force_check=False)
+        # Shares the delay rather than the request: both are GitHub reads the
+        # footer displays, and neither belongs on the path to the first window.
+        start_supporters_load(self)
 
     @property
     def qt_app(self) -> QApplication:
