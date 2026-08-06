@@ -57,19 +57,35 @@ def fetch_latest_release() -> ReleaseInfo:
     )
 
 
+#: Where the names live when the file is an object rather than a bare array.
+SUPPORTERS_KEY = "supporters"
+
+
 def clean_supporters(payload) -> list:
     """Keep only the entries `SupportPopup.set_supporters` knows how to draw.
 
-    A hand-maintained file edited in a browser is the one input here, so the
-    shapes to defend against are typos, not attacks: a mapping instead of a
-    list, a stray number, a `null` left behind by a deleted line. Anything that
-    is not a name or a `{"name": ...}` mapping is dropped rather than coerced --
-    `str(5)` would put a supporter called "5" on the card.
+    Two shapes are accepted, and the second exists for one reason: **JSON has no
+    comments, and this file is edited by hand in a browser months apart.** A
+    bare array is fine, but an object lets the instructions for filling it in
+    live in the file being filled in, where they cannot go stale unnoticed:
+
+        {"_help": ["..."], "supporters": ["Nyxaria"]}
+
+    Every key except `supporters` is ignored, so notes can be written under any
+    name and in any number.
+
+    The other shapes to defend against are typos rather than attacks: a stray
+    number, a `null` left behind by a deleted line, a value that is neither an
+    array nor an object. Anything that is not a name or a `{"name": ...}`
+    mapping is dropped rather than coerced -- `str(5)` would put a supporter
+    called "5" on the card.
 
     Blank names and empty mappings are *not* filtered here; the popup already
     drops them, and duplicating that rule in two places is how the two of them
     start to disagree.
     """
+    if isinstance(payload, dict):
+        payload = payload.get(SUPPORTERS_KEY)
     if not isinstance(payload, list):
         return []
     return [entry for entry in payload if isinstance(entry, (str, dict))]

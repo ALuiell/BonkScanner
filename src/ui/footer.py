@@ -88,6 +88,10 @@ class SupportPopup(QFrame):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setObjectName("supportPopup")
 
+        #: The widget this was last opened against, so the card can re-anchor
+        #: itself if its contents change while it is on screen.
+        self._anchor: QWidget | None = None
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
 
@@ -245,6 +249,7 @@ class SupportPopup(QFrame):
                 "BonkScanner is free to download and stays that way. "
                 "If it is useful to you:"
             )
+            self._reanchor()
             return
 
         self._title.setText(f"{len(people)} people support BonkScanner")
@@ -271,6 +276,18 @@ class SupportPopup(QFrame):
             self._names_grid.addWidget(label, index % rows, index // rows)
         self._names_grid.setColumnStretch(0, 1)
         self._names_grid.setColumnStretch(1, 1)
+        self._reanchor()
+
+    def _reanchor(self) -> None:
+        """Re-place the card if it is on screen and just changed size.
+
+        The list arrives about a second after launch, so a click in that window
+        lands on the narrow card and widens it while it is open. Every early
+        return here is a case where there is nothing to correct: not visible, or
+        never opened against anything.
+        """
+        if self.isVisible() and self._anchor is not None:
+            self._place_above(self._anchor)
 
     def _open_patreon(self) -> None:
         webbrowser.open(config.PATREON_SUPPORT_URL)
@@ -281,22 +298,27 @@ class SupportPopup(QFrame):
         self.close()
 
     def show_above(self, anchor: QWidget) -> None:
-        """Open with the popup's bottom-right corner over `anchor`'s top-right.
+        """Open with the popup's bottom-right corner over `anchor`'s top-right."""
+        self._anchor = anchor
+        self._place_above(anchor)
+        self.show()
 
-        The first open used to hang off the right of the display while every
-        later one was placed correctly -- a size read before the popup had ever
-        been shown, and therefore before it was worth anything. `adjustSize`
-        alone was not enough in the real window, though **it is enough in a
-        headless harness, which is why no test here reproduces the original
-        symptom**; do not read the assertions below as covering it. The polish
-        and the explicit layout activation are the difference, the stylesheet
-        being the thing a test without one never applies: font metrics settle at
-        polish, and a card measured before that is measured too narrow.
+    def _place_above(self, anchor: QWidget) -> None:
+        """Put the bottom-right corner of the card over `anchor`'s top-right.
 
-        The clamp is the part that is actually guaranteed rather than reasoned
-        about. Whatever the size turns out to be, the card ends up on the
-        screen: a popup rendered half off the edge is worse than one nudged a
-        few pixels out of alignment with its button. That one is tested.
+        **Re-run whenever the card changes size, not only when it opens.** The
+        popup is anchored by a corner that moves when it grows: `move` fixes the
+        top-left, so a card that goes from 268 to 400 wide grows *rightwards*,
+        straight off the display. That is what the first open looked like -- not
+        a mis-measurement, but a click that landed in the second or so between
+        the window appearing and the supporters arriving. The card opened narrow
+        and was widened underneath itself while it sat there.
+
+        The clamp is the backstop for everything this arithmetic cannot know:
+        the anchor lives at the right edge of the window and the window is
+        usually at the right edge of the screen, so there is nothing to spare. A
+        card nudged a few pixels out of line with its button is much better than
+        one rendered half off the edge.
         """
         self.ensurePolished()
         self.layout().activate()
@@ -313,8 +335,7 @@ class SupportPopup(QFrame):
             x = min(max(x, available.left()), available.right() - size.width() + 1)
             y = min(max(y, available.top()), available.bottom() - size.height() + 1)
 
-        self.move(x, y)
-        self.show()
+        self.setGeometry(x, y, size.width(), size.height())
 
 
 class FooterView:

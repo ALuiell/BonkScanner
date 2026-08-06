@@ -10,7 +10,9 @@ normal Tuesday, not an exceptional case, and none of them may reach the screen.
 """
 import src  # noqa: F401  -- puts src/ on the path, as the other tests do
 
+import json
 import unittest
+from pathlib import Path
 
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget
@@ -142,23 +144,28 @@ class SupportPopupTests(unittest.TestCase):
 
 
 class SupportPopupPlacementTests(unittest.TestCase):
-    """Where the card lands when it is opened for the first time.
+    """Where the card lands, including when it changes size while open.
 
-    **These do not reproduce the bug that prompted them.** In the real window
-    the first open hung off the right of the display and every later one was
-    fine; headless, with no stylesheet to polish, `adjustSize` alone already
-    gets the size right and the misplacement never happens. What is pinned here
-    is the placement *rule* and the clamp -- verified by breaking each and
-    watching the matching test fail -- not the original symptom, which only the
-    running application can confirm.
+    The bug these were written for: clicking Support in the second or so between
+    the window appearing and the supporters arriving. The card opened at its
+    narrow width, the names then widened it from 268 to 400, and since `move`
+    pins the top-left corner it grew rightwards off the display. Opening it
+    again looked fine, which is why it read as "only the first time".
     """
 
     def _anchor(self):
         window = QWidget()
         self.addCleanup(window.deleteLater)
-        window.resize(900, 600)
+        # Sized and placed to fit the display rather than assuming one: under
+        # the full suite the platform is offscreen and the screen is 800x800, so
+        # a fixed 900px window hangs off the edge, the clamp does its job, and a
+        # test about *alignment* fails on a card that was correctly rescued.
+        available = QApplication.primaryScreen().availableGeometry()
+        width = min(900, available.width() - 40)
+        height = min(600, available.height() - 40)
+        window.setGeometry(available.left() + 20, available.top() + 20, width, height)
         button = QPushButton("♥ 2 supporters", window)
-        button.setGeometry(780, 570, 110, 20)
+        button.setGeometry(width - 120, height - 30, 110, 20)
         # Shown, and not for realism: `mapToGlobal` on a window the platform has
         # not placed yet answers from a position it then changes, so the
         # expected value and the one `show_above` used are read from different
@@ -171,7 +178,7 @@ class SupportPopupPlacementTests(unittest.TestCase):
     def _open_fresh(self, anchor):
         popup = SupportPopup(anchor.window())
         self.addCleanup(popup.deleteLater)
-        popup.set_supporters(["Grimwald", {"name": "Nyxaria", "tier": "gold"}])
+        popup.set_supporters(["Grimwald", {"name": "Nyxaria", "tier": "patreon"}])
         popup.show_above(anchor)
         self.addCleanup(popup.close)
         return popup
@@ -187,6 +194,30 @@ class SupportPopupPlacementTests(unittest.TestCase):
         # stale 100 would put the right edge 300px past it.
         anchor_right = anchor.mapToGlobal(QPoint(anchor.width(), 0)).x()
         self.assertEqual(geometry.right() + 1, anchor_right)
+
+    def test_names_arriving_while_the_card_is_open_do_not_push_it_off_screen(self):
+        window, anchor = self._anchor()
+        screen = window.screen() or QApplication.primaryScreen()
+        available = screen.availableGeometry()
+
+        # Opened before the list has arrived -- the narrow, two-button card.
+        popup = SupportPopup(window)
+        self.addCleanup(popup.deleteLater)
+        popup.show_above(anchor)
+        self.addCleanup(popup.close)
+        _app.processEvents()
+        self.assertEqual(popup._card.width(), SupportPopup.NARROW_WIDTH)
+
+        popup.set_supporters(["Grimwald", {"name": "Nyxaria", "tier": "patreon"}])
+        _app.processEvents()
+
+        self.assertEqual(popup._card.width(), SupportPopup.WIDE_WIDTH)
+        self.assertTrue(
+            available.contains(popup.geometry()),
+            f"{popup.geometry()} is not inside {available}",
+        )
+        anchor_right = anchor.mapToGlobal(QPoint(anchor.width(), 0)).x()
+        self.assertEqual(popup.geometry().right() + 1, anchor_right)
 
     def test_the_card_is_kept_on_the_screen(self):
         window, anchor = self._anchor()
@@ -260,11 +291,36 @@ class SupportersLoadTests(unittest.TestCase):
             ["Grimwald", {"name": "Nyxaria"}],
         )
 
-    def test_clean_supporters_rejects_a_payload_that_is_not_a_list(self):
-        # What a mis-edited file looks like: an object, a bare string, `null`.
+    def test_clean_supporters_rejects_a_payload_that_is_neither_shape(self):
+        # What a mis-edited file looks like: an object without the key, a bare
+        # string, `null`.
         self.assertEqual(updater.clean_supporters({"names": ["a"]}), [])
         self.assertEqual(updater.clean_supporters("Grimwald"), [])
         self.assertEqual(updater.clean_supporters(None), [])
+
+    def test_clean_supporters_reads_the_documented_object_form(self):
+        # The shape that lets the instructions live in the file being edited:
+        # notes under any other key, names under `supporters`.
+        payload = {
+            "_help": ["how to fill this in"],
+            "anything else": {"nested": True},
+            "supporters": ["Grimwald", {"name": "Nyxaria", "tier": "kofi"}],
+        }
+
+        self.assertEqual(
+            updater.clean_supporters(payload),
+            ["Grimwald", {"name": "Nyxaria", "tier": "kofi"}],
+        )
+
+    def test_the_shipped_file_is_valid_and_reads_back(self):
+        # The file in the repository is the live input; a comma dropped while
+        # editing the notes silently empties the card for everyone.
+        path = Path(__file__).resolve().parents[2] / "supporters.json"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            updater.clean_supporters(payload), payload[updater.SUPPORTERS_KEY]
+        )
 
 
 if __name__ == "__main__":
