@@ -394,6 +394,50 @@ class OverlayAssetDirTests(unittest.TestCase):
         self.assertIn(f"min-width: {MIN_WIDGET_WIDTH}px;", style)
         self.assertIn(f"min-height: {MIN_WIDGET_HEIGHT}px;", style)
 
+    def test_default_positions_are_resolved_against_the_configured_canvas(self) -> None:
+        """A widget nobody placed lands inside the canvas, whatever its size.
+
+        `DEFAULT_COORDINATES` are written against a 1920x1080 scene, and were
+        applied raw to any canvas. On a 1280-wide one `x: 1600` is not a poor
+        placement -- the shell clips at its own edge, so the four widgets that
+        default there were invisible and unreachable at every zoom and scroll
+        position, in the editor *and* in OBS. Reported as "Tracked Items is the
+        only widget that shows up"; the reporter's canvas was 720p.
+
+        Both halves are pinned because either alone leaves the bug:
+
+        - `x` scales, to keep the right-hand cluster right-anchored instead of
+          drifting to the middle of a wider or narrower scene;
+        - `y` does not, because it encodes gaps measured against widget heights
+          that do not scale with the canvas -- scaling it re-creates the
+          `banishes`/`luck_rarity` overlap those gaps were chosen to remove;
+        - and neither can promise the widget is *inside*, because nothing has a
+          size until it is in the document, so a measured clamp runs after.
+
+        The clamp only ever touches `data-defaulted` elements. A dragged
+        position is the user's, may legally sit further right than the clamp
+        would place anything, and must not slide back when they let go.
+        """
+        script = (_default_overlay_asset_dir() / "overlay.js").read_text(encoding="utf-8")
+
+        self.assertIn("const REFERENCE_CANVAS_WIDTH = 1920;", script)
+        # `y` is carried through untouched; only `x` is mapped onto the canvas.
+        self.assertIn("x: Math.round(reference.x * (canvasWidth / REFERENCE_CANVAS_WIDTH))", script)
+        self.assertIn("y: reference.y,", script)
+        self.assertNotIn("REFERENCE_CANVAS_HEIGHT", script)
+
+        # The measured correction, and that it runs before anything reads a
+        # position back out of the DOM.
+        self.assertIn("function clampDefaultedWidgets()", script)
+        self.assertIn('root.querySelectorAll(\'.widget-wrapper[data-defaulted="true"]\')', script)
+        self.assertIn("const maxLeft = Math.max(0, canvasWidth - element.offsetWidth);", script)
+        self.assertIn("const maxTop = Math.max(0, canvasHeight - element.offsetHeight);", script)
+        self.assertIn("clampDefaultedWidgets();", script)
+
+        # Marked on the way in, dropped the moment a drag owns the position.
+        self.assertIn('const defaultedAttr = placed ? "" : ` data-defaulted="true"`;', script)
+        self.assertIn('el.removeAttribute("data-defaulted");', script)
+
     def test_default_server_serves_the_real_overlay_page(self) -> None:
         server = LocalOverlayServer(port=free_port())
         server.start()

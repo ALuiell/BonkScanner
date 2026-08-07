@@ -340,13 +340,8 @@ if (isEditMode) {
   document.body.classList.add("edit-mode-active");
 }
 
-// Where a widget sits until someone drags it. These are canvas coordinates, so
-// they are read against `canvas_width`/`canvas_height` and not against the
-// window -- `x: 1600` is the right edge of a 1920 scene, which is where a
-// streamer wants these four, and it is exactly what OBS renders. The layout
-// editor is the surface that could not show them, and it is fixed there rather
-// than by moving the defaults inward and degrading every scene that is never
-// edited. See `#edit-canvas-frame` in overlay.css.
+// Where a widget sits until someone drags it, in the coordinates of the
+// reference canvas below rather than of whatever canvas is configured.
 //
 // Both columns did overlap at the widgets' natural heights -- `banishes` into
 // `luck_rarity` by 43px, and `stage_summary` (217 tall) into `tracked_items`
@@ -361,6 +356,61 @@ const DEFAULT_COORDINATES = {
   banishes: { x: 1600, y: 360 },
   luck_rarity: { x: 1600, y: 530 }
 };
+
+// The canvas the coordinates above are written against. They used to be applied
+// raw to any canvas, and `x: 1600` on a 1280-wide one is not merely a poor
+// placement -- the shell clips at its own edge, so those four widgets were
+// invisible and unreachable at every zoom and scroll position. A streamer who
+// set a 720p canvas saw only whatever they had already placed by hand, and
+// toggling the rest on did nothing they could see. Reported as "Tracked Items
+// is the only widget that shows up".
+const REFERENCE_CANVAS_WIDTH = 1920;
+
+// Horizontal only, and that asymmetry is the point.
+//
+// `x` scales because it carries an *anchor*: the right-hand cluster sits at the
+// right edge of a 1920 scene, and it should read as right-anchored on a 1280 or
+// a 2560 one rather than drifting into the middle. Widgets in a column share
+// their `x`, so scaling it cannot push two of them together.
+//
+// `y` does not scale, because it carries a *gap* -- the vertical spacing above
+// was measured against the widgets' natural heights, and those heights do not
+// scale with the canvas. Multiplying `y` by 0.667 for a 720-tall canvas while
+// `banishes` stays 141px tall closes the 170px gap under it to 113 and puts it
+// back on top of `luck_rarity`, which is the overlap the spacing was chosen to
+// remove. Raw `y` keeps every gap as authored; the clamp below is what handles
+// a canvas too short to hold the column.
+//
+// Neither is enough alone, because a widget has width: 1600 scaled to a 1280
+// canvas is 1067, and a 285px-wide Stats panel there still ends 72px past the
+// edge. Only a measured clamp can promise the widget is *inside*, and it cannot
+// run here -- nothing has a size until it is in the document. So this places,
+// and `clampDefaultedWidgets` below corrects.
+function defaultPosition(widgetId) {
+  const reference = DEFAULT_COORDINATES[widgetId] || { x: 20, y: 80 };
+  return {
+    x: Math.round(reference.x * (canvasWidth / REFERENCE_CANVAS_WIDTH)),
+    y: reference.y,
+  };
+}
+
+// Pull every still-unplaced widget fully inside the canvas, now that it has a
+// measured size. Only the defaulted ones: a coordinate the user chose is theirs
+// to keep, and `data-defaulted` is dropped the moment a drag saves one.
+//
+// Idempotent by construction -- a second pass finds `left` already under the
+// maximum and changes nothing -- which matters because the OBS path re-renders
+// on every poll.
+function clampDefaultedWidgets() {
+  root.querySelectorAll('.widget-wrapper[data-defaulted="true"]').forEach((element) => {
+    const maxLeft = Math.max(0, canvasWidth - element.offsetWidth);
+    const maxTop = Math.max(0, canvasHeight - element.offsetHeight);
+    const left = Math.min(parseFloat(element.style.left) || 0, maxLeft);
+    const top = Math.min(parseFloat(element.style.top) || 0, maxTop);
+    element.style.left = `${Math.round(left)}px`;
+    element.style.top = `${Math.round(top)}px`;
+  });
+}
 
 // How much the editor shrinks the canvas to fit the window. 1 outside edit
 // mode, and never above 1 inside it: the canvas is scaled down to be seen
@@ -628,6 +678,14 @@ function setupDragAndDrop() {
 
       const finalLeft = parseFloat(el.style.left) || 0;
       const finalTop = parseFloat(el.style.top) || 0;
+
+      // This position is now the user's, so it stops being the clamp's business
+      // -- the drag may legally end at `canvasWidth - 50`, which is further
+      // right than the clamp would ever place a widget, and re-clamping it here
+      // would slide it back the moment they let go. The next payload carries
+      // the saved coordinates and rebuilds the element without the attribute
+      // anyway; this closes the window before that arrives.
+      el.removeAttribute("data-defaulted");
 
       const widgetId = el.getAttribute("data-id");
       if (widgetId) {
@@ -936,8 +994,14 @@ function render(state) {
 
   if (useAbsolute) {
     html += widgets.map((widget) => {
-      const x = widget.x !== null && widget.x !== undefined ? widget.x : (DEFAULT_COORDINATES[widget.id]?.x ?? 20);
-      const y = widget.y !== null && widget.y !== undefined ? widget.y : (DEFAULT_COORDINATES[widget.id]?.y ?? 80);
+      const placed = widget.x !== null && widget.x !== undefined
+        && widget.y !== null && widget.y !== undefined;
+      const fallback = placed ? null : defaultPosition(widget.id);
+      const x = placed ? widget.x : fallback.x;
+      const y = placed ? widget.y : fallback.y;
+      // Read back by `clampDefaultedWidgets`, which can only correct a position
+      // nobody chose. Dropped as soon as a drag saves one.
+      const defaultedAttr = placed ? "" : ` data-defaulted="true"`;
       const wScale = widget.scale !== null && widget.scale !== undefined ? widget.scale : 1.0;
       const wWidth = widget.width !== null && widget.width !== undefined ? `${widget.width}px` : "auto";
       const wHeight = widget.height !== null && widget.height !== undefined ? `${widget.height}px` : "auto";
@@ -959,7 +1023,7 @@ function render(state) {
       const widthAttr = widget.width !== null && widget.width !== undefined ? `data-width="${widget.width}"` : "";
       const heightAttr = widget.height !== null && widget.height !== undefined ? `data-height="${widget.height}"` : "";
 
-      return `<div class="widget-wrapper${dragClass}${sizeClass}" data-id="${escapeHtml(widget.id)}" data-scale="${wScale}" ${widthAttr} ${heightAttr} style="${style}">
+      return `<div class="widget-wrapper${dragClass}${sizeClass}" data-id="${escapeHtml(widget.id)}" data-scale="${wScale}"${defaultedAttr} ${widthAttr} ${heightAttr} style="${style}">
         ${toolbarHtml}
         ${widgetContent}
       </div>`;
@@ -981,6 +1045,13 @@ function render(state) {
     syncEditModeWidgets(html, widgets);
   } else {
     root.innerHTML = html;
+  }
+
+  if (useAbsolute) {
+    // After the DOM exists and before anything measures it: `setupDragAndDrop`
+    // seeds `data-width`/`data-height` and the drag reads `style.left`, and
+    // both must see the corrected position rather than the one it replaced.
+    clampDefaultedWidgets();
   }
 
   if (useAbsolute && isEditMode) {
