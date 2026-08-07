@@ -317,9 +317,23 @@ class MegabonkApp:
         self.check_admin_rights()
         self.log(f"[*] Welcome to BonkScanner v{CURRENT_VERSION}!", tag="success")
         self.log(f"[*] Target Process: {config.PROCESS_NAME}")
+        self._log_reset_hold_duration_correction()
         self.log("[*] Ready! Select templates and start the main process loop.")
         self.apply_run_control_mode(detach_hooks=False)
         self.after(1500, self.deferred_update_check)
+
+    def _log_reset_hold_duration_correction(self) -> None:
+        """Say so when the stored reset hold was below the game's threshold.
+
+        Silently raising it would fix the run but leave the user unable to tell
+        a repaired install from one that never drifted -- and this is the exact
+        state that produced "Map took too long to load" reports on v2.1.7.
+        """
+        notice = config.reset_hold_duration_notice(
+            getattr(config, "RESET_HOLD_DURATION_RAISED_FROM", None)
+        )
+        if notice is not None:
+            self.log(notice, tag="warning")
 
     def __getattr__(self, name: str):
         window = self.__dict__.get("window")

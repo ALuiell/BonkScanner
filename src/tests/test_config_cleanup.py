@@ -68,6 +68,180 @@ class GameResetTimeConfigTests(unittest.TestCase):
             self.assertIn("found 0.05", result.reason)
 
 
+class ResetHoldDurationFloorTests(unittest.TestCase):
+    """The game threshold is a floor: too-short is raised, longer is kept."""
+
+    def test_stored_value_below_the_game_floor_is_raised(self) -> None:
+        duration, raised_from = config.resolve_reset_hold_duration(0.45, 1.05)
+        self.assertEqual(duration, 1.05)
+        self.assertEqual(raised_from, 0.45)
+
+    def test_stored_value_above_the_game_floor_is_kept(self) -> None:
+        duration, raised_from = config.resolve_reset_hold_duration(2.0, 1.05)
+        self.assertEqual(duration, 2.0)
+        self.assertIsNone(raised_from)
+
+    def test_stored_value_equal_to_the_game_floor_is_not_reported_as_raised(self) -> None:
+        duration, raised_from = config.resolve_reset_hold_duration(1.05, 1.05)
+        self.assertEqual(duration, 1.05)
+        self.assertIsNone(raised_from)
+
+    def test_unreadable_game_config_leaves_the_stored_value_alone(self) -> None:
+        duration, raised_from = config.resolve_reset_hold_duration(0.1, None)
+        self.assertEqual(duration, 0.1)
+        self.assertIsNone(raised_from)
+
+    def test_missing_stored_value_takes_the_game_floor(self) -> None:
+        duration, raised_from = config.resolve_reset_hold_duration(None, 1.05)
+        self.assertEqual(duration, 1.05)
+        self.assertIsNone(raised_from)
+
+    def test_missing_stored_value_and_no_game_config_falls_back_to_default(self) -> None:
+        duration, raised_from = config.resolve_reset_hold_duration(None, None)
+        self.assertEqual(duration, config.DEFAULT_RESET_HOLD_DURATION)
+        self.assertIsNone(raised_from)
+
+    def test_corrupt_stored_value_is_coerced_then_floored(self) -> None:
+        duration, raised_from = config.resolve_reset_hold_duration("not-a-number", 1.05)
+        self.assertEqual(duration, 1.05)
+        self.assertEqual(raised_from, round(config.DEFAULT_RESET_HOLD_DURATION, 2))
+
+    def test_absent_key_takes_the_game_value_plus_the_safety_margin(self) -> None:
+        """The margin is not optional on the fallback path -- holding for exactly
+        `quick_reset_time` races the game's own threshold check."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            with open(game_config_path, "w", encoding="utf-8") as handle:
+                json.dump({"cfGameSettings": {"quick_reset_time": 1.0}}, handle)
+
+            with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                game_floor = config.get_game_reset_time()
+
+            duration, raised_from = config.resolve_reset_hold_duration(None, game_floor)
+
+            self.assertAlmostEqual(duration, 1.0 + config.RESET_HOLD_SAFETY_MARGIN, places=6)
+            self.assertIsNone(raised_from)
+
+    def test_raising_a_short_stored_value_also_carries_the_safety_margin(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            with open(game_config_path, "w", encoding="utf-8") as handle:
+                json.dump({"cfGameSettings": {"quick_reset_time": 1.0}}, handle)
+
+            with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                game_floor = config.get_game_reset_time()
+
+            duration, raised_from = config.resolve_reset_hold_duration(0.4, game_floor)
+
+            self.assertAlmostEqual(duration, 1.0 + config.RESET_HOLD_SAFETY_MARGIN, places=6)
+            self.assertEqual(raised_from, 0.4)
+
+    def test_margin_round_trips_between_hold_duration_and_game_value(self) -> None:
+        """What the dialog writes must be what the next read gives back."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            with open(game_config_path, "w", encoding="utf-8") as handle:
+                json.dump({"cfGameSettings": {"quick_reset_time": 0.05}}, handle)
+
+            hold_duration = 1.25
+            game_value = config.reset_hold_duration_to_game_value(hold_duration)
+            with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                self.assertTrue(config.update_game_reset_time(game_value).success)
+                read_back = config.get_game_reset_time()
+
+            self.assertAlmostEqual(read_back, hold_duration, places=6)
+
+
+class RefreshResetHoldDurationTests(unittest.TestCase):
+    """Import-time is not the only check: the game rewrites its config on exit."""
+
+    def setUp(self) -> None:
+        self._saved = (
+            config.RESET_HOLD_DURATION,
+            config.GAME_RESET_HOLD_FLOOR,
+            config.RESET_HOLD_DURATION_RAISED_FROM,
+        )
+
+    def tearDown(self) -> None:
+        (
+            config.RESET_HOLD_DURATION,
+            config.GAME_RESET_HOLD_FLOOR,
+            config.RESET_HOLD_DURATION_RAISED_FROM,
+        ) = self._saved
+
+    def _refresh_against(self, quick_reset_time: float, current_hold: float):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            with open(game_config_path, "w", encoding="utf-8") as handle:
+                json.dump({"cfGameSettings": {"quick_reset_time": quick_reset_time}}, handle)
+
+            config.RESET_HOLD_DURATION = current_hold
+            with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                with patch.object(config, "save_config"):
+                    return config.refresh_reset_hold_duration()
+
+    def test_a_threshold_raised_mid_session_is_picked_up(self) -> None:
+        """The console case: the game now needs longer than we are holding."""
+        raised_from = self._refresh_against(quick_reset_time=1.0, current_hold=0.25)
+
+        self.assertEqual(raised_from, 0.25)
+        self.assertAlmostEqual(config.RESET_HOLD_DURATION, 1.05, places=6)
+
+    def test_an_unchanged_threshold_reports_nothing(self) -> None:
+        """Runs on every scan start -- it must not log once per scan."""
+        self.assertIsNone(self._refresh_against(quick_reset_time=1.0, current_hold=1.05))
+        self.assertAlmostEqual(config.RESET_HOLD_DURATION, 1.05, places=6)
+
+    def test_a_lowered_threshold_does_not_drag_the_hold_down(self) -> None:
+        self.assertIsNone(self._refresh_against(quick_reset_time=0.2, current_hold=2.0))
+        self.assertAlmostEqual(config.RESET_HOLD_DURATION, 2.0, places=6)
+
+    def test_an_unreadable_game_config_leaves_the_hold_untouched(self) -> None:
+        config.RESET_HOLD_DURATION = 0.25
+        with patch.object(config, "get_game_config_path", return_value=None):
+            with patch.object(config, "save_config"):
+                raised_from = config.refresh_reset_hold_duration()
+
+        self.assertIsNone(raised_from)
+        self.assertEqual(config.RESET_HOLD_DURATION, 0.25)
+
+    def test_a_correction_is_persisted_so_it_survives_a_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            with open(game_config_path, "w", encoding="utf-8") as handle:
+                json.dump({"cfGameSettings": {"quick_reset_time": 1.0}}, handle)
+
+            config.RESET_HOLD_DURATION = 0.25
+            with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                with patch.object(config, "save_config") as save_config:
+                    config.refresh_reset_hold_duration()
+
+        save_config.assert_called_once()
+        self.assertEqual(config.user_config["RESET_HOLD_DURATION"], 1.05)
+
+    def test_no_correction_writes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            with open(game_config_path, "w", encoding="utf-8") as handle:
+                json.dump({"cfGameSettings": {"quick_reset_time": 1.0}}, handle)
+
+            config.RESET_HOLD_DURATION = 1.05
+            with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                with patch.object(config, "save_config") as save_config:
+                    config.refresh_reset_hold_duration()
+
+        save_config.assert_not_called()
+
+    def test_the_notice_is_silent_when_nothing_was_raised(self) -> None:
+        self.assertIsNone(config.reset_hold_duration_notice(None))
+
+    def test_the_notice_names_both_the_old_and_the_new_value(self) -> None:
+        config.RESET_HOLD_DURATION = 1.05
+        notice = config.reset_hold_duration_notice(0.25)
+        self.assertIn("0.25", notice)
+        self.assertIn("1.05", notice)
+
+
 class LegacyNativeHookCleanupTests(unittest.TestCase):
     def test_cleanup_removes_legacy_hook_directories_and_empty_root(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

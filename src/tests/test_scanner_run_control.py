@@ -339,6 +339,50 @@ class ScanLifecycleTests(unittest.TestCase):
         self.assertFalse(scanner.is_ready_to_start)
         self.assertTrue(scanner.scanner_thread.started)
 
+    def test_starting_a_scan_rechecks_the_game_reset_threshold(self) -> None:
+        """Import-time is too early: the game rewrites its config when it exits,
+        so a hold that matched at launch can be too short by the time a scan
+        starts -- and a too-short hold never restarts the run at all."""
+        scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
+        self._quiet(scanner)
+
+        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}):
+            with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
+                with patch.object(config, "EVALUATION_MODE", "templates"):
+                    with patch.object(threading, "Thread", FakeThread):
+                        with patch.object(
+                            config, "refresh_reset_hold_duration", return_value=0.25
+                        ) as refresh:
+                            with patch.object(config, "RESET_HOLD_DURATION", 1.05):
+                                scanner.toggle_main_loop()
+
+        refresh.assert_called_once()
+        messages = [str(message) for message, _tag in scanner.calls["log"]]
+        self.assertTrue(
+            any("0.25" in m and "1.05" in m for m in messages),
+            f"expected a raised-hold notice naming both values, got {messages}",
+        )
+
+    def test_starting_a_scan_stays_quiet_when_the_threshold_still_matches(self) -> None:
+        scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
+        self._quiet(scanner)
+
+        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}):
+            with patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False):
+                with patch.object(config, "EVALUATION_MODE", "templates"):
+                    with patch.object(threading, "Thread", FakeThread):
+                        with patch.object(
+                            config, "refresh_reset_hold_duration", return_value=None
+                        ) as refresh:
+                            scanner.toggle_main_loop()
+
+        refresh.assert_called_once()
+        messages = [str(message) for message, _tag in scanner.calls["log"]]
+        self.assertFalse(
+            any("Reset Hold Duration was" in m for m in messages),
+            f"a scan start must not log a correction that did not happen: {messages}",
+        )
+
     def test_the_scan_worker_is_a_daemon_running_the_background_loop(self) -> None:
         """Pinned because the daemon flag is the whole shutdown contract.
 
