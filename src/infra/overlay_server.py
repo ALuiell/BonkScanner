@@ -32,6 +32,24 @@ WIDGET_ROUTE_NAMES = {
     "luck_rarity",
 }
 
+#: The smallest a widget may be persisted at, in canvas pixels.
+#:
+#: `.widget-wrapper.draggable` carries `resize: both`, and the browser's native
+#: handle will happily take an element down to a few pixels. Nothing used to
+#: stop it: the size went straight through `int()` below and came back on the
+#: next load as a speck. That is not merely ugly, it is unrecoverable from
+#: inside the editor -- `setupDragAndDrop` reserves the bottom-right 18px as a
+#: resize dead zone, so on a widget that small the dead zone covers the whole
+#: element and `pointerdown` returns early every time. The widget cannot be
+#: grabbed to undo what was done to it.
+#:
+#: Mirrored by `min-width`/`min-height` on the same rule in `overlay.css`, which
+#: stops the drag before it gets here. This is the backstop for a value that
+#: arrives some other way -- a hand-edited config, or an older one saved before
+#: the floor existed.
+MIN_WIDGET_WIDTH = 60
+MIN_WIDGET_HEIGHT = 40
+
 
 def _default_overlay_asset_dir() -> Path:
     bundle_root = getattr(sys, "_MEIPASS", None)
@@ -298,8 +316,8 @@ class OverlayRequestHandler(BaseHTTPRequestHandler):
                                         w.pop("width", None)
                                         w.pop("height", None)
                                     else:
-                                        w["width"] = int(w_val)
-                                        w["height"] = int(h_val)
+                                        w["width"] = max(MIN_WIDGET_WIDTH, int(w_val))
+                                        w["height"] = max(MIN_WIDGET_HEIGHT, int(h_val))
                                 if "scale" in data:
                                     scale_val = data["scale"]
                                     if scale_val is None:

@@ -340,14 +340,75 @@ if (isEditMode) {
   document.body.classList.add("edit-mode-active");
 }
 
+// Where a widget sits until someone drags it. These are canvas coordinates, so
+// they are read against `canvas_width`/`canvas_height` and not against the
+// window -- `x: 1600` is the right edge of a 1920 scene, which is where a
+// streamer wants these four, and it is exactly what OBS renders. The layout
+// editor is the surface that could not show them, and it is fixed there rather
+// than by moving the defaults inward and degrading every scene that is never
+// edited. See `#edit-canvas-frame` in overlay.css.
+//
+// Both columns did overlap at the widgets' natural heights -- `banishes` into
+// `luck_rarity` by 43px, and `stage_summary` (217 tall) into `tracked_items`
+// 200 below it -- so a first-time editor met them stacked on top of each other
+// and had to pull them apart before it could tell what it was looking at. Both
+// columns are spaced by measured height now.
 const DEFAULT_COORDINATES = {
   stage_summary: { x: 20, y: 80 },
-  tracked_items: { x: 20, y: 280 },
+  tracked_items: { x: 20, y: 320 },
   stats: { x: 1600, y: 80 },
-  kps: { x: 1600, y: 320 },
-  banishes: { x: 1600, y: 400 },
-  luck_rarity: { x: 1600, y: 500 }
+  kps: { x: 1600, y: 260 },
+  banishes: { x: 1600, y: 360 },
+  luck_rarity: { x: 1600, y: 530 }
 };
+
+// How much the editor shrinks the canvas to fit the window. 1 outside edit
+// mode, and never above 1 inside it: the canvas is scaled down to be seen
+// whole, never blown up. Read by the drag handler, which works in canvas
+// coordinates while pointer events arrive in screen ones.
+let editorScale = 1;
+
+// Breathing room around the scaled canvas, in screen pixels: the frame's own
+// margins plus the fixed banner overhead above it.
+const EDITOR_FIT_MARGIN_X = 40;
+const EDITOR_FIT_MARGIN_Y = 160;
+// Below this the canvas is too small to aim at, and scrolling a slightly
+// clipped canvas beats squinting at all of it.
+const EDITOR_MIN_SCALE = 0.25;
+
+function ensureEditorFrame() {
+  if (!isEditMode || document.getElementById("edit-canvas-frame")) {
+    return;
+  }
+  const frame = document.createElement("div");
+  frame.id = "edit-canvas-frame";
+  root.parentNode.insertBefore(frame, root);
+  frame.appendChild(root);
+}
+
+function applyEditorScale() {
+  if (!isEditMode) {
+    return;
+  }
+  const fitWidth = (window.innerWidth - EDITOR_FIT_MARGIN_X) / canvasWidth;
+  const fitHeight = (window.innerHeight - EDITOR_FIT_MARGIN_Y) / canvasHeight;
+  editorScale = Math.max(EDITOR_MIN_SCALE, Math.min(1, fitWidth, fitHeight));
+
+  const frame = document.getElementById("edit-canvas-frame");
+  if (!frame) {
+    return;
+  }
+  // Only on the frame. Custom properties inherit, so the shell inside it picks
+  // `--editor-scale` up for its transform -- one owner for the fit, rather
+  // than the same number written to two elements that can then disagree.
+  frame.style.setProperty("--editor-scale", editorScale);
+  frame.style.setProperty("--editor-frame-width", `${Math.round(canvasWidth * editorScale)}px`);
+  frame.style.setProperty("--editor-frame-height", `${Math.round(canvasHeight * editorScale)}px`);
+}
+
+if (isEditMode) {
+  window.addEventListener("resize", applyEditorScale);
+}
 
 function shouldPositionAbsolutely(widgets) {
   if (requestedWidgetId()) {
@@ -471,6 +532,9 @@ function showEditBanner() {
     canvasHeight = newHeight;
     root.style.setProperty("--canvas-width", `${canvasWidth}px`);
     root.style.setProperty("--canvas-height", `${canvasHeight}px`);
+    // A taller or wider canvas needs a different fit, and the next render is a
+    // widget-revision away -- the resolution POST does not bump one.
+    applyEditorScale();
 
     widthInput.value = canvasWidth;
     heightInput.value = canvasHeight;
@@ -508,9 +572,13 @@ function setupDragAndDrop() {
       if (e.target.closest("button, select, input, a")) {
         return;
       }
-      // Avoid drag triggers when resizing widgets via bottom-right handle
+      // Avoid drag triggers when resizing widgets via bottom-right handle.
+      // `rect` is in screen pixels and so is `clientX`, so the handle's own
+      // size has to be scaled to match: the canvas transform shrinks the
+      // native handle along with everything else, and an 18px dead zone over a
+      // 12px handle steals grab area the user can see is not a handle.
       const rect = el.getBoundingClientRect();
-      const borderSize = 18;
+      const borderSize = 18 * editorScale;
       if (e.clientX > rect.right - borderSize && e.clientY > rect.bottom - borderSize) {
         return;
       }
@@ -530,8 +598,12 @@ function setupDragAndDrop() {
     el.addEventListener("pointermove", (e) => {
       if (!isDragging) return;
       
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
+      // Pointer deltas arrive in screen pixels; `left`/`top` are canvas
+      // pixels. They are the same thing at scale 1 and only at scale 1 --
+      // without the division the widget drifts behind the cursor by exactly
+      // the amount the editor shrank the canvas.
+      const dx = (e.clientX - startX) / editorScale;
+      const dy = (e.clientY - startY) / editorScale;
 
       let newLeft = Math.round(initialLeft + dx);
       let newTop = Math.round(initialTop + dy);
@@ -701,9 +773,14 @@ function setupDragAndDrop() {
         const el = entry.target;
         const widgetId = el.getAttribute("data-id");
         if (widgetId) {
-          const rect = el.getBoundingClientRect();
-          const w = Math.round(rect.width);
-          const h = Math.round(rect.height);
+          // `offsetWidth`/`offsetHeight`, not `getBoundingClientRect()`: the
+          // rect is measured after the editor's canvas transform, so under a
+          // fitted canvas a 285px widget reports ~190px -- and that is what
+          // would be POSTed and persisted. Every open of the editor would have
+          // shrunk every widget a little further. These two are border-box
+          // like the rect, and in layout pixels the transform cannot reach.
+          const w = el.offsetWidth;
+          const h = el.offsetHeight;
 
           const savedW = parseInt(el.getAttribute("data-width")) || 0;
           const savedH = parseInt(el.getAttribute("data-height")) || 0;
@@ -734,9 +811,10 @@ function setupDragAndDrop() {
     });
 
     draggables.forEach((el) => {
-      const rect = el.getBoundingClientRect();
-      el.setAttribute("data-width", Math.round(rect.width));
-      el.setAttribute("data-height", Math.round(rect.height));
+      // Same units as the observer above, or the first callback would read a
+      // 95px difference that nobody caused and save it.
+      el.setAttribute("data-width", el.offsetWidth);
+      el.setAttribute("data-height", el.offsetHeight);
       resizeOb.observe(el);
     });
   }
@@ -754,9 +832,12 @@ function editWidgetSettingsSignature(widget) {
 }
 
 function preserveEditWidgetLayout(currentElement, desiredElement) {
-  const rect = currentElement.getBoundingClientRect();
-  const width = Math.max(1, Math.round(rect.width));
-  const height = Math.max(1, Math.round(rect.height));
+  // Layout pixels, for the same reason the resize observer uses them: this
+  // writes an explicit `width`/`height` that the observer then reads back, and
+  // a size measured through the canvas transform would be pinned smaller than
+  // what is on screen -- once per settings change, compounding.
+  const width = Math.max(1, currentElement.offsetWidth);
+  const height = Math.max(1, currentElement.offsetHeight);
 
   desiredElement.style.left = currentElement.style.left;
   desiredElement.style.top = currentElement.style.top;
@@ -823,6 +904,10 @@ function render(state) {
   canvasHeight = Number(state.canvas_height || 1080);
   root.style.setProperty("--canvas-width", `${canvasWidth}px`);
   root.style.setProperty("--canvas-height", `${canvasHeight}px`);
+  // Before anything is measured: both survivors of the transform below --
+  // the drag handler and the resize observer -- read `editorScale`.
+  ensureEditorFrame();
+  applyEditorScale();
 
   const requested = requestedWidgetId();
   applyStyle(state);

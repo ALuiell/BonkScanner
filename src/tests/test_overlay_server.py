@@ -8,11 +8,13 @@ import tempfile
 import unittest
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from app import config
 from infra.overlay_server import (
     LocalOverlayServer,
+    MIN_WIDGET_HEIGHT,
+    MIN_WIDGET_WIDTH,
     OverlayStateStore,
     WIDGET_ROUTE_NAMES,
     _default_overlay_asset_dir,
@@ -227,6 +229,85 @@ class OverlayServerTests(unittest.TestCase):
             finally:
                 server.stop()
 
+    def test_saved_widget_size_is_floored(self) -> None:
+        """A widget cannot be persisted small enough to become ungrabbable.
+
+        `.widget-wrapper.draggable` carries `resize: both`, and the native handle
+        has no lower bound of its own. Anything under about 18px is a trap
+        rather than a small widget: `setupDragAndDrop` reserves the bottom-right
+        18px for that same handle, so the dead zone covers the whole element and
+        `pointerdown` returns early every time. Nothing in the editor can undo
+        it after that.
+
+        The CSS `min-width`/`min-height` stop the drag before it reaches here.
+        This floor is the backstop for a size arriving some other way -- a
+        hand-edited config, or one saved before the floor existed -- so it is
+        checked on the value that actually lands in settings.
+        """
+        overlay_config = {"widgets": [{"id": "kps", "width": 400, "height": 300}]}
+
+        class Settings:
+            def read(self):
+                return overlay_config
+
+            def update(self, mutate):
+                mutate(overlay_config)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asset_dir = Path(temp_dir)
+            (asset_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            server = LocalOverlayServer(
+                port=free_port(), asset_dir=asset_dir, settings=Settings()
+            )
+            server.start()
+            try:
+                request = Request(
+                    f"http://127.0.0.1:{server.port}/api/save-widget-positions",
+                    data=json.dumps({"id": "kps", "width": 3, "height": 2}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=2) as response:
+                    self.assertEqual(200, response.status)
+            finally:
+                server.stop()
+
+        saved = overlay_config["widgets"][0]
+        self.assertEqual(MIN_WIDGET_WIDTH, saved["width"])
+        self.assertEqual(MIN_WIDGET_HEIGHT, saved["height"])
+
+    def test_saved_widget_size_above_the_floor_is_untouched(self) -> None:
+        overlay_config = {"widgets": [{"id": "kps"}]}
+
+        class Settings:
+            def read(self):
+                return overlay_config
+
+            def update(self, mutate):
+                mutate(overlay_config)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            asset_dir = Path(temp_dir)
+            (asset_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+            server = LocalOverlayServer(
+                port=free_port(), asset_dir=asset_dir, settings=Settings()
+            )
+            server.start()
+            try:
+                request = Request(
+                    f"http://127.0.0.1:{server.port}/api/save-widget-positions",
+                    data=json.dumps({"id": "kps", "width": 321, "height": 74}).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=2) as response:
+                    self.assertEqual(200, response.status)
+            finally:
+                server.stop()
+
+        self.assertEqual(321, overlay_config["widgets"][0]["width"])
+        self.assertEqual(74, overlay_config["widgets"][0]["height"])
+
     def test_server_binds_to_loopback_host(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             asset_dir = Path(temp_dir)
@@ -270,6 +351,48 @@ class OverlayAssetDirTests(unittest.TestCase):
         self.assertIn("preserveEditWidgetLayout(currentElement, desiredElement);", script)
         self.assertIn("currentElement.replaceWith(desiredElement);", script)
         self.assertIn(".widget-wrapper.draggable:not([data-edit-initialized])", script)
+
+    def test_editor_fits_the_canvas_and_measures_around_the_transform(self) -> None:
+        """The editor scales the canvas down, and nothing may measure through it.
+
+        The canvas is a fixed `canvas_width` x `canvas_height` box; the window
+        the editor opens in is smaller. Without the fit, everything defaulting
+        to `x: 1600` -- four of the six widgets, which is correct for a 1920 OBS
+        scene -- sits off the right edge of the window and reads as "the widget
+        never appears". That was the reported bug.
+
+        The fit is a transform, and a transform is exactly the kind of thing the
+        two size-measuring paths silently disagree with: `getBoundingClientRect`
+        reports post-transform pixels, and both of them *write* what they read
+        (one POSTs it, one pins it as an explicit width). Measuring through the
+        transform would have shrunk every widget a little on every open, which
+        is the failure mode the size floor above exists to make unrecoverable.
+        So the units are pinned here, not just the scaling.
+        """
+        script = (_default_overlay_asset_dir() / "overlay.js").read_text(encoding="utf-8")
+        style = (_default_overlay_asset_dir() / "overlay.css").read_text(encoding="utf-8")
+
+        self.assertIn("function applyEditorScale()", script)
+        self.assertIn("edit-canvas-frame", script)
+        self.assertIn("#edit-canvas-frame", style)
+        self.assertIn("transform: scale(var(--editor-scale, 1));", style)
+        # Never enlarged past 1:1, and never shrunk into a postage stamp.
+        self.assertIn("Math.max(EDITOR_MIN_SCALE, Math.min(1, fitWidth, fitHeight))", script)
+
+        # Pointer deltas arrive in screen pixels and `left`/`top` are canvas
+        # pixels; they agree only at scale 1.
+        self.assertIn("const dx = (e.clientX - startX) / editorScale;", script)
+        self.assertIn("const dy = (e.clientY - startY) / editorScale;", script)
+
+        # Both writers of a persisted size read layout pixels.
+        self.assertIn("const w = el.offsetWidth;", script)
+        self.assertIn("const h = el.offsetHeight;", script)
+        self.assertIn("const width = Math.max(1, currentElement.offsetWidth);", script)
+        self.assertIn("const height = Math.max(1, currentElement.offsetHeight);", script)
+
+        # The CSS half of the size floor, in step with the server's.
+        self.assertIn(f"min-width: {MIN_WIDGET_WIDTH}px;", style)
+        self.assertIn(f"min-height: {MIN_WIDGET_HEIGHT}px;", style)
 
     def test_default_server_serves_the_real_overlay_page(self) -> None:
         server = LocalOverlayServer(port=free_port())

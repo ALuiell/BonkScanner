@@ -612,6 +612,31 @@ body.edit-mode-active {
   background: #0f1118;
 }
 
+/* The editor's viewport onto the canvas.
+
+   The canvas is a fixed `--canvas-width` x `--canvas-height` box, because that
+   is the coordinate system every saved widget position is written in and the
+   one OBS renders at 1:1. The browser window the editor opens in is smaller
+   than that -- always, on every laptop, and on a 1920 monitor too once the
+   window chrome and the scrollbar are subtracted. So the canvas used to hang
+   off the right edge of the window, taking with it everything placed there:
+   four of the six widgets default to `x: 1600`, which is correct for OBS and
+   invisible here. The report that started this was "only Tracked Items shows
+   up in the layout editor", and that is what it was -- nothing was missing,
+   the right third of the canvas was simply off-screen.
+
+   This frame is created by `ensureEditorFrame()` and sized to the *scaled*
+   canvas, while the shell inside it is scaled by `--editor-scale`. Layout
+   reserves the frame's size, so centring and the page height stay honest --
+   a transform alone would have left the shell occupying its full unscaled
+   1920x1080 box and centred that instead of what you can see. */
+#edit-canvas-frame {
+  margin: 80px auto 20px auto;
+  /* Set from JS, in the same breath as `--editor-scale`. */
+  width: var(--editor-frame-width, var(--canvas-width, 1920px));
+  height: var(--editor-frame-height, var(--canvas-height, 1080px));
+}
+
 body:has(#edit-mode-banner) .overlay-shell.absolute-layout {
   outline: 2px dashed rgba(255, 255, 255, 0.25);
   box-shadow: 0 0 50px rgba(0, 0, 0, 0.85);
@@ -619,7 +644,10 @@ body:has(#edit-mode-banner) .overlay-shell.absolute-layout {
   background-size: 100% 100%;
   background-position: center;
   background-repeat: no-repeat;
-  margin: 80px auto 20px auto;
+  /* `transform-origin: top left` comes from `.overlay-shell`, and it is what
+     makes the frame above a plain multiplication rather than an offset. */
+  transform: scale(var(--editor-scale, 1));
+  margin: 0;
 }
 
 .overlay-shell.absolute-layout .widget-wrapper {
@@ -647,6 +675,15 @@ body:has(#edit-mode-banner) .overlay-shell.absolute-layout {
 .overlay-shell.absolute-layout .widget-wrapper.draggable {
   cursor: move;
   user-select: none;
+  /* `resize: both` below has no floor of its own, and the native handle will
+     take an element down to a few pixels. Past about 18px in either direction
+     the widget stops being recoverable: `setupDragAndDrop` reserves the
+     bottom-right 18px for that same handle, so the dead zone swallows the whole
+     element and there is nothing left to grab. Kept in step with
+     `MIN_WIDGET_WIDTH`/`MIN_WIDGET_HEIGHT` in `infra/overlay_server.py`, which
+     is the backstop for sizes that arrive without passing through this rule. */
+  min-width: 60px;
+  min-height: 40px;
   border: 2px dashed rgba(246, 196, 83, 0.4);
   border-radius: calc(8px * var(--scale));
   padding: calc(6px * var(--scale));
