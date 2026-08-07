@@ -340,6 +340,19 @@ class Scanner:
             self.log("[*] Scan started. Looking for selected target...")
         self.update_status_ui()
 
+    def _sync_reset_hold_duration(self) -> None:
+        """Re-check the game's quick-reset threshold before the worker starts.
+
+        `app.config` reads it once at import, which is often before the game is
+        running -- and the game rewrites its own config on exit. Starting a scan
+        is the last moment we can notice that the hold went stale, and the run
+        control provider reads `config.RESET_HOLD_DURATION` through a lambda, so
+        the corrected value applies to the very next reroll.
+        """
+        notice = config.reset_hold_duration_notice(config.refresh_reset_hold_duration())
+        if notice is not None:
+            self.log(notice, tag="warning")
+
     def toggle_main_loop(self):
         if not self.is_scanning():
             if not config.user_config.get("SKIP_REROLL_WARNING", False):
@@ -384,6 +397,8 @@ class Scanner:
                     return
                 self._log_colored_names("[*] Active Tiers: ", active_tiers, self._score_tier_color_tag)
                 self.template_stats = {name: {"rerolls_since_last": 0, "history": []} for name in active_tiers}
+
+            self._sync_reset_hold_duration()
 
             self.session_start_time = time.time()
             self.session_rerolls = 0
@@ -667,8 +682,14 @@ class Scanner:
 
                 self.reroll_map()
 
-            except TimeoutError:
+            except TimeoutError as exc:
+                # `wait_for_map_ready` spells out *which* readiness gate never
+                # opened -- change_seen/generation_seen separate "the reset key
+                # was never accepted by the game" from "the map really is slow
+                # to load", and those two have opposite fixes. Logging only the
+                # headline threw that away and made the bug unreportable.
                 self.log("[-] Map took too long to load.", tag="warning")
+                self.log(f"    {exc}", tag="warning")
                 self.log("[*] Restarting run to recover...", tag="warning")
                 if self._run_control.wait_for_game_window_focus(process_name):
                     self.reroll_map()

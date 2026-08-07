@@ -1252,9 +1252,10 @@ class SettingsDialog(QDialog):
             2,
         )
         if new_duration != initial_duration:
-            # The game threshold stays 0.05 s below the actual key hold. That
-            # safety margin covers input/animation timing jitter at the boundary.
-            game_val = max(0.01, round(new_duration - 0.05, 2))
+            # The game threshold stays `RESET_HOLD_SAFETY_MARGIN` below the
+            # actual key hold; the conversion is config's so that the read side
+            # (`get_game_reset_time`) cannot drift away from it.
+            game_val = config.reset_hold_duration_to_game_value(new_duration)
             update_result = config.update_game_reset_time(game_val)
             if not update_result.success:
                 reason = update_result.reason or "The game config change could not be verified."

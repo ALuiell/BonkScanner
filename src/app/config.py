@@ -400,17 +400,31 @@ def save_game_config(data: dict) -> bool:
         return False
 
 
+#: How much longer than the game's own `quick_reset_time` we hold the key. The
+#: game stores the bare threshold; holding for exactly that races input and
+#: animation timing at the boundary, so every value crossing this seam carries
+#: the margin. Read adds it (`get_game_reset_time`), write removes it
+#: (`reset_hold_duration_to_game_value`) -- they are one pair and must not drift
+#: apart, which is why this is a constant and not two literals in two files.
+RESET_HOLD_SAFETY_MARGIN = 0.05
+
+
 def get_game_reset_time() -> float | None:
+    """The game's `quick_reset_time`, plus the safety margin. None if unreadable."""
     try:
         data = load_game_config()
         if data is not None:
             quick_reset_time = data.get("cfGameSettings", {}).get("quick_reset_time")
             if quick_reset_time is not None:
-                # The game's config stores the time without a safety margin. In our app, we add 0.05s for reliability.
-                return float(quick_reset_time) + 0.05
+                return float(quick_reset_time) + RESET_HOLD_SAFETY_MARGIN
     except Exception:
         pass
     return None
+
+
+def reset_hold_duration_to_game_value(hold_duration: float) -> float:
+    """Strip the margin back off, for writing into the game's own config."""
+    return max(0.01, round(hold_duration - RESET_HOLD_SAFETY_MARGIN, 2))
 
 def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
     """Write and read back quick_reset_time so the UI never reports a false success."""
@@ -949,16 +963,93 @@ def _normalize_overlay_widgets(value):
 user_config.pop("MIN_DELAY", None)
 user_config.pop("MAP_LOAD_DELAY", None)
 
-# Load RESET_HOLD_DURATION from user_config first, fallback to game config, fallback to default 0.4
-RESET_HOLD_DURATION_USER = user_config.get("RESET_HOLD_DURATION")
-if RESET_HOLD_DURATION_USER is not None:
-    RESET_HOLD_DURATION = RESET_HOLD_DURATION_USER
-else:
-    game_reset_time = get_game_reset_time()
-    if game_reset_time is not None:
-        RESET_HOLD_DURATION = game_reset_time
+#: Used only when neither user config nor the game config can supply a value.
+DEFAULT_RESET_HOLD_DURATION = 0.4
+
+
+def resolve_reset_hold_duration(
+    stored_value,
+    game_floor: float | None,
+) -> tuple[float, float | None]:
+    """Return the hold to use, and the value it was raised from (or None).
+
+    The game's threshold is a **floor, not an equality**. Holding the reset key
+    longer than `quick_reset_time` still restarts the run -- only holding it
+    shorter never does -- so a hold the user deliberately raised stays raised,
+    and only a value that drifted *below* the threshold is pulled back up.
+    `game_floor` already carries the 0.05 s safety margin; see
+    `get_game_reset_time`.
+
+    That drift was otherwise unrepairable from inside the app. The caller reads
+    the game config only when `RESET_HOLD_DURATION` is *absent* from user
+    config, and the key is written back on every save, so after the first save
+    the game config was never consulted again for the life of the install.
+    Before v2.1.7 the settings dialog saved this value even when the matching
+    write to the game config had silently failed, leaving those installs holding
+    the key for less time than the game requires: the reset never fires, the map
+    never changes, and the scanner sits in `wait_for_map_ready` until it times
+    out with "Map took too long to load".
+    """
+    if stored_value is not None:
+        duration = coerce_float(stored_value, DEFAULT_RESET_HOLD_DURATION)
+    elif game_floor is not None:
+        duration = game_floor
     else:
-        RESET_HOLD_DURATION = 0.4
+        duration = DEFAULT_RESET_HOLD_DURATION
+
+    if game_floor is not None and round(duration, 2) < round(game_floor, 2):
+        return game_floor, round(duration, 2)
+    return duration, None
+
+
+# Load RESET_HOLD_DURATION from user_config first, fallback to game config,
+# fallback to the default -- then hold it to the game's floor either way.
+GAME_RESET_HOLD_FLOOR = get_game_reset_time()
+RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM = resolve_reset_hold_duration(
+    user_config.get("RESET_HOLD_DURATION"),
+    GAME_RESET_HOLD_FLOOR,
+)
+
+
+def refresh_reset_hold_duration() -> float | None:
+    """Re-read the game's threshold and re-apply the floor. Callable any time.
+
+    Import is too early to be the only check. It can run before the game is
+    even launched, and the game rewrites its own config as it exits -- so a
+    hold that matched at startup can be too short by the time a run begins.
+    A hold shorter than the game's threshold means the reset key never restarts
+    the run at all: the map never changes, and the scanner ends every iteration
+    in "Map took too long to load".
+
+    Returns the value the hold was raised *from*, or None when nothing moved --
+    so a caller that runs on every scan start logs once per real change rather
+    than once per scan.
+    """
+    global GAME_RESET_HOLD_FLOOR, RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM
+
+    GAME_RESET_HOLD_FLOOR = get_game_reset_time()
+    # Resolve against the live value, not the stored one: they agree (both the
+    # dialog and import write both), and the live one is what the next reroll
+    # will actually hold for.
+    RESET_HOLD_DURATION, RESET_HOLD_DURATION_RAISED_FROM = resolve_reset_hold_duration(
+        RESET_HOLD_DURATION,
+        GAME_RESET_HOLD_FLOOR,
+    )
+    if RESET_HOLD_DURATION_RAISED_FROM is not None:
+        user_config["RESET_HOLD_DURATION"] = round(RESET_HOLD_DURATION, 2)
+        save_config(user_config)
+    return RESET_HOLD_DURATION_RAISED_FROM
+
+
+def reset_hold_duration_notice(raised_from: float | None) -> str | None:
+    """The one wording for "we raised your hold", shared by both callers."""
+    if raised_from is None:
+        return None
+    return (
+        f"[*] Reset Hold Duration was {raised_from:.2f}s, below the game's quick reset "
+        f"threshold. Raised to {RESET_HOLD_DURATION:.2f}s so restarts register."
+    )
+
 
 HOTKEY = user_config.get("HOTKEY", "f6")
 HOTKEY_GAME_KEY_WHITELIST = normalize_hotkey_game_key_whitelist(
