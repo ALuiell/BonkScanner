@@ -229,15 +229,35 @@ class TwitchAuthThread(QThread):
         self.server = None
         self.state = secrets.token_urlsafe(16)
         self.timeout_timer = None
+        # Closing the app can race with QThread startup: at that moment there
+        # is no HTTP server to shut down yet.  Keep the cancellation request
+        # separately so `run` never begins serving after that close.
+        self._shutdown_requested = threading.Event()
+        self._server_lock = threading.Lock()
 
     def run(self):
         try:
-            self.server = HTTPServer(("localhost", OAUTH_PORT), OAuthRequestHandler)
-            self.server.auth_thread = self
+            if self._shutdown_requested.is_set():
+                return
+
+            server = HTTPServer(("localhost", OAUTH_PORT), OAuthRequestHandler)
+            server.auth_thread = self
+            with self._server_lock:
+                if self._shutdown_requested.is_set():
+                    server.server_close()
+                    return
+                self.server = server
             
             self.timeout_timer = threading.Timer(120.0, self._handle_timeout)
             self.timeout_timer.daemon = True
             self.timeout_timer.start()
+
+            if self._shutdown_requested.is_set():
+                server.server_close()
+                with self._server_lock:
+                    if self.server is server:
+                        self.server = None
+                return
             
             # Open browser
             auth_url = (
@@ -250,10 +270,25 @@ class TwitchAuthThread(QThread):
             )
             webbrowser.open(auth_url)
             
-            # Run server to wait for callback
-            self.server.serve_forever()
+            # Do not use `serve_forever` here. `HTTPServer.shutdown()` waits
+            # for that loop to begin, which leaves a race when the app closes
+            # between thread startup and the call itself. A short request
+            # timeout lets this QThread observe cancellation in either state.
+            server.timeout = 0.2
+            while not self._shutdown_requested.is_set():
+                server.handle_request()
         except Exception as e:
-            self.auth_error.emit(str(e))
+            if not self._shutdown_requested.is_set():
+                self.auth_error.emit(str(e))
+        finally:
+            with self._server_lock:
+                server = self.server
+                self.server = None
+            if server is not None:
+                try:
+                    server.server_close()
+                except Exception:
+                    pass
 
     def _handle_timeout(self):
         self.auth_error.emit("Authorization timed out after 2 minutes.")
@@ -292,15 +327,6 @@ class TwitchAuthThread(QThread):
         self._shutdown_server()
 
     def _shutdown_server(self):
+        self._shutdown_requested.set()
         if self.timeout_timer:
             self.timeout_timer.cancel()
-        if self.server:
-            srv = self.server
-            self.server = None
-            def task():
-                try:
-                    srv.shutdown()
-                    srv.server_close()
-                except Exception:
-                    pass
-            threading.Thread(target=task, daemon=True).start()

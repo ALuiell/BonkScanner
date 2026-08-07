@@ -41,6 +41,11 @@ from infra.twitch_credentials import (
 )
 
 _VALIDATION_INTERVAL_MS = 60 * 60 * 1000
+# The OAuth callback can be validating the supplied token with a five-second
+# HTTP timeout when the window is closed.
+_AUTH_SHUTDOWN_WAIT_MS = 6_000
+_BOT_SHUTDOWN_WAIT_MS = 12_000
+_REQUEST_SHUTDOWN_WAIT_MS = 6_000
 
 
 class TwitchSession:
@@ -237,10 +242,39 @@ class TwitchSession:
         self._bot_worker.start()
 
     def stop_bot(self) -> None:
+        self._stop_bot(wait_ms=2_000)
+
+    def _stop_bot(self, *, wait_ms: int) -> None:
         worker = self._bot_worker
         if worker:
             worker.stop()
-            worker.wait(2000)
+            worker.wait(wait_ms)
+
+    def shutdown(self) -> None:
+        """Stop every Twitch-owned timer and worker before the Qt app exits."""
+        self._start_bot_after_validation = False
+        self._validation_timer.stop()
+        self._stop_bot(wait_ms=_BOT_SHUTDOWN_WAIT_MS)
+        self._stop_auth_thread()
+        self._wait_for_worker(self._validation_worker, _REQUEST_SHUTDOWN_WAIT_MS)
+        self._wait_for_worker(self._revoke_worker, _REQUEST_SHUTDOWN_WAIT_MS)
+
+    def _stop_auth_thread(self) -> None:
+        worker = self._auth_thread
+        if worker is None:
+            return
+        shutdown_server = getattr(worker, "_shutdown_server", None)
+        if callable(shutdown_server):
+            shutdown_server()
+        self._wait_for_worker(worker, _AUTH_SHUTDOWN_WAIT_MS)
+
+    @staticmethod
+    def _wait_for_worker(worker, wait_ms: int) -> None:
+        if worker is None:
+            return
+        wait = getattr(worker, "wait", None)
+        if callable(wait):
+            wait(wait_ms)
 
     def on_bot_status(self, status) -> None:
         self._view.show_bot_status(status)

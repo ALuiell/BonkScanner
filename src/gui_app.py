@@ -488,7 +488,7 @@ class MegabonkApp:
     def stop_twitch_bot(self) -> None:
         session = self.__dict__.get("_twitch_session")
         if session is not None:
-            session.stop_bot()
+            session.shutdown()
 
     # Called on the app by `app/refresh_tasks.py` (twice) and
     # `app/player_stats_memory.py`, and defined **nowhere** until now. It was
@@ -807,9 +807,6 @@ class MegabonkApp:
         self.close_overlay_server()
         self.stop_in_game_overlay()
         self.stop_twitch_bot()
-        if getattr(self, "twitch_auth_thread", None) is not None:
-            self.twitch_auth_thread._shutdown_server()
-            self.twitch_auth_thread.wait(2000)
         player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
         if player_stats_vod_recorder is not None:
             if player_stats_vod_recorder.is_recording:

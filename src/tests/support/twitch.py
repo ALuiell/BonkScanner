@@ -141,9 +141,22 @@ class FakeAuthThread:
         self.auth_success = FakeSignal()
         self.auth_error = FakeSignal()
         self.started = 0
+        self.shutdowns = 0
+        self.waited = []
+        self.running = True
 
     def start(self) -> None:
         self.started += 1
+
+    def isRunning(self) -> bool:
+        return self.running
+
+    def _shutdown_server(self) -> None:
+        self.shutdowns += 1
+        self.running = False
+
+    def wait(self, ms) -> None:
+        self.waited.append(ms)
 
 
 class FakeValidationWorker:
@@ -157,12 +170,16 @@ class FakeValidationWorker:
         self.result = result
         self._running = running
         self.started = 0
+        self.waited = []
 
     def isRunning(self) -> bool:
         return self._running
 
     def deleteLater(self) -> None:
         pass
+
+    def wait(self, ms) -> None:
+        self.waited.append(ms)
 
     def start(self) -> None:
         self.started += 1
@@ -187,12 +204,16 @@ class FakeRevokeWorker:
         self.outcome = outcome
         self._running = running
         self.started = 0
+        self.waited = []
 
     def isRunning(self) -> bool:
         return self._running
 
     def deleteLater(self) -> None:
         pass
+
+    def wait(self, ms) -> None:
+        self.waited.append(ms)
 
     def start(self) -> None:
         self.started += 1

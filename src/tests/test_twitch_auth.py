@@ -14,6 +14,17 @@ import twitch_auth
 
 
 class TwitchAuthTests(unittest.TestCase):
+    def test_shutdown_before_run_prevents_the_oauth_server_from_starting(self) -> None:
+        thread = twitch_auth.TwitchAuthThread()
+        thread._shutdown_server()
+
+        with patch.object(twitch_auth, "HTTPServer") as server, patch.object(
+            twitch_auth.webbrowser, "open"
+        ):
+            thread.run()
+
+        server.assert_not_called()
+
     def test_validate_token_parses_valid_response(self) -> None:
         response = MagicMock(status_code=200)
         response.json.return_value = {

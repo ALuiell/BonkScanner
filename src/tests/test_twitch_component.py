@@ -28,7 +28,13 @@ import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
 
 from app import config
 import gui_twitch
-from tests.support.twitch import FakeTab, FakeTimer, build_session
+from tests.support.twitch import (
+    FakeRevokeWorker,
+    FakeTab,
+    FakeTimer,
+    FakeValidationWorker,
+    build_session,
+)
 
 SRC_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -434,6 +440,27 @@ class TwitchSessionTests(unittest.TestCase):
         self.assertEqual(worker.stopped, 1)
         self.assertEqual(worker.waited, [2000])
         self.assertFalse(harness.session.is_bot_active())
+
+    def test_shutdown_stops_and_waits_for_every_twitch_worker(self) -> None:
+        harness = build_session()
+        harness.session.start_auth()
+        harness.session._start_bot_worker()
+        validation = FakeValidationWorker("token", running=True)
+        revoke = FakeRevokeWorker("token", running=True)
+        harness.session._validation_worker = validation
+        harness.session._revoke_worker = revoke
+
+        harness.session.shutdown()
+
+        auth = harness.calls["auth_threads"][0]
+        bot = harness.calls["bot_workers"][0]
+        self.assertEqual(harness.timer.stops, 1)
+        self.assertEqual(auth.shutdowns, 1)
+        self.assertEqual(auth.waited, [6000])
+        self.assertEqual(bot.stopped, 1)
+        self.assertEqual(bot.waited, [12000])
+        self.assertEqual(validation.waited, [6000])
+        self.assertEqual(revoke.waited, [6000])
 
     def test_start_bot_without_a_token_reports_not_connected(self) -> None:
         harness = build_session()
