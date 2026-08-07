@@ -954,6 +954,28 @@ class GuiRunControlTests(unittest.TestCase):
         config.user_config.clear()
         config.user_config.update(self.original_user_config)
 
+    #: The hold typed into the settings dialog, and the one it replaces.
+    #:
+    #: Neither may be read from `config.RESET_HOLD_DURATION`, and naming them is
+    #: the point. `SettingsDialog.save` writes the game config only when the
+    #: hold actually changed, so a test that took its "before" value from the
+    #: ambient config was asserting against the *unchanged* branch whenever that
+    #: value happened to equal the one typed in -- which is every machine with
+    #: Megabonk installed, because there `resolve_reset_hold_duration` raises the
+    #: hold to the game's own floor and that floor is 0.25. The two tests below
+    #: passed everywhere else and failed there, for a reason that had nothing to
+    #: do with what they were testing.
+    #:
+    #: `test_settings_save_does_not_touch_game_config_when_hold_duration_is_unchanged`
+    #: deliberately keeps reading the ambient value: it wants the two equal, and
+    #: sourcing both from one place is how it stays honest.
+    SAVED_HOLD_DURATION = 0.25
+    PREVIOUS_HOLD_DURATION = 0.4
+    #: What the game config is told, once: `RESET_HOLD_SAFETY_MARGIN` below the
+    #: hold above. Spelled out rather than derived, so that moving the margin
+    #: has to be acknowledged here.
+    SAVED_HOLD_GAME_VALUE = 0.2
+
 
 
 
@@ -973,8 +995,8 @@ class GuiRunControlTests(unittest.TestCase):
             record_hotkey_entry=FakeEntry("f8"),
             auto_start_recording_var=FakeCheckbox(True),
             show_obs_reminder_on_start_scanner_var=FakeCheckbox(True),
-            reset_hold_duration_entry=FakeEntry("0.25"),
-            _initial_reset_hold_duration=config.RESET_HOLD_DURATION,
+            reset_hold_duration_entry=FakeEntry(str(self.SAVED_HOLD_DURATION)),
+            _initial_reset_hold_duration=self.PREVIOUS_HOLD_DURATION,
             record_interval_entry=FakeEntry("60"),
             master=master,
             accept=lambda: accepted.append(True),
@@ -999,10 +1021,13 @@ class GuiRunControlTests(unittest.TestCase):
         self.assertIn("refresh_in_game_overlay_hotkey_ui", master.events)
         self.assertIn("apply_run_control_mode", master.events)
         self.assertTrue(save_config.called)
-        update_game_reset_time.assert_called_once_with(0.2)
+        update_game_reset_time.assert_called_once_with(self.SAVED_HOLD_GAME_VALUE)
         self.assertEqual(accepted, [True])
 
     def test_settings_save_keeps_dialog_open_when_game_reset_time_cannot_be_applied(self) -> None:
+        # Read for the "the global was left alone" assertion below, which is a
+        # different question from what the dialog opened holding -- the two used
+        # to share one variable, and that is what tied this test to the machine.
         original_duration = config.RESET_HOLD_DURATION
         accepted: list[bool] = []
         dialog = types.SimpleNamespace(
@@ -1011,8 +1036,8 @@ class GuiRunControlTests(unittest.TestCase):
             record_hotkey_entry=FakeEntry("f8"),
             auto_start_recording_var=FakeCheckbox(False),
             show_obs_reminder_on_start_scanner_var=FakeCheckbox(False),
-            reset_hold_duration_entry=FakeEntry("0.25"),
-            _initial_reset_hold_duration=original_duration,
+            reset_hold_duration_entry=FakeEntry(str(self.SAVED_HOLD_DURATION)),
+            _initial_reset_hold_duration=self.PREVIOUS_HOLD_DURATION,
             record_interval_entry=FakeEntry("60"),
             master=FakeSettingsMaster(),
             accept=lambda: accepted.append(True),
