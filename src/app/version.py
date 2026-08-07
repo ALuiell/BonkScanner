@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-CURRENT_VERSION = "2.1.7"
+CURRENT_VERSION = "2.1.8"
 
 
 def parse_version(v):
