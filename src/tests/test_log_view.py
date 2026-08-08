@@ -270,6 +270,35 @@ class LogViewWidgetTests(unittest.TestCase):
             """
         )
 
+    def test_disabling_autoscroll_preserves_the_reading_position(self) -> None:
+        self._run(
+            """
+            view.resize(520, 240)
+            for index in range(80):
+                view.append_log(f"[*] line {index}")
+            app.processEvents()
+
+            view._autoscroll.setChecked(False)
+            scrollbar = view._document.verticalScrollBar()
+            reading_position = scrollbar.maximum() // 2
+            scrollbar.setValue(reading_position)
+            view.append_log("[*] a new incremental line")
+            app.processEvents()
+            assert scrollbar.value() == reading_position, (
+                scrollbar.value(), reading_position
+            )
+
+            # Repeated messages use the full setHtml render path rather than
+            # QTextEdit.append; that path must leave the reader alone too.
+            view.append_log("[*] repeated")
+            view.append_log("[*] repeated")
+            app.processEvents()
+            assert scrollbar.value() == reading_position, (
+                scrollbar.value(), reading_position
+            )
+            """
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

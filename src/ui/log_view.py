@@ -384,6 +384,7 @@ class LogView(QWidget):
 
     def _render(self) -> None:
         """Rebuild the document from the buffer. The slow, complete path."""
+        manual_position = self._capture_manual_position()
         visible = self._visible_records()
         if not visible:
             self._document.setHtml(self._empty_html())
@@ -392,6 +393,7 @@ class LogView(QWidget):
                 "<br>".join(render_record_html(record) for record in visible)
             )
             self._scroll_to_end()
+        self._restore_manual_position(manual_position)
         self._footer.setText(self._footer_text(len(visible)))
 
     def _append_line(self, record: LogRecord, *, evicted: bool) -> None:
@@ -400,6 +402,7 @@ class LogView(QWidget):
         `QTextEdit.append` inserts a block without reparsing what is already
         there, which is what makes this O(1) against `setHtml`'s O(buffer).
         """
+        manual_position = self._capture_manual_position()
         if len(self._records) == 1:
             # The first real line replaces the empty-state placeholder, which
             # `append` would otherwise leave sitting above it.
@@ -409,6 +412,7 @@ class LogView(QWidget):
         if evicted:
             self._drop_first_block()
         self._scroll_to_end()
+        self._restore_manual_position(manual_position)
 
     def _drop_first_block(self) -> None:
         document = self._document.document()
@@ -424,6 +428,43 @@ class LogView(QWidget):
     def _scroll_to_end(self) -> None:
         if self._autoscroll.isChecked():
             self._document.moveCursor(QTextCursor.End)
+
+    def _capture_manual_position(self):
+        """Remember the reader's place before QTextEdit mutates its document.
+
+        `QTextEdit.append()` moves the widget's text cursor to the inserted
+        block even when our Auto-scroll checkbox is off. `setHtml()` does the
+        same kind of reset on the filtered/repeated-line render path. Preserve
+        both scrollbars and the cursor so incoming logs do not take control of
+        the view while the user is reading older lines.
+        """
+        if self._autoscroll.isChecked():
+            return None
+        cursor = self._document.textCursor()
+        return (
+            self._document.verticalScrollBar().value(),
+            self._document.horizontalScrollBar().value(),
+            cursor.position(),
+            cursor.anchor(),
+        )
+
+    def _restore_manual_position(self, position) -> None:
+        if position is None:
+            return
+        vertical, horizontal, cursor_position, cursor_anchor = position
+        document = self._document.document()
+        last_position = max(0, document.characterCount() - 1)
+        cursor = QTextCursor(document)
+        cursor.setPosition(min(cursor_anchor, last_position))
+        cursor.setPosition(
+            min(cursor_position, last_position),
+            QTextCursor.KeepAnchor,
+        )
+        self._document.setTextCursor(cursor)
+        # Setting the text cursor may scroll it into view, so restore the bars
+        # after the cursor rather than before it.
+        self._document.horizontalScrollBar().setValue(horizontal)
+        self._document.verticalScrollBar().setValue(vertical)
 
     def _update_footer(self) -> None:
         self._footer.setText(self._footer_text(len(self._visible_records())))
