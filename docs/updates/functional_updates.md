@@ -226,7 +226,7 @@ Validation requirements:
 
 #### 5. First-Launch Auto-Reroll Setup Guide
 
-Status: `[Complete]`
+Status: `[Done]`
 
 Goal:
 

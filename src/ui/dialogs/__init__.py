@@ -63,6 +63,7 @@ from ui.styles import (
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QColorDialog,
     QDialog,
@@ -833,10 +834,11 @@ class AutoRerollSetupGuideDialog(QDialog):
         )
         layout.addWidget(
             dialog_card(
-                "Open <b>Settings &rarr; Game</b> in Megabonk and enable:"
-                "<br><br><b>Quick Reset</b> &mdash; enables restarting a run with the reset key."
-                "<br><b>Skip Portal Animation</b> &mdash; skips the portal transition animation."
-                "<br><b>Super Quick Resets</b> &mdash; reduces the delay before the next run starts."
+                "Open <b>Settings &rarr; Game</b> in Megabonk and make sure these "
+                "settings are <b>ON</b>:"
+                "<br><br><b>Quick Reset</b>"
+                "<br><b>Skip Portal Animation</b>"
+                "<br><b>Super Quick Resets</b>"
             )
         )
         layout.addWidget(
@@ -856,13 +858,17 @@ class AutoRerollSetupGuideDialog(QDialog):
         layout.addWidget(
             dialog_danger_card(
                 "<b>Troubleshooting</b><br><br>"
-                "If R is pressed but the run does not restart, increase Reset Hold "
-                "Duration in BonkScanner Settings.<br><br>"
-                "BonkScanner normally keeps it above Megabonk's quick_reset_time using "
-                "a safety margin. If you need a little more headroom, increase "
-                "<b>RESET_HOLD_SAFETY_MARGIN</b> in the BonkScanner config &mdash; for "
-                "example, from <b>0.05</b> to <b>0.06</b> &mdash; then restart BonkScanner."
-                "<br><br><b>Game config:</b> %USERPROFILE%\\&#8203;AppData\\&#8203;"
+                "If Auto-Reroll presses R but the run does not restart, check Reset "
+                "Hold Duration in BonkScanner Settings first.<br><br>"
+                "Before Auto-Reroll starts, BonkScanner compares the configured hold "
+                "duration with Megabonk's <b>quick_reset_time</b>. If the game requires "
+                "a longer hold, BonkScanner automatically raises its value while "
+                "preserving the safety margin.<br><br>"
+                "If resets still do not register after the automatic adjustment, increase "
+                "<b>RESET_HOLD_SAFETY_MARGIN</b> in BonkScanner's <b>config.json</b>, "
+                "then restart BonkScanner &mdash; for example, from <b>0.05</b> to "
+                "<b>0.07</b>.<br><br>"
+                "<b>Megabonk's game config:</b> %USERPROFILE%\\&#8203;AppData\\&#8203;"
                 "LocalLow\\&#8203;Ved\\&#8203;Megabonk\\&#8203;Saves\\&#8203;"
                 "LocalDir\\&#8203;config.json"
             )
@@ -1188,6 +1194,9 @@ class SettingsDialog(QDialog):
 
         self.reset_hold_duration_entry = QDoubleSpinBox()
         self.reset_hold_duration_entry.setRange(config.MIN_RESET_HOLD_DURATION, 10.0)
+        self.reset_hold_duration_entry.setCorrectionMode(
+            QAbstractSpinBox.CorrectionMode.CorrectToNearestValue
+        )
         self.reset_hold_duration_entry.setSingleStep(0.05)
         self.reset_hold_duration_entry.setDecimals(2)
         self.reset_hold_duration_entry.setValue(float(config.RESET_HOLD_DURATION))

@@ -66,7 +66,9 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
         self.assertIn("0.10 s", text)
         self.assertIn("0.05-second safety margin", text)
         self.assertIn("RESET_HOLD_SAFETY_MARGIN", text)
-        self.assertIn("0.06", text)
+        self.assertIn("0.07", text)
+        self.assertIn("automatic adjustment", text)
+        self.assertIn("Megabonk's game config", text)
         self.assertIn("%USERPROFILE%", text)
         self.assertEqual(dialog.minimumWidth(), DIALOG_WIDE)
         self.assertEqual(
