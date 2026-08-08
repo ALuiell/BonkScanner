@@ -80,6 +80,12 @@ class RequireBaldHeadsTests(unittest.TestCase):
                 self.assertTrue(active_templates_require_bald_heads(["BALD"]))
                 self.assertFalse(active_templates_require_bald_heads(["PLAIN"]))
 
+    def test_zero_bald_heads_maximum_is_a_real_constraint(self) -> None:
+        templates = [{"name": "NO BALD", "bald_heads_max": 0}]
+        with patch.object(config, "EVALUATION_MODE", "templates"):
+            with patch.object(config, "TEMPLATES", templates):
+                self.assertTrue(active_templates_require_bald_heads(["NO BALD"]))
+
 
 class EvaluateCandidateTests(unittest.TestCase):
     def test_templates_mode_matches_against_the_active_list(self) -> None:

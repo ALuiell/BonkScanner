@@ -61,7 +61,7 @@ from ui.styles import (
 )
 
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtGui import QColor, QIcon, QIntValidator, QPixmap
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
@@ -112,12 +112,15 @@ class TemplateFormFrame(QWidget):
     def __init__(self, parent=None, template_data=None):
         super().__init__(parent)
         self.template_data = template_data or {}
-        layout = QFormLayout(self)
+        layout = QGridLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
+        layout.setColumnStretch(1, 1)
+        layout.setColumnStretch(2, 1)
 
         self.name_entry = QLineEdit()
-        layout.addRow("Template Name:", self.name_entry)
+        layout.addWidget(QLabel("Template Name:"), 0, 0)
+        layout.addWidget(self.name_entry, 0, 1, 1, 2)
 
         self.color_btn = QPushButton()
         self.color_btn.clicked.connect(self._choose_color)
@@ -129,7 +132,8 @@ class TemplateFormFrame(QWidget):
         color_layout.setSpacing(8)
         color_layout.addWidget(self.color_btn, 1)
         color_layout.addWidget(self.reset_color_btn)
-        layout.addRow("Color:", color_row)
+        layout.addWidget(QLabel("Color:"), 1, 0)
+        layout.addWidget(color_row, 1, 1, 1, 2)
 
         self.sm_entry = QLineEdit()
         self.shady_entry = QLineEdit()
@@ -138,14 +142,47 @@ class TemplateFormFrame(QWidget):
         self.boss_entry = QLineEdit()
         self.bald_heads_entry = QLineEdit()
         self.magnet_entry = QLineEdit()
+        self.challenges_entry = QLineEdit()
+        self.shady_max_entry = QLineEdit()
+        self.moai_max_entry = QLineEdit()
+        self.micro_max_entry = QLineEdit()
+        self.boss_max_entry = QLineEdit()
+        self.magnet_max_entry = QLineEdit()
+        self.challenges_max_entry = QLineEdit()
+        self.bald_heads_max_entry = QLineEdit()
 
-        layout.addRow("S+M Total (optional):", self.sm_entry)
-        layout.addRow("Shady Guy (min):", self.shady_entry)
-        layout.addRow("Moais (min):", self.moai_entry)
-        layout.addRow("Microwaves (min):", self.micro_entry)
-        layout.addRow("Boss Curses (min):", self.boss_entry)
-        layout.addRow("Magnets (min):", self.magnet_entry)
-        layout.addRow("Bald Heads (min):", self.bald_heads_entry)
+        minimum_header = QLabel("MINIMUM")
+        minimum_header.setObjectName("dialogHint")
+        maximum_header = QLabel("MAXIMUM")
+        maximum_header.setObjectName("dialogHint")
+        layout.addWidget(minimum_header, 2, 1)
+        layout.addWidget(maximum_header, 2, 2)
+
+        no_total_maximum = QLabel("—")
+        no_total_maximum.setObjectName("dialogHint")
+        rows = (
+            ("S+M Total", self.sm_entry, no_total_maximum),
+            ("Shady Guy", self.shady_entry, self.shady_max_entry),
+            ("Moais", self.moai_entry, self.moai_max_entry),
+            ("Microwaves", self.micro_entry, self.micro_max_entry),
+            ("Boss Curses", self.boss_entry, self.boss_max_entry),
+            ("Magnets", self.magnet_entry, self.magnet_max_entry),
+            ("Challenges", self.challenges_entry, self.challenges_max_entry),
+            ("Bald Heads", self.bald_heads_entry, self.bald_heads_max_entry),
+        )
+        integer_validator = QIntValidator(0, 999, self)
+        for row_index, (caption, minimum_entry, maximum_entry) in enumerate(rows, start=3):
+            minimum_entry.setValidator(integer_validator)
+            layout.addWidget(QLabel(caption), row_index, 0)
+            layout.addWidget(minimum_entry, row_index, 1)
+            layout.addWidget(maximum_entry, row_index, 2)
+            if isinstance(maximum_entry, QLineEdit):
+                maximum_entry.setValidator(integer_validator)
+                maximum_entry.setPlaceholderText("No limit")
+
+        maximum_note = QLabel("Maximum: empty = no limit; 0 = none allowed.")
+        maximum_note.setObjectName("dialogHint")
+        layout.addWidget(maximum_note, len(rows) + 3, 1, 1, 2)
 
         self.sm_entry.textChanged.connect(self._sync_sm_fields)
         self.shady_entry.textChanged.connect(self._sync_sm_fields)
@@ -170,7 +207,19 @@ class TemplateFormFrame(QWidget):
         self.micro_entry.setText(str(self.template_data.get("micro", 0)))
         self.boss_entry.setText(str(self.template_data.get("boss", 0)))
         self.magnet_entry.setText(str(self.template_data.get("magnet", self.template_data.get("magnet_shrines", 0))))
+        self.challenges_entry.setText(str(self.template_data.get("challenges", 0)))
         self.bald_heads_entry.setText(str(self.template_data.get("bald_heads", 0)))
+        for key, widget in (
+            ("shady_max", self.shady_max_entry),
+            ("moai_max", self.moai_max_entry),
+            ("micro_max", self.micro_max_entry),
+            ("boss_max", self.boss_max_entry),
+            ("magnet_max", self.magnet_max_entry),
+            ("challenges_max", self.challenges_max_entry),
+            ("bald_heads_max", self.bald_heads_max_entry),
+        ):
+            value = self.template_data.get(key)
+            widget.setText("" if value is None else str(value))
         for widget in (self.sm_entry, self.shady_entry, self.moai_entry):
             widget.blockSignals(False)
         self._sync_sm_fields()
@@ -238,6 +287,14 @@ class TemplateFormFrame(QWidget):
             self.bald_heads_entry.text(),
             self.magnet_entry.text(),
             source_template=self.template_data,
+            challenges=self.challenges_entry.text(),
+            shady_max=self.shady_max_entry.text(),
+            moai_max=self.moai_max_entry.text(),
+            micro_max=self.micro_max_entry.text(),
+            boss_max=self.boss_max_entry.text(),
+            magnet_max=self.magnet_max_entry.text(),
+            challenges_max=self.challenges_max_entry.text(),
+            bald_heads_max=self.bald_heads_max_entry.text(),
         )
         if payload is not None:
             payload["color"] = self._color_value
@@ -254,8 +311,8 @@ class TemplateDialog(QDialog):
         body = dialog_body(
             self,
             title=title,
-            subtitle="Leave a condition at 0 to ignore it.",
-            width=DIALOG_REGULAR,
+            subtitle="Minimum 0 is ignored. Leave Maximum empty for no limit.",
+            width=DIALOG_WIDE,
         )
         self.form = TemplateFormFrame(self, edit_template)
         body.addWidget(self.form)
@@ -268,7 +325,11 @@ class TemplateDialog(QDialog):
     def save(self):
         payload = self.form.get_payload()
         if payload is None:
-            QMessageBox.warning(self, "Invalid Template", "Template name cannot be empty.")
+            QMessageBox.warning(
+                self,
+                "Invalid Template",
+                "Enter a template name and make sure no minimum is greater than its maximum.",
+            )
             return
         self.result_payload = payload
         self.accept()
@@ -401,7 +462,11 @@ class TemplateManagerDialog(QDialog):
     def save_template(self, template_id: int, form: TemplateFormFrame):
         payload = form.get_payload()
         if payload is None:
-            QMessageBox.warning(self, "Invalid Template", "Template name cannot be empty.")
+            QMessageBox.warning(
+                self,
+                "Invalid Template",
+                "Enter a template name and make sure no minimum is greater than its maximum.",
+            )
             return
 
         template = next((item for item in self.templates if int(item.get("id", 0)) == template_id), None)

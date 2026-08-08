@@ -6,6 +6,278 @@ This file archives completed, shelved, or old functional updates, helping keep `
 
 ## Recently Handled Items (Archived 2026-08-08)
 
+### Map Scanner and Scores
+
+#### 1. Optional Stop-on-Player-Movement Safety Guard
+
+Status: `[Archived]`
+
+Goal:
+
+- Add an optional safety setting that pauses auto-reroll as soon as the player
+  presses a movement key after a generated map has been read.
+- Prevent a delayed readiness check, long restart, or timeout-recovery path from
+  restarting a run after the user has already accepted the map and started
+  playing.
+
+Expected behavior:
+
+- Expose a checkbox named `Stop scanning when player moves` in the Auto-Reroll
+  settings or another scanner-adjacent location where its current state is easy
+  to discover.
+- Apply the guard only while auto-reroll is actively scanning. Movement before
+  scanning starts, during ordinary gameplay, or while the scanner is already
+  paused must have no effect.
+- Treat `W`, `A`, `S`, `D`, and `Space` key-down events as player movement.
+  Repeated key-down events from a held key must produce only one pause. A key
+  that is already held when the map becomes ready must also pause the scan.
+- Listen only while the Megabonk window is active, so typing in BonkScanner or
+  another application has no effect.
+- Arm movement detection only after the current map is confirmed ready, so
+  movement input during loading cannot cancel a scan before the map is ready.
+- When movement is detected, clear/pause the active scan instead of destroying
+  the scanner worker or disconnecting the game client. The user must be able to
+  resume deliberately through the existing scan controls.
+- Emit an explicit log/status reason:
+  `[SAFETY] Player movement detected. Auto-reroll paused.`
+- Show `PAUSED — PLAYER MOVEMENT` in the scanner status while this pause is
+  active.
+- Persist the checkbox choice across launches and enable it by default.
+- If the global keyboard hook cannot be registered while the option is enabled,
+  fail closed and do not start auto-reroll without the promised guard.
+
+Validation requirements:
+
+- Normal stationary reroll sessions must continue unchanged.
+- Deliberate movement input after map readiness must cancel the pending reroll
+  before another restart action can be sent.
+- Pausing from movement must remain distinguishable in the UI and logs from a
+  manual pause, focus loss, connection loss, and `Map took too long` recovery.
+- Resuming after a movement pause must discard the previous identity/stats cache
+  and read the current map again before evaluation.
+
+#### 2. Signed Shrine Points and Challenge Penalties in Scores Mode
+
+Status: `[Archived]`
+
+Goal:
+
+- Extend Scores mode from positive rewards only to signed shrine points, so a
+  generated map can compensate for undesirable shrines with a sufficiently
+  strong Moai/Shady/Boss distribution.
+- Keep penalties soft: a negative shrine value lowers the score but does not
+  impose a hard maximum or categorically reject the map.
+
+Implemented scoring behavior:
+
+- Add `Challenges` to the configurable Scores fields with a default value of
+  `0`, preserving current behavior for existing users.
+- Support negative values for every Shrine Points field: `Moais`, `Shady`,
+  `Boss`, `Magnet`, and `Challenges`.
+- Define signed values consistently:
+  - positive value: the shrine adds score;
+  - `0`: the shrine count does not affect Score;
+  - negative value: each counted shrine subtracts score.
+- Keep Moai, Shady Guy, Boss Curses, and the Microwave multiplier as the main
+  positive map-value controls.
+- Sum rewards and penalties into the base score before applying the Microwave
+  multiplier. With example settings, the intended formula is:
+
+```text
+Base Score =
+    (Moais * 3)
+  + (Shady * 2)
+  + (Boss * 1)
+  - (counted Magnets * 1)
+  - (Challenges * 3)
+
+Final Score = Base Score * Microwave Multiplier
+```
+
+- Preserve the existing Perfect/Perfect+ Microwave eligibility rules unless a
+  separate change explicitly redesigns score tiers.
+- Keep Templates maximum conditions separate from score penalties; the former
+  are hard filters and are specified in the Templates update below.
+
+Threshold rules:
+
+- Automatic threshold calculation must not lower thresholds merely because a
+  penalty became more negative; doing so would partially cancel the penalty the
+  user just configured.
+- Negative contributions are excluded from automatic threshold scaling.
+- Configurations where all Shrine Points are zero or negative require Manual
+  Thresholds; the settings dialog rejects them in automatic mode.
+
+Magnet counting rule:
+
+- Positive Magnet points retain the existing cap and count at most two Magnet
+  Shrines. Negative Magnet points penalize every counted Magnet Shrine. This is
+  stated explicitly in the Scores help dialog.
+
+Validation:
+
+- Automated coverage verifies signed points for every shrine type, uncapped
+  negative Magnet penalties, Challenge penalties before the Microwave
+  multiplier, zero-value Challenges, and penalty-safe automatic thresholds.
+
+Example target:
+
+- With `Perfect+ = 30`, `Moai = 3`, `Shady = 2`, `Boss = 1`, `Magnet = -1`,
+  `Challenge = -3`, and the two-Microwave multiplier at `1.25`, the base score
+  must reach `24` before the multiplier. A map with 4 Moais, 5 Shady Guys,
+  3 Boss Curses, 1 Magnet, no Challenges, and 2 Microwaves reaches exactly 30:
+  `(12 + 10 + 3 - 1) * 1.25 = 30`.
+
+#### 3. Scores Explanation and Configuration UI Revision
+
+Status: `[Archived]`
+
+Goal:
+
+- Make Scores understandable without requiring users to reverse-engineer the
+  formula, hidden tier rules, or automatic threshold scaling.
+- Let a user predict why a map passes or fails before starting a long reroll
+  session.
+
+Copy and naming changes:
+
+- Rename `Weights` to `Shrine Points` or another label that communicates that
+  the values are added to/subtracted from the map score.
+- Add concise inline guidance:
+  `Positive values reward a shrine. Zero ignores it. Negative values penalize it.`
+- Explain that map generation has a limited shrine-point pool. Challenges and
+  other zero/negative-value shrines therefore reduce the useful allocation
+  directly or indirectly, without requiring a hard maximum.
+- State the Magnet counting rule beside the Magnet field instead of leaving the
+  cap implicit.
+- Rename or explain `Microwave Multipliers` as a whole-map bonus applied after
+  shrine points are summed.
+- Explain that the scanner stops when a map reaches any enabled tier. In
+  particular, enabling Light allows every Light-or-better map to stop the scan;
+  enabling all tiers does not mean the scanner continues until Perfect+.
+- Display the additional Perfect and Perfect+ Microwave requirements wherever
+  tier thresholds are configured or summarized.
+- Explain the difference between automatic and manual thresholds, including
+  how automatic thresholds react to changed positive shrine values.
+
+Score preview:
+
+- Add a compact worked example or live preview that lists each contribution,
+  the Microwave multiplier, the final score, the selected threshold, and the
+  resulting tier.
+- Make negative contributions visually distinct and show ignored fields as
+  `0`/`ignored` rather than omitting them silently.
+- Prefer allowing the preview to use the last scanned map when one is available,
+  while retaining a deterministic built-in example for first-time setup.
+- When a map reaches the numeric score but fails a hidden tier requirement, show
+  that requirement directly, for example:
+  `Score reached, but Perfect+ requires 2 Microwaves.`
+
+Validation and compatibility:
+
+- Existing positive-only Scores configurations must keep their current scoring
+  results after migration.
+- The main Scores tab, settings dialog, scanner log, Session Stats, and Twitch
+  preset output should use the same shared terminology and formula summary.
+- Numeric inputs must reject invalid/non-finite values instead of silently
+  converting them into a different scoring configuration.
+
+Out of scope for this update:
+
+- hard exclusion of every map containing a specific shrine in Scores mode;
+- scanning Shady Guy or Microwave visual variants/positions.
+
+#### 4. Maximum Shrine Conditions in Templates Mode
+
+Status: `[Archived]`
+
+Goal:
+
+- Allow a template to reject maps containing more than a chosen number of a
+  shrine, including a strict `0` maximum for unwanted shrine types.
+- Support players who prefer an explicit hard filter over the softer
+  trade-off of negative points in Scores mode.
+
+Planned behavior:
+
+- Add optional maximum fields alongside the existing minimum conditions for
+  the random shrine counters relevant to Templates: Moais, Shady Guys, Boss
+  Curses, Magnet Shrines, Challenges, Microwaves, and Bald Heads where
+  applicable.
+- Add Challenges as a Template counter so a user can express cases such as
+  `Challenges: max 0`.
+- An empty maximum means no upper restriction. A maximum of `0` means that
+  the map must contain none of that shrine type.
+- A template matches only when every configured minimum and maximum condition
+  passes. Thus `Moais: min 9` plus `Magnets: max 1` requires both conditions;
+  no scoring or compensation is involved.
+- Do not expose maximum controls for fixed Grid or Charge Shrine counts.
+- Preserve current template behavior for existing saved templates: missing
+  maximum fields migrate to unset/no limit.
+
+Validation requirements:
+
+- Reject invalid ranges where a configured minimum exceeds its maximum.
+- Show configured maximum conditions in template summaries, export/import,
+  scanner target logs, and any UI preview that currently lists minimums.
+- Verify OR behavior across active templates remains unchanged: a map is
+  accepted when it matches at least one active template in full.
+- Verify `max 0` for Challenges and Magnets correctly rejects maps containing
+  one or more of the respective shrine.
+
+#### 5. First-Launch Auto-Reroll Setup Guide
+
+Status: `[Archived]`
+
+Goal:
+
+- Show every new user a short, one-time setup guide that explains the game
+  options required for reliable Auto-Reroll before they attempt to scan maps.
+- Prevent hidden or poorly documented setup requirements from making the
+  scanner appear slow or unreliable.
+
+Planned behavior:
+
+- Display the guide once on the first application launch and persist its
+  acknowledgement so it does not interrupt later launches.
+- Keep it focused on Auto-Reroll rather than presenting a full-product
+  tutorial.
+- Tell the user to open `Settings -> Game` in Megabonk and enable all of:
+  - `Quick Reset` — ON;
+  - `Skip Portal Animation` — ON;
+  - `Super Quick Resets` — ON.
+- Explain `Reset Hold Duration` in plain language: it is how long BonkScanner
+  holds the configured reset key.
+- State that saving `Reset Hold Duration` in BonkScanner writes the matching
+  `quick_reset_time` to the game config. BonkScanner keeps a 0.05-second
+  safety margin between them for a reliable reset.
+- Include a concrete example:
+
+```text
+Scanner Reset Hold Duration: 0.26
+Game quick_reset_time:       0.21
+```
+
+- State prominently that the game must be restarted after changing Reset Hold
+  Duration, because it reads `quick_reset_time` when it launches.
+- State that the minimum Reset Hold Duration exposed by Settings is `0.10`
+  seconds.
+- Keep the default `0.05` safety margin configurable for advanced users through
+  `RESET_HOLD_SAFETY_MARGIN` in the BonkScanner config. Accept finite values from
+  `0.00` through `1.00` and fall back to `0.05` for invalid values.
+- Provide a single acknowledgement action such as `Got it`; detailed help may
+  remain accessible elsewhere, but the first-launch guide itself must not be
+  shown again after acknowledgement.
+
+Validation requirements:
+
+- A clean config shows the guide exactly once.
+- Acknowledging the guide persists across application restarts.
+- Existing users with an established config do not receive the new-user dialog
+  repeatedly after upgrading.
+- The wording matches actual configuration behavior: scanner hold duration is
+  0.05 seconds higher than the game `quick_reset_time` written by the app.
+
 ### Twitch Commands
 
 #### 6. Chest Statistics in Recordings and Compare Runs

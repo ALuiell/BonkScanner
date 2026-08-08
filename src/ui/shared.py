@@ -3,6 +3,12 @@ from __future__ import annotations
 import os
 import sys
 
+from core.template_conditions import (
+    TEMPLATE_CONDITION_KEYS,
+    format_template_conditions as _format_template_conditions,
+    validate_template_ranges,
+)
+
 from PySide6.QtCore import (
     Property,
     QEvent,
@@ -523,31 +529,7 @@ class CollapsibleSectionGroup:
             self._updating = False
 
 def format_template_conditions(template: dict) -> str:
-    parts = []
-    sm_total = template.get("sm_total", 0)
-    shady = template.get("shady", 0)
-    moai = template.get("moai", 0)
-    micro = template.get("micro", 0)
-    boss = template.get("boss", 0)
-    magnet = template.get("magnet", template.get("magnet_shrines", 0))
-    bald_heads = template.get("bald_heads", 0)
-
-    if sm_total > 0:
-        parts.append(f"S+M: {sm_total}")
-    if shady > 0:
-        parts.append(f"S:{shady}")
-    if moai > 0:
-        parts.append(f"M:{moai}")
-    if micro > 0:
-        parts.append(f"Mic:{micro}")
-    if boss > 0:
-        parts.append(f"B:{boss}")
-    if magnet > 0:
-        parts.append(f"Mag:{magnet}")
-    if bald_heads > 0:
-        parts.append(f"BH:{bald_heads}")
-
-    return ", ".join(parts) if parts else "Any"
+    return _format_template_conditions(template)
 
 def build_template_payload(
     name: str,
@@ -559,6 +541,15 @@ def build_template_payload(
     bald_heads: str = "",
     magnet: str = "",
     source_template=None,
+    *,
+    challenges: str = "",
+    shady_max: str = "",
+    moai_max: str = "",
+    micro_max: str = "",
+    boss_max: str = "",
+    magnet_max: str = "",
+    challenges_max: str = "",
+    bald_heads_max: str = "",
 ):
     name = name.strip()
     if not name:
@@ -567,6 +558,10 @@ def build_template_payload(
     def parse_int(value: str) -> int:
         value = value.strip()
         return int(value) if value.isdigit() else 0
+
+    def parse_optional_int(value: str) -> int | None:
+        value = value.strip()
+        return int(value) if value.isdigit() else None
 
     result = {
         "name": name,
@@ -577,15 +572,33 @@ def build_template_payload(
         "boss": parse_int(boss),
         "bald_heads": parse_int(bald_heads),
         "magnet": parse_int(magnet),
+        "challenges": parse_int(challenges),
     }
+
+    maximum_values = {
+        "shady_max": shady_max,
+        "moai_max": moai_max,
+        "micro_max": micro_max,
+        "boss_max": boss_max,
+        "magnet_max": magnet_max,
+        "challenges_max": challenges_max,
+        "bald_heads_max": bald_heads_max,
+    }
+    for key, text in maximum_values.items():
+        value = parse_optional_int(text)
+        if value is not None:
+            result[key] = value
 
     if result["sm_total"] <= 0 or result["shady"] > 0 or result["moai"] > 0:
         result.pop("sm_total", None)
 
     if source_template:
         for key, value in source_template.items():
-            if key not in result and key not in ["sm_total", "shady", "moai", "micro", "boss", "bald_heads", "magnet", "magnet_shrines"]:
+            if key not in result and key not in TEMPLATE_CONDITION_KEYS:
                 result[key] = value
+
+    if validate_template_ranges(result) is not None:
+        return None
 
     return result
 

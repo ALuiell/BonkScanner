@@ -683,7 +683,7 @@ class TestTwitchBotWorker(unittest.TestCase):
             self.bot._handle_presets("channel")
             self.bot._send_chat.assert_called_once_with(
                 "channel",
-                "[Reroller] Mode: Templates | Active: LIGHT(S+M:7, Mic:2, B:2), MERCHANT(S:3, M:7, Mic:1, B:2, Mag:2)"
+                "[Reroller] Mode: Templates | Active: LIGHT(S+M≥7, Mic≥2, B≥2), MERCHANT(S+M≥10, S≥3, M≥7, Mic≥1, B≥2, Mag≥2)"
             )
 
     def test_handle_presets_scores_mode(self):

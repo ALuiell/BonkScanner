@@ -254,6 +254,37 @@ def test_invalid_saved_color_falls_back_before_the_form_is_saved(qtbot) -> None:
     assert form.get_payload()["color"] == "BLUE"
 
 
+def test_template_form_keeps_blank_and_zero_maximum_distinct(qtbot) -> None:
+    form = TemplateFormFrame(
+        template_data={
+            "id": 9,
+            "name": "Strict",
+            "magnet_max": 0,
+        }
+    )
+    qtbot.addWidget(form)
+
+    assert form.magnet_max_entry.text() == "0"
+    assert form.challenges_max_entry.text() == ""
+    payload = form.get_payload()
+    assert payload["magnet_max"] == 0
+    assert "challenges_max" not in payload
+
+
+def test_template_form_saves_challenges_and_rejects_invalid_range(qtbot) -> None:
+    form = TemplateFormFrame(template_data={"id": 9, "name": "Strict"})
+    qtbot.addWidget(form)
+    form.challenges_entry.setText("2")
+    form.challenges_max_entry.setText("3")
+
+    payload = form.get_payload()
+    assert payload["challenges"] == 2
+    assert payload["challenges_max"] == 3
+
+    form.challenges_max_entry.setText("1")
+    assert form.get_payload() is None
+
+
 def test_delete_dialog_can_remove_a_builtin_and_cleans_active_names(qtbot) -> None:
     templates = [
         {"id": 1, "name": "LIGHT", "color": "WHITE"},

@@ -57,7 +57,11 @@ def active_templates_require_bald_heads(active_templates) -> bool:
     if not active_names:
         return False
     return any(
-        template.get("name") in active_names and int(template.get("bald_heads", 0) or 0) > 0
+        template.get("name") in active_names
+        and (
+            int(template.get("bald_heads", 0) or 0) > 0
+            or "bald_heads_max" in template
+        )
         for template in config.TEMPLATES
     )
 

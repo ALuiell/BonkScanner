@@ -35,12 +35,65 @@ class GuiSharedTests(unittest.TestCase):
     def test_format_template_conditions_shows_bald_heads(self) -> None:
         text = format_template_conditions({"name": "BALD", "bald_heads": 3})
 
-        self.assertEqual(text, "BH:3")
+        self.assertEqual(text, "BH≥3")
 
     def test_format_template_conditions_shows_magnet_requirement(self) -> None:
         text = format_template_conditions({"name": "MAGNET", "magnet": 2})
 
-        self.assertEqual(text, "Mag:2")
+        self.assertEqual(text, "Mag≥2")
+
+    def test_build_template_payload_distinguishes_blank_and_zero_maximum(self) -> None:
+        payload = build_template_payload(
+            "NO CHALLENGES",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "",
+            "0",
+            challenges="0",
+            magnet_max="",
+            challenges_max="0",
+        )
+
+        self.assertIsNotNone(payload)
+        self.assertNotIn("magnet_max", payload)
+        self.assertEqual(payload["challenges"], 0)
+        self.assertEqual(payload["challenges_max"], 0)
+
+    def test_build_template_payload_rejects_minimum_above_maximum(self) -> None:
+        payload = build_template_payload(
+            "INVALID",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0",
+            "",
+            "2",
+            magnet_max="1",
+        )
+
+        self.assertIsNone(payload)
+
+    def test_format_template_conditions_shows_minimums_and_zero_maximums(self) -> None:
+        text = format_template_conditions(
+            {
+                "name": "STRICT",
+                "sm_total": 8,
+                "micro": 2,
+                "magnet_max": 0,
+                "challenges_max": 0,
+            }
+        )
+
+        self.assertEqual(text, "S+M≥8, Mic≥2, Mag≤0, Ch≤0")
+
+    def test_format_template_conditions_shows_both_bounds(self) -> None:
+        text = format_template_conditions({"name": "RANGE", "moai": 2, "moai_max": 4})
+
+        self.assertEqual(text, "M≥2, M≤4")
 
 
 if __name__ == "__main__":

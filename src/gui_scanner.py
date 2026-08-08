@@ -52,6 +52,7 @@ from core.template_colors import (
     template_color_hex,
     template_color_tag,
 )
+from core.template_conditions import format_template_conditions
 from ui.styles import _set_widget_style_role
 from infra.memory.reader import MemoryReadError, ModuleNotFoundError, ProcessNotFoundError
 from core.run_control import RunControlError
@@ -722,7 +723,18 @@ class Scanner:
                         if config.EVALUATION_MODE == "scores"
                         else ""
                     )
-                    self.log(["\n[$$$] TARGET MAP FOUND! Profile: ", f"{t_name}{score_text}"], tag=["success", t_color])
+                    condition_text = (
+                        f" ({format_template_conditions(candidate)})"
+                        if config.EVALUATION_MODE == "templates"
+                        else ""
+                    )
+                    self.log(
+                        [
+                            "\n[$$$] TARGET MAP FOUND! Profile: ",
+                            f"{t_name}{condition_text}{score_text}",
+                        ],
+                        tag=["success", t_color],
+                    )
                     self.log(f"Map Stats: {format_stats(stats, self.active_templates)}", tag="success")
                     self.log_target_found(t_name)
 

@@ -526,6 +526,7 @@ class LogicTests(unittest.TestCase):
             {"id": 1, "name": "MICRO", "micro": 2},
             {"id": 1, "name": "BOSS", "boss": 3},
             {"id": 1, "name": "MAGNET", "magnet": 1},
+            {"id": 1, "name": "CHALLENGES", "challenges": 1},
         ]
 
         for template in blocking_templates:
@@ -537,6 +538,108 @@ class LogicTests(unittest.TestCase):
         template = {"id": 1, "name": "ANY"}
 
         result = logic.find_matching_template({}, ["ANY"], [template])
+
+        self.assertEqual(result, template)
+
+    def test_zero_maximum_rejects_maps_with_unwanted_shrines(self) -> None:
+        template = {
+            "id": 10,
+            "name": "CLEAN",
+            "magnet_max": 0,
+            "challenges_max": 0,
+        }
+
+        self.assertEqual(
+            logic.find_matching_template(
+                {"Magnet Shrines": 0, "Challenges": 0},
+                ["CLEAN"],
+                [template],
+            ),
+            template,
+        )
+        self.assertIsNone(
+            logic.find_matching_template(
+                {"Magnet Shrines": 1, "Challenges": 0},
+                ["CLEAN"],
+                [template],
+            )
+        )
+        self.assertIsNone(
+            logic.find_matching_template(
+                {"Magnet Shrines": 0, "Challenges": 1},
+                ["CLEAN"],
+                [template],
+            )
+        )
+
+    def test_template_requires_every_minimum_and_maximum_to_pass(self) -> None:
+        template = {
+            "id": 10,
+            "name": "RANGE",
+            "moai": 2,
+            "moai_max": 4,
+            "boss_max": 1,
+        }
+
+        self.assertEqual(
+            logic.find_matching_template(
+                {"Moais": 3, "Boss Curses": 1}, ["RANGE"], [template]
+            ),
+            template,
+        )
+        self.assertIsNone(
+            logic.find_matching_template(
+                {"Moais": 5, "Boss Curses": 1}, ["RANGE"], [template]
+            )
+        )
+
+    def test_each_supported_maximum_can_block_a_match(self) -> None:
+        stats = {
+            "Shady Guy": 3,
+            "Moais": 4,
+            "Microwaves": 2,
+            "Boss Curses": 2,
+            "Magnet Shrines": 1,
+            "Challenges": 1,
+            "Bald Heads": 2,
+            "Chests": 69,
+        }
+        blocking_templates = [
+            {"name": "SHADY", "shady_max": 2},
+            {"name": "MOAI", "moai_max": 3},
+            {"name": "MICRO", "micro_max": 1},
+            {"name": "BOSS", "boss_max": 1},
+            {"name": "MAGNET", "magnet_max": 0},
+            {"name": "CHALLENGES", "challenges_max": 0},
+            {"name": "BALD", "bald_heads_max": 1},
+        ]
+
+        for template in blocking_templates:
+            with self.subTest(template=template["name"]):
+                self.assertIsNone(
+                    logic.find_matching_template(
+                        stats, [template["name"]], [template]
+                    )
+                )
+
+    def test_active_templates_keep_or_semantics_with_maximums(self) -> None:
+        strict = {"id": 20, "name": "STRICT", "magnet_max": 0}
+        alternative = {"id": 10, "name": "ALTERNATIVE", "moai": 2}
+
+        result = logic.find_matching_template(
+            {"Magnet Shrines": 1, "Moais": 3},
+            ["STRICT", "ALTERNATIVE"],
+            [strict, alternative],
+        )
+
+        self.assertEqual(result, alternative)
+
+    def test_missing_maximum_keeps_legacy_template_unbounded(self) -> None:
+        template = {"id": 1, "name": "LEGACY", "moai": 2}
+
+        result = logic.find_matching_template(
+            {"Moais": 99}, ["LEGACY"], [template]
+        )
 
         self.assertEqual(result, template)
 

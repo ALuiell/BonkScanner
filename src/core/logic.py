@@ -1,4 +1,9 @@
 from core.template_colors import DEFAULT_TEMPLATE_COLOR
+from core.template_conditions import (
+    TEMPLATE_COUNTERS,
+    condition_maximum,
+    condition_minimum,
+)
 
 
 def normalize_microwaves(value: int | None) -> int:
@@ -141,8 +146,18 @@ def find_matching_template(
 
     boss = stats.get("Boss Curses", 0)
     magnets = stats.get("Magnet Shrines", 0)
+    challenges = stats.get("Challenges", 0)
     bald_heads = stats.get("Bald Heads", 0)
     sm_total = shady + moai
+    counter_values = {
+        "shady": shady,
+        "moai": moai,
+        "micro": microwaves,
+        "boss": boss,
+        "magnet": magnets,
+        "challenges": challenges,
+        "bald_heads": bald_heads,
+    }
 
     sorted_templates = sorted(all_templates, key=lambda t: t.get("id", 0), reverse=True)
 
@@ -154,19 +169,16 @@ def find_matching_template(
 
         if "sm_total" in template and sm_total < template["sm_total"]:
             meets_conditions = False
-        if "shady" in template and shady < template["shady"]:
-            meets_conditions = False
-        if "moai" in template and moai < template["moai"]:
-            meets_conditions = False
-        if "micro" in template and microwaves < template["micro"]:
-            meets_conditions = False
-        if "boss" in template and boss < template["boss"]:
-            meets_conditions = False
-        magnet_requirement = template.get("magnet", template.get("magnet_shrines", 0))
-        if magnet_requirement > 0 and magnets < magnet_requirement:
-            meets_conditions = False
-        if "bald_heads" in template and template["bald_heads"] > 0:
-            if not supports_bald_heads(stats, context) or bald_heads < template["bald_heads"]:
+        for counter in TEMPLATE_COUNTERS:
+            value = counter_values[counter.key]
+            minimum = condition_minimum(template, counter.key)
+            maximum = condition_maximum(template, counter.key)
+            if counter.key == "bald_heads" and minimum > 0:
+                if not supports_bald_heads(stats, context) or value < minimum:
+                    meets_conditions = False
+            elif value < minimum:
+                meets_conditions = False
+            if maximum is not None and value > maximum:
                 meets_conditions = False
 
         if meets_conditions:

@@ -216,6 +216,7 @@ class _TemplateRow(QFrame):
         self.conditions_label.setObjectName("TemplateConditions")
         self.conditions_label.setMinimumWidth(0)
         self.conditions_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
         layout.addWidget(self.conditions_label, 1)
 
         self.checkbox.toggled.connect(self._apply_style)

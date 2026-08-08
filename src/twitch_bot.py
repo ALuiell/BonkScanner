@@ -11,6 +11,7 @@ from PySide6.QtCore import QThread, Signal
 from app import config
 from core import run_summary
 from core.stat_labels import STAT_LABEL_ABBREVIATIONS, abbreviate_stat_label
+from core.template_conditions import format_template_conditions
 from core.tracker.items import fold_item_match_name
 from infra.twitch_credentials import get_twitch_oauth_token
 from core.stats.formatters import format_chaos_tome_stat_delta
@@ -837,30 +838,7 @@ class TwitchBotWorker(QThread):
             for name in active_names:
                 template = templates_by_name.get(name)
                 if template:
-                    conds = []
-                    sm_total = template.get("sm_total", 0)
-                    shady = template.get("shady", 0)
-                    moai = template.get("moai", 0)
-                    micro = template.get("micro", 0)
-                    boss = template.get("boss", 0)
-                    magnet = template.get("magnet", template.get("magnet_shrines", 0))
-
-                    if shady > 0 or moai > 0:
-                        if shady > 0:
-                            conds.append(f"S:{shady}")
-                        if moai > 0:
-                            conds.append(f"M:{moai}")
-                    elif sm_total > 0:
-                        conds.append(f"S+M:{sm_total}")
-                    if micro > 0:
-                        conds.append(f"Mic:{micro}")
-                    if boss > 0:
-                        conds.append(f"B:{boss}")
-                    if magnet > 0:
-                        conds.append(f"Mag:{magnet}")
-
-                    conds_str = ", ".join(conds) if conds else "Any"
-                    active_parts.append(f"{name}({conds_str})")
+                    active_parts.append(f"{name}({format_template_conditions(template)})")
                 else:
                     active_parts.append(name)
 
