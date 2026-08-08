@@ -79,6 +79,7 @@ def map_highlight_rows(stats: dict, active_templates) -> tuple[list[tuple[str, i
         ("Microwaves", int(logic.template_microwaves(stats) or 0)),
         ("Boss Curses", int(stats.get("Boss Curses", 0) or 0)),
         ("Magnet Shrines", int(stats.get("Magnet Shrines", 0) or 0)),
+        ("Challenges", int(stats.get("Challenges", 0) or 0)),
     ]
     if active_templates_require_bald_heads(active_templates):
         rows.append(("Bald Heads", int(stats.get("Bald Heads", 0) or 0)))
@@ -92,9 +93,10 @@ def format_stats(stats: dict, active_templates) -> str:
     microwaves = logic.template_microwaves(stats)
     boss = stats.get("Boss Curses", 0)
     magnet = stats.get("Magnet Shrines", 0)
+    challenges = stats.get("Challenges", 0)
     parts = [
         f"Shady: {shady}, Moai: {moai}, Microwaves: {microwaves}, "
-        f"Boss: {boss}, Magnet: {magnet}"
+        f"Boss: {boss}, Magnet: {magnet}, Challenges: {challenges}"
     ]
     if active_templates_require_bald_heads(active_templates):
         parts.append(f", Bald Heads: {stats.get('Bald Heads', 0)}")

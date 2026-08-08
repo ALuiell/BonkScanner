@@ -48,7 +48,7 @@ def _refuse(name):
 
 
 def build_templates_panel(**overrides) -> TemplatesPanel:
-    """A real `TemplatesPanel` with its eight collaborators faked.
+    """A real `TemplatesPanel` with its nine collaborators faked.
 
     Every dialog factory defaults to one that *fails* rather than one that
     returns a harmless stub. A test asserting "cancelling writes no config" is
@@ -68,6 +68,7 @@ def build_templates_panel(**overrides) -> TemplatesPanel:
         "template_manager_dialog": _refuse("TemplateManagerDialog"),
         "delete_dialog": _refuse("DeleteDialog"),
         "scores_settings_dialog": _refuse("ScoresSettingsDialog"),
+        "scores_help_dialog": _refuse("ScoresHelpDialog"),
         "no_custom_templates_message": _refuse("the no-custom-templates message"),
     }
     unknown = set(overrides) - set(defaults)

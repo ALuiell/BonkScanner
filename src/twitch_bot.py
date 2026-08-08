@@ -877,7 +877,13 @@ class TwitchBotWorker(QThread):
 
             tier_parts = [f"{tier} ({thresholds.get(tier, 0.0):.1f}+)" for tier in active_tiers]
 
-            key_names = {"moais": "Moais", "shady": "Shady", "boss": "Boss", "magnet": "Magnet"}
+            key_names = {
+                "moais": "Moais",
+                "shady": "Shady",
+                "boss": "Boss",
+                "magnet": "Magnet",
+                "challenges": "Challenges",
+            }
             weight_parts = [f"{key_names.get(k, k.capitalize())}={v}" for k, v in weights.items()]
 
             tiers_str = ", ".join(tier_parts) if tier_parts else "None"

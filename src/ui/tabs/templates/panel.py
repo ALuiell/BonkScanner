@@ -566,6 +566,7 @@ class TemplatesPanel:
         template_manager_dialog,
         delete_dialog,
         scores_settings_dialog,
+        scores_help_dialog,
         no_custom_templates_message,
     ) -> None:
         self._left_tabview = left_tabview
@@ -575,6 +576,7 @@ class TemplatesPanel:
         self._template_manager_dialog = template_manager_dialog
         self._delete_dialog = delete_dialog
         self._scores_settings_dialog = scores_settings_dialog
+        self._scores_help_dialog = scores_help_dialog
         self._no_custom_templates_message = no_custom_templates_message
 
         self._tab_templates = None
@@ -643,6 +645,10 @@ class TemplatesPanel:
         scores_layout.addWidget(self._scores_desc_label, 1)
 
         buttons = QHBoxLayout()
+        self.scores_help_btn = QPushButton("Score Guide")
+        _apply_button_icon(self.scores_help_btn, "media/help_icon.svg", 18)
+        self.scores_help_btn.clicked.connect(self.open_scores_help_dialog)
+        buttons.addWidget(self.scores_help_btn, 2)
         self.edit_scores_btn = QPushButton("Edit")
         _apply_button_icon(self.edit_scores_btn, "media/edit_icon.svg", 18)
         self.edit_scores_btn.clicked.connect(self.open_scores_settings_dialog)
@@ -859,6 +865,9 @@ class TemplatesPanel:
             self.refresh_scores_templates_list()
             self.refresh_scores_ui()
 
+    def open_scores_help_dialog(self) -> None:
+        self._scores_help_dialog(self._window()).exec()
+
 
 # -- module-level, for the reason `ui/tabs/compare_runs/tab.py` states: a free
 # function has no class to be orphaned from when its class moves, which is the
@@ -892,11 +901,12 @@ def _score_system_lines() -> list[str]:
     lines.extend(
         [
             "",
-            "<b>Weights</b>",
+            "<b>Shrine Points</b>",
             f"Moais: {weights.get('moais', 0.0)}",
             f"Shady: {weights.get('shady', 0.0)}",
             f"Boss: {weights.get('boss', 0.0)}",
             f"Magnet: {weights.get('magnet', 0.0)}",
+            f"Challenges: {weights.get('challenges', 0.0)}",
             "",
             "<b>Microwave Multipliers</b>",
             f"1 Microwave: {multipliers.get('1', 1.0)}",

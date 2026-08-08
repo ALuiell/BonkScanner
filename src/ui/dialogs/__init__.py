@@ -421,6 +421,150 @@ class TemplateManagerDialog(QDialog):
         self.build_cards()
 
 
+class ScoresHelpDialog(QDialog):
+    """In-app explanation of score calculation and tier behaviour."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("How Scores Work")
+        self.setModal(True)
+
+        outer = dialog_body(
+            self,
+            title="How Scores Work",
+            subtitle="A step-by-step guide to what the scanner counts and why a map passes or fails.",
+            width=DIALOG_WIDE,
+            height=DIALOG_TALL,
+        )
+        scroll, _scroll_content, scroll_layout = _make_scroll_section()
+        outer.addWidget(scroll, 1)
+
+        scroll_layout.addWidget(
+            dialog_info_card(
+                "<b>1. What is Score?</b><br><br>"
+                "Score is one number that represents how valuable the generated map "
+                "is according to <i>your</i> settings. The scanner counts Moais, "
+                "Shady Guys, Boss Curses, Magnet Shrines, and Challenges. Each count "
+                "is converted into points, then all points are added together."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>2. What does each Shrine Points value mean?</b><br><br>"
+                "The number beside a shrine is the amount added for <b>each</b> one "
+                "found on the map.<br><br>"
+                "&bull; <b>Positive value:</b> you want this shrine. For example, "
+                "Moais = 3 means every Moai adds 3 points. Four Moais add 12.<br>"
+                "&bull; <b>Zero:</b> this shrine does not change Score. It is still "
+                "shown in map statistics, but whether the map has zero or ten makes "
+                "no difference to Scores mode.<br>"
+                "&bull; <b>Negative value:</b> you do not want this shrine. For "
+                "example, Challenges = -3 means every Challenge removes 3 points. "
+                "Two Challenges remove 6.<br><br>"
+                "All five Shrine Points fields accept positive, zero, and negative values."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>3. How is the base score calculated?</b><br><br>"
+                "For every shrine type, the scanner multiplies the map count by its "
+                "configured Shrine Points value:<br><br>"
+                "<b>Base Score =</b><br>"
+                "(Moais &times; Moai points)<br>"
+                "+ (Shady Guys &times; Shady points)<br>"
+                "+ (Boss Curses &times; Boss points)<br>"
+                "+ (counted Magnets &times; Magnet points)<br>"
+                "+ (Challenges &times; Challenge points)<br><br>"
+                "Negative results are simply subtracted. A penalty is <b>soft</b>: "
+                "it lowers the number, but it never rejects a map by itself. Enough "
+                "positive shrines can compensate for it."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>4. The special Magnet rule</b><br><br>"
+                "Magnet rewards and Magnet penalties are counted differently:<br><br>"
+                "&bull; If Magnet points are positive, only the first two Magnet "
+                "Shrines add points. A third or fourth Magnet adds nothing.<br>"
+                "&bull; If Magnet points are zero, Magnets do not affect Score.<br>"
+                "&bull; If Magnet points are negative, <b>every</b> Magnet Shrine "
+                "removes points. Five unwanted Magnets receive five penalties."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>5. When is the Microwave multiplier applied?</b><br><br>"
+                "The scanner first finishes the entire Base Score calculation, "
+                "including every reward and penalty. Only then is the whole result "
+                "multiplied by the Microwave value.<br><br>"
+                "<b>Final Score = Base Score &times; Microwave Multiplier</b><br><br>"
+                "This means the multiplier affects penalties too. A Base Score of 24 "
+                "with a 1.25 multiplier becomes a Final Score of 30."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_info_card(
+                "<b>6. Full example</b><br><br>"
+                "Settings: Moai = 3, Shady = 2, Boss = 1, Magnet = -1, "
+                "Challenges = -3, and the two-Microwave multiplier = 1.25.<br><br>"
+                "Map: 4 Moais, 5 Shady Guys, 3 Boss Curses, 1 Magnet, "
+                "0 Challenges, and 2 Microwaves.<br><br>"
+                "Moais: 4 &times; 3 = 12<br>"
+                "Shady Guys: 5 &times; 2 = 10<br>"
+                "Boss Curses: 3 &times; 1 = 3<br>"
+                "Magnet: 1 &times; -1 = -1<br>"
+                "Challenges: 0 &times; -3 = 0<br><br>"
+                "Base Score: 12 + 10 + 3 - 1 + 0 = <b>24</b><br>"
+                "Final Score: 24 &times; 1.25 = <b>30</b>"
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>7. What are thresholds and active tiers?</b><br><br>"
+                "A threshold is the minimum Final Score needed for a tier. If Light "
+                "is 14, a map with 13.9 fails Light and a map with 14 passes it.<br><br>"
+                "Only enabled tiers can stop the scanner. The scanner stops as soon "
+                "as the map reaches <b>any enabled tier</b>. Enabling Light means a "
+                "Light-or-better map may stop the scan; enabling every tier does not "
+                "make the scanner wait specifically for Perfect+."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>8. Extra Perfect and Perfect+ requirements</b><br><br>"
+                "Reaching the number alone is not always enough:<br><br>"
+                "&bull; <b>Perfect+:</b> the score must reach its threshold and the "
+                "map must have at least 2 Microwaves.<br>"
+                "&bull; <b>Perfect:</b> the score must reach its threshold and the map "
+                "must have either 2 Microwaves, or 1 Microwave together with at least "
+                "8 total Shady Guys + Moais and at least 2 Boss Curses.<br>"
+                "&bull; <b>Good and Light:</b> only their score threshold is checked."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_card(
+                "<b>9. Automatic vs Manual Thresholds</b><br><br>"
+                "<b>Automatic Thresholds</b> scale the tier targets when you change "
+                "positive Shrine Points. Negative values are excluded from this "
+                "scaling, so making a penalty stronger never makes the target easier.<br><br>"
+                "If every Shrine Points value is zero or negative, automatic targets "
+                "cannot be calculated usefully. Add at least one positive value or "
+                "enable <b>Manual Thresholds</b> and enter the tier targets yourself."
+            )
+        )
+        scroll_layout.addWidget(
+            dialog_note(
+                "Templates mode is separate. Template maximums are hard conditions; "
+                "negative Shrine Points in Scores mode are only soft penalties."
+            )
+        )
+        scroll_layout.addStretch(1)
+
+        close_btn = QPushButton("Got It")
+        close_btn.clicked.connect(self.accept)
+        dialog_footer(self, primary=close_btn)
+
+
 class ScoresSettingsDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -464,12 +608,28 @@ class ScoresSettingsDialog(QDialog):
             threshold_layout.addWidget(entry, row, 1)
         scroll_layout.addWidget(threshold_group)
 
-        weight_group = QGroupBox("Weights")
+        weight_group = QGroupBox("Shrine Points")
         weight_layout = QFormLayout(weight_group)
-        for key in ("moais", "shady", "boss", "magnet"):
+        point_labels = {
+            "moais": "Moais",
+            "shady": "Shady",
+            "boss": "Boss",
+            "magnet": "Magnet",
+            "challenges": "Challenges",
+        }
+        for key, label in point_labels.items():
             entry = QLineEdit(str(config.SCORES_SYSTEM.get("weights", {}).get(key, 0)))
+            entry.setToolTip(
+                "Positive values add score, zero has no effect, and negative values subtract score."
+            )
             self.weight_entries[key] = entry
-            weight_layout.addRow(f"{key.capitalize()}:", entry)
+            weight_layout.addRow(f"{label}:", entry)
+        points_note = QLabel(
+            "Positive values add score. Zero means the shrine count does not affect Score. "
+            "Negative values subtract score."
+        )
+        points_note.setWordWrap(True)
+        weight_layout.addRow(points_note)
         scroll_layout.addWidget(weight_group)
 
         multiplier_group = QGroupBox("Microwave Multipliers")
@@ -527,12 +687,28 @@ class ScoresSettingsDialog(QDialog):
             QMessageBox.warning(self, "Invalid Settings", "At least one score tier must stay active.")
             return
 
+        weights = {key: _safe_float(entry.text(), 0.0) for key, entry in self.weight_entries.items()}
+        multipliers = {key: _safe_float(entry.text(), 1.0) for key, entry in self.multiplier_entries.items()}
+        manual_thresholds = self.manual_thresholds_var.isChecked()
+
+        if any(value <= 0 for value in multipliers.values()):
+            QMessageBox.warning(self, "Invalid Settings", "Microwave multipliers must be greater than zero.")
+            return
+        if not manual_thresholds and not any(value > 0 for value in weights.values()):
+            QMessageBox.warning(
+                self,
+                "Invalid Settings",
+                "Automatic thresholds need at least one positive Shrine Points value. "
+                "Add a positive value or enable Manual Thresholds.",
+            )
+            return
+
         scores_system = {
-            "manual_thresholds": self.manual_thresholds_var.isChecked(),
+            "manual_thresholds": manual_thresholds,
             "base_target_score": config.SCORES_SYSTEM.get("base_target_score", 30.0),
-            "weights": {key: _safe_float(entry.text(), 0.0) for key, entry in self.weight_entries.items()},
+            "weights": weights,
             "multipliers": {
-                "microwave": {key: _safe_float(entry.text(), 1.0) for key, entry in self.multiplier_entries.items()},
+                "microwave": multipliers,
             },
             "thresholds": {tier: _safe_float(entry.text(), 0.0) for tier, entry in self.threshold_entries.items()},
             "active_tiers": active_tiers,

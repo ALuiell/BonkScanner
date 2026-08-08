@@ -65,7 +65,7 @@ Validation requirements:
 
 #### 2. Signed Shrine Points and Challenge Penalties in Scores Mode
 
-Status: `[Open]`
+Status: `[Implemented]`
 
 Goal:
 
@@ -75,14 +75,15 @@ Goal:
 - Keep penalties soft: a negative shrine value lowers the score but does not
   impose a hard maximum or categorically reject the map.
 
-Planned scoring behavior:
+Implemented scoring behavior:
 
 - Add `Challenges` to the configurable Scores fields with a default value of
   `0`, preserving current behavior for existing users.
-- Explicitly support negative values for `Magnet` and `Challenges`.
+- Support negative values for every Shrine Points field: `Moais`, `Shady`,
+  `Boss`, `Magnet`, and `Challenges`.
 - Define signed values consistently:
   - positive value: the shrine adds score;
-  - `0`: the shrine is ignored;
+  - `0`: the shrine count does not affect Score;
   - negative value: each counted shrine subtracts score.
 - Keep Moai, Shady Guy, Boss Curses, and the Microwave multiplier as the main
   positive map-value controls.
@@ -110,18 +111,21 @@ Threshold rules:
 - Automatic threshold calculation must not lower thresholds merely because a
   penalty became more negative; doing so would partially cancel the penalty the
   user just configured.
-- Either exclude negative contributions from automatic threshold scaling or
-  require/enable Manual Thresholds when any negative shrine value is present.
-- Reject or clearly warn about configurations where all positive weights are
-  zero and automatic thresholds collapse to zero.
+- Negative contributions are excluded from automatic threshold scaling.
+- Configurations where all Shrine Points are zero or negative require Manual
+  Thresholds; the settings dialog rejects them in automatic mode.
 
-Open product decision:
+Magnet counting rule:
 
-- Positive Magnet points currently count at most two Magnet Shrines. Decide
-  whether negative Magnet points also stop at two, or whether every Magnet is
-  penalized. Rewarding only the first two while penalizing every unwanted
-  Magnet is the more expressive behavior, but it must be stated explicitly in
-  the UI and score preview.
+- Positive Magnet points retain the existing cap and count at most two Magnet
+  Shrines. Negative Magnet points penalize every counted Magnet Shrine. This is
+  stated explicitly in the Scores help dialog.
+
+Validation:
+
+- Automated coverage verifies signed points for every shrine type, uncapped
+  negative Magnet penalties, Challenge penalties before the Microwave
+  multiplier, zero-value Challenges, and penalty-safe automatic thresholds.
 
 Example target:
 

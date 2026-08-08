@@ -113,10 +113,15 @@ The built-in template manager lets you:
 Use weighted scoring instead of hard requirements.
 
 Current score configuration supports:
-- configurable stat weights;
+- signed Shrine Points for Moais, Shady Guys, Boss Curses, Magnet Shrines, and
+  Challenges (positive rewards, zero has no effect, negative penalizes);
 - microwave multipliers;
 - auto-calculated or manual score thresholds;
 - active target tiers: `Light`, `Good`, `Perfect`, `Perfect+`.
+
+Positive Magnet points count at most two Magnet Shrines; negative Magnet points
+penalize every Magnet Shrine. Automatic thresholds scale from positive Shrine
+Points only, so increasing a penalty never lowers the target score.
 
 The active left-side tab decides which evaluation mode is currently used.
 

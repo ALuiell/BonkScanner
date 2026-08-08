@@ -47,6 +47,7 @@ def calculate_score(stats: dict, scores_config: dict) -> float:
     shady = stats.get("Shady Guy", 0)
     moai = stats.get("Moais", 0)
     magnet = stats.get("Magnet Shrines", 0)
+    challenges = stats.get("Challenges", 0)
     microwaves = score_microwaves(stats)
 
     boss = stats.get("Boss Curses", 0)
@@ -56,6 +57,7 @@ def calculate_score(stats: dict, scores_config: dict) -> float:
     w_shady = weights.get("shady", 2.0)
     w_boss = weights.get("boss", 1.0)
     w_magnet = weights.get("magnet", 0.5)
+    w_challenges = weights.get("challenges", 0.0)
     
     multipliers = scores_config.get("multipliers", {}).get("microwave", {})
     m_1 = multipliers.get("1", 1.0)
@@ -63,7 +65,16 @@ def calculate_score(stats: dict, scores_config: dict) -> float:
     
     multiplier = m_2 if microwaves >= 2 else m_1
     
-    base_score = (moai * w_moai) + (shady * w_shady) + (boss * w_boss) + (min(magnet, 2) * w_magnet)
+    # Positive Magnet points retain the legacy two-shrine reward cap. A
+    # negative value is a penalty, so every unwanted Magnet must count.
+    counted_magnets = min(magnet, 2) if w_magnet >= 0 else magnet
+    base_score = (
+        (moai * w_moai)
+        + (shady * w_shady)
+        + (boss * w_boss)
+        + (counted_magnets * w_magnet)
+        + (challenges * w_challenges)
+    )
     return base_score * multiplier
 
 def evaluate_map_by_scores(stats: dict, scores_config: dict) -> dict | None:

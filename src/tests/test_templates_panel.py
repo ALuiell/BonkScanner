@@ -367,6 +367,25 @@ class DialogTests(unittest.TestCase):
         self.assertEqual(dialog.exec_calls, 1)
         self.assertEqual(rendered, [])
 
+    def test_scores_help_opens_from_the_scores_panel(self) -> None:
+        dialog = RecordingDialog()
+        parent = SimpleNamespace(name="window")
+        received = []
+
+        def scores_help_dialog(actual_parent):
+            received.append(actual_parent)
+            return dialog
+
+        panel = build_templates_panel(
+            window=lambda: parent,
+            scores_help_dialog=scores_help_dialog,
+        )
+
+        panel.open_scores_help_dialog()
+
+        self.assertEqual(received, [parent])
+        self.assertEqual(dialog.exec_calls, 1)
+
 
 class TemplateEditTests(unittest.TestCase):
     def test_apply_template_edit_renames_in_active_templates(self) -> None:
@@ -440,7 +459,7 @@ class TemplateOrderTests(unittest.TestCase):
 
 
 class PortTests(unittest.TestCase):
-    def test_the_constructor_takes_exactly_its_eight_collaborators(self) -> None:
+    def test_the_constructor_takes_exactly_its_nine_collaborators(self) -> None:
         """A silently-absorbed dependency is what `object.__new__` was retired for."""
         from ui.tabs.templates import TemplatesPanel
 
@@ -458,6 +477,7 @@ class PortTests(unittest.TestCase):
                 template_manager_dialog=None,
                 delete_dialog=None,
                 scores_settings_dialog=None,
+                scores_help_dialog=None,
                 no_custom_templates_message=None,
                 app=object(),
             )

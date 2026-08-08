@@ -43,7 +43,8 @@ DEFAULT_SCORES_SYSTEM = {
       "moais": 3.0,
       "shady": 2.0,
       "boss": 1.0,
-      "magnet": 0.5
+      "magnet": 0.5,
+      "challenges": 0.0
     },
     "multipliers": {
       "microwave": {
@@ -1209,17 +1210,29 @@ for key, value in DEFAULT_SCORES_SYSTEM.items():
         SCORES_SYSTEM[key] = value
 
 def calculate_auto_thresholds(current_weights: dict, current_multipliers: dict) -> dict:
-    """Calculate scaled thresholds based on the reference map scale factor."""
-    w_moai = current_weights.get("moais", 3.0)
-    w_shady = current_weights.get("shady", 2.0)
-    w_boss = current_weights.get("boss", 1.0)
-    w_magnet = current_weights.get("magnet", 0.5)
+    """Scale thresholds from positive shrine points on a reference map.
+
+    Penalties deliberately do not lower automatic targets: otherwise making a
+    shrine more undesirable would also make every tier easier to reach and
+    partially cancel the configured penalty.
+    """
+    w_moai = max(float(current_weights.get("moais", 3.0)), 0.0)
+    w_shady = max(float(current_weights.get("shady", 2.0)), 0.0)
+    w_boss = max(float(current_weights.get("boss", 1.0)), 0.0)
+    w_magnet = max(float(current_weights.get("magnet", 0.5)), 0.0)
+    w_challenges = max(float(current_weights.get("challenges", 0.0)), 0.0)
     
-    m_2 = current_multipliers.get("microwave", {}).get("2", 1.25)
+    m_2 = max(float(current_multipliers.get("microwave", {}).get("2", 1.25)), 0.0)
     
-    # Reference map with its new score (moai=3, shady=3, boss=2, magnet=2, microwave=2)
-    # min(magnet, 2) is applied within the logic. For reference, magnet=2 means 2.
-    new_score_ref = (3 * w_moai + 3 * w_shady + 2 * w_boss + 2 * w_magnet) * m_2
+    # Reference map: moai=3, shady=3, boss=2, magnet=2, challenges=2,
+    # microwave=2. Challenges default to zero, preserving existing thresholds.
+    new_score_ref = (
+        3 * w_moai
+        + 3 * w_shady
+        + 2 * w_boss
+        + 2 * w_magnet
+        + 2 * w_challenges
+    ) * m_2
     
     # Base score of the reference map in the old model = 22.5
     base_score_ref = 22.5

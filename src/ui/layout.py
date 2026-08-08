@@ -54,6 +54,7 @@ from core.template_colors import template_color_hex, template_color_tag
 
 from ui.dialogs import (
     DeleteDialog,
+    ScoresHelpDialog,
     ScoresSettingsDialog,
     TemplateDialog,
     TemplateManagerDialog,
@@ -1286,7 +1287,7 @@ def _build_twitch_tab(app):
 
 
 def _build_templates_panel(app):
-    """Construct the templates panel and name its eight collaborators.
+    """Construct the templates panel and name its nine collaborators.
 
     The composition root for `TemplatesPanel` (step 22c), kept at the exact
     point in `_build_left_panel` where the two tabs used to be built inline, so
@@ -1319,6 +1320,7 @@ def _build_templates_panel(app):
         template_manager_dialog=TemplateManagerDialog,
         delete_dialog=DeleteDialog,
         scores_settings_dialog=ScoresSettingsDialog,
+        scores_help_dialog=ScoresHelpDialog,
         no_custom_templates_message=lambda parent: QMessageBox.information(
             parent, "No Custom Templates", "There are no custom templates to delete."
         ),

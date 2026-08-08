@@ -22,6 +22,7 @@ class LogicTests(unittest.TestCase):
                 "shady": 2.0,
                 "boss": 1.0,
                 "magnet": 0.5,
+                "challenges": 0.0,
             },
             "multipliers": {
                 "microwave": {
@@ -94,6 +95,73 @@ class LogicTests(unittest.TestCase):
         score = logic.calculate_score(stats, self.scores_config)
 
         self.assertEqual(score, 1.0)
+
+    def test_negative_magnet_points_penalize_every_magnet(self) -> None:
+        stats = {
+            "Shady Guy": 0,
+            "Moais": 0,
+            "Microwaves": 1,
+            "Boss Curses": 0,
+            "Magnet Shrines": 5,
+        }
+        scores_config = {
+            **self.scores_config,
+            "weights": {**self.scores_config["weights"], "magnet": -2.0},
+        }
+
+        score = logic.calculate_score(stats, scores_config)
+
+        self.assertEqual(score, -10.0)
+
+    def test_all_shrine_points_support_negative_values(self) -> None:
+        stats = {
+            "Shady Guy": 2,
+            "Moais": 1,
+            "Microwaves": 2,
+            "Boss Curses": 3,
+            "Magnet Shrines": 4,
+            "Challenges": 2,
+        }
+        scores_config = {
+            "weights": {
+                "moais": -1.0,
+                "shady": -2.0,
+                "boss": -3.0,
+                "magnet": -4.0,
+                "challenges": -5.0,
+            },
+            "multipliers": {"microwave": {"1": 1.0, "2": 1.25}},
+        }
+
+        score = logic.calculate_score(stats, scores_config)
+
+        self.assertEqual(score, -50.0)
+
+    def test_zero_challenge_points_make_challenge_count_irrelevant(self) -> None:
+        without_challenges = {"Moais": 2, "Challenges": 0}
+        with_challenges = {"Moais": 2, "Challenges": 10}
+
+        self.assertEqual(
+            logic.calculate_score(without_challenges, self.scores_config),
+            logic.calculate_score(with_challenges, self.scores_config),
+        )
+
+    def test_challenge_penalty_is_applied_before_microwave_multiplier(self) -> None:
+        stats = {"Moais": 4, "Challenges": 2, "Microwaves": 2}
+        scores_config = {
+            "weights": {
+                "moais": 3.0,
+                "shady": 0.0,
+                "boss": 0.0,
+                "magnet": 0.0,
+                "challenges": -3.0,
+            },
+            "multipliers": {"microwave": {"1": 1.0, "2": 1.25}},
+        }
+
+        score = logic.calculate_score(stats, scores_config)
+
+        self.assertEqual(score, 7.5)
 
     def test_score_uses_one_microwave_multiplier_when_microwaves_are_missing_or_zero(self) -> None:
         stats = {
