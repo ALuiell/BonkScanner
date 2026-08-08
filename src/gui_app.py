@@ -259,6 +259,7 @@ class MegabonkApp:
         # split created, alongside `_recordings_list_view` in `_build_tab_router`.
         self._overlay_view = self._overlay
         self._in_game_overlay = build_in_game_overlay(self)
+        self._auto_reroll_setup_guide = None
         self.run_after_window_shown(self._show_auto_reroll_setup_guide)
         self.run_after_window_shown(self._in_game_overlay.start_runtime)
         self.player_stats_last_run_id = None
@@ -638,15 +639,29 @@ class MegabonkApp:
         dialog.exec()
 
     def _show_auto_reroll_setup_guide(self) -> None:
-        if config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED:
+        if config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED or getattr(
+            self,
+            "_auto_reroll_setup_guide",
+            None,
+        ) is not None:
             return
         dialog = AutoRerollSetupGuideDialog(self.window)
-        dialog.exec()
+        self._auto_reroll_setup_guide = dialog
+        dialog.finished.connect(self._finish_auto_reroll_setup_guide)
+        dialog.open()
+
+    def _finish_auto_reroll_setup_guide(self, _result: int) -> None:
+        dialog = getattr(self, "_auto_reroll_setup_guide", None)
+        if dialog is None:
+            return
+        self._auto_reroll_setup_guide = None
         if not dialog.acknowledged:
+            dialog.deleteLater()
             return
         config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
         config.user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"] = True
         config.save_config(config.user_config)
+        dialog.deleteLater()
 
     # -- tab-bar predicates (step 26) --------------------------------------
     #

@@ -24,6 +24,7 @@ class StartupWindowOrderTests(unittest.TestCase):
             from gui_app import MegabonkApp
 
             config.save_config = lambda *_args, **_kwargs: None
+            config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
             app = MegabonkApp()
             qt = QApplication.instance()
 
@@ -107,6 +108,7 @@ class StartupWindowOrderTests(unittest.TestCase):
             from gui_app import MegabonkApp
 
             config.save_config = lambda *_args, **_kwargs: None
+            config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
             qt = MegabonkApp._ensure_qt_application()
 
             shown = []

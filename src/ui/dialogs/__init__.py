@@ -829,7 +829,7 @@ class AutoRerollSetupGuideDialog(QDialog):
                 "To configure BonkScanner's Auto-Reroll feature correctly, make "
                 "these small changes in Megabonk's game settings."
             ),
-            width=DIALOG_REGULAR,
+            width=DIALOG_WIDE,
         )
         layout.addWidget(
             dialog_card(
@@ -840,7 +840,7 @@ class AutoRerollSetupGuideDialog(QDialog):
             )
         )
         layout.addWidget(
-            dialog_info_card(
+            dialog_card(
                 "<b>Reset speed</b><br><br>"
                 "Reset Hold Duration controls how long BonkScanner holds the reset key. "
                 "You can change it later in BonkScanner Settings.<br><br>"
@@ -856,14 +856,15 @@ class AutoRerollSetupGuideDialog(QDialog):
         layout.addWidget(
             dialog_danger_card(
                 "<b>Troubleshooting</b><br><br>"
-                "If Auto-Reroll presses R but the run does not restart, check Reset "
-                "Hold Duration in BonkScanner Settings first.<br><br>"
-                "Before Auto-Reroll starts, BonkScanner compares the configured hold "
-                "duration with Megabonk's quick_reset_time. If the game requires a "
-                "longer hold, BonkScanner automatically raises its value while preserving "
-                "the safety margin.<br><br>"
-                "Advanced users can inspect the game config at:<br>"
-                "<b>%USERPROFILE%\\<br>AppData\\LocalLow\\Ved\\Megabonk\\Saves\\LocalDir\\config.json</b>"
+                "If R is pressed but the run does not restart, increase Reset Hold "
+                "Duration in BonkScanner Settings.<br><br>"
+                "BonkScanner normally keeps it above Megabonk's quick_reset_time using "
+                "a safety margin. If you need a little more headroom, increase "
+                "<b>RESET_HOLD_SAFETY_MARGIN</b> in the BonkScanner config &mdash; for "
+                "example, from <b>0.05</b> to <b>0.06</b> &mdash; then restart BonkScanner."
+                "<br><br><b>Game config:</b> %USERPROFILE%\\&#8203;AppData\\&#8203;"
+                "LocalLow\\&#8203;Ved\\&#8203;Megabonk\\&#8203;Saves\\&#8203;"
+                "LocalDir\\&#8203;config.json"
             )
         )
 
