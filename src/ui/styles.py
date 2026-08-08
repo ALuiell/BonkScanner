@@ -1343,6 +1343,67 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
         }
     """
 
+    scores_stylesheet = """
+        QScrollArea#ScoresScroll,
+        QScrollArea#ScoresScroll > QWidget > QWidget,
+        QWidget#ScoresSurface {
+            background: transparent;
+            border: none;
+        }
+        QFrame#ScoresSectionCard {
+            background-color: #0B0F14;
+            border: 1px solid #1B222B;
+            border-radius: 12px;
+        }
+        QFrame#ScoresExampleCard {
+            background-color: #0D1824;
+            border: 1px solid #24415F;
+            border-radius: 12px;
+        }
+        QLabel#ScoresSectionTitle {
+            color: #EDF1F5;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        QFrame#ScoresExampleCard QLabel#ScoresSectionTitle {
+            color: #4DA3FF;
+        }
+        QLabel#ScoresSectionHint,
+        QLabel#ScoresInlineNote,
+        QLabel#ScoresExampleNote {
+            color: #8A94A3;
+            font-size: 10.5px;
+        }
+        QFrame#ScoreValueRow {
+            background-color: #11171E;
+            border: 1px solid #202A35;
+            border-radius: 9px;
+        }
+        QLabel#ScoreValueLabel {
+            color: #EDF1F5;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QLabel#ScoreValueNumber {
+            color: #8A94A3;
+            font-size: 12px;
+            font-weight: 800;
+        }
+        QLabel#ScoreValueNumber[tone="positive"] { color: #22C76A; }
+        QLabel#ScoreValueNumber[tone="negative"] { color: #FF6B7A; }
+        QLabel#ScoreValueNumber[tone="ignored"] { color: #5C6675; }
+        QLabel#ScoresBonusValue,
+        QLabel#ScoresExampleFormula,
+        QLabel#ScoresExampleResult {
+            color: #EDF1F5;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        QLabel#ScoresExampleResult {
+            font-weight: 800;
+        }
+    """
+
     # Compatibility fills selectors that the existing widgets still need;
     # the design asset comes last so every v3 rule remains authoritative,
     # and the uniform checkbox/spinner/transparency rules come last of all
@@ -1355,6 +1416,7 @@ def build_qt_app_stylesheet(checkmark_path: str) -> str:
             checkbox_uniform_stylesheet,
             spinner_uniform_stylesheet,
             compare_runs_compatibility_stylesheet,
+            scores_stylesheet,
             transparency_stylesheet,
         )
     )
