@@ -36,6 +36,7 @@ from ui.dialogs.shell import (
     DIALOG_WIDE,
     dialog_body,
     dialog_card,
+    dialog_danger_card,
     dialog_footer,
     dialog_info_card,
     dialog_note,
@@ -812,6 +813,69 @@ class ObsRecordingReminderDialog(QDialog):
         dialog_footer(self, primary=ok_btn)
 
 
+class AutoRerollSetupGuideDialog(QDialog):
+    """One-time setup guide shown only to genuinely new installations."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.acknowledged = False
+        self.setWindowTitle("Auto-Reroll Setup")
+        self.setModal(True)
+
+        layout = dialog_body(
+            self,
+            title="Configure Auto-Reroll",
+            subtitle=(
+                "To configure BonkScanner's Auto-Reroll feature correctly, make "
+                "these small changes in Megabonk's game settings."
+            ),
+            width=DIALOG_REGULAR,
+        )
+        layout.addWidget(
+            dialog_card(
+                "Open <b>Settings &rarr; Game</b> in Megabonk and enable:"
+                "<br><br><b>Quick Reset</b> &mdash; enables restarting a run with the reset key."
+                "<br><b>Skip Portal Animation</b> &mdash; skips the portal transition animation."
+                "<br><b>Super Quick Resets</b> &mdash; reduces the delay before the next run starts."
+            )
+        )
+        layout.addWidget(
+            dialog_info_card(
+                "<b>Reset speed</b><br><br>"
+                "Reset Hold Duration controls how long BonkScanner holds the reset key. "
+                "You can change it later in BonkScanner Settings.<br><br>"
+                "The minimum value is <b>0.10 s</b>. When this value is saved, "
+                "BonkScanner writes the corresponding <b>quick_reset_time</b> to the "
+                "Megabonk config with a <b>0.05-second safety margin</b>."
+                "<br><br><b>BonkScanner:</b> 0.10 s &nbsp;&rarr;&nbsp; "
+                "<b>Megabonk:</b> 0.05 s"
+                "<br><br>Restart Megabonk after changing Reset Hold Duration so the "
+                "new value takes effect."
+            )
+        )
+        layout.addWidget(
+            dialog_danger_card(
+                "<b>Troubleshooting</b><br><br>"
+                "If Auto-Reroll presses R but the run does not restart, check Reset "
+                "Hold Duration in BonkScanner Settings first.<br><br>"
+                "Before Auto-Reroll starts, BonkScanner compares the configured hold "
+                "duration with Megabonk's quick_reset_time. If the game requires a "
+                "longer hold, BonkScanner automatically raises its value while preserving "
+                "the safety margin.<br><br>"
+                "Advanced users can inspect the game config at:<br>"
+                "<b>%USERPROFILE%\\<br>AppData\\LocalLow\\Ved\\Megabonk\\Saves\\LocalDir\\config.json</b>"
+            )
+        )
+
+        got_it_btn = QPushButton("Got it")
+        got_it_btn.clicked.connect(self.confirm)
+        dialog_footer(self, primary=got_it_btn)
+
+    def confirm(self) -> None:
+        self.acknowledged = True
+        self.accept()
+
+
 class GameResetTimeNoticeDialog(QDialog):
     """Quiet, app-styled outcome of writing Megabonk's reset-time setting."""
 
@@ -1122,7 +1186,7 @@ class SettingsDialog(QDialog):
         )
 
         self.reset_hold_duration_entry = QDoubleSpinBox()
-        self.reset_hold_duration_entry.setRange(0.01, 10.0)
+        self.reset_hold_duration_entry.setRange(config.MIN_RESET_HOLD_DURATION, 10.0)
         self.reset_hold_duration_entry.setSingleStep(0.05)
         self.reset_hold_duration_entry.setDecimals(2)
         self.reset_hold_duration_entry.setValue(float(config.RESET_HOLD_DURATION))
@@ -1280,7 +1344,10 @@ class SettingsDialog(QDialog):
             return float(_read_text(entry))
 
         try:
-            new_duration = max(0.01, round(_read_numeric(self.reset_hold_duration_entry), 2))
+            new_duration = max(
+                config.MIN_RESET_HOLD_DURATION,
+                round(_read_numeric(self.reset_hold_duration_entry), 2),
+            )
         except (TypeError, ValueError, OverflowError):
             QMessageBox.warning(
                 self,

@@ -12,7 +12,7 @@ from app.coordinator import AppCoordinator
 from app.version import CURRENT_VERSION
 from app.player_stats_memory import player_stats_memory
 from app.player_stats_refresh import player_stats_refresh
-from ui.dialogs import HelpDialog, SettingsDialog
+from ui.dialogs import AutoRerollSetupGuideDialog, HelpDialog, SettingsDialog
 from ui.layout import build_layout, _is_tab_active
 from gui_overlay import build_overlay, combined_tracked_item_rules
 from gui_in_game_overlay import build_in_game_overlay
@@ -259,6 +259,7 @@ class MegabonkApp:
         # split created, alongside `_recordings_list_view` in `_build_tab_router`.
         self._overlay_view = self._overlay
         self._in_game_overlay = build_in_game_overlay(self)
+        self.run_after_window_shown(self._show_auto_reroll_setup_guide)
         self.run_after_window_shown(self._in_game_overlay.start_runtime)
         self.player_stats_last_run_id = None
         self.player_stats_disabled_items_cache = None
@@ -635,6 +636,17 @@ class MegabonkApp:
     def open_help_dialog(self) -> None:
         dialog = HelpDialog(self.window)
         dialog.exec()
+
+    def _show_auto_reroll_setup_guide(self) -> None:
+        if config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED:
+            return
+        dialog = AutoRerollSetupGuideDialog(self.window)
+        dialog.exec()
+        if not dialog.acknowledged:
+            return
+        config.AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = True
+        config.user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"] = True
+        config.save_config(config.user_config)
 
     # -- tab-bar predicates (step 26) --------------------------------------
     #

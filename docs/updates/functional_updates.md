@@ -226,7 +226,7 @@ Validation requirements:
 
 #### 5. First-Launch Auto-Reroll Setup Guide
 
-Status: `[Open]`
+Status: `[Complete]`
 
 Goal:
 
@@ -259,6 +259,11 @@ Game quick_reset_time:       0.21
 
 - State prominently that the game must be restarted after changing Reset Hold
   Duration, because it reads `quick_reset_time` when it launches.
+- State that the minimum Reset Hold Duration exposed by Settings is `0.10`
+  seconds.
+- Keep the default `0.05` safety margin configurable for advanced users through
+  `RESET_HOLD_SAFETY_MARGIN` in the BonkScanner config. Accept finite values from
+  `0.00` through `1.00` and fall back to `0.05` for invalid values.
 - Provide a single acknowledgement action such as `Got it`; detailed help may
   remain accessible elsewhere, but the first-launch guide itself must not be
   shown again after acknowledgement.

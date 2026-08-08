@@ -293,6 +293,7 @@ The main `Settings` dialog currently includes:
 Notes:
 - `Reset Hotkey` and `Reset Hold Duration` control the community restart path;
 - the app syncs and verifies the game's `quick_reset_time` value when reset hold duration changes;
+- advanced users can override the default `0.05` reset safety margin with `RESET_HOLD_SAFETY_MARGIN` in the BonkScanner config (`0.00` to `1.00`; restart the app after editing);
 - if the game config is missing or the value cannot be verified, Settings stays open and explains how to retry;
 - global hotkeys and keyboard-driven restart may require Administrator privileges on Windows.
 

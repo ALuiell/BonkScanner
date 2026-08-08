@@ -91,6 +91,11 @@ class ResetHoldDurationFloorTests(unittest.TestCase):
         self.assertEqual(duration, 0.1)
         self.assertIsNone(raised_from)
 
+    def test_values_below_the_supported_settings_minimum_are_raised(self) -> None:
+        duration, raised_from = config.resolve_reset_hold_duration(0.01, None)
+        self.assertEqual(duration, config.MIN_RESET_HOLD_DURATION)
+        self.assertIsNone(raised_from)
+
     def test_missing_stored_value_takes_the_game_floor(self) -> None:
         duration, raised_from = config.resolve_reset_hold_duration(None, 1.05)
         self.assertEqual(duration, 1.05)
@@ -150,6 +155,34 @@ class ResetHoldDurationFloorTests(unittest.TestCase):
                 read_back = config.get_game_reset_time()
 
             self.assertAlmostEqual(read_back, hold_duration, places=6)
+
+    def test_a_custom_margin_round_trips_through_the_game_config(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            game_config_path = os.path.join(temp_dir, "config.json")
+            with open(game_config_path, "w", encoding="utf-8") as handle:
+                json.dump({"cfGameSettings": {"quick_reset_time": 0.2}}, handle)
+
+            with patch.object(config, "RESET_HOLD_SAFETY_MARGIN", 0.15):
+                with patch.object(config, "get_game_config_path", return_value=game_config_path):
+                    self.assertAlmostEqual(config.get_game_reset_time(), 0.35, places=6)
+                    game_value = config.reset_hold_duration_to_game_value(0.35)
+                    self.assertTrue(config.update_game_reset_time(game_value).success)
+                    self.assertAlmostEqual(config.get_game_reset_time(), 0.35, places=6)
+
+
+class ResetHoldSafetyMarginConfigTests(unittest.TestCase):
+    def test_valid_values_are_rounded_to_two_decimals(self) -> None:
+        self.assertEqual(config.normalize_reset_hold_safety_margin("0.146"), 0.15)
+        self.assertEqual(config.normalize_reset_hold_safety_margin(0.0), 0.0)
+        self.assertEqual(config.normalize_reset_hold_safety_margin(1.0), 1.0)
+
+    def test_invalid_values_fall_back_to_the_default(self) -> None:
+        for value in (-0.01, 1.01, "invalid", float("nan"), float("inf")):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    config.normalize_reset_hold_safety_margin(value),
+                    config.DEFAULT_RESET_HOLD_SAFETY_MARGIN,
+                )
 
 
 class RefreshResetHoldDurationTests(unittest.TestCase):

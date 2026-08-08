@@ -203,6 +203,21 @@ def dialog_info_card(text: str) -> QFrame:
     return card
 
 
+def dialog_danger_card(text: str) -> QFrame:
+    """A red troubleshooting card for a failure the user may need to diagnose."""
+    card = QFrame()
+    card.setObjectName("DangerInfoCard")
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(14, 12, 14, 12)
+    layout.setSpacing(0)
+    body = QLabel(str(text), card)
+    body.setObjectName("dialogCardText")
+    body.setWordWrap(True)
+    body.setTextFormat(Qt.RichText)
+    layout.addWidget(body)
+    return card
+
+
 def dialog_note(text: str, *, parent: QWidget | None = None) -> QLabel:
     """A muted line under the content -- the "you can turn this off" sentence."""
     note = QLabel(str(text), parent)

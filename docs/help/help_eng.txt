@@ -212,6 +212,7 @@ Main settings:
 - `Record Hotkey` - starts or stops live stats recording.
 - `In-Game Overlay Edit Hotkey` - enters or exits overlay Layout Mode.
 - `Reset Hold Duration (s)` - keyboard reset hold time in the app. This setting also syncs and verifies the game's `quick_reset_time` value. If the game config cannot be found or updated, Settings explains the cause and keeps the dialog open so you can retry. After a successful change, restart the game so the new timing fully applies.
+- Advanced: `RESET_HOLD_SAFETY_MARGIN` in the BonkScanner config controls how much longer the app holds the reset key than the game's `quick_reset_time`. The default is `0.05`; values from `0.00` to `1.00` are accepted. Restart BonkScanner after editing it manually.
 - `Snapshot Interval (s)` - how often recording saves a new snapshot.
 - `Check for Updates` - checks for a newer packaged build when that updater flow is available.
 

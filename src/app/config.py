@@ -405,8 +405,11 @@ def save_game_config(data: dict) -> bool:
 #: animation timing at the boundary, so every value crossing this seam carries
 #: the margin. Read adds it (`get_game_reset_time`), write removes it
 #: (`reset_hold_duration_to_game_value`) -- they are one pair and must not drift
-#: apart, which is why this is a constant and not two literals in two files.
-RESET_HOLD_SAFETY_MARGIN = 0.05
+#: apart. Advanced users may override the shared value in BonkScanner's config.
+DEFAULT_RESET_HOLD_SAFETY_MARGIN = 0.05
+MIN_RESET_HOLD_DURATION = 0.10
+MAX_RESET_HOLD_SAFETY_MARGIN = 1.00
+RESET_HOLD_SAFETY_MARGIN = DEFAULT_RESET_HOLD_SAFETY_MARGIN
 
 
 def get_game_reset_time() -> float | None:
@@ -491,6 +494,7 @@ def update_game_reset_time(game_val: float) -> GameConfigUpdateResult:
 # LOAD JSON CONFIG
 # ==========================================
 config_path = os.path.join(application_path, "config.json")
+CONFIG_FILE_EXISTED_AT_STARTUP = os.path.isfile(config_path)
 
 def load_config():
     with config_lock:
@@ -595,6 +599,46 @@ def coerce_float(value, default=0.0):
     if not math.isfinite(parsed):
         return default
     return parsed
+
+
+def normalize_reset_hold_safety_margin(value) -> float:
+    """Return a finite two-decimal safety margin from the advanced config key."""
+    parsed = coerce_float(value, DEFAULT_RESET_HOLD_SAFETY_MARGIN)
+    if not 0.0 <= parsed <= MAX_RESET_HOLD_SAFETY_MARGIN:
+        return DEFAULT_RESET_HOLD_SAFETY_MARGIN
+    return round(parsed, 2)
+
+
+RESET_HOLD_SAFETY_MARGIN = normalize_reset_hold_safety_margin(
+    user_config.get("RESET_HOLD_SAFETY_MARGIN")
+)
+user_config["RESET_HOLD_SAFETY_MARGIN"] = RESET_HOLD_SAFETY_MARGIN
+
+
+def resolve_auto_reroll_setup_guide_acknowledged(
+    saved_value,
+    *,
+    config_existed: bool,
+) -> bool:
+    """Distinguish a new install from an existing config predating the guide."""
+    if isinstance(saved_value, bool):
+        return saved_value
+    return bool(config_existed)
+
+
+# A missing key means two different things. With no config file it is a genuine
+# first launch; in an existing install it predates the guide and must not be
+# interrupted by an upgrade. Persisting the resolved value also keeps a first-
+# launch dismissal via X/Esc pending when some other startup setting is saved.
+AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED = (
+    resolve_auto_reroll_setup_guide_acknowledged(
+        user_config.get("AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"),
+        config_existed=CONFIG_FILE_EXISTED_AT_STARTUP,
+    )
+)
+user_config["AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED"] = (
+    AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED
+)
 
 
 def normalize_hotkey_game_key_whitelist(value) -> list[str]:
@@ -996,6 +1040,8 @@ def resolve_reset_hold_duration(
         duration = game_floor
     else:
         duration = DEFAULT_RESET_HOLD_DURATION
+
+    duration = max(MIN_RESET_HOLD_DURATION, duration)
 
     if game_floor is not None and round(duration, 2) < round(game_floor, 2):
         return game_floor, round(duration, 2)

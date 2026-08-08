@@ -1422,6 +1422,11 @@ QFrame#InfoCard {
     border: 1px solid #285475;
     border-radius: 12px;
 }
+QFrame#DangerInfoCard {
+    background-color: #35191C;
+    border: 1px solid #6B2A31;
+    border-radius: 12px;
+}
 
 /* ======================================================================
    Нижняя полоска окна. До неё у окна не было футера вообще: в корневой
