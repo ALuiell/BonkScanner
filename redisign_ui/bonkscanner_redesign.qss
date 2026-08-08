@@ -1417,6 +1417,11 @@ QLabel#dialogSubject {
     font-weight: 600;
 }
 QLabel#dialogCardText { background: transparent; color: #EDF1F5; font-size: 13px; }
+QFrame#InfoCard {
+    background-color: #152A40;
+    border: 1px solid #285475;
+    border-radius: 12px;
+}
 
 /* ======================================================================
    Нижняя полоска окна. До неё у окна не было футера вообще: в корневой

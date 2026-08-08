@@ -755,6 +755,10 @@ class MegabonkApp:
     def apply_run_control_mode(self, *, detach_hooks: bool = True) -> None:
         self._run_control.apply_run_control_mode(detach_hooks=detach_hooks)
 
+    def is_game_running(self) -> bool:
+        """Whether the configured Megabonk process is currently available."""
+        return self._run_control.get_game_process_id() is not None
+
     def check_admin_rights(self) -> None:
         self._run_control.check_admin_rights()
 

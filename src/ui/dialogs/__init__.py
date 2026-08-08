@@ -37,6 +37,7 @@ from ui.dialogs.shell import (
     dialog_body,
     dialog_card,
     dialog_footer,
+    dialog_info_card,
     dialog_note,
 )
 from ui.shared import (
@@ -811,6 +812,47 @@ class ObsRecordingReminderDialog(QDialog):
         dialog_footer(self, primary=ok_btn)
 
 
+class GameResetTimeNoticeDialog(QDialog):
+    """Quiet, app-styled outcome of writing Megabonk's reset-time setting."""
+
+    def __init__(self, parent, *, saved: bool, reason: str = ""):
+        super().__init__(parent)
+        self.setModal(True)
+
+        if saved:
+            self.setWindowTitle("Settings Saved")
+            layout = dialog_body(
+                self,
+                title="Reset hold saved",
+                width=DIALOG_REGULAR,
+            )
+            layout.addWidget(
+                dialog_info_card(
+                    "Reset Hold Duration was saved to the game config. "
+                    "Restart Megabonk to apply the new value."
+                )
+            )
+        else:
+            self.setWindowTitle("Game Settings Not Applied")
+            layout = dialog_body(
+                self,
+                title="Could not apply game settings",
+                width=DIALOG_REGULAR,
+            )
+            layout.addWidget(
+                dialog_card(
+                    "Reset Hold Duration was not saved because BonkScanner could not "
+                    "apply it to the game config.<br><br>"
+                    f"<b>Reason:</b> {html.escape(reason or 'The change could not be verified.')}"
+                    "<br><br>Close the game, run BonkScanner as Administrator, and try again."
+                )
+            )
+
+        ok_btn = QPushButton("OK")
+        ok_btn.clicked.connect(self.accept)
+        dialog_footer(self, primary=ok_btn)
+
+
 class TwitchCommandsHelpDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
@@ -1259,17 +1301,19 @@ class SettingsDialog(QDialog):
             update_result = config.update_game_reset_time(game_val)
             if not update_result.success:
                 reason = update_result.reason or "The game config change could not be verified."
-                QMessageBox.warning(
-                    self,
-                    "Game Settings Not Applied",
-                    (
-                        "Reset Hold Duration was not saved because BonkScanner could not "
-                        "apply it to the game config.\n\n"
-                        f"Reason: {reason}\n\n"
-                        "Close the game, run BonkScanner as Administrator, and try again."
-                    ),
-                )
+                GameResetTimeNoticeDialog(self, saved=False, reason=reason).exec()
                 return
+            is_game_running = getattr(self.master, "is_game_running", None)
+            try:
+                show_restart_notice = bool(
+                    callable(is_game_running) and is_game_running()
+                )
+            except Exception:
+                # A notification must not turn a completed config write into a
+                # failed settings save merely because process detection is down.
+                show_restart_notice = False
+        else:
+            show_restart_notice = False
 
         config.user_config["HOTKEY"] = new_hotkey
         config.user_config["RESET_HOTKEY"] = new_reset_hotkey
@@ -1340,6 +1384,8 @@ class SettingsDialog(QDialog):
         # stand-ins carried `destroy` and no `accept`. Those stand-ins model a
         # `QDialog` now, so the branch that only the fakes could take is gone.
         self.accept()
+        if show_restart_notice:
+            GameResetTimeNoticeDialog(self.parent(), saved=True).exec()
 
 
 class TwitchCommandSettingsDialog(QDialog):
