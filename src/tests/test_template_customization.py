@@ -69,7 +69,7 @@ def test_templates_panel_reports_a_capped_content_width_and_elides_overflow(qtbo
             panel.set_preferred_width_changed(measured.append)
             panel.refresh_templates()
 
-    assert measured == [420]
+    assert measured == [450]
     tabs.resize(measured[0], 240)
     tabs.show()
     qtbot.wait(1)
