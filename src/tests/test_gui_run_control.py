@@ -1088,12 +1088,12 @@ class GuiRunControlTests(unittest.TestCase):
         notice_cls.assert_not_called()
 
     def test_app_reports_game_running_through_run_control(self) -> None:
-        app = object.__new__(MegabonkApp)
+        app = SimpleNamespace()
         app._run_control = SimpleNamespace(get_game_process_id=lambda: 1234)
-        self.assertTrue(app.is_game_running())
+        self.assertTrue(MegabonkApp.is_game_running(app))
 
         app._run_control = SimpleNamespace(get_game_process_id=lambda: None)
-        self.assertFalse(app.is_game_running())
+        self.assertFalse(MegabonkApp.is_game_running(app))
 
     def test_settings_save_keeps_dialog_open_when_game_reset_time_cannot_be_applied(self) -> None:
         # Read for the "the global was left alone" assertion below, which is a

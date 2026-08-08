@@ -531,6 +531,7 @@ class _ScoresOverview(QWidget):
         bonus_layout.addWidget(self.bonus_label)
         bonus_note = QLabel("Applied after shrine points are summed.")
         bonus_note.setObjectName("ScoresSectionHint")
+        bonus_note.setWordWrap(True)
         bonus_layout.addWidget(bonus_note)
         layout.addWidget(bonus_card)
 
@@ -547,6 +548,7 @@ class _ScoresOverview(QWidget):
         example_layout.addWidget(self.example_result)
         example_note = QLabel("ⓘ  Perfect+ also requires 2 Microwaves.")
         example_note.setObjectName("ScoresExampleNote")
+        example_note.setWordWrap(True)
         example_layout.addWidget(example_note)
         layout.addWidget(example_card)
 
@@ -1108,7 +1110,12 @@ class TemplatesPanel:
             self._scores_checkboxes[tier] = row.checkbox
 
     def refresh_scores_ui(self) -> None:
-        if self._scores_desc_label is None:
+        # Selecting the saved Scores tab during layout construction reaches the
+        # router before ``refresh_scores_templates_list`` has created its rows.
+        # An empty dict at that point means "not built", not "the user disabled
+        # every tier". Once built, the dict always contains all four tiers and
+        # four unchecked boxes remain a valid selection that must be persisted.
+        if self._scores_desc_label is None or not self._scores_checkboxes:
             return
         active_tiers = [tier for tier, cb in self._scores_checkboxes.items() if cb.isChecked()]
         if active_tiers != config.SCORES_SYSTEM.get("active_tiers", []):

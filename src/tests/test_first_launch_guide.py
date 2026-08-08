@@ -55,6 +55,20 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
         self.addCleanup(config.user_config.update, original_user_config)
         self.addCleanup(config.user_config.clear)
 
+    def _guide_owner(self, *, visible: bool = False):
+        window = QWidget()
+        if visible:
+            window.show()
+        self.addCleanup(window.close)
+        owner = SimpleNamespace(
+            window=window,
+            _auto_reroll_setup_guide=None,
+        )
+        owner._finish_auto_reroll_setup_guide = lambda result: (
+            MegabonkApp._finish_auto_reroll_setup_guide(owner, result)
+        )
+        return owner
+
     def test_the_guide_contains_the_required_setup_and_acknowledges_only_got_it(self) -> None:
         dialog = AutoRerollSetupGuideDialog(None)
         self.addCleanup(dialog.close)
@@ -86,10 +100,7 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
         self.assertTrue(dialog.acknowledged)
 
     def test_got_it_persists_the_acknowledgement(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.window = QWidget()
-        app._auto_reroll_setup_guide = None
-        self.addCleanup(app.window.close)
+        app = self._guide_owner()
         fake_dialog = SimpleNamespace(
             acknowledged=True,
             finished=MagicMock(),
@@ -104,8 +115,8 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
                     "AutoRerollSetupGuideDialog",
                     return_value=fake_dialog,
                 ) as dialog_class:
-                    app._show_auto_reroll_setup_guide()
-                    app._show_auto_reroll_setup_guide()
+                    MegabonkApp._show_auto_reroll_setup_guide(app)
+                    MegabonkApp._show_auto_reroll_setup_guide(app)
                     fake_dialog.finished.connect.call_args.args[0](1)
 
                 dialog_class.assert_called_once_with(app.window)
@@ -119,11 +130,7 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
                 save_config.assert_called_once_with(config.user_config)
 
     def test_dismissing_the_guide_does_not_acknowledge_it(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.window = QWidget()
-        app.window.show()
-        app._auto_reroll_setup_guide = None
-        self.addCleanup(app.window.close)
+        app = self._guide_owner(visible=True)
         fake_dialog = SimpleNamespace(
             acknowledged=False,
             finished=MagicMock(),
@@ -138,7 +145,7 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
                     "AutoRerollSetupGuideDialog",
                     return_value=fake_dialog,
                 ):
-                    app._show_auto_reroll_setup_guide()
+                    MegabonkApp._show_auto_reroll_setup_guide(app)
                     fake_dialog.finished.connect.call_args.args[0](0)
 
                 fake_dialog.open.assert_called_once_with()
@@ -149,15 +156,11 @@ class FirstLaunchGuideDialogTests(unittest.TestCase):
                 save_config.assert_not_called()
 
     def test_closing_the_real_guide_leaves_the_main_window_running(self) -> None:
-        app = object.__new__(MegabonkApp)
-        app.window = QWidget()
-        app.window.show()
-        app._auto_reroll_setup_guide = None
-        self.addCleanup(app.window.close)
+        app = self._guide_owner(visible=True)
 
         with patch.object(config, "AUTO_REROLL_SETUP_GUIDE_ACKNOWLEDGED", False):
             with patch.object(config, "save_config") as save_config:
-                app._show_auto_reroll_setup_guide()
+                MegabonkApp._show_auto_reroll_setup_guide(app)
                 dialog = app._auto_reroll_setup_guide
                 self.assertIsNotNone(dialog)
                 self.assertTrue(dialog.isVisible())

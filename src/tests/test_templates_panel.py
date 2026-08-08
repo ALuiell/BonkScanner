@@ -11,16 +11,23 @@ Qt and is driven by `tools/step22_templates_trace.py`.
 
 from __future__ import annotations
 
+import os
 import unittest
 from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import patch
 
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import src  # noqa: F401  -- path bootstrap, as in the rest of the suite
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QScrollArea
 
 from app import config
 from app.template_filters import TemplateRuntimeFilters
 from tests.support.templates_panel import RecordingDialog, build_templates_panel
+from ui.tabs.templates.panel import _ScoresOverview
 
 
 class FakeCheckbox:
@@ -230,6 +237,22 @@ class ScoresTests(unittest.TestCase):
             panel.refresh_scores_ui()
         save_config.assert_not_called()
 
+    def test_refresh_scores_ui_keeps_saved_tiers_before_rows_exist(self) -> None:
+        """The Scores tab is selected before startup builds its tier rows."""
+        panel, _filters = _panel_with_filters()
+        panel._scores_desc_label = SimpleNamespace(setHtml=lambda _html: None)
+        panel._scores_checkboxes = {}
+        scores = deepcopy(config.SCORES_SYSTEM)
+        scores["active_tiers"] = ["Light", "Perfect+"]
+
+        with patch.object(config, "SCORES_SYSTEM", scores), \
+             patch.dict(config.user_config, {"SCORES_SYSTEM": scores}, clear=False), \
+             patch.object(config, "save_config") as save_config:
+            panel.refresh_scores_ui()
+
+        self.assertEqual(scores["active_tiers"], ["Light", "Perfect+"])
+        save_config.assert_not_called()
+
     def test_an_empty_tier_selection_is_saved(self) -> None:
         """Empty state must reach the start-time validation instead of keeping a stale tier."""
         rendered: list[str] = []
@@ -254,6 +277,28 @@ class ScoresTests(unittest.TestCase):
             config.user_config["SCORES_SYSTEM"] = original_scores
 
         self.assertEqual(len(rendered), 1)
+
+
+class ScoresLayoutTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._app = QApplication.instance() or QApplication([])
+
+    def test_scores_overview_shrinks_without_hidden_horizontal_overflow(self) -> None:
+        scroll = QScrollArea()
+        self.addCleanup(scroll.close)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        overview = _ScoresOverview()
+        scroll.setWidget(overview)
+        scroll.resize(282, 641)
+        scroll.show()
+        QApplication.processEvents()
+
+        self.assertLessEqual(
+            overview.minimumSizeHint().width(), scroll.viewport().width()
+        )
+        self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
 
 
 class DialogTests(unittest.TestCase):
