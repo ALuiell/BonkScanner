@@ -399,14 +399,7 @@ class _ScoreTierRow(QFrame):
         self._apply_style()
 
     def set_summary(self, threshold: float) -> None:
-        threshold_text = _format_number(threshold)
-        if self.tier == "Perfect":
-            summary = f"{threshold_text}+  ·  2 Mic, or 1 Mic + S+M 8, Boss 2"
-        elif self.tier == "Perfect+":
-            summary = f"{threshold_text}+  ·  needs 2 Microwaves"
-        else:
-            summary = f"{threshold_text}+"
-        self.meta_label.setText(summary)
+        self.meta_label.setText(f"{_format_number(threshold)}+")
 
     def _apply_style(self, *_args) -> None:
         checked = self.checkbox.isChecked()
