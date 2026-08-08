@@ -74,6 +74,61 @@ class ModifierAwareHotkeyManagerTests(unittest.TestCase):
 
         self.assertEqual(calls, ["f9"])
 
+    def test_foreground_only_binding_fires_only_in_game(self) -> None:
+        keyboard = FakeKeyboard()
+        game_active = False
+        calls: list[str] = []
+        manager = ModifierAwareHotkeyManager(
+            keyboard,
+            allowed_game_keys=("w",),
+            is_game_window_active=lambda: game_active,
+        )
+        manager.start((
+            HotkeyBinding(
+                "w",
+                lambda: calls.append("movement"),
+                require_game_window=True,
+            ),
+        ))
+
+        keyboard.emit("w", "down")
+        keyboard.emit("w", "up")
+        game_active = True
+        keyboard.emit("w", "down")
+        keyboard.emit("w", "down")
+
+        self.assertEqual(calls, ["movement"])
+
+    def test_foreground_only_binding_tolerates_other_held_keys(self) -> None:
+        keyboard = FakeKeyboard()
+        calls: list[str] = []
+        manager = ModifierAwareHotkeyManager(
+            keyboard,
+            allowed_game_keys=(),
+            is_game_window_active=lambda: True,
+        )
+        manager.start((
+            HotkeyBinding(
+                "w",
+                lambda: calls.append("movement"),
+                require_game_window=True,
+            ),
+        ))
+
+        keyboard.emit("ctrl", "down")
+        keyboard.emit("w", "down")
+
+        self.assertEqual(calls, ["movement"])
+
+    def test_pressed_key_state_tracks_holds_until_release(self) -> None:
+        keyboard, manager, _calls = self.make_manager()
+
+        keyboard.emit("w", "down")
+        self.assertTrue(manager.any_key_pressed(("w",)))
+
+        keyboard.emit("w", "up")
+        self.assertFalse(manager.any_key_pressed(("w",)))
+
     def test_allowed_held_game_key_fires_while_game_is_active(self) -> None:
         keyboard, _manager, calls = self.make_manager(game_active=True)
 

@@ -46,6 +46,9 @@ except ImportError:
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 
+PLAYER_MOVEMENT_KEYS = ("w", "a", "s", "d", "space")
+
+
 class RunControl:
     """Owns `run_control_provider` and `_hotkey_manager`; borrows the rest."""
 
@@ -57,6 +60,7 @@ class RunControl:
         client: Callable[[], Any],
         abort_requested: Callable[[], bool],
         toggle_scan: Callable[[], None],
+        player_movement: Callable[[], None],
         toggle_recording: Callable[[], None],
         toggle_overlay_edit: Callable[[], None] | None,
     ) -> None:
@@ -72,6 +76,7 @@ class RunControl:
         self._client = client
         self._abort_requested = abort_requested
         self._toggle_scan = toggle_scan
+        self._player_movement = player_movement
         self._toggle_recording = toggle_recording
         # Explicitly optional, and the reason is a live failure mode rather
         # than taste. The binding used to be added under
@@ -86,6 +91,9 @@ class RunControl:
 
         self.run_control_provider = None
         self._hotkey_manager = None
+        self.player_movement_guard_available = not bool(
+            getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True)
+        )
 
     def initialize_run_control(self):
         self.enable_keyboard_run_control()
@@ -110,30 +118,46 @@ class RunControl:
 
 
     def setup_hotkeys(self):
-        if keyboard:
-            try:
-                previous_manager = getattr(self, "_hotkey_manager", None)
-                if previous_manager is not None:
-                    previous_manager.stop()
-                    self._hotkey_manager = None
-                manager = ModifierAwareHotkeyManager(
-                    keyboard,
-                    allowed_game_keys=getattr(config, "HOTKEY_GAME_KEY_WHITELIST", ()),
-                    is_game_window_active=lambda: self.is_game_window_active(config.PROCESS_NAME),
+        guard_enabled = bool(
+            getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True)
+        )
+        if not keyboard:
+            self.player_movement_guard_available = not guard_enabled
+            return
+        try:
+            previous_manager = getattr(self, "_hotkey_manager", None)
+            if previous_manager is not None:
+                previous_manager.stop()
+                self._hotkey_manager = None
+            manager = ModifierAwareHotkeyManager(
+                keyboard,
+                allowed_game_keys=getattr(config, "HOTKEY_GAME_KEY_WHITELIST", ()),
+                is_game_window_active=lambda: self.is_game_window_active(config.PROCESS_NAME),
+            )
+            bindings = [
+                HotkeyBinding(config.HOTKEY, self.hotkey_toggle_scanning),
+                HotkeyBinding(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording),
+            ]
+            if self._toggle_overlay_edit is not None:
+                bindings.append(HotkeyBinding(
+                    getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9"),
+                    self.hotkey_toggle_in_game_overlay_edit
+                ))
+            if guard_enabled:
+                bindings.extend(
+                    HotkeyBinding(
+                        key,
+                        self.hotkey_player_movement,
+                        require_game_window=True,
+                    )
+                    for key in PLAYER_MOVEMENT_KEYS
                 )
-                bindings = [
-                    HotkeyBinding(config.HOTKEY, self.hotkey_toggle_scanning),
-                    HotkeyBinding(config.PLAYER_STATS_RECORD_HOTKEY, self.hotkey_toggle_player_stats_recording),
-                ]
-                if self._toggle_overlay_edit is not None:
-                    bindings.append(HotkeyBinding(
-                        getattr(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9"),
-                        self.hotkey_toggle_in_game_overlay_edit
-                    ))
-                manager.start(tuple(bindings))
-                self._hotkey_manager = manager
-            except Exception as exc:
-                self._log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
+            manager.start(tuple(bindings))
+            self._hotkey_manager = manager
+            self.player_movement_guard_available = True
+        except Exception as exc:
+            self.player_movement_guard_available = not guard_enabled
+            self._log(f"[WAIT] Could not register hotkeys: {exc}", tag="warning")
 
     # The other half of `setup_hotkeys`. It stood inline at the end of
     # `ScannerMixin.on_closing`, which made `_hotkey_manager` a name written by
@@ -158,6 +182,21 @@ class RunControl:
 
     def hotkey_toggle_scanning(self):
         self._schedule(0, self._toggle_scan)
+
+    def hotkey_player_movement(self):
+        # This callback runs on the keyboard hook thread. The scanner's handler
+        # only mutates thread-safe events under its restart lock; GUI work is
+        # scheduled separately by that handler.
+        self._player_movement()
+
+    def is_player_movement_pressed(self) -> bool:
+        manager = self._hotkey_manager
+        if manager is None:
+            return False
+        try:
+            return bool(manager.any_key_pressed(PLAYER_MOVEMENT_KEYS))
+        except Exception:
+            return False
 
     def hotkey_toggle_player_stats_recording(self):
         self._schedule(0, self._toggle_recording)
@@ -465,6 +504,7 @@ def build_run_control(app: Any) -> RunControl:
         client=lambda: app.client,
         abort_requested=lambda: app._scanner._scan_abort_requested(),
         toggle_scan=lambda: app._scanner.toggle_scan_event(),
+        player_movement=lambda: app._scanner.handle_player_movement(),
         toggle_recording=lambda: vod_capture(app).toggle_recording(),
         # Present, so F9 is registered. `hotkey_toggle_in_game_overlay_edit` is
         # `MegabonkApp`'s step-24 delegator into the in-game overlay component;

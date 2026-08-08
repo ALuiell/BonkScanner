@@ -17,12 +17,12 @@ Status legend:
 
 #### 1. Optional Stop-on-Player-Movement Safety Guard
 
-Status: `[Open]`
+Status: `[Implemented]`
 
 Goal:
 
 - Add an optional safety setting that pauses auto-reroll as soon as the player
-  starts moving after a generated map has been read.
+  presses a movement key after a generated map has been read.
 - Prevent a delayed readiness check, long restart, or timeout-recovery path from
   restarting a run after the user has already accepted the map and started
   playing.
@@ -35,29 +35,33 @@ Expected behavior:
 - Apply the guard only while auto-reroll is actively scanning. Movement before
   scanning starts, during ordinary gameplay, or while the scanner is already
   paused must have no effect.
+- Treat `W`, `A`, `S`, `D`, and `Space` key-down events as player movement.
+  Repeated key-down events from a held key must produce only one pause. A key
+  that is already held when the map becomes ready must also pause the scan.
+- Listen only while the Megabonk window is active, so typing in BonkScanner or
+  another application has no effect.
 - Arm movement detection only after the current map is confirmed ready, so
-  spawn/setup movement cannot cancel a scan before the map has been evaluated.
+  movement input during loading cannot cancel a scan before the map is ready.
 - When movement is detected, clear/pause the active scan instead of destroying
   the scanner worker or disconnecting the game client. The user must be able to
   resume deliberately through the existing scan controls.
-- Emit an explicit log/status reason, for example:
+- Emit an explicit log/status reason:
   `[SAFETY] Player movement detected. Auto-reroll paused.`
-- Persist the checkbox choice across launches.
-
-Open product decision:
-
-- Decide whether the safety guard ships enabled by default. Default-on is the
-  safer behavior, but it should only be chosen after live validation confirms
-  that map spawn, physics, or other non-user movement cannot trigger it.
+- Show `PAUSED — PLAYER MOVEMENT` in the scanner status while this pause is
+  active.
+- Persist the checkbox choice across launches and enable it by default.
+- If the global keyboard hook cannot be registered while the option is enabled,
+  fail closed and do not start auto-reroll without the promised guard.
 
 Validation requirements:
 
 - Normal stationary reroll sessions must continue unchanged.
-- Deliberate movement after map readiness must cancel the pending reroll before
-  another restart action can be sent.
+- Deliberate movement input after map readiness must cancel the pending reroll
+  before another restart action can be sent.
 - Pausing from movement must remain distinguishable in the UI and logs from a
   manual pause, focus loss, connection loss, and `Map took too long` recovery.
-- Resuming after a movement pause must not evaluate stale map identity or stats.
+- Resuming after a movement pause must discard the previous identity/stats cache
+  and read the current map again before evaluation.
 
 #### 2. Signed Shrine Points and Challenge Penalties in Scores Mode
 

@@ -107,6 +107,7 @@ def build_run_control(
     client=None,
     abort_requested=None,
     toggle_scan=None,
+    player_movement=None,
     toggle_recording=None,
     toggle_overlay_edit=None,
     provider=None,
@@ -118,7 +119,7 @@ def build_run_control(
     test that wants the F9 binding has to say so -- the opposite of the guard
     it replaces, which was silently true and would have gone silently false.
     """
-    calls = {"log": [], "scheduled": [], "toggle_scan": 0, "toggle_recording": 0,
+    calls = {"log": [], "scheduled": [], "toggle_scan": 0, "player_movement": 0, "toggle_recording": 0,
              "toggle_overlay_edit": 0}
 
     def record_log(message, tag=None):
@@ -131,6 +132,9 @@ def build_run_control(
     def record_toggle_scan():
         calls["toggle_scan"] += 1
 
+    def record_player_movement():
+        calls["player_movement"] += 1
+
     def record_toggle_recording():
         calls["toggle_recording"] += 1
 
@@ -140,10 +144,14 @@ def build_run_control(
         client=client or (lambda: None),
         abort_requested=abort_requested or (lambda: False),
         toggle_scan=toggle_scan or record_toggle_scan,
+        player_movement=player_movement or record_player_movement,
         toggle_recording=toggle_recording or record_toggle_recording,
         toggle_overlay_edit=toggle_overlay_edit,
     )
     run_control.run_control_provider = provider
+    # The component fixture represents the normal post-startup state. Tests of
+    # hook registration and fail-closed behavior override this explicitly.
+    run_control.player_movement_guard_available = True
     run_control.calls = calls
     return run_control
 
@@ -257,6 +265,7 @@ def build_pair(*, provider=None, **scanner_kwargs):
         client=lambda: coordinator.client,
         abort_requested=lambda: holder["scanner"]._scan_abort_requested(),
         toggle_scan=lambda: holder["scanner"].toggle_scan_event(),
+        player_movement=lambda: holder["scanner"].handle_player_movement(),
         provider=provider,
     )
     scanner = build_scanner(run_control=run_control, coordinator=coordinator, **scanner_kwargs)

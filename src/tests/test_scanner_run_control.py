@@ -249,7 +249,8 @@ class HotkeyRegistrationTests(unittest.TestCase):
                 patch.object(gui_run_control, "ModifierAwareHotkeyManager", Manager), \
                 patch.object(config, "HOTKEY", "f6"), \
                 patch.object(config, "PLAYER_STATS_RECORD_HOTKEY", "f8"), \
-                patch.object(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9"):
+                patch.object(config, "IN_GAME_OVERLAY_EDIT_HOTKEY", "f9"), \
+                patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", False):
             build_run_control(toggle_overlay_edit=None).setup_hotkeys()
             build_run_control(toggle_overlay_edit=lambda: None).setup_hotkeys()
 
@@ -262,6 +263,41 @@ class HotkeyRegistrationTests(unittest.TestCase):
         run_control.hotkey_toggle_in_game_overlay_edit()
 
         self.assertEqual(toggles, ["edit"])
+
+    def test_player_movement_bindings_follow_the_settings_checkbox(self) -> None:
+        registered: list[list[tuple[str, bool]]] = []
+
+        class Manager:
+            def __init__(self, _module, **_kwargs) -> None:
+                pass
+
+            def start(self, bindings) -> None:
+                registered.append([
+                    (binding.hotkey, binding.require_game_window)
+                    for binding in bindings
+                ])
+
+            def stop(self) -> None:
+                pass
+
+        with patch_everywhere("keyboard", FakeKeyboardModule()), \
+                patch.object(gui_run_control, "ModifierAwareHotkeyManager", Manager), \
+                patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
+            build_run_control().setup_hotkeys()
+
+        movement_bindings = registered[0][-5:]
+        self.assertEqual(
+            movement_bindings,
+            [(key, True) for key in ("w", "a", "s", "d", "space")],
+        )
+
+        registered.clear()
+        with patch_everywhere("keyboard", FakeKeyboardModule()), \
+                patch.object(gui_run_control, "ModifierAwareHotkeyManager", Manager), \
+                patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", False):
+            build_run_control().setup_hotkeys()
+
+        self.assertNotIn("w", [hotkey for hotkey, _required in registered[0]])
 
     def test_hotkey_with_held_game_key_requires_matching_foreground_pid(self) -> None:
         fake_keyboard = FakeKeyboardModule()
@@ -446,6 +482,36 @@ class ScanLifecycleTests(unittest.TestCase):
         messages = [message for message, _tag in scanner.calls["log"]]
         self.assertTrue(any("must select at least one template" in str(m) for m in messages))
 
+    def test_enabled_guard_fails_closed_when_keyboard_hook_is_unavailable(self) -> None:
+        scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
+        scanner._run_control.player_movement_guard_available = False
+
+        with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
+            scanner.toggle_main_loop()
+
+        self.assertIsNone(scanner.scanner_thread)
+        self.assertIn(
+            (
+                "[SAFETY] Player-movement guard is unavailable. Auto-reroll was not started.",
+                "error",
+            ),
+            scanner.calls["log"],
+        )
+
+    def test_disabled_guard_does_not_require_keyboard_hook(self) -> None:
+        scanner = build_scanner(selected_template_names=lambda: ["LIGHT"])
+        self._quiet(scanner)
+        scanner._run_control.player_movement_guard_available = False
+
+        with patch.dict(config.user_config, {"SKIP_REROLL_WARNING": True}), \
+                patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", False), \
+                patch.object(config, "SHOW_OBS_REMINDER_ON_START_SCANNER", False), \
+                patch.object(config, "EVALUATION_MODE", "templates"), \
+                patch.object(threading, "Thread", FakeThread):
+            scanner.toggle_main_loop()
+
+        self.assertTrue(scanner.scanner_thread.started)
+
     def test_toggle_main_loop_shows_obs_reminder_once_per_session(self) -> None:
         shown: list[str] = []
 
@@ -522,6 +588,80 @@ class ScanLifecycleTests(unittest.TestCase):
             ("[*] Scan paused. Press the scan hotkey again to resume.", None),
             scanner.calls["log"],
         )
+
+    def test_player_movement_pauses_only_after_the_guard_is_armed(self) -> None:
+        scanner = build_scanner()
+        scanner.scanner_thread = AliveThread()
+        scanner.scan_event.set()
+        scanner.is_ready_to_start = True
+        scanner.is_running = True
+
+        with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
+            scanner.handle_player_movement()
+            self.assertTrue(scanner.scan_event.is_set())
+
+            scanner._player_movement_guard_armed.set()
+            scanner.handle_player_movement()
+
+        self.assertFalse(scanner.is_running)
+        self.assertFalse(scanner.scan_event.is_set())
+        self.assertEqual(scanner.pause_reason, "player_movement")
+        self.assertIn(
+            (
+                "[SAFETY] Player movement detected. Auto-reroll paused.",
+                "warning",
+            ),
+            scanner.calls["log"],
+        )
+
+    def test_disabled_player_movement_checkbox_leaves_scan_running(self) -> None:
+        scanner = build_scanner()
+        scanner.scanner_thread = AliveThread()
+        scanner.scan_event.set()
+        scanner.is_ready_to_start = True
+        scanner.is_running = True
+        scanner._player_movement_guard_armed.set()
+
+        with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", False):
+            scanner.handle_player_movement()
+
+        self.assertTrue(scanner.is_running)
+        self.assertTrue(scanner.scan_event.is_set())
+        self.assertIsNone(scanner.pause_reason)
+
+    def test_player_movement_callback_reaches_scanner_without_ui_delay(self) -> None:
+        scanner, run_control = build_pair()
+        scanner.scanner_thread = AliveThread()
+        scanner.scan_event.set()
+        scanner.is_ready_to_start = True
+        scanner.is_running = True
+        scanner._player_movement_guard_armed.set()
+
+        with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
+            run_control.hotkey_player_movement()
+
+        self.assertFalse(scanner.scan_event.is_set())
+        self.assertEqual(scanner.pause_reason, "player_movement")
+
+    def test_player_movement_pause_blocks_the_pending_restart(self) -> None:
+        restart_calls: list[str] = []
+        scanner, _run_control = build_pair(
+            provider=SimpleNamespace(
+                restart_run=lambda: restart_calls.append("restart"),
+            ),
+        )
+        scanner.scanner_thread = AliveThread()
+        scanner.scan_event.set()
+        scanner.is_ready_to_start = True
+        scanner.is_running = True
+        scanner._player_movement_guard_armed.set()
+
+        with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
+            scanner.handle_player_movement()
+            result = scanner.reroll_map()
+
+        self.assertFalse(result)
+        self.assertEqual(restart_calls, [])
 
     def test_the_scan_hotkey_reaches_the_scanner_through_run_control(self) -> None:
         """The boundary itself: the hotkey is run control's, the state is not.

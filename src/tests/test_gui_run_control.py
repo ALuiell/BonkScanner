@@ -939,6 +939,7 @@ class GuiRunControlTests(unittest.TestCase):
             "PLAYER_STATS_RECORD_HOTKEY": config.PLAYER_STATS_RECORD_HOTKEY,
             "AUTO_START_RECORDING": config.AUTO_START_RECORDING,
             "SHOW_OBS_REMINDER_ON_START_SCANNER": config.SHOW_OBS_REMINDER_ON_START_SCANNER,
+            "STOP_SCANNING_ON_PLAYER_MOVEMENT": config.STOP_SCANNING_ON_PLAYER_MOVEMENT,
             "RESET_HOLD_DURATION": config.RESET_HOLD_DURATION,
             "TOTAL_REROLLS": config.TOTAL_REROLLS,
             "ACTIVE_TEMPLATES": deepcopy(config.ACTIVE_TEMPLATES),
@@ -995,6 +996,7 @@ class GuiRunControlTests(unittest.TestCase):
             record_hotkey_entry=FakeEntry("f8"),
             auto_start_recording_var=FakeCheckbox(True),
             show_obs_reminder_on_start_scanner_var=FakeCheckbox(True),
+            stop_scanning_on_player_movement_var=FakeCheckbox(False),
             reset_hold_duration_entry=FakeEntry(str(self.SAVED_HOLD_DURATION)),
             _initial_reset_hold_duration=self.PREVIOUS_HOLD_DURATION,
             record_interval_entry=FakeEntry("60"),
@@ -1012,9 +1014,11 @@ class GuiRunControlTests(unittest.TestCase):
 
         self.assertTrue(config.AUTO_START_RECORDING)
         self.assertTrue(config.SHOW_OBS_REMINDER_ON_START_SCANNER)
+        self.assertFalse(config.STOP_SCANNING_ON_PLAYER_MOVEMENT)
         self.assertFalse(vod_capture(master).player_stats_auto_recording_suppressed)
         self.assertTrue(config.user_config["AUTO_START_RECORDING"])
         self.assertTrue(config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"])
+        self.assertFalse(config.user_config["STOP_SCANNING_ON_PLAYER_MOVEMENT"])
         # The OBS tab shows this same flag; a save that does not reach it leaves
         # a checkbox that will write the old value back.
         self.assertIn("refresh_scanner_reminder_ui", master.events)

@@ -107,6 +107,9 @@ class Scanner:
         self.scanner_thread: threading.Thread | None = None
         self.is_running = False
         self.is_ready_to_start = False
+        self.pause_reason: str | None = None
+        self._player_movement_guard_armed = threading.Event()
+        self._restart_lock = threading.Lock()
         self.obs_recording_reminder_shown = False
 
         # Session counters, read by the tab below and by `SessionStats`.
@@ -189,6 +192,27 @@ class Scanner:
     def _scan_abort_requested(self) -> bool:
         return self.stop_event.is_set() or not self.scan_event.is_set()
 
+    def handle_player_movement(self) -> None:
+        """Pause an armed scan after W/A/S/D/Space in the active game window."""
+        if not getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
+            return
+
+        with self._restart_lock:
+            if (
+                not self._player_movement_guard_armed.is_set()
+                or not self.is_running
+                or not self.scan_event.is_set()
+                or not self.is_scanning()
+            ):
+                return
+            self._player_movement_guard_armed.clear()
+            self.is_running = False
+            self.pause_reason = "player_movement"
+            self.scan_event.clear()
+
+        self.log("[SAFETY] Player movement detected. Auto-reroll paused.", tag="warning")
+        self._schedule(0, self.update_status_ui)
+
     def shutdown(self) -> None:
         """The scanner's two steps of `MegabonkApp.on_closing`.
 
@@ -267,6 +291,10 @@ class Scanner:
         if self.is_scanning():
             if self.is_running:
                 status_text = "RUNNING"
+            elif self.pause_reason == "player_movement":
+                status_text = "PAUSED — PLAYER MOVEMENT"
+            elif self.pause_reason == "manual":
+                status_text = "PAUSED"
             elif self.is_ready_to_start:
                 status_text = "ARMED"
             else:
@@ -332,10 +360,14 @@ class Scanner:
 
         if self.is_running:
             self.is_running = False
+            self.pause_reason = "manual"
+            self._player_movement_guard_armed.clear()
             self.scan_event.clear()
             self.log("[*] Scan paused. Press the scan hotkey again to resume.")
         else:
             self.is_running = True
+            self.pause_reason = None
+            self._player_movement_guard_armed.clear()
             self.scan_event.set()
             self.log("[*] Scan started. Looking for selected target...")
         self.update_status_ui()
@@ -355,6 +387,16 @@ class Scanner:
 
     def toggle_main_loop(self):
         if not self.is_scanning():
+            if (
+                getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True)
+                and not self._run_control.player_movement_guard_available
+            ):
+                self.log(
+                    "[SAFETY] Player-movement guard is unavailable. Auto-reroll was not started.",
+                    tag="error",
+                )
+                self.update_status_ui()
+                return
             if not config.user_config.get("SKIP_REROLL_WARNING", False):
                 dialog = self._reroll_warning_dialog()
                 dialog.exec()
@@ -410,6 +452,8 @@ class Scanner:
 
             self.is_running = False
             self.is_ready_to_start = False
+            self.pause_reason = None
+            self._player_movement_guard_armed.clear()
             self.scan_event.clear()
             self.stop_event.clear()
             self.scanner_thread = threading.Thread(target=self.background_loop, daemon=True)
@@ -422,6 +466,8 @@ class Scanner:
             self.shutdown()
             self.is_running = False
             self.is_ready_to_start = False
+            self.pause_reason = None
+            self._player_movement_guard_armed.clear()
             self.log("\n[*] Stopping auto-reroll monitor...")
             self._schedule(500, self.update_status_ui)
 
@@ -536,14 +582,17 @@ class Scanner:
         if self._run_control.run_control_provider is None:
             self.log("[-] Run control provider is not available; cannot restart run.", tag="error")
             return False
-        if self._scan_abort_requested():
-            return False
 
-        try:
-            self._run_control.run_control_provider.restart_run()
-        except RunControlError as exc:
-            self.log(f"[-] {exc}", tag="error")
-            return False
+        with self._restart_lock:
+            if self._scan_abort_requested():
+                return False
+
+            try:
+                self._run_control.run_control_provider.restart_run()
+            except RunControlError as exc:
+                self.log(f"[-] {exc}", tag="error")
+                return False
+            self._player_movement_guard_armed.clear()
 
         self.log_reroll_stats()
         return True
@@ -607,6 +656,7 @@ class Scanner:
             was_waiting = not self.scan_event.is_set()
             self.scan_event.wait()
             if was_waiting:
+                self._player_movement_guard_armed.clear()
                 is_first_scan = True
                 last_state = None
                 last_stats = None
@@ -640,6 +690,12 @@ class Scanner:
                 except InterruptedError:
                     continue
 
+                if getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
+                    self._player_movement_guard_armed.set()
+                    if self._run_control.is_player_movement_pressed():
+                        self.handle_player_movement()
+                    if self._scan_abort_requested():
+                        continue
                 is_first_scan = False
                 last_state = self.client.get_map_generation_state()
                 last_stats = raw_stats
@@ -651,6 +707,9 @@ class Scanner:
                 self.check_best_map(stats)
                 self.check_worst_map(stats)
                 candidate = evaluate_candidate(stats, self.active_templates, context=eval_context)
+
+                if self._scan_abort_requested():
+                    continue
 
                 if candidate is not None:
                     if not self._run_control.wait_for_game_window_focus(process_name):
@@ -671,6 +730,8 @@ class Scanner:
                         continue
 
                     self.is_running = False
+                    self.pause_reason = None
+                    self._player_movement_guard_armed.clear()
                     self.scan_event.clear()
                     self._schedule(0, self.update_status_ui)
                     continue
@@ -698,6 +759,8 @@ class Scanner:
             except (ProcessNotFoundError, ModuleNotFoundError, MemoryReadError) as exc:
                 self.is_running = False
                 self.is_ready_to_start = False
+                self.pause_reason = None
+                self._player_movement_guard_armed.clear()
                 self.scan_event.clear()
                 self.close_client()
                 self.log(f"[-] Lost connection to the game. Details: {exc}", tag="error")
@@ -714,6 +777,8 @@ class Scanner:
         self._flush_total_rerolls(force=True)
         self.is_running = False
         self.is_ready_to_start = False
+        self.pause_reason = None
+        self._player_movement_guard_armed.clear()
         self.scan_event.clear()
         self._schedule(0, self.update_status_ui)
 

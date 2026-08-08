@@ -10,6 +10,7 @@ from typing import Callable, Iterable
 class HotkeyBinding:
     hotkey: str
     callback: Callable[[], None]
+    require_game_window: bool = False
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class _HotkeyVariant:
 class _ParsedBinding:
     callback: Callable[[], None]
     variants: tuple[_HotkeyVariant, ...]
+    require_game_window: bool
 
 
 class ModifierAwareHotkeyManager:
@@ -53,7 +55,13 @@ class ModifierAwareHotkeyManager:
             if len(steps) != 1:
                 fallback_bindings.append(binding)
                 continue
-            parsed_bindings.append(self._parse_single_step_binding(steps[0], binding.callback))
+            parsed_bindings.append(
+                self._parse_single_step_binding(
+                    steps[0],
+                    binding.callback,
+                    require_game_window=binding.require_game_window,
+                )
+            )
 
         with self._lock:
             self._bindings = tuple(parsed_bindings)
@@ -94,6 +102,11 @@ class ModifierAwareHotkeyManager:
         with self._lock:
             self._pressed_scan_codes.clear()
 
+    def any_key_pressed(self, key_names: Iterable[str]) -> bool:
+        scan_codes = self._scan_codes_for_names(key_names)
+        with self._lock:
+            return bool(self._pressed_scan_codes.intersection(scan_codes))
+
     def _scan_codes_for_names(self, key_names: Iterable[str]) -> frozenset[int]:
         scan_codes: set[int] = set()
         for key_name in key_names:
@@ -106,6 +119,8 @@ class ModifierAwareHotkeyManager:
     def _parse_single_step_binding(
         step: tuple[tuple[int, ...], ...],
         callback: Callable[[], None],
+        *,
+        require_game_window: bool = False,
     ) -> _ParsedBinding:
         if not step:
             raise ValueError("Hotkey must contain at least one key.")
@@ -114,7 +129,11 @@ class ModifierAwareHotkeyManager:
             _HotkeyVariant(frozenset(combination), combination[-1])
             for combination in itertools.product(*step)
         }
-        return _ParsedBinding(callback=callback, variants=tuple(variants))
+        return _ParsedBinding(
+            callback=callback,
+            variants=tuple(variants),
+            require_game_window=bool(require_game_window),
+        )
 
     def _on_keyboard_event(self, event: object) -> None:
         scan_code = int(event.scan_code)
@@ -140,7 +159,12 @@ class ModifierAwareHotkeyManager:
                         continue
                     extra_scan_codes = pressed_scan_codes - variant.required_scan_codes
                     if not extra_scan_codes:
-                        candidates.append((binding.callback, False))
+                        candidates.append(
+                            (binding.callback, binding.require_game_window)
+                        )
+                        break
+                    if binding.require_game_window:
+                        candidates.append((binding.callback, True))
                         break
                     if extra_scan_codes.issubset(self.allowed_game_scan_codes):
                         candidates.append((binding.callback, True))

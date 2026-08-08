@@ -18,6 +18,15 @@ class SettingsResetHoldInputTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls._app = QApplication.instance() or QApplication([])
 
+    def test_player_movement_guard_checkbox_reflects_config(self) -> None:
+        with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", False):
+            dialog = SettingsDialog(None, master=MagicMock())
+        self.addCleanup(dialog.close)
+
+        checkbox = dialog.stop_scanning_on_player_movement_var
+        self.assertEqual(checkbox.text(), "Stop scanning when player moves")
+        self.assertFalse(checkbox.isChecked())
+
     def test_a_value_below_the_minimum_clamps_instead_of_restoring_the_old_value(
         self,
     ) -> None:

@@ -1230,6 +1230,18 @@ class SettingsDialog(QDialog):
             )
         )
 
+        layout.addWidget(_settings_group_label("Auto-Reroll"))
+        self.stop_scanning_on_player_movement_var = QCheckBox(
+            "Stop scanning when player moves"
+        )
+        self.stop_scanning_on_player_movement_var.setChecked(
+            bool(getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True))
+        )
+        self.stop_scanning_on_player_movement_var.setToolTip(
+            "After a map is ready, pressing W, A, S, D or Space pauses Auto-Reroll."
+        )
+        layout.addWidget(self.stop_scanning_on_player_movement_var)
+
         layout.addWidget(_settings_group_label("On start"))
         self.auto_start_recording_var = QCheckBox("Auto-start recording")
         self.auto_start_recording_var.setChecked(bool(getattr(config, "AUTO_START_RECORDING", False)))
@@ -1344,6 +1356,14 @@ class SettingsDialog(QDialog):
         show_obs_reminder_on_start_scanner = _read_bool(
             getattr(self, "show_obs_reminder_on_start_scanner_var", None)
         )
+        movement_checkbox = getattr(
+            self, "stop_scanning_on_player_movement_var", None
+        )
+        stop_scanning_on_player_movement = (
+            bool(getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True))
+            if movement_checkbox is None
+            else _read_bool(movement_checkbox)
+        )
 
         def _read_numeric(entry) -> float:
             if entry is None:
@@ -1398,6 +1418,9 @@ class SettingsDialog(QDialog):
         config.user_config["IN_GAME_OVERLAY_EDIT_HOTKEY"] = new_overlay_edit_hotkey
         config.user_config["AUTO_START_RECORDING"] = auto_start_recording
         config.user_config["SHOW_OBS_REMINDER_ON_START_SCANNER"] = show_obs_reminder_on_start_scanner
+        config.user_config["STOP_SCANNING_ON_PLAYER_MOVEMENT"] = (
+            stop_scanning_on_player_movement
+        )
         config.user_config["RESET_HOLD_DURATION"] = new_duration
 
         config.HOTKEY = new_hotkey
@@ -1406,6 +1429,7 @@ class SettingsDialog(QDialog):
         config.IN_GAME_OVERLAY_EDIT_HOTKEY = new_overlay_edit_hotkey
         config.AUTO_START_RECORDING = auto_start_recording
         config.SHOW_OBS_REMINDER_ON_START_SCANNER = show_obs_reminder_on_start_scanner
+        config.STOP_SCANNING_ON_PLAYER_MOVEMENT = stop_scanning_on_player_movement
         config.RESET_HOLD_DURATION = new_duration
         self._initial_reset_hold_duration = new_duration
         if auto_start_recording:
