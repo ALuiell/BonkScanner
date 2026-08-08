@@ -137,7 +137,7 @@ Example target:
 
 #### 3. Scores Explanation and Configuration UI Revision
 
-Status: `[Open]`
+Status: `[Partial]`
 
 Goal:
 
