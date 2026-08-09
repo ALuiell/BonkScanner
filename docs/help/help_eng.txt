@@ -46,7 +46,7 @@ Reroll and Restart
 - Standard keyboard restart is still the default and simplest option.
 - If rerolls feel unstable, first try increasing `Reset Hold Duration (s)` a little.
 - BonkScanner waits for a safe map-ready and memory-read state, so short pauses between restart and evaluation are normal.
-- `Stop scanning when player moves` in Settings pauses Auto-Reroll when W, A, S, D, or Space is pressed after a map is ready. It only reacts while Megabonk is the active window.
+- `Stop scanning when player moves` in Settings pauses Auto-Reroll immediately when W, A, S, D, or Space is pressed. It only reacts while Auto-Reroll is active and Megabonk is the active window.
 
 Live Stats
 ----------

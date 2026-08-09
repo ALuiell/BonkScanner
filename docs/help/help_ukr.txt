@@ -46,7 +46,7 @@ BonkScanner - Коротка довідка
 - Звичайний keyboard restart залишається базовим і найпростішим варіантом.
 - Якщо рерол інколи працює нестабільно, спочатку трохи збільште `Reset Hold Duration (s)`.
 - BonkScanner чекає безпечного стану карти та читання пам'яті, тому короткі паузи між рестартом і перевіркою - це нормально.
-- `Stop scanning when player moves` у Settings ставить Auto-Reroll на паузу після натискання W, A, S, D або Space, коли карта вже готова. Захист реагує лише поки вікно Megabonk активне.
+- `Stop scanning when player moves` у Settings негайно ставить Auto-Reroll на паузу після натискання W, A, S, D або Space. Захист реагує лише поки Auto-Reroll активний і вікно Megabonk активне.
 
 Live Stats
 ----------

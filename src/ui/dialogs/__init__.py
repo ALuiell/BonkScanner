@@ -1479,7 +1479,7 @@ class SettingsDialog(QDialog):
             bool(getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True))
         )
         self.stop_scanning_on_player_movement_var.setToolTip(
-            "After a map is ready, pressing W, A, S, D or Space pauses Auto-Reroll."
+            "While Auto-Reroll is active, pressing W, A, S, D or Space pauses it immediately."
         )
         layout.addWidget(self.stop_scanning_on_player_movement_var)
 
