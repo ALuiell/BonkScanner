@@ -458,7 +458,7 @@ class PlayerStatsClient:
 
     def get_passive_items(self, owner_stats: int | None = None) -> tuple[str, ...]:
         owner_stats = owner_stats or self._resolve_owner_stats()
-        primary_error: InvalidItemStackCountError | None = None
+        primary_error: MemoryReadError | InvalidItemStackCountError | None = None
         try:
             inventory_container = self.memory.read_ptr(owner_stats + self.INVENTORY_CONTAINER_OFFSET)
             passive_item_dict = (
@@ -470,10 +470,8 @@ class PlayerStatsClient:
                 items = self._read_passive_item_dictionary(passive_item_dict)
                 if items:
                     return items
-        except InvalidItemStackCountError as exc:
+        except (MemoryReadError, InvalidItemStackCountError) as exc:
             primary_error = exc
-        except MemoryReadError:
-            pass
 
         try:
             player_inventory = self.memory.read_ptr(owner_stats + self.PLAYER_INVENTORY_OFFSET)
@@ -496,7 +494,14 @@ class PlayerStatsClient:
                 raise primary_error
             return ()
 
-        return self._read_passive_item_dictionary(passive_item_dict)
+        items = self._read_passive_item_dictionary(passive_item_dict)
+        if items or primary_error is None:
+            return items
+        # One route failed while the other merely looked empty. That disagreement
+        # is not evidence of an empty inventory: publishing it would lower the
+        # item-delta baseline and credit the same items again when the failed
+        # route recovers.
+        raise primary_error
 
     def get_passive_item_count(
         self,
@@ -779,10 +784,16 @@ class PlayerStatsClient:
         # `_get_cached_key_count`; nothing new is trusted here.
         cached_layout = self._passive_item_layout(passive_item_dict, entries, count)
         if cached_layout is not None:
-            return tuple(
-                f"{item_name} x{max(1, self._layout_stack_count(stack_address))}"
-                for stack_address, item_name, _cooldown in cached_layout
-            )
+            try:
+                return tuple(
+                    f"{item_name} x{max(1, self._layout_stack_count(stack_address))}"
+                    for stack_address, item_name, _cooldown in cached_layout
+                )
+            except (MemoryReadError, InvalidItemStackCountError):
+                # A cached address that cannot be read is no longer a trustworthy
+                # description of this dictionary. Rebuild it on the next pass.
+                self._clear_passive_item_layout()
+                raise
 
         layout: list[tuple[int, str, _CooldownSlot | None]] = []
         items: list[str] = []
@@ -829,12 +840,12 @@ class PlayerStatsClient:
                     broken_entries += 1
                     continue
 
-                try:
-                    stack_count = self._read_stable_item_stack_count(
-                        item_value + self.ITEM_STACK_COUNT_OFFSET
-                    )
-                except MemoryReadError:
-                    stack_count = 1
+                stack_count = self._read_stable_item_stack_count(
+                    item_value + self.ITEM_STACK_COUNT_OFFSET
+                )
+            except InvalidItemStackCountError:
+                self._clear_passive_item_layout()
+                raise
             except MemoryReadError:
                 broken_entries += 1
                 continue
@@ -846,17 +857,18 @@ class PlayerStatsClient:
             layout.append((item_value + self.ITEM_STACK_COUNT_OFFSET, item_name, cooldown_slot))
             items.append(f"{item_name} x{max(1, stack_count)}")
 
-        if count > 0 and not items and broken_entries:
-            raise MemoryReadError("Passive item dictionary entries could not be decoded.")
-
-        # Only a clean walk is memoised. A pass that skipped a torn entry saw an
-        # incomplete inventory, and caching that would keep the item invisible
-        # until the *next* Add/Remove instead of until the next read.
-        if not broken_entries:
-            self._store_passive_item_layout(passive_item_dict, entries, count, tuple(layout))
-        else:
+        if broken_entries:
+            # A non-empty subset is still incomplete. Publishing it as an
+            # available inventory lets two bad samples confirm a false loss; the
+            # item's return is then counted as a new pickup. Fail the whole pass
+            # so both fast and slow consumers preserve their confirmed baseline.
             self._clear_passive_item_layout()
+            raise MemoryReadError(
+                "Passive item dictionary walk was incomplete: "
+                f"{broken_entries} of {count} entries could not be decoded."
+            )
 
+        self._store_passive_item_layout(passive_item_dict, entries, count, tuple(layout))
         return tuple(items)
 
     def _resolve_cooldown_slot(
@@ -1035,18 +1047,8 @@ class PlayerStatsClient:
         self._cached_item_layout = None
 
     def _layout_stack_count(self, stack_address: int) -> int:
-        """One entry's stack count on the cached path.
-
-        ``MemoryReadError -> 1`` mirrors the full walk exactly: a transiently
-        unreadable stack reads as a *drop*, which the item-delta ladders already
-        absorb. ``InvalidItemStackCountError`` is deliberately not caught in
-        either path -- a torn read must reach the caller, not be smoothed into a
-        plausible-looking count.
-        """
-        try:
-            return self._read_stable_item_stack_count(stack_address)
-        except MemoryReadError:
-            return 1
+        """One entry's stack count on the cached path, or a failed whole pass."""
+        return self._read_stable_item_stack_count(stack_address)
 
     def get_live_weapons(self, owner_stats: int | None = None) -> tuple[WeaponSnapshot, ...]:
         owner_stats = owner_stats or self._resolve_owner_stats()
