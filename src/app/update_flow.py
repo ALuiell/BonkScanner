@@ -50,6 +50,19 @@ def check_and_update(
     try:
         release = updater.fetch_latest_release()
 
+        latest_is_newer = parse_version(release.version) > parse_version(CURRENT_VERSION)
+
+        # A skipped-version preference can outlive the update itself.  In that
+        # case it must not turn an equal (or older) release back into an
+        # "available" update in the footer.
+        if not latest_is_newer:
+            if report is not None:
+                report("current", CURRENT_VERSION)
+            if force_check and log is not None:
+                log(f"[*] You already have the latest version (v{CURRENT_VERSION}).", tag="success")
+            print("You have the latest version installed.")
+            return
+
         if not force_check and config.SKIPPED_UPDATE_VERSION == release.version:
             # Reported, not swallowed. Skipping a version silences the *modal*;
             # it was never meant to mean "and never mention it again", and with
@@ -61,25 +74,18 @@ def check_and_update(
             print(f"Update to {release.version} was skipped by user.")
             return
 
-        if parse_version(release.version) > parse_version(CURRENT_VERSION):
-            if report is not None:
-                report("available", release.version)
-            if release.exe_download_url:
-                def prompt_user() -> None:
-                    _prompt_and_apply(exe_path, release, confirm, log)
+        if report is not None:
+            report("available", release.version)
+        if release.exe_download_url:
+            def prompt_user() -> None:
+                _prompt_and_apply(exe_path, release, confirm, log)
 
-                if schedule is not None:
-                    schedule(prompt_user)
-                else:
-                    prompt_user()
+            if schedule is not None:
+                schedule(prompt_user)
             else:
-                print("Error: No .exe file found in the GitHub release.")
+                prompt_user()
         else:
-            if report is not None:
-                report("current", CURRENT_VERSION)
-            if force_check and log is not None:
-                log(f"[*] You already have the latest version (v{CURRENT_VERSION}).", tag="success")
-            print("You have the latest version installed.")
+            print("Error: No .exe file found in the GitHub release.")
     except Exception as e:
         # Back to "not checked yet" rather than leaving the caller on whatever
         # it showed while waiting. A failed request is not an answer, and a
