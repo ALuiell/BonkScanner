@@ -14,7 +14,9 @@ class MainEntrypointTests(unittest.TestCase):
     def test_main_prints_error_when_keyboard_is_missing(self) -> None:
         stdout = io.StringIO()
 
-        with patch.object(main, "keyboard", None):
+        with patch.object(main, "install_crash_journal"), patch.object(
+            main, "mark_clean_exit"
+        ), patch.object(main, "keyboard", None):
             with redirect_stdout(stdout):
                 main.main()
 
@@ -35,7 +37,11 @@ class MainEntrypointTests(unittest.TestCase):
             def mainloop(self) -> None:
                 events.append("mainloop")
 
-        with patch.object(main, "keyboard", object()):
+        with patch.object(main, "install_crash_journal"), patch.object(
+            main, "mark_clean_exit"
+        ), patch.object(main, "log_runtime_event"), patch.object(
+            main, "keyboard", object()
+        ):
             with patch.object(main, "MegabonkApp", return_value=FakeApp()):
                 main.main()
 

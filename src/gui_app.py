@@ -25,6 +25,7 @@ from ui.dialogs.update_prompt import start_supporters_load, start_update_check
 from app.refresh_tasks import PLAYER_STATS_REFRESH_MS
 from ui.styles import build_qt_app_stylesheet
 from app.vod_library import VodLibrary
+from infra.crash_journal import log_runtime_event
 from session_stats import SessionStats
 
 
@@ -66,6 +67,7 @@ class MegabonkApp:
         self._close_protocol_handler = None
         self._is_shutting_down = False
         self._close_in_progress = False
+        self._background_threads = set()
 
         self.setWindowTitle(f"BonkScanner v{CURRENT_VERSION}")
         self.resize(1320, 830)
@@ -812,6 +814,7 @@ class MegabonkApp:
         if getattr(self, "_is_shutting_down", False):
             return
         self._is_shutting_down = True
+        log_runtime_event("application.shutdown.begin")
         # `self._cancel_right_tab_transition()` stood here and is deleted
         # rather than moved. It was one of two methods on `GuiLayoutMixin`
         # whose entire body was `return None`, and it had been that since it
@@ -838,6 +841,7 @@ class MegabonkApp:
         self.close_overlay_server()
         self.stop_in_game_overlay()
         self.stop_twitch_bot()
+        self._wait_for_background_threads()
         player_stats_vod_recorder = self.__dict__.get("player_stats_vod_recorder")
         if player_stats_vod_recorder is not None:
             if player_stats_vod_recorder.is_recording:
@@ -845,7 +849,34 @@ class MegabonkApp:
             else:
                 player_stats_vod_recorder.close()
         self._run_control.stop_hotkeys()
+        log_runtime_event("application.shutdown.resources_stopped")
         self.destroy()
+
+    def _wait_for_background_threads(self) -> None:
+        for thread in list(getattr(self, "_background_threads", ())):
+            is_alive = getattr(thread, "is_alive", None)
+            join = getattr(thread, "join", None)
+            if not callable(is_alive) or not callable(join) or not is_alive():
+                continue
+            name = getattr(thread, "name", type(thread).__name__)
+            join(timeout=12.0)
+            running = bool(is_alive())
+            log_runtime_event(
+                "application.background_thread.wait",
+                worker=name,
+                running=running,
+            )
+            if running:
+                log_runtime_event(
+                    "application.background_thread.wait_extended",
+                    worker=name,
+                )
+                join()
+                log_runtime_event(
+                    "application.background_thread.wait_extended_complete",
+                    worker=name,
+                    running=bool(is_alive()),
+                )
 
     # Scheduled 1.5s into `__init__`. It hands *the application* to the update
     # flow, which reaches back for `log`, the window and the settings it

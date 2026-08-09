@@ -31,9 +31,11 @@ nor the in-game overlay participates in this path.
 
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
 from app import config
+from infra.crash_journal import log_runtime_event
 from infra.twitch_credentials import (
     delete_twitch_oauth_token,
     get_twitch_oauth_token,
@@ -86,6 +88,7 @@ class TwitchSession:
         self._validation_worker = None
         self._revoke_worker = None
         self._start_bot_after_validation = False
+        self._shutting_down = False
 
         self._validation_timer = timer_factory()
         self._validation_timer.setInterval(_VALIDATION_INTERVAL_MS)
@@ -164,13 +167,18 @@ class TwitchSession:
     # -- auth -------------------------------------------------------------
 
     def start_auth(self) -> None:
+        if self._shutting_down:
+            return
         self._view.show_authorizing()
         self._auth_thread = self._auth_thread_factory()
+        self._name_worker(self._auth_thread, "TwitchAuthThread")
         self._auth_thread.auth_success.connect(self.on_auth_success)
         self._auth_thread.auth_error.connect(self.on_auth_error)
         self._auth_thread.start()
 
     def on_auth_success(self, username, token) -> None:
+        if self._shutting_down:
+            return
         try:
             set_twitch_oauth_token(token)
         except Exception as exc:
@@ -187,6 +195,8 @@ class TwitchSession:
         )
 
     def on_auth_error(self, err) -> None:
+        if self._shutting_down:
+            return
         self._view.show_auth_failed()
         self._log(f"Twitch auth error: {err}", tag="error")
 
@@ -213,6 +223,8 @@ class TwitchSession:
         return self._bot_worker is not None and self._bot_worker.isRunning()
 
     def start_bot(self) -> None:
+        if self._shutting_down:
+            return
         if not get_twitch_oauth_token():
             self._log("Cannot start Twitch Bot: Not connected.", tag="error")
             return
@@ -227,6 +239,8 @@ class TwitchSession:
         self._log("Cannot start Twitch Bot: Stored Twitch token is invalid.", tag="error")
 
     def _start_bot_worker(self) -> None:
+        if self._shutting_down:
+            return
         if self._bot_worker and self._bot_worker.isRunning():
             return
 
@@ -236,6 +250,7 @@ class TwitchSession:
             self._tracker(),
             self._session_snapshot,
         )
+        self._name_worker(self._bot_worker, "TwitchBotWorker")
         self._bot_worker.status_updated.connect(self.on_bot_status)
         self._bot_worker.log_message.connect(self.on_bot_log)
         self._bot_worker.finished.connect(self.on_bot_finished)
@@ -244,20 +259,44 @@ class TwitchSession:
     def stop_bot(self) -> None:
         self._stop_bot(wait_ms=2_000)
 
-    def _stop_bot(self, *, wait_ms: int) -> None:
+    def _stop_bot(self, *, wait_ms: int, ensure_finished: bool = False) -> None:
         worker = self._bot_worker
         if worker:
+            log_runtime_event(
+                "twitch.worker.stop_requested",
+                worker=self._worker_name(worker),
+            )
             worker.stop()
-            worker.wait(wait_ms)
+            self._wait_for_worker(
+                worker,
+                wait_ms,
+                ensure_finished=ensure_finished,
+            )
 
     def shutdown(self) -> None:
         """Stop every Twitch-owned timer and worker before the Qt app exits."""
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        log_runtime_event("twitch.shutdown.begin")
         self._start_bot_after_validation = False
         self._validation_timer.stop()
-        self._stop_bot(wait_ms=_BOT_SHUTDOWN_WAIT_MS)
+        self._stop_bot(
+            wait_ms=_BOT_SHUTDOWN_WAIT_MS,
+            ensure_finished=True,
+        )
         self._stop_auth_thread()
-        self._wait_for_worker(self._validation_worker, _REQUEST_SHUTDOWN_WAIT_MS)
-        self._wait_for_worker(self._revoke_worker, _REQUEST_SHUTDOWN_WAIT_MS)
+        self._wait_for_worker(
+            self._validation_worker,
+            _REQUEST_SHUTDOWN_WAIT_MS,
+            ensure_finished=True,
+        )
+        self._wait_for_worker(
+            self._revoke_worker,
+            _REQUEST_SHUTDOWN_WAIT_MS,
+            ensure_finished=True,
+        )
+        log_runtime_event("twitch.shutdown.complete")
 
     def _stop_auth_thread(self) -> None:
         worker = self._auth_thread
@@ -266,23 +305,87 @@ class TwitchSession:
         shutdown_server = getattr(worker, "_shutdown_server", None)
         if callable(shutdown_server):
             shutdown_server()
-        self._wait_for_worker(worker, _AUTH_SHUTDOWN_WAIT_MS)
+        self._wait_for_worker(
+            worker,
+            _AUTH_SHUTDOWN_WAIT_MS,
+            ensure_finished=True,
+        )
 
     @staticmethod
-    def _wait_for_worker(worker, wait_ms: int) -> None:
+    def _worker_name(worker) -> str:
+        object_name = getattr(worker, "objectName", None)
+        if callable(object_name):
+            try:
+                name = object_name()
+            except Exception:
+                name = ""
+            if name:
+                return str(name)
+        return type(worker).__name__
+
+    @staticmethod
+    def _name_worker(worker, name: str) -> None:
+        set_name = getattr(worker, "setObjectName", None)
+        if callable(set_name):
+            set_name(name)
+
+    @classmethod
+    def _wait_for_worker(
+        cls,
+        worker,
+        wait_ms: int,
+        *,
+        ensure_finished: bool = False,
+    ) -> bool:
         if worker is None:
-            return
+            return True
         wait = getattr(worker, "wait", None)
-        if callable(wait):
-            wait(wait_ms)
+        if not callable(wait):
+            return True
+
+        name = cls._worker_name(worker)
+        started_at = time.monotonic()
+        timed_result = wait(wait_ms)
+        is_running = getattr(worker, "isRunning", None)
+        running_after = bool(is_running()) if callable(is_running) else False
+        log_runtime_event(
+            "twitch.worker.wait",
+            worker=name,
+            timeout_ms=wait_ms,
+            result=timed_result,
+            running=running_after,
+            elapsed_ms=round((time.monotonic() - started_at) * 1000),
+        )
+
+        if ensure_finished and (timed_result is False or running_after):
+            # A timed-out QThread must not remain parented to the window when it
+            # is destroyed. The HTTP workers have their own request timeouts;
+            # this second wait is the hard lifecycle barrier after the soft UI
+            # budget has expired.
+            log_runtime_event("twitch.worker.wait_extended", worker=name)
+            wait()
+            running_after = bool(is_running()) if callable(is_running) else False
+            log_runtime_event(
+                "twitch.worker.wait_extended_complete",
+                worker=name,
+                running=running_after,
+                elapsed_ms=round((time.monotonic() - started_at) * 1000),
+            )
+        return not running_after
 
     def on_bot_status(self, status) -> None:
+        if self._shutting_down:
+            return
         self._view.show_bot_status(status)
 
     def on_bot_log(self, msg) -> None:
+        if self._shutting_down:
+            return
         self._log(f"[Twitch] {msg}")
 
     def on_bot_finished(self) -> None:
+        if self._shutting_down:
+            return
         self._view.show_bot_stopped()
         if "error" not in self._view.bot_status_text().lower():
             self._view.show_bot_status("Stopped")
@@ -330,6 +433,8 @@ class TwitchSession:
         fallback_username: str = "",
         context: str = "periodic",
     ) -> bool:
+        if self._shutting_down:
+            return False
         token = get_twitch_oauth_token()
         if not token:
             self._validation_timer.stop()
@@ -349,15 +454,21 @@ class TwitchSession:
             start_bot_on_success=start_bot_on_success,
             fallback_username=fallback_username,
         )
+        self._name_worker(worker, "TwitchTokenValidationWorker")
         worker.validation_finished.connect(self._on_validation_finished)
-        worker.finished.connect(self._on_validation_worker_finished)
+        worker.finished.connect(
+            lambda finished_worker=worker: self._on_validation_worker_finished(
+                finished_worker
+            )
+        )
         worker.finished.connect(worker.deleteLater)
         self._validation_worker = worker
         worker.start()
         return True
 
-    def _on_validation_worker_finished(self) -> None:
-        self._validation_worker = None
+    def _on_validation_worker_finished(self, worker=None) -> None:
+        if worker is None or self._validation_worker is worker:
+            self._validation_worker = None
 
     def _on_validation_finished(
         self,
@@ -368,6 +479,8 @@ class TwitchSession:
         fallback_username: str,
         context: str,
     ) -> None:
+        if self._shutting_down:
+            return
         current_token = get_twitch_oauth_token()
         if current_token != token:
             self._start_bot_after_validation = False
@@ -416,12 +529,19 @@ class TwitchSession:
     # -- token revocation -------------------------------------------------
 
     def _start_token_revoke(self, token: str) -> None:
+        if self._shutting_down:
+            return
         worker = self._revoke_worker
         if worker is not None and worker.isRunning():
             return
         worker = self._revoke_worker_factory(token)
+        self._name_worker(worker, "TwitchTokenRevokeWorker")
         worker.revoke_finished.connect(self._on_revoke_finished)
-        worker.finished.connect(self._on_revoke_worker_finished)
+        worker.finished.connect(
+            lambda finished_worker=worker: self._on_revoke_worker_finished(
+                finished_worker
+            )
+        )
         worker.finished.connect(worker.deleteLater)
         self._revoke_worker = worker
         worker.start()
@@ -430,8 +550,9 @@ class TwitchSession:
         if not revoked and message:
             self._log(f"Twitch token revoke warning: {message}", tag="warning")
 
-    def _on_revoke_worker_finished(self) -> None:
-        self._revoke_worker = None
+    def _on_revoke_worker_finished(self, worker=None) -> None:
+        if worker is None or self._revoke_worker is worker:
+            self._revoke_worker = None
 
     def _clear_session_state(self) -> None:
         self._validation_timer.stop()
