@@ -109,7 +109,6 @@ class Scanner:
         self.is_running = False
         self.is_ready_to_start = False
         self.pause_reason: str | None = None
-        self._player_movement_guard_armed = threading.Event()
         self._restart_lock = threading.Lock()
         self.obs_recording_reminder_shown = False
 
@@ -194,19 +193,24 @@ class Scanner:
         return self.stop_event.is_set() or not self.scan_event.is_set()
 
     def handle_player_movement(self) -> None:
-        """Pause an armed scan after W/A/S/D/Space in the active game window."""
+        """Pause an active scan after W/A/S/D/Space in the game window.
+
+        The keyboard hook calls this independently of the scanner worker.  Do
+        not gate it on map readiness: at fast reset speeds, most of the useful
+        safety window is while the worker is still waiting for the next map.
+        Sharing the restart lock with :meth:`reroll_map` makes movement and the
+        final reset decision atomic with respect to one another.
+        """
         if not getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
             return
 
         with self._restart_lock:
             if (
-                not self._player_movement_guard_armed.is_set()
-                or not self.is_running
+                not self.is_running
                 or not self.scan_event.is_set()
                 or not self.is_scanning()
             ):
                 return
-            self._player_movement_guard_armed.clear()
             self.is_running = False
             self.pause_reason = "player_movement"
             self.scan_event.clear()
@@ -362,15 +366,17 @@ class Scanner:
         if self.is_running:
             self.is_running = False
             self.pause_reason = "manual"
-            self._player_movement_guard_armed.clear()
             self.scan_event.clear()
             self.log("[*] Scan paused. Press the scan hotkey again to resume.")
         else:
             self.is_running = True
             self.pause_reason = None
-            self._player_movement_guard_armed.clear()
             self.scan_event.set()
             self.log("[*] Scan started. Looking for selected target...")
+            # A movement key may already be held when scanning is resumed, so
+            # there may be no new key-down edge for the hook to deliver.
+            if self._run_control.is_player_movement_pressed():
+                self.handle_player_movement()
         self.update_status_ui()
 
     def _sync_reset_hold_duration(self) -> None:
@@ -454,7 +460,6 @@ class Scanner:
             self.is_running = False
             self.is_ready_to_start = False
             self.pause_reason = None
-            self._player_movement_guard_armed.clear()
             self.scan_event.clear()
             self.stop_event.clear()
             self.scanner_thread = threading.Thread(target=self.background_loop, daemon=True)
@@ -468,7 +473,6 @@ class Scanner:
             self.is_running = False
             self.is_ready_to_start = False
             self.pause_reason = None
-            self._player_movement_guard_armed.clear()
             self.log("\n[*] Stopping auto-reroll monitor...")
             self._schedule(500, self.update_status_ui)
 
@@ -593,7 +597,6 @@ class Scanner:
             except RunControlError as exc:
                 self.log(f"[-] {exc}", tag="error")
                 return False
-            self._player_movement_guard_armed.clear()
 
         self.log_reroll_stats()
         return True
@@ -657,7 +660,6 @@ class Scanner:
             was_waiting = not self.scan_event.is_set()
             self.scan_event.wait()
             if was_waiting:
-                self._player_movement_guard_armed.clear()
                 is_first_scan = True
                 last_state = None
                 last_stats = None
@@ -691,12 +693,8 @@ class Scanner:
                 except InterruptedError:
                     continue
 
-                if getattr(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
-                    self._player_movement_guard_armed.set()
-                    if self._run_control.is_player_movement_pressed():
-                        self.handle_player_movement()
-                    if self._scan_abort_requested():
-                        continue
+                if self._scan_abort_requested():
+                    continue
                 is_first_scan = False
                 last_state = self.client.get_map_generation_state()
                 last_stats = raw_stats
@@ -714,6 +712,8 @@ class Scanner:
 
                 if candidate is not None:
                     if not self._run_control.wait_for_game_window_focus(process_name):
+                        continue
+                    if self._scan_abort_requested():
                         continue
 
                     t_name = candidate.get("name")
@@ -743,7 +743,6 @@ class Scanner:
 
                     self.is_running = False
                     self.pause_reason = None
-                    self._player_movement_guard_armed.clear()
                     self.scan_event.clear()
                     self._schedule(0, self.update_status_ui)
                     continue
@@ -772,7 +771,6 @@ class Scanner:
                 self.is_running = False
                 self.is_ready_to_start = False
                 self.pause_reason = None
-                self._player_movement_guard_armed.clear()
                 self.scan_event.clear()
                 self.close_client()
                 self.log(f"[-] Lost connection to the game. Details: {exc}", tag="error")
@@ -790,7 +788,6 @@ class Scanner:
         self.is_running = False
         self.is_ready_to_start = False
         self.pause_reason = None
-        self._player_movement_guard_armed.clear()
         self.scan_event.clear()
         self._schedule(0, self.update_status_ui)
 

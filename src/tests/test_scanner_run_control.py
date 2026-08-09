@@ -573,6 +573,19 @@ class ScanLifecycleTests(unittest.TestCase):
             ("[*] Scan started. Looking for selected target...", None), scanner.calls["log"]
         )
 
+    def test_hotkey_immediately_pauses_when_a_movement_key_is_already_held(self) -> None:
+        scanner = build_scanner()
+        scanner.scanner_thread = AliveThread()
+        scanner.is_ready_to_start = True
+        scanner._run_control.is_player_movement_pressed = lambda: True
+
+        with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
+            scanner.toggle_scan_event()
+
+        self.assertFalse(scanner.is_running)
+        self.assertFalse(scanner.scan_event.is_set())
+        self.assertEqual(scanner.pause_reason, "player_movement")
+
     def test_hotkey_pauses_scanning_without_stopping_monitor(self) -> None:
         scanner = build_scanner()
         scanner.scanner_thread = AliveThread()
@@ -589,7 +602,7 @@ class ScanLifecycleTests(unittest.TestCase):
             scanner.calls["log"],
         )
 
-    def test_player_movement_pauses_only_after_the_guard_is_armed(self) -> None:
+    def test_player_movement_pauses_as_soon_as_the_scan_is_active(self) -> None:
         scanner = build_scanner()
         scanner.scanner_thread = AliveThread()
         scanner.scan_event.set()
@@ -597,10 +610,6 @@ class ScanLifecycleTests(unittest.TestCase):
         scanner.is_running = True
 
         with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
-            scanner.handle_player_movement()
-            self.assertTrue(scanner.scan_event.is_set())
-
-            scanner._player_movement_guard_armed.set()
             scanner.handle_player_movement()
 
         self.assertFalse(scanner.is_running)
@@ -620,7 +629,6 @@ class ScanLifecycleTests(unittest.TestCase):
         scanner.scan_event.set()
         scanner.is_ready_to_start = True
         scanner.is_running = True
-        scanner._player_movement_guard_armed.set()
 
         with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", False):
             scanner.handle_player_movement()
@@ -635,7 +643,6 @@ class ScanLifecycleTests(unittest.TestCase):
         scanner.scan_event.set()
         scanner.is_ready_to_start = True
         scanner.is_running = True
-        scanner._player_movement_guard_armed.set()
 
         with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
             run_control.hotkey_player_movement()
@@ -654,7 +661,6 @@ class ScanLifecycleTests(unittest.TestCase):
         scanner.scan_event.set()
         scanner.is_ready_to_start = True
         scanner.is_running = True
-        scanner._player_movement_guard_armed.set()
 
         with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
             scanner.handle_player_movement()
@@ -831,6 +837,132 @@ class BackgroundLoopTests(unittest.TestCase):
         # `client` to None. The pre-step version of this test stubbed that
         # method out on the app double.
         self.assertEqual(client.get_map_stats_calls, 0)
+
+    def test_player_movement_interrupts_map_readiness_wait(self) -> None:
+        observed: dict[str, bool] = {}
+        restart_calls: list[str] = []
+        scanner, run_control = build_pair(
+            provider=SimpleNamespace(
+                restart_run=lambda: restart_calls.append("restart"),
+            ),
+        )
+
+        class FakeClient:
+            def wait_for_map_ready(self, **kwargs):
+                scanner.handle_player_movement()
+                observed["paused"] = not scanner.is_running
+                observed["aborted"] = kwargs["abort_condition"]()
+                scanner.stop_event.set()
+                scanner.scan_event.set()
+                raise InterruptedError
+
+            def close(self):
+                pass
+
+        scanner.client = FakeClient()
+        scanner.scanner_thread = AliveThread()
+        scanner.scan_event.set()
+        scanner.is_running = True
+        scanner.is_ready_to_start = True
+        run_control.is_game_window_active = lambda _process_name: True
+        run_control.wait_for_game_window_focus = lambda _process_name: True
+
+        with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True):
+            scanner.background_loop()
+
+        self.assertEqual(observed, {"paused": True, "aborted": True})
+        self.assertEqual(restart_calls, [])
+
+    def test_player_movement_during_candidate_analysis_prevents_restart(self) -> None:
+        observed: dict[str, bool] = {}
+        restart_calls: list[str] = []
+        scanner, run_control = build_pair(
+            provider=SimpleNamespace(
+                restart_run=lambda: restart_calls.append("restart"),
+            ),
+        )
+
+        class FakeClient:
+            def wait_for_map_ready(self, **_kwargs):
+                return {"Moais": 1}
+
+            def get_map_generation_state(self):
+                return object()
+
+            def close(self):
+                pass
+
+        def evaluate(_stats, _active, context=None):
+            del context
+            scanner.handle_player_movement()
+            observed["paused"] = not scanner.is_running
+            scanner.stop_event.set()
+            scanner.scan_event.set()
+            return None
+
+        scanner.client = FakeClient()
+        scanner.scanner_thread = AliveThread()
+        scanner.scan_event.set()
+        scanner.is_running = True
+        scanner.is_ready_to_start = True
+        run_control.is_game_window_active = lambda _process_name: True
+        run_control.wait_for_game_window_focus = lambda _process_name: True
+
+        with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True), \
+                patch.object(gui_scanner, "adapt_map_stats", lambda raw: raw), \
+                patch.object(gui_scanner, "evaluate_candidate", evaluate):
+            scanner.background_loop()
+
+        self.assertEqual(observed, {"paused": True})
+        self.assertEqual(restart_calls, [])
+
+    def test_player_movement_after_target_focus_wait_prevents_target_action(self) -> None:
+        target_actions: list[str] = []
+        scanner, run_control = build_pair()
+
+        class FakeClient:
+            def wait_for_map_ready(self, **_kwargs):
+                return {"Moais": 1}
+
+            def get_map_generation_state(self):
+                return object()
+
+            def close(self):
+                pass
+
+        focus_calls = 0
+
+        def wait_for_focus(_process_name):
+            nonlocal focus_calls
+            focus_calls += 1
+            if focus_calls == 2:
+                scanner.handle_player_movement()
+                scanner.stop_event.set()
+                scanner.scan_event.set()
+            return True
+
+        scanner.client = FakeClient()
+        scanner.scanner_thread = AliveThread()
+        scanner.scan_event.set()
+        scanner.is_running = True
+        scanner.is_ready_to_start = True
+        run_control.is_game_window_active = lambda _process_name: True
+        run_control.wait_for_game_window_focus = wait_for_focus
+        run_control.handle_confirmed_target_window = (
+            lambda _process_name: target_actions.append("target") or True
+        )
+
+        with patch.object(config, "STOP_SCANNING_ON_PLAYER_MOVEMENT", True), \
+                patch.object(gui_scanner, "adapt_map_stats", lambda raw: raw), \
+                patch.object(
+                    gui_scanner,
+                    "evaluate_candidate",
+                    lambda _stats, _active, context=None: {"name": "Perfect"},
+                ):
+            scanner.background_loop()
+
+        self.assertEqual(focus_calls, 2)
+        self.assertEqual(target_actions, [])
 
     def test_background_loop_reconnects_new_game_pid_and_keeps_scanning(self) -> None:
         class FakeClient:
