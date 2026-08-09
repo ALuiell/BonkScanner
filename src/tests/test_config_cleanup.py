@@ -68,6 +68,18 @@ class GameResetTimeConfigTests(unittest.TestCase):
             self.assertIn("found 0.05", result.reason)
 
 
+class PlayerMovementGuardConfigTests(unittest.TestCase):
+    def test_missing_setting_defaults_to_disabled(self) -> None:
+        self.assertFalse(config.resolve_stop_scanning_on_player_movement(None))
+
+    def test_explicit_setting_is_preserved(self) -> None:
+        self.assertTrue(config.resolve_stop_scanning_on_player_movement(True))
+        self.assertFalse(config.resolve_stop_scanning_on_player_movement(False))
+
+    def test_invalid_legacy_value_fails_to_disabled(self) -> None:
+        self.assertFalse(config.resolve_stop_scanning_on_player_movement("true"))
+
+
 class ResetHoldDurationFloorTests(unittest.TestCase):
     """The game threshold is a floor: too-short is raised, longer is kept."""
 

@@ -627,6 +627,11 @@ def resolve_auto_reroll_setup_guide_acknowledged(
     return bool(config_existed)
 
 
+def resolve_stop_scanning_on_player_movement(saved_value) -> bool:
+    """Keep an explicit choice; leave the new safety guard off otherwise."""
+    return saved_value if isinstance(saved_value, bool) else False
+
+
 # A missing key means two different things. With no config file it is a genuine
 # first launch; in an existing install it predates the guide and must not be
 # interrupted by an upgrade. Persisting the resolved value also keeps a first-
@@ -1123,8 +1128,8 @@ def resolve_fast_tracker_interval_ms(config_data: dict) -> int:
 FAST_TRACKER_INTERVAL_MS = resolve_fast_tracker_interval_ms(user_config)
 AUTO_START_RECORDING = bool(user_config.get("AUTO_START_RECORDING", False))
 SHOW_OBS_REMINDER_ON_START_SCANNER = bool(user_config.get("SHOW_OBS_REMINDER_ON_START_SCANNER", False))
-STOP_SCANNING_ON_PLAYER_MOVEMENT = bool(
-    user_config.get("STOP_SCANNING_ON_PLAYER_MOVEMENT", True)
+STOP_SCANNING_ON_PLAYER_MOVEMENT = resolve_stop_scanning_on_player_movement(
+    user_config.get("STOP_SCANNING_ON_PLAYER_MOVEMENT")
 )
 LEFT_RAIL_COLLAPSED = bool(user_config.get("LEFT_RAIL_COLLAPSED", False))
 MENU_HOTKEY = user_config.get("MENU_HOTKEY", "home")
