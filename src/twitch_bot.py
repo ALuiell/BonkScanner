@@ -101,8 +101,17 @@ class TwitchBotWorker(QThread):
         return self.run_tracker.runtime_snapshot()
 
     def run(self):
+        # ``QThread.start()`` only schedules this method.  The window can close
+        # and call ``stop()`` before the new native thread gets to its first
+        # instruction.  Clearing the event here used to lose that cancellation:
+        # ``run`` set ``running`` back to true, connected to Twitch, and survived
+        # the bounded shutdown wait until Qt destroyed a still-running QThread.
+        # On Windows that Qt abort is reported by Event Viewer as
+        # ucrtbase.dll / 0xC0000409.
         self.running = True
-        self._stop_event.clear()
+        if self._stop_event.is_set():
+            self.running = False
+            return
         bot_cfg = config.TWITCH_BOT
         username = str(bot_cfg.get("username") or "").strip().lstrip("#").lower()
         target_channel = self._target_channel(bot_cfg)
@@ -114,7 +123,7 @@ class TwitchBotWorker(QThread):
             return
 
         import time
-        while self.running:
+        while self.running and not self._stop_event.is_set():
             self.status_updated.emit("Connecting to Twitch...")
 
             try:
@@ -141,7 +150,7 @@ class TwitchBotWorker(QThread):
                 runtime = self._runtime_snapshot()
                 self._last_run_id, self._last_stage_index = runtime.run_id, runtime.current_stage_index
 
-                while self.running:
+                while self.running and not self._stop_event.is_set():
                     self._check_stage_transitions(target_channel)
                     self._check_one_ring_announcement(target_channel)
                     self._check_commands_announcement(target_channel)
@@ -181,10 +190,12 @@ class TwitchBotWorker(QThread):
                     pass
             self.sock = None
 
-            if self.running:
+            if self.running and not self._stop_event.is_set():
                 self.log_message.emit("Reconnecting in 2 seconds...")
                 self.status_updated.emit("Reconnecting...")
                 self._stop_event.wait(2)
+
+        self.running = False
 
     @staticmethod
     def _target_channel(bot_cfg: dict) -> str:
@@ -744,7 +755,7 @@ class TwitchBotWorker(QThread):
             "scanner",
             "Download it here: {github_url} | Support the creator here: {patreon_url} | Try !bonkhelp.",
             patreon_url=config.PATREON_SUPPORT_URL,
-            github_url=config.GITHUB_REPOSITORY_URL,
+            github_url=f"{config.GITHUB_REPOSITORY_URL}/latest",
         )
         if len(text) > 450:
             text = text[:447] + "..."

@@ -88,6 +88,30 @@ class TestTwitchBotWorker(unittest.TestCase):
         self.run_tracker.runtime_snapshot.side_effect = runtime_snapshot
         self.bot = TwitchBotWorker(self.run_tracker)
 
+    def test_scanner_command_links_to_the_latest_release(self):
+        from app import config
+
+        self.bot._send_chat = MagicMock()
+
+        with patch.dict(config.TWITCH_BOT, {"templates": {"scanner": "{github_url}"}}):
+            self.bot._handle_scanner("channel")
+
+        self.bot._send_chat.assert_called_once_with(
+            "channel",
+            "https://github.com/ALuiell/BonkScanner/releases/latest",
+        )
+
+    def test_stop_before_run_is_not_lost_when_qthread_start_is_delayed(self):
+        """Closing during QThread.start() must not resurrect the bot worker."""
+        self.bot.status_updated = MagicMock()
+
+        self.bot.stop()
+        self.bot.run()
+
+        self.assertFalse(self.bot.running)
+        self.assertTrue(self.bot._stop_event.is_set())
+        self.bot.status_updated.emit.assert_not_called()
+
     def test_byte_truncation(self):
         self.bot.sock = MagicMock()
         self.bot.log_message = MagicMock()
