@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import src
+from PySide6.QtWidgets import QApplication
 
 from core.build_progression import (
     BuildProgressionDefinition,
@@ -25,6 +26,7 @@ from app import config
 from projections.build_progression import build_progression_payload, format_twitch_build
 from projections.in_game_html import build_build_progression_overlay_html
 from twitch_bot import TwitchBotWorker
+from ui.dialogs.build_progression import BuildProgressionDialog
 
 
 def runtime(*, time=100.0, items=("Anvil",), damage=2.0, stage=1, stage_time=0.0, duration=600.0):
@@ -66,6 +68,50 @@ class BuildProgressionTests(unittest.TestCase):
         self.assertEqual(rows["a"].current_display, "2")
         self.assertEqual(rows["d"].required_display, "3x")
         self.assertEqual(rows["d"].ideal_display, "5x")
+
+    def test_stacked_live_inventory_strings_use_their_embedded_count(self):
+        _tracker, snap = runtime(items=("Wizard's Hat x198", "Beefy Ring x1"))
+        definition = BuildProgressionDefinition(requirements=(
+            BuildRequirement("hat", RequirementKind.ITEM, "Wizard's Hat", 200),
+            BuildRequirement("ring", RequirementKind.ITEM, "Beefy Ring", 1),
+        ))
+
+        rows = {
+            row.id: row
+            for row in evaluate_build_progression(definition, snap).snapshot.rows
+        }
+
+        self.assertEqual(rows["hat"].current, 198)
+        self.assertEqual(rows["hat"].current_display, "198")
+        self.assertEqual(rows["ring"].current, 1)
+        self.assertIs(rows["ring"].status, RequirementStatus.SATISFIED)
+
+    def test_editor_hides_irrelevant_deadline_fields_on_first_open(self):
+        app = QApplication.instance() or QApplication([])
+        settings = SimpleNamespace(
+            read=lambda: {
+                "schema_version": 1,
+                "name": "Test",
+                "deadlines_enabled": True,
+                "requirements": [],
+            },
+            write=MagicMock(),
+        )
+        dialog = BuildProgressionDialog(settings, SimpleNamespace())
+        self.addCleanup(dialog.close)
+
+        self.assertTrue(dialog.stage.isHidden())
+        self.assertTrue(dialog.time_entry.isHidden())
+
+        run_clock = next(
+            button
+            for button in dialog.deadline_group.buttons()
+            if button.property("deadlineKind") == "run_clock"
+        )
+        run_clock.click()
+        app.processEvents()
+        self.assertTrue(dialog.stage.isHidden())
+        self.assertFalse(dialog.time_entry.isHidden())
 
     def test_run_clock_warning_and_overdue_boundaries(self):
         definition = BuildProgressionDefinition(

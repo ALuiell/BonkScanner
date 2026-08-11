@@ -6,7 +6,6 @@ definition into the state every presentation surface renders.
 """
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
@@ -14,6 +13,7 @@ from typing import Mapping
 
 from core.tracker.snapshots import RunLifecycle, RuntimeStateSnapshot
 from core.stats.formatters import format_player_stat_value
+from core.run_summary import item_counts as count_items
 
 
 WARNING_WINDOW_SECONDS = 120.0
@@ -154,7 +154,10 @@ def evaluate_build_progression(
     items = runtime.fast_items
     if items is None and latest is not None and latest.items_available:
         items = latest.items
-    item_counts = Counter(items) if items is not None else None
+    # The real memory boundary publishes stacked display strings such as
+    # ``"Wizard's Hat x198"``.  Reuse the run-summary parser used everywhere
+    # else instead of counting those strings as one differently named item.
+    item_counts = count_items(items) if items is not None else None
     stats = latest.stats if latest is not None else {}
 
     rows: list[BuildProgressionRow] = []

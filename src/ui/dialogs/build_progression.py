@@ -113,6 +113,11 @@ class BuildProgressionDialog(QDialog):
 
         self._refresh_picker()
         self._refresh_rules()
+        # Apply the default/loaded radio immediately.  Without this first
+        # synchronization a freshly opened editor selected ``No deadline``
+        # while still showing both Stage and Time, until the user clicked a
+        # different deadline and came back.
+        self._deadline_changed()
 
     def _build_picker(self) -> QWidget:
         holder = QWidget()
